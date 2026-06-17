@@ -1,10 +1,10 @@
 # ReqFlow — Konzept-Dokument
 
-> Status: FINAL — Runden 1, 2 und 3 abgeschlossen | Letzte Aktualisierung: 2026-06-17
+> Status: FINAL — Runden 1, 2, 3 und 4 abgeschlossen | Letzte Aktualisierung: 2026-06-17
 >
-> Dieses Dokument konsolidiert alle Entscheidungen aus den Ideation-Runden 1–3 und dient
+> Dieses Dokument konsolidiert alle Entscheidungen aus den Ideation-Runden 1–4 und dient
 > als vollständige Konzeptgrundlage für die formale Anforderungsaufnahme (requirements-Agent).
-> Basis: VISION.md + KONZEPT.md Runden 1 & 2 (Commit c1c17f8)
+> Basis: VISION.md + KONZEPT.md Runden 1–3 (Commit 3ac8a29)
 
 ---
 
@@ -22,11 +22,30 @@ Gleichzeitig stecken viele Teams zwischen zwei unbefriedigenden Polen: Agile-Too
 
 ReqFlow schließt diese Lücke durch drei strategische Entscheidungen:
 
-Erstens bietet ReqFlow einen nativen MCP Server (Model Context Protocol) als gleichrangige Schnittstelle neben der REST API. AI-Agenten können damit direkt und strukturiert Anforderungen abrufen, anlegen, verändern und in Beziehung setzen — ohne Umwege über Text-Parsing oder Webhook-Wrapper.
+Erstens bietet ReqFlow einen nativen MCP Server (Model Context Protocol) als gleichrangige Schnittstelle neben der REST API. AI-Agenten können damit direkt und strukturiert Anforderungen, Architektur-Elemente und Tests abrufen, anlegen, verändern und in Beziehung setzen — ohne Umwege über Text-Parsing oder Webhook-Wrapper.
 
 Zweitens skaliert ReqFlow über ein gemeinsames generisches Artefakt-Datenmodell von einfachem Anforderungsmanagement bis zu vollwertigen Systems-Engineering-Strukturen. Die Tiefe der Nutzung ist über konfigurierbare Projekt-Presets einstellbar, nicht global hart verdrahtet.
 
 Drittens ist ReqFlow vollständig Open Source (Apache 2.0) mit Self-Hosted-Deployment via Docker Compose — ohne Vendor-Lock-in, ohne Lizenzkosten, mit maximaler Kontrolle über Daten und Infrastruktur.
+
+### Was "AI-nativ" bei ReqFlow bedeutet — zwei Dimensionen
+
+"AI-nativ" ist bei ReqFlow kein Marketing-Begriff, sondern beschreibt zwei konkrete, architektonische Dimensionen:
+
+**Dimension 1 — LLM als pluggable Capability quer über alle Artefakttypen**
+
+LLM-Unterstützung ist nicht auf ein einzelnes Tool (`requirement.validate`) beschränkt. LLMs werden als konfigurierbare, optionale Capability quer über alle Artefakttypen eingebunden: Requirements, Architektur-Elemente und Tests. Konkrete Einsatzpunkte:
+
+- *Generierung*: LLM-gestützte Vorschläge für Requirements-Formulierungen, Testfall-Ableitung aus Anforderungen, Architektur-Beschreibungen
+- *Validierung*: Qualitätsprüfung auf Vollständigkeit, Eindeutigkeit und Testbarkeit (nicht nur bei Requirements, sondern auch bei Test-Coverage-Analysen)
+- *Decomposition*: Automatische Zerlegungsvorschläge für komplexe Anforderungen in Kind-Artefakte
+- *Konsistenz-Checks*: LLM-gestützte Prüfung auf Widersprüche zwischen Requirements, Architektur und Tests
+
+Technisch: Bring-Your-Own-Provider / Standard-API. Default-Empfehlung ist Claude (neueste verfügbare Version). Jede LLM-Capability ist einzeln konfigurierbar und kann pro Deployment deaktiviert werden. Self-Hosted-Nutzer ohne LLM-Zugang verlieren AI-gestützte Features, aber keine Kernfunktionalität — der Rest des Systems bleibt vollständig nutzbar.
+
+**Dimension 2 — MCP als vollwertige externe Schnittstelle für ALLE Artefakttypen**
+
+Der MCP Server bietet nicht nur Zugriff auf Requirements. Alle drei zentralen Artefakttypen — Requirements, Architektur und Tests — sind via MCP vollständig les- und schreibbar. Architektur-Elemente sind damit ein eigener, schreibbarer Artefakttyp im Datenmodell und in der MCP-Tool-Liste. Details im MCP-Abschnitt (Abschnitt 6).
 
 ### Positionierung
 
@@ -71,6 +90,8 @@ Dieses Prinzip löst gleichzeitig das "beide Zielgruppen in einem Produkt"-Probl
 
 **In Presets:** Presets sind JSON-Konfigurationen, die auf Projekt-Ebene (und teils auf Dokument-Ebene) gesetzt werden. Sie können aus einer Bibliothek vordefinierter Preset-Templates gewählt oder manuell angepasst werden. Drei Standard-Presets decken die meisten Anwendungsfälle ab (siehe Abschnitt 7).
 
+**Im Item-Level-Workflow (neu in Runde 4):** Configurable Rigor erstreckt sich auch auf die Status-Workflows einzelner Items. Was bisher ein fest verdrahteter Status-Enum war (draft/approved/deprecated), wird zu einem konfigurierbaren Workflow pro Item-Typ — die Übergänge und Berechtigungen sind Teil des Presets. Details in Abschnitt 7a.
+
 ---
 
 ## 3. Zielgruppen und Terminologie-Layer
@@ -96,7 +117,7 @@ Explizit nicht für ReqFlow v1:
 
 Beide Zielgruppen arbeiten auf demselben Datenmodell. Es gibt keine parallelen Code-Pfade oder doppelten Entitäten. Die Unterschiede sind ausschließlich auf Präsentations- und Konfigurationsebene angesiedelt.
 
-Die Kernentitäten des generischen Modells sind: Artifact (hierarchisch, beliebige Tiefe), Requirement (mit Typ, Status, Kategorie), TraceLink (Beziehungstypen: parent-child, derives-from, satisfies, verifies) und TestCase (verknüpft mit Requirements).
+Die Kernentitäten des generischen Modells sind: Artifact (hierarchisch, beliebige Tiefe), Requirement (mit Typ, Status, Kategorie), ArchitectureElement (schreibbarer Artefakttyp, neu in Runde 4), TraceLink (Beziehungstypen: parent-child, derives-from, satisfies, verifies) und TestCase (verknüpft mit Requirements).
 
 ### 3.3 Konfigurierbare Terminologie-Layer
 
@@ -128,11 +149,11 @@ Die Traceability-Engine ist für beide Zielgruppen identisch. TraceLinks sind un
 
 Das funktionale Herzstück von ReqFlow v1 bilden vier Bereiche:
 
-**Artefakt-Hierarchie und Requirements CRUD:** Anforderungen werden in verschachtelten Artefakten verwaltet (beliebige Hierarchietiefe). Vollständiges CRUD für Requirements mit Kategorien (Functional, Non-Functional, API, UI/UX, Data, Integration, Test), Status-Lifecycle (Draft, Approved, Deprecated) und optionaler Priorität.
+**Artefakt-Hierarchie und Requirements CRUD:** Anforderungen werden in verschachtelten Artefakten verwaltet (beliebige Hierarchietiefe). Vollständiges CRUD für Requirements mit Kategorien (Functional, Non-Functional, API, UI/UX, Data, Integration, Test), konfigurierbarem Status-Workflow (Default: Draft, Approved, Deprecated) und optionaler Priorität.
 
 **Traceability-Engine:** Verknüpfung von Requirements untereinander (parent-child, derives-from, satisfies) und mit Tests (verifies). Upstream/Downstream-Queries für Impact-Analysen. Coverage-Übersicht (welche Requirements haben mindestens einen Test).
 
-**Baselines (ab Standard-Preset):** Unveränderliche, benannte Snapshots einer Anforderungsmenge zu einem Zeitpunkt (z.B. "Sprint-3-Release", "CDR-Baseline"). Ermöglicht Vergleich zwischen Ständen. Baselines sind ein Must-Have für Systems Engineers.
+**Baselines (ab Standard-Preset):** Unveränderliche, benannte Snapshots auf Dokument-, Projekt- und Global-Ebene (neu in Runde 4: drei Baseline-Ebenen). Ermöglicht Vergleich zwischen Ständen. Baselines sind ein Must-Have für Systems Engineers.
 
 **Testmanagement:** Testfälle anlegen, mit Requirements verknüpfen, Test-Status verwalten (Passed / Failed / Not Run). Test-Suiten als Gruppierung.
 
@@ -140,11 +161,11 @@ Volltextsuche über alle Requirements und Artefakte ist ebenfalls Teil von v1.
 
 ### 4.2 Non-Functional — Qualitätsanforderungen
 
-API-Antwortzeiten unter 200ms für Standard-Queries bei bis zu 10.000 Requirements. Rollenbasierte Zugriffskontrolle (Admin, Editor, Viewer). Transaktionale Konsistenz ohne Datenverluste. Vollständige Auditierbarkeit aller Änderungen (Wer, Wann, Was).
+API-Antwortzeiten unter 200ms für Standard-Queries bei bis zu 10.000 Requirements. Rollenbasierte Zugriffskontrolle (Admin, Editor, Viewer, Approver). Transaktionale Konsistenz ohne Datenverluste. Vollständige Auditierbarkeit aller Änderungen (Wer, Wann, Was).
 
 ### 4.3 API
 
-Vollständige REST API mit CRUD-Unterstützung für alle Entitäten, Token-basierter Authentifizierung (Bearer Token / API Keys) und maschinenlesbarer OpenAPI-Spezifikation. MCP Server mit 11 Tools (siehe Abschnitt 6). Webhook-Support für Anforderungsänderungen ist als Should-Have für v1 vorgesehen.
+Vollständige REST API mit CRUD-Unterstützung für alle Entitäten, Token-basierter Authentifizierung (Bearer Token / API Keys) und maschinenlesbarer OpenAPI-Spezifikation. MCP Server mit erweitertem Tool-Set für Requirements, Architektur und Tests (siehe Abschnitt 6). Webhook-Support für Anforderungsänderungen ist als Should-Have für v1 vorgesehen.
 
 ### 4.4 UI/UX
 
@@ -152,7 +173,7 @@ Dashboard mit Übersicht über Projekte, Artefakte und offene Punkte. Requiremen
 
 ### 4.5 Data
 
-Das Datenmodell ist im Detail in Abschnitt 5 beschrieben. Kern-Entitäten sind Artifact, Requirement, TraceLink, TestCase, Baseline und Tenant.
+Das Datenmodell ist im Detail in Abschnitt 5 beschrieben. Kern-Entitäten sind Artifact, Requirement, ArchitectureElement, TraceLink, TestCase, Baseline, WorkflowDefinition und Tenant.
 
 ### 4.6 Integration
 
@@ -175,10 +196,14 @@ Das Datenmodell folgt dem Prinzip "reichhaltiges Fundament, konfigurierbare Sich
 ```
 Tenant (1)
   └── Workspace (n)           -- Konfigurationseinheit (Terminologie-Profil, SE-Preset)
-        └── Artifact (n, hierarchisch, beliebige Tiefe)
-              └── Requirement (n)
-                    ├── TraceLink (n)    -- zu anderen Requirements oder TestCases
-                    └── Baseline (n)    -- Snapshots der Anforderungsmenge
+        ├── WorkflowDefinition (n)  -- Konfigurierbare Workflows pro Item-Typ
+        ├── Artifact (n, hierarchisch, beliebige Tiefe)
+        │     ├── Requirement (n)
+        │     │     ├── TraceLink (n)    -- zu anderen Requirements oder TestCases
+        │     │     └── WorkflowState   -- aktueller State im konfig. Workflow
+        │     └── ArchitectureElement (n)  -- schreibbarer Artefakttyp
+        │           └── TraceLink (n)
+        └── Baseline (n, auf drei Ebenen: Dokument / Projekt / Global)
 TestCase (n)
   └── TraceLink               -- Verknüpfung zu Requirements
 ```
@@ -235,11 +260,34 @@ In v1 existiert genau ein Tenant ("default"). Das Feld ist Voraussetzung für sp
 | description | Text | Vollständige Anforderungsbeschreibung (Markdown) |
 | category | Enum | Functional / Non-Functional / API / UI-UX / Data / Integration / Test |
 | priority | Enum | High / Medium / Low (nullable) |
-| status | Enum | draft / approved / deprecated |
+| workflow_state | FK → WorkflowState | Aktueller State im konfigurierbaren Workflow (ersetzt status-Enum) |
 | version | Integer (auto-increment) | Optimistic Locking, Basis für spätere Versionierung |
 | change_reason | Text (optional) | Begründung für Änderung |
 | tags | JSON-Array | Freitags für Filterung |
 | created_by | FK → User | Autor-Nachweis |
+| created_at | Timestamp | Erstellungszeitpunkt |
+| modified_by | FK → User | Letzter Bearbeiter |
+| modified_at | Timestamp | Letzter Änderungszeitpunkt |
+
+Hinweis: Der bisherige `status`-Enum (draft/approved/deprecated) wird durch `workflow_state` ersetzt. Der Default-Workflow bildet denselben Lifecycle ab (Draft → Approved → Deprecated), ist aber nicht mehr hartcodiert — siehe Abschnitt 7a.
+
+**ArchitectureElement (neu in Runde 4)**
+
+Architektur-Elemente sind ein eigener, schreibbarer Artefakttyp im Datenmodell — nicht nur ein Tag auf Artifact. Damit können Architektur-Inhalte strukturiert verwaltet, mit Requirements verknüpft und via MCP von Agenten gelesen und geschrieben werden.
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| id | UUID | Primärschlüssel |
+| tenant | FK → Tenant | Tenant-Isolation |
+| workspace | FK → Workspace | Zugehöriger Workspace |
+| artifact | FK → Artifact (nullable) | Zugehöriges Artefakt (optional) |
+| title | String | Bezeichnung (z.B. "Authentication Service", "Database Layer") |
+| description | Text | Beschreibung (Markdown) |
+| element_type | Enum | Component / Interface / Subsystem / Layer / Module |
+| workflow_state | FK → WorkflowState | Aktueller State im konfigurierbaren Workflow |
+| version | Integer (auto-increment) | Versionierungsbasis |
+| change_reason | Text (optional) | Begründung für Änderung |
+| created_by | FK → User | Ersteller |
 | created_at | Timestamp | Erstellungszeitpunkt |
 | modified_by | FK → User | Letzter Bearbeiter |
 | modified_at | Timestamp | Letzter Änderungszeitpunkt |
@@ -250,12 +298,16 @@ In v1 existiert genau ein Tenant ("default"). Das Feld ist Voraussetzung für sp
 |---|---|---|
 | id | UUID | Primärschlüssel |
 | tenant | FK → Tenant | Tenant-Isolation |
-| source | FK → Requirement | Quelle |
+| source_requirement | FK → Requirement (nullable) | Quell-Anforderung |
+| source_architecture | FK → ArchitectureElement (nullable) | Quell-Architektur-Element |
 | target_requirement | FK → Requirement (nullable) | Ziel-Anforderung |
 | target_test | FK → TestCase (nullable) | Ziel-Testfall |
-| link_type | Enum | parent-child / derives-from / satisfies / verifies |
+| target_architecture | FK → ArchitectureElement (nullable) | Ziel-Architektur-Element |
+| link_type | Enum | parent-child / derives-from / satisfies / verifies / implements / refines |
 | created_by | FK → User | Ersteller |
 | created_at | Timestamp | Erstellungszeitpunkt |
+
+Constraint: Genau ein Source-Feld und genau ein Target-Feld müssen befüllt sein (DB-Constraint oder Anwendungslogik).
 
 **TestCase**
 
@@ -267,26 +319,74 @@ In v1 existiert genau ein Tenant ("default"). Das Feld ist Voraussetzung für sp
 | title | String | Bezeichnung |
 | description | Text | Beschreibung / Testschritte |
 | test_type | Enum | Unit / Integration / System / Acceptance |
-| status | Enum | not_run / passed / failed / skipped |
+| workflow_state | FK → WorkflowState | Aktueller State im konfigurierbaren Workflow |
 | created_by | FK → User | Ersteller |
 | created_at | Timestamp | Erstellungszeitpunkt |
 | modified_by | FK → User | Letzter Bearbeiter |
 | modified_at | Timestamp | Letzter Änderungszeitpunkt |
 
-**Baseline**
+**Baseline (erweitert in Runde 4: drei Ebenen)**
+
+Baselines können auf drei Scopes erstellt werden — alle nutzen dieselbe Entität, unterscheiden sich aber im `scope`-Feld und im Snapshot-Inhalt:
 
 | Feld | Typ | Beschreibung |
 |---|---|---|
 | id | UUID | Primärschlüssel |
 | tenant | FK → Tenant | Tenant-Isolation |
-| workspace | FK → Workspace | Zugehöriger Workspace |
-| name | String | Bezeichnung (z.B. "Sprint-3-Release") |
-| snapshot | JSON | Unveränderlicher Snapshot aller Requirement-IDs + Versionen |
+| workspace | FK → Workspace (nullable) | Für Projekt- und Dokument-Scope |
+| artifact | FK → Artifact (nullable) | Für Dokument-Scope |
+| scope | Enum | global / project / document | Baseline-Ebene |
+| name | String | Bezeichnung (z.B. "Sprint-3-Release", "CDR-Baseline", "System-v1.0") |
+| snapshot | JSON | Unveränderlicher Snapshot: Item-IDs + Versionen für den jeweiligen Scope |
 | created_by | FK → User | Ersteller |
 | created_at | Timestamp | Erstellungszeitpunkt |
 | description | Text (optional) | Kontext / Begründung |
 
-Baselines sind nach der Erstellung unveränderlich. Änderungen an enthaltenen Requirements erzeugen eine neue Requirement-Version, die Baseline bleibt unberührt.
+Baselines sind nach der Erstellung unveränderlich. Änderungen an enthaltenen Items erzeugen eine neue Item-Version, die Baseline bleibt unberührt.
+
+Scope-Semantik:
+- `global`: Snapshot über ALLE Workspaces und Artefakte einer Tenant-Instanz. Workspace und Artifact sind null. Geeignet für systemweite Release-Stände.
+- `project`: Snapshot über einen Workspace (alle Artefakte und Requirements innerhalb). Artifact ist null. Wie bisher für Projekt-Übergaben.
+- `document`: Snapshot über ein einzelnes Artefakt und dessen Nachkommen. Feingranularster Scope.
+
+Referenzierung: Jede Baseline hält im `snapshot`-JSON eine Liste aller betroffenen Item-IDs (Requirements, ArchitectureElements, TestCases) zusammen mit deren Version zum Zeitpunkt des Einfrierens. Damit kann jederzeit der exakte Stand rekonstruiert werden, auch wenn Items später verändert wurden.
+
+**WorkflowDefinition und WorkflowState (neu in Runde 4)**
+
+Konzept-Skizze — kein Code, nur Datenmodell-Konzept:
+
+```
+WorkflowDefinition
+  id: UUID
+  workspace: FK → Workspace
+  item_type: Enum (requirement / architecture_element / test_case)
+  name: String
+  is_default: Boolean
+  states: JSON-Array von WorkflowStateDefinition
+  transitions: JSON-Array von WorkflowTransitionDefinition
+
+WorkflowStateDefinition (eingebettet in WorkflowDefinition.states)
+  key: String (z.B. "draft", "in_review", "approved", "deprecated")
+  label: String (Anzeigename, mehrsprachig via i18n-Key)
+  is_initial: Boolean
+  is_terminal: Boolean
+
+WorkflowTransitionDefinition (eingebettet in WorkflowDefinition.transitions)
+  from_state: String (key)
+  to_state: String (key)
+  allowed_roles: Array<String> (z.B. ["editor", "approver"])
+  requires_change_reason: Boolean
+
+WorkflowState (Instanz, an Item gebunden)
+  id: UUID
+  item_type: String
+  item_id: UUID
+  current_state: String (key aus WorkflowDefinition)
+  workflow_definition: FK → WorkflowDefinition
+  history: JSON-Array von Transitions (from, to, by, at, change_reason)
+```
+
+Der Default-Workflow (Minimal-Preset) bildet den bisherigen Status-Enum ab: Draft → Approved → Deprecated, alle Übergänge für Editor erlaubt, kein Approval-Gate. Im Extended-Preset ist der Default-Workflow: Draft → In Review → Approved → Deprecated, mit dem Übergang In Review → Approved nur für die Rolle Approver.
 
 ### 5.3 Audit-Felder — Vollständige Übersicht
 
@@ -294,13 +394,14 @@ Folgende Audit-Felder sind auf allen relevanten Entitäten vorhanden:
 
 | Feld | Entität | Zweck |
 |---|---|---|
-| created_by (FK → User) | Requirement, TraceLink, TestCase, Artifact | Autor-Nachweis |
-| created_at (Timestamp) | Requirement, TraceLink, TestCase, Artifact | Erstellungszeitpunkt |
-| modified_by (FK → User) | Requirement, Artifact, TestCase | Letzter Bearbeiter |
-| modified_at (Timestamp) | Requirement, Artifact, TestCase | Letzter Änderungszeitpunkt |
-| version (Integer, auto-increment) | Requirement | Optimistic Locking + Versionierungsbasis |
-| change_reason (Text, optional) | Requirement | Begründung für Änderungen |
-| status (Enum: draft/approved/deprecated) | Requirement | Lifecycle-Steuerung |
+| created_by (FK → User) | Requirement, TraceLink, TestCase, Artifact, ArchitectureElement | Autor-Nachweis |
+| created_at (Timestamp) | Requirement, TraceLink, TestCase, Artifact, ArchitectureElement | Erstellungszeitpunkt |
+| modified_by (FK → User) | Requirement, Artifact, TestCase, ArchitectureElement | Letzter Bearbeiter |
+| modified_at (Timestamp) | Requirement, Artifact, TestCase, ArchitectureElement | Letzter Änderungszeitpunkt |
+| version (Integer, auto-increment) | Requirement, ArchitectureElement | Optimistic Locking + Versionierungsbasis |
+| change_reason (Text, optional) | Requirement, ArchitectureElement | Begründung für Änderungen |
+| workflow_state (FK → WorkflowState) | Requirement, ArchitectureElement, TestCase | Lifecycle-Steuerung (konfigurierbar) |
+| WorkflowState.history (JSON) | WorkflowState | Audit-Trail aller State-Übergänge |
 
 Diese Felder sind leichtgewichtig, erzeugen kaum Overhead und ermöglichen später formale Audit-Trails ohne Datenmigration.
 
@@ -314,41 +415,73 @@ In v1 existiert genau ein Tenant ("default"). Das Modell ist für Multi-Tenancy 
 
 ## 6. MCP-Server-Konzept
 
-Der MCP Server ist eine gleichrangige Produktions-Schnittstelle neben der REST API — kein Anhängsel, kein Plugin. Er ermöglicht AI-Agenten vollständigen strukturierten Zugriff auf den Anforderungskontext.
+Der MCP Server ist eine gleichrangige Produktions-Schnittstelle neben der REST API — kein Anhängsel, kein Plugin. Er ermöglicht AI-Agenten vollständigen strukturierten Zugriff auf den gesamten Anforderungskontext — Requirements, Architektur und Tests.
 
 ### 6.1 Grundprinzipien
 
-**Read + Write + Audit-Log:** Der MCP Server in v1 hat vollen Read- und Write-Access. AI-Agenten können Requirements anlegen, ändern und zerlegen. Jede schreibende MCP-Operation wird im Audit-Log erfasst (welcher Agent-Client, welcher API-Key, welche Operation, wann). Dies macht agentengesteuerte Änderungen vollständig nachvollziehbar.
+**Read + Write + Audit-Log:** Der MCP Server in v1 hat vollen Read- und Write-Access auf alle Artefakttypen. AI-Agenten können Requirements anlegen, Architektur-Elemente erstellen und verändern sowie Tests anlegen und verknüpfen. Jede schreibende MCP-Operation wird im Audit-Log erfasst (welcher Agent-Client, welcher API-Key, welche Operation, wann). Dies macht agentengesteuerte Änderungen vollständig nachvollziehbar.
 
-**Generische Entitätsnamen:** Der MCP Server nutzt immer die generischen Entitätsnamen (Requirement, Artifact, TraceLink) — unabhängig vom aktiven Terminologie-Profil. AI-Agenten müssen das Profil nicht kennen.
+**Generische Entitätsnamen:** Der MCP Server nutzt immer die generischen Entitätsnamen (Requirement, ArchitectureElement, TraceLink) — unabhängig vom aktiven Terminologie-Profil. AI-Agenten müssen das Profil nicht kennen.
 
-**Konfigurierbare LLM-Anbindung (requirement.validate):** Das Tool `requirement.validate` ruft intern ein konfigurierbares LLM an. Der LLM-Anbieter und API-Key sind pro Deployment konfigurierbar (Default-Empfehlung: Claude, aktuelle Version). Deployments ohne LLM-Anbindung können `requirement.validate` deaktivieren. Das Feature ist optional und nicht kritisch für den Kern-Workflow.
+**LLM als konfigurierbare Capability:** LLM-gestützte Features (Validierung, Decomposition, Konsistenz-Checks) sind pro Deployment konfigurierbar. Der LLM-Anbieter und API-Key sind pro Deployment einstellbar (Default: Claude, aktuelle Version). Deployments ohne LLM-Anbindung können einzelne LLM-Capabilities deaktivieren — der Rest des MCP Servers bleibt vollständig funktionsfähig.
 
-### 6.2 MCP-Tool-Set v1 (11 Tools)
+### 6.2 MCP-Tool-Set v1 — Vollständige Liste
+
+Das Tool-Set deckt alle drei Artefakttypen ab. Tool-übergreifende Suche via `artifact.search` deckt den häufigen Anwendungsfall ab, wenn Agenten nicht wissen, in welchem Artefakttyp eine Information liegt.
+
+**Requirements-Tools**
 
 | Tool | Signatur | Beschreibung |
 |---|---|---|
-| `requirement.get` | `(id)` | Einzelabruf einer Anforderung mit vollständigem Kontext (Traces, Tests, Audit-History). Primärer Einstiegspunkt für Coding-Agenten vor der Implementierung. |
-| `requirement.query` | `(filters)` | Suche und Filter mit Facetten (Artefakt, Status, Typ, Kategorie, Tags). Primärer Use Case: Test-Agent ermittelt Abdeckungslücken. |
+| `requirement.get` | `(id)` | Einzelabruf einer Anforderung mit vollständigem Kontext (Traces, Tests, Workflow-History, Audit-History). Primärer Einstiegspunkt für Coding-Agenten vor der Implementierung. |
+| `requirement.query` | `(filters)` | Suche und Filter mit Facetten (Artefakt, Workflow-State, Typ, Kategorie, Tags). Primärer Use Case: Test-Agent ermittelt Abdeckungslücken. |
 | `requirement.create` | `(title, description, type, artifact_id, parent_id?)` | Neue Anforderung anlegen. Alle schreibenden Operationen werden im Audit-Log erfasst. |
 | `requirement.update` | `(id, fields, change_reason?)` | Felder einer Anforderung aktualisieren. `change_reason` ist im Extended-Preset Pflichtfeld. |
 | `requirement.decompose` | `(id, children[])` | Zerlegung einer Anforderung in Kind-Artefakte als Batch-Operation. Ermöglicht strukturierte SE-Zerlegung durch Agenten ohne N einzelne API-Calls. |
 | `requirement.validate` | `(id)` | LLM-gestützte Qualitätsprüfung: Vollständigkeit, Eindeutigkeit und Testbarkeit einer Anforderung. Gibt strukturiertes Feedback (Score + Verbesserungsvorschläge). Optional deaktivierbar, LLM-Anbieter konfigurierbar (Bring-your-own-API-Key). |
-| `traceability.query` | `(artifact_id, direction?)` | Upstream/Downstream Impact-Analyse. Gibt alle abhängigen Requirements, Tests und Artefakte zurück. Primärer Use Case: Blast-Radius-Analyse bei Änderungen. |
+
+**Architektur-Tools (neu in Runde 4)**
+
+| Tool | Signatur | Beschreibung |
+|---|---|---|
+| `architecture.get` | `(id)` | Einzelabruf eines Architektur-Elements mit Kontext (verknüpfte Requirements, Traces, Workflow-State). |
+| `architecture.query` | `(filters)` | Architektur-Elemente suchen und filtern (Typ, Workspace, Artefakt, Tags). Primärer Use Case: Agents ermitteln welche Komponenten eine Anforderung implementieren. |
+| `architecture.create` | `(title, description, element_type, workspace_id, artifact_id?)` | Neues Architektur-Element anlegen. Schreibende Operation — wird im Audit-Log erfasst. |
+| `architecture.update` | `(id, fields, change_reason?)` | Felder eines Architektur-Elements aktualisieren. |
+| `architecture.link` | `(architecture_id, target_id, target_type, link_type)` | Architektur-Element mit Requirement, TestCase oder anderem Architektur-Element verknüpfen. |
+
+**Test-Tools (erweitert in Runde 4)**
+
+| Tool | Signatur | Beschreibung |
+|---|---|---|
+| `test.get` | `(id)` | Einzelabruf eines Testfalls mit vollständigem Kontext (verknüpfte Requirements, Workflow-State, Ausführungshistorie). |
+| `test.query` | `(filters)` | Testfälle suchen und filtern (Status, Typ, verknüpfte Anforderungen, Workspace). Primärer Use Case: Coverage-Analyse über alle Tests. |
 | `test.create` | `(title, type, linked_req_id?)` | Testfall anlegen und optional direkt mit einer Anforderung verknüpfen. |
+| `test.update` | `(id, fields)` | Testfall-Felder aktualisieren (Status, Beschreibung, Typ). Ermöglicht Agenten den Test-Status nach Ausführung zu schreiben. |
 | `test.link` | `(test_id, req_id)` | Nachträgliche Verknüpfung eines Testfalls mit einer Anforderung. |
-| `workspace.get_context` | `()` | Workspace-Status abrufen: offene Requirements, unverknüpfte Tests, Coverage-Summary, aktives Terminologie-Profil, aktives SE-Preset. Orientierungspunkt für AI-Agenten beim Einstieg in eine Session. |
+
+**Übergreifende und Kontext-Tools**
+
+| Tool | Signatur | Beschreibung |
+|---|---|---|
+| `traceability.query` | `(artifact_id, direction?)` | Upstream/Downstream Impact-Analyse. Gibt alle abhängigen Requirements, Tests, Architektur-Elemente und Artefakte zurück. Primärer Use Case: Blast-Radius-Analyse bei Änderungen. |
+| `artifact.search` | `(query, types?, workspace_id?)` | Artefakttyp-übergreifende Volltextsuche über Requirements, ArchitectureElements und TestCases. Liefert gemischte Ergebnisliste mit Typ-Annotation. Primärer Use Case: Agenten, die nicht wissen, in welchem Artefakttyp eine Information liegt. |
 | `artifact.get_tree` | `(root_id?)` | Gesamte Artefakt-Hierarchie abrufen (optional ab einem bestimmten Root-Knoten). Strukturüberblick für Agenten. |
+| `workspace.get_context` | `()` | Workspace-Status abrufen: offene Requirements, unverknüpfte Tests, Coverage-Summary, aktives Terminologie-Profil, aktives SE-Preset, aktive WorkflowDefinitions. Orientierungspunkt für AI-Agenten beim Einstieg in eine Session. |
+
+**Begründung Tool-Architektur:** Separate Tools pro Artefakttyp (statt generischer Wrapper-Tools) ermöglichen klare Signaturen und typsichere Validierung. `artifact.search` als übergreifendes Tool vermeidet, dass Agenten drei separate Query-Calls machen müssen, wenn der Artefakttyp unbekannt ist. Tool-übergreifende Operationen (Traceability, Tree) bleiben auf der Artefakt-Abstraktionsebene.
 
 ### 6.3 Primäre AI-Workflows
 
-**Workflow 1 — Context-Aware Code Generation:** Ein Coding-Agent (z.B. Claude Code) ruft vor der Implementierung einer Komponente via `requirement.get` und `requirement.query` alle zugehörigen Requirements ab. Code-Generierung erfolgt mit vollständigem Anforderungskontext.
+**Workflow 1 — Context-Aware Code Generation:** Ein Coding-Agent (z.B. Claude Code) ruft vor der Implementierung einer Komponente via `requirement.get` und `architecture.query` alle zugehörigen Requirements und Architektur-Vorgaben ab. Code-Generierung erfolgt mit vollständigem Kontext.
 
 **Workflow 2 — Automated Test Coverage Analysis:** Ein Test-Agent scannt via `requirement.query` alle Requirements eines Artefakts, prüft die Coverage via `traceability.query` und legt Testfälle für Lücken via `test.create` an.
 
-**Workflow 3 — Change Impact Analysis:** Bei einer Anforderungsänderung ruft ein Analyse-Agent via `traceability.query` alle abhängigen Requirements, Tests und Artefakte ab und erstellt einen Blast-Radius-Report.
+**Workflow 3 — Change Impact Analysis:** Bei einer Anforderungsänderung ruft ein Analyse-Agent via `traceability.query` alle abhängigen Requirements, Tests und Architektur-Elemente ab und erstellt einen Blast-Radius-Report.
 
 **Workflow 4 — Requirements Elicitation:** Ein Elicitation-Agent führt strukturierte Interviews und schreibt Ergebnisse via `requirement.create` direkt als strukturierte Requirements in ReqFlow.
+
+**Workflow 5 — Architecture-Requirements-Alignment:** Ein Architektur-Agent liest via `architecture.query` alle Architektur-Elemente, prüft via `traceability.query` ob alle Requirements durch Architektur-Elemente abgedeckt sind und legt fehlende Verknüpfungen via `architecture.link` an.
 
 ### 6.4 MCP-Zielclients v1
 
@@ -371,39 +504,93 @@ Die SE-Tiefe ist pro Projekt über drei Standard-Presets einstellbar. Ein Preset
 | **Artefakt-Hierarchie** | Ja | Ja | Ja |
 | **Requirements CRUD** | Ja | Ja | Ja |
 | **Traceability** | Ja | Ja | Ja |
-| **Baselines** | Nein | Ja (Must-Have) | Ja |
+| **Baselines** | Nein | Ja: Dokument + Projekt | Ja: Dokument + Projekt + Global |
 | **Change-Tracking** | Nur Timestamps | Timestamps + change_reason optional | Timestamps + change_reason Pflichtfeld |
-| **Status-Lifecycle** | draft / done | draft / approved / deprecated | draft / in_review / approved / deprecated |
-| **Approval-Workflow** | Nein | Nein | Ja (Editor schreibt, Approver bestätigt) |
+| **Item-Level-Workflow** | Default (Draft/Done) | Erweiterter Default (Draft/Approved/Deprecated) | Konfigurierbar mit Approval-Gate |
+| **Approval-Workflow** | Nein | Nein | Ja (Approver-Rolle erforderlich für Approved-Transition) |
+| **Workflow-Konfigurierbarkeit** | Fest (Default) | Teilweise konfigurierbar | Vollständig konfigurierbar per WorkflowDefinition |
 | **Impact-Analyse-UI** | Nur via MCP | Nur via MCP | Vollständige UI-Visualisierung |
 | **Compliance-Felder** | Ausgeblendet | Optional sichtbar | Aktiv und teils verpflichtend |
 | **`change_reason` bei Update** | Optional | Optional | Pflichtfeld |
 
 ### 7.2 Preset: Minimal
 
-Das Minimal-Preset ist für Teams gedacht, die schnell starten wollen ohne Prozess-Overhead. Artefakt-Hierarchie, Requirements CRUD und Traceability sind vorhanden. Keine Baselines, keine formalen Approval-Workflows. Der Status-Lifecycle ist vereinfacht (draft/done). Change-Tracking beschränkt sich auf automatische Timestamps.
+Das Minimal-Preset ist für Teams gedacht, die schnell starten wollen ohne Prozess-Overhead. Artefakt-Hierarchie, Requirements CRUD und Traceability sind vorhanden. Keine Baselines, keine formalen Approval-Workflows. Der Item-Level-Workflow ist der Default (Draft/Done), nicht konfigurierbar im Minimal-Preset. Change-Tracking beschränkt sich auf automatische Timestamps.
 
 Typischer Anwendungsfall: Ein Startup-Team will strukturierte Anforderungen verwalten und seinen AI-Agenten Kontext geben — ohne den Overhead eines formalen Requirements-Engineering-Prozesses.
 
 ### 7.3 Preset: Standard
 
-Das Standard-Preset fügt Baselines und erweitertes Change-Tracking hinzu. Baselines sind das kritische Feature für Systems Engineers — ohne Baselines ist ReqFlow für SE nicht ernsthaft nutzbar. Der Status-Lifecycle ist vollständig (draft / approved / deprecated). `change_reason` ist optional, aber im UI sichtbar und empfohlen.
-
-Baselines sind unveränderliche, benannte Snapshots einer Anforderungsmenge. Sie ermöglichen Vergleiche zwischen Ständen, sind Voraussetzung für formale Reviews und bilden die Grundlage für spätere Compliance-Workflows.
+Das Standard-Preset fügt Baselines auf Dokument- und Projekt-Ebene sowie erweitertes Change-Tracking hinzu. Baselines sind das kritische Feature für Systems Engineers — ohne Baselines ist ReqFlow für SE nicht ernsthaft nutzbar. Der Item-Level-Workflow ist der erweiterte Default (Draft/Approved/Deprecated), teilweise konfigurierbar. `change_reason` ist optional, aber im UI sichtbar und empfohlen.
 
 Typischer Anwendungsfall: Ein Software-Team in einer regulierten Umgebung (z.B. Medizintechnik-Startup) braucht nachvollziehbare Anforderungsstände, aber noch keinen vollständigen Approval-Workflow.
 
 ### 7.4 Preset: Extended
 
-Das Extended-Preset aktiviert zusätzlich den vollständigen Approval-Workflow und die Impact-Analyse-Visualisierung im UI.
+Das Extended-Preset aktiviert zusätzlich den vollständig konfigurierbaren Item-Level-Workflow mit Approval-Gates, Global-Baselines und die Impact-Analyse-Visualisierung im UI.
 
-**Approval-Workflow:** Requirements durchlaufen den Lifecycle Draft → In Review → Approved → Deprecated. Rollen: Editor (schreibt und stellt zur Review), Approver (genehmigt oder lehnt ab). Approved Requirements sind schreibgeschützt — Änderungen erfordern eine neue Draft-Version. Dies ist die Grundlage für spätere formale Compliance-Nachweise.
+**Konfigurierbarer Item-Level-Workflow:** WorkflowDefinitions können pro Item-Typ (Requirement, ArchitectureElement, TestCase) individuell definiert werden — States, Übergänge und erlaubte Rollen je Übergang. Approved-Items sind schreibgeschützt — Änderungen erfordern einen neuen Draft-Eintrag. Dies ist die Grundlage für spätere formale Compliance-Nachweise.
 
-**Impact-Analyse-UI:** Wenn eine Anforderung geändert wird, visualisiert ReqFlow automatisch alle abhängigen Tests, Sub-Requirements und verknüpften Artefakte als Blast-Radius-Darstellung. Dies ist der UI-Gegenstück zur `traceability.query`-API — dieselben Daten, aber als interaktive Visualisierung.
+**Global-Baselines:** Systemweite Snapshots über alle Workspaces des Tenants — für Release-Freeze und formale Übergaben.
 
-**`change_reason` als Pflichtfeld:** Bei jedem Update einer Anforderung ist eine Begründung verpflichtend einzutragen.
+**Impact-Analyse-UI:** Wenn eine Anforderung geändert wird, visualisiert ReqFlow automatisch alle abhängigen Tests, Sub-Requirements und verknüpften Architektur-Elemente als Blast-Radius-Darstellung.
+
+**`change_reason` als Pflichtfeld:** Bei jedem Update einer Anforderung oder eines Architektur-Elements ist eine Begründung verpflichtend einzutragen.
 
 Typischer Anwendungsfall: Ein Automotive-Zulieferer oder Industrial-Automation-Team, das auf eine formale Compliance-Zertifizierung (z.B. IEC 61508) hinarbeitet und bereits jetzt audit-ready sein möchte.
+
+---
+
+## 7a. Item-Level-Workflow — Konzept (neu in Runde 4)
+
+### Motivation
+
+Einzelne Items (Requirements, Architektur-Elemente, Testfälle) durchlaufen in der Praxis je einen eigenen Lifecycle — und dieser Lifecycle ist je nach Projekt, Domäne und Compliance-Anforderung unterschiedlich. Der bisherige `status`-Enum (draft/approved/deprecated) war zu starr: er kodiert einen bestimmten Workflow fest, erlaubt keine domänenspezifischen Anpassungen und unterstützt keine rollengebundenen Übergänge.
+
+Mit dem konfigurierbaren Item-Level-Workflow wird der Enum zum Default-Fall eines flexiblen Mechanismus — ohne Breaking-Change im Nutzungsverhalten.
+
+### Kernkonzept
+
+Jeder Item-Typ (Requirement, ArchitectureElement, TestCase) ist einer WorkflowDefinition zugeordnet. Eine WorkflowDefinition beschreibt:
+
+1. **States**: Die möglichen Zustände eines Items (z.B. draft, in_review, approved, deprecated). States können als initial oder terminal markiert sein.
+2. **Transitions**: Die erlaubten Übergänge zwischen States. Jede Transition definiert:
+   - `from_state` und `to_state`
+   - `allowed_roles`: Welche Benutzerrollen diesen Übergang auslösen dürfen
+   - `requires_change_reason`: Ob eine Begründung Pflichtfeld ist
+3. **Audit**: Jeder State-Übergang wird mit User, Zeitstempel und optionaler Begründung in `WorkflowState.history` protokolliert.
+
+### Relationship zu Configurable Rigor
+
+- **Minimal-Preset**: Default-Workflow, nicht konfigurierbar. States: Draft, Done. Übergänge: alle für Editor erlaubt.
+- **Standard-Preset**: Erweiterter Default. States: Draft, Approved, Deprecated. Teilweise konfigurierbar (Anpassung der Labels via Terminologie-Profil).
+- **Extended-Preset**: Vollständig konfigurierbar. WorkflowDefinitions per Item-Typ, Approval-Gate: nur Approver-Rolle darf den Übergang zu Approved auslösen.
+
+### Konsequenz für den bisherigen status-Enum
+
+Der `status`-Enum (draft/approved/deprecated aus Runden 1–3) wird nicht als hartcodiertes Feld in der Datenbank belassen. Stattdessen wird `workflow_state` (FK → WorkflowState) die Lifecycle-Steuerung übernehmen. Die bisherigen Enum-Werte werden zum Default-Workflow und bleiben API-kompatibel: MCP-Tools und REST API können weiterhin `status: "draft"` und `status: "approved"` als Filter-Parameter nutzen — intern werden sie auf WorkflowState-Keys gemappt.
+
+### Rollen und Approval-Binding
+
+Rollen in v1: Admin, Editor, Viewer, Approver (neu durch Item-Level-Workflow). Die Approver-Rolle wird nur im Extended-Preset aktiviert. Rollen werden pro Workspace vergeben.
+
+Für Compliance-Szenarien (SE-Zielgruppe): Approval-gebundene Übergänge sind protokolliert (wer, wann, mit welcher Begründung) — das ist die Grundlage für spätere elektronische Signatur-Features (v2+).
+
+### v1 vs. v2-Schnittlinie (Empfehlung)
+
+**v1 (Kern des Item-Level-Workflows):**
+- WorkflowDefinition-Entität im Datenmodell
+- Default-Workflows für alle drei Presets als vordefinierte Konfigurationen
+- Transition-Validierung (Rolle prüfen, change_reason prüfen)
+- Audit-Trail der State-Übergänge in WorkflowState.history
+- Approver-Rolle im Extended-Preset
+
+**v2+ (Erweiterungen):**
+- Vollständiger Workflow-Editor in der UI (grafischer State-Machine-Editor)
+- Komplexe Approval-Matrizen (z.B. 2-of-3 Approver, delegierte Approvals)
+- Elektronische Signaturen auf State-Übergänge (IEC 61508 / ISO 26262)
+- Zeitbasierte Eskalationen (z.B. "nach 5 Tagen in_review → Auto-Reminder")
+- Workflow-Versionierung (Änderung an WorkflowDefinition ohne Verlust bestehender States)
 
 ---
 
@@ -413,9 +600,9 @@ Typischer Anwendungsfall: Ein Automotive-Zulieferer oder Industrial-Automation-T
 
 ReqFlow v1 ist bewusst nicht auf eine spezifische Compliance-Norm ausgerichtet. Die Grundlage wird jedoch bereits in v1 gelegt:
 
-- Vollständige Audit-Felder auf allen relevanten Entitäten (created_by/at, modified_by/at, version, change_reason, status)
-- Unveränderliche Baselines als Snapshot-Mechanismus
-- Approval-Workflow (im Extended-Preset)
+- Vollständige Audit-Felder auf allen relevanten Entitäten (created_by/at, modified_by/at, version, change_reason, workflow_state)
+- Unveränderliche Baselines auf drei Ebenen als Snapshot-Mechanismus
+- Konfigurierbarer Approval-Workflow mit Audit-Trail (im Extended-Preset)
 - Vollständige MCP-Audit-Logs für agentengesteuerte Änderungen
 
 Diese Features machen ReqFlow v1 "audit-ready" — das System kann für interne Audits und Prozess-Reviews genutzt werden, ohne eine formale Norm-Zertifizierung anzustreben.
@@ -432,7 +619,7 @@ DO-178C (Avionics) wurde bewusst nicht als erster Schritt gewählt: Die Norm erf
 
 | Phase | Compliance-Scope |
 |---|---|
-| v1 | Audit-ready: Audit-Felder, Change-Tracking, Baselines, Approval-Workflow (Extended) |
+| v1 | Audit-ready: Audit-Felder, Change-Tracking, Multi-Level-Baselines, konfigurierbarer Approval-Workflow (Extended) |
 | v2 | IEC 61508: Norm-spezifische Anforderungsattribute, formale Verification-Matrizen, elektronische Signaturen |
 | v3+ | ISO 26262 / IEC 62061 / EN 50128 (aufbauend auf IEC 61508-Grundlage) |
 
@@ -460,16 +647,21 @@ ReqFlow
 │   ├── REST API (Django REST Framework)
 │   │   └── OpenAPI Spec (auto-generiert)
 │   ├── MCP Server (nativer MCP-Protokoll-Handler)
-│   │   └── 11 Tools (requirement.*, traceability.*, test.*, workspace.*, artifact.*)
+│   │   ├── requirement.* Tools (6)
+│   │   ├── architecture.* Tools (5)
+│   │   ├── test.* Tools (5)
+│   │   └── artifact.* / traceability.* / workspace.* Tools (4)
 │   ├── Datenmodell (PostgreSQL via Django ORM)
-│   │   └── Tenant-Isolation (Row-Level, Custom Manager)
-│   └── Auth (Token-basiert, rollenbasierte Zugriffskontrolle)
+│   │   ├── Tenant-Isolation (Row-Level, Custom Manager)
+│   │   └── WorkflowEngine (WorkflowDefinition + WorkflowState)
+│   └── Auth (Token-basiert, rollenbasierte Zugriffskontrolle inkl. Approver-Rolle)
 └── Frontend (React + TypeScript)
     ├── Dashboard
     ├── Requirements-Editor (Inline, Markdown)
+    ├── Architecture-Editor (neu in Runde 4)
     ├── Artefakt-Navigation (Baumstruktur)
     ├── Traceability-Anzeige
-    └── Workspace-Profil-Konfiguration (Terminologie, SE-Preset)
+    └── Workspace-Profil-Konfiguration (Terminologie, SE-Preset, Workflow-Übersicht)
 ```
 
 ### 9.3 Wichtige Architektur-Entscheide
@@ -482,7 +674,9 @@ ReqFlow
 
 **Echtzeit-Kollaboration: v2:** v1 nutzt Standard-HTTP mit manuellem Refresh und optionalem Short-Polling für Dashboard-Updates. Keine WebSocket-Infrastruktur in v1. Requirements-Editing ist kein Google-Docs-Szenario — sequenzielle Änderungen überwiegen. Django Channels für Echtzeit-Kollaboration ist als v2-Feature vorgesehen.
 
-**LLM-Anbindung: Konfigurierbar, optional:** ReqFlow ruft in v1 LLMs nur für `requirement.validate` auf. Der Anbieter ist konfigurierbar (Default: Claude API), der API-Key wird pro Deployment hinterlegt (Bring-your-own-Key). Deployments ohne LLM-Zugang können das Feature deaktivieren.
+**LLM-Anbindung: Konfigurierbar, optional, quer über Artefakttypen:** ReqFlow bindet LLMs als pluggable Capability ein — nicht nur für `requirement.validate`, sondern potenziell für alle Artefakttypen. Der Anbieter ist konfigurierbar (Default: Claude API), der API-Key wird pro Deployment hinterlegt (Bring-your-own-Key). Einzelne LLM-Capabilities können pro Deployment deaktiviert werden.
+
+**WorkflowEngine: Leichtgewichtig in v1:** Die WorkflowEngine ist in v1 bewusst einfach gehalten — keine externe Workflow-Bibliothek, sondern eine eigene, schlanke Implementierung auf Basis von WorkflowDefinition-JSON und WorkflowState-Instanzen. Kein grafischer Workflow-Editor in v1.
 
 ---
 
@@ -496,17 +690,21 @@ Die folgende Tabelle fasst zusammen, was in v1 enthalten ist und was nicht.
 |---|---|---|
 | Artefakt-Hierarchie + Requirements CRUD | Ja | Kern des Produkts |
 | Traceability-Engine | Ja | Kern des Produkts |
-| MCP Server (11 Tools) | Ja | AI-nativer Differenzierungsvorteil |
+| MCP Server (Requirements + Architecture + Test Tools) | Ja | AI-nativer Differenzierungsvorteil |
 | REST API + OpenAPI | Ja | Kern des Produkts |
 | React-UI (Dashboard, Editor, Navigation) | Ja | Kern des Produkts |
 | Docker Compose Deployment | Ja | Self-Hosted v1 |
 | Workspace-Profile (Terminologie-Presets) | Ja | Dual-Zielgruppen-Strategie |
 | SE-Presets (Minimal/Standard/Extended) | Ja | Configurable Rigor |
-| Baselines | Ja (ab Standard) | Must-Have für SE-Zielgruppe |
+| ArchitectureElement-Entität + MCP-Tools | Ja | AI-nativ: MCP für alle Artefakttypen |
+| Baselines (Dokument + Projekt) | Ja (ab Standard) | Must-Have für SE-Zielgruppe |
+| Baselines (Global / Instanz-Ebene) | Ja (Extended) | Systemweite Release-Stände |
+| Item-Level-Workflow (Default + Konfigurierbar) | Ja | Configurable Rigor, Kern der SE-Unterstützung |
+| Approval-Workflow mit Approver-Rolle | Ja (Extended) | SE-Zielgruppe, Compliance-Vorbereitung |
+| Audit-Trail der State-Übergänge | Ja | Compliance-Vorbereitung |
 | Audit-Felder (created_by/at, version, etc.) | Ja | Compliance-Vorbereitung |
-| Approval-Workflow (Draft/Approved/Deprecated) | Ja (Extended) | SE-Zielgruppe, Compliance-Vorbereitung |
 | Impact-Analyse-UI | Ja (Extended) | SE-Zielgruppe |
-| requirement.validate (LLM-gestützt) | Ja (optional, konfig.) | AI-natives Feature |
+| LLM-Capabilities (konfigurierbar, optional) | Ja | AI-nativ: Dimension 1 |
 | Multi-Tenancy-Vorbereitung (Row-Level) | Ja (Default-Tenant) | Vorbereitung für v2 SaaS |
 | i18n DE + EN | Ja | Dual-Markt DE/EN |
 | Export JSON/CSV | Ja | Grundfunktion |
@@ -527,7 +725,11 @@ Die folgende Tabelle fasst zusammen, was in v1 enthalten ist und was nicht.
 | ISO 26262 / IEC 62061 / EN 50128 | v3+ | Aufbauend auf IEC 61508 |
 | Horizontale Skalierung / Kubernetes | v2 | Enterprise-Deployment |
 | Semantische Suche (Vektordatenbank) | v2 | ML-Infrastruktur |
-| AI-gestützte Test-Case-Generierung | v2 | Aufbauend auf v1-Datenqualität |
+| Grafischer Workflow-Editor (UI) | v2 | Nützlich, aber kein MVP-Blocker |
+| Komplexe Approval-Matrizen (2-of-3) | v2 | Selten benötigt in v1-Zielgruppe |
+| Elektronische Signaturen auf Übergänge | v2 | IEC 61508 / ISO 26262 Anforderung |
+| Zeitbasierte Eskalationen im Workflow | v2 | Prozess-Automation, nicht MVP-kritisch |
+| Workflow-Versionierung | v2 | Sicherheitsfeature bei Workflow-Änderungen |
 
 ---
 
@@ -539,11 +741,17 @@ Die folgende Tabelle fasst zusammen, was in v1 enthalten ist und was nicht.
 
 **R2 — Scope-Creep durch zwei Zielgruppen:** "Beide gleichwertig" verleitet dazu, zielgruppen-spezifische Features sofort zu bauen. Gegenmaßnahme: Datenmodell ist generisch, UI-Anpassungen minimal (nur Labels und Default-Views). Neue Features werden strikt gegen die Preset-Matrix geprüft.
 
-**R3 — MCP Write-Access-Risiko:** AI-Agenten können Requirements direkt schreiben. Unkontrollierte oder fehlerhafte Agenten-Änderungen sind möglich. Mitigiert durch vollständiges Audit-Log aller MCP-Schreiboperationen und rollen-basierte API-Key-Berechtigungen (Write-Permission optional deaktivierbar pro Workspace).
+**R3 — MCP Write-Access-Risiko:** AI-Agenten können Requirements, Architektur-Elemente und Tests direkt schreiben. Unkontrollierte oder fehlerhafte Agenten-Änderungen sind möglich. Mitigiert durch vollständiges Audit-Log aller MCP-Schreiboperationen und rollen-basierte API-Key-Berechtigungen (Write-Permission optional deaktivierbar pro Workspace).
 
-**R4 — LLM-Abhängigkeit bei requirement.validate:** Wenn das Feature standardmäßig aktiviert ist und der konfigurierte LLM-Anbieter nicht erreichbar ist, muss das System graceful degradieren. `requirement.validate` muss klar als optionales, konfigurierbares Feature kommuniziert werden — nicht als Core-Funktion.
+**R4 — LLM-Abhängigkeit bei AI-Capabilities:** Wenn LLM-Features aktiviert sind und der konfigurierte LLM-Anbieter nicht erreichbar ist, muss das System graceful degradieren. Alle LLM-gestützten Features müssen klar als optional markiert sein — das System bleibt ohne LLM vollständig funktionsfähig.
 
 **R5 — i18n-Konsistenz:** Mit DE und EN von Beginn an muss sichergestellt werden, dass alle neuen UI-Strings in beiden Sprachen gepflegt werden. Empfehlung: Lint-Regel, die fehlende Translation-Keys als Build-Fehler behandelt.
+
+**R6 — WorkflowEngine-Komplexität im Datenmodell:** Der Übergang vom hartcodierten Status-Enum zu einem konfigurierbaren Workflow-System erhöht die Datenmodell-Komplexität. Mitigierung: In v1 werden nur vordefinierte Workflow-Templates unterstützt (kein grafischer Editor, keine Custom-States via UI). WorkflowDefinitions sind JSON-Konfigurationen, die über Admin oder API gesetzt werden.
+
+**R7 — Architektur-Artefakttyp: Scope-Abgrenzung:** Der neue ArchitectureElement-Typ muss klar vom Artifact-Typ abgegrenzt werden. Risiko: Nutzer sind unsicher, ob sie Architektur-Informationen als Artifact oder ArchitectureElement modellieren sollen. Mitigierung: Klare Dokumentation und UI-Hinweise; ArchitectureElement ist für strukturierte, versionierte Architektur-Beschreibungen, Artifact für Hierarchie-Gliederung.
+
+**R8 — Global-Baseline-Semantik:** Eine Baseline über alle Workspaces kann sehr groß werden und komplexe Snapshot-Semantik erfordern. Risiko: Performance-Probleme bei großen Instanzen. Mitigierung: Global-Baselines nur im Extended-Preset; Snapshot ist asynchron berechenbar; in v1 auf Instanzen bis 10.000 Items beschränkt.
 
 ### 11.2 Vor der formalen Anforderungsaufnahme zu klärende Punkte
 
@@ -555,9 +763,17 @@ Die folgenden Punkte sollten vor oder während der Arbeit mit dem requirements-A
 
 **Klärungsbedarf 3 — Baseline-Vergleich-UI:** Ist ein visueller Diff zwischen zwei Baselines (Side-by-Side oder Diff-View) ein v1-Feature im Extended-Preset oder v2? Die Entscheidung beeinflusst den Scope der Baseline-Implementierung erheblich.
 
-**Klärungsbedarf 4 — Webhook-Scope:** Für welche Events sollen Webhooks in v1 feuern? (z.B. requirement.created, requirement.updated, requirement.approved, test.linked) Vollständiger Event-Katalog muss vor API-Design definiert werden.
+**Klärungsbedarf 4 — Webhook-Scope:** Für welche Events sollen Webhooks in v1 feuern? (z.B. requirement.created, requirement.updated, requirement.approved, test.linked, architecture.created) Vollständiger Event-Katalog muss vor API-Design definiert werden.
 
 **Klärungsbedarf 5 — requirement.validate Prompt-Strategie:** Soll der Qualitätsprüfungs-Prompt für `requirement.validate` konfigurierbar sein (z.B. domänenspezifische Qualitätskriterien für Automotive vs. Software)? Oder ist ein generischer Prompt für v1 ausreichend?
+
+**Klärungsbedarf 6 — WorkflowDefinition-Editierbarkeit in v1:** Können Nutzer im Extended-Preset eigene WorkflowDefinitions via UI anlegen, oder sind in v1 nur die vordefinierten Templates (Minimal-Default, Standard-Default, Extended-Default) verfügbar? Empfehlung: Nur vordefinierte Templates in v1 — Custom-Workflows via UI in v2.
+
+**Klärungsbedarf 7 — ArchitectureElement vs. Artifact-Nutzung:** Wie kommunizieren wir die Abgrenzung zwischen Artifact (Hierarchie-Gliederung) und ArchitectureElement (strukturierte Architektur-Beschreibung) an den Nutzer? Braucht es UI-Hinweise oder reicht Dokumentation?
+
+**Klärungsbedarf 8 — LLM-Capabilities: Scope v1:** Welche der beschriebenen LLM-Capabilities (Generierung, Validierung, Decomposition, Konsistenz-Check) sollen in v1 tatsächlich implementiert werden? Für einen POC/rapid-prototyping-Kontext ist es sinnvoll, mit einem oder zwei Capabilities zu starten (Empfehlung: requirement.validate + requirement.decompose-Unterstützung) und weitere in v2 zu ergänzen.
+
+**Klärungsbedarf 9 — Baseline-Scope-Kombination:** Kann eine Baseline mehrere Scopes kombinieren (z.B. "Projekt A + Dokument B aus Projekt C")? Oder sind Baselines strikt auf einen Scope beschränkt? Empfehlung für v1: Strikt ein Scope pro Baseline — Kombinations-Baselines in v2.
 
 ---
 
@@ -575,8 +791,14 @@ Die folgenden Punkte sollten vor oder während der Arbeit mit dem requirements-A
 | 2 | Multi-Tenancy | Row-Level (tenant_id FK), Default-Tenant in v1 |
 | 2 | i18n | In v1 (Django gettext + react-i18next, DE + EN) |
 | 2 | Echtzeit-Kollaboration | v2 (v1: HTTP-Polling/Refresh) |
+| 4 | AI-nativ Definition | Zwei Dimensionen: LLM als pluggable Capability quer über alle Artefakttypen + MCP für alle Artefakttypen |
+| 4 | ArchitectureElement | Eigener, schreibbarer Artefakttyp im Datenmodell und in der MCP-Tool-Liste |
+| 4 | MCP-Tool-Set | Erweitert auf architecture.* (5 Tools) und test.* (5 Tools); artifact.search als übergreifendes Tool |
+| 4 | Baselining | Drei Ebenen: Global (Instanz) / Projekt / Dokument; Global nur im Extended-Preset |
+| 4 | Item-Level-Workflow | Konfigurierbarer Workflow per Item-Typ ersetzt hartcodierten status-Enum; Default-Workflows per Preset |
+| 4 | v1/v2-Schnittlinie (Workflow) | WorkflowEngine + Approver-Rolle in v1; Grafischer Editor, komplexe Matrizen, e-Signaturen in v2 |
 
 ---
 
-*Finalisiert durch ideation-Agenten (ReqFlow) — Ideation-Runde 3 | 2026-06-17*
+*Finalisiert durch ideation-Agenten (ReqFlow) — Ideation-Runde 4 | 2026-06-17*
 *Nächster Schritt: Übergabe an requirements-Agenten für formale Anforderungsaufnahme*
