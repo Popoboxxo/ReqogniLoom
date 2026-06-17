@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 agent-meta — Agenten-Visualisierung</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f0f23;
+            --surface: #1a1a2e;
+            --surface-hover: #16213e;
+            --text: #eaeaea;
+            --text-muted: #a0a0a0;
+            --border: #2a2a4a;
+            --required: #e03131;
+            --recommended: #1971c2;
+            --optional: #868e96;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header {
+            text-align: center;
+            padding: 30px 0;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 30px;
+        }
+        header h1 { font-size: 2rem; margin-bottom: 10px; }
+        header p { color: var(--text-muted); }
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 30px;
+        }
+        @media (max-width: 1000px) {
+            .main-grid { grid-template-columns: 1fr; }
+        }
+        .graph-container {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+        .graph-container h2 { margin-bottom: 15px; font-size: 1.3rem; }
+        .mermaid {
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 15px;
+            overflow: auto;
+        }
+        .legend {
+            margin-top: 20px;
+            padding: 15px;
+            background: var(--surface-hover);
+            border-radius: 8px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .legend-item { display: flex; align-items: center; gap: 8px; }
+        .dot {
+            width: 14px; height: 14px; border-radius: 50%;
+            display: inline-block;
+        }
+        .dot.required { background: var(--required); }
+        .dot.recommended { background: var(--recommended); }
+        .dot.optional { background: var(--optional); }
+        .sidebar { display: flex; flex-direction: column; gap: 20px; }
+        .agent-card {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid var(--optional);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .agent-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .agent-card.tier-required { border-left-color: var(--required); }
+        .agent-card.tier-recommended { border-left-color: var(--recommended); }
+        .agent-card.tier-optional { border-left-color: var(--optional); }
+        .agent-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .agent-header h3 { flex: 1; }
+        .tier-icon { font-size: 1.2rem; }
+        .tier-badge {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.1);
+        }
+        .description { color: var(--text-muted); margin-bottom: 10px; font-size: 0.95rem; }
+        .meta {
+            display: flex;
+            gap: 15px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+        .children { font-size: 0.85rem; }
+        .children a {
+            color: var(--recommended);
+            text-decoration: none;
+        }
+        .children a:hover { text-decoration: underline; }
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 agent-meta — Agenten-Visualisierung</h1>
+            <p>Interaktive Übersicht aller Agenten und ihrer Beziehungen</p>
+        </header>
+        <div class="main-grid">
+            <div class="graph-container">
+                <h2>🕸️ Delegations-Graph</h2>
+                <div class="mermaid">
+graph TD
+    agent-meta-manager --> agent-meta-scout
+    agent-meta-manager --> developer
+    agent-meta-manager --> git
+    developer --> tester
+    developer --> git
+    feature --> requirements
+    feature --> validator
+    feature --> developer
+    feature --> tester
+    feature --> git
+    log-analyzer --> feedback
+    log-analyzer --> developer
+    log-analyzer --> security-auditor
+    orchestrator --> developer
+    orchestrator --> feature
+    orchestrator --> git
+    orchestrator --> documenter
+    orchestrator --> ideation
+    orchestrator --> release
+    orchestrator --> security-auditor
+    orchestrator --> docker
+    orchestrator --> log-analyzer
+    orchestrator --> feedback
+    orchestrator --> agent-meta-manager
+    orchestrator --> agent-meta-scout
+    orchestrator --> meta-feedback
+    orchestrator --> requirements
+    orchestrator --> validator
+    orchestrator --> tester
+    release --> git
+    release --> documenter
+
+    classDef required fill:#e03131,stroke:#fff,stroke-width:2px,color:#fff
+    classDef recommended fill:#1971c2,stroke:#fff,stroke-width:2px,color:#fff
+    classDef optional fill:#868e96,stroke:#fff,stroke-width:2px,color:#fff
+    class developer,feedback,git,log-analyzer,orchestrator required
+    class bug-feature-analyzer,code-reviewer,documenter,feature,requirements,tester,validator recommended
+    class agent-meta-manager,agent-meta-scout,api-specialist,concept-reviewer,devops-engineer,docker,effort-estimator,explorer,export-manager,ideation,junior-developer,meta-feedback,openscad-developer,performance-optimizer,provider-expert,release,se-architect,se-critic,se-integration-and-test-manager,se-interface-mgr,se-orchestrator,se-requirements,se-termination,se-test-engineer,se-testreviewer,se-validator,se-verifier,security-auditor,senior-developer,ui-ux-designer optional
+                </div>
+                <div class="legend">
+                    <div class="legend-item">
+                        <span class="dot required"></span>
+                        <span>required — Kern-Workflow</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="dot recommended"></span>
+                        <span>recommended — Standard-Qualität</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="dot optional"></span>
+                        <span>optional — Bei Bedarf</span>
+                    </div>
+                </div>
+            </div>
+            <div class="sidebar">
+                <h2>📋 Agenten-Details</h2>
+
+        <div class="agent-card tier-optional" id="agent-meta-manager">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>agent-meta-manager</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">agent-meta verwalten: Upgrades, Sync, Feedback-Delegation, projektspezifische Agenten, External-Skill-Lifecycle und Erweiterungen anlegen.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            <div class="children"><strong>Delegiert an:</strong> <a href="#agent-meta-scout" onclick="scrollToAgent('agent-meta-scout')">agent-meta-scout</a>, <a href="#developer" onclick="scrollToAgent('developer')">developer</a>, <a href="#git" onclick="scrollToAgent('git')">git</a></div>
+        </div>
+        
+        <div class="agent-card tier-optional" id="agent-meta-scout">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>agent-meta-scout</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Scoutet das KI-Ökosystem auf neue Skills, Agenten-Patterns, Rules und Workflows. Bewertet Kandidaten und macht konkrete Erweiterungsvorschläge für agent-meta.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="api-specialist">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>api-specialist</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">API-Design, OpenAPI-Spezifikationen, Contract-First Development. Erstellt und pflegt API-Vertraege.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-recommended" id="bug-feature-analyzer">
+            <div class="agent-header">
+                <span class="tier-icon">🔵</span>
+                <h3>bug-feature-analyzer</h3>
+                <span class="tier-badge">recommended</span>
+            </div>
+            <p class="description">Analysiert und klassifiziert eingehende Bug-Meldungen und Feature-Requests vor Ressourcen-Allokation. Unterscheidet: Echter Bug, User-Fehler, validierbares Feature, Out-of-Scope.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-recommended" id="code-reviewer">
+            <div class="agent-header">
+                <span class="tier-icon">🔵</span>
+                <h3>code-reviewer</h3>
+                <span class="tier-badge">recommended</span>
+            </div>
+            <p class="description">Gatekeeper für Code-Gesundheit: Clean Code, SOLID, Blast-Radius-Analysen und REQ-Traceability in Code-Pfaden.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="concept-reviewer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>concept-reviewer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Generischer Konzept-Critic: reviewt Design-Docs und Konzepte auf Vollständigkeit, Logik-Lücken, Annahmen, Alternativen, Risiken, Machbarkeit und Konsistenz.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-required" id="developer">
+            <div class="agent-header">
+                <span class="tier-icon">🔴</span>
+                <h3>developer</h3>
+                <span class="tier-badge">required</span>
+            </div>
+            <p class="description">Implementiert Features und Bugfixes mit strikten Code-Konventionen. REQ-ID- und TDD-Pflicht konfigurativ über DoD.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            <div class="children"><strong>Delegiert an:</strong> <a href="#tester" onclick="scrollToAgent('tester')">tester</a>, <a href="#git" onclick="scrollToAgent('git')">git</a></div>
+        </div>
+        
+        <div class="agent-card tier-optional" id="devops-engineer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>devops-engineer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">CI/CD-Pipelines, Infrastructure as Code, Container-Orchestrierung, Observability und Security-Best-Practices.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="docker">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>docker</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Docker-Operationen: Compose-Stacks, Binary-Management, Test-Umgebungen und Diagnose — plattformunabhängig.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-recommended" id="documenter">
+            <div class="agent-header">
+                <span class="tier-icon">🔵</span>
+                <h3>documenter</h3>
+                <span class="tier-badge">recommended</span>
+            </div>
+            <p class="description">Pflegt CODEBASE_OVERVIEW.md, ARCHITECTURE.md, README.md und Session-Erkenntnisse.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="effort-estimator">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>effort-estimator</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Schätzt Aufwände für Entwicklungsaufgaben basierend auf Task-Typ und LLM-Fähigkeiten</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="explorer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>explorer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Read-only Codebase-Recherche, Dependency- und Impact-Mapping, Datei- und Symbol-Suche.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="export-manager">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>export-manager</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Liest .meta-config/export.yaml und routet strukturierte JSON-Payloads der Fach-Agenten zum konfigurierten Target (markdown, confluence, jira-xray, etc.).</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-recommended" id="feature">
+            <div class="agent-header">
+                <span class="tier-icon">🔵</span>
+                <h3>feature</h3>
+                <span class="tier-badge">recommended</span>
+            </div>
+            <p class="description">Vollständiger Feature-Lifecycle: Branch → Requirements → TDD → Implementierung → Validierung → Commit → PR.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> inherited</span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            <div class="children"><strong>Delegiert an:</strong> <a href="#requirements" onclick="scrollToAgent('requirements')">requirements</a>, <a href="#validator" onclick="scrollToAgent('validator')">validator</a>, <a href="#developer" onclick="scrollToAgent('developer')">developer</a>, <a href="#tester" onclick="scrollToAgent('tester')">tester</a>, <a href="#git" onclick="scrollToAgent('git')">git</a></div>
+        </div>
+        
+        <div class="agent-card tier-required" id="feedback">
+            <div class="agent-header">
+                <span class="tier-icon">🔴</span>
+                <h3>feedback</h3>
+                <span class="tier-badge">required</span>
+            </div>
+            <p class="description">Standardisiert Bug-Reports, Feature-Requests und Verbesserungsvorschläge für das eingesetzte Projekt — kategorisiert, aufbereitet und direkt als GitHub Issue eingereicht.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-required" id="git">
+            <div class="agent-header">
+                <span class="tier-icon">🔴</span>
+                <h3>git</h3>
+                <span class="tier-badge">required</span>
+            </div>
+            <p class="description">Git-Operationen: Commits, Branches, Merges, Tags, Push/Pull und Commit-Messages — plattformunabhängig (GitHub, GitLab, Gitea).</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="ideation">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>ideation</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Ideenfindung, Visions-Schärfung und Konzept-Konkretisierung — stellt Fragen, denkt Ecken, übergibt reife Ideen an Requirements.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> inherited</span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="junior-developer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>junior-developer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Schnelle, klar umrissene Code-Änderungen: 1-2 Dateien, kein Architektur-Impact. Eskaliert strukturiert sobald der Scope wächst.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-required" id="log-analyzer">
+            <div class="agent-header">
+                <span class="tier-icon">🔴</span>
+                <h3>log-analyzer</h3>
+                <span class="tier-badge">required</span>
+            </div>
+            <p class="description">Analysiert System- und Applikations-Logs: Frequency-Clustering, Severity-Klassifikation (RFC 5424), Root-Cause-Hypothesen und strukturierte Findings mit Delegations-Routing.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            <div class="children"><strong>Delegiert an:</strong> <a href="#feedback" onclick="scrollToAgent('feedback')">feedback</a>, <a href="#developer" onclick="scrollToAgent('developer')">developer</a>, <a href="#security-auditor" onclick="scrollToAgent('security-auditor')">security-auditor</a></div>
+        </div>
+        
+        <div class="agent-card tier-optional" id="meta-feedback">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>meta-feedback</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Verbesserungsvorschläge für agent-meta sammeln und als GitHub Issues einreichen.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="openscad-developer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>openscad-developer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Spezialisierter Developer für parametrische 3D-Modelle in OpenSCAD. Render-Inspect-Refine Loop via MCP, Druckbarkeits-Wissen, Toleranz-Management.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-required" id="orchestrator">
+            <div class="agent-header">
+                <span class="tier-icon">🔴</span>
+                <h3>orchestrator</h3>
+                <span class="tier-badge">required</span>
+            </div>
+            <p class="description">Provider-agnostischer Task-Orchestrator: zerlegt, parallelisiert, delegiert.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            <div class="children"><strong>Delegiert an:</strong> <a href="#developer" onclick="scrollToAgent('developer')">developer</a>, <a href="#feature" onclick="scrollToAgent('feature')">feature</a>, <a href="#git" onclick="scrollToAgent('git')">git</a>, <a href="#documenter" onclick="scrollToAgent('documenter')">documenter</a>, <a href="#ideation" onclick="scrollToAgent('ideation')">ideation</a>, <a href="#release" onclick="scrollToAgent('release')">release</a>, <a href="#security-auditor" onclick="scrollToAgent('security-auditor')">security-auditor</a>, <a href="#docker" onclick="scrollToAgent('docker')">docker</a>, <a href="#log-analyzer" onclick="scrollToAgent('log-analyzer')">log-analyzer</a>, <a href="#feedback" onclick="scrollToAgent('feedback')">feedback</a>, <a href="#agent-meta-manager" onclick="scrollToAgent('agent-meta-manager')">agent-meta-manager</a>, <a href="#agent-meta-scout" onclick="scrollToAgent('agent-meta-scout')">agent-meta-scout</a>, <a href="#meta-feedback" onclick="scrollToAgent('meta-feedback')">meta-feedback</a>, <a href="#requirements" onclick="scrollToAgent('requirements')">requirements</a>, <a href="#validator" onclick="scrollToAgent('validator')">validator</a>, <a href="#tester" onclick="scrollToAgent('tester')">tester</a></div>
+        </div>
+        
+        <div class="agent-card tier-optional" id="performance-optimizer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>performance-optimizer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Datengetriebene Identifikation und Aufloesung von Big-O Bottlenecks durch Profiling-Daten, ohne funktionale Aenderungen.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="provider-expert">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>provider-expert</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Absoluter Analyse-Experte für einen AI-Provider: Funktionsweise, Konfiguration, Best Practices (Formatter, Hooks, MCPs) zur optimalen Anpassung von agent-meta.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> inherited</span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="release">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>release</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Versioning, Changelogs, Build-Prozesse und GitHub-Releases verwalten.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            <div class="children"><strong>Delegiert an:</strong> <a href="#git" onclick="scrollToAgent('git')">git</a>, <a href="#documenter" onclick="scrollToAgent('documenter')">documenter</a></div>
+        </div>
+        
+        <div class="agent-card tier-recommended" id="requirements">
+            <div class="agent-header">
+                <span class="tier-icon">🔵</span>
+                <h3>requirements</h3>
+                <span class="tier-badge">recommended</span>
+            </div>
+            <p class="description">Anforderungen aufnehmen, REQ-IDs vergeben, REQUIREMENTS.md pflegen und Traceability prüfen.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-architect">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-architect</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Designs system architecture using generic laws, CQRS routing, and defines L1/L2 whiteboxes.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-critic">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-critic</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Audits requirements and architecture against generic laws (orthogonality, testability, traceability).</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-integration-and-test-manager">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-integration-and-test-manager</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">V&V-Orchestrator: Koordiniert Integrationsstrategie, Test-Ebenen und Traceability-Feedback über L1-Ln.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-interface-mgr">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-interface-mgr</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Manages generic signal flow and deterministic synchronization across systems.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-orchestrator">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-orchestrator</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Coordinates the 6-level recursive breakdown with zig-zag traceability and V&V.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-requirements">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-requirements</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Elicits stakeholder needs and uses a 6-level template for requirements engineering.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-termination">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-termination</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Deterministic termination at L3 (Component Requirement).</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-test-engineer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-test-engineer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Develops MBSE test models and designs integration tests (interaction of multiple SW units). Right wing of the V-model.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-testreviewer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-testreviewer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Audits the test strategy. Checks for edge cases, boundary value analysis, equivalence class errors, and flakiness.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-validator">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-validator</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">L1 System-Validierung: End-to-End User Journeys gegen Stakeholder-Bedürfnisse abgleichen. 'Did we build the right system?'</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="se-verifier">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>se-verifier</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Multi-Level Verification L1-Ln. Validates that fully integrated systems/sub-systems exactly fulfill architectural specifications and interfaces.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="security-auditor">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>security-auditor</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Static security analysis: OWASP Top 10, secrets detection, dependency risks, supply-chain threats, and cryptographic weaknesses — read-only, no code execution.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-opus-4-7</span><br><span>Opencode: opencode-go/kimi-k2.6</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="senior-developer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>senior-developer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Komplexe Features, Architektur-Entscheidungen, schwierige Bugs und Cross-Cutting-Refactorings. Analysiert vor der Implementierung und dokumentiert Entscheidungen.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-fable-5</span><br><span>Opencode: opencode-go/kimi-k2.7-code</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-recommended" id="tester">
+            <div class="agent-header">
+                <span class="tier-icon">🔵</span>
+                <h3>tester</h3>
+                <span class="tier-badge">recommended</span>
+            </div>
+            <p class="description">Isolierte Unit-Tests mit Mocks/Stubs nach TDD-Workflow. Für Integrationstests → se-test-engineer.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-optional" id="ui-ux-designer">
+            <div class="agent-header">
+                <span class="tier-icon">⚪</span>
+                <h3>ui-ux-designer</h3>
+                <span class="tier-badge">optional</span>
+            </div>
+            <p class="description">Erstellt UI-Spezifikationen, Mockups und Design-Systeme. Ordnet UI-Elemente REQ-IDs zu.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+        <div class="agent-card tier-recommended" id="validator">
+            <div class="agent-header">
+                <span class="tier-icon">🔵</span>
+                <h3>validator</h3>
+                <span class="tier-badge">recommended</span>
+            </div>
+            <p class="description">Formaler Prozess-Wächter: DoD-Checkboxen, REQ-ID-Präsenz, Commit-Konventionen. Bewertet KEINE Code-Qualität — dafür code-reviewer.</p>
+            <div class="meta">
+                <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
+                <span><strong>Memory:</strong> -</span>
+            </div>
+            
+        </div>
+        
+            </div>
+        </div>
+        <footer>
+            Generiert von agent-meta — <a href="agent-mindmap.md">Markdown-Version</a>
+        </footer>
+    </div>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            securityLevel: 'loose',
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+        });
+
+        function scrollToAgent(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.style.boxShadow = '0 0 20px rgba(77, 171, 247, 0.5)';
+                setTimeout(() => el.style.boxShadow = '', 1500);
+            }
+        }
+    </script>
+</body>
+</html>

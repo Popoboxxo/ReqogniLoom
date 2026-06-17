@@ -10,6 +10,9 @@
 .claude/settings.json
 .claude/settings.local.json
 .mcp.json
+.meta-viz/
+.meta-viz/events-*.jsonl
+.meta-viz/session-reports/
 .opencode/agents/
 .opencode/commands/
 .opencode/settings.local.json
