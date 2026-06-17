@@ -1,66 +1,109 @@
 # ReqFlow — Konzept-Dokument
 
-> Status: In Bearbeitung — Runde 1 entschieden, Runde 2 offen | Letzte Aktualisierung: 2026-06-17
+> Status: FINAL — Runden 1, 2 und 3 abgeschlossen | Letzte Aktualisierung: 2026-06-17
 >
-> Dieses Dokument konsolidiert Entscheidungen aus den Ideation-Runden.
-> Basis: VISION.md (Commit d73a99e)
->
-> Entscheidungsstatus:
-> - Runde 1 (Zielgruppe, Lizenz, Deployment): ENTSCHIEDEN
-> - Runde 2 (MCP-Tools, SE-Tiefe, Compliance, Multi-Tenancy, i18n/Echtzeit): OFFEN — Fragen unten
-> - Runde 3 (Details): AUSSTEHEND
+> Dieses Dokument konsolidiert alle Entscheidungen aus den Ideation-Runden 1–3 und dient
+> als vollständige Konzeptgrundlage für die formale Anforderungsaufnahme (requirements-Agent).
+> Basis: VISION.md + KONZEPT.md Runden 1 & 2 (Commit c1c17f8)
 
 ---
 
-## 1. Kernidee (aus VISION.md)
+## 1. Executive Summary — Was ist ReqFlow und warum existiert es?
 
-ReqFlow ist das erste Requirements-Management-Tool, das AI-Agenten als native
-Prozess-Teilnehmer über MCP einbindet — nicht als Texthelfer, sondern als vollständige,
-strukturierte Schnittstelle für den gesamten Anforderungslebenszyklus.
+ReqFlow ist das erste Requirements-Management-Tool, das AI-Agenten als native Prozess-Teilnehmer behandelt — nicht als Texthelfer oder nachträgliches Add-on, sondern als vollständige, strukturierte Schnittstelle für den gesamten Anforderungslebenszyklus.
+
+### Das Problem
+
+Softwareteams und Systems Engineers teilen 2026 ein gemeinsames, wachsendes Problem: AI-Agenten sind längst keine isolierten Assistenten mehr. Sie generieren Code, schreiben Tests, führen Reviews durch und orchestrieren Workflows. Doch ihnen fehlt der strukturierte, maschinenlesbare Zugriff auf das *Warum* hinter dem Code: auf Anforderungen, Akzeptanzkriterien, Testabdeckung und Traceability. Die Folge ist, dass AI-generierter Code oft am Kontext vorbeigeht — weil der Kontext nirgends maschinenlesbar vorliegt.
+
+Gleichzeitig stecken viele Teams zwischen zwei unbefriedigenden Polen: Agile-Tools wie Jira oder Linear sind zu leichtgewichtig für echtes Requirements Engineering. Enterprise-Systeme wie IBM DOORS, Siemens Polarion oder PTC Codebeamer sind zu schwer, zu teuer und haben keinen AI-nativen Ansatz. Der Mittelweg fehlt.
+
+### Die Lösung
+
+ReqFlow schließt diese Lücke durch drei strategische Entscheidungen:
+
+Erstens bietet ReqFlow einen nativen MCP Server (Model Context Protocol) als gleichrangige Schnittstelle neben der REST API. AI-Agenten können damit direkt und strukturiert Anforderungen abrufen, anlegen, verändern und in Beziehung setzen — ohne Umwege über Text-Parsing oder Webhook-Wrapper.
+
+Zweitens skaliert ReqFlow über ein gemeinsames generisches Artefakt-Datenmodell von einfachem Anforderungsmanagement bis zu vollwertigen Systems-Engineering-Strukturen. Die Tiefe der Nutzung ist über konfigurierbare Projekt-Presets einstellbar, nicht global hart verdrahtet.
+
+Drittens ist ReqFlow vollständig Open Source (Apache 2.0) mit Self-Hosted-Deployment via Docker Compose — ohne Vendor-Lock-in, ohne Lizenzkosten, mit maximaler Kontrolle über Daten und Infrastruktur.
+
+### Positionierung
+
+ReqFlow besetzt den bisher leeren Quadranten im Markt: AI-nativ und handhabbar — mit echtem Systems-Engineering-Rückgrat, aber ohne Enterprise-Overhead.
+
+```
+                    Einfachheit / Agilität
+                           ^
+                           |
+          Linear  ---------+--------- ReqFlow (Ziel)
+          Notion           |
+                           |
+─────── AI-Add-on ─────────+───────── AI-nativ ─────
+                           |
+         Jira + AI-Plugin  |
+                           |
+    DOORS / Polarion ──────+
+    Codebeamer             |
+                           v
+                   Enterprise-Komplexität
+```
 
 ---
 
-## 2. Zielgruppe
+## 2. Designprinzip: Configurable Rigor
 
-> ENTSCHIEDEN — Runde 1, Frage 1
+"Configurable Rigor" ist das zentrale Differenzierungsmerkmal von ReqFlow und die Antwort auf die Frage, wie ein einziges Produkt zwei so unterschiedliche Zielgruppen bedienen kann.
 
-### 2.1 Dual-Zielgruppen-Strategie: BEIDE gleichwertig in v1
+### Kerngedanke
 
-ReqFlow bedient zwei gleichwertige Primärzielgruppen in v1:
+Die Strenge des Prozesses — SE-Tiefe, Audit-Anforderungen, Compliance-Stufe, Workflow-Stufen — ist bei ReqFlow keine globale, fest verdrahtete Eigenschaft des Systems. Sie ist pro Projekt und teils pro Dokument über konfigurierbare Presets einstellbar. Ein Startup-Team, das schnell iteriert, wählt ein minimales Preset und hat eine schlanke, agile Erfahrung. Ein Automotive-Zulieferer, der formale Baselines, Approval-Workflows und Audit-Trails benötigt, aktiviert ein erweitertes Preset — ohne ein anderes Produkt zu kaufen oder die Infrastruktur zu wechseln.
 
-**Zielgruppe A: AI-first Software Teams**
-Software-Teams mit modernen Agile/Scrum-Workflows, die bereits AI-Agenten (Claude Code,
-Cursor, GitHub Copilot) einsetzen und einen strukturierten, maschinenlesbaren
-Anforderungskontext benötigen.
+Dieses Prinzip löst gleichzeitig das "beide Zielgruppen in einem Produkt"-Problem: Es gibt keine Kompromisse im Datenmodell und keine Zielgruppen-spezifischen Code-Pfade. Stattdessen gibt es ein gemeinsames, reichhaltiges Fundament und konfigurierbare Sichtbarkeits- und Verhaltensschichten darüber.
 
-**Zielgruppe B: Systems Engineers (Embedded / Safety-Critical)**
-Engineers mit Bedarf an formalen Artefakt-Hierarchien, Traceability und strukturierter
-Anforderungszerlegung — die jedoch heute zwischen zu einfachen Agile-Tools und zu schweren
-Enterprise-Lösungen (DOORS, Polarion) stecken.
+### Wie Configurable Rigor sich durch das System zieht
 
-### 2.2 Technische Umsetzung der Dual-Strategie
+**Im Datenmodell:** Das Datenmodell ist von Beginn an vollständig — alle Felder für Audit, Compliance und erweiterte Workflows sind vorhanden. Was sich ändert, ist ob und wie diese Felder vom System genutzt und erzwungen werden. Ein Projekt im Minimal-Preset hat dieselbe Datenstruktur wie ein Projekt im Extended-Preset — nur mit weniger Pflichtfeldern und ohne Approval-Workflow.
 
-**Fundament: Ein gemeinsames generisches Artefakt-Datenmodell**
+**In der UI:** Die Oberfläche blendet Funktionen ein oder aus, je nach aktivem Preset. Ein Nutzer im Minimal-Preset sieht keine Baselines, keine Approval-Buttons, keine Compliance-Felder — sie existieren im System, sind aber ausgeblendet. Der Wechsel zu einem höheren Preset aktiviert diese Elemente schrittweise, ohne Datenmigration.
 
-Beide Zielgruppen arbeiten auf demselben Datenmodell. Es gibt keine parallelen Code-Pfade
-oder doppelten Entitäten. Die Unterschiede sind ausschließlich auf Präsentations- und
-Konfigurationsebene.
+**In der MCP-API:** Die MCP-Tools sind immer vollständig verfügbar. Das Preset beeinflusst jedoch, welche Felder in Responses zurückgegeben werden und welche Operationen serverseitig validiert werden (z.B. ob ein `requirement.update` ohne `change_reason` abgelehnt wird, wenn das Projekt einen strengeren Preset hat).
 
-```
-Gemeinsames Datenmodell
-├── Artifact (hierarchisch, beliebige Tiefe)
-├── Requirement (mit Typ, Status, Kategorie)
-├── TraceLink (Beziehungstypen: parent-child, derives-from, satisfies, verifies)
-└── TestCase (verknüpft mit Requirements)
-```
+**In Presets:** Presets sind JSON-Konfigurationen, die auf Projekt-Ebene (und teils auf Dokument-Ebene) gesetzt werden. Sie können aus einer Bibliothek vordefinierter Preset-Templates gewählt oder manuell angepasst werden. Drei Standard-Presets decken die meisten Anwendungsfälle ab (siehe Abschnitt 7).
 
-**Terminologie-Presets per Workspace-Profil**
+---
 
-Über ein konfigurierbares Workspace-Setting wählt das Team sein Terminologie-Profil.
-Die Daten bleiben identisch — nur Labels und UI-Texte ändern sich:
+## 3. Zielgruppen und Terminologie-Layer
+
+### 3.1 Dual-Zielgruppen-Strategie
+
+ReqFlow bedient zwei gleichwertige Primärzielgruppen in v1. Diese Entscheidung ist bewusst: Beide Gruppen teilen dasselbe Kernproblem (strukturierter Anforderungskontext fehlt) und profitieren vom selben Lösungsansatz (generisches Artefakt-Datenmodell + MCP-Integration). Die Unterschiede in Terminologie und Prozesstiefe werden durch Configurable Rigor aufgelöst.
+
+**Zielgruppe A — AI-first Software Teams**
+
+Software-Teams, die bereits AI-Agenten (Claude Code, Cursor, GitHub Copilot) in ihrem Entwicklungsprozess einsetzen und einen strukturierten, maschinenlesbaren Anforderungskontext benötigen. Diese Teams denken in Epics, Stories und Acceptance Criteria, arbeiten agil und erwarten ein schlankes, schnelles Tool ohne Prozess-Overhead.
+
+**Zielgruppe B — Systems Engineers (Embedded / Safety-Critical)**
+
+Engineers in regulierten oder sicherheitskritischen Domänen, die formale Artefakt-Hierarchien, Traceability und strukturierte Anforderungszerlegung benötigen. Diese Teams denken in System Requirements, Functions und Verification Criteria, arbeiten mit Baselines und Approval-Workflows. Sie stecken heute zwischen zu einfachen Agile-Tools und zu schweren Enterprise-Lösungen (DOORS, Polarion).
+
+Explizit nicht für ReqFlow v1:
+- Teams ohne jegliche Requirements-Disziplin, die nur Issue-Tracking brauchen (Jira/Linear)
+- Hochregulierte Programme mit Zertifizierungspflicht (ISO 26262 ASIL-D, DO-178C Level A) — v2+
+- Primärer Fokus auf Dokument-Management (Confluence/SharePoint)
+
+### 3.2 Gemeinsames generisches Artefakt-Datenmodell
+
+Beide Zielgruppen arbeiten auf demselben Datenmodell. Es gibt keine parallelen Code-Pfade oder doppelten Entitäten. Die Unterschiede sind ausschließlich auf Präsentations- und Konfigurationsebene angesiedelt.
+
+Die Kernentitäten des generischen Modells sind: Artifact (hierarchisch, beliebige Tiefe), Requirement (mit Typ, Status, Kategorie), TraceLink (Beziehungstypen: parent-child, derives-from, satisfies, verifies) und TestCase (verknüpft mit Requirements).
+
+### 3.3 Konfigurierbare Terminologie-Layer
+
+Über ein konfigurierbares Workspace-Setting wählt das Team sein Terminologie-Profil. Die Daten bleiben identisch — nur Labels und UI-Texte ändern sich. Das Terminologie-Mapping ist als JSON-Konfiguration im Workspace-Modell hinterlegt; die React-UI liest Labels aus dem aktiven Workspace-Profil. Kein Datenbank-Schema ändert sich beim Profilwechsel.
 
 | Generische Entität | Dev-Modus (Software Teams) | SE-Modus (Systems Engineering) |
-|-------------------|---------------------------|--------------------------------|
+|---|---|---|
 | Artifact (L1) | Epic | System Requirement |
 | Artifact (L2) | Story | Function |
 | Artifact (L3) | Task | Component |
@@ -69,465 +112,471 @@ Die Daten bleiben identisch — nur Labels und UI-Texte ändern sich:
 | Status: draft | Draft | Draft |
 | Status: approved | Done | Approved |
 
-**Implementierung:** Terminologie-Mapping als JSON-Konfiguration im Workspace-Model,
-React-UI liest Labels aus aktivem Workspace-Profil. Keine Datenbank-Änderung beim Wechsel.
+Die REST API und der MCP Server nutzen immer die generischen Entitätsnamen — unabhängig vom aktiven Terminologie-Profil. Exporte enthalten das aktive Profil als Metadatum.
 
-**Geteilte Traceability-Engine**
+Profilwechsel erfordern eine explizite Bestätigung mit dem Hinweis "Nur Labels ändern sich, keine Daten gehen verloren". Das aktive Profil ist persistent im Header der Anwendung angezeigt.
 
-Relationships (TraceLinks) sind universell — die Traceability-Engine ist für beide
-Zielgruppen identisch. Upstream/Downstream-Queries, Impact-Analysen und Coverage-Reports
-funktionieren unabhängig vom aktiven Terminologie-Profil.
+### 3.4 Traceability-Engine
 
-### 2.3 Terminologie-Konflikt-Risiko und Gegenmaßnahmen
-
-**Risiko:** Nutzer, die zwischen Profilen wechseln oder in gemischten Teams arbeiten,
-könnten durch inkonsistente Terminologie verwirrt werden.
-
-**Gegenmaßnahmen:**
-- Workspace-Profil ist sichtbar persistiert (Header-Anzeige: "Dev-Modus" / "SE-Modus")
-- Profilwechsel erfordert explizite Bestätigung mit Hinweis "Nur Labels ändern sich,
-  keine Daten gehen verloren"
-- API und MCP Server nutzen immer die generischen Entitätsnamen (keine Profilabhängigkeit)
-- Exporte enthalten das aktive Profil als Metadatum
-
-### 2.4 Explizit NICHT für ReqFlow (v1)
-
-- Teams ohne jegliche Requirements-Disziplin → Jira/Linear
-- Hochregulierte Programme mit Zertifizierungspflicht (ISO 26262 ASIL-D, DO-178C Level A) → v2+
-- Primärer Fokus auf Dokument-Management → Confluence/SharePoint
+Die Traceability-Engine ist für beide Zielgruppen identisch. TraceLinks sind universell modelliert. Upstream/Downstream-Queries, Impact-Analysen und Coverage-Reports funktionieren vollständig unabhängig vom aktiven Terminologie-Profil.
 
 ---
 
-## 3. Lizenzmodell und Open-Source-Strategie
+## 4. Funktionsumfang v1
 
-> ENTSCHIEDEN — Runde 1, Frage 2
+### 4.1 Functional — Kernfunktionen
 
-**Modell: Vollständig Open Source — MIT oder Apache 2.0**
-*(finale Wahl zwischen MIT und Apache 2.0 folgt — Empfehlung: Apache 2.0 für Patent-Schutz)*
+Das funktionale Herzstück von ReqFlow v1 bilden vier Bereiche:
 
-**Begründung und Konsequenzen:**
-- Open Source beschleunigt die Adoption in Developer-Communities, insbesondere für den
-  MCP-Integration-Anwendungsfall
-- Community-getriebenes MCP-Ökosystem wird ermöglicht: Dritte können eigene MCP-Tool-Sets
-  auf Basis der ReqFlow-API entwickeln und veröffentlichen
-- Eine öffentliche MCP-Tool-Registry ist denkbar (Community contributed Tools für spezifische
-  Domains: Automotive, Medical, Aerospace)
-- Monetarisierung über nachgelagerte Kanäle: Managed Hosting, Support-Contracts,
-  Enterprise-Add-ons (kein Open-Core in v1)
-- Apache 2.0 empfohlen gegenüber MIT: bietet expliziten Patent-Schutz für Nutzer und
-  Contributors, was bei einem Tool für regulierte Branchen relevant ist
+**Artefakt-Hierarchie und Requirements CRUD:** Anforderungen werden in verschachtelten Artefakten verwaltet (beliebige Hierarchietiefe). Vollständiges CRUD für Requirements mit Kategorien (Functional, Non-Functional, API, UI/UX, Data, Integration, Test), Status-Lifecycle (Draft, Approved, Deprecated) und optionaler Priorität.
 
----
+**Traceability-Engine:** Verknüpfung von Requirements untereinander (parent-child, derives-from, satisfies) und mit Tests (verifies). Upstream/Downstream-Queries für Impact-Analysen. Coverage-Übersicht (welche Requirements haben mindestens einen Test).
 
-## 4. Deployment-Modell
+**Baselines (ab Standard-Preset):** Unveränderliche, benannte Snapshots einer Anforderungsmenge zu einem Zeitpunkt (z.B. "Sprint-3-Release", "CDR-Baseline"). Ermöglicht Vergleich zwischen Ständen. Baselines sind ein Must-Have für Systems Engineers.
 
-> ENTSCHIEDEN — Runde 1, Frage 3
+**Testmanagement:** Testfälle anlegen, mit Requirements verknüpfen, Test-Status verwalten (Passed / Failed / Not Run). Test-Suiten als Gruppierung.
 
-**v1: Ausschließlich Self-Hosted via Docker Compose**
+Volltextsuche über alle Requirements und Artefakte ist ebenfalls Teil von v1.
 
-- Kein SaaS in v1
-- Docker Compose als primäres Deployment-Modell (bereits im Stack angelegt)
-- Vorteil: Datenschutz und Datensouveränität für regulierte Umgebungen,
-  kein Vendor-Lock-in, einfaches Community-Onboarding
+### 4.2 Non-Functional — Qualitätsanforderungen
 
-**v2+:**
-- Managed Hosting / SaaS-Option (Monetarisierung)
-- Kubernetes-Deployment für Enterprise-Instanzen
+API-Antwortzeiten unter 200ms für Standard-Queries bei bis zu 10.000 Requirements. Rollenbasierte Zugriffskontrolle (Admin, Editor, Viewer). Transaktionale Konsistenz ohne Datenverluste. Vollständige Auditierbarkeit aller Änderungen (Wer, Wann, Was).
 
-**Auswirkung auf Datenmodell — Multi-Tenancy-Vorbereitung:**
+### 4.3 API
 
-Das Datenmodell wird in v1 auf Multi-Tenancy vorbereitet, auch wenn v1 nur Single-Tenant
-betrieben wird. Details zum konkreten Ansatz (tenant_id vs. Schema-per-Tenant) werden in
-Runde 2 entschieden (siehe Cluster D unten).
+Vollständige REST API mit CRUD-Unterstützung für alle Entitäten, Token-basierter Authentifizierung (Bearer Token / API Keys) und maschinenlesbarer OpenAPI-Spezifikation. MCP Server mit 11 Tools (siehe Abschnitt 6). Webhook-Support für Anforderungsänderungen ist als Should-Have für v1 vorgesehen.
 
----
+### 4.4 UI/UX
 
-## 5. AI-Integration — MCP-Prioritäten
+Dashboard mit Übersicht über Projekte, Artefakte und offene Punkte. Requirements-Editor mit Inline-Editing und Markdown-Support. Artefakt-Navigation als Baumstruktur. Traceability-Anzeige mit verknüpften Requirements und Tests. Facettierte Such- und Filteroberfläche.
 
-> TEILWEISE OFFEN — Runde 2, Fragen 4+5
+### 4.5 Data
 
-### 5.1 Primäre MCP-Zielclients
+Das Datenmodell ist im Detail in Abschnitt 5 beschrieben. Kern-Entitäten sind Artifact, Requirement, TraceLink, TestCase, Baseline und Tenant.
 
-- Claude Code (Anthropic) — nativer MCP-Support, führender Use Case
-- Cursor — MCP-kompatibel, breite Developer-Adoption
-- Dedicated Requirements-Agenten / Orchestrators (beliebige MCP-kompatible Clients)
-- CI/CD-Agenten (GitHub Actions + MCP-Tool-Runner)
+### 4.6 Integration
 
-### 5.2 MCP-Tools Scope v1 — Vorschlag zur Entscheidung
+Export in JSON und CSV für alle Entitäten (Must-Have). GitHub-Integration für das Verknüpfen von Anforderungen mit GitHub Issues und Pull Requests (Should-Have). PDF-Reports für Anforderungsdokumente und Traceability-Matrizen (Should-Have). Import aus CSV für Bulk-Import (Must-Have).
 
-Die finale Tool-Liste und der Write-Scope sind Gegenstand von Runde 2 (Cluster A).
+Explizit v2+: ReqIF-Import/Export, bidirektionale Jira-Synchronisation, SSO (SAML/OIDC).
 
-Folgende Tools sind gesetzt (kein Entscheidungsbedarf):
+### 4.7 Test
 
-| Tool | Beschreibung | Begründung |
-|------|-------------|------------|
-| `requirement.get(id)` | Einzelabruf mit vollständigem Kontext (Traces, Tests, History) | Core Use Case: Coding-Agent prüft vor Implementierung |
-| `requirement.query(filters)` | Suche/Filter mit Facetten (Artefakt, Status, Typ, Kategorie) | Core Use Case: Test-Agent ermittelt Abdeckungslücken |
-| `requirement.create(title, description, type, parent_id?)` | Anforderung anlegen | Core Use Case: Requirements-Elicitation-Agent |
-| `requirement.update(id, fields)` | Felder aktualisieren | Core Use Case: Änderungs-Agent pflegt nach Change Request |
-| `requirement.decompose(id, children[])` | Zerlegung in Kind-Artefakte (Batch-Operation) | Ermöglicht strukturierte SE-Zerlegung durch Agenten |
-| `traceability.query(artifact_id, direction?)` | Impact-Analyse Upstream/Downstream | Core Use Case: Blast-Radius-Analyse bei Änderungen |
-| `test.create(title, type, linked_req_id?)` | Testfall anlegen | Core Use Case: Test-Generierungs-Agent |
-| `test.link(test_id, req_id)` | Verknüpfung Testfall ↔ Anforderung | Coverage sicherstellen |
-| `workspace.get_context()` | Workspace-Status: offene REQs, unverknüpfte Tests, Coverage-Summary | Orientierung für AI-Agenten beim Einstieg |
-| `artifact.get_tree(root_id?)` | Gesamte Artefakt-Hierarchie abrufen | Strukturüberblick für Agenten |
-
-Offene Entscheidungen zu MCP: siehe Runde-2-Fragen, Cluster A.
-
-### 5.3 LLM-Anbindung
-
-> OFFEN — Runde 2
-
-ReqFlow selbst ruft in v1 keine externen LLMs auf. AI-Features entstehen dadurch, dass
-externe Agenten (Claude Code, Cursor etc.) via MCP mit ReqFlow interagieren. Die Frage
-ob ReqFlow optional eine eigene LLM-Anbindung anbietet (z.B. für `requirement.validate`)
-ist Gegenstand von Runde 2.
+Testfälle erstellen und mit Requirements verknüpfen. Test-Status und Coverage-Übersicht. Test-Suiten. Coverage-Report als CSV/PDF. Automatisierte Test-Ergebnis-Ingestion aus pytest/JUnit ist als Could-Have eingestuft.
 
 ---
 
-## 6. Systems Engineering Tiefe v1
-
-> OFFEN — Runde 2, Cluster B
-
-Aktueller Stand aus VISION.md: Artefakt-Hierarchie + Traceability als Must-Have.
-Baselines und Change-History als Should-Have.
-
-Konkreter Entscheidungsbedarf: siehe Runde-2-Fragen, Cluster B.
-
-MBSE/SysML: explizit v2+ (Begründung: Fügt erhebliche Modell-Komplexität hinzu, die den
-Fokus des MVP verwässert und die Zielgruppe A aktiv abschreckt. Artefakt-Hierarchie mit
-Traceability ist das 80%-Äquivalent für 20% des Aufwands).
-
----
-
-## 7. Compliance-Roadmap
-
-> OFFEN — Runde 2, Cluster C
-
-v1 ist bewusst compliance-frei, aber das Datenmodell wird vorbereitet.
-Details: siehe Runde-2-Fragen, Cluster C.
-
----
-
-## 8. Technische Architektur-Entscheide
-
-### 8.1 Multi-Tenancy
-
-> OFFEN — Runde 2, Cluster D
-
-Strategie wird in Runde 2 entschieden. Feststand: Vorbereitung im Datenmodell in v1.
-
-### 8.2 Internationalisierung
-
-> OFFEN — Runde 2, Cluster E
-
-### 8.3 Echtzeit-Kollaboration
-
-> OFFEN — Runde 2, Cluster E
-
----
-
-## 9. MVP-Scope (zu finalisieren nach Runde 2)
-
-### Must Have v1 (Konsens aus VISION.md + Runde-1-Entscheidungen)
-
-- [x] Gemeinsames generisches Artefakt-Datenmodell mit Terminologie-Presets
-- [x] Requirements CRUD mit Artefakt-Hierarchie (beliebige Tiefe)
-- [x] Traceability-Engine: TraceLinks zwischen Requirements und Tests
-- [x] MCP Server mit Basis-Tool-Set (mindestens: get, query, create, update, traceability.query)
-- [x] REST API mit vollständiger CRUD-Unterstützung und OpenAPI-Spec
-- [x] React-UI: Dashboard, Requirements-Editor, Artefakt-Navigation
-- [x] Docker Compose Deployment (Self-Hosted)
-- [x] Workspace-Profile (Dev-Modus / SE-Modus Terminologie)
-- [x] Multi-Tenancy-Vorbereitung im Datenmodell (Strategie: Runde 2)
-
-### Out of Scope v1
-
-- [ ] SaaS / Managed Hosting
-- [ ] MBSE / SysML-Elemente
-- [ ] Echtzeit-Kollaboration (CRDT / OT) — voraussichtlich v2
-- [ ] Formale Compliance-Zertifizierung (ISO 26262, DO-178C)
-- [ ] SSO (SAML/OIDC)
-- [ ] Jira-Synchronisation bidirektional
-- [ ] ReqIF-Import/Export
-- [ ] AI-gestützte Qualitätsprüfung (`requirement.validate`) — Entscheidung Runde 2
-
----
-
-## 10. Offene Risiken und Abhängigkeiten
-
-**R1 — Terminologie-Verwirrung:** Dual-Profil kann Nutzer verwirren, wenn nicht klar
-kommuniziert wird, was sich beim Profilwechsel ändert (und was nicht). Mitigiert durch
-explizite UI-Anzeige und Bestätigungs-Dialog.
-
-**R2 — Scope-Creep durch zwei Zielgruppen:** "Beide gleichwertig" verleitet dazu,
-zielgruppen-spezifische Features sofort zu bauen. Gegenmaßnahme: Datenmodell generisch,
-UI-Anpassungen minimal (nur Labels + Default-Views).
-
-**R3 — MCP Write-Access-Risiko:** Wenn AI-Agenten Requirements direkt schreiben können,
-drohen unkontrollierte Änderungen. Mitigiert durch Suggestion-Mode-Option (Runde-2-Entscheidung).
-
-**R4 — Multi-Tenancy-Migration:** Falsche Strategie in v1 kann spätere SaaS-Option
-erheblich verteuern. Entscheidung in Runde 2 ist daher zeitkritisch.
-
----
-
-## Anhang: Runde-2-Entscheidungsfragen
-
-> Diese Fragen sind die nächste Tranche für den User. Ausgearbeitet durch den ideation-Agenten.
-
----
-
-### Cluster A — MCP-Server: Finale Tool-Liste und Write-Scope
-
-Die folgende Tool-Liste ist für v1 vorgeschlagen (Basis-Set ist gesetzt, zwei Punkte
-erfordern Entscheidung):
-
-**Gesetztes Basis-Tool-Set v1:**
-
-| Tool | Beschreibung |
-|------|-------------|
-| `requirement.get(id)` | Einzelabruf mit vollständigem Kontext |
-| `requirement.query(filters)` | Suche/Filter |
-| `requirement.create(title, description, type, parent_id?)` | Anlegen |
-| `requirement.update(id, fields)` | Aktualisieren |
-| `requirement.decompose(id, children[])` | Zerlegung in Kind-Artefakte |
-| `traceability.query(artifact_id, direction?)` | Upstream/Downstream Impact-Analyse |
-| `test.create(title, type, linked_req_id?)` | Testfall anlegen |
-| `test.link(test_id, req_id)` | Verknüpfung Testfall ↔ Requirement |
-| `workspace.get_context()` | Workspace-Status für AI-Agenten-Orientierung |
-| `artifact.get_tree(root_id?)` | Gesamte Artefakt-Hierarchie |
-
-**Frage A1 — AI-gestützte Anforderungsvalidierung:**
-
-Soll v1 `requirement.validate(id)` anbieten — eine AI-gestützte Qualitätsprüfung,
-ob eine Anforderung vollständig, eindeutig und testbar formuliert ist?
-
-- **Option A (Ja, in v1):** ReqFlow ruft intern ein konfigurierbares LLM an und gibt
-  ein strukturiertes Qualitätsfeedback zurück (Score + Verbesserungsvorschläge).
-  Aufwand: mittel-hoch (LLM-Anbindung, Prompt-Engineering, Konfiguration).
-  Vorteil: klares AI-natives Differenzierungsmerkmal das sofort demonstrierbar ist.
-
-- **Option B (Nein, v2):** `requirement.validate` kommt erst in v2. Fokus in v1 bleibt
-  auf strukturiertem Datenzugriff. Externe Agenten können Validierung selbst implementieren,
-  da sie über MCP vollen Zugriff haben.
-
-*Empfehlung: Option B (v2).* Begründung: Externe Agenten (z.B. Claude Code als
-Requirements-Reviewer) können `requirement.get` nutzen und selbst validieren — ReqFlow
-muss dafür kein LLM hosten. Das hält v1 fokussiert und vermeidet eine API-Schlüssel-
-Verwaltungs-Komplexität für lokale/regulierte Deployments.
-
----
-
-**Frage A2 — MCP Write-Scope:**
-
-Soll der MCP-Server in v1 vollen Write-Access haben (create/update/decompose) oder nur
-im Read-only + Suggestion-Mode?
-
-- **Option A (Full Read+Write):** AI-Agenten können Requirements direkt anlegen, ändern
-  und zerlegen. Maximaler Nutzen für Automatisierungs-Workflows. Höheres Risiko:
-  unkontrollierte oder fehlerhafte Änderungen durch Agenten, kein menschlicher Review-Schritt.
-
-- **Option B (Read-only + Suggestion-Mode):** AI-Agenten können alles lesen und
-  "Vorschläge" als Draft-Requirements anlegen (Status: "ai-suggested"). Ein Mensch
-  bestätigt im UI (Approve / Reject). Write-Access bleibt auf die REST API beschränkt.
-  Geringeres Risiko, weniger Automatisierungspotenzial.
-
-*Empfehlung: Option A (Full Read+Write), aber mit Audit-Log.* Begründung: Der Mehrwert
-von MCP entsteht gerade durch agentengesteuertes Schreiben. Das Risiko wird durch ein
-vollständiges Audit-Log (wer/was/wann) und ggf. eine Rollen-basierte Einschränkung
-(MCP-API-Key mit Write-Permission, optional deaktivierbar) beherrschbar gemacht.
-
----
-
-### Cluster B — Systems Engineering Tiefe v1
-
-Wie tief soll Systems Engineering in v1 implementiert sein?
-
-- **Option A (Minimal-SE):** Nur Artefakt-Hierarchie (Parent-Child-Beziehungen) +
-  Traceability-Links zwischen Requirements und Tests. Keine Baselines, keine
-  Versionierung, kein Approval-Workflow. Maximale Einfachheit, schnellster MVP.
-
-- **Option B (Standard-SE) — empfohlen:** Zusätzlich zu Option A:
-  - **Baselines:** Snapshots einer Anforderungsmenge zu einem Zeitpunkt (unveränderlich,
-    benannt z.B. "Sprint-3-Release", "CDR-Baseline"). Ermöglicht Vergleich zwischen
-    Ständen. Implementierungskomplexität: mittel.
-  - **Change-Tracking:** Wer hat was wann geändert (created_by, modified_by,
-    modified_at, change_reason als optionales Freitext-Feld). Kein vollständiges
-    Versionierungs-System — nur flaches Audit-Log.
-
-- **Option C (Extended-SE):** Wie B, zusätzlich:
-  - **Impact-Analyse-Workflow:** Wenn Requirement X geändert wird, zeigt ReqFlow
-    automatisch alle abhängigen Tests, Sub-Requirements und verknüpften Artefakte
-    (Blast-Radius-Visualisierung im UI).
-  - **Approval-Status:** Requirements können Zustände haben: Draft → In Review →
-    Approved → Deprecated. Workflow mit Rollen (Editor schreibt, Approver bestätigt).
-
-*Empfehlung: Option B (Standard-SE).* Begründung: Baselines sind das kritische
-Feature für Systems Engineers — ohne Baselines ist ReqFlow für SE nicht ernsthaft
-nutzbar. Change-Tracking ist bei regulierten Umgebungen ein Must-Have-Signal für
-die Zielgruppe. Option C (Impact-Analyse-UI, Approval-Workflow) ist wertvoll, aber
-durch den MCP-Server bereits partiell abgedeckt (ein Agent kann `traceability.query`
-nutzen und einen Blast-Radius-Report generieren). Option C daher als v2.
-
-MBSE/SysML: Explizit v2+ — Begründung: SysML-Elemente (Blöcke, Ports, Flows)
-erfordern ein fundamentals anderes Metamodell und würden den MVP-Scope sprengen.
-Artefakt-Hierarchie mit Traceability ist das 80%-Äquivalent für 20% des Aufwands.
-Die Zielgruppe A würde durch MBSE aktiv abgeschreckt.
-
----
-
-### Cluster C — Compliance-Roadmap
-
-v1 ist bewusst compliance-frei. Das Datenmodell wird jedoch vorbereitet.
-
-**Frage C1 — Minimum-Datenmodell-Felder für spätere Compliance:**
-
-Folgende Felder sind empfohlen — Zustimmung erbeten:
-
-| Feld | Entität | Zweck |
-|------|---------|-------|
-| `created_by` (FK → User) | Requirement, TraceLink, Test | Autor-Nachweis |
-| `created_at` (Timestamp) | Requirement, TraceLink, Test | Erstellungszeitpunkt |
-| `modified_by` (FK → User) | Requirement | Letzter Bearbeiter |
-| `modified_at` (Timestamp) | Requirement | Letzter Änderungszeitpunkt |
-| `version` (Integer, auto-increment) | Requirement | Optimistic Locking + spätere Versionierung |
-| `change_reason` (Text, optional) | Requirement | Begründung für Änderungen |
-| `status` (Enum: draft/approved/deprecated) | Requirement | Lifecycle für Compliance-Workflows |
-
-Diese Felder sind leichtgewichtig, erzeugen kaum Overhead und ermöglichen später
-formale Audit-Trails ohne Datenmodell-Migration.
-
-**Frage C2 — Zielnorm für erste Compliance-Erweiterung (v2):**
-
-Welche Norm soll als erster Compliance-Zielmarkt angegangen werden?
-
-- **ISO 26262 (Automotive Functional Safety):** Breiter Markt (Tier-1/2-Zulieferer,
-  OEM-interne Teams), gut dokumentiert, starke Community. Anforderungen: ASIL-Level,
-  Hazard-Analysis-Tracing, Verification-Matrizen, elektronische Signaturen. Markt-
-  größe: sehr groß.
-
-- **DO-178C (Avionics Software):** Nischenmarkt, extrem strenge Anforderungen
-  (Software Level A–D), kaum Spielraum für Tool-Improvisation. Zertifizierung der
-  Tools selbst (Tool Qualification) erforderlich — sehr hoher Aufwand für ReqFlow.
-
-- **IEC 61508 (General Functional Safety) — empfohlen:** Breiteste Basis aller
-  Funktionssicherheitsnormen. Gilt direkt und als Eltern-Norm für ISO 26262 (Auto),
-  IEC 62061 (Maschinensicherheit), EN 50128 (Bahn). Wer IEC 61508 abdeckt, hat die
-  Grundlage für alle abgeleiteten Normen. Markt: Industrial Automation, Energy,
-  Medical (teilweise).
-
-*Empfehlung: IEC 61508.* Begründung: Als übergeordnete Norm erschließt sie mehrere
-Märkte gleichzeitig. ISO 26262 ist attraktiv, aber als erster Schritt unnötig spezifisch.
-DO-178C zu aufwändig für eine Open-Source-Positionierung.
-
----
-
-### Cluster D — Multi-Tenancy-Modell
-
-Das Datenmodell muss in v1 auf Multi-Tenancy vorbereitet werden, auch wenn v1
-nur Single-Tenant läuft. Drei klassische Ansätze:
-
-**Option A (Row-Level / tenant_id) — empfohlen:**
-Jede Tabelle bekommt eine `tenant_id` Foreign Key-Spalte (FK auf eine `Tenant`-Tabelle).
-Alle Queries enthalten automatisch einen `tenant_id`-Filter.
-
-Django-Umsetzungsskizze:
-```python
-# models.py
-class Tenant(models.Model):
-    name = models.CharField(max_length=255)
-    slug = models.SlugField(unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-class TenantAwareModel(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, db_index=True)
-    class Meta:
-        abstract = True
-
-class Requirement(TenantAwareModel):
-    # alle Felder wie gehabt
-    ...
-
-# middleware.py — setzt Request-Tenant aus JWT/API-Key
-class TenantMiddleware:
-    def __call__(self, request):
-        request.tenant = resolve_tenant_from_request(request)
-        ...
-
-# managers.py — automatischer Filter
-class TenantAwareManager(models.Manager):
-    def get_queryset(self):
-        return super().get_queryset().filter(
-            tenant=get_current_tenant()
-        )
+## 5. Datenmodell-Konzept
+
+Das Datenmodell folgt dem Prinzip "reichhaltiges Fundament, konfigurierbare Sichtbarkeit". Alle Felder für Audit, Compliance und erweiterte Workflows sind von Beginn an vorhanden.
+
+### 5.1 Kern-Entitäten (konzeptuelle Übersicht)
+
+```
+Tenant (1)
+  └── Workspace (n)           -- Konfigurationseinheit (Terminologie-Profil, SE-Preset)
+        └── Artifact (n, hierarchisch, beliebige Tiefe)
+              └── Requirement (n)
+                    ├── TraceLink (n)    -- zu anderen Requirements oder TestCases
+                    └── Baseline (n)    -- Snapshots der Anforderungsmenge
+TestCase (n)
+  └── TraceLink               -- Verknüpfung zu Requirements
 ```
 
-In v1 gibt es genau einen Tenant ("default"). Multi-Tenancy-Vorbereitung kostet
-minimal extra, verhindert aber eine teure Migration später.
+### 5.2 Entitäten im Detail
 
-Vorteile: Einfachste Migration, geringstes Django-Setup-Overhead, kein zusätzliches
-Package erforderlich, gut verständlich.
+**Tenant**
 
-Nachteile: Alle Tenants in derselben Datenbank — Query-Filter-Disziplin erforderlich.
-Risiko: Vergessener `tenant_id`-Filter in einem Query = Datenleck. Mitigiert durch
-Custom Manager + automatisches Filter-Enforcement in Middleware.
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| id | UUID | Primärschlüssel |
+| name | String | Anzeigename |
+| slug | String (unique) | URL-freundlicher Bezeichner |
+| created_at | Timestamp | Erstellungszeitpunkt |
 
-**Option B (Schema-per-Tenant):** Jeder Tenant bekommt eigenes PostgreSQL-Schema.
-Stärkere Datenisolation. Erfordert `django-tenants`-Package oder erhebliche
-Eigenentwicklung. Für v1 (Single-Tenant) überdimensioniert.
+In v1 existiert genau ein Tenant ("default"). Das Feld ist Voraussetzung für spätere Multi-Tenancy-Aktivierung ohne Datenmigration.
 
-**Option C (Database-per-Tenant):** Maximale Isolation. Operativ extrem aufwändig für
-Self-Hosted-Deployments. Kommt nur für Enterprise-On-Premises-Szenario infrage.
+**Workspace**
 
-*Empfehlung: Option A (Row-Level / tenant_id).* Begründung: Minimale Komplexität,
-maximale Kompatibilität mit Standard-Django, kein zusätzliches Package. Für ein
-Open-Source-Projekt mit Self-Hosted-Fokus der pragmatisch beste Einstieg.
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| id | UUID | Primärschlüssel |
+| tenant | FK → Tenant | Zugehöriger Tenant |
+| name | String | Projektname |
+| terminology_profile | JSON | Aktives Terminologie-Preset (Dev/SE/Custom) |
+| se_preset | Enum | Minimal / Standard / Extended |
+| created_by | FK → User | Ersteller |
+| created_at | Timestamp | Erstellungszeitpunkt |
 
-**Abstimmung erbeten:** Stimmt ihr Option A zu, oder gibt es Präferenzen für B?
+**Artifact**
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| id | UUID | Primärschlüssel |
+| tenant | FK → Tenant | Tenant-Isolation |
+| workspace | FK → Workspace | Zugehöriger Workspace |
+| parent | FK → Artifact (nullable) | Übergeordnetes Artefakt |
+| title | String | Bezeichnung |
+| description | Text | Beschreibung |
+| artifact_type | String | Konfigurierbar (System / Subsystem / Component o.ä.) |
+| created_by | FK → User | Ersteller |
+| created_at | Timestamp | Erstellungszeitpunkt |
+| modified_by | FK → User | Letzter Bearbeiter |
+| modified_at | Timestamp | Letzter Änderungszeitpunkt |
+
+**Requirement**
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| id | UUID | Primärschlüssel |
+| tenant | FK → Tenant | Tenant-Isolation |
+| artifact | FK → Artifact | Zugehöriges Artefakt |
+| title | String | Kurzbezeichnung |
+| description | Text | Vollständige Anforderungsbeschreibung (Markdown) |
+| category | Enum | Functional / Non-Functional / API / UI-UX / Data / Integration / Test |
+| priority | Enum | High / Medium / Low (nullable) |
+| status | Enum | draft / approved / deprecated |
+| version | Integer (auto-increment) | Optimistic Locking, Basis für spätere Versionierung |
+| change_reason | Text (optional) | Begründung für Änderung |
+| tags | JSON-Array | Freitags für Filterung |
+| created_by | FK → User | Autor-Nachweis |
+| created_at | Timestamp | Erstellungszeitpunkt |
+| modified_by | FK → User | Letzter Bearbeiter |
+| modified_at | Timestamp | Letzter Änderungszeitpunkt |
+
+**TraceLink**
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| id | UUID | Primärschlüssel |
+| tenant | FK → Tenant | Tenant-Isolation |
+| source | FK → Requirement | Quelle |
+| target_requirement | FK → Requirement (nullable) | Ziel-Anforderung |
+| target_test | FK → TestCase (nullable) | Ziel-Testfall |
+| link_type | Enum | parent-child / derives-from / satisfies / verifies |
+| created_by | FK → User | Ersteller |
+| created_at | Timestamp | Erstellungszeitpunkt |
+
+**TestCase**
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| id | UUID | Primärschlüssel |
+| tenant | FK → Tenant | Tenant-Isolation |
+| workspace | FK → Workspace | Zugehöriger Workspace |
+| title | String | Bezeichnung |
+| description | Text | Beschreibung / Testschritte |
+| test_type | Enum | Unit / Integration / System / Acceptance |
+| status | Enum | not_run / passed / failed / skipped |
+| created_by | FK → User | Ersteller |
+| created_at | Timestamp | Erstellungszeitpunkt |
+| modified_by | FK → User | Letzter Bearbeiter |
+| modified_at | Timestamp | Letzter Änderungszeitpunkt |
+
+**Baseline**
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| id | UUID | Primärschlüssel |
+| tenant | FK → Tenant | Tenant-Isolation |
+| workspace | FK → Workspace | Zugehöriger Workspace |
+| name | String | Bezeichnung (z.B. "Sprint-3-Release") |
+| snapshot | JSON | Unveränderlicher Snapshot aller Requirement-IDs + Versionen |
+| created_by | FK → User | Ersteller |
+| created_at | Timestamp | Erstellungszeitpunkt |
+| description | Text (optional) | Kontext / Begründung |
+
+Baselines sind nach der Erstellung unveränderlich. Änderungen an enthaltenen Requirements erzeugen eine neue Requirement-Version, die Baseline bleibt unberührt.
+
+### 5.3 Audit-Felder — Vollständige Übersicht
+
+Folgende Audit-Felder sind auf allen relevanten Entitäten vorhanden:
+
+| Feld | Entität | Zweck |
+|---|---|---|
+| created_by (FK → User) | Requirement, TraceLink, TestCase, Artifact | Autor-Nachweis |
+| created_at (Timestamp) | Requirement, TraceLink, TestCase, Artifact | Erstellungszeitpunkt |
+| modified_by (FK → User) | Requirement, Artifact, TestCase | Letzter Bearbeiter |
+| modified_at (Timestamp) | Requirement, Artifact, TestCase | Letzter Änderungszeitpunkt |
+| version (Integer, auto-increment) | Requirement | Optimistic Locking + Versionierungsbasis |
+| change_reason (Text, optional) | Requirement | Begründung für Änderungen |
+| status (Enum: draft/approved/deprecated) | Requirement | Lifecycle-Steuerung |
+
+Diese Felder sind leichtgewichtig, erzeugen kaum Overhead und ermöglichen später formale Audit-Trails ohne Datenmigration.
+
+### 5.4 Multi-Tenancy: Row-Level-Isolation
+
+Alle Entitäten tragen ein `tenant`-Fremdschlüsselfeld. Alle Datenbankabfragen enthalten automatisch einen `tenant_id`-Filter, durchgesetzt über einen Custom Django Manager und Middleware, die den aktiven Tenant aus dem JWT/API-Key extrahiert.
+
+In v1 existiert genau ein Tenant ("default"). Das Modell ist für Multi-Tenancy vorbereitet, ohne es aktiv zu betreiben. Vorteil: Die spätere Aktivierung echter Multi-Tenancy (für SaaS in v2) erfordert keine Datenmigration — nur das Anlegen weiterer Tenants und die Implementierung der Tenant-Auflösungslogik in der Middleware.
 
 ---
 
-### Cluster E — i18n und Echtzeit-Kollaboration
+## 6. MCP-Server-Konzept
 
-**Frage E1 — Internationalisierung (i18n):**
+Der MCP Server ist eine gleichrangige Produktions-Schnittstelle neben der REST API — kein Anhängsel, kein Plugin. Er ermöglicht AI-Agenten vollständigen strukturierten Zugriff auf den Anforderungskontext.
 
-Soll v1 mehrsprachig sein?
+### 6.1 Grundprinzipien
 
-- **Option A (Ja, i18n in v1):** Django i18n-Framework (gettext) für Backend-Messages,
-  react-i18next für Frontend. DE und EN als initiale Sprachen. Aufwand: mittel
-  (alle UI-Strings müssen in Translation-Keys extrahiert werden). Vorteil: Später
-  sehr günstig neue Sprachen hinzufügen.
+**Read + Write + Audit-Log:** Der MCP Server in v1 hat vollen Read- und Write-Access. AI-Agenten können Requirements anlegen, ändern und zerlegen. Jede schreibende MCP-Operation wird im Audit-Log erfasst (welcher Agent-Client, welcher API-Key, welche Operation, wann). Dies macht agentengesteuerte Änderungen vollständig nachvollziehbar.
 
-- **Option B (Englisch-only in v1) — empfohlen:** Vollständig englischsprachige UI in v1.
-  i18n als v2-Feature. Aufwand: null. Risiko: Nachträgliche i18n-Migration ist
-  aufwändig (alle Strings müssen extrahiert werden), aber machbar.
+**Generische Entitätsnamen:** Der MCP Server nutzt immer die generischen Entitätsnamen (Requirement, Artifact, TraceLink) — unabhängig vom aktiven Terminologie-Profil. AI-Agenten müssen das Profil nicht kennen.
 
-*Empfehlung: Option B.* Begründung: i18n-Setup früh zu machen ist zwar günstiger als
-nachträglich, aber in der MVP-Phase ist English-only der Standard für Developer-Tools.
-ReqFlows Primärzielgruppe (AI-first Dev Teams + SE-Engineers mit AI-Affinität) ist
-international und erwartet englische UIs. Aufwand in v1 besser in Core-Features investieren.
+**Konfigurierbare LLM-Anbindung (requirement.validate):** Das Tool `requirement.validate` ruft intern ein konfigurierbares LLM an. Der LLM-Anbieter und API-Key sind pro Deployment konfigurierbar (Default-Empfehlung: Claude, aktuelle Version). Deployments ohne LLM-Anbindung können `requirement.validate` deaktivieren. Das Feature ist optional und nicht kritisch für den Kern-Workflow.
+
+### 6.2 MCP-Tool-Set v1 (11 Tools)
+
+| Tool | Signatur | Beschreibung |
+|---|---|---|
+| `requirement.get` | `(id)` | Einzelabruf einer Anforderung mit vollständigem Kontext (Traces, Tests, Audit-History). Primärer Einstiegspunkt für Coding-Agenten vor der Implementierung. |
+| `requirement.query` | `(filters)` | Suche und Filter mit Facetten (Artefakt, Status, Typ, Kategorie, Tags). Primärer Use Case: Test-Agent ermittelt Abdeckungslücken. |
+| `requirement.create` | `(title, description, type, artifact_id, parent_id?)` | Neue Anforderung anlegen. Alle schreibenden Operationen werden im Audit-Log erfasst. |
+| `requirement.update` | `(id, fields, change_reason?)` | Felder einer Anforderung aktualisieren. `change_reason` ist im Extended-Preset Pflichtfeld. |
+| `requirement.decompose` | `(id, children[])` | Zerlegung einer Anforderung in Kind-Artefakte als Batch-Operation. Ermöglicht strukturierte SE-Zerlegung durch Agenten ohne N einzelne API-Calls. |
+| `requirement.validate` | `(id)` | LLM-gestützte Qualitätsprüfung: Vollständigkeit, Eindeutigkeit und Testbarkeit einer Anforderung. Gibt strukturiertes Feedback (Score + Verbesserungsvorschläge). Optional deaktivierbar, LLM-Anbieter konfigurierbar (Bring-your-own-API-Key). |
+| `traceability.query` | `(artifact_id, direction?)` | Upstream/Downstream Impact-Analyse. Gibt alle abhängigen Requirements, Tests und Artefakte zurück. Primärer Use Case: Blast-Radius-Analyse bei Änderungen. |
+| `test.create` | `(title, type, linked_req_id?)` | Testfall anlegen und optional direkt mit einer Anforderung verknüpfen. |
+| `test.link` | `(test_id, req_id)` | Nachträgliche Verknüpfung eines Testfalls mit einer Anforderung. |
+| `workspace.get_context` | `()` | Workspace-Status abrufen: offene Requirements, unverknüpfte Tests, Coverage-Summary, aktives Terminologie-Profil, aktives SE-Preset. Orientierungspunkt für AI-Agenten beim Einstieg in eine Session. |
+| `artifact.get_tree` | `(root_id?)` | Gesamte Artefakt-Hierarchie abrufen (optional ab einem bestimmten Root-Knoten). Strukturüberblick für Agenten. |
+
+### 6.3 Primäre AI-Workflows
+
+**Workflow 1 — Context-Aware Code Generation:** Ein Coding-Agent (z.B. Claude Code) ruft vor der Implementierung einer Komponente via `requirement.get` und `requirement.query` alle zugehörigen Requirements ab. Code-Generierung erfolgt mit vollständigem Anforderungskontext.
+
+**Workflow 2 — Automated Test Coverage Analysis:** Ein Test-Agent scannt via `requirement.query` alle Requirements eines Artefakts, prüft die Coverage via `traceability.query` und legt Testfälle für Lücken via `test.create` an.
+
+**Workflow 3 — Change Impact Analysis:** Bei einer Anforderungsänderung ruft ein Analyse-Agent via `traceability.query` alle abhängigen Requirements, Tests und Artefakte ab und erstellt einen Blast-Radius-Report.
+
+**Workflow 4 — Requirements Elicitation:** Ein Elicitation-Agent führt strukturierte Interviews und schreibt Ergebnisse via `requirement.create` direkt als strukturierte Requirements in ReqFlow.
+
+### 6.4 MCP-Zielclients v1
+
+- Claude Code (Anthropic) — nativer MCP-Support, primärer Use Case
+- Cursor — MCP-kompatibel, breite Developer-Adoption
+- Dedizierte Requirements-Agenten und Orchestratoren (beliebige MCP-kompatible Clients)
+- CI/CD-Agenten (z.B. GitHub Actions mit MCP-Tool-Runner)
 
 ---
 
-**Frage E2 — Echtzeit-Kollaboration:**
+## 7. SE-Tiefe-Stufen als Projekt-Presets
 
-Soll v1 Echtzeit-Kollaboration unterstützen (mehrere Nutzer bearbeiten gleichzeitig)?
+Die SE-Tiefe ist pro Projekt über drei Standard-Presets einstellbar. Ein Preset ist eine JSON-Konfiguration, die auf Workspace-Ebene gesetzt wird und Funktionsumfang, Pflichtfelder und Workflow-Regeln definiert.
 
-- **Option A (Echtzeit in v1):** Django Channels (ASGI + WebSockets) für
-  Live-Updates. Operational Transform (OT) oder CRDT für konfliktfreies gleichzeitiges
-  Editieren. Erhebliche Komplexität: neues ASGI-Layer, Conflict-Resolution-Logik,
-  Frontend-Sync-State.
+### 7.1 Preset-Übersicht
 
-- **Option B (v2 — Polling/Refresh in v1) — empfohlen:** v1 nutzt Standard HTTP mit
-  manuellem Refresh oder optionalem Short-Polling für Dashboard-Updates. Keine
-  WebSocket-Infrastruktur. Echtzeit-Kollaboration in v2 mit Django Channels.
+| Merkmal | Minimal | Standard | Extended |
+|---|---|---|---|
+| **Zielgruppe** | AI-first Dev Teams, schnelle Iteration | Software Teams + SE-Einstieg | Systems Engineers, regulierte Umgebungen |
+| **Artefakt-Hierarchie** | Ja | Ja | Ja |
+| **Requirements CRUD** | Ja | Ja | Ja |
+| **Traceability** | Ja | Ja | Ja |
+| **Baselines** | Nein | Ja (Must-Have) | Ja |
+| **Change-Tracking** | Nur Timestamps | Timestamps + change_reason optional | Timestamps + change_reason Pflichtfeld |
+| **Status-Lifecycle** | draft / done | draft / approved / deprecated | draft / in_review / approved / deprecated |
+| **Approval-Workflow** | Nein | Nein | Ja (Editor schreibt, Approver bestätigt) |
+| **Impact-Analyse-UI** | Nur via MCP | Nur via MCP | Vollständige UI-Visualisierung |
+| **Compliance-Felder** | Ausgeblendet | Optional sichtbar | Aktiv und teils verpflichtend |
+| **`change_reason` bei Update** | Optional | Optional | Pflichtfeld |
 
-*Empfehlung: Option B.* Begründung: Echtzeit-Kollaboration ist ein erheblicher
-Architektur-Komplexitätsmultiplikator. Requirements-Editing ist kein Google-Docs-
-Szenario — die meisten Änderungen werden sequenziell vorgenommen, nicht gleichzeitig.
-Ein einfaches "Zuletzt gespeichert: X vor 2 Minuten" mit Refresh-Button reicht für v1.
+### 7.2 Preset: Minimal
+
+Das Minimal-Preset ist für Teams gedacht, die schnell starten wollen ohne Prozess-Overhead. Artefakt-Hierarchie, Requirements CRUD und Traceability sind vorhanden. Keine Baselines, keine formalen Approval-Workflows. Der Status-Lifecycle ist vereinfacht (draft/done). Change-Tracking beschränkt sich auf automatische Timestamps.
+
+Typischer Anwendungsfall: Ein Startup-Team will strukturierte Anforderungen verwalten und seinen AI-Agenten Kontext geben — ohne den Overhead eines formalen Requirements-Engineering-Prozesses.
+
+### 7.3 Preset: Standard
+
+Das Standard-Preset fügt Baselines und erweitertes Change-Tracking hinzu. Baselines sind das kritische Feature für Systems Engineers — ohne Baselines ist ReqFlow für SE nicht ernsthaft nutzbar. Der Status-Lifecycle ist vollständig (draft / approved / deprecated). `change_reason` ist optional, aber im UI sichtbar und empfohlen.
+
+Baselines sind unveränderliche, benannte Snapshots einer Anforderungsmenge. Sie ermöglichen Vergleiche zwischen Ständen, sind Voraussetzung für formale Reviews und bilden die Grundlage für spätere Compliance-Workflows.
+
+Typischer Anwendungsfall: Ein Software-Team in einer regulierten Umgebung (z.B. Medizintechnik-Startup) braucht nachvollziehbare Anforderungsstände, aber noch keinen vollständigen Approval-Workflow.
+
+### 7.4 Preset: Extended
+
+Das Extended-Preset aktiviert zusätzlich den vollständigen Approval-Workflow und die Impact-Analyse-Visualisierung im UI.
+
+**Approval-Workflow:** Requirements durchlaufen den Lifecycle Draft → In Review → Approved → Deprecated. Rollen: Editor (schreibt und stellt zur Review), Approver (genehmigt oder lehnt ab). Approved Requirements sind schreibgeschützt — Änderungen erfordern eine neue Draft-Version. Dies ist die Grundlage für spätere formale Compliance-Nachweise.
+
+**Impact-Analyse-UI:** Wenn eine Anforderung geändert wird, visualisiert ReqFlow automatisch alle abhängigen Tests, Sub-Requirements und verknüpften Artefakte als Blast-Radius-Darstellung. Dies ist der UI-Gegenstück zur `traceability.query`-API — dieselben Daten, aber als interaktive Visualisierung.
+
+**`change_reason` als Pflichtfeld:** Bei jedem Update einer Anforderung ist eine Begründung verpflichtend einzutragen.
+
+Typischer Anwendungsfall: Ein Automotive-Zulieferer oder Industrial-Automation-Team, das auf eine formale Compliance-Zertifizierung (z.B. IEC 61508) hinarbeitet und bereits jetzt audit-ready sein möchte.
 
 ---
 
-*Letzte Aktualisierung durch ideation-Agenten (Runde 2 Aufbereitung) | 2026-06-17*
+## 8. Compliance-Roadmap
+
+### 8.1 v1 — Audit-ready, nicht compliance-zertifiziert
+
+ReqFlow v1 ist bewusst nicht auf eine spezifische Compliance-Norm ausgerichtet. Die Grundlage wird jedoch bereits in v1 gelegt:
+
+- Vollständige Audit-Felder auf allen relevanten Entitäten (created_by/at, modified_by/at, version, change_reason, status)
+- Unveränderliche Baselines als Snapshot-Mechanismus
+- Approval-Workflow (im Extended-Preset)
+- Vollständige MCP-Audit-Logs für agentengesteuerte Änderungen
+
+Diese Features machen ReqFlow v1 "audit-ready" — das System kann für interne Audits und Prozess-Reviews genutzt werden, ohne eine formale Norm-Zertifizierung anzustreben.
+
+### 8.2 v2 — IEC 61508 als erste Compliance-Zielnorm
+
+Die erste formale Compliance-Erweiterung zielt auf IEC 61508 (Funktionale Sicherheit elektrischer/elektronischer Systeme) als übergeordnete Norm. Die Begründung für diese Wahl:
+
+IEC 61508 ist die Eltern-Norm für die relevantesten abgeleiteten Normen: ISO 26262 (Automotive Functional Safety), IEC 62061 (Maschinensicherheit) und EN 50128 (Bahntechnik). Wer die Anforderungen der IEC 61508 abdeckt, hat die Grundlage für alle diese abgeleiteten Normen und erschließt damit mehrere Märkte gleichzeitig.
+
+DO-178C (Avionics) wurde bewusst nicht als erster Schritt gewählt: Die Norm erfordert eine Tool-Qualification (Zertifizierung des Werkzeugs selbst) mit sehr hohem Aufwand — zu aufwändig für eine Open-Source-Positionierung im Einstieg.
+
+### 8.3 Compliance-Roadmap im Überblick
+
+| Phase | Compliance-Scope |
+|---|---|
+| v1 | Audit-ready: Audit-Felder, Change-Tracking, Baselines, Approval-Workflow (Extended) |
+| v2 | IEC 61508: Norm-spezifische Anforderungsattribute, formale Verification-Matrizen, elektronische Signaturen |
+| v3+ | ISO 26262 / IEC 62061 / EN 50128 (aufbauend auf IEC 61508-Grundlage) |
+
+---
+
+## 9. Architektur-Überblick
+
+### 9.1 Tech-Stack
+
+ReqFlow basiert auf einem bewusst konservativen, bewährten Stack:
+
+- **Backend:** Python / Django + Django REST Framework
+- **Frontend:** React + TypeScript
+- **Datenbank:** PostgreSQL (via Django ORM)
+- **Deployment:** Docker Compose (Self-Hosted)
+- **Schnittstellen:** REST API + nativer MCP Server
+
+Der Stack ist bekannt, gut dokumentiert, hat eine große Community und ist für die Zielgruppe (Developer-affine Teams) einfach zu betreiben. Kein Vendor-Lock-in durch proprietäre Cloud-Services.
+
+### 9.2 Systemstruktur
+
+```
+ReqFlow
+├── Backend (Django)
+│   ├── REST API (Django REST Framework)
+│   │   └── OpenAPI Spec (auto-generiert)
+│   ├── MCP Server (nativer MCP-Protokoll-Handler)
+│   │   └── 11 Tools (requirement.*, traceability.*, test.*, workspace.*, artifact.*)
+│   ├── Datenmodell (PostgreSQL via Django ORM)
+│   │   └── Tenant-Isolation (Row-Level, Custom Manager)
+│   └── Auth (Token-basiert, rollenbasierte Zugriffskontrolle)
+└── Frontend (React + TypeScript)
+    ├── Dashboard
+    ├── Requirements-Editor (Inline, Markdown)
+    ├── Artefakt-Navigation (Baumstruktur)
+    ├── Traceability-Anzeige
+    └── Workspace-Profil-Konfiguration (Terminologie, SE-Preset)
+```
+
+### 9.3 Wichtige Architektur-Entscheide
+
+**MCP Server als eigenständige Schnittstelle:** Der MCP Server ist kein Wrapper über die REST API, sondern greift direkt auf die Django-Service-Schicht zu. Das vermeidet Overhead durch HTTP-Roundtrips und ermöglicht performante Batch-Operationen (z.B. `requirement.decompose`).
+
+**Multi-Tenancy: Row-Level-Isolation:** Alle Entitäten tragen ein `tenant`-FK. Ein Custom Django Manager filtert automatisch nach dem aktiven Tenant. In v1 gibt es genau einen Default-Tenant. Schema-per-Tenant (django-tenants) und Database-per-Tenant wurden bewusst abgelehnt: zu hoher Overhead für ein Open-Source-Projekt mit Self-Hosted-Fokus.
+
+**i18n: DE und EN in v1:** Django gettext für Backend-Strings, react-i18next für Frontend. Beide Sprachen (Deutsch, Englisch) sind in v1 enthalten. Die Entscheidung fiel für frühzeitige i18n-Integration, weil nachträgliche String-Extraktion aufwändiger ist als proaktive Translation-Key-Nutzung.
+
+**Echtzeit-Kollaboration: v2:** v1 nutzt Standard-HTTP mit manuellem Refresh und optionalem Short-Polling für Dashboard-Updates. Keine WebSocket-Infrastruktur in v1. Requirements-Editing ist kein Google-Docs-Szenario — sequenzielle Änderungen überwiegen. Django Channels für Echtzeit-Kollaboration ist als v2-Feature vorgesehen.
+
+**LLM-Anbindung: Konfigurierbar, optional:** ReqFlow ruft in v1 LLMs nur für `requirement.validate` auf. Der Anbieter ist konfigurierbar (Default: Claude API), der API-Key wird pro Deployment hinterlegt (Bring-your-own-Key). Deployments ohne LLM-Zugang können das Feature deaktivieren.
+
+---
+
+## 10. Abgrenzung v1 vs. v2+
+
+### 10.1 Scope v1
+
+Die folgende Tabelle fasst zusammen, was in v1 enthalten ist und was nicht.
+
+| Bereich | In v1 | Begründung |
+|---|---|---|
+| Artefakt-Hierarchie + Requirements CRUD | Ja | Kern des Produkts |
+| Traceability-Engine | Ja | Kern des Produkts |
+| MCP Server (11 Tools) | Ja | AI-nativer Differenzierungsvorteil |
+| REST API + OpenAPI | Ja | Kern des Produkts |
+| React-UI (Dashboard, Editor, Navigation) | Ja | Kern des Produkts |
+| Docker Compose Deployment | Ja | Self-Hosted v1 |
+| Workspace-Profile (Terminologie-Presets) | Ja | Dual-Zielgruppen-Strategie |
+| SE-Presets (Minimal/Standard/Extended) | Ja | Configurable Rigor |
+| Baselines | Ja (ab Standard) | Must-Have für SE-Zielgruppe |
+| Audit-Felder (created_by/at, version, etc.) | Ja | Compliance-Vorbereitung |
+| Approval-Workflow (Draft/Approved/Deprecated) | Ja (Extended) | SE-Zielgruppe, Compliance-Vorbereitung |
+| Impact-Analyse-UI | Ja (Extended) | SE-Zielgruppe |
+| requirement.validate (LLM-gestützt) | Ja (optional, konfig.) | AI-natives Feature |
+| Multi-Tenancy-Vorbereitung (Row-Level) | Ja (Default-Tenant) | Vorbereitung für v2 SaaS |
+| i18n DE + EN | Ja | Dual-Markt DE/EN |
+| Export JSON/CSV | Ja | Grundfunktion |
+| GitHub Integration | Should-Have v1 | Sinnvolle v1-Integration |
+
+### 10.2 Explizit v2+
+
+| Feature | Version | Begründung |
+|---|---|---|
+| SaaS / Managed Hosting | v2 | Infrastruktur-Aufwand, Multi-Tenancy aktiv |
+| Echte Multi-Tenancy (mehrere aktive Tenants) | v2 | Benötigt Auth-/Billing-System |
+| Echtzeit-Kollaboration (WebSockets/CRDT) | v2 | Erheblicher Architektur-Aufwand |
+| MBSE / SysML-Elemente | v2+ | Anderes Metamodell, sprengt MVP |
+| ReqIF-Import/Export | v2 | SE-Standard, aber nicht MVP-kritisch |
+| Jira-Synchronisation (bidirektional) | v2 | Komplexe Sync-Logik |
+| SSO (SAML/OIDC) | v2 | Enterprise-Feature |
+| IEC 61508 Compliance-Features | v2 | Aufbauend auf v1-Audit-Grundlage |
+| ISO 26262 / IEC 62061 / EN 50128 | v3+ | Aufbauend auf IEC 61508 |
+| Horizontale Skalierung / Kubernetes | v2 | Enterprise-Deployment |
+| Semantische Suche (Vektordatenbank) | v2 | ML-Infrastruktur |
+| AI-gestützte Test-Case-Generierung | v2 | Aufbauend auf v1-Datenqualität |
+
+---
+
+## 11. Offene Risiken und nächste Schritte
+
+### 11.1 Offene Risiken
+
+**R1 — Terminologie-Verwirrung zwischen Profilen:** Das Dual-Profil-System (Dev-Modus / SE-Modus) kann Nutzer verwirren, wenn nicht klar kommuniziert wird, was sich beim Profilwechsel ändert (nur Labels) und was nicht (Daten, API). Mitigiert durch persistente Header-Anzeige des aktiven Profils und Bestätigungs-Dialog mit explizitem Hinweis.
+
+**R2 — Scope-Creep durch zwei Zielgruppen:** "Beide gleichwertig" verleitet dazu, zielgruppen-spezifische Features sofort zu bauen. Gegenmaßnahme: Datenmodell ist generisch, UI-Anpassungen minimal (nur Labels und Default-Views). Neue Features werden strikt gegen die Preset-Matrix geprüft.
+
+**R3 — MCP Write-Access-Risiko:** AI-Agenten können Requirements direkt schreiben. Unkontrollierte oder fehlerhafte Agenten-Änderungen sind möglich. Mitigiert durch vollständiges Audit-Log aller MCP-Schreiboperationen und rollen-basierte API-Key-Berechtigungen (Write-Permission optional deaktivierbar pro Workspace).
+
+**R4 — LLM-Abhängigkeit bei requirement.validate:** Wenn das Feature standardmäßig aktiviert ist und der konfigurierte LLM-Anbieter nicht erreichbar ist, muss das System graceful degradieren. `requirement.validate` muss klar als optionales, konfigurierbares Feature kommuniziert werden — nicht als Core-Funktion.
+
+**R5 — i18n-Konsistenz:** Mit DE und EN von Beginn an muss sichergestellt werden, dass alle neuen UI-Strings in beiden Sprachen gepflegt werden. Empfehlung: Lint-Regel, die fehlende Translation-Keys als Build-Fehler behandelt.
+
+### 11.2 Vor der formalen Anforderungsaufnahme zu klärende Punkte
+
+Die folgenden Punkte sollten vor oder während der Arbeit mit dem requirements-Agenten geklärt werden, da sie die konkrete Ausgestaltung einzelner Anforderungen beeinflussen:
+
+**Klärungsbedarf 1 — Preset-Wechsel-Semantik:** Was passiert, wenn ein Projekt von Standard auf Minimal downgradet? Werden Baselines eingefroren? Werden Approved-Requirements auf Draft zurückgesetzt? Die Semantik eines Preset-Wechsels (besonders Downgrade) muss vor der Modellierung definiert werden.
+
+**Klärungsbedarf 2 — MCP-Audit-Log-Granularität:** Wie granular soll das MCP-Audit-Log sein? Reicht Feld-Level (welches Feld wurde geändert) oder genügt Operation-Level (welches Tool wurde mit welchen Parametern aufgerufen)? Dies beeinflusst das Datenmodell des Audit-Logs.
+
+**Klärungsbedarf 3 — Baseline-Vergleich-UI:** Ist ein visueller Diff zwischen zwei Baselines (Side-by-Side oder Diff-View) ein v1-Feature im Extended-Preset oder v2? Die Entscheidung beeinflusst den Scope der Baseline-Implementierung erheblich.
+
+**Klärungsbedarf 4 — Webhook-Scope:** Für welche Events sollen Webhooks in v1 feuern? (z.B. requirement.created, requirement.updated, requirement.approved, test.linked) Vollständiger Event-Katalog muss vor API-Design definiert werden.
+
+**Klärungsbedarf 5 — requirement.validate Prompt-Strategie:** Soll der Qualitätsprüfungs-Prompt für `requirement.validate` konfigurierbar sein (z.B. domänenspezifische Qualitätskriterien für Automotive vs. Software)? Oder ist ein generischer Prompt für v1 ausreichend?
+
+---
+
+## Anhang A: Entscheidungshistorie
+
+| Runde | Thema | Entscheidung |
+|---|---|---|
+| 1 | Zielgruppe | Beide gleichwertig (AI-first Teams + Systems Engineers); gemeinsames Datenmodell + Terminologie-Presets |
+| 1 | Lizenz | Open Source Apache 2.0; Monetarisierung via Managed Hosting/Support |
+| 1 | Deployment | Self-Hosted only v1 (Docker Compose); SaaS v2+ |
+| 2 | MCP Write-Scope | Full Read+Write mit Audit-Log |
+| 2 | requirement.validate | In v1 als optionales, konfigurierbares Feature mit Bring-your-own-API-Key |
+| 2 | SE-Preset-Tiefe | Drei Presets: Minimal / Standard / Extended; Baselines Must-Have ab Standard |
+| 2 | Compliance-Zielnorm | IEC 61508 als erste Zielnorm (v2) |
+| 2 | Multi-Tenancy | Row-Level (tenant_id FK), Default-Tenant in v1 |
+| 2 | i18n | In v1 (Django gettext + react-i18next, DE + EN) |
+| 2 | Echtzeit-Kollaboration | v2 (v1: HTTP-Polling/Refresh) |
+
+---
+
+*Finalisiert durch ideation-Agenten (ReqFlow) — Ideation-Runde 3 | 2026-06-17*
+*Nächster Schritt: Übergabe an requirements-Agenten für formale Anforderungsaufnahme*
