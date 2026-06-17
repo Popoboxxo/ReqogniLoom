@@ -107,7 +107,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 <!-- This block is automatically updated by sync.py on every sync. -->
 <!-- Manual changes here will be overwritten. -->
 
-Generiert von agent-meta v0.61.1 — `2026-06-17`
+Generiert von agent-meta v0.62.0 — `2026-06-18`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 
 > **Einstiegspunkt:** Starte mit dem `orchestrator`-Agenten für alle Entwicklungsaufgaben — Ausnahmen siehe Abschnitt »Orchestrator — Universal Router«.
@@ -131,9 +131,9 @@ DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Cod
 | `se-critic` | Use this agent to validate requirements before architecture, and audit architectural decompositions. |
 | `se-integration-and-test-manager` | Orchestriert den gesamten rechten Flügel der V&V-Kaskade — Bottom-Up, Top-Down, Integrationsplanung. |
 | `se-interface-mgr` | Manages generic signal flow, deterministic sync across systems |
-| `se-orchestrator` | Coordinates the 6-level recursive breakdown |
+| `se-orchestrator` | DEPRECATED — Use orchestrator with SE-Mode instead |
 | `se-requirements` | Use this agent to clarify requirements and start the SE cascade. |
-| `se-termination` | Deterministic termination at L3 (Component Requirement) |
+| `se-termination` | Dynamic depth termination with SE_MIN_DEPTH/SE_MAX_DEPTH control |
 | `se-validator` | Validiert das System auf L1-Ebene durch User-Journey-Simulation — ignoriert Code, prüft ob der User-Need erfüllt ist. |
 | `se-verifier` | Use this agent to verify integrated systems against their specifications on all architecture levels (L1 through Ln). |
 | `senior-developer` | High-Tier-Developer: Architektur-Impact, komplexe/riskante Änderungen, schwierige Bugs — analysiert erst, implementiert dann |

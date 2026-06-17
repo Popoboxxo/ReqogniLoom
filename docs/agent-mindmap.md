@@ -206,17 +206,17 @@ mindmap
 
 ### se-orchestrator
 - **Tier:** optional
-- **Beschreibung:** Coordinates the 6-level recursive breakdown with zig-zag traceability and V&V.
+- **Beschreibung:** DEPRECATED — SE functionality is now handled directly by the orchestrator via SE-Mode ({{#if SE_ENABLED}}). This agent is retained for backward compatibility only.
 - **Model:** Claude: claude-sonnet-4-6, Opencode: opencode-go/qwen3.7-plus
 
 ### se-requirements
 - **Tier:** optional
-- **Beschreibung:** Elicits stakeholder needs and uses a 6-level template for requirements engineering.
+- **Beschreibung:** Elicits stakeholder needs and uses a multi-level template for requirements engineering.
 - **Model:** Claude: claude-sonnet-4-6, Opencode: opencode-go/qwen3.7-plus
 
 ### se-termination
 - **Tier:** optional
-- **Beschreibung:** Deterministic termination at L3 (Component Requirement).
+- **Beschreibung:** Deterministic per-system leaf/continue decision with dynamic depth control.
 - **Model:** Claude: claude-haiku-4-5-20251001, Opencode: opencode-go/deepseek-v4-flash
 
 ### se-test-engineer

@@ -619,7 +619,7 @@ graph TD
                 <h3>se-orchestrator</h3>
                 <span class="tier-badge">optional</span>
             </div>
-            <p class="description">Coordinates the 6-level recursive breakdown with zig-zag traceability and V&V.</p>
+            <p class="description">DEPRECATED — SE functionality is now handled directly by the orchestrator via SE-Mode ({{#if SE_ENABLED}}). This agent is retained for backward compatibility only.</p>
             <div class="meta">
                 <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
                 <span><strong>Memory:</strong> -</span>
@@ -633,7 +633,7 @@ graph TD
                 <h3>se-requirements</h3>
                 <span class="tier-badge">optional</span>
             </div>
-            <p class="description">Elicits stakeholder needs and uses a 6-level template for requirements engineering.</p>
+            <p class="description">Elicits stakeholder needs and uses a multi-level template for requirements engineering.</p>
             <div class="meta">
                 <span><strong>Model:</strong> <span>Claude: claude-sonnet-4-6</span><br><span>Opencode: opencode-go/qwen3.7-plus</span></span>
                 <span><strong>Memory:</strong> -</span>
@@ -647,7 +647,7 @@ graph TD
                 <h3>se-termination</h3>
                 <span class="tier-badge">optional</span>
             </div>
-            <p class="description">Deterministic termination at L3 (Component Requirement).</p>
+            <p class="description">Deterministic per-system leaf/continue decision with dynamic depth control.</p>
             <div class="meta">
                 <span><strong>Model:</strong> <span>Claude: claude-haiku-4-5-20251001</span><br><span>Opencode: opencode-go/deepseek-v4-flash</span></span>
                 <span><strong>Memory:</strong> -</span>
