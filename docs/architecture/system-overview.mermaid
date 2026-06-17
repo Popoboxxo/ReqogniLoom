@@ -1,0 +1,201 @@
+%% =============================================================================
+%% ReqFlow System Architecture — Multi-Diagram Mermaid File
+%% =============================================================================
+%% This file contains all 4 Mermaid diagrams from the system architecture
+%% document. Each diagram is separated by a %% --- divider.
+%%
+%% Diagrams included:
+%%   1. L1 Context Diagram (System boundary with external actors)
+%%   2. L1 Component Diagram (12 components inside Docker containers)
+%%   3. MCP Tool Call Sequence (requirement.decompose flow)
+%%   4. Baseline Creation Sequence (Baseline creation flow)
+%% =============================================================================
+
+%% ---
+%% Diagram 1: L1 Context Diagram
+%% Description: System boundary showing ReqFlow and all external actors
+%% (Engineer, AI-Agent, API-Client, Operator, LLM-Provider, GitHub)
+%% ---
+
+flowchart TD
+    Engineer["Software-/Systems-Engineer<br/>(Browser)"]
+    Agent["AI-Agent<br/>(Claude Code, Cursor, CI)"]
+    ApiClient["API-Client<br/>(Skripte, Integrationen)"]
+    Operator["Operator / Admin"]
+
+    subgraph ReqFlowSystem["ReqFlow-System (Self-Hosted, Docker Compose)"]
+        ReqFlow["ReqFlow<br/>Requirements-, Architektur-, Test-Management<br/>+ MCP Server"]
+    end
+
+    LLM["LLM-Provider<br/>(Anthropic / OpenAI / Ollama / Azure)"]
+    GitHub["GitHub<br/>(Issues, PRs)"]
+
+    Engineer -- "HTTPS / Browser-UI" --> ReqFlow
+    Agent -- "MCP-Protokoll<br/>(Tool-Aufrufe)" --> ReqFlow
+    ApiClient -- "REST API<br/>(Bearer Token)" --> ReqFlow
+    Operator -- "Docker Compose<br/>.env-Konfiguration" --> ReqFlow
+
+    ReqFlow -. "HTTPS (optional)<br/>LLM-Capabilities" .-> LLM
+    ReqFlow -. "HTTPS (Should-Have v1)<br/>Issue-/PR-Verknüpfung" .-> GitHub
+
+%% ---
+%% Diagram 2: L1 Component Diagram
+%% Description: 12 components (C1-C12) with their relationships inside Docker containers
+%% ---
+
+flowchart TD
+    User["Browser-Nutzer"]
+    Agent["AI-Agent (MCP-Client)"]
+    Client["REST API-Client"]
+    LLM["LLM-Provider (extern)"]
+
+    subgraph ReqFlow["ReqFlow-Container (Docker Compose)"]
+        subgraph FrontendCt["Container: Frontend"]
+            C1["C1: ReactFrontend<br/>Dashboard, Editoren, Navigation<br/>i18n DE/EN"]
+        end
+
+        subgraph BackendCt["Container: Backend (Django)"]
+            C2["C2: RestApiAdapter<br/>DRF + OpenAPI"]
+            C3["C3: McpServer<br/>20 Tools, 4 Gruppen"]
+            C11["C11: AuthAndTenancy<br/>Token-Auth, RBAC,<br/>Tenant-Extraktion"]
+            C4["C4: ApplicationService<br/>Domain-Service-Fassade"]
+            C5["C5: WorkflowEngine<br/>Item-Lifecycle, Approval-Gates"]
+            C6["C6: BaselineService<br/>3-Scope-Snapshots"]
+            C7["C7: TraceabilityEngine<br/>Upstream/Downstream, Coverage"]
+            C8["C8: PresetConfigEngine<br/>Presets + Terminologie"]
+            C9["C9: LlmAdapter<br/>Provider-agnostisch"]
+            C12["C12: AuditLog<br/>Append-only"]
+        end
+
+        subgraph DbCt["Container: PostgreSQL"]
+            C10["C10: PersistenceLayer<br/>Django ORM + Custom Manager<br/>Tenant-Isolation"]
+        end
+    end
+
+    User -->|HTTPS| C1
+    C1 -->|REST + Bearer Token| C2
+
+    Agent -->|MCP-Protokoll| C3
+    Client -->|REST + Bearer Token| C2
+
+    C2 --> C11
+    C3 --> C11
+    C11 --> C4
+
+    C4 --> C5
+    C4 --> C6
+    C4 --> C7
+    C4 --> C8
+    C4 --> C9
+    C4 --> C12
+
+    C5 --> C8
+    C6 --> C8
+    C2 --> C8
+    C3 --> C8
+
+    C5 --> C10
+    C6 --> C10
+    C7 --> C10
+    C4 --> C10
+    C12 --> C10
+    C8 --> C10
+
+    C9 -. "HTTPS (optional)" .-> LLM
+
+%% ---
+%% Diagram 3: MCP Tool Call Sequence
+%% Description: requirement.decompose flow through MCP→Auth→AppService→LLM→Workflow→DB→Audit
+%% ---
+
+sequenceDiagram
+    autonumber
+    participant Agent as AI-Agent (MCP-Client)
+    participant MCP as C3: McpServer<br/>(RequirementTools)
+    participant Auth as C11: AuthAndTenancy
+    participant App as C4: ApplicationService<br/>(RequirementService)
+    participant Preset as C8: PresetConfigEngine
+    participant LLM as C9: LlmAdapter
+    participant Ext as LLM-Provider (extern)
+    participant WF as C5: WorkflowEngine
+    participant DB as C10: PersistenceLayer
+    participant Audit as C12: AuditLog
+
+    Agent->>MCP: requirement.decompose(id, children?, api_key)
+    MCP->>Auth: validate(api_key)
+    Auth->>DB: lookup(api_key) + tenant + roles
+    DB-->>Auth: User + Tenant + Rollen
+    Auth-->>MCP: Auth-Kontext OK
+    MCP->>App: decompose_requirement(id, children?, ctx)
+
+    App->>Preset: get_preset(workspace_id)
+    Preset->>DB: SELECT workspace.preset
+    DB-->>Preset: Preset (z.B. Standard)
+    Preset-->>App: Preset-Regeln
+
+    alt Kein children-Vorschlag übergeben
+        App->>LLM: decompose_requirement(parent_req)
+        LLM->>Ext: HTTPS POST /messages
+        Ext-->>LLM: LLM-Antwort (Kind-Vorschläge)
+        LLM-->>App: Strukturierte Kinder
+    end
+
+    App->>DB: INSERT Kind-Requirements (Batch)<br/>+ TraceLink parent-child
+    DB-->>App: IDs + Versionen
+
+    App->>WF: initialize_workflow_state(Kinder, item_type=requirement)
+    WF->>DB: INSERT WorkflowState (initial)
+    DB-->>WF: OK
+    WF-->>App: States initialisiert
+
+    App->>Audit: log_write(actor=Agent, op=decompose, ids, api_key)
+    Audit->>DB: INSERT AuditLogEntry
+    DB-->>Audit: OK
+
+    App-->>MCP: Decomposition-Result (Kinder + Links)
+    MCP-->>Agent: JSON-Response
+
+%% ---
+%% Diagram 4: Baseline Creation Sequence
+%% Description: Baseline creation flow through UI→REST→Auth→AppService→Preset→BaselineService→Traceability→DB→Audit
+%% ---
+
+sequenceDiagram
+    autonumber
+    participant User as Engineer (UI)
+    participant UI as C1: ReactFrontend
+    participant REST as C2: RestApiAdapter
+    participant Auth as C11: AuthAndTenancy
+    participant App as C4: ApplicationService<br/>(BaselineFacade)
+    participant Preset as C8: PresetConfigEngine
+    participant BL as C6: BaselineService
+    participant Trace as C7: TraceabilityEngine
+    participant DB as C10: PersistenceLayer
+    participant Audit as C12: AuditLog
+
+    User->>UI: "Create Baseline" (scope=project, name)
+    UI->>REST: POST /api/baselines {scope, name, workspace_id}
+    REST->>Auth: validate(token)
+    Auth-->>REST: User-Kontext (Tenant, Rollen)
+    REST->>App: create_baseline(scope=project, name, ctx)
+
+    App->>Preset: is_scope_allowed(workspace, "project")
+    Preset-->>App: ja (Standard+Extended)
+
+    App->>BL: build_snapshot(scope=project, workspace_id)
+    BL->>DB: SELECT alle Requirements, ArchEl, TestCases, TraceLinks im Workspace
+    DB-->>BL: Items + Versionen
+    BL->>Trace: collect_trace_graph(workspace_id)
+    Trace->>DB: SELECT TraceLinks
+    DB-->>Trace: Graph
+    Trace-->>BL: Trace-Snapshot
+    BL->>DB: INSERT Baseline {snapshot=JSON, scope, workspace, created_by}
+    DB-->>BL: Baseline-ID
+
+    BL-->>App: Baseline erstellt (unveränderlich)
+    App->>Audit: log_write(actor=User, op=create_baseline, baseline_id)
+    Audit->>DB: INSERT AuditLogEntry
+
+    App-->>REST: Baseline-Objekt
+    REST-->>UI: 201 Created + JSON
+    UI-->>User: Bestätigung
