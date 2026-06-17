@@ -34,7 +34,7 @@ Drittens ist ReqFlow vollständig Open Source (Apache 2.0) mit Self-Hosted-Deplo
 
 **Dimension 1 — LLM als pluggable Capability quer über alle Artefakttypen**
 
-LLM-Unterstützung ist nicht auf ein einzelnes Tool (`requirement.validate`) beschränkt. LLMs werden als konfigurierbare, optionale Capability quer über alle Artefakttypen eingebunden: Requirements, Architektur-Elemente und Tests. Konkrete Einsatzpunkte:
+LLM-Unterstützung ist nicht auf ein einzelnes Tool (`requirement.validate`) beschränkt. LLMs werden als konfigurierbare, optionale Capability quer über alle Artefakttypen eingebunden: Requirements, Architektur-Elemente und Tests. Die Architektur sieht alle vier Capabilities als pluggable vor, sodass die konkrete v1-Auswahl (welche Capabilities werden operativ implementiert) keine Architekturänderung erfordert. Konkrete Einsatzpunkte:
 
 - *Generierung*: LLM-gestützte Vorschläge für Requirements-Formulierungen, Testfall-Ableitung aus Anforderungen, Architektur-Beschreibungen
 - *Validierung*: Qualitätsprüfung auf Vollständigkeit, Eindeutigkeit und Testbarkeit (nicht nur bei Requirements, sondern auch bei Test-Coverage-Analysen)
@@ -733,9 +733,34 @@ Die folgende Tabelle fasst zusammen, was in v1 enthalten ist und was nicht.
 
 ---
 
-## 11. Offene Risiken und nächste Schritte
+## 11. Offene Punkte und Risiken
 
-### 11.1 Offene Risiken
+### 11.1 Hoch-Prioritäts-Punkte — zwingend in der Anforderungsaufnahme zu klären
+
+Die folgenden drei Punkte beeinflussen direkt das Datenmodell, die API und die v1-Implementierung. Sie müssen vor dem Beginn der formalen Anforderungsaufnahme mit dem requirements-Agenten geklärt werden.
+
+**[OFFEN — zwingend in der Anforderungsaufnahme (requirements-Phase) zu klären | Auswirkung auf Datenmodell/API]**
+
+1. **LLM-Capabilities-Scope v1:** Welche der vier Capabilities (Generierung, Validierung, Decomposition, Test-Ableitung/Konsistenz-Checks) sind für v1 vorgesehen? Die Architektur soll alle vier als PLUGGABLE vorsehen, sodass die konkrete v1-Auswahl keine Architekturänderung erfordert — aber die operative Entscheidung (welche Capabilities werden tatsächlich im v1-MVP implementiert) muss vor API-Design getroffen werden. Empfehlung: Mit Validierung + Decomposition-Unterstützung starten; weitere Capabilities in v2.
+
+2. **Preset-Downgrade-Semantik:** Was passiert mit Baselines, Approved-Items und Workflows beim Wechsel auf eine niedrigere SE-Stufe? Beispiel: Projekt im Extended-Preset mit Global-Baseline wechselt zu Standard — werden Global-Baselines gelöscht, eingefroren oder sichtbar gemacht? Werden Approved-Items auf Draft zurückgesetzt? Diese Semantik beeinflusst die Preset-Wechsel-Implementierung erheblich.
+
+3. **Workflow-Wechsel-Semantik:** Was passiert mit Items in States, die nach einer WorkflowDefinition-Änderung nicht mehr existieren? Beispiel: Ein Projekt mit Custom-Workflow (States: draft, in_progress, approved) wechselt zu einem anderen Custom-Workflow (States: draft, ready_for_review, approved) — wie werden Items im State "in_progress" behandelt? Diese Entscheidung bestimmt die Fehlerbehandlung in der WorkflowEngine.
+
+---
+
+### 11.2 Bekannte offene Punkte (Mittel/Niedrig)
+
+Die folgenden Punkte sind bekannt, erfordern aber weniger unmittelbare Klarheit für die Modellierung:
+
+- **Audit-Log-Granularität:** Feld-Level (welches Feld wurde geändert) vs. Operation-Level (welches Tool, welche Parameter)?
+- **Architecture-to-Architecture-Links:** Brauchen ArchitectureElemente Verknüpfungen zueinander? (z.B. "Layer A calls Layer B"). Falls ja: als TraceLink oder als eigenständige Entität?
+- **Baseline-Scope-Granularität:** Kann eine Baseline mehrere Scopes kombinieren (z.B. "Projekt A + Dokument B") oder strikt ein Scope pro Baseline?
+- **LLM-Provider-Konfig-Speicherort:** Workspace-Level, Tenant-Level oder Deployment-Level? (Beeinflusst Multi-Tenancy-Design)
+
+---
+
+### 11.3 Weitere Risiken und Mitigationen
 
 **R1 — Terminologie-Verwirrung zwischen Profilen:** Das Dual-Profil-System (Dev-Modus / SE-Modus) kann Nutzer verwirren, wenn nicht klar kommuniziert wird, was sich beim Profilwechsel ändert (nur Labels) und was nicht (Daten, API). Mitigiert durch persistente Header-Anzeige des aktiven Profils und Bestätigungs-Dialog mit explizitem Hinweis.
 
@@ -752,28 +777,6 @@ Die folgende Tabelle fasst zusammen, was in v1 enthalten ist und was nicht.
 **R7 — Architektur-Artefakttyp: Scope-Abgrenzung:** Der neue ArchitectureElement-Typ muss klar vom Artifact-Typ abgegrenzt werden. Risiko: Nutzer sind unsicher, ob sie Architektur-Informationen als Artifact oder ArchitectureElement modellieren sollen. Mitigierung: Klare Dokumentation und UI-Hinweise; ArchitectureElement ist für strukturierte, versionierte Architektur-Beschreibungen, Artifact für Hierarchie-Gliederung.
 
 **R8 — Global-Baseline-Semantik:** Eine Baseline über alle Workspaces kann sehr groß werden und komplexe Snapshot-Semantik erfordern. Risiko: Performance-Probleme bei großen Instanzen. Mitigierung: Global-Baselines nur im Extended-Preset; Snapshot ist asynchron berechenbar; in v1 auf Instanzen bis 10.000 Items beschränkt.
-
-### 11.2 Vor der formalen Anforderungsaufnahme zu klärende Punkte
-
-Die folgenden Punkte sollten vor oder während der Arbeit mit dem requirements-Agenten geklärt werden, da sie die konkrete Ausgestaltung einzelner Anforderungen beeinflussen:
-
-**Klärungsbedarf 1 — Preset-Wechsel-Semantik:** Was passiert, wenn ein Projekt von Standard auf Minimal downgradet? Werden Baselines eingefroren? Werden Approved-Requirements auf Draft zurückgesetzt? Die Semantik eines Preset-Wechsels (besonders Downgrade) muss vor der Modellierung definiert werden.
-
-**Klärungsbedarf 2 — MCP-Audit-Log-Granularität:** Wie granular soll das MCP-Audit-Log sein? Reicht Feld-Level (welches Feld wurde geändert) oder genügt Operation-Level (welches Tool wurde mit welchen Parametern aufgerufen)? Dies beeinflusst das Datenmodell des Audit-Logs.
-
-**Klärungsbedarf 3 — Baseline-Vergleich-UI:** Ist ein visueller Diff zwischen zwei Baselines (Side-by-Side oder Diff-View) ein v1-Feature im Extended-Preset oder v2? Die Entscheidung beeinflusst den Scope der Baseline-Implementierung erheblich.
-
-**Klärungsbedarf 4 — Webhook-Scope:** Für welche Events sollen Webhooks in v1 feuern? (z.B. requirement.created, requirement.updated, requirement.approved, test.linked, architecture.created) Vollständiger Event-Katalog muss vor API-Design definiert werden.
-
-**Klärungsbedarf 5 — requirement.validate Prompt-Strategie:** Soll der Qualitätsprüfungs-Prompt für `requirement.validate` konfigurierbar sein (z.B. domänenspezifische Qualitätskriterien für Automotive vs. Software)? Oder ist ein generischer Prompt für v1 ausreichend?
-
-**Klärungsbedarf 6 — WorkflowDefinition-Editierbarkeit in v1:** Können Nutzer im Extended-Preset eigene WorkflowDefinitions via UI anlegen, oder sind in v1 nur die vordefinierten Templates (Minimal-Default, Standard-Default, Extended-Default) verfügbar? Empfehlung: Nur vordefinierte Templates in v1 — Custom-Workflows via UI in v2.
-
-**Klärungsbedarf 7 — ArchitectureElement vs. Artifact-Nutzung:** Wie kommunizieren wir die Abgrenzung zwischen Artifact (Hierarchie-Gliederung) und ArchitectureElement (strukturierte Architektur-Beschreibung) an den Nutzer? Braucht es UI-Hinweise oder reicht Dokumentation?
-
-**Klärungsbedarf 8 — LLM-Capabilities: Scope v1:** Welche der beschriebenen LLM-Capabilities (Generierung, Validierung, Decomposition, Konsistenz-Check) sollen in v1 tatsächlich implementiert werden? Für einen POC/rapid-prototyping-Kontext ist es sinnvoll, mit einem oder zwei Capabilities zu starten (Empfehlung: requirement.validate + requirement.decompose-Unterstützung) und weitere in v2 zu ergänzen.
-
-**Klärungsbedarf 9 — Baseline-Scope-Kombination:** Kann eine Baseline mehrere Scopes kombinieren (z.B. "Projekt A + Dokument B aus Projekt C")? Oder sind Baselines strikt auf einen Scope beschränkt? Empfehlung für v1: Strikt ein Scope pro Baseline — Kombinations-Baselines in v2.
 
 ---
 
