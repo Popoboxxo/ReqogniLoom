@@ -1,220 +1,140 @@
-# .meta-config/project.yaml — Projekt-Konfiguration für agent-meta
-#
-# Diese Datei gehört dem Projekt (nicht dem agent-meta-Submodul).
-# Sie steuert welche Agenten generiert werden und mit welchem Kontext.
-#
-# Sync ausführen:
-#   py .agent-meta/scripts/sync.py --config .meta-config/project.yaml
-#   py .agent-meta/scripts/sync.py --config .meta-config/project.yaml --init   (erstmalig)
-
-# Welche Version von agent-meta wird eingesetzt?
-agent-meta-version: 0.61.0
-
-# AI-Provider: "Claude" (Standard), "Gemini", "Continue" — oder mehrere
+agent-meta-version: 0.61.1
 ai-providers:
-  - Claude
-  - Opencode
-
-# Qualitätsprofil: "full" (Default), "standard", "rapid-prototyping"
+- Claude
+- Opencode
 dod-preset: rapid-prototyping
-
-# Plattform: [] für generisch, ["sharkord"] für Sharkord-Plugins
 platforms: []
-
-# Agenten-Whitelist — welche Rollen sollen generiert werden?
-# Auskommentieren um alle Rollen zu generieren.
 roles:
-  - orchestrator
-  - developer
-  # 3-Tier-Developer-System (optional): BEIDE aktivieren, dann routet der
-  # Orchestrator nach Schwierigkeit (junior = trivial, senior = Architektur/Risiko)
-  # - junior-developer
-  # - senior-developer
-  - api-specialist
-  - requirements
-  - validator
-  - documenter
-  - git
-  - release
-  - meta-feedback
-  - ideation
-  - agent-meta-manager
-  - feature
-  - agent-meta-scout
-
-# Projekt-Identität (für Extension-Dateinamen und interne Kennzeichnung)
+- orchestrator
+- developer
+- senior-developer
+- code-reviewer
+- api-specialist
+- requirements
+- validator
+- documenter
+- git
+- release
+- meta-feedback
+- ideation
+- agent-meta-manager
+- feature
+- agent-meta-scout
+- se-orchestrator
+- se-requirements
+- se-architect
+- se-interface-mgr
+- se-critic
+- se-validator
+- se-verifier
+- se-integration-and-test-manager
+- se-termination
 project:
-  name: ReqFlow                      # Vollständiger Projektname
-  prefix: rf                         # Kürzel, max 5 Zeichen
-  short: reqflow                     # Kurzname ohne Plattform-Prefix
-
-# Kommunikationsstil: "full" (Default), "short", "childish", "caveman", "asozial", "submissive"
-# speech-mode: full
-
-# Maximale parallele Agenten (1 = sequentiell, 2 = Default)
-# max-parallel-agents: 2
-
-# Hooks — opt-in pro Hook
-# hooks:
-#   dod-push-check:
-#     enabled: true
-#
-# .gitignore-Verhalten — steuert welche Dateien sync.py in .gitignore einträgt.
-# Alle Einträge landen in einem klar markierten Managed-Block. Toggeln der Flags
-# fügt Einträge hinzu bzw. entfernt sie automatisch beim nächsten Sync.
+  name: ReqFlow
+  prefix: rf
+  short: reqflow
 gitignore:
-  # local: true (Default) → persönliche/lokale Dateien gitignoren:
-  #   .claude/settings.local.json, CLAUDE.personal.md, sync.log, agent-memory-local/
   local: true
-  # generated: false (Default) → alle generierten Verzeichnisse (agents/, rules/,
-  #   hooks/, commands/) aller aktiven Provider in .gitignore aufnehmen.
-  #   true = "generate, don't store"-Prinzip.
   generated: true
-  # settings: false (Default) → Provider-Settings-Dateien (settings.json,
-  #   GEMINI.md, config.yaml) gitignoren. CLAUDE.md ist nie betroffen.
   settings: true
-#
-# Secrets in committeten Dateien erlauben (NICHT empfohlen).
-# Default: false — sync bricht mit Fehler ab wenn Secrets in nicht-gitignored Dateien erkannt werden.
-# Nur auf true setzen wenn absichtlich demo-tokens o.ä. committet werden sollen.
-# allow-committed-secrets: false
-#
-# Externe Skills — opt-in pro Skill (muss auch approved: true in skills-registry.yaml sein)
-# external-skills:
-#   home-organization:
-#     enabled: true
-
-# Externe Skills — opt-in pro Skill (muss auch approved: true in skills-registry.yaml sein)
-# external-skills:
-#   home-organization:
-#     enabled: true
-
-# ---------------------------------------------------------------------------
-# Modell-Tiers — provider-agnostisch (empfohlen)
-# ---------------------------------------------------------------------------
-# Tiers:  nano | fast | balanced | powerful | max
-# nano/fast  → Gemini: gemini-2.5-flash   | Claude: claude-haiku-4-5
-# balanced   → Gemini: gemini-2.5-pro     | Claude: claude-sonnet-4-6
-# powerful   → Gemini: gemini-2.5-pro     | Claude: claude-opus-4-7
-# max        → reserviert für Ultra-Modelle (aktuell = powerful)
-#
-# Form A — provider-spezifisch (empfohlen bei Multi-Provider):
-# model-overrides:
-#   Claude:
-#     orchestrator: powerful   # Opus für komplexe Koordination
-#     developer: powerful      # Opus für Implementierung
-#     git: nano                # Haiku reicht für Commits
-#   Gemini:
-#     orchestrator: balanced   # Pro ist Geminis stärkstes Modell
-#     developer: balanced
-#     git: fast                # Flash für einfache Ops
-#
-# Form B — flat (Legacy, wird als Claude-Override interpretiert):
-# model-overrides:
-#   git: fast
-#   developer: powerful
-#
-# Rückwärtskompatibel: haiku / sonnet / opus funktionieren weiterhin für Claude.
-
-# Definition of Done — einzelne Kriterien überschreiben
-# dod:
-#   security-audit: true
-
 variables:
-  # --- Projekt-Identität ---
   PROJECT_NAME: ReqFlow
-  PROJECT_DESCRIPTION: >-
-    AI-natives Requirements-Management-Tool mit Testmanagement-Unterstützung
-  PROJECT_GOAL: >-
-    Anforderungen und Tests in Artefakten verwalten, von einfach bis Systems Engineering
-
-  # --- Technologie ---
-  PLATFORM: "Django + React + Docker Compose"
-  RUNTIME: "Python 3.x (Django) + Node.js (React)"
-  PROJECT_LANGUAGES: "Python, TypeScript"
-  LANGUAGE: "Python, TypeScript"
-
-  # --- Sprachen ---
+  PROJECT_DESCRIPTION: AI-natives Requirements-Management-Tool mit Testmanagement-Unterstützung
+  PROJECT_GOAL: Anforderungen und Tests in Artefakten verwalten, von einfach bis Systems
+    Engineering
+  PLATFORM: Django + React + Docker Compose
+  RUNTIME: Python 3.x (Django) + Node.js (React)
+  PROJECT_LANGUAGES: Python, TypeScript
+  LANGUAGE: Python, TypeScript
   COMMUNICATION_LANGUAGE: Deutsch
   USER_INPUT_LANGUAGE: Deutsch
   DOCS_LANGUAGE: Englisch
   INTERNAL_DOCS_LANGUAGE: Deutsch
   CODE_LANGUAGE: Englisch
-
-  # --- Git ---
-  GIT_PLATFORM: GitHub             # GitHub, GitLab oder Gitea
+  GIT_PLATFORM: GitHub
   GIT_REMOTE_URL: https://github.com/owner/repo
   GIT_MAIN_BRANCH: main
-
-  # --- Kommandos ---
   BUILD_COMMAND: docker-compose build
   TEST_COMMAND: pytest (Backend) + npm test (Frontend)
-  DEV_COMMANDS: |
-    docker-compose build
+  DEV_COMMANDS: 'docker-compose build
+
     docker-compose up
-  TEST_COMMANDS: |
-    docker-compose exec backend pytest
+
+    '
+  TEST_COMMANDS: 'docker-compose exec backend pytest
+
     docker-compose exec frontend npm test
+
+    '
   BUILD_COMMANDS: docker-compose build
   DEV_STACK_START: docker-compose up
-  DEV_STACK_RELOAD: "docker-compose restart (oder Hot Reload je nach Service)"
+  DEV_STACK_RELOAD: docker-compose restart (oder Hot Reload je nach Service)
+  PROJECT_CONTEXT: 'ReqFlow ist ein AI-natives Requirements-Management-Tool mit Testmanagement-Unterstützung.
+    Tech-Stack: Django (Backend) + React (Frontend) + Docker Compose. Schnittstellen:
+    REST API + nativer MCP Server. Fähigkeiten: Einfaches Requirements Management
+    bis komplexe Systems-Engineering-Strukturen mit Artefakt-basierter Zerlegung von
+    Requirements und Tests.'
+  ARCHITECTURE: "backend/\n  manage.py          # Django Entry-Point\n  reqflow/ \
+    \          # Django Project\n  requirements_app/  # Requirements Management App\n\
+    frontend/\n  src/               # React Source\n  package.json\ndocker-compose.yml\
+    \   # Orchestrierung\n"
+  PROJECT_STRUCTURE: 'backend/             # Django REST API
 
-  # --- Projektkontext (für Agenten-Hintergrundwissen) ---
-  PROJECT_CONTEXT: >-
-    ReqFlow ist ein AI-natives Requirements-Management-Tool mit Testmanagement-Unterstützung.
-    Tech-Stack: Django (Backend) + React (Frontend) + Docker Compose.
-    Schnittstellen: REST API + nativer MCP Server.
-    Fähigkeiten: Einfaches Requirements Management bis komplexe Systems-Engineering-Strukturen
-    mit Artefakt-basierter Zerlegung von Requirements und Tests.
-  ARCHITECTURE: |
-    backend/
-      manage.py          # Django Entry-Point
-      reqflow/           # Django Project
-      requirements_app/  # Requirements Management App
-    frontend/
-      src/               # React Source
-      package.json
-    docker-compose.yml   # Orchestrierung
-  PROJECT_STRUCTURE: |
-    backend/             # Django REST API
     frontend/            # React UI
+
     docker-compose.yml   # Container Orchestrierung
-  ENTRY_POINT_PATTERN: |
-    backend/manage.py — Django Management
+
+    '
+  ENTRY_POINT_PATTERN: 'backend/manage.py — Django Management
+
     frontend/src/index.tsx — React Entry-Point
-  KEY_PATTERNS: |
-    - Django REST Framework für API-Endpoints
+
+    '
+  KEY_PATTERNS: '- Django REST Framework für API-Endpoints
+
     - MCP Server für AI-Tool-Integration
+
     - Artefakt-basierte Zerlegung von Requirements
-  CODE_CONVENTIONS: |
-    - PEP 8 für Python (Django Backend)
+
+    '
+  CODE_CONVENTIONS: '- PEP 8 für Python (Django Backend)
+
     - TypeScript best practices für React Frontend
+
     - Django-spezifisch: Models, Views, Serializers Trennung
+
     - React-spezifisch: Functional Components, Hooks
-  EXTRA_DONTS: ""
-  CODE_QUALITY_RULES: ""
-  REQ_CATEGORIES: ""
-  REQ_CATEGORIES_LIST: ""
 
-  # --- Snippets (optional — Pfad relativ zu snippets/) ---
-  TESTER_SNIPPETS_PATH: ""
-  DEVELOPER_SNIPPETS_PATH: ""
-
-  # --- meta-feedback Agent ---
+    '
+  EXTRA_DONTS: ''
+  CODE_QUALITY_RULES: ''
+  REQ_CATEGORIES: ''
+  REQ_CATEGORIES_LIST: ''
+  TESTER_SNIPPETS_PATH: ''
+  DEVELOPER_SNIPPETS_PATH: ''
   AGENT_META_REPO: Popoboxxo/agent-meta
-
-  # --- Infrastruktur (nur bei Docker-Projekten relevant) ---
-  SYSTEM_DEPENDENCIES: ""
-  SYSTEM_URLS: ""
-  SERVICE_NAME: ""
-  CONTAINER_NAME: ""
-  PRIMARY_PORT: ""
-  EXTRA_PORTS: ""
-
-  # --- Release (nur bei release-Agent relevant) ---
-  BUILD_OUTPUT: ""
-  ARTIFACT_ZIP_CMD: ""
-  ARTIFACT_TAR_CMD: ""
-  GH_ASSETS: ""
-  BUILD_SYSTEM_NOTES: ""
-  VERSION_DIST_BEHAVIOUR: ""
+  SYSTEM_DEPENDENCIES: ''
+  SYSTEM_URLS: ''
+  SERVICE_NAME: ''
+  CONTAINER_NAME: ''
+  PRIMARY_PORT: ''
+  EXTRA_PORTS: ''
+  BUILD_OUTPUT: ''
+  ARTIFACT_ZIP_CMD: ''
+  ARTIFACT_TAR_CMD: ''
+  GH_ASSETS: ''
+  BUILD_SYSTEM_NOTES: ''
+  VERSION_DIST_BEHAVIOUR: ''
+orchestrator:
+  enabled: true
+  strict: true
+  handoff:
+    protocol: a2a-v1
+    token-budget: {}
+viz:
+  enabled: true
+admin-ui:
+  enabled: true
+  auto-sync-on-save: true
+rules-preset: ''
+speech-mode: bullshit-bingo
