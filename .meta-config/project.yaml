@@ -29,6 +29,20 @@ roles:
 - se-verifier
 - se-integration-and-test-manager
 - se-termination
+- bug-feature-analyzer
+- concept-reviewer
+- se-test-engineer
+- se-testreviewer
+- ui-ux-designer
+- log-analyzer
+- opencode-expert
+- feedback
+- gemini-expert
+- docker
+- effort-estimator
+- explorer
+- export-manager
+- performance-optimizer
 project:
   name: ReqFlow
   prefix: rf

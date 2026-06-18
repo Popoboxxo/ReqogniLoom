@@ -22,3 +22,6 @@ CLAUDE.personal.md
 opencode.json
 sync.log
 # --- end agent-meta managed ---
+
+# agent-meta upgrade backups
+*.bak.*
