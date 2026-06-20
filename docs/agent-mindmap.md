@@ -194,6 +194,11 @@ mindmap
 - **Beschreibung:** Audits requirements and architecture against generic laws (orthogonality, testability, traceability).
 - **Model:** Claude: claude-opus-4-7, Opencode: opencode-go/kimi-k2.6
 
+### se-developer
+- **Tier:** optional
+- **Beschreibung:** Implements standard SE leaf nodes with multiple interfaces. Follows SE interface discipline and contract-first approach.
+- **Model:** Claude: claude-opus-4-7, Opencode: opencode-go/kimi-k2.6
+
 ### se-integration-and-test-manager
 - **Tier:** optional
 - **Beschreibung:** V&V-Orchestrator: Koordiniert Integrationsstrategie, Test-Ebenen und Traceability-Feedback über L1-Ln.
@@ -204,6 +209,11 @@ mindmap
 - **Beschreibung:** Manages generic signal flow and deterministic synchronization across systems.
 - **Model:** Claude: claude-sonnet-4-6, Opencode: opencode-go/qwen3.7-plus
 
+### se-junior-developer
+- **Tier:** optional
+- **Beschreibung:** Implements trivial SE leaf nodes (COTS wrappers, single-interface components). Escalates on interface complexity or scope growth.
+- **Model:** Claude: claude-haiku-4-5-20251001, Opencode: opencode-go/deepseek-v4-flash
+
 ### se-orchestrator
 - **Tier:** optional
 - **Beschreibung:** DEPRECATED — SE functionality is now handled directly by the orchestrator via SE-Mode ({{#if SE_ENABLED}}). This agent is retained for backward compatibility only.
@@ -213,6 +223,11 @@ mindmap
 - **Tier:** optional
 - **Beschreibung:** Elicits stakeholder needs and uses a multi-level template for requirements engineering.
 - **Model:** Claude: claude-sonnet-4-6, Opencode: opencode-go/qwen3.7-plus
+
+### se-senior-developer
+- **Tier:** optional
+- **Beschreibung:** Implements complex SE leaf nodes with high interface density or cross-cutting concerns. Pre-analyzes interface implications before implementation.
+- **Model:** Claude: claude-fable-5, Opencode: opencode-go/kimi-k2.7-code
 
 ### se-termination
 - **Tier:** optional

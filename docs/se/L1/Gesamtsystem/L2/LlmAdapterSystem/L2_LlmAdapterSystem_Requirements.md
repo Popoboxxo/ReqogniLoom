@@ -1,0 +1,204 @@
+# L2 LlmAdapter Requirements
+
+> **Level:** L2 (Subsystem-Anforderungen)
+> **System:** LlmAdapterSystem (ARCH-L1-009)
+> **Parent:** L1_Gesamtsystem_Requirements.md
+> **Datum:** 2026-06-20
+> **Status:** formalisiert
+> **Designation:** component (terminal — keine L3-Zerlegung)
+
+---
+
+## Traceability
+
+- Abgeleitet von: REQ-L1-013 (primär), REQ-L1-011 (mitwirkend), REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-026 (mitwirkend)
+- Ziel: terminal (keine L3-Zerlegung)
+
+---
+
+## Externe Schnittstellen (Systemgrenze)
+
+| ID | Richtung | Typ | Beschreibung |
+|----|----------|-----|--------------|
+| IF-LA-EXT-IN-001 | input | data | `validate_artifact(artifact_id)`, `decompose_requirement(requirement_id)`, `check_consistency(workspace_id)` von ApplicationService |
+| IF-LA-EXT-OUT-001 | output | data | HTTPS-Outbound zu LLM-Provider (Anthropic/OpenAI/Ollama/Azure) |
+| IF-LA-EXT-OUT-002 | output | data | LLM-Aufruf-Audit-Eintrag an AuditLog (ARCH-L1-012) |
+
+---
+
+## L2 Subsystem-Anforderungen
+
+### REQ-L2-LA-001: LLM-Capability-Interface mit Provider-Abstraktion
+
+Der LlmAdapter SHALL ein stabiles internes Interface (`LlmCapabilityInterface`) mit drei Operationen bereitstellen: `validate_artifact`, `decompose_requirement`, `check_consistency`. Provider-Implementierungen SÜLLEN über ein Plugin-Interface austauschbar sein. Kein Domain-Modul DARF den konkreten Provider kennen.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Anthropic-Provider konfiguriert → `validate_artifact(req_id)` liefert `{score, suggestions}`
+- [ ] OpenAI-Provider konfiguriert → identische Schnittstelle
+- [ ] Ollama-Provider konfiguriert → identische Schnittstelle
+- [ ] Provider-Wechsel via `.env` ohne Code-Änderung
+- [ ] Kein Domain-Modul referenziert konkreten Provider-Typ
+
+**Interfaces:**
+- Incoming: IF-LA-EXT-IN-001
+- Outgoing: IF-LA-EXT-OUT-001
+
+**Traceability:** REQ-L1-013, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend)
+**Rationale:** Provider-Abstraktion verhindert Vendor-Lock-in (ADR-02).
+
+---
+
+### REQ-L2-LA-002: Graceful Degradation bei fehlender LLM-Konfiguration
+
+Der LlmAdapter SHALL bei fehlender LLM-Konfiguration einen strukturierten Fehler `{error: {code: "LLM_NOT_CONFIGURED"}}` zurückgeben. Das restliche System SHALL vollständig funktionsfähig bleiben.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Deployment ohne LLM → `validate_artifact(id)` → Fehler `LLM_NOT_CONFIGURED`
+- [ ] `requirement.create(...)` → funktioniert normal
+- [ ] `decompose_requirement(id)` → Fehler `LLM_NOT_CONFIGURED`
+- [ ] Alle Nicht-LLM-Operationen ohne Einschränkung funktional
+- [ ] LLM-Provider nicht erreichbar → gleicher strukturierter Fehler
+
+**Interfaces:**
+- Incoming: IF-LA-EXT-IN-001
+- Outgoing: IF-LA-EXT-OUT-001 (strukturierter Fehler)
+
+**Traceability:** REQ-L1-013
+**Rationale:** Self-Hosted-First bedeutet, dass Deployments ohne LLM der Normalfall sein können.
+
+---
+
+### REQ-L2-LA-003: Selektive Capability-Aktivierung
+
+Der LlmAdapter SHALL per-Capability Aktivierung/Deaktivierung über Deployment-Konfiguration unterstützen. Deaktivierte Capabilities SÜLLEN `LLM_NOT_CONFIGURED` zurückgeben, auch wenn ein Provider konfiguriert ist.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `LLM_CAPABILITIES=validate,decompose` → `check_consistency` deaktiviert
+- [ ] Leere Config → alle Capabilities False
+- [ ] Deaktivierte Capability → Fehler `LLM_NOT_CONFIGURED`
+- [ ] Fehlende Variable → alle False (fail-safe)
+
+**Interfaces:**
+- Incoming: IF-LA-EXT-IN-001
+
+**Traceability:** REQ-L1-013
+**Rationale:** Adressiert OP-01 (LLM-Capability-Scope).
+
+---
+
+### REQ-L2-LA-004: Standardisiertes LLM-Ergebnisformat
+
+Der LlmAdapter SHALL standardisierte Ergebnisobjekte zurückgeben. `LlmResult`: `score` (0.0–1.0), `suggestions`, `provider`, `model`, `token_usage`. `LlmDecompositionResult` erweitert mit `children`. `LlmConsistencyResult` erweitert mit `issues`. Score außerhalb [0.0, 1.0] SHALL `ValueError` auslösen.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `LlmResult(score=0.85, ...)` → erfolgreich
+- [ ] `LlmResult(score=1.5, ...)` → `ValueError`
+- [ ] `LlmDecompositionResult(children=[...])` → Struktur korrekt
+- [ ] Alle Provider liefern identische Datenklassen-Struktur
+
+**Interfaces:**
+- Outgoing: IF-LA-EXT-IN-001 (Rückgabewerte)
+
+**Traceability:** REQ-L1-013
+**Rationale:** Standardisierte Formate ermöglichen provider-unabhängige Verarbeitung.
+
+---
+
+### REQ-L2-LA-005: Provider-Fehlerbehandlung und Timeout
+
+Der LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukturierten Fehler `LLM_PROVIDER_ERROR` zurückgeben. Keine unhandled Exceptions. Konfigurierbarer Timeout (Default: 30s).
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Provider-Timeout → `LLM_PROVIDER_ERROR` `"Request timed out"`
+- [ ] HTTP 500 → `LLM_PROVIDER_ERROR` `"API error: 500"`
+- [ ] HTTP 429 → `LLM_PROVIDER_ERROR` `"Rate limit exceeded"`
+- [ ] Keine unhandled Exceptions
+- [ ] Timeout via `LLM_TIMEOUT=60` konfigurierbar
+
+**Interfaces:**
+- Outgoing: IF-LA-EXT-OUT-001, IF-LA-EXT-IN-001 (Fehler)
+
+**Traceability:** REQ-L1-013, REQ-L1-026 (mitwirkend)
+**Rationale:** LLM-Ausfälle dürfen das Gesamtsystem nicht beeinträchtigen.
+
+---
+
+### REQ-L2-LA-006: LLM-Audit-Logging
+
+Der LlmAdapter SHALL jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen) im AuditLog protokollieren mit: `provider`, `capability`, `artifact_id`, `token_usage`, `success`, `error`.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Erfolgreicher Aufruf → AuditLog mit `{source: "llm_adapter", provider, capability, token_usage, success: true}`
+- [ ] Fehlgeschlagener Aufruf → AuditLog mit `{success: false, error: "..."}`
+- [ ] Token-Verbrauch aus Provider-Response extrahiert
+- [ ] Response ohne Usage-Info → `token_usage: None`
+
+**Interfaces:**
+- Outgoing: IF-LA-EXT-OUT-002
+
+**Traceability:** REQ-L1-011, REQ-L1-013 (mitwirkend)
+**Rationale:** Vollständige Auditierbarkeit umfasst LLM-Aufrufe.
+
+---
+
+### REQ-L2-LA-007: Azure-OpenAI Provider-Unterstützung
+
+Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LLM_PROVIDER=azure`). Azure-spezifische Konfiguration: Endpoint-URL, Deployment-Name, API-Version.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] `LLM_PROVIDER=azure` → `AzureOpenAiProvider`-Instanz
+- [ ] Identische `LlmResult`-Struktur wie andere Provider
+- [ ] Implementiert `LlmCapabilityInterface`
+
+**Interfaces:**
+- Outgoing: IF-LA-EXT-OUT-001
+
+**Traceability:** REQ-L1-013
+**Rationale:** Azure-OpenAI ist für Enterprise-Deployments relevant.
+
+---
+
+## Traceability-Matrix: REQ-L2-LA → REQ-L1
+
+| REQ-L2-LA | Primäre REQ-L1 | Mitwirkende REQ-L1 |
+|-----------|----------------|---------------------|
+| REQ-L2-LA-001 | REQ-L1-013 | REQ-L1-002, REQ-L1-004 |
+| REQ-L2-LA-002 | REQ-L1-013 | — |
+| REQ-L2-LA-003 | REQ-L1-013 | — |
+| REQ-L2-LA-004 | REQ-L1-013 | — |
+| REQ-L2-LA-005 | REQ-L1-013 | REQ-L1-026 |
+| REQ-L2-LA-006 | REQ-L1-011 | REQ-L1-013 |
+| REQ-L2-LA-007 | REQ-L1-013 | — |
+
+---
+
+## Zusammenfassung
+
+| Metrik | Wert |
+|--------|------|
+| Anzahl REQ-L2-LA | 7 |
+| Mandatory | 6 |
+| Desired | 1 |
+| Optional | 0 |
+| Abgedeckte REQ-L1 (primär) | REQ-L1-013, REQ-L1-011 |
+| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-002, REQ-L1-004, REQ-L1-026 |
+
+---
+
+*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
+*Complete Rewrite: ID-Migration REQ-L2-Llm → REQ-L2-LA, Template-Standardisierung*
+*Designation: component (terminal) — decomposition_status: terminal*

@@ -1,0 +1,359 @@
+{
+  "requirements": [
+    {
+      "req_id": "REQ-L2-AppSvc-001",
+      "statement": "The ApplicationService SHALL, upon creating or modifying a parent-child relationship between artifacts, validate that no cyclic dependencies are introduced. A cycle is defined as any path from an artifact node back to itself via the parent relationship. The validation SHALL occur before persistence. Upon cycle detection, the operation SHALL be aborted with a descriptive error message identifying the cycle path.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Zyklische Artefakt-Hierarchien korrodieren die Datenintegrität und machen Tree-Queries nicht-terminierend. Die Zyklusprüfung ist die fundamentale Invariante der Artefakt-Hierarchie.",
+      "traceability": ["REQ-L1-001"],
+      "subservice": "ArtifactService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Artifact create/update request with parent field (In-Process Python from RestApiAdapter or McpServer)"},
+        {"direction": "output", "type": "data", "description": "Created/updated artifact with UUID and hierarchy path, or CycleDetectedException"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-002",
+      "statement": "The ApplicationService SHALL provide a tree-query operation that returns the complete artifact hierarchy of a workspace (or optionally starting from a given root node) as a nested structure. The query SHALL be implemented via PostgreSQL Recursive CTEs and SHALL complete within 200ms for up to 500 artifacts across 5 hierarchy levels.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Die Tree-Query ist die Basis für UI-Baumdarstellung, MCP-Tool artifact.get_tree und Export-Funktionen. Performance ist kritisch für die interaktive Nutzung.",
+      "traceability": ["REQ-L1-001"],
+      "subservice": "ArtifactService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Tree query request with workspace_id and optional root_id"},
+        {"direction": "output", "type": "data", "description": "Nested artifact tree structure"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-003",
+      "statement": "The ApplicationService SHALL provide complete CRUD operations for Requirements. Upon creation, the initial WorkflowState SHALL be automatically assigned according to the active WorkflowDefinition of the workspace. Upon update, the change_reason SHALL be validated as a mandatory field when the active preset is Extended. Upon deletion, all associated TraceLinks SHALL be cascade-deleted. Each write operation SHALL delegate workflow validation to the WorkflowEngine and SHALL write an AuditLog entry.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Requirements sind die Kernentität des Systems. Die Workflow-Integration ersetzt den hartcodierten Status-Enum und ermöglicht Configurable Rigor.",
+      "traceability": ["REQ-L1-002"],
+      "subservice": "RequirementService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Requirement CRUD request with data, optional change_reason, auth context"},
+        {"direction": "output", "type": "data", "description": "Requirement with WorkflowState and audit history"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-004",
+      "statement": "The ApplicationService SHALL provide complete CRUD operations for ArchitectureElements. Each ArchitectureElement SHALL be created with an element type (Component, Interface, Subsystem, Layer, Module). Upon each update, the version field SHALL be automatically incremented (Optimistic Locking). A concurrent update with a stale version SHALL be rejected with an OptimisticLockError. Upon deletion, all associated TraceLinks SHALL be cascade-deleted.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "ArchitectureElements als eigenständiger, versionierter Typ ermöglicht strukturierte Architektur-Verwaltung und vollständigen MCP-Zugriff für Architektur-Agenten.",
+      "traceability": ["REQ-L1-004"],
+      "subservice": "ArchitectureService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "ArchitectureElement CRUD request with element_type, title, description, optional artifact link"},
+        {"direction": "output", "type": "data", "description": "ArchitectureElement with UUID, version, WorkflowState, TraceLinks"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-005",
+      "statement": "The ApplicationService SHALL provide complete CRUD operations for TestCases. Each TestCase SHALL have a test type (Unit, Integration, System, Acceptance) and a WorkflowState. The test execution status (Passed, Failed, Not Run) SHALL be managed as a separate field and MAY be set via an update operation. Upon deletion, all associated TraceLinks SHALL be cascade-deleted.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Testmanagement ist Teil des v1-Funktionsumfangs; die Trennung von WorkflowState und Ausführungsstatus ermöglicht unabhängige Lifecycle- und Ergebnis-Verwaltung.",
+      "traceability": ["REQ-L1-012"],
+      "subservice": "TestService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "TestCase CRUD request with test_type, optional execution_status"},
+        {"direction": "output", "type": "data", "description": "TestCase with WorkflowState and execution_status"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-006",
+      "statement": "The ApplicationService SHALL provide export operations for Requirements, ArchitectureElements, TestCases and TraceLinks in JSON and CSV formats. The export SHALL accept a scope parameter (workspace or single artifact) and SHALL return a file in the requested format. The export of 1,000 Requirements SHALL complete within 5 seconds.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Export ist ein explizites Must-Have für v1; ermöglicht Integration mit externen Tools und ist Voraussetzung für spätere ReqIF-Unterstützung.",
+      "traceability": ["REQ-L1-019"],
+      "subservice": "ExportService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Export request with format (JSON/CSV) and scope (workspace/artifact)"},
+        {"direction": "output", "type": "data", "description": "File download (JSON or CSV) with all entities and metadata"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-007",
+      "statement": "The ApplicationService SHALL embed the active terminology profile of the workspace as metadata in every export (JSON and CSV). In JSON exports, it SHALL be included as a top-level field metadata.terminology_profile. In CSV exports, it SHALL be included as a comment line at the file beginning. After a profile switch, subsequent exports SHALL reflect the new active profile.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Das Terminologie-Profil als Metadatum gewährleistet die korrekte Interpretation des Exports in der jeweiligen Zielgruppe (Dev-Modus vs. SE-Modus).",
+      "traceability": ["REQ-L1-019", "REQ-L1-014"],
+      "subservice": "ExportService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Export request (same as REQ-L2-AppSvc-006)"},
+        {"direction": "output", "type": "data", "description": "Export file with terminology_profile metadata embedded"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-008",
+      "statement": "The ApplicationService SHALL provide a cross-artifact-type full-text search over Requirements, ArchitectureElements and TestCases. The search SHALL utilize PostgreSQL Full-Text Search (tsvector) and SHALL search across title, description and tags fields. Results SHALL be sorted by relevance and SHALL include an artifact-type annotation. The search SHALL complete within 500ms for up to 10,000 items.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Volltextsuche ist ein expliziter v1-Bestandteil; artifact.search als MCP-Tool deckt den häufigen Agenten-Anwendungsfall ab, wenn der Artefakttyp unbekannt ist.",
+      "traceability": ["REQ-L1-020"],
+      "subservice": "SearchService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Search query string with optional type and workspace filters"},
+        {"direction": "output", "type": "data", "description": "Relevance-sorted result list with artifact_type annotation"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-009",
+      "statement": "The ApplicationService SHALL support optional filters for artifact type and workspace in search operations. The type filter SHALL allow restriction to one or more artifact types. The workspace filter SHALL restrict results to a specific workspace. Both filters MAY be combined.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Filter sind notwendig für gezielte Suche in großen Workspaces und für MCP-Tool-Nutzung durch AI-Agenten, die spezifische Artefakttypen benötigen.",
+      "traceability": ["REQ-L1-020"],
+      "subservice": "SearchService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Search query with optional types[] array and workspace_id"},
+        {"direction": "output", "type": "data", "description": "Filtered result list matching type and workspace constraints"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-010",
+      "statement": "The ApplicationService SHALL provide TraceLink creation, querying and deletion operations as an orchestration layer over the TraceabilityEngine. When creating a TraceLink, the ApplicationService SHALL validate that both source and target entities exist and belong to the same workspace. Supported link types SHALL include: parent-child, derives-from, satisfies, verifies, implements, refines. The ApplicationService SHALL write an AuditLog entry for each write operation.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Der ApplicationService orchestriert TraceLink-Operationen als Teil von Use-Cases. Die Quell/Ziel-Validierung verhindert dangling References.",
+      "traceability": ["REQ-L1-003"],
+      "subservice": "TraceLinkService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "TraceLink create/query/delete request with source_id, target_id, link_type"},
+        {"direction": "output", "type": "data", "description": "Created TraceLink or query result (upstream/downstream graph)"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-011",
+      "statement": "The ApplicationService SHALL orchestrate baseline creation, retrieval and diff operations as a facade over the BaselineService. Before creating a baseline, the ApplicationService SHALL consult the PresetConfigEngine to verify that the requested scope (document, project, global) is permitted for the active preset. Upon successful creation, the ApplicationService SHALL write an AuditLog entry. The ApplicationService SHALL delegate the snapshot creation to the BaselineService and SHALL return the immutable baseline object to the caller.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Die BaselineFacade bündelt die Cross-Service-Orchestrierung (Preset-Check + Snapshot + Audit) und bietet eine einheitliche Schnittstelle für REST- und MCP-Adapter.",
+      "traceability": ["REQ-L1-008"],
+      "subservice": "BaselineFacade",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Baseline create/diff request with scope, name, workspace_id"},
+        {"direction": "output", "type": "data", "description": "Immutable baseline object with JSON snapshot, or diff result"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-012",
+      "statement": "The ApplicationService SHALL orchestrate workflow state transitions as a facade over the WorkflowEngine. Upon a transition request, the ApplicationService SHALL delegate the validation (allowed roles, change_reason requirement) to the WorkflowEngine. Upon successful transition, the ApplicationService SHALL write an AuditLog entry. The ApplicationService SHALL NOT directly modify WorkflowState entities — all mutations SHALL go through the WorkflowEngine.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Die WorkflowFacade kapselt die Delegationslogik und stellt sicher, dass der ApplicationService keine Workflow-Interna kennt.",
+      "traceability": ["REQ-L1-009"],
+      "subservice": "WorkflowFacade",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Transition request with item_id, target_state, optional change_reason, auth context"},
+        {"direction": "output", "type": "data", "description": "Updated WorkflowState with history entry, or validation error"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-013",
+      "statement": "The ApplicationService SHALL orchestrate LLM-powered capabilities (validation, decomposition, consistency checks) by delegating to the LlmAdapter. If no LLM provider is configured, the ApplicationService SHALL return a graceful error message ('LLM not configured') without affecting core functionality. The ApplicationService SHALL ensure that LLM results are structurally validated before persisting any derived artifacts.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "LLM als pluggable Capability ist AI-native Dimension 1; das System MUSS ohne LLM-Zugang vollständig funktionsfähig bleiben.",
+      "traceability": ["REQ-L1-013"],
+      "subservice": "RequirementService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "LLM capability request (validate/decompose/check_consistency) with artifact ID"},
+        {"direction": "output", "type": "data", "description": "Structured LLM result (score + suggestions) or graceful error 'LLM not configured'"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-014",
+      "statement": "The ApplicationService SHALL provide a CSV import operation for Requirements, ArchitectureElements and TestCases. The import SHALL validate each row against the data model and SHALL report errors with line numbers for invalid rows. Successfully imported items SHALL be assigned regular UUIDs. The import SHALL operate within a single transaction — either all valid rows are imported or none (atomic).",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "CSV-Bulk-Import ermöglicht die Migration bestehender Anforderungsdaten ohne manuelle Neueingabe; explizites Must-Have in KONZEPT.md §4.6.",
+      "traceability": ["REQ-L1-021"],
+      "subservice": "RequirementService / ArchitectureService / TestService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "CSV file with requirements/artifacts conforming to documented schema"},
+        {"direction": "output", "type": "data", "description": "Import result report (successfully imported items, errors with line numbers)"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-015",
+      "statement": "The ApplicationService SHOULD support the association of Requirements with GitHub Issues and Pull Requests. The association SHALL be bidirectionally retrievable from within ReqFlow. The integration SHALL require a configured GitHub token and accessible target repositories. If the GitHub token is not configured, the ApplicationService SHALL return a descriptive error message.",
+      "domain": "software",
+      "priority": "desired",
+      "rationale": "GitHub-Integration ist ein Should-Have in KONZEPT.md §4.6; die Zielgruppe erwartet native Integration in ihren Entwicklungs-Workflow.",
+      "traceability": ["REQ-L1-022"],
+      "subservice": "RequirementService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "GitHub token configuration; link request with requirement_id and GitHub issue/PR URL"},
+        {"direction": "output", "type": "data", "description": "Linked GitHub issues/PRs in requirement detail view"},
+        {"direction": "output", "type": "data", "description": "ReqFlow reference in GitHub (via webhook or API)"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-016",
+      "statement": "The ApplicationService SHOULD provide PDF report export for requirement documents and traceability matrices. The report SHALL include metadata (version, baseline reference, workflow state, audit history). The PDF export SHALL support scope selection (workspace, artifact, baseline).",
+      "domain": "software",
+      "priority": "desired",
+      "rationale": "PDF-Reports sind ein Should-Have in KONZEPT.md §4.6; die SE-Zielgruppe benötigt dokumentierbare Übergaben für Reviews und Compliance-Nachweise.",
+      "traceability": ["REQ-L1-023"],
+      "subservice": "ExportService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Report request with scope (workspace/artifact/baseline), report type (requirement document/traceability matrix)"},
+        {"direction": "output", "type": "data", "description": "PDF file with formatted report, metadata and traceability matrix"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-017",
+      "statement": "The ApplicationService SHOULD dispatch configurable webhooks for event types (requirement created, requirement modified, status transition, baseline created). Upon event occurrence, the ApplicationService SHALL send an HTTP POST request to the configured URL with a JSON payload containing the event type, affected entity ID and timestamp. The webhook dispatch SHALL be asynchronous and SHALL NOT block the triggering operation.",
+      "domain": "software",
+      "priority": "desired",
+      "rationale": "Webhook-Support ermöglicht externen Systemen (CI/CD, Slack, Notification-Services) auf Anforderungsänderungen zu reagieren.",
+      "traceability": ["REQ-L1-024"],
+      "subservice": "ApplicationService (cross-cutting)",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Webhook configuration (URL, event type, secret); triggering system event"},
+        {"direction": "output", "type": "data", "description": "HTTP POST request to configured URL with JSON payload (event_type, entity_id, timestamp)"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-018",
+      "statement": "The ApplicationService SHALL ensure that all data modifications are persisted atomically and consistently. Upon error during a multi-step operation, the ApplicationService SHALL roll back all changes — no partial writes SHALL remain. The ApplicationService SHALL leverage Django's transaction management (transaction.atomic()) to enforce ACID properties at the application orchestration level.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Datenkonsistenz ist eine fundamentale Non-Functional-Anforderung; partielle Schreibvorgänge können zu inkonsistenten Artefakt-Hierarchien, TraceLinks und Workflow-States führen.",
+      "traceability": ["REQ-L1-025"],
+      "subservice": "All subservices (cross-cutting)",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Any write operation on entities or TraceLinks"},
+        {"direction": "output", "type": "data", "description": "Atomically persisted change or full rollback on error"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-019",
+      "statement": "The ApplicationService SHALL write an AuditLog entry after every write operation (create, update, delete, transition) on Requirements, ArchitectureElements, TestCases, TraceLinks, Baselines and Workflows. The AuditLog entry SHALL include: actor (User or Agent-Client + API-Key hash), operation type, entity ID, timestamp, and optional field-level details. The AuditLog write SHALL be part of the same database transaction as the triggering operation.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Vollständige Auditierbarkeit ist eine explizite Non-Functional-Anforderung; der ApplicationService ist der zentrale Orchestrierungspunkt für alle Schreiboperationen.",
+      "traceability": ["REQ-L1-011"],
+      "subservice": "All subservices (cross-cutting, delegated to ARCH-L1-012)",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Any write operation with User or Agent context"},
+        {"direction": "output", "type": "data", "description": "AuditLog entry; entity with updated audit fields"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-020",
+      "statement": "The ApplicationService SHALL consult the PresetConfigEngine before executing operations that are preset-dependent: (a) before creating a baseline, verify that the requested scope is allowed; (b) before validating a change_reason, check if it is mandatory in the active preset; (c) before processing a preset downgrade request, validate that no incompatible items exist and block the downgrade if incompatibilities are found.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Configurable Rigor als Querschnitts-Konzept erfordert, dass der ApplicationService Preset-Regeln konsultiert. Die PresetPolicyService adressiert OP-02 (Preset-Downgrade-Verhalten).",
+      "traceability": ["REQ-L1-007"],
+      "subservice": "PresetPolicyService, all other subservices",
+      "external_interfaces": [
+        {"direction": "input", "type": "control", "description": "Preset rules from PresetConfigEngine (ARCH-L1-008)"},
+        {"direction": "output", "type": "control", "description": "Operation allowed/blocked based on preset constraints"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-021",
+      "statement": "The ApplicationService SHALL receive the authentication context (User, Tenant, Roles) from the AuthAndTenancy subsystem for every incoming operation. The ApplicationService SHALL pass the auth context to all downstream service calls that require authorization checks. The ApplicationService SHALL NOT perform authentication itself — it SHALL rely on the auth context provided by ARCH-L1-011.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Trennung von Authentifizierung (ARCH-L1-011) und Geschäftslogik (ARCH-L1-004) ist ein fundamentales Architektur-Prinzip.",
+      "traceability": ["REQ-L1-010"],
+      "subservice": "All subservices (cross-cutting)",
+      "external_interfaces": [
+        {"direction": "input", "type": "control", "description": "Auth context (User, Tenant, Roles) from AuthAndTenancy (ARCH-L1-011)"},
+        {"direction": "output", "type": "control", "description": "Permission decision (allow/deny) per operation and resource"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-022",
+      "statement": "The ApplicationService SHALL ensure that every database query executed via the PersistenceLayer is scoped to the active tenant. The tenant context SHALL be extracted from the auth context and SHALL be propagated to the PersistenceLayer's Custom Django Manager. The ApplicationService SHALL NOT bypass the tenant filter — all queries SHALL go through the Custom Manager.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Row-Level-Isolation ist Voraussetzung für den v2-SaaS-Betrieb; der ApplicationService muss sicherstellen, dass er die Tenant-Isolation nicht umgeht.",
+      "traceability": ["REQ-L1-015"],
+      "subservice": "All subservices (cross-cutting, via ARCH-L1-010)",
+      "external_interfaces": [
+        {"direction": "input", "type": "control", "description": "Every API request with auth token (tenant extraction from JWT/API-Key)"},
+        {"direction": "output", "type": "data", "description": "Filtered results exclusively for the active tenant"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-023",
+      "statement": "The ApplicationService SHALL ensure that its orchestration logic does not add more than 50ms of overhead per use-case call (excluding downstream service latency). The ApplicationService SHALL use batch operations where possible (e.g., batch INSERT for requirement decomposition, bulk TraceLink creation). The ApplicationService SHALL NOT perform N+1 queries.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Der ApplicationService ist der zentrale Orchestrierungspunkt — seine Performance beeinflusst alle Schnittstellen (REST, MCP, UI).",
+      "traceability": ["REQ-L1-026"],
+      "subservice": "All subservices (cross-cutting)",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "API requests under defined load (50 concurrent users, 10,000 requirements)"},
+        {"direction": "output", "type": "data", "description": "Responses within defined latency SLAs (95th percentile)"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-024",
+      "statement": "The ApplicationService SHALL orchestrate the decomposition of a requirement into child requirements. If child proposals are provided by the caller, the ApplicationService SHALL validate and persist them directly. If no children are provided, the ApplicationService SHALL delegate to the LlmAdapter for LLM-generated decomposition. After creating child requirements, the ApplicationService SHALL create parent-child TraceLinks, SHALL initialize WorkflowState for each child via the WorkflowEngine, and SHALL write an AuditLog entry.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Requirement-Decomposition ist ein zentraler AI-nativer Workflow; die Orchestrierung erfordert die Zusammenarbeit mehrerer Subsysteme.",
+      "traceability": ["REQ-L1-002", "REQ-L1-013"],
+      "subservice": "RequirementService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Decomposition request with parent requirement ID and optional child proposals"},
+        {"direction": "output", "type": "data", "description": "Created child requirements with parent-child TraceLinks and initialized WorkflowStates"}
+      ]
+    },
+    {
+      "req_id": "REQ-L2-AppSvc-025",
+      "statement": "The ApplicationService SHALL provide a coverage calculation operation that reports which Requirements have at least one associated TestCase (via verifies TraceLinks). The coverage report SHALL be queryable per workspace and SHALL return the total number of Requirements, the number of covered Requirements and the coverage percentage. The ApplicationService SHALL delegate the actual TraceLink querying to the TraceabilityEngine.",
+      "domain": "software",
+      "priority": "mandatory",
+      "rationale": "Coverage-Tracking ist Grundlage für AI-gestützte Test-Lücken-Analyse und ein explizites v1-Feature.",
+      "traceability": ["REQ-L1-012"],
+      "subservice": "TestService",
+      "external_interfaces": [
+        {"direction": "input", "type": "data", "description": "Coverage query request with workspace_id"},
+        {"direction": "output", "type": "data", "description": "Coverage report (total, covered, percentage)"}
+      ]
+    }
+  ],
+  "metadata": {
+    "system": "ApplicationService",
+    "arch_id": "ARCH-L1-004",
+    "level": "L2",
+    "designation": "subsystem",
+    "decomposition_status": "intermediate",
+    "total_requirements": 25,
+    "mandatory": 22,
+    "desired": 3,
+    "optional": 0,
+    "req_l1_coverage": {
+      "primary_allocated": 20,
+      "primary_covered": 20,
+      "contributing": 11,
+      "contributing_covered": 11
+    },
+    "subservices": [
+      "ArtifactService",
+      "RequirementService",
+      "ArchitectureService",
+      "TestService",
+      "TraceLinkService",
+      "BaselineFacade",
+      "WorkflowFacade",
+      "SearchService",
+      "ExportService",
+      "PresetPolicyService"
+    ]
+  }
+}

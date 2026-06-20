@@ -1,9 +1,10 @@
 # ReqFlow — L3 Quality-Gate Audit Report
 
-> Status: CONDITIONAL PASS | Erstellt: 2026-06-17
+> Status: CONDITIONAL PASS | Erstellt: 2026-06-17 | Verschoben nach `docs/se/reports/` am 2026-06-18
 > Auditor: se-critic
 > Scope: AE-004, AE-003, AE-005, AE-006, AE-009 (50 Units, 81 UNIT-REQs)
-> Geprüfte Artefakte: REQUIREMENTS_L3.md, architecture-elements-l3.md
+> Geprüfte Artefakte: `REQUIREMENTS_L3.md` (Quelle), `architecture-elements-l3.md` (Quelle)
+> Neue Referenzpfade: `docs/se/L1/Gesamtsystem/L2/<System>System/L3/<System>Component/L3_<System>Component_Architecture.md` (siehe `docs/se/STRATEGY.md` §7)
 
 ---
 
@@ -11,11 +12,11 @@
 
 | Check | Status | Befunde |
 |-------|--------|---------|
-| 1. UNIT-REQ → Unit | ✅ PASS | 81/81 UNIT-REQs zugeordnet, 0 fehlend |
-| 2. Unit → UNIT-REQ | ✅ PASS | 50/50 Units mit ≥1 UNIT-REQ, 0 verwaist |
-| 3. Schnittstellen | ❌ FAIL | 4 Interface-Probleme gefunden |
-| 4. Zyklusfreiheit | ✅ PASS | 0 Zyklen in 5 AEs (DAG bestätigt) |
-| 5. Traceability | ✅ PASS | 81/81 Ketten lückenlos, 0 Unterbrechungen |
+| 1. UNIT-REQ → Unit | PASS | 81/81 UNIT-REQs zugeordnet, 0 fehlend |
+| 2. Unit → UNIT-REQ | PASS | 50/50 Units mit ≥1 UNIT-REQ, 0 verwaist |
+| 3. Schnittstellen | FAIL | 4 Interface-Probleme gefunden |
+| 4. Zyklusfreiheit | PASS | 0 Zyklen in 5 AEs (DAG bestätigt) |
+| 5. Traceability | PASS | 81/81 Ketten lückenlos, 0 Unterbrechungen |
 
 **Gesamturteil:** CONDITIONAL PASS
 
@@ -44,7 +45,7 @@
 
 **Befunde:** Keine UNIT-REQs ohne Unit-Zuordnung gefunden. Alle 81 UNIT-REQs sind im Unit-Katalog abgebildet.
 
-**Status:** ✅ PASS
+**Status:** PASS
 
 ---
 
@@ -69,7 +70,7 @@
 
 **Befunde:** Keine Units ohne UNIT-REQ gefunden. Alle 50 Units erfüllen die Mindest-Kohäsion.
 
-**Status:** ✅ PASS
+**Status:** PASS
 
 ---
 
@@ -94,6 +95,8 @@
 
 **Korrektur:** In §8.2 und im AE-004-Mermaid-Diagramm ergänzen: `UNIT-AS-04 → AE-008 | Preset-Query | API | change_reason-Pflichtprüfung`
 
+**Status (2026-06-18):** Korrektur in `docs/se/interface-registry.md` §4.1 als IF-L3-AS-EXT-10 registriert; ebenso in `docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/L3/ApplicationServiceComponent/L3_ApplicationServiceComponent_Architecture.md`.
+
 ---
 
 ### Befund 3.2: Inkorrekte interne Schnittstelle UNIT-AS-07 → UNIT-AS-13
@@ -107,7 +110,9 @@
 
 **Korrektur:**
 1. Eintrag in §8.1 entfernen (ist keine interne Schnittstelle).
-2. Die externe Schnittstelle `UNIT-AS-07 → AE-008` ist bereits in §8.2 korrekt deklariert.
+2. Die externe Schnittstelle `UNIT-AS-07 → AE-008` ist bereits in §8.2 korrekt deklariert (= IF-L3-AS-EXT-05).
+
+**Status (2026-06-18):** In `docs/se/interface-registry.md` §3.1 entsprechend nicht als interne IF geführt (Hinweis dort).
 
 ---
 
@@ -121,6 +126,8 @@
 
 **Korrektur:** In §8.6 ergänzen: `AE-004 | UNIT-WE-02 | validate() | API | workflow_def, from, to, roles, change_reason → bool`
 
+**Status (2026-06-18):** Korrektur in `docs/se/interface-registry.md` §4.3 als IF-L3-WE-EXT-07 registriert; ebenso in `docs/se/L1/Gesamtsystem/L2/WorkflowEngineSystem/L3/WorkflowEngineComponent/L3_WorkflowEngineComponent_Architecture.md`.
+
 ---
 
 ### Befund 3.4: Fehlende externe Schnittstelle AE-004 → UNIT-BS-01
@@ -133,7 +140,9 @@
 
 **Korrektur:** In §8.8 ergänzen: `AE-004 | UNIT-BS-01 | resolve_*_scope() | API | scope_id → list[resolved_items]`
 
-**Status:** ❌ FAIL (4 Befunde)
+**Status (2026-06-18):** Korrektur in `docs/se/interface-registry.md` §4.4 als IF-L3-BS-EXT-07 registriert; ebenso in `docs/se/L1/Gesamtsystem/L2/BaselineServiceSystem/L3/BaselineServiceComponent/L3_BaselineServiceComponent_Architecture.md`.
+
+**Status:** FAIL (4 Befunde — alle 2026-06-18 in der konsolidierten `docs/se/`-Struktur korrigiert)
 
 ---
 
@@ -174,7 +183,7 @@
 
 **Befunde:** Keine Zyklen gefunden.
 
-**Status:** ✅ PASS
+**Status:** PASS
 
 ---
 
@@ -196,16 +205,16 @@
 
 | UNIT-REQ | COMP-REQ | SYS-REQ | SN | Status |
 |----------|----------|---------|-----|--------|
-| UNIT-REQ-001 | COMP-REQ-001 | SYS-REQ-01 | SN-02 | ✅ |
-| UNIT-REQ-024 | COMP-REQ-004 | SYS-REQ-09 | SN-05 | ✅ |
-| UNIT-REQ-047 | COMP-REQ-012 | SYS-REQ-05 | SN-01 | ✅ |
-| UNIT-REQ-055 | COMP-REQ-004 | SYS-REQ-02 | SN-05 | ✅ |
-| UNIT-REQ-066 | COMP-REQ-019 | SYS-REQ-08 | SN-04 | ✅ |
-| UNIT-REQ-081 | COMP-REQ-032 | SYS-REQ-11 | SN-11 | ✅ |
+| UNIT-REQ-001 | COMP-REQ-001 | SYS-REQ-01 | SN-02 | OK |
+| UNIT-REQ-024 | COMP-REQ-004 | SYS-REQ-09 | SN-05 | OK |
+| UNIT-REQ-047 | COMP-REQ-012 | SYS-REQ-05 | SN-01 | OK |
+| UNIT-REQ-055 | COMP-REQ-004 | SYS-REQ-02 | SN-05 | OK |
+| UNIT-REQ-066 | COMP-REQ-019 | SYS-REQ-08 | SN-04 | OK |
+| UNIT-REQ-081 | COMP-REQ-032 | SYS-REQ-11 | SN-11 | OK |
 
 **Befunde:** Alle 81 UNIT-REQs verweisen auf existierende COMP-REQs (22 eindeutige), die wiederum auf existierende SYS-REQs (20 eindeutige) und Stakeholder-Needs (12 eindeutige) zurückführen. Keine defekten Links.
 
-**Status:** ✅ PASS
+**Status:** PASS
 
 ---
 
@@ -213,17 +222,18 @@
 
 Die folgenden Korrekturen sind vor dem Start der Implementierung (L4) erforderlich, um Check 3 auf PASS zu heben:
 
-| Priorität | Befund | Korrektur | Zuständige Datei |
-|-----------|--------|-----------|-----------------|
-| **P0** | 3.1 Fehlende UNIT-AS-04 → AE-008 | In AE-004-Mermaid und §8.2 ergänzen: `UNIT-AS-04` konsultiert `PresetConfigEngine` für `change_reason`-Pflichtprüfung | architecture-elements-l3.md |
-| **P0** | 3.2 Inkorrekte UNIT-AS-07 → UNIT-AS-13 | Eintrag `UNIT-AS-07 → UNIT-AS-13` in §8.1 entfernen; `_get_terminology_metadata()` ist interne Methode von UNIT-AS-07, die extern AE-008 aufruft (bereits in §8.2 korrekt) | architecture-elements-l3.md |
-| **P0** | 3.3 Fehlende AE-004 → UNIT-WE-02 | In §8.6 ergänzen: `AE-004 | UNIT-WE-02 | validate()` | architecture-elements-l3.md |
-| **P0** | 3.4 Fehlende AE-004 → UNIT-BS-01 | In §8.8 ergänzen: `AE-004 | UNIT-BS-01 | resolve_*_scope()` | architecture-elements-l3.md |
+| Priorität | Befund | Korrektur | Zuständige Datei (alt) | Zuständige Datei (neu, ab 2026-06-18) |
+|-----------|--------|-----------|-----------------|---------------|
+| **P0** | 3.1 Fehlende UNIT-AS-04 → AE-008 | In AE-004-Mermaid und §8.2 ergänzen | architecture-elements-l3.md | `docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/L3/ApplicationServiceComponent/L3_ApplicationServiceComponent_Architecture.md` + `docs/se/interface-registry.md` |
+| **P0** | 3.2 Inkorrekte UNIT-AS-07 → UNIT-AS-13 | Eintrag in §8.1 entfernen | architecture-elements-l3.md | `docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/L3/ApplicationServiceComponent/L3_ApplicationServiceComponent_Architecture.md` + `docs/se/interface-registry.md` |
+| **P0** | 3.3 Fehlende AE-004 → UNIT-WE-02 | In §8.6 ergänzen | architecture-elements-l3.md | `docs/se/L1/Gesamtsystem/L2/WorkflowEngineSystem/L3/WorkflowEngineComponent/L3_WorkflowEngineComponent_Architecture.md` + `docs/se/interface-registry.md` |
+| **P0** | 3.4 Fehlende AE-004 → UNIT-BS-01 | In §8.8 ergänzen | architecture-elements-l3.md | `docs/se/L1/Gesamtsystem/L2/BaselineServiceSystem/L3/BaselineServiceComponent/L3_BaselineServiceComponent_Architecture.md` + `docs/se/interface-registry.md` |
 
 **Zusätzliche Empfehlung (Qualität):**
-- Die interne Schnittstellen-Matrix (§8.1–8.10) sollte konsistent mit den Mermaid-Diagrammen und den Unit-Code-Deklarationen (§2.3–6.3) gepflegt werden. Ein automatisiertes Script (z.B. Parsing der Mermaid-Diagramme + Code-Docstrings) könnte zukünftige Inkonsistenzen frühzeitig erkennen.
+- Die interne Schnittstellen-Matrix sollte konsistent mit den Mermaid-Diagrammen und den Unit-Code-Deklarationen gepflegt werden. Ein automatisiertes Script (z.B. Parsing der Mermaid-Diagramme + Code-Docstrings) könnte zukünftige Inkonsistenzen frühzeitig erkennen.
 
 ---
 
 *Erstellt durch se-critic-Agent | ReqFlow SE-Kaskade L3 Quality-Gate | 2026-06-17*
+*Verschoben nach `docs/se/reports/` durch se-architect | 2026-06-18*
 *Nächster Schritt: Korrektur der 4 Interface-Befunde durch se-architect, dann Re-Audit (Iteration 1/3)*

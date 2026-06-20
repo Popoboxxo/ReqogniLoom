@@ -1,0 +1,187 @@
+# L2 ApplicationService Architecture
+
+> **Level:** L2 (Subsystem white-box)
+> **System:** ApplicationServiceSystem (ARCH-L1-004)
+> **Parent:** L1_Gesamtsystem_Architecture.md
+> **Datum:** 2026-06-20
+> **Status:** entworfen
+
+---
+
+## 1. Verantwortlichkeit
+
+Zentrale Domain-Service-Fassade fuer alle Use-Cases. Orchestriert die untergeordneten Domain-Services (WorkflowEngine, BaselineService, TraceabilityEngine, LlmAdapter). Stellt transaktionale Konsistenz sicher. Einziger legitimer Zugriffspunkt fuer REST- und MCP-Adapter.
+
+---
+
+## 2. Black-Box (Eingebettete Sicht)
+
+### Externe Schnittstellen
+
+| ID | Richtung | Gegenstelle | Typ | Vertrag |
+|----|----------|-------------|-----|---------|
+| IF-AS-EXT-IN-001 | eingehend | RestApiAdapter | In-Process Python | Use-Case-Methoden (Pydantic/DRF-Serializer als DTOs) |
+| IF-AS-EXT-IN-002 | eingehend | McpServer | In-Process Python | Use-Case-Methoden (identischer Domain-Kontrakt wie REST) |
+| IF-AS-EXT-IN-003 | eingehend | AuthAndTenancy | In-Process Python | Auth-Kontext (User, Tenant, Rollen) pro Operation |
+| IF-AS-EXT-OUT-001 | ausgehend | WorkflowEngine | In-Process Python | `transition(item_id, target_state, change_reason, ctx)` |
+| IF-AS-EXT-OUT-002 | ausgehend | BaselineService | In-Process Python | `build(scope, workspace_id, ctx)`, `diff(a, b)` |
+| IF-AS-EXT-OUT-003 | ausgehend | TraceabilityEngine | In-Process Python | `query(artifact_id, direction)`, `coverage(workspace_id)` |
+| IF-AS-EXT-OUT-004 | ausgehend | PresetConfigEngine | In-Process Python | `get_preset(workspace_id)`, `is_feature_enabled(key, workspace_id)` |
+| IF-AS-EXT-OUT-005 | ausgehend | LlmAdapter | In-Process Python | `validate`, `decompose`, `check_consistency` |
+| IF-AS-EXT-OUT-006 | ausgehend | AuditLog | In-Process Python | `log_write(actor, op, entity_id, details)` |
+| IF-AS-EXT-OUT-007 | ausgehend | PersistenceLayer | Django ORM | Alle Entitaeten, Custom Manager mit Tenant-Isolation |
+
+---
+
+## 3. White-Box (Komponenten-Zerlegung)
+
+### Komponenten
+
+| Komp-ID | Name | Verantwortlichkeit | Domain |
+|---------|------|--------------------|--------|
+| COMP-AS-001 | ArtifactService | Artifact-Hierarchie-CRUD, Zyklus-Pruefung, Tree-Queries via PostgreSQL Recursive CTE | software |
+| COMP-AS-002 | RequirementService | Requirement-CRUD, Decomposition-Orchestrierung, LLM-Validation, GitHub-Integration | software |
+| COMP-AS-003 | ArchitectureService | ArchitectureElement-CRUD, automatische Versions-Inkrementierung (Optimistic Locking) | software |
+| COMP-AS-004 | TestService | TestCase-CRUD, Test-Execution-Status-Management, Coverage-Berechnung | software |
+| COMP-AS-005 | TraceLinkService | TraceLink-CRUD, Quell/Ziel-Validierung, Link-Typ-Validierung, AuditLog-Ausloesung | software |
+| COMP-AS-006 | BaselineFacade | Baseline-Lifecycle-Orchestrierung: Preset-Check -> Snapshot-Delegation -> AuditLog; Diff-Operationen | software |
+| COMP-AS-007 | WorkflowFacade | Workflow-State-Transition-Orchestrierung: Validierungs-Delegation an WorkflowEngine, AuditLog-Ausloesung | software |
+| COMP-AS-008 | ExportService | JSON-/CSV-Export fuer alle Entitaeten inkl. aktivem Terminologie-Profil als Metadatum; PDF-Report-Export | software |
+| COMP-AS-009 | ImportService | CSV-Bulk-Import fuer Requirements, ArchitectureElements und TestCases mit atomarer Transaktionssemantik | software |
+| COMP-AS-010 | SearchService | Volltextsuche ueber Requirements + ArchitectureElements + TestCases (PostgreSQL Full-Text Search) mit Type-/Workspace-Filter | software |
+| COMP-AS-011 | WebhookDispatcher | Asynchroner Webhook-Dispatch fuer konfigurierbare Event-Typen mit Retry-Logik (exponentieller Backoff) | software |
+| COMP-AS-012 | PresetPolicyService | Preset-Regel-Validierung (Scope-Erlaubnis, change_reason-Pflicht, Downgrade-Inkompatibilitaets-Check) | software |
+
+### Interne Schnittstellen
+
+| ID | Richtung | Quelle -> Ziel | Typ | Vertrag |
+|----|----------|----------------|-----|---------|
+| IF-AS-INT-001 | intern | COMP-AS-001 -> COMP-AS-005 | In-Process Python | `cascade_delete_trace_links(artifact_id)` |
+| IF-AS-INT-002 | intern | COMP-AS-002 -> COMP-AS-005 | In-Process Python | `create_trace_link(source_id, target_id, link_type)` |
+| IF-AS-INT-003 | intern | COMP-AS-002 -> COMP-AS-007 | In-Process Python | `transition(item_id, target_state, change_reason, ctx)` |
+| IF-AS-INT-004 | intern | COMP-AS-003 -> COMP-AS-005 | In-Process Python | `cascade_delete_trace_links(architecture_element_id)` |
+| IF-AS-INT-005 | intern | COMP-AS-004 -> COMP-AS-005 | In-Process Python | `cascade_delete_trace_links(test_case_id)` |
+| IF-AS-INT-006 | intern | COMP-AS-006 -> COMP-AS-012 | In-Process Python | `is_scope_allowed(workspace_id, scope)` |
+| IF-AS-INT-007 | intern | COMP-AS-007 -> COMP-AS-012 | In-Process Python | `validate_transition_roles(ctx, target_state)` |
+| IF-AS-INT-008 | intern | COMP-AS-002 -> COMP-AS-012 | In-Process Python | `is_change_reason_required(workspace_id)` |
+| IF-AS-INT-009 | intern | COMP-AS-002 -> COMP-AS-011 | In-Process Python | `WebhookEvent(type="requirement_created", entity_id, timestamp)` |
+| IF-AS-INT-010 | intern | COMP-AS-003 -> COMP-AS-011 | In-Process Python | `WebhookEvent(type="architecture_element_created", ...)` |
+| IF-AS-INT-011 | intern | COMP-AS-004 -> COMP-AS-011 | In-Process Python | `WebhookEvent(type="test_case_created", ...)` |
+| IF-AS-INT-012 | intern | COMP-AS-006 -> COMP-AS-011 | In-Process Python | `WebhookEvent(type="baseline_created", ...)` |
+
+### Komponentendiagramm (Mermaid)
+
+```mermaid
+flowchart TD
+    subgraph ApplicationServiceSystem
+        C001["COMP-AS-001: ArtifactService<br/>Hierarchie + Zyklus-Check"]
+        C002["COMP-AS-002: RequirementService<br/>CRUD + Decomposition"]
+        C003["COMP-AS-003: ArchitectureService<br/>ArchEl-CRUD + Versioning"]
+        C004["COMP-AS-004: TestService<br/>TestCase-CRUD + Coverage"]
+        C005["COMP-AS-005: TraceLinkService<br/>Link-CRUD + Validierung"]
+        C006["COMP-AS-006: BaselineFacade<br/>Baseline-Lifecycle"]
+        C007["COMP-AS-007: WorkflowFacade<br/>Transition-Orchestrierung"]
+        C008["COMP-AS-008: ExportService<br/>JSON/CSV/PDF Export"]
+        C009["COMP-AS-009: ImportService<br/>CSV Bulk Import"]
+        C010["COMP-AS-010: SearchService<br/>Full-Text Search"]
+        C011["COMP-AS-011: WebhookDispatcher<br/>Async Event-Dispatch"]
+        C012["COMP-AS-012: PresetPolicyService<br/>Preset-Regel-Enforcement"]
+    end
+
+    ext_in1["RestApiAdapter"] -->|IF-AS-EXT-IN-001| C002
+    ext_in2["McpServer"] -->|IF-AS-EXT-IN-002| C002
+    ext_in3["AuthAndTenancy"] -->|IF-AS-EXT-IN-003| C002
+
+    C001 -->|IF-AS-INT-001| C005
+    C002 -->|IF-AS-INT-002| C005
+    C002 -->|IF-AS-INT-003| C007
+    C003 -->|IF-AS-INT-004| C005
+    C004 -->|IF-AS-INT-005| C005
+    C006 -->|IF-AS-INT-006| C012
+    C007 -->|IF-AS-INT-007| C012
+    C002 -->|IF-AS-INT-008| C012
+
+    C002 -.->|IF-AS-INT-009| C011
+    C003 -.->|IF-AS-INT-010| C011
+    C004 -.->|IF-AS-INT-011| C011
+    C006 -.->|IF-AS-INT-012| C011
+
+    C002 -->|IF-AS-EXT-OUT-005| ext_llm["LlmAdapter"]
+    C005 -->|IF-AS-EXT-OUT-003| ext_trace["TraceabilityEngine"]
+    C006 -->|IF-AS-EXT-OUT-002| ext_bl["BaselineService"]
+    C007 -->|IF-AS-EXT-OUT-001| ext_wf["WorkflowEngine"]
+    C012 -->|IF-AS-EXT-OUT-004| ext_pc["PresetConfigEngine"]
+
+    C001 -->|IF-AS-EXT-OUT-007| ext_db["PersistenceLayer"]
+    C002 -->|IF-AS-EXT-OUT-007| ext_db
+    C003 -->|IF-AS-EXT-OUT-007| ext_db
+    C004 -->|IF-AS-EXT-OUT-007| ext_db
+    C005 -->|IF-AS-EXT-OUT-007| ext_db
+    C006 -->|IF-AS-EXT-OUT-007| ext_db
+    C007 -->|IF-AS-EXT-OUT-007| ext_db
+    C008 -->|IF-AS-EXT-OUT-007| ext_db
+    C009 -->|IF-AS-EXT-OUT-007| ext_db
+    C010 -->|IF-AS-EXT-OUT-007| ext_db
+
+    C001 -.->|IF-AS-EXT-OUT-006| ext_audit["AuditLog"]
+    C002 -.->|IF-AS-EXT-OUT-006| ext_audit
+    C003 -.->|IF-AS-EXT-OUT-006| ext_audit
+    C004 -.->|IF-AS-EXT-OUT-006| ext_audit
+    C005 -.->|IF-AS-EXT-OUT-006| ext_audit
+    C006 -.->|IF-AS-EXT-OUT-006| ext_audit
+    C007 -.->|IF-AS-EXT-OUT-006| ext_audit
+
+    C011 -.->|HTTPS POST| ext_wh["Externe Webhook-URLs"]
+```
+
+**Legende:** Durchgezogene Pfeile = synchrone In-Process-Aufrufe. Gestrichelte Pfeile = asynchrone / event-basierte Aufrufe.
+
+---
+
+## 4. Zugeordnete REQ-L2
+
+| REQ-L2 | Komponente |
+|--------|-----------|
+| REQ-L2-AS-001 | COMP-AS-001 |
+| REQ-L2-AS-002 | COMP-AS-001 |
+| REQ-L2-AS-003 | COMP-AS-002 |
+| REQ-L2-AS-004 | COMP-AS-003 |
+| REQ-L2-AS-005 | COMP-AS-004 |
+| REQ-L2-AS-006 | COMP-AS-008 |
+| REQ-L2-AS-007 | COMP-AS-008 |
+| REQ-L2-AS-008 | COMP-AS-010 |
+| REQ-L2-AS-009 | COMP-AS-010 |
+| REQ-L2-AS-010 | COMP-AS-005 |
+| REQ-L2-AS-011 | COMP-AS-006 |
+| REQ-L2-AS-012 | COMP-AS-007 |
+| REQ-L2-AS-013 | COMP-AS-002 |
+| REQ-L2-AS-014 | COMP-AS-009 |
+| REQ-L2-AS-015 | COMP-AS-002 |
+| REQ-L2-AS-016 | COMP-AS-008 |
+| REQ-L2-AS-017 | COMP-AS-011 |
+| REQ-L2-AS-018 | Alle Write-Komponenten |
+| REQ-L2-AS-019 | Alle Write-Komponenten |
+| REQ-L2-AS-020 | COMP-AS-012 |
+| REQ-L2-AS-021 | Alle Komponenten |
+| REQ-L2-AS-022 | Alle Komponenten |
+| REQ-L2-AS-023 | Alle Komponenten |
+| REQ-L2-AS-024 | COMP-AS-002 |
+| REQ-L2-AS-025 | COMP-AS-004 |
+
+---
+
+## 5. ADRs (lokal)
+
+**ADR-AS-01 — Use-Case-orientierte Service-Partitionierung statt monolithischem ApplicationService**
+*Entscheidung:* Zwoelf eigenstaendige Domain-Services statt einer God-Class.
+*Rationale:* Vermeidet Anemic Domain Services, buendelt Cross-Entity-Logik (z.B. Decomposition erzeugt Requirements, TraceLinks und WorkflowStates) ermoeglicht parallele Entwicklung und klare Testverantwortlichkeiten. Jeder Service ist ein koharenter Black-Box mit klarem Vertrag.
+*Verworfene Alternative:* Monolithischer ApplicationService ohne interne Zerlegung — abgelehnt wegen God-Class-Risiko und schlechter Testisolation.
+
+**ADR-AS-02 — Fassaden-Muster fuer externe Subsysteme**
+*Entscheidung:* `BaselineFacade` und `WorkflowFacade` kapseln die Delegation an externe L1-Subsysteme.
+*Rationale:* Trennt Orchestrierungslogik (Preset-Check + AuditLog + Transaction) von der eigentlichen Engine-Implementierung und erlaubt unabhaengige Evolution. PresetPolicyService als zentrale Querschnitts-Komponente wahrt Single Source of Truth fuer Preset-Regeln.
+*Verworfene Alternative:* Jeder Service konsultiert PresetConfigEngine direkt — abgelehnt wegen Duplizierung und Drift-Risiko.
+
+---
+
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade | 2026-06-20*

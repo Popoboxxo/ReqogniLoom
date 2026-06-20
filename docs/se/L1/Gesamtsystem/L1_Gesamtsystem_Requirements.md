@@ -1,158 +1,23 @@
-# ReqFlow — L1 System-Anforderungen
+# L1 Gesamtsystem Requirements
 
-> Status: ENTWURF | Erstellt: 2026-06-17 | Quelle: KONZEPT.md (Runden 1–4, FINAL)
->
-> Dieses Dokument definiert die Stakeholder-Needs (SN) und L1-System-Anforderungen (SYS-REQ)
-> für ReqFlow v1. Es bildet die Grundlage für die formale SE-Kaskade.
-> Sprache: Deutsch (internes Dokument gemäß Sprachregeln).
-
----
-
-## Stakeholder-Needs (SN)
-
-### SN-01: Maschinenlesbarer Anforderungskontext für AI-Agenten
-
-AI-Agenten (Coding-Agenten, Orchestratoren, CI/CD-Pipelines) benötigen strukturierten,
-maschinenlesbaren Zugriff auf Anforderungen, Architektur und Tests — ohne Text-Parsing
-oder Webhook-Wrapper — damit Code-Generierung und -Review mit vollständigem fachlichem
-Kontext erfolgen können.
-
-**Rationale:** Ohne strukturierte Schnittstelle geht AI-generierter Code oft am fachlichen
-Kontext vorbei, weil das "Warum" hinter dem Code nicht maschinenlesbar vorliegt (KONZEPT.md, Abschnitt 1).
+> **Level:** L1 (System-Anforderungen)
+> **System:** Gesamtsystem (ReqFlow)
+> **Quelle:** docs/KONZEPT.md (final, Runden 1–4), docs/VISION.md
+> **Datum:** 2026-06-18
+> **Status:** formalisiert
 
 ---
 
-### SN-02: Skalierbare SE-Tiefe ohne Produktwechsel
+## Traceability
 
-Teams unterschiedlicher Reife (von Startups bis zu Automotive-Zulieferern) müssen
-dieselbe Plattform mit unterschiedlicher Prozessstrenge nutzen können — von einfachem
-Anforderungs-CRUD bis zu vollständigem Systems Engineering mit Baselines,
-Approval-Workflows und Audit-Trails — ohne das Tool zu wechseln oder die Infrastruktur
-umzubauen.
-
-**Rationale:** Der Markt bietet keinen Mittelpunkt zwischen zu leichtgewichtigen Agile-Tools
-und zu schweren Enterprise-Systemen (KONZEPT.md, Abschnitt 1, 2).
+- Abgeleitet von: `docs/se/L0/SN_Stakeholder_Needs.md` (REQ-L0-001..015)
+- Abgeleitet nach: `docs/se/L1/Gesamtsystem/L2/*System/L2_*System_Requirements.md` (future)
 
 ---
 
-### SN-03: Vollständige Traceability zwischen Requirements, Architektur und Tests
+## L1 System-Anforderungen (REQ-L1)
 
-Systems Engineers und AI-first Teams benötigen bidirektionale Verknüpfungen zwischen
-Anforderungen, Architektur-Elementen und Testfällen, um Impact-Analysen, Coverage-Reports
-und Konsistenz-Prüfungen durchzuführen — sowohl manuell als auch durch Agenten automatisiert.
-
-**Rationale:** Ohne Traceability sind Blast-Radius-Analysen bei Anforderungsänderungen
-nicht möglich; dies ist ein Kernbedarf beider Zielgruppen (KONZEPT.md, Abschnitt 3.4, 4.1).
-
----
-
-### SN-04: Unveränderliche, benannte Anforderungs-Baselines auf mehreren Ebenen
-
-Teams in regulierten oder sicherheitskritischen Umgebungen müssen zu jedem Zeitpunkt
-auf einen exakten, unveränderlichen Stand aller Anforderungen zurückgreifen können —
-auf Dokumentebene, Projektebene und instanzweit — um Übergaben, Reviews und spätere
-Compliance-Nachweise zu ermöglichen.
-
-**Rationale:** Baselines sind ein Must-Have für die SE-Zielgruppe; ohne sie ist
-ReqFlow für Systems Engineers nicht ernsthaft nutzbar (KONZEPT.md, Abschnitt 4.1, 7.3).
-
----
-
-### SN-05: Konfigurierbarer Item-Lifecycle mit Rollen und Approval-Gates
-
-Projektteams müssen den Lifecycle-Workflow für Requirements, Architektur-Elemente und
-Testfälle an ihre Domäne und Compliance-Anforderungen anpassen können — inklusive
-rollengebundener Approval-Gates — ohne Code-Änderungen am System.
-
-**Rationale:** Ein hartcodierter Status-Enum (Draft/Approved/Deprecated) ist zu starr
-für domänenspezifische Prozesse und formale Compliance-Anforderungen
-(KONZEPT.md, Abschnitt 7a).
-
----
-
-### SN-06: Self-Hosted Deployment ohne Vendor-Lock-in
-
-Datenschutz-sensible Organisationen und Teams mit eigener Infrastruktur müssen
-ReqFlow vollständig on-premise betreiben können — ohne Cloud-Zwang, ohne Lizenzkosten,
-mit voller Datenkontrolle.
-
-**Rationale:** Open Source (Apache 2.0) + Docker Compose ist die bewusste Entscheidung
-gegen Vendor-Lock-in; SaaS erst ab v2 (KONZEPT.md, Abschnitt 1, 9.1, Anhang A).
-
----
-
-### SN-07: LLM-gestützte Qualitätssicherung als optionale Capability
-
-Teams, die LLM-Zugang haben, müssen AI-gestützte Funktionen (Validierung,
-Zerlegungsvorschläge, Konsistenz-Checks) nutzen können — ohne dass das System bei
-fehlendem LLM-Zugang nicht funktioniert.
-
-**Rationale:** LLM als pluggable Capability ist eine der zwei AI-nativen Dimensionen;
-Self-Hosted-Nutzer ohne LLM-Zugang dürfen keine Kernfunktionalität verlieren
-(KONZEPT.md, Abschnitt 1, 9.3).
-
----
-
-### SN-08: Mandantenfähige Isolation für spätere SaaS-Erweiterung
-
-Das Datenmodell muss bereits in v1 so angelegt sein, dass eine spätere Aktivierung
-echter Multi-Tenancy (mehrere Kunden auf einer Instanz) keine Datenmigration erfordert.
-
-**Rationale:** Row-Level-Isolation mit tenant_id ist die Voraussetzung für den v2-SaaS-Betrieb
-ohne Schema-Umbau (KONZEPT.md, Abschnitt 5.4, Anhang A).
-
----
-
-### SN-09: Zweisprachige Benutzeroberfläche (Deutsch und Englisch)
-
-Teams in deutschsprachigen Märkten und international gemischte Teams müssen die
-Oberfläche in ihrer Arbeitssprache nutzen können, ohne Funktionseinschränkungen.
-
-**Rationale:** Duale Marktausrichtung DE/EN ist eine v1-Entscheidung; nachträgliche
-String-Extraktion ist aufwändiger als proaktive i18n-Integration
-(KONZEPT.md, Abschnitt 9.3, Anhang A).
-
----
-
-### SN-10: Terminologie-Flexibilität für zwei Zielgruppen ohne Datenverlust
-
-Software-Teams (Epics, Stories, Acceptance Criteria) und Systems Engineers
-(System Requirements, Functions, Verification Criteria) müssen auf demselben
-Datenmodell arbeiten, ohne dass ein Profilwechsel Datenverluste oder Migrationen verursacht.
-
-**Rationale:** Gemeinsames generisches Artefakt-Datenmodell mit konfigurierbaren
-Terminologie-Layern ist das Fundament der Dual-Zielgruppen-Strategie
-(KONZEPT.md, Abschnitt 3.2, 3.3).
-
----
-
-### SN-11: Vollständiger Audit-Trail für agentengesteuerte und manuelle Änderungen
-
-Compliance-orientierte Teams müssen zu jeder Anforderung, jedem Architektur-Element
-und jedem Testfall nachvollziehen können: wer hat was wann geändert — einschließlich
-AI-Agenten, die via MCP schreiben.
-
-**Rationale:** Vollständige Auditierbarkeit aller Änderungen ist eine explizite
-Non-Functional-Anforderung; MCP-Schreibzugriff ohne Audit-Log wäre ein Sicherheitsrisiko
-(KONZEPT.md, Abschnitt 4.2, 6.1, 8.1).
-
----
-
-### SN-12: REST API und MCP Server als gleichrangige, vollständige Schnittstellen
-
-Entwickler und AI-Agenten müssen alle CRUD-Operationen auf allen Artefakttypen
-sowohl über REST als auch über MCP vollständig durchführen können — keine
-Zweit-Klassen-Schnittstelle.
-
-**Rationale:** Der MCP Server ist kein Anhängsel, sondern greift direkt auf die
-Django-Service-Schicht zu; REST ist für direkte Integration, MCP für AI-Agenten
-(KONZEPT.md, Abschnitt 6.1, 9.3).
-
----
-
-## L1 System-Anforderungen (SYS-REQ)
-
-### SYS-REQ-01: Artefakt-Hierarchie mit beliebiger Tiefe
+### REQ-L1-001: Artefakt-Hierarchie mit beliebiger Tiefe
 
 Das System muss hierarchische Artefakt-Strukturen verwalten, bei denen jeder Knoten
 (Artifact) einen optionalen Elternknoten und beliebig viele Kindknoten besitzen kann —
@@ -166,10 +31,11 @@ sowohl Software-Teams (Epic → Story → Task) als auch Systems Engineers
 **Externe Interfaces:**
 - Eingang: Nutzer- oder Agenten-Anfrage (REST / MCP) mit Artefakt-Daten
 - Ausgang: Erstelltes / geändertes / gelöschtes Artefakt mit UUID und Hierarchiepfad
+**Traceability:** REQ-L0-002, REQ-L0-003
 
 ---
 
-### SYS-REQ-02: Requirements CRUD mit konfigurierbarem Status-Workflow
+### REQ-L1-002: Requirements CRUD mit konfigurierbarem Status-Workflow
 
 Das System muss vollständiges CRUD für Requirements bereitstellen, wobei jedes
 Requirement einem konfigurierbaren Workflow-Zustand (WorkflowState) zugeordnet ist
@@ -183,10 +49,11 @@ Grundlage für Configurable Rigor und ersetzt den hartcodierten status-Enum.
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage mit Requirement-Daten, Workflow-State-Übergang, optionalem change_reason
 - Ausgang: Requirement mit aktuellem WorkflowState und Audit-History
+**Traceability:** REQ-L0-002, REQ-L0-005
 
 ---
 
-### SYS-REQ-03: Traceability-Engine mit bidirektionalen Links
+### REQ-L1-003: Traceability-Engine mit bidirektionalen Links
 
 Das System muss TraceLinks zwischen Requirements, ArchitectureElements und TestCases
 verwalten — mit den Link-Typen parent-child, derives-from, satisfies, verifies, implements,
@@ -200,10 +67,11 @@ Coverage-Reports und AI-gestützte Konsistenz-Prüfungen.
 **Externe Interfaces:**
 - Eingang: TraceLink-Erstellungs- oder Query-Anfrage mit Source/Target-IDs und Link-Type
 - Ausgang: TraceLink-Liste oder Upstream/Downstream-Graph mit Typ-Annotation
+**Traceability:** REQ-L0-003
 
 ---
 
-### SYS-REQ-04: ArchitectureElement als eigenständiger, schreibbarer Artefakttyp
+### REQ-L1-004: ArchitectureElement als eigenständiger, schreibbarer Artefakttyp
 
 Das System muss Architektur-Elemente (Component, Interface, Subsystem, Layer, Module)
 als eigenständige, versionierte Entitäten verwalten — mit vollständigem CRUD,
@@ -217,10 +85,11 @@ Architektur-Verwaltung und vollständigen MCP-Zugriff für Architektur-Agenten.
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage mit ArchitectureElement-Daten (element_type, title, description)
 - Ausgang: ArchitectureElement mit UUID, WorkflowState, verknüpften TraceLinks
+**Traceability:** REQ-L0-003
 
 ---
 
-### SYS-REQ-05: MCP Server mit vollständigem Read/Write-Zugriff auf alle Artefakttypen
+### REQ-L1-005: MCP Server mit vollständigem Read/Write-Zugriff auf alle Artefakttypen
 
 Das System muss einen MCP Server bereitstellen, der alle 20 Tools
 (requirement.*, architecture.*, test.*, artifact.*, traceability.*, workspace.*)
@@ -234,10 +103,11 @@ Read/Write-Zugriff ist Voraussetzung für alle primären AI-Workflows.
 **Externe Interfaces:**
 - Eingang: MCP-Tool-Aufruf mit Tool-Name, Parametern und API-Key
 - Ausgang: Strukturierte Tool-Response (JSON); Audit-Log-Eintrag bei Schreiboperationen
+**Traceability:** REQ-L0-001, REQ-L0-012
 
 ---
 
-### SYS-REQ-06: REST API mit OpenAPI-Spezifikation für alle Entitäten
+### REQ-L1-006: REST API mit OpenAPI-Spezifikation für alle Entitäten
 
 Das System muss eine vollständige REST API mit CRUD-Unterstützung für alle Entitäten,
 Token-basierter Authentifizierung (Bearer Token / API Keys) und auto-generierter
@@ -251,10 +121,11 @@ ermöglicht Typ-sichere Client-Generierung und Integration-Tests.
 **Externe Interfaces:**
 - Eingang: HTTP-Anfrage mit Bearer Token / API Key, JSON-Body
 - Ausgang: JSON-Response, HTTP-Statuscodes, OpenAPI-Spec-Endpunkt
+**Traceability:** REQ-L0-001, REQ-L0-012
 
 ---
 
-### SYS-REQ-07: Configurable-Rigor-Presets (Minimal / Standard / Extended)
+### REQ-L1-007: Configurable-Rigor-Presets (Minimal / Standard / Extended)
 
 Das System muss drei konfigurierbare SE-Tiefe-Presets auf Workspace-Ebene bereitstellen,
 die Pflichtfelder, sichtbare Funktionen, Baseline-Scope und Workflow-Konfigurierbarkeit
@@ -268,10 +139,11 @@ Zielgruppen-spezifische Code-Pfade.
 **Externe Interfaces:**
 - Eingang: Preset-Konfiguration (JSON) auf Workspace-Ebene via API oder UI
 - Ausgang: Workspace mit aktiven Preset-Regeln; UI blendet Funktionen ein/aus
+**Traceability:** REQ-L0-002
 
 ---
 
-### SYS-REQ-08: Multi-Level-Baselines (Dokument / Projekt / Global)
+### REQ-L1-008: Multi-Level-Baselines (Dokument / Projekt / Global)
 
 Das System muss unveränderliche, benannte Baselines auf drei Scope-Ebenen erstellen
 können — Dokument (ab Standard-Preset), Projekt (ab Standard-Preset),
@@ -285,10 +157,11 @@ für Compliance-Nachweise; drei Ebenen decken alle Übergabe-Szenarien ab.
 **Externe Interfaces:**
 - Eingang: Baseline-Erstellungsanfrage mit Scope, Name und optionaler Beschreibung
 - Ausgang: Unveränderliche Baseline mit JSON-Snapshot und Erstellungszeitpunkt
+**Traceability:** REQ-L0-004
 
 ---
 
-### SYS-REQ-09: Konfigurierbarer Item-Level-Workflow mit Audit-Trail
+### REQ-L1-009: Konfigurierbarer Item-Level-Workflow mit Audit-Trail
 
 Das System muss WorkflowDefinitions pro Item-Typ (Requirement, ArchitectureElement,
 TestCase) verwalten, State-Übergänge gegen erlaubte Rollen und change_reason-Pflicht
@@ -303,10 +176,11 @@ nicht-verhandelbar für regulierte Umgebungen.
 **Externe Interfaces:**
 - Eingang: Workflow-Transition-Anfrage mit Item-ID, Ziel-State, optionalem change_reason, Nutzer-Kontext
 - Ausgang: Aktualisierter WorkflowState mit History-Eintrag; Fehler bei unerlaubter Transition
+**Traceability:** REQ-L0-005
 
 ---
 
-### SYS-REQ-10: Rollenbasierte Zugriffskontrolle (Admin, Editor, Viewer, Approver)
+### REQ-L1-010: Rollenbasierte Zugriffskontrolle (Admin, Editor, Viewer, Approver)
 
 Das System muss vier Rollen (Admin, Editor, Viewer, Approver) auf Workspace-Ebene
 verwalten, wobei die Approver-Rolle nur im Extended-Preset aktiv ist und
@@ -319,10 +193,11 @@ und sichere MCP-Schreibzugriffe.
 **Externe Interfaces:**
 - Eingang: Authentifizierungstoken (Bearer / API Key) mit Nutzer-Kontext
 - Ausgang: Berechtigungsentscheid (allow/deny) pro Operation und Ressource
+**Traceability:** REQ-L0-005
 
 ---
 
-### SYS-REQ-11: Vollständiger Audit-Trail für alle Änderungen
+### REQ-L1-011: Vollständiger Audit-Trail für alle Änderungen
 
 Das System muss alle Änderungen an Requirements, ArchitectureElements, TestCases
 und TraceLinks mit created_by, created_at, modified_by, modified_at, version und
@@ -336,10 +211,11 @@ MCP-Audit-Log ist Voraussetzung für sicheren Agenten-Schreibzugriff.
 **Externe Interfaces:**
 - Eingang: Jede schreibende Operation (REST / MCP) mit Nutzer- oder Agenten-Kontext
 - Ausgang: Audit-Log-Eintrag; Entität mit aktualisierten Audit-Feldern
+**Traceability:** REQ-L0-011
 
 ---
 
-### SYS-REQ-12: Testmanagement mit Coverage-Tracking
+### REQ-L1-012: Testmanagement mit Coverage-Tracking
 
 Das System muss Testfälle (Unit, Integration, System, Acceptance) anlegen,
 mit Requirements verknüpfen, Test-Status verwalten (Passed/Failed/Not Run)
@@ -353,10 +229,11 @@ ist Grundlage für AI-gestützte Test-Lücken-Analyse.
 **Externe Interfaces:**
 - Eingang: TestCase-CRUD-Anfrage; TraceLink-Anfrage (verifies) zwischen TestCase und Requirement
 - Ausgang: TestCase mit WorkflowState; Coverage-Report (Requirement → Test-Abdeckung)
+**Traceability:** REQ-L0-003
 
 ---
 
-### SYS-REQ-13: LLM-Capabilities als konfigurierbare, optionale Features
+### REQ-L1-013: LLM-Capabilities als konfigurierbare, optionale Features
 
 Das System muss LLM-gestützte Capabilities (mindestens: Validierung via requirement.validate,
 Zerlegungsunterstützung via requirement.decompose) als optional aktivierbare Features
@@ -370,10 +247,11 @@ LLM-Zugang darf keine Kernfunktionalität verlieren (Self-Hosted-Zielgruppe).
 **Externe Interfaces:**
 - Eingang: LLM-Capability-Aufruf (requirement.validate, requirement.decompose) mit Artefakt-ID
 - Ausgang: Strukturiertes LLM-Ergebnis (Score + Vorschläge) oder Fehler "LLM nicht konfiguriert"
+**Traceability:** REQ-L0-007
 
 ---
 
-### SYS-REQ-14: Konfigurierbare Terminologie-Profile (Dev-Modus / SE-Modus)
+### REQ-L1-014: Konfigurierbare Terminologie-Profile (Dev-Modus / SE-Modus)
 
 Das System muss mindestens zwei vordefinierte Terminologie-Profile (Dev-Modus, SE-Modus)
 auf Workspace-Ebene unterstützen, wobei ein Profilwechsel ausschließlich Labels und
@@ -386,10 +264,11 @@ Dual-Zielgruppen-Strategie; API und MCP nutzen immer generische Entitätsnamen.
 **Externe Interfaces:**
 - Eingang: Profil-Wechsel-Anfrage mit Bestätigung
 - Ausgang: Workspace mit neuem aktiven Profil; UI-Labels aktualisiert; API-Response unverändert
+**Traceability:** REQ-L0-010
 
 ---
 
-### SYS-REQ-15: Multi-Tenancy-Vorbereitung mit Row-Level-Isolation
+### REQ-L1-015: Multi-Tenancy-Vorbereitung mit Row-Level-Isolation
 
 Das System muss alle Entitäten mit einem tenant-Fremdschlüssel versehen und
 alle Datenbankabfragen automatisch mit einem tenant_id-Filter via Custom Django Manager
@@ -403,10 +282,11 @@ Schema-per-Tenant wurde bewusst abgelehnt wegen zu hohem Overhead.
 **Externe Interfaces:**
 - Eingang: Jede API-Anfrage mit Authentifizierungstoken (Tenant-Extraktion aus JWT/API-Key)
 - Ausgang: Gefilterte Ergebnisse exklusiv für den aktiven Tenant
+**Traceability:** REQ-L0-008
 
 ---
 
-### SYS-REQ-16: Zweisprachige Benutzeroberfläche (Deutsch und Englisch)
+### REQ-L1-016: Zweisprachige Benutzeroberfläche (Deutsch und Englisch)
 
 Das System muss alle UI-Texte und Backend-Fehlermeldungen in Deutsch und Englisch
 bereitstellen, wobei fehlende Translation-Keys als Build-Fehler behandelt werden
@@ -419,10 +299,11 @@ i18n-Integration ist teurer als proaktive Translation-Key-Nutzung.
 **Externe Interfaces:**
 - Eingang: Nutzer-Sprachpräferenz (Accept-Language Header oder Profil-Setting)
 - Ausgang: UI und API-Fehlermeldungen in der gewählten Sprache
+**Traceability:** REQ-L0-009
 
 ---
 
-### SYS-REQ-17: React-UI mit Dashboard, Editor und Navigations-Komponenten
+### REQ-L1-017: React-UI mit Dashboard, Editor und Navigations-Komponenten
 
 Das System muss eine React-Frontend-Anwendung bereitstellen mit: Dashboard
 (Projektübersicht, offene Punkte), Requirements-Editor (Inline-Editing, Markdown),
@@ -436,10 +317,11 @@ zur MCP-Agenten-Schnittstelle.
 **Externe Interfaces:**
 - Eingang: Nutzerinteraktion (Browser), API-Responses vom Backend
 - Ausgang: Gerenderte UI-Komponenten; REST-API-Aufrufe an Backend
+**Traceability:** REQ-L0-012
 
 ---
 
-### SYS-REQ-18: Docker-Compose-Deployment für Self-Hosted-Betrieb
+### REQ-L1-018: Docker-Compose-Deployment für Self-Hosted-Betrieb
 
 Das System muss vollständig via Docker Compose deploybar sein — Backend (Django),
 Frontend (React), Datenbank (PostgreSQL) — ohne externe Cloud-Abhängigkeiten,
@@ -453,10 +335,11 @@ ist der Standard-Einstieg für die Zielgruppe (Developer-affine Teams).
 **Externe Interfaces:**
 - Eingang: Docker-Compose-Konfiguration, Umgebungsvariablen (LLM-API-Key, DB-Credentials)
 - Ausgang: Laufende ReqFlow-Instanz auf dem Host-System
+**Traceability:** REQ-L0-006
 
 ---
 
-### SYS-REQ-19: Export in JSON und CSV für alle Entitäten
+### REQ-L1-019: Export in JSON und CSV für alle Entitäten
 
 Das System muss Export-Funktionen für Requirements, ArchitectureElements, TestCases
 und TraceLinks in JSON und CSV bereitstellen — mit dem aktiven Terminologie-Profil
@@ -469,10 +352,11 @@ externen Tools und ist Voraussetzung für spätere ReqIF-Unterstützung.
 **Externe Interfaces:**
 - Eingang: Export-Anfrage mit Scope (Workspace / Artefakt), Format (JSON / CSV)
 - Ausgang: Datei-Download (JSON oder CSV) mit allen Entitäten und Metadaten
+**Traceability:** REQ-L0-012
 
 ---
 
-### SYS-REQ-20: Volltextsuche über alle Artefakttypen
+### REQ-L1-020: Volltextsuche über alle Artefakttypen
 
 Das System muss eine artefakttyp-übergreifende Volltextsuche über Requirements,
 ArchitectureElements und TestCases bereitstellen — via UI und via MCP-Tool
@@ -485,6 +369,110 @@ deckt den häufigen Agenten-Anwendungsfall ab, wenn der Artefakttyp unbekannt is
 **Externe Interfaces:**
 - Eingang: Suchanfrage (Query-String, optionaler Typ-Filter, Workspace-Filter)
 - Ausgang: Gemischte Ergebnisliste mit Artefakttyp-Annotation, sortiert nach Relevanz
+**Traceability:** REQ-L0-001
+
+---
+
+### REQ-L1-021: CSV-Bulk-Import für Requirements und Artefakte
+
+Das System MUSS einen CSV-Import für Requirements, ArchitectureElements und TestCases
+bereitstellen, der Validierung gegen das Datenmodell durchführt, Fehler mit Zeilennummer
+zurückmeldet und erfolgreich importierte Items mit regulären UUIDs versieht — unter der
+Bedingung, dass das CSV-Format dem dokumentierten Schema entspricht.
+
+**Rationale:** CSV-Bulk-Import ist ein explizites Must-Have in KONZEPT.md §4.6; ermöglicht
+die Migration bestehender Anforderungsdaten ohne manuelle Neueingabe.
+**Domain:** software
+**Priorität:** mandatory
+**Externe Interfaces:**
+- Eingang: CSV-Datei mit Anforderungen/Artefakten gemäß dokumentiertem Schema
+- Ausgang: Import-Ergebnisbericht (erfolgreich importierte Items, Fehler mit Zeilennummer)
+**Traceability:** REQ-L0-013
+
+---
+
+### REQ-L1-022: GitHub-Integration für Requirement-Issue/PR-Verknüpfung
+
+Das System SOLL die Verknüpfung von Requirements mit GitHub Issues und Pull Requests
+unterstützen — bidirektional abrufbar aus ReqFlow und via GitHub — unter der Bedingung,
+dass ein GitHub-Token konfiguriert ist und die Ziel-Repositories zugreifbar sind.
+
+**Rationale:** GitHub-Integration ist ein Should-Have in KONZEPT.md §4.6; die Zielgruppe
+(Developer-affine Teams) erwartet native Integration in ihren Entwicklungs-Workflow.
+**Domain:** software
+**Priorität:** desired
+**Externe Interfaces:**
+- Eingang: GitHub-Token-Konfiguration; Verknüpfungsanfrage mit Requirement-ID und GitHub-Issue/PR-URL
+- Ausgang: Verknüpfte GitHub-Issues/PRs in der Requirement-Detailansicht; ReqFlow-Referenz in GitHub (via Webhook oder API)
+**Traceability:** REQ-L0-014
+
+---
+
+### REQ-L1-023: PDF-Report-Export für Anforderungsdokumente und Traceability-Matrizen
+
+Das System SOLL Anforderungsdokumente und Traceability-Matrizen als PDF-Berichte exportieren
+können — inklusive Metadaten (Version, Baseline-Referenz, Workflow-State, Audit-History) —
+sodass Teams in regulierten Umgebungen audit-dokumentierbare Übergaben erzeugen können.
+
+**Rationale:** PDF-Reports sind ein Should-Have in KONZEPT.md §4.6; die SE-Zielgruppe
+benötigt dokumentierbare Übergaben für Reviews und Compliance-Nachweise (§8.1).
+**Domain:** software
+**Priorität:** desired
+**Externe Interfaces:**
+- Eingang: Report-Anfrage mit Scope (Workspace/Artefakt/Baseline), Report-Typ (Anforderungsdokument/Traceability-Matrix), Format (PDF)
+- Ausgang: PDF-Datei mit formatiertem Bericht, Metadaten und Traceability-Matrix
+**Traceability:** REQ-L0-015
+
+---
+
+### REQ-L1-024: Webhook-Support für Anforderungsänderungen
+
+Das System SOLL konfigurierbare Webhooks für Ereignis-Typen (Requirement erstellt, geändert,
+Status-Übergang, Baseline erstellt) bereitstellen, die bei Eintreten des Ereignisses einen
+HTTP-POST-Request an eine konfigurierte URL mit JSON-Payload senden — unter der Bedingung,
+dass die Ziel-URL erreichbar ist und der Webhook aktiviert ist.
+
+**Rationale:** Webhook-Support ist ein Should-Have in KONZEPT.md §4.3; ermöglicht externe
+Systemen (CI/CD, Slack, Notification-Services) auf Anforderungsänderungen zu reagieren.
+**Domain:** software
+**Priorität:** desired
+**Externe Interfaces:**
+- Eingang: Webhook-Konfiguration (URL, Ereignis-Typ, Secret); auslösendes Systemereignis
+- Ausgang: HTTP-POST-Request an konfigurierte URL mit JSON-Payload (Ereignis-Typ, betroffene Entity-ID, Timestamp)
+**Traceability:** REQ-L0-012, REQ-L0-014
+
+---
+
+### REQ-L1-025: Transaktionale Konsistenz (ACID)
+
+Das System MUSS Datenänderungen atomar und konsistent persistieren; bei Fehlern dürfen
+keine partiellen Schreibvorgänge zurückbleiben (ACID).
+
+**Rationale:** Datenkonsistenz ist eine fundamentale Non-Functional-Anforderung;
+partielle Schreibvorgänge können zu inkonsistenten Artefakt-Hierarchien,
+TraceLinks und Workflow-States führen.
+**Domain:** software
+**Priorität:** mandatory
+**Externe Interfaces:**
+- Eingang: Jede schreibende Operation (REST / MCP) auf Entitäten oder TraceLinks
+- Ausgang: Atomar persistierte Änderung oder vollständiges Rollback bei Fehler
+
+---
+
+### REQ-L1-026: Übergreifende Performance-Anforderung
+
+Das System MUSS unter normaler Last (bis zu 50 gleichzeitige Nutzer, 10.000 Requirements)
+für 95 % der API-Standard-Requests eine Antwortzeit von < 200 ms und für Volltextsuchen
+< 500 ms garantieren.
+
+**Rationale:** Performance ist eine übergreifende Non-Functional-Anforderung, die
+alle Schnittstellen (REST, MCP, UI) betrifft und für die Zielgruppe
+(Developer-affine Teams, SE-Teams) entscheidend für die Akzeptanz ist.
+**Domain:** system
+**Priorität:** mandatory
+**Externe Interfaces:**
+- Eingang: API-Requests (REST / MCP) unter definierter Last (50 gleichzeitige Nutzer, 10.000 Requirements)
+- Ausgang: Responses innerhalb der definierten Latenz-SLAs (95. Perzentil)
 
 ---
 
@@ -599,23 +587,59 @@ Filter-Disziplin; Grundlage für spätere Multi-Tenancy-Aktivierung.
 > Diese Punkte beeinflussen Datenmodell und API und müssen vor der Architektur-Zerlegung
 > entschieden werden.
 
-**OP-01 — LLM-Capabilities-Scope v1:**
+**OP-01 — LLM-Capabilities-Scope:**
 Welche der vier LLM-Capabilities (Generierung, Validierung, Decomposition,
 Test-Ableitung/Konsistenz-Checks) werden in v1 operativ implementiert?
 Empfehlung aus KONZEPT.md: Validierung + Decomposition.
-*Auswirkung auf: SYS-REQ-13, L2-MCP-01*
+*Status: Pending Stakeholder-Entscheidung*
+*Auswirkung auf: REQ-L1-013, L2-MCP-01*
 
-**OP-02 — Preset-Downgrade-Semantik:**
+**OP-02 — Preset-Downgrade-Verhalten:**
 Was passiert mit Baselines, Approved-Items und Workflows beim Wechsel auf eine
 niedrigere SE-Stufe (z.B. Extended → Standard)?
-*Auswirkung auf: SYS-REQ-07, SYS-REQ-08, L2-BL-01*
+*Status: Undefined — kein Verhalten spezifiziert*
+*Auswirkung auf: REQ-L1-007, REQ-L1-008, L2-BL-01*
 
-**OP-03 — Workflow-Wechsel-Semantik:**
-Was passiert mit Items in States, die nach einer WorkflowDefinition-Änderung
-nicht mehr existieren?
-*Auswirkung auf: SYS-REQ-09, L2-WF-01*
+**OP-03 — Multi-Tenancy-Isolation:**
+Wie wird die Tenant-Isolation bei aktiviertem Multi-Tenancy durchgesetzt
+(Application-Level vs. Database-Level)? Welche Isolation-Strenge ist erforderlich?
+*Status: Pending Decision*
+*Auswirkung auf: REQ-L1-015, L2-TI-01*
 
 ---
 
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade | 2026-06-17*
-*Nächster Schritt: Übergabe an se-critic für Quality-Gate-Validierung*
+## Traceability-Abschnitt: REQ-L1 → REQ-L0
+
+| REQ-L1 | Abgedeckte REQ-L0 |
+|---------|--------------|
+| REQ-L1-001 | REQ-L0-002, REQ-L0-003 |
+| REQ-L1-002 | REQ-L0-002, REQ-L0-005 |
+| REQ-L1-003 | REQ-L0-003 |
+| REQ-L1-004 | REQ-L0-003 |
+| REQ-L1-005 | REQ-L0-001, REQ-L0-012 |
+| REQ-L1-006 | REQ-L0-001, REQ-L0-012 |
+| REQ-L1-007 | REQ-L0-002 |
+| REQ-L1-008 | REQ-L0-004 |
+| REQ-L1-009 | REQ-L0-005 |
+| REQ-L1-010 | REQ-L0-005 |
+| REQ-L1-011 | REQ-L0-011 |
+| REQ-L1-012 | REQ-L0-003 |
+| REQ-L1-013 | REQ-L0-007 |
+| REQ-L1-014 | REQ-L0-010 |
+| REQ-L1-015 | REQ-L0-008 |
+| REQ-L1-016 | REQ-L0-009 |
+| REQ-L1-017 | REQ-L0-012 |
+| REQ-L1-018 | REQ-L0-006 |
+| REQ-L1-019 | REQ-L0-012 |
+| REQ-L1-020 | REQ-L0-001 |
+| REQ-L1-021 | REQ-L0-013 |
+| REQ-L1-022 | REQ-L0-014 |
+| REQ-L1-023 | REQ-L0-015 |
+| REQ-L1-024 | REQ-L0-012, REQ-L0-014 |
+| REQ-L1-025 | REQ-L0-002 |
+| REQ-L1-026 | REQ-L0-002 |
+
+---
+
+*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade | 2026-06-18*
+*Nächster Schritt: L2-Anforderungen in docs/se/L1/Gesamtsystem/L2/*System/L2_*System_Requirements.md*
