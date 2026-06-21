@@ -52,43 +52,47 @@ Die TraceabilityEngine SHALL TraceLinks zwischen Requirements, ArchitectureEleme
 
 ---
 
-### REQ-L2-TE-002: Zyklenprävention in parent-child-Hierarchien
+### REQ-L2-TE-002: Zyklenprävention für alle transitiven Link-Typen
 
-Die TraceabilityEngine SHALL bei `parent-child`-Links validieren, dass kein Zyklus erzeugt wird. Bei Zyklus-Erkennung SHALL die Operation abgebrochen werden.
+Die TraceabilityEngine SHALL bei Single-Link-Operationen eine Eager-Zyklenprüfung vor der Persistenz durchführen. Die Prüfung MUSS alle 6 Link-Typen (`parent-child`, `derives-from`, `satisfies`, `implements`, `refines`, `verifies`) auf transitive Zyklen untersuchen. Bei Zyklus-Erkennung SHALL die Operation abgebrochen werden.
 
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] A→B, B→C, dann C→A → Fehler `"Cycle detected"`
-- [ ] Nach abgelehntem Zyklus existieren A→B und B→C weiterhin
-- [ ] A→B, A→C (kein Zyklus) → beide OK
+- [ ] A→B, B→C, dann C→A (parent-child) → Fehler `"Cycle detected in parent-child chain"`
+- [ ] Req-A `derives-from` Req-B, Req-B `derives-from` Req-C, Req-C `derives-from` Req-A → Fehler `"Cycle detected in derives-from chain"`
+- [ ] Nach abgelehntem Zyklus existieren die vorherigen Links weiterhin unverändert
+- [ ] A→B, A→C (kein Zyklus, beliebiger Link-Typ) → beide OK
+- [ ] Zyklenprüfung erfolgt vor der Persistenz (kein Zwischenzustand in der DB)
 
 **Interfaces:**
 - Incoming: IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001
 
 **Traceability:** REQ-L1-001
-**Rationale:** REQ-L1-001 fordert hierarchische Strukturen „unter der Bedingung, dass Zyklen ausgeschlossen werden".
+**Rationale:** REQ-L1-001 fordert hierarchische Strukturen „unter der Bedingung, dass Zyklen ausgeschlossen werden". Transitive Zyklen über andere Link-Typen als `parent-child` erzeugen dieselbe semantische Inkonsistenz.
 
 ---
 
-### REQ-L2-TE-003: Atomare Batch-Operationen für TraceLinks
+### REQ-L2-TE-003: Atomare Batch-Operationen für TraceLinks mit Tarjan-Zyklenprüfung
 
-Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atomaren Transaktion unterstützen. Bei Teilfehler SHALL die gesamte Batch-Operation zurückgesetzt werden.
+Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atomaren Transaktion unterstützen. Bei Teilfehler SHALL die gesamte Batch-Operation zurückgesetzt werden. Am Ende der DB-Transaktion SHALL ein Tarjan-Algorithmus den vollständigen Link-Graphen auf Zyklen über alle 6 Link-Typen prüfen. Bei erkanntem Zyklus SHALL die gesamte Transaktion zurückgesetzt werden und ein Fehlerbericht mit dem Zyklus-Pfad zurückgegeben werden.
 
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] Batch von 100 TraceLinks → alle 100 persistiert
+- [ ] Batch von 100 TraceLinks (zyklenfrei) → alle 100 persistiert
 - [ ] Batch mit einem ungültigen Link → alle zurückgesetzt
 - [ ] Batch von 100 TraceLinks in < 500ms
+- [ ] Batch mit 100 Links, wobei der letzte Link einen Zyklus schließt → vollständiger Rollback mit Fehlerbericht, der den Zyklus-Pfad enthält (z.B. `"Cycle: Req-A → Req-B → Req-C → Req-A"`)
+- [ ] Tarjan-Prüfung wird einmalig am Ende der Transaktion ausgeführt (nicht pro Link)
 
 **Interfaces:**
 - Incoming: IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001, IF-TE-EXT-OUT-001
 
 **Traceability:** REQ-L1-003, REQ-L1-025 (mitwirkend)
-**Rationale:** Decompose-Workflow erstellt mehrere parent-child-Links in einer Transaktion.
+**Rationale:** Decompose-Workflow erstellt mehrere parent-child-Links in einer Transaktion. Tarjan am Transaktionsende ist effizienter als Eager-Prüfung pro Link bei Massenimporten und garantiert globale Zyklenfreiheit.
 
 ---
 
@@ -274,6 +278,29 @@ Die TraceabilityEngine SHALL Performance-SLAs einhalten: ≤ 200ms (p95) für Gr
 
 ---
 
+### REQ-L2-TE-013: Verification Cross Reference Matrix (VCRM) Report-Generator
+
+Die TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Generator SHALL eine flache Matrix mit den Spalten `requirement_id`, `component_id`, `test_case_id`, `test_result` (Passed / Failed / Not Run) ausgeben. Die Matrix SHALL nach Baseline (Snapshot-Zeitpunkt) und Workspace filterbar sein. Export als CSV ist Pflicht; Export als PDF ist optional.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] `generate_vcrm(workspace_id, baseline_id?)` → Matrix mit korrekten Zeilen je Requirement-Component-TestCase-Kombination
+- [ ] Zeile ohne TestCase-Verknüpfung → `test_result = "Not Run"`
+- [ ] `baseline_id` angegeben → Matrix spiegelt Zustand zum Snapshot-Zeitpunkt wider
+- [ ] Export als CSV → gültige CSV-Datei, herunterladbar
+- [ ] Export als PDF → PDF-Datei (wenn implementiert)
+- [ ] Leerer Workspace → leere Matrix (keine Fehler)
+
+**Interfaces:**
+- Incoming: IF-TE-EXT-IN-002
+- Outgoing: IF-TE-EXT-OUT-001
+
+**Traceability:** REQ-L1-003 (primär), REQ-L1-012 (mitwirkend)
+**Rationale:** SE-Reviewer benötigen eine kompakte Übersicht der vollständigen V&V-Abdeckung. Die VCRM ist etabliertes Werkzeug in ISO-15288-Projekten.
+
+---
+
 ## Traceability-Matrix: REQ-L2-TE → REQ-L1
 
 | REQ-L2-TE | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -290,6 +317,7 @@ Die TraceabilityEngine SHALL Performance-SLAs einhalten: ≤ 200ms (p95) für Gr
 | REQ-L2-TE-010 | REQ-L1-011 | REQ-L1-003 |
 | REQ-L2-TE-011 | REQ-L1-015 | REQ-L1-003 |
 | REQ-L2-TE-012 | REQ-L1-026 | REQ-L1-003 |
+| REQ-L2-TE-013 | REQ-L1-003 | REQ-L1-012 |
 
 ---
 
@@ -297,9 +325,9 @@ Die TraceabilityEngine SHALL Performance-SLAs einhalten: ≤ 200ms (p95) für Gr
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-TE | 12 |
+| Anzahl REQ-L2-TE | 13 |
 | Mandatory | 11 |
-| Desired | 1 |
+| Desired | 2 |
 | Optional | 0 |
 | Abgedeckte REQ-L1 (primär) | 9 |
 | Abgedeckte REQ-L1 (mitwirkend) | 3 |

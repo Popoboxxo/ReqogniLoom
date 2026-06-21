@@ -34,9 +34,10 @@ Verwaltet TraceLinks zwischen Requirements, ArchitectureElements und TestCases m
 
 | Komp-ID | Name | Verantwortlichkeit | Domain |
 |---------|------|--------------------|--------|
-| COMP-TE-001 | TraceLinkManager | TraceLink-CRUD, Link-Typ-Validierung, Zyklenpraevention fuer `parent-child`, atomare Batch-Operationen, referentielle Integritaet (CASCADE), Audit-Metadaten | software |
+| COMP-TE-001 | TraceLinkManager | TraceLink-CRUD, Link-Typ-Validierung, Zyklenprüfung via Tarjan-Algorithmus für alle 6 Link-Typen (Bulk: am Ende der Transaktion; Single: eager vor Persistenz); Rollback mit Pfad-Fehlerbericht, atomare Batch-Operationen, referentielle Integritaet (CASCADE), Audit-Metadaten | software |
 | COMP-TE-002 | QueryEngine | Upstream/Downstream-Queries (direkte Nachbarn), transitive Huellenberechnung (Impact-Analyse), Performance-optimierte Graph-Traversierung via PostgreSQL Recursive CTE | software |
 | COMP-TE-003 | CoverageCalculator | Test-Coverage-Berechnung (Requirement -> TestCase via `verifies`), gefilterte Coverage nach Artefakttyp und Link-Typ | software |
+| COMP-TE-004 | VCRMReportGenerator | Generiert Verification Cross Reference Matrix (flache Matrix: requirement_id → component_id → test_case_id → test_result); filterbar nach Baseline und Workspace; Export als CSV; optionaler PDF-Export via Template-Renderer | software |
 
 ### Interne Schnittstellen
 
@@ -45,15 +46,18 @@ Verwaltet TraceLinks zwischen Requirements, ArchitectureElements und TestCases m
 | IF-TE-INT-001 | intern | COMP-TE-001 -> COMP-TE-002 | In-Process Python | `get_trace_links(workspace_id, filters) -> TraceLink[]` |
 | IF-TE-INT-002 | intern | COMP-TE-001 -> COMP-TE-003 | In-Process Python | `get_trace_links(workspace_id, link_type) -> TraceLink[]` |
 | IF-TE-INT-003 | intern | COMP-TE-002 -> COMP-TE-001 | In-Process Python | `validate_graph_integrity() -> ValidationResult` |
+| IF-TE-INT-004 | intern | COMP-TE-004 -> COMP-TE-003 | In-Process Python | `get_coverage_data(workspace_id, baseline_id?) -> CoverageData` — liest Coverage-Daten fuer VCRM |
+| IF-TE-INT-005 | intern | COMP-TE-004 -> COMP-TE-002 | In-Process Python | `query(artifact_id, direction, ctx) -> TraceLink[]` — liest Komponenten-Links fuer VCRM-Matrix |
 
 ### Komponentendiagramm (Mermaid)
 
 ```mermaid
 flowchart TD
     subgraph TraceabilityEngineSystem
-        C001["COMP-TE-001: TraceLinkManager<br/>CRUD + Validierung + Batch"]
+        C001["COMP-TE-001: TraceLinkManager<br/>CRUD + Validierung + Batch + Tarjan-Zyklenprüfung"]
         C002["COMP-TE-002: QueryEngine<br/>Upstream/Downstream + Transitive Huelle"]
         C003["COMP-TE-003: CoverageCalculator<br/>Coverage-Report + Filter"]
+        C004["COMP-TE-004: VCRMReportGenerator<br/>VCRM-Matrix + CSV/PDF-Export"]
     end
 
     ext_in1["ApplicationService"] -->|IF-TE-EXT-IN-001| C002
@@ -64,6 +68,8 @@ flowchart TD
     C001 -->|IF-TE-INT-001| C002
     C001 -->|IF-TE-INT-002| C003
     C002 -->|IF-TE-INT-003| C001
+    C004 -->|IF-TE-INT-004| C003
+    C004 -->|IF-TE-INT-005| C002
 
     C001 -->|IF-TE-EXT-OUT-001| ext_db["PersistenceLayer"]
     C002 -->|IF-TE-EXT-OUT-001| ext_db
@@ -88,15 +94,26 @@ flowchart TD
 | REQ-L2-TE-010 | COMP-TE-001 |
 | REQ-L2-TE-011 | COMP-TE-001 |
 | REQ-L2-TE-012 | COMP-TE-001, COMP-TE-002, COMP-TE-003 |
+| REQ-L2-TE-013 | COMP-TE-004 |
 
 ---
 
 ## 5. ADRs (lokal)
 
-**ADR-TE-01 — Drei Komponenten statt monolithischer Engine**
-*Entscheidung:* TraceLinkManager, QueryEngine, CoverageCalculator.
-*Rationale:* CRUD (schreibend), Graph-Query (lesend, performance-kritisch) und Coverage (analytisch, aggregierend) haben unterschiedliche Zugriffsmuster und Optimierungsziele. Die Trennung erlaubt unabhaengige Caching- und Optimierungsstrategien.
+**ADR-TE-01 — Vier Komponenten statt monolithischer Engine**
+*Entscheidung:* TraceLinkManager, QueryEngine, CoverageCalculator, VCRMReportGenerator.
+*Rationale:* CRUD (schreibend), Graph-Query (lesend, performance-kritisch), Coverage (analytisch, aggregierend) und VCRM-Report (dedizierter Report-Typ mit eigenem Ausgabeformat) haben unterschiedliche Zugriffsmuster und Optimierungsziele. Die Trennung erlaubt unabhaengige Caching- und Optimierungsstrategien.
 *Verworfene Alternative:* Monolithische TraceabilityEngine — abgelehnt wegen Vermischung von schreibenden, lesenden und analytischen Pfaden.
+
+**ADR-TE-03 — Tarjan-Algorithmus fuer Bulk-Zyklenprüfung**
+*Entscheidung:* Zyklenprüfung bei Bulk-Importen wird am Ende der gesamten Transaktion via Tarjan (O(V+E)) durchgeführt; bei Single-Links erfolgt eine Eager-Prüfung vor der Persistenz.
+*Rationale:* Eager-Prüfung pro Link im Bulk-Kontext wäre O(n²) und würde das < 200 ms-SLA bei grossen Importen verletzen. Tarjan am Transaktionsende ist linear und erhält ACID-Garantien durch atomaren Rollback bei Zykluserkennung (Pfad-Fehlerbericht inklusive).
+*Verworfene Alternative:* Eager-Prüfung pro Link im Bulk — abgelehnt wegen O(n²)-Performance-Impact.
+
+**ADR-TE-04 — VCRM als eigene Komponente (VCRMReportGenerator)**
+*Entscheidung:* VCRM-Generierung in COMP-TE-004 getrennt von COMP-TE-003 (CoverageCalculator).
+*Rationale:* VCRM ist ein dedizierter Report-Typ mit eigenem Ausgabeformat (flache Matrix, CSV/PDF). Die Trennung von CoverageCalculator (numerische Aggregate) ermöglicht unabhängige Evolution beider Komponenten: Export-Formate und Baseline-Filter ändern sich unabhängig von Coverage-Berechnungslogik.
+*Verworfene Alternative:* VCRM in CoverageCalculator integriert — abgelehnt wegen SRP-Verletzung (unterschiedliche Zuständigkeiten und Ausgabeformate).
 
 **ADR-TE-02 — PostgreSQL GIST/GIN + Recursive CTE fuer Graph-Queries**
 *Entscheidung:* Graph-Queries ueber PostgreSQL Recursive CTEs mit GIST/GIN-Indizes.
