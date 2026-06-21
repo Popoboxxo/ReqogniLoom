@@ -23,6 +23,7 @@
 | IF-LA-EXT-IN-001 | input | data | `validate_artifact(artifact_id)`, `decompose_requirement(requirement_id)`, `check_consistency(workspace_id)` von ApplicationService |
 | IF-LA-EXT-OUT-001 | output | data | HTTPS-Outbound zu LLM-Provider (Anthropic/OpenAI/Ollama/Azure) |
 | IF-LA-EXT-OUT-002 | output | data | LLM-Aufruf-Audit-Eintrag an AuditLog (ARCH-L1-012) |
+| IF-LA-EXT-OUT-003 | output | data | Task-Dispatch an Celery-Task-Queue (Redis/RabbitMQ); Rückgabe `task_id` an Aufrufer, Status-Rückmeldung via `task.status(task_id)` |
 
 ---
 
@@ -114,22 +115,23 @@ Der LlmAdapter SHALL standardisierte Ergebnisobjekte zurückgeben. `LlmResult`: 
 
 ### REQ-L2-LA-005: Provider-Fehlerbehandlung und Timeout
 
-Der LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukturierten Fehler `LLM_PROVIDER_ERROR` zurückgeben. Keine unhandled Exceptions. Konfigurierbarer Timeout (Default: 30s).
+Der LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukturierten Fehler `LLM_PROVIDER_ERROR` zurückgeben. Keine unhandled Exceptions. Konfigurierbarer Timeout (Default: 30s). Bei synchron ausgeführten Operationen gilt das Timeout als HTTP-Request-Timeout; bei asynchronen Celery-Tasks (siehe REQ-L2-LA-008) wird das Timeout auf Worker-Ebene konfiguriert (`CELERY_TASK_SOFT_TIME_LIMIT`, `CELERY_TASK_TIME_LIMIT`) und greift nicht als HTTP-Request-Timeout.
 
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] Provider-Timeout → `LLM_PROVIDER_ERROR` `"Request timed out"`
+- [ ] Provider-Timeout bei synchronem Aufruf → `LLM_PROVIDER_ERROR` `"Request timed out"`
 - [ ] HTTP 500 → `LLM_PROVIDER_ERROR` `"API error: 500"`
 - [ ] HTTP 429 → `LLM_PROVIDER_ERROR` `"Rate limit exceeded"`
 - [ ] Keine unhandled Exceptions
-- [ ] Timeout via `LLM_TIMEOUT=60` konfigurierbar
+- [ ] Timeout via `LLM_TIMEOUT=60` konfigurierbar (synchron)
+- [ ] Celery-Task-Timeout via `CELERY_TASK_SOFT_TIME_LIMIT` / `CELERY_TASK_TIME_LIMIT` konfigurierbar (async)
 
 **Interfaces:**
 - Outgoing: IF-LA-EXT-OUT-001, IF-LA-EXT-IN-001 (Fehler)
 
 **Traceability:** REQ-L1-013, REQ-L1-026 (mitwirkend)
-**Rationale:** LLM-Ausfälle dürfen das Gesamtsystem nicht beeinträchtigen.
+**Rationale:** LLM-Ausfälle dürfen das Gesamtsystem nicht beeinträchtigen. Async-Tasks lösen das HTTP-Timeout-Problem für Langläufer (REQ-L2-LA-008).
 
 ---
 
@@ -172,6 +174,31 @@ Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LL
 
 ---
 
+### REQ-L2-LA-008: Asynchrone LLM-Task-Ausführung via Celery
+
+Der LlmAdapter SHALL LLM-Langläufer-Operationen (`decompose_requirement`, `check_consistency`) als Celery-Tasks asynchron ausführen. Diese Operationen DÜRFEN den WSGI/ASGI-Worker NICHT blockieren. Der Adapter SHALL bei Aufruf einer async-fähigen Capability sofort eine `task_id` zurückgeben. Der Status des Tasks ist über ein separates Interface abfragbar: `task.status(task_id)` → `{status: "pending|running|done|failed", result?, error?}`. Die Capability `validate_artifact` DARF synchron bleiben (typische Laufzeit < 5s).
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `decompose_requirement(req_id)` → sofortige Antwort `{task_id: "<uuid>"}`, kein Blocking des WSGI/ASGI-Workers
+- [ ] `check_consistency(workspace_id)` → sofortige Antwort `{task_id: "<uuid>"}`
+- [ ] `task.status(task_id)` → `{status: "pending"}` unmittelbar nach Dispatch
+- [ ] `task.status(task_id)` → `{status: "running"}` während Celery-Worker-Ausführung
+- [ ] `task.status(task_id)` → `{status: "done", result: {...}}` nach Abschluss
+- [ ] `task.status(task_id)` → `{status: "failed", error: "..."}` bei Fehler
+- [ ] `validate_artifact(artifact_id)` bleibt synchron und antwortet innerhalb 5s
+- [ ] Celery-Broker (Redis oder RabbitMQ) via `CELERY_BROKER_URL` konfigurierbar
+
+**Interfaces:**
+- Incoming: IF-LA-EXT-IN-001
+- Outgoing: IF-LA-EXT-OUT-001 (LLM-Provider-Aufruf durch Celery-Worker), IF-LA-EXT-OUT-003 (Task-Dispatch an Celery-Queue)
+
+**Traceability:** REQ-L1-013 (primär), REQ-L1-026 (mitwirkend)
+**Rationale:** Massenzerlegungen und Konsistenzprüfungen können mehrere Minuten dauern. Blockierende Synchronaufrufe erschöpfen den WSGI/ASGI-Worker-Pool und machen das System für andere Nutzer unresponsiv. Celery entkoppelt Aufruf und Ausführung.
+
+---
+
 ## Traceability-Matrix: REQ-L2-LA → REQ-L1
 
 | REQ-L2-LA | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -183,6 +210,7 @@ Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LL
 | REQ-L2-LA-005 | REQ-L1-013 | REQ-L1-026 |
 | REQ-L2-LA-006 | REQ-L1-011 | REQ-L1-013 |
 | REQ-L2-LA-007 | REQ-L1-013 | — |
+| REQ-L2-LA-008 | REQ-L1-013 | REQ-L1-026 |
 
 ---
 
@@ -190,8 +218,8 @@ Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LL
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-LA | 7 |
-| Mandatory | 6 |
+| Anzahl REQ-L2-LA | 8 |
+| Mandatory | 7 |
 | Desired | 1 |
 | Optional | 0 |
 | Abgedeckte REQ-L1 (primär) | REQ-L1-013, REQ-L1-011 |
