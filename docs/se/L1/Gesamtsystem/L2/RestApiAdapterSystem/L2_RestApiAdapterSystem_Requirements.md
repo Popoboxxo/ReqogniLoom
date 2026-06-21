@@ -77,20 +77,21 @@ Der RestApiAdapter SHALL eine vollständige, auto-generierte OpenAPI 3.0 Spezifi
 
 ### REQ-L2-RA-003: API-Response-Performance unter 200ms
 
-Der RestApiAdapter SHALL auf Standard-Queries (GET list, GET detail) innerhalb von 200ms beim 95. Perzentil antworten — bei bis zu 10.000 Requirements, inklusive Serialization und Datenbank-Query, exklusive Netzwerk-Latenz.
+Der RestApiAdapter SHALL auf Standard-Queries (GET list, GET detail) innerhalb von 200ms beim 95. Perzentil antworten — bei bis zu 10.000 Requirements, inklusive Serialization und Datenbank-Query, exklusive Netzwerk-Latenz. Voraussetzung für die Einhaltung dieses Latenz-Ziels ist die konsequente Vermeidung von N+1-Query-Mustern via `select_related` und `prefetch_related` (siehe REQ-L2-RA-013).
 
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
 - [ ] Lasttest: 10.000 Requirements, 100 gleichzeitige GET → p95 ≤ 200ms
 - [ ] Datenbank-Indizes für Standard-Query-Pfade vorhanden
+- [ ] Kein N+1-Query-Muster auf List- und Detail-Endpunkten (verifizierbar via Query-Count-Messung)
 
 **Interfaces:**
 - Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
 - Outgoing: IF-RA-EXT-OUT-001
 
 **Traceability:** REQ-L1-026, REQ-L1-006 (mitwirkend)
-**Rationale:** Performance ist entscheidend für die Akzeptanz der Zielgruppe.
+**Rationale:** Performance ist entscheidend für die Akzeptanz der Zielgruppe. N+1-Vermeidung ist strukturelle Voraussetzung für das Latenz-Ziel bei verschachtelten Responses.
 
 ---
 
@@ -289,6 +290,29 @@ Der RestApiAdapter DARF KEINE Geschäftslogik implementieren. Der Adapter SHALL 
 
 ---
 
+### REQ-L2-RA-013: N+1-Query-Vermeidung bei verschachtelten Responses
+
+Der RestApiAdapter SHALL für alle List- und Detail-Endpunkte, die verschachtelte Entitäten liefern (TraceLinks, TestCases, Children-Artifacts), `select_related` für ForeignKey-Beziehungen und `prefetch_related` für ManyToMany- und Reverse-ForeignKey-Beziehungen im DRF-ViewSet-Queryset verwenden. Kein N+1-Query-Muster darf in Produktionscode vorhanden sein. Häufig gelesene verschachtelte Baumstrukturen (Artifact-Trees, vollständige Workspaces) SHALL serverseitig gecacht werden; der Cache MUSS bei Mutationen (POST/PATCH/DELETE auf betroffenen Entitäten) invalidiert werden.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Alle ViewSets mit verschachtelten Responses verwenden `select_related`/`prefetch_related` im `.get_queryset()`
+- [ ] Query-Count-Messung via `django-silk` oder `django-debug-toolbar`: GET auf Requirement mit 50 TraceLinks → maximal 3 DB-Queries (kein lineares Wachstum mit Entitätszahl)
+- [ ] Serverseitiges Caching (Django-Cache-Framework + Redis) für Artifact-Tree- und Workspace-Endpunkte
+- [ ] Cache-Invalidierung: POST/PATCH/DELETE auf Requirement, TraceLink oder TestCase → betroffener Cache-Eintrag wird invalidiert
+- [ ] Kein N+1-Pattern in Codebasis (automatisierbare Prüfung via Query-Count-Assertions in Tests)
+
+**Interfaces:**
+- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
+- Outgoing: IF-RA-EXT-OUT-001
+- Internal: IF-RA-EXT-OUT-005
+
+**Traceability:** REQ-L1-026 (primär), REQ-L1-006 (mitwirkend)
+**Rationale:** DRF erzeugt bei verschachtelten Serialisierungen ohne explizite Queryset-Optimierung N+1-Queries. Bei 10.000 Requirements mit TraceLinks überschreitet dies das 200ms-Latenz-Ziel von REQ-L2-RA-003 um ein Vielfaches. Redis-Caching für Baumstrukturen reduziert die DB-Last bei häufig wiederholten Read-Zugriffen.
+
+---
+
 ## Traceability-Matrix: REQ-L2-RA → REQ-L1
 
 | REQ-L2-RA | Titel | REQ-L1 (primär) | REQ-L1 (mitwirkend) |
@@ -305,6 +329,7 @@ Der RestApiAdapter DARF KEINE Geschäftslogik implementieren. Der Adapter SHALL 
 | REQ-L2-RA-010 | Pagination/Filter/Sort | REQ-L1-006 | — |
 | REQ-L2-RA-011 | Tenant-Propagation | REQ-L1-015 | — |
 | REQ-L2-RA-012 | Keine Geschäftslogik | REQ-L1-006 | — |
+| REQ-L2-RA-013 | N+1-Query-Vermeidung | REQ-L1-026 | REQ-L1-006 |
 
 ---
 
@@ -312,12 +337,12 @@ Der RestApiAdapter DARF KEINE Geschäftslogik implementieren. Der Adapter SHALL 
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-RA | 12 |
-| Mandatory | 11 |
+| Anzahl REQ-L2-RA | 13 |
+| Mandatory | 12 |
 | Desired | 1 |
 | Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | REQ-L1-006 |
-| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-007, REQ-L1-010, REQ-L1-011, REQ-L1-015, REQ-L1-016, REQ-L1-026 |
+| Abgedeckte REQ-L1 (primär) | REQ-L1-006, REQ-L1-026 |
+| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-007, REQ-L1-010, REQ-L1-011, REQ-L1-015, REQ-L1-016 |
 
 ---
 

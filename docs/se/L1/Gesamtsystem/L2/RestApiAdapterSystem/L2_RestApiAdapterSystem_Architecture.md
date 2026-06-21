@@ -38,10 +38,11 @@ Django REST Framework (DRF)-basierte REST-Schnittstelle. Exponiert alle Domain-O
 | Komp-ID | Name | Verantwortlichkeit | Domain |
 |---------|------|--------------------|--------|
 | COMP-RA-001 | HttpEndpointController | HTTP-Request-Routing, Method-Dispatch, HTTP-Statuscode-Selektion, Response-Assembly, Delegation an ApplicationService | software |
-| COMP-RA-002 | DataSerializer | JSON-Deserialisierung/Serialisierung, Input-Validierung, DTO-Konvertierung, Pagination/Filtering/Sorting, i18n-Fehlermeldungen | software |
+| COMP-RA-002 | DataSerializer | JSON-Deserialisierung/Serialisierung, Input-Validierung, DTO-Konvertierung, Pagination/Filtering/Sorting, i18n-Fehlermeldungen; optimierte Querysets via `select_related`/`prefetch_related` fuer alle verschachtelten Serializer; Query-Count-Monitoring | software |
 | COMP-RA-003 | AuthEnforcer | Bearer-Token-Extraktion, Delegation an AuthAndTenancy, RBAC-Enforcement, Tenant-Kontext-Propagation | software |
 | COMP-RA-004 | PresetGuard | Runtime-Preset-Abfrage, Endpoint-Sichtbarkeit, Feld-Filterung | software |
 | COMP-RA-005 | OpenApiGenerator | OpenAPI-3.0-Spezifikation-Generierung, Swagger-UI-Bereitstellung | software |
+| COMP-RA-006 | QuerysetOptimizer | Stellt optimierte Queryset-Factories fuer alle DRF-ViewSets bereit; erzwingt `select_related`/`prefetch_related`-Annotationen; integriert serverseitiges Response-Caching (Django Cache Framework + Redis) fuer haeufig gelesene Baumstrukturen; Cache-Invalidierungslogik bei Mutationen | software |
 
 ### Interne Schnittstellen
 
@@ -53,6 +54,7 @@ Django REST Framework (DRF)-basierte REST-Schnittstelle. Exponiert alle Domain-O
 | IF-RA-INT-004 | intern | COMP-RA-004 -> COMP-RA-002 | In-Process Python | `FieldFilter {permitted_fields, required_fields}` |
 | IF-RA-INT-005 | intern | COMP-RA-005 -> COMP-RA-001 | In-Process Python | `EndpointRegistry {routes: RouteDef[]}` |
 | IF-RA-INT-006 | intern | COMP-RA-005 -> COMP-RA-002 | In-Process Python | `SerializerSchemas {entity_type, field_defs, validators}` |
+| IF-RA-INT-007 | intern | COMP-RA-006 -> COMP-RA-001 | In-Process Python | `get_optimized_queryset(entity_type, nested_fields) -> QuerySet; invalidate_cache(entity_type, entity_id)` |
 
 ### Komponentendiagramm (Mermaid)
 
@@ -64,6 +66,7 @@ flowchart TD
         C003["COMP-RA-003: AuthEnforcer<br/>Token + RBAC + Tenant"]
         C004["COMP-RA-004: PresetGuard<br/>Preset Visibility + Field Filter"]
         C005["COMP-RA-005: OpenApiGenerator<br/>OpenAPI + Swagger UI"]
+        C006["COMP-RA-006: QuerysetOptimizer<br/>select_related/prefetch_related + Redis Cache"]
     end
 
     ext_in1["API-Clients / ReactFrontend"] -->|IF-RA-EXT-IN-001| C001
@@ -81,6 +84,7 @@ flowchart TD
     C004 -->|IF-RA-INT-004| C002
     C005 -->|IF-RA-INT-005| C001
     C005 -->|IF-RA-INT-006| C002
+    C006 -->|IF-RA-INT-007| C001
 
     C003 -->|IF-RA-EXT-OUT-004| ext_auth["AuthAndTenancy"]
     C001 -->|IF-RA-EXT-OUT-005| ext_app["ApplicationService"]
@@ -105,6 +109,7 @@ flowchart TD
 | REQ-L2-RA-010 | COMP-RA-002 |
 | REQ-L2-RA-011 | COMP-RA-003 |
 | REQ-L2-RA-012 | COMP-RA-001, COMP-RA-002 |
+| REQ-L2-RA-013 | COMP-RA-006 |
 
 ---
 
@@ -114,6 +119,11 @@ flowchart TD
 *Entscheidung:* HttpEndpointController, DataSerializer, AuthEnforcer, PresetGuard, OpenApiGenerator.
 *Rationale:* Maximiert Kohaession (jedes Modul hat eine eindeutige, fokussierte Verantwortlichkeit) und minimiert Kopplung (SchemaGenerator kann unabhaengig von AuthEnforcer entwickelt werden).
 *Verworfene Alternative:* Monolithischer Adapter (1 Modul) — abgelehnt wegen Verletzung des Orthogonalitaets-Prinzips und erschwerter paralleler Entwicklung.
+
+**ADR-RA-03 — Dedizierter QuerysetOptimizer statt verteilter select_related-Aufrufe**
+*Entscheidung:* Einfuehrung von COMP-RA-006 QuerysetOptimizer als zentrale Komponente fuer N+1-Query-Vermeidung und serverseitiges Caching.
+*Rationale:* Zentralisiert die N+1-Vermeidungs-Logik an einem einzigen Ort, verhindert vergessene Optimierungen in einzelnen ViewSets durch Drift, und ermoeglicht konsistentes Caching (Django Cache Framework + Redis) mit sauberer Invalidierungslogik bei Mutationen.
+*Verworfene Alternative:* `select_related`/`prefetch_related` direkt in jedem ViewSet manuell — abgelehnt wegen Drift-Risiko (inkonsistente Abdeckung bei wachsender ViewSet-Anzahl) und fehlender Caching-Integration.
 
 **ADR-RA-02 — L3-Zerlegung nicht gerechtfertigt**
 *Entscheidung:* RestApiAdapter bleibt auf L2; L3 terminiert.
