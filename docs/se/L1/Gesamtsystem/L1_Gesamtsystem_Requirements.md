@@ -643,3 +643,145 @@ Wie wird die Tenant-Isolation bei aktiviertem Multi-Tenancy durchgesetzt
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade | 2026-06-18*
 *Nächster Schritt: L2-Anforderungen in docs/se/L1/Gesamtsystem/L2/*System/L2_*System_Requirements.md*
+
+---
+
+## Offene L1-Ableitungen (REQ-L0-016..021)
+
+> **Quelle:** se-requirements-Agent | HOFF-20260621-002 | 2026-06-21
+>
+> Diese Anforderungen sind neu und noch nicht in die L2-Zerlegung eingegangen.
+> Sie müssen durch den se-architect formalisiert und auf L2-Subsysteme heruntergebrochen werden.
+> Status: **OFFEN — ausstehende Architektur-Zerlegung**
+
+---
+
+### REQ-L1-027: Integrierte Diagramm- und Grafik-Verwaltung
+
+Das System muss Diagramme (mindestens 3 Typen: Blockdiagramm, Flussdiagramm,
+Kontextdiagramm) als eigenständige, versionierte Artefakte verwalten, die direkt
+mit Requirements oder ArchitectureElements verknüpft werden können — abrufbar via
+UI und MCP (artifact.get) — wobei jede Diagramm-Änderung eine neue Version erzeugt.
+
+**Rationale:** Integrierte Diagramme eliminieren Medienbrüche zu externen Zeichenprogrammen
+und stellen Traceability zwischen grafischen Modellen und textuellen Anforderungen her.
+**Domain:** software
+**Priorität:** desired
+**Externe Interfaces:**
+- Eingang: Diagramm-CRUD-Anfrage mit Typ, Inhalt (strukturierter Payload), optionaler Verknüpfung zu Artefakt-ID
+- Ausgang: Versioniertes Diagramm mit UUID, TraceLinks zu verknüpften Artefakten; renderbare Darstellung in UI
+**Traceability:** REQ-L0-016
+
+---
+
+### REQ-L1-028: ICD-Verwaltung mit Versionierung und Design-by-Contract
+
+Das System muss Schnittstellen zwischen ArchitectureElements als versionierte
+Interface Control Documents (ICDs) verwalten können — mit Feldern für Richtung,
+Typ, semantische Beschreibung, Vorbedingungen, Nachbedingungen und Invarianten —
+wobei jede ICD-Version unveränderlich ist und inkompatible Änderungen erkannt
+und als Breaking-Change-Warnung gemeldet werden.
+
+**Rationale:** ICDs sind in der SE-Praxis bindende Verträge zwischen Subsystemen.
+Versionierung und Kompatibilitätsprüfung sind Voraussetzung für inkrementelle
+Integration und formale Übergaben.
+**Domain:** software
+**Priorität:** desired
+**Externe Interfaces:**
+- Eingang: ICD-CRUD-Anfrage mit Schnittstellenparametern, source-ArchitectureElement-ID, target-ArchitectureElement-ID
+- Ausgang: Versionierter ICD-Eintrag; Breaking-Change-Warnung bei inkompatiblen Änderungen; Baseline-fähig
+**Traceability:** REQ-L0-017
+
+---
+
+### REQ-L1-029: ADR-, Risiko- und Issue-Verwaltung mit Artefakt-Verknüpfung
+
+Das System muss Architekturentscheidungen (ADRs), Risiken und Issues als eigenständige
+Artefakttypen mit konfigurierbaren Workflow-Zuständen verwalten und vollständig
+mit Requirements, ArchitectureElements und TestCases verknüpfen können — via REST
+und MCP mit vollständigem CRUD.
+
+**Rationale:** ADRs, Risiken und Issues sind integrale SE-Artefakte. Ohne Verknüpfung
+mit Anforderungen und Architektur fehlen Kontext, Rückverfolgbarkeit und
+die Grundlage für Safety-Cases und Compliance-Audits.
+**Domain:** software
+**Priorität:** desired
+**Externe Interfaces:**
+- Eingang: CRUD-Anfrage für ADR (Kontext, Entscheidung, Konsequenzen, Status) / Risiko (Wahrscheinlichkeit, Auswirkung, Mitigation) / Issue (Typ, Priorität)
+- Ausgang: Artefakt mit UUID, WorkflowState, TraceLinks zu verknüpften Anforderungen/Architekturelementen
+**Traceability:** REQ-L0-018
+
+---
+
+### REQ-L1-030: Projektübergreifende Traceability (Cross-Projekt-Links)
+
+Das System muss TraceLinks zwischen Artefakten aus verschiedenen Projekten innerhalb
+derselben Tenant-Instanz unterstützen — mit vollständiger Auflösung in
+Upstream/Downstream-Queries und Impact-Analysen — unter der Bedingung, dass
+Cross-Tenant-Links ausgeschlossen bleiben.
+
+**Rationale:** Rekursive SE-Zerlegung über mehrere Projekte erfordert projektübergreifende
+Traceability. Ohne sie endet die Zerlegungskette an der Projektgrenze und die
+systemische Kontinuität von SN bis Test ist nicht nachweisbar.
+**Domain:** software
+**Priorität:** desired
+**Externe Interfaces:**
+- Eingang: TraceLink-Erstellungsanfrage mit Source-Artefakt-ID (Projekt A) und Target-Artefakt-ID (Projekt B), Link-Typ
+- Ausgang: Cross-Projekt-TraceLink; erweiterte Upstream/Downstream-Graph-Antwort mit Cross-Projekt-Annotation
+**Traceability:** REQ-L0-019
+
+---
+
+### REQ-L1-031: SE-Prozess-Metrikmodul
+
+Das System muss SE-Prozessmetriken berechnen und bereitstellen — mindestens:
+Requirements Volatility (Änderungsrate je Anforderung in konfigurierbarem Zeitraum),
+Traceability Coverage (Anteil verknüpfter Requirements), Workflow-Lücken (Items
+ohne vollständige Workflow-Historie) und offene Risiken nach Schweregrad —
+abrufbar via Dashboard und REST-API-Endpunkt.
+
+**Rationale:** Metrikenbasiertes Steuern ist ein explizites SE-Prinzip. Ohne Metriken
+fehlt die Datengrundlage für Prozesssteuerung und Qualitätsnachweise.
+**Domain:** software
+**Priorität:** desired
+**Externe Interfaces:**
+- Eingang: Metrikanfrage mit Workspace-ID, Zeitraum, optionalem Scope-Filter via GET /metrics/workspace/{id}
+- Ausgang: Strukturierter JSON-Metrikbericht; Dashboard-Darstellung in UI; konfigurierbare Schwellwert-Warnungen
+**Traceability:** REQ-L0-020
+
+---
+
+### REQ-L1-032: Resilienz-Anforderung — Asynchrone Entkopplung und Graceful Degradation
+
+Das System muss sicherstellen, dass alle optionalen Subsystem-Aufrufe (LLM-Adapter,
+Webhook-Dispatcher, GitHub-Integration) über asynchrone Mechanismen mit konfigurierbarem
+Timeout und mindestens einem Retry ausgeführt werden — und dass der Kern
+(CRUD, Traceability, Baselines) bei Ausfall optionaler Subsysteme mit einer
+Kernverfügbarkeit von > 99,5 % erhalten bleibt.
+
+**Rationale:** Resilienz durch zeitliche Entkopplung ist ein übergreifendes Systemprinzip.
+Ohne Graceful Degradation verlieren synchron-koppelnde Systeme bei jedem Teilausfall
+vollständig ihre Verfügbarkeit — inakzeptabel für Produktionsumgebungen.
+**Domain:** system
+**Priorität:** mandatory
+**Externe Interfaces:**
+- Eingang: Systemereignis, der ein optionales Subsystem triggert (LLM-Aufruf, Webhook, GitHub-Sync)
+- Ausgang: Ergebnis des optionalen Subsystems bei Erfolg; Graceful-Degradation-Response + Audit-Log-Eintrag bei Fehler
+**Traceability:** REQ-L0-021
+
+---
+
+## Erweiterter Traceability-Abschnitt: REQ-L1-027..032 → REQ-L0
+
+| REQ-L1 | Abgeleitet von REQ-L0 |
+|---------|----------------------|
+| REQ-L1-027 | REQ-L0-016 |
+| REQ-L1-028 | REQ-L0-017 |
+| REQ-L1-029 | REQ-L0-018 |
+| REQ-L1-030 | REQ-L0-019 |
+| REQ-L1-031 | REQ-L0-020 |
+| REQ-L1-032 | REQ-L0-021 |
+
+---
+
+*Erweiterung durch se-requirements-Agent | HOFF-20260621-002 | 2026-06-21*

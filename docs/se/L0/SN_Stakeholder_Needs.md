@@ -211,3 +211,155 @@ benötigt dokumentierbare Übergaben für Reviews und Compliance (KONZEPT.md §8
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade | 2026-06-18*
 *Nächster Schritt: L1 System-Anforderungen in docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md*
+
+---
+
+## Stakeholder-Needs (Erweiterung v2 — REQ-L0-016..021)
+
+> **Quelle:** SE-Manifest (Punkte 1–6) + Feature-Wünsche FW-1..FW-3
+> **Datum:** 2026-06-21
+> **Erstellt durch:** se-requirements-Agent | HOFF-20260621-002
+
+---
+
+### REQ-L0-016 — SN-16: Interaktive Diagramme und Grafiken direkt im Tool
+
+Teams müssen Diagramme und grafische Darstellungen (z.B. Systemkontextdiagramme,
+Blockdiagramme, Flussdiagramme) direkt innerhalb von ReqFlow erstellen, bearbeiten
+und mit Anforderungen oder Architekturelementen verknüpfen können — ohne Medienbruch
+zu externen Zeichenprogrammen. Einmal erstellte Diagramme bleiben Teil des versionierten
+Artefakts und sind via MCP abrufbar.
+
+**Rationale:** Grafische Darstellungen sind in jedem SE-Prozess unverzichtbar. Ohne
+integrierte Diagramm-Capability entstehen Medienbrüche (Visio, Draw.io, PowerPoint),
+die Traceability unterbrechen und Diagramme von Requirements entkoppeln.
+
+**Akzeptanzkriterien:**
+- AC1: Ein Diagramm kann innerhalb einer Anforderung oder eines Architekturelements erstellt und gespeichert werden.
+- AC2: Das Diagramm ist versioniert (Version N bei Änderung inkrementiert) und mit dem übergeordneten Artefakt tracelinked.
+- AC3: Diagramme sind via MCP (artifact.get, artifact.get_tree) als strukturierter Payload abrufbar.
+- AC4: Mindestens 3 Diagramm-Typen werden unterstützt (z.B. Blockdiagramm, Flussdiagramm, Kontextdiagramm).
+
+**Abgeleitet von:** Feature-Wunsch FW-1
+**Ableitet L1:** neue L1-Anforderung REQ-L1-027 erforderlich (Diagramm-Verwaltung)
+
+---
+
+### REQ-L0-017 — SN-17: Verwaltung einer rekursiven Architektur-Hierarchie mit versionierten ICDs
+
+Systems Engineers müssen die Systemarchitektur als mehrstufige Hierarchie
+(Gesamtsystem → Subsysteme → Komponenten) strukturieren, Schnittstellen zwischen
+Elementen als versionierte Verträge (ICDs — Interface Control Documents) definieren
+und sowohl syntaktische als auch semantische Schnittstellenbeschreibungen hinterlegen
+können. Jede ICD-Version muss unveränderlich baseline-fähig sein; Rückwärtskompatibilitäts-
+Prüfung muss unterstützt werden.
+
+**Rationale:** ICDs sind in der SE-Praxis rechtlich bindende Verträge zwischen Subsystemen.
+Ohne versionierte, semantisch beschriebene Schnittstellen fehlt die Grundlage für
+Design-by-Contract und inkrementelle Integration. (SE-Manifest Punkt 4, 5)
+
+**Akzeptanzkriterien:**
+- AC1: Architekturelemente können in einer beliebig tiefen Hierarchie (mindestens 4 Ebenen) organisiert werden.
+- AC2: Schnittstellen zwischen Elementen können als ICD-Einträge mit Typ, Richtung, semantischer Beschreibung, Vorbedingung, Nachbedingung und Invariante angelegt werden.
+- AC3: Jede ICD-Änderung erzeugt eine neue ICD-Version; ältere Versionen bleiben unveränderlich lesbar.
+- AC4: Das System erkennt und meldet Kompatibilitätskonflikte, wenn eine ICD-Änderung auf inkompatible Verbraucher trifft (breaking-change-Warnung).
+
+**Abgeleitet von:** Feature-Wunsch FW-2; SE-Manifest Punkt 4 (Interface-Definitionen)
+**Ableitet L1:** neue L1-Anforderung REQ-L1-028 erforderlich (ICD-Verwaltung und Versionierung)
+
+---
+
+### REQ-L0-018 — SN-18: Verwaltung von Architekturentscheidungen (ADRs), Risiken und Issues
+
+Teams müssen Architekturentscheidungen (ADRs — Architecture Decision Records), Risiken und
+Probleme/Issues als eigenständige, strukturierte Artefakte erfassen und mit Anforderungen,
+Architekturelementen und Testfällen verknüpfen können. Status-Workflows (z.B.
+ADR: Proposed → Accepted → Deprecated) müssen konfigurierbar sein; Risiken benötigen
+Wahrscheinlichkeit, Auswirkung und Mitigationsmaßnahmen.
+
+**Rationale:** ADRs, Risiken und Issues sind integrale Bestandteile des SE-Prozesses.
+Ohne Verknüpfung mit Anforderungen und Architektur fehlen Kontext und Rückverfolgbarkeit
+für spätere Entscheidungsrevisionen und Compliance-Nachweise. (SE-Manifest Punkt 6, Feature FW-3)
+
+**Akzeptanzkriterien:**
+- AC1: ADRs können mit Titel, Kontext, Entscheidung, Konsequenzen und Status (Proposed/Accepted/Deprecated) erfasst und mit Anforderungen oder Architekturelementen verlinkt werden.
+- AC2: Risiken können mit Wahrscheinlichkeit (1–5), Auswirkung (1–5) und Mitigationsmaßnahmen erfasst und mit beliebigen Artefakten verlinkt werden.
+- AC3: Issues können mit Priorität, Typ (Bug/Constraint/TBD) und Verknüpfung zu ADRs oder Risiken erfasst werden.
+- AC4: Alle drei Artefakttypen (ADR, Risiko, Issue) sind via REST und MCP vollständig CRUD-fähig.
+
+**Abgeleitet von:** Feature-Wunsch FW-3; SE-Manifest Punkt 6 (SSOT, Metrikenbasiertes Steuern)
+**Ableitet L1:** neue L1-Anforderung REQ-L1-029 erforderlich (ADR/Risiko/Issue-Verwaltung)
+
+---
+
+### REQ-L0-019 — SN-19: Projektübergreifende Traceability für rekursive SE-Zerlegung
+
+Teams, die mehrere ReqFlow-Projekte für unterschiedliche Systemebenen führen
+(z.B. L1-Gesamtsystem in Projekt A, L2-Subsystem in Projekt B), müssen
+Trace-Links zwischen Artefakten unterschiedlicher Projekte innerhalb derselben
+ReqFlow-Instanz anlegen können. Impact-Analysen müssen projektübergreifend auflösbar
+sein, damit systemische Zerlegung über Projektgrenzen hinweg nachvollziehbar bleibt.
+
+**Rationale:** Rekursive SE-Zerlegung erfordert Cross-Projekt-Traceability.
+Ohne sie endet Traceability an der Projektgrenze und die Systemzerlegungskette
+wird unvollständig — kritisch für Safety-Cases und Compliance-Audits.
+(SE-Manifest Punkt 1, 2)
+
+**Akzeptanzkriterien:**
+- AC1: Ein TraceLink kann eine Anforderung in Projekt A mit einer Anforderung in Projekt B als Quelle/Ziel referenzieren.
+- AC2: Upstream/Downstream-Queries lösen Cross-Projekt-Links auf und liefern eine vollständige Kette.
+- AC3: Cross-Projekt-Trace-Links sind in der Traceability-Matrix und in Impact-Analysen sichtbar.
+- AC4: Das System verhindert Cross-Projekt-Links über Tenant-Grenzen hinweg (Isolation bleibt gewahrt).
+
+**Abgeleitet von:** SE-Manifest Punkt 1 (System-Rekursion); SE-Manifest Punkt 2 (lückenlose Traceability)
+**Ableitet L1:** Erweiterung von REQ-L1-003 (Traceability-Engine) erforderlich; neue L1-Anforderung REQ-L1-030 empfohlen
+
+---
+
+### REQ-L0-020 — SN-20: Metrikbasiertes Steuern des SE-Prozesses
+
+SE-Verantwortliche müssen den Zustand des SE-Prozesses anhand messbarer Metriken
+überwachen können — mindestens: Requirements Volatility (Änderungsrate pro Zeitraum),
+Traceability Coverage (Anteil verknüpfter Items), Workflow-Lücken (Items ohne
+vollständige Workflow-Historie) und offene Risiken nach Schweregrad. Diese Metriken
+müssen als Dashboard und via API abrufbar sein.
+
+**Rationale:** "Metrikenbasiertes Steuern" ist ein explizites Prinzip des SE-Manifests.
+Ohne Metriken ist keine fundierte Prozesssteuerung möglich; Teams handeln reaktiv
+statt proaktiv. (SE-Manifest Punkt 6)
+
+**Akzeptanzkriterien:**
+- AC1: Das System berechnet und zeigt Requirements Volatility (Anzahl Änderungen je Anforderung in einem konfigurierbaren Zeitraum) für den aktiven Workspace.
+- AC2: Das System zeigt Traceability Coverage als Prozentwert (verknüpfte Requirements / Gesamt-Requirements) und identifiziert nicht verknüpfte Items.
+- AC3: Metriken sind via REST-API-Endpunkt (z.B. /metrics/workspace/{id}) abrufbar und maschinenlesbar.
+- AC4: Ein konfigurierbarer Schwellwert für Traceability Coverage kann gesetzt werden; Unterschreitung erzeugt eine Warnung.
+
+**Abgeleitet von:** SE-Manifest Punkt 6 (Metrikenbasiertes Steuern)
+**Ableitet L1:** neue L1-Anforderung REQ-L1-031 erforderlich (SE-Prozess-Metrikmodul)
+
+---
+
+### REQ-L0-021 — SN-21: Asynchrone, resiliente Systemkommunikation zwischen Komponenten
+
+Das System muss intern so aufgebaut sein, dass Kommunikation zwischen entkoppelten
+Subsystemen bevorzugt asynchron und stateless erfolgt — mit definierten Timeout-,
+Retry- und Graceful-Degradation-Mechanismen — sodass der Ausfall einer Komponente
+(z.B. LLM-Adapter, Webhook-Dispatcher) keine kaskadierenden Ausfälle anderer
+Komponenten verursacht.
+
+**Rationale:** Resilienz ist eine übergreifende Systemqualität. Ohne zeitliche Entkopplung
+und Graceful Degradation verlieren synchron-koppelte Systeme bei jedem Teilausfall
+vollständig ihre Verfügbarkeit. (SE-Manifest Punkt 3)
+
+**Akzeptanzkriterien:**
+- AC1: Alle nicht-kritischen Subsystem-Aufrufe (LLM, Webhooks, GitHub-Integration) laufen über einen Mechanismus mit konfigurierbarem Timeout und mindestens einem Retry.
+- AC2: Bei wiederholtem Fehler eines nicht-kritischen Subsystems bleibt der Kern (CRUD, Traceability, Baselines) vollständig verfügbar (Graceful Degradation messbar: Uptime-Kern > 99,5 % unabhängig von LLM-Verfügbarkeit).
+- AC3: Stateless-Design wird durch eine Architektur-Richtlinie erzwungen: kein Subsystem hält Session-Zustand im Arbeitsspeicher.
+- AC4: Ausfall und Recovery optionaler Subsysteme werden im Audit-Log erfasst.
+
+**Abgeleitet von:** SE-Manifest Punkt 3 (Systemkommunikation & SW-Auswirkungen)
+**Ableitet L1:** Erweiterung von REQ-L1-026 (Performance/Resilienz) und REQ-L1-018 (Deployment) erforderlich; neue L1-Anforderung REQ-L1-032 empfohlen
+
+---
+
+*Erweiterung durch se-requirements-Agent | HOFF-20260621-002 | 2026-06-21*
