@@ -37,7 +37,7 @@
 
 ### REQ-L2-PL-001: Tenant-Isolation via Custom Django Manager
 
-Das PersistenceLayer MUSS einen Custom Django Manager (`TenantQuerySet`) auf allen Entitäten implementieren, der jede Abfrage automatisch mit `tenant_id` filtert. Kein Query DARF den Filter umgehen. Fehlt der Tenant-Kontext, MUSS die Query mit Exception abgebrochen werden.
+Das PersistenceLayer MUSS einen Custom Django Manager (`TenantQuerySet`) auf allen Entitäten implementieren, der jede Abfrage automatisch mit `tenant_id` filtert. Kein Query DARF den Filter umgehen. Fehlt der Tenant-Kontext, MUSS die Query mit Exception abgebrochen werden. Als zweite Sicherheitsschicht ergänzt REQ-L2-PL-010 (PostgreSQL Row-Level Security) die applikationsseitige Isolation auf Datenbankebene.
 
 **Domain:** software
 **Priority:** mandatory
@@ -52,7 +52,7 @@ Das PersistenceLayer MUSS einen Custom Django Manager (`TenantQuerySet`) auf all
 - Outgoing: IF-PL-EXT-OUT-001
 
 **Traceability:** REQ-L1-015
-**Rationale:** Row-Level-Isolation ist Voraussetzung für v2-SaaS (ADR-03).
+**Rationale:** Row-Level-Isolation ist Voraussetzung für v2-SaaS (ADR-03). RLS (REQ-L2-PL-010) sichert die Isolation zusätzlich auf DB-Ebene.
 
 ---
 
@@ -230,6 +230,28 @@ Das PersistenceLayer MUSS referentielle Integrität über PostgreSQL FOREIGN-KEY
 
 ---
 
+### REQ-L2-PL-010: PostgreSQL Row-Level Security (RLS)
+
+Das PersistenceLayer MUSS PostgreSQL Row-Level Security auf allen mandantenspezifischen Tabellen aktivieren. Eine Django-Middleware MUSS bei jedem HTTP- und MCP-Request die Session-Variable `app.current_tenant` via `SET LOCAL app.current_tenant = '<uuid>'` setzen. PostgreSQL-Policies MÜSSEN sicherstellen, dass Zeilen nur zurückgeliefert werden, wenn `tenant_id = current_setting('app.current_tenant')` gilt. Die DB-seitige Isolation DARF durch die Applikationsschicht nicht umgehbar sein.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Direkter DB-Zugriff (psql) ohne gesetztes `app.current_tenant` → leere Ergebnismenge für alle RLS-geschützten Tabellen
+- [ ] `SET LOCAL app.current_tenant = '<T1-UUID>'` → nur T1-Zeilen sichtbar, T2-Zeilen nicht
+- [ ] Django-Middleware setzt `app.current_tenant` bei jedem Request vor der Query-Ausführung
+- [ ] `CREATE POLICY` existiert für alle mandantenspezifischen Tabellen (Migrations-Check)
+- [ ] ORM-Bypass-Test: Raw SQL ohne App-Kontext liefert keine Fremddaten
+
+**Interfaces:**
+- Incoming: IF-PL-EXT-IN-008, IF-PL-EXT-IN-009
+- Outgoing: IF-PL-EXT-OUT-001
+
+**Traceability:** REQ-L1-015
+**Rationale:** DB-seitige Isolation als zweite Sicherheitsschicht zu REQ-L2-PL-001 (Custom Django Manager). Verhindert Datenlecks auch bei Applikationsfehlern oder direktem DB-Zugriff (Handlungsempfehlung 1.1).
+
+---
+
 ## Traceability-Matrix: REQ-L2-PL → REQ-L1
 
 | REQ-L2-PL | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -243,6 +265,7 @@ Das PersistenceLayer MUSS referentielle Integrität über PostgreSQL FOREIGN-KEY
 | REQ-L2-PL-007 | REQ-L1-026 | — |
 | REQ-L2-PL-008 | REQ-L1-026 | REQ-L1-003, REQ-L1-020 |
 | REQ-L2-PL-009 | REQ-L1-025 | REQ-L1-001 |
+| REQ-L2-PL-010 | REQ-L1-015 | — |
 
 ---
 
@@ -250,8 +273,8 @@ Das PersistenceLayer MUSS referentielle Integrität über PostgreSQL FOREIGN-KEY
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-PL | 9 |
-| Mandatory | 8 |
+| Anzahl REQ-L2-PL | 10 |
+| Mandatory | 9 |
 | Desired | 1 |
 | Optional | 0 |
 | Abgedeckte REQ-L1 (primär) | REQ-L1-015, REQ-L1-025, REQ-L1-026 |
