@@ -1,0 +1,12 @@
+ i  auto-detected config: .meta-config/project.yaml
+
+  !  Unknown dod-preset 'strict' — falling back to 'full'
+  !  quality-pipelines: Pipeline 'se-cascade': stage 'implementation' uses orchestrator agent 'orchestrator' — would create circular delegation
+Traceback (most recent call last):
+  File "/home/dduchrow/Repos/ai-native-reqflow-POC/.agent-meta/scripts/sync.py", line 811, in <module>
+    main()
+    ~~~~^^
+  File "/home/dduchrow/Repos/ai-native-reqflow-POC/.agent-meta/scripts/sync.py", line 543, in main
+    log.error("test-repo",
+    ^^^^^^^^^
+AttributeError: 'SyncLog' object has no attribute 'error'

@@ -1,4 +1,4 @@
-
+.keep
 .opencode
 .claude
 
@@ -9,6 +9,12 @@
 .claude/pending-tasks.md
 .claude/settings.json
 .claude/settings.local.json
+.gemini/GEMINI.md
+.gemini/agents/
+.gemini/commands/
+.gemini/rules/
+.gemini/settings.json
+.gemini/settings.local.json
 .mcp.json
 .opencode/agents/
 .opencode/commands/
@@ -25,3 +31,4 @@ sync.log
 
 # agent-meta runtime artifacts
 .meta-viz/
+docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/Components/COMP-DS-001_DiagramManager/.keep

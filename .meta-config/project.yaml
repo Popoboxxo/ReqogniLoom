@@ -2,7 +2,8 @@ agent-meta-version: 0.64.1
 ai-providers:
 - Claude
 - Opencode
-dod-preset: strict
+- Gemini
+#dod-preset: strict
 platforms: []
 roles:
 - orchestrator
