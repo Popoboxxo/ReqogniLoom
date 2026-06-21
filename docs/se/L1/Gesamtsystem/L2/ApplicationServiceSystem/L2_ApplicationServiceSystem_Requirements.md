@@ -372,7 +372,7 @@ Der ApplicationService SOLLTE PDF-Report-Export für Anforderungsdokumente und T
 
 ### REQ-L2-AS-017: Webhook Dispatch
 
-Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requirement erstellt, geändert, Status-Übergang, Baseline erstellt) dispatchen. HTTP POST an konfigurierte URL mit JSON-Payload. Asynchron, blockiert nicht.
+Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requirement erstellt, geändert, Status-Übergang, Baseline erstellt) dispatchen. HTTP POST an konfigurierte URL mit JSON-Payload. Asynchron, blockiert nicht. Der Dispatch erfolgt als Subscriber des internen Domain Event-Bus (REQ-L2-AS-026).
 
 **Domain:** software
 **Priority:** desired
@@ -384,9 +384,10 @@ Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requ
 
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
+- Incoming (intern): IF-AS-EXT-OUT-006 (Domain Events via Event-Bus)
 
 **Traceability:** REQ-L1-024
-**Rationale:** Ermöglicht externen Systemen auf Änderungen zu reagieren.
+**Rationale:** Ermöglicht externen Systemen auf Änderungen zu reagieren. Entkopplung vom ApplicationService via Event-Bus reduziert synchrone Abhängigkeiten.
 
 ---
 
@@ -411,21 +412,22 @@ Der ApplicationService SHALL alle Datenänderungen atomar und konsistent persist
 
 ### REQ-L2-AS-019: Audit Log Writing
 
-Der ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag schreiben: actor, operation, entity_id, timestamp, optionale Details. AuditLog-Schreibung in derselben Transaktion wie die Operation.
+Der ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag schreiben: actor, operation, entity_id, timestamp, optionale Details. Der AuditLog-Eintrag wird vom AuditLogWriter als Subscriber des Domain Event-Bus (REQ-L2-AS-026) geschrieben. Das Domain-Event wird im selben Transaktionskontext persistiert (Transactional Outbox), sodass keine Schreiboperation ohne nachgelagerten AuditLog-Eintrag committed werden kann (Eventual-Write-Garantie, kein Fire-and-Forget).
 
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] Nach `create_requirement()` → AuditLog mit op="create"
-- [ ] Nach `update_requirement()` → AuditLog mit op="update"
-- [ ] Nach `transition()` → AuditLog mit op="transition"
-- [ ] Rollback der Entity-Änderung → auch AuditLog zurückgerollt
+- [ ] Nach `create_requirement()` → AuditLog-Eintrag mit op="create" vorhanden (spätestens nach Event-Verarbeitung)
+- [ ] Nach `update_requirement()` → AuditLog-Eintrag mit op="update" vorhanden
+- [ ] Nach `transition()` → AuditLog-Eintrag mit op="transition" vorhanden
+- [ ] Rollback der Entity-Änderung → auch das Domain-Event wird zurückgerollt → kein AuditLog-Eintrag
+- [ ] Ausfall des async Workers nach Event-Persistierung → Event bleibt in Outbox, AuditLog wird nach Wiederanlauf nachgeholt
 
 **Interfaces:**
 - Outgoing: IF-AS-EXT-OUT-006
 
 **Traceability:** REQ-L1-011
-**Rationale:** ApplicationService ist der zentrale Orchestrierungspunkt für alle Schreiboperationen.
+**Rationale:** Entkopplung von synchroner Schreiboperation und AuditLog-Schreibung via Event-Bus. Transactional Outbox sichert Eventual-Write-Garantie ohne starre In-Transaction-Kopplung.
 
 ---
 
@@ -552,6 +554,31 @@ Der ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requireme
 
 ---
 
+### REQ-L2-AS-026: Interner Domain Event-Bus
+
+Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes Domain-Event publizieren. Unterstützte Event-Typen: `RequirementCreated`, `RequirementUpdated`, `RequirementDeleted`, `BaselineCreated`, `WorkflowTransitioned`. Das Event-Publishing erfolgt im selben Transaktionskontext wie die Mutation (Transactional Outbox oder Django `post_commit`-Signal), sodass kein Event verloren geht und kein Event für eine zurückgerollte Mutation publiziert wird. AuditLogWriter, SeMetricsCollector und WebhookDispatcher registrieren sich als Event-Subscriber und verarbeiten Events asynchron. Der ApplicationService kennt keine Subscriber — die Kopplung ist ausschließlich über den Event-Typ.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `create_requirement()` → `RequirementCreated`-Event persistiert, bevor HTTP-Response zurückkommt
+- [ ] Rollback der Mutation → kein Event persistiert → kein Subscriber wird ausgelöst
+- [ ] AuditLogWriter empfängt Event und schreibt AuditLog-Eintrag asynchron
+- [ ] SeMetricsCollector empfängt Event und aktualisiert Metriken asynchron
+- [ ] WebhookDispatcher empfängt Event und dispatcht Webhook asynchron (sofern konfiguriert)
+- [ ] Ausfall eines Subscribers → andere Subscriber nicht betroffen
+- [ ] Ausfall des async Workers → Event verbleibt in Outbox, wird nach Wiederanlauf verarbeitet
+- [ ] Neuer Subscriber kann registriert werden ohne Änderung am ApplicationService
+
+**Interfaces:**
+- Outgoing: IF-AS-EXT-OUT-006 (AuditLog via Event)
+- Outgoing: IF-AS-EXT-OUT-007 (Outbox-Persistierung via PersistenceLayer)
+
+**Traceability:** REQ-L1-026 (Performance), REQ-L1-011 (Audit)
+**Rationale:** Synchrone Direktaufrufe von AuditLog, SeMetrics und WebhookDispatcher nach jeder Mutation verlängern Antwortzeiten und erzeugen starre strukturelle Kopplung. Der Event-Bus entkoppelt Publisher und Subscriber, reduziert Orchestrierungs-Overhead und ermöglicht unabhängige Skalierung der Subscriber.
+
+---
+
 ## Traceability-Matrix: REQ-L2-AS → REQ-L1
 
 | REQ-L2-AS | Titel (Kurz) | REQ-L1 | Priorität |
@@ -581,6 +608,7 @@ Der ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requireme
 | REQ-L2-AS-023 | Performance | REQ-L1-026 | mandatory |
 | REQ-L2-AS-024 | Decomposition | REQ-L1-002, REQ-L1-013 | mandatory |
 | REQ-L2-AS-025 | Coverage | REQ-L1-012 | mandatory |
+| REQ-L2-AS-026 | Domain Event-Bus | REQ-L1-026, REQ-L1-011 | mandatory |
 
 ---
 
@@ -588,8 +616,8 @@ Der ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requireme
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-AS | 25 |
-| Mandatory | 22 |
+| Anzahl REQ-L2-AS | 26 |
+| Mandatory | 23 |
 | Desired | 3 |
 | Optional | 0 |
 | Abgedeckte REQ-L1 (primär) | 20 |

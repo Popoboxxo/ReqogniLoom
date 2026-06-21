@@ -29,9 +29,9 @@
 
 ## L2 Subsystem-Anforderungen
 
-### REQ-L2-BL-001: Baseline Scope Resolution and Snapshot Creation
+### REQ-L2-BL-001: Baseline Scope Resolution and Delta Storage
 
-Der BaselineService SHALL den angeforderten Scope (`document`, `project`, `global`) auflösen und alle betroffenen Item-IDs mit Versionen ermitteln. TraceLinks SÜLLEN über die TraceabilityEngine gesammelt werden. Der komplette Snapshot SHALL atomar als JSON-Dokument persistiert werden.
+Der BaselineService SHALL den angeforderten Scope (`document`, `project`, `global`) auflösen und alle betroffenen Item-IDs mit exakter Revisions-Nummer (`version`) ermitteln. TraceLinks SHALL über die TraceabilityEngine gesammelt werden. Der Snapshot SHALL als Menge von `(item_id, version)`-Tupeln plus zugehörigen TraceLink-Referenzen atomar persistiert werden. Der vollständige Item-Payload (title, description, content) DARF NICHT in der Baseline gespeichert werden.
 
 - **Scope-Semantik:**
   - `document`: Ein Artefakt + alle Nachkommen (rekursiv) inkl. zugehöriger Items und TraceLinks.
@@ -41,16 +41,17 @@ Der BaselineService SHALL den angeforderten Scope (`document`, `project`, `globa
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] Baseline scope=project mit 10 Requirements, 3 ArchElements, 5 TestCases, 12 TraceLinks → JSON enthält 18 Item-IDs mit Versionen und 12 TraceLinks
-- [ ] Nachträgliche Änderung eines Requirements → Baseline-Snapshot unverändert
-- [ ] Baseline scope=document für Artefakt A mit 2 Kindern → Snapshot enthält A + Kinder + TraceLinks
+- [ ] Baseline scope=project mit 10 Requirements, 3 ArchElements → Baseline enthält 13 `(item_id, version)`-Einträge
+- [ ] Baseline-Eintrag enthält keinen title/description/content-Payload (nur item_id + version)
+- [ ] Nachträgliche Änderung eines Requirements → gespeicherte `(item_id, version)`-Tupel unverändert
+- [ ] Baseline scope=document für Artefakt A mit 2 Kindern → Snapshot enthält A + Kinder + TraceLink-Referenzen
 
 **Interfaces:**
 - Incoming: IF-BL-EXT-IN-001, IF-BL-EXT-IN-003
-- Outgoing: IF-BL-EXT-OUT-001, IF-BL-EXT-OUT-001
+- Outgoing: IF-BL-EXT-OUT-001
 
 **Traceability:** REQ-L1-008, REQ-L1-003 (mitwirkend)
-**Rationale:** Atomare, unveränderliche Snapshots sind Voraussetzung für reproduzierbare Anforderungsstände.
+**Rationale:** Delta-Storage (nur item_id + version statt vollständiger Payload) verhindert massives DB-Wachstum und OOM-Risiko bei großen Projekten. Atomare, unveränderliche Referenzen bleiben Voraussetzung für reproduzierbare Anforderungsstände.
 
 ---
 
@@ -173,6 +174,27 @@ Der BaselineService SHALL Baselines atomar erstellen: entweder der komplette Sna
 
 ---
 
+### REQ-L2-BL-009: Baseline-Rekonstruktion aus Versionshistorie
+
+Der BaselineService SHALL in der Lage sein, den Zustand eines Items zum Baseline-Zeitpunkt zu rekonstruieren. Dazu greift er auf die Versionshistorie (AuditLog oder `RequirementVersion`-Tabelle) zurück und liefert den Payload der gespeicherten `version` zurück. Die Funktion `get_item_at_baseline(baseline_id, item_id)` SHALL den vollständigen Item-Payload zur zum Baseline-Zeitpunkt gespeicherten Version zurückgeben.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `get_item_at_baseline(bl_id, item_id)` → gibt Payload (title, description, content) des Items in der gespeicherten Version zurück
+- [ ] Item wurde nach Baseline-Erstellung geändert → Funktion liefert dennoch den alten Stand
+- [ ] item_id nicht in Baseline enthalten → Fehler `"Item not part of this baseline"`
+- [ ] version nicht in Versionshistorie vorhanden → Fehler `"Version not found in history"`
+
+**Interfaces:**
+- Incoming: IF-BL-EXT-IN-001
+- Outgoing: IF-BL-EXT-OUT-001
+
+**Traceability:** REQ-L1-008, REQ-L1-011 (mitwirkend, AuditLog als Versionsquelle)
+**Rationale:** Da der Payload nicht mehr in der Baseline direkt gespeichert wird (Delta-Storage, REQ-L2-BL-001), muss der BaselineService die Rekonstruktion aus der Versionshistorie übernehmen, um Baseline-Inhalte weiterhin lesbar zu machen.
+
+---
+
 ### REQ-L2-BL-008: Baseline Creation Performance
 
 Der BaselineService SHALL Baseline-Erstellung für bis zu 10.000 Items innerhalb von 5 Sekunden abschließen. Diff-Operationen zwischen zwei Baselines SOLLTEN innerhalb von 2 Sekunden abgeschlossen sein.
@@ -204,6 +226,7 @@ Der BaselineService SHALL Baseline-Erstellung für bis zu 10.000 Items innerhalb
 | REQ-L2-BL-006 | REQ-L1-008 | — |
 | REQ-L2-BL-007 | REQ-L1-008 | REQ-L1-025 |
 | REQ-L2-BL-008 | REQ-L1-008 | REQ-L1-026 |
+| REQ-L2-BL-009 | REQ-L1-008 | REQ-L1-011 |
 
 ---
 
@@ -211,12 +234,12 @@ Der BaselineService SHALL Baseline-Erstellung für bis zu 10.000 Items innerhalb
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-BL | 8 |
-| Mandatory | 7 |
+| Anzahl REQ-L2-BL | 9 |
+| Mandatory | 8 |
 | Desired | 1 |
 | Optional | 0 |
 | Abgedeckte REQ-L1 (primär) | REQ-L1-008 |
-| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-003, REQ-L1-007, REQ-L1-025, REQ-L1-026 |
+| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-003, REQ-L1-007, REQ-L1-011, REQ-L1-025, REQ-L1-026 |
 
 ---
 

@@ -28,7 +28,7 @@ Zentrale Domain-Service-Fassade fuer alle Use-Cases. Orchestriert die untergeord
 | IF-AS-EXT-OUT-003 | ausgehend | TraceabilityEngine | In-Process Python | `query(artifact_id, direction)`, `coverage(workspace_id)` |
 | IF-AS-EXT-OUT-004 | ausgehend | PresetConfigEngine | In-Process Python | `get_preset(workspace_id)`, `is_feature_enabled(key, workspace_id)` |
 | IF-AS-EXT-OUT-005 | ausgehend | LlmAdapter | In-Process Python | `validate`, `decompose`, `check_consistency` |
-| IF-AS-EXT-OUT-006 | ausgehend | AuditLog | In-Process Python | `log_write(actor, op, entity_id, details)` |
+| IF-AS-EXT-OUT-006 | ausgehend | AuditLog | Async Event (via COMP-AS-013) | `AuditEvent`-Domain-Event wird von COMP-AS-013 an AuditLog-Subscriber zugestellt; kein synchroner Direktaufruf mehr |
 | IF-AS-EXT-OUT-007 | ausgehend | PersistenceLayer | Django ORM | Alle Entitaeten, Custom Manager mit Tenant-Isolation |
 
 ---
@@ -49,8 +49,9 @@ Zentrale Domain-Service-Fassade fuer alle Use-Cases. Orchestriert die untergeord
 | COMP-AS-008 | ExportService | JSON-/CSV-Export fuer alle Entitaeten inkl. aktivem Terminologie-Profil als Metadatum; PDF-Report-Export | software |
 | COMP-AS-009 | ImportService | CSV-Bulk-Import fuer Requirements, ArchitectureElements und TestCases mit atomarer Transaktionssemantik | software |
 | COMP-AS-010 | SearchService | Volltextsuche ueber Requirements + ArchitectureElements + TestCases (PostgreSQL Full-Text Search) mit Type-/Workspace-Filter | software |
-| COMP-AS-011 | WebhookDispatcher | Asynchroner Webhook-Dispatch fuer konfigurierbare Event-Typen mit Retry-Logik (exponentieller Backoff) | software |
+| COMP-AS-011 | WebhookDispatcher | Asynchroner Webhook-Dispatch fuer konfigurierbare Event-Typen mit Retry-Logik (exponentieller Backoff); Event-Subscriber am DomainEventBus | software |
 | COMP-AS-012 | PresetPolicyService | Preset-Regel-Validierung (Scope-Erlaubnis, change_reason-Pflicht, Downgrade-Inkompatibilitaets-Check) | software |
+| COMP-AS-013 | DomainEventBus | Publiziert Domain-Events nach Mutation im post_commit-Hook; speichert Events im Transactional-Outbox-Store (DB-Tabelle); stellt Events asynchron an registrierte Subscriber zu (AuditLogWriter, SeMetrics, WebhookDispatcher) via Django-Q- oder Celery-Worker | software |
 
 ### Interne Schnittstellen
 
@@ -64,10 +65,12 @@ Zentrale Domain-Service-Fassade fuer alle Use-Cases. Orchestriert die untergeord
 | IF-AS-INT-006 | intern | COMP-AS-006 -> COMP-AS-012 | In-Process Python | `is_scope_allowed(workspace_id, scope)` |
 | IF-AS-INT-007 | intern | COMP-AS-007 -> COMP-AS-012 | In-Process Python | `validate_transition_roles(ctx, target_state)` |
 | IF-AS-INT-008 | intern | COMP-AS-002 -> COMP-AS-012 | In-Process Python | `is_change_reason_required(workspace_id)` |
-| IF-AS-INT-009 | intern | COMP-AS-002 -> COMP-AS-011 | In-Process Python | `WebhookEvent(type="requirement_created", entity_id, timestamp)` |
-| IF-AS-INT-010 | intern | COMP-AS-003 -> COMP-AS-011 | In-Process Python | `WebhookEvent(type="architecture_element_created", ...)` |
-| IF-AS-INT-011 | intern | COMP-AS-004 -> COMP-AS-011 | In-Process Python | `WebhookEvent(type="test_case_created", ...)` |
-| IF-AS-INT-012 | intern | COMP-AS-006 -> COMP-AS-011 | In-Process Python | `WebhookEvent(type="baseline_created", ...)` |
+| IF-AS-INT-009 | intern | COMP-AS-002 -> COMP-AS-013 | Domain-Event (Outbox) | `RequirementCreated / RequirementUpdated / RequirementDeleted` — nach Commit via post_commit-Hook publiziert |
+| IF-AS-INT-010 | intern | COMP-AS-003 -> COMP-AS-013 | Domain-Event (Outbox) | `ArchitectureElementCreated / Updated / Deleted` — nach Commit publiziert |
+| IF-AS-INT-011 | intern | COMP-AS-004 -> COMP-AS-013 | Domain-Event (Outbox) | `TestCaseCreated / Updated / Deleted` — nach Commit publiziert |
+| IF-AS-INT-012 | intern | COMP-AS-006 -> COMP-AS-013 | Domain-Event (Outbox) | `BaselineCreated` — nach Commit publiziert |
+| IF-AS-INT-013 | intern | COMP-AS-013 -> COMP-AS-011 | Async Worker Call | Subscriber-Dispatch: DomainEventBus stellt gefilterte WebhookEvents an WebhookDispatcher zu |
+| IF-AS-INT-014 | intern | COMP-AS-013 -> extern AuditLog | Async Worker Call | Subscriber-Dispatch: DomainEventBus stellt AuditEvent an AuditLog-Writer zu (ersetzt IF-AS-EXT-OUT-006 synchronen Direktaufruf) |
 
 ### Komponentendiagramm (Mermaid)
 
@@ -86,6 +89,7 @@ flowchart TD
         C010["COMP-AS-010: SearchService<br/>Full-Text Search"]
         C011["COMP-AS-011: WebhookDispatcher<br/>Async Event-Dispatch"]
         C012["COMP-AS-012: PresetPolicyService<br/>Preset-Regel-Enforcement"]
+        C013["COMP-AS-013: DomainEventBus<br/>Transactional Outbox + Subscriber-Dispatch"]
     end
 
     ext_in1["RestApiAdapter"] -->|IF-AS-EXT-IN-001| C002
@@ -101,10 +105,12 @@ flowchart TD
     C007 -->|IF-AS-INT-007| C012
     C002 -->|IF-AS-INT-008| C012
 
-    C002 -.->|IF-AS-INT-009| C011
-    C003 -.->|IF-AS-INT-010| C011
-    C004 -.->|IF-AS-INT-011| C011
-    C006 -.->|IF-AS-INT-012| C011
+    C002 -.->|IF-AS-INT-009| C013
+    C003 -.->|IF-AS-INT-010| C013
+    C004 -.->|IF-AS-INT-011| C013
+    C006 -.->|IF-AS-INT-012| C013
+    C013 -.->|IF-AS-INT-013| C011
+    C013 -.->|IF-AS-INT-014| ext_audit
 
     C002 -->|IF-AS-EXT-OUT-005| ext_llm["LlmAdapter"]
     C005 -->|IF-AS-EXT-OUT-003| ext_trace["TraceabilityEngine"]
@@ -123,13 +129,7 @@ flowchart TD
     C009 -->|IF-AS-EXT-OUT-007| ext_db
     C010 -->|IF-AS-EXT-OUT-007| ext_db
 
-    C001 -.->|IF-AS-EXT-OUT-006| ext_audit["AuditLog"]
-    C002 -.->|IF-AS-EXT-OUT-006| ext_audit
-    C003 -.->|IF-AS-EXT-OUT-006| ext_audit
-    C004 -.->|IF-AS-EXT-OUT-006| ext_audit
-    C005 -.->|IF-AS-EXT-OUT-006| ext_audit
-    C006 -.->|IF-AS-EXT-OUT-006| ext_audit
-    C007 -.->|IF-AS-EXT-OUT-006| ext_audit
+    ext_audit["AuditLog"]
 
     C011 -.->|HTTPS POST| ext_wh["Externe Webhook-URLs"]
 ```
@@ -167,6 +167,7 @@ flowchart TD
 | REQ-L2-AS-023 | Alle Komponenten |
 | REQ-L2-AS-024 | COMP-AS-002 |
 | REQ-L2-AS-025 | COMP-AS-004 |
+| REQ-L2-AS-026 | COMP-AS-013 |
 
 ---
 
@@ -182,6 +183,12 @@ flowchart TD
 *Rationale:* Trennt Orchestrierungslogik (Preset-Check + AuditLog + Transaction) von der eigentlichen Engine-Implementierung und erlaubt unabhaengige Evolution. PresetPolicyService als zentrale Querschnitts-Komponente wahrt Single Source of Truth fuer Preset-Regeln.
 *Verworfene Alternative:* Jeder Service konsultiert PresetConfigEngine direkt — abgelehnt wegen Duplizierung und Drift-Risiko.
 
+**ADR-AS-03 — Event-Bus statt synchroner Fassaden-Aufrufe fuer AuditLog, SeMetrics und WebhookDispatcher**
+*Entscheidung:* COMP-AS-013 (DomainEventBus) uebernimmt alle ausgehenden Benachrichtigungen an AuditLog, SeMetrics und WebhookDispatcher. Domain-Services feuern nur noch typisierte Domain-Events (RequirementCreated/Updated/Deleted, BaselineCreated, WorkflowTransitioned) in den Outbox-Store; ein asynchroner Worker stellt diese an registrierte Subscriber zu.
+*Rationale:* Entkopplung der schreibenden Domain-Services von Querschnittsbelangen (Audit, Metriken, Webhooks) — kein synchroner Aufruf im HTTP-Request-Thread mehr. Reduziert Antwortzeiten und eliminiert Latenzspitzen durch sequenzielle AuditLog/Webhook-Aufrufe. Subscriber koennen unabhaengig skaliert, deaktiviert oder ausgetauscht werden ohne aendernden Eingriff in Domain-Services. Transactional Outbox garantiert Exactly-Once-Delivery bei DB-Commit-Semantik.
+*Verworfene Alternative:* Direktaufruf von AuditLog, SeMetrics und WebhookDispatcher im HTTP-Request-Thread (bisheriger Ansatz) — abgelehnt wegen Latenzrisiko (drei zusaetzliche synchrone Aufrufe pro Mutation), hoher Kopplung (jeder neue Subscriber erfordert Aenderung in Domain-Services) und Fehler-Propagation (Ausfall des AuditLog-Service blockiert Schreib-Operationen).
+
 ---
 
 *Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade | 2026-06-20*
+*Aktualisiert: 2026-06-21 — Handlungsempfehlung 1.2 eingearbeitet: Event-Bus-Architektur (COMP-AS-013, ADR-AS-03)*
