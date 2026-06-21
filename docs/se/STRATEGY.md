@@ -1,6 +1,6 @@
 # ReqFlow — Strategy
 
-> Status: KONSOLIDIERT | Erstellt: 2026-06-17 | Letzte Aktualisierung: 2026-06-20
+> Status: KONSOLIDIERT + VERBESSERT | Erstellt: 2026-06-17 | Letzte Aktualisierung: 2026-06-21
 >
 > Konsolidierte Strategie-Sicht für die SE-Kaskade. Destilliert aus `docs/VISION.md` und `docs/KONZEPT.md`.
 > Dieses Dokument erfindet keine neuen Inhalte — es bündelt die strategischen Aussagen, die für die
@@ -158,7 +158,7 @@ Architektur nicht adressiert:
 | SSO (SAML/OIDC) | Bearer Token / API Keys reichen für v1 | v2 |
 | Vektor-DB / Semantische Suche | PostgreSQL Full-Text deckt v1-Performance-Ziel (< 500 ms / 10k Items) ab (ADR-09) | v2+ |
 | AuditLog auf Feld-Diff-Ebene | Operation-Level genügt für v1 (ADR-10) | v2 |
-| Elektronische Signaturen, Baseline-Freeze für Zertifizierung | An Compliance-Zertifizierung gekoppelt | v2+ |
+| Elektronische Signaturen, Baseline-Freeze für Zertifizierung | SignatureGate (QES) als DESIRED-Anforderung in v1 spezifiziert (REQ-L2-WE-009), Vollimplementierung v2+ | v2+ |
 | Horizontale Skalierung auf 100.000+ Requirements | v1-Skalenziel sind 10.000 Requirements | v2+ |
 | Workflow-Migration bei Definition-Wechsel (Auto-Mapping) | v1: Block-Wechsel solange Items im verwaisten State (OP-03) | v2 |
 | Multi-Tenancy aktiv (mehrere Tenants gleichzeitig nutzbar) | v1: ein Default-Tenant; Datenmodell ist bereits Tenant-aware | v2 (ohne Schema-Migration) |
@@ -169,11 +169,11 @@ Quelle: VISION.md §6.x (MoSCoW: Could-Have / nicht v1), KONZEPT.md §10.2, §11
 
 ## 7. SE-Kaskade Status
 
-> Stand: 2026-06-20
+> Stand: 2026-06-21
 
-### L2-Cascade: ABGESCHLOSSEN
+### L2-Cascade: ABGESCHLOSSEN + ARCHITEKTURVERBESSERUNGEN EINGEARBEITET
 
-Die vollstaendige SE-Kaskade von L0 → L1 → L2 ist fuer alle 12 Subsysteme abgeschlossen.
+Die vollständige SE-Kaskade von L0 → L1 → L2 ist für alle 13 Subsysteme abgeschlossen. Alle Handlungsempfehlungen aus der Architektur-Analyse (`docs/se/reports/handlungsempfehlungen.md`) wurden in die betroffenen L2-Dokumente eingearbeitet.
 
 **Kennzahlen:**
 
@@ -181,32 +181,33 @@ Die vollstaendige SE-Kaskade von L0 → L1 → L2 ist fuer alle 12 Subsysteme ab
 |--------|------|
 | REQ-L0 (Stakeholder Needs) | 15 |
 | REQ-L1 (System Requirements) | 26 |
-| REQ-L2 (Subsystem Requirements) | 136 |
-| L2-Components | 55 |
-| Interne Schnittstellen (L2) | 95 |
-| Test Cases (Acceptance Criteria) | 459+ |
-| Subsysteme | 12 |
+| REQ-L2 (Subsystem Requirements) | 158 |
+| L2-Komponenten | 73 |
+| Interne Schnittstellen (L2) | ~117 |
+| Test Cases (Acceptance Criteria) | 550+ |
+| Subsysteme | 13 |
 
-**Termination-Entscheidung:** Alle 12 Systeme sind **LEAF** — keine L3-Zerlegung.
+**Termination-Entscheidung:** Alle 13 Systeme sind **LEAF** — keine L3-Zerlegung.
 
 | System | Komponenten | REQ-L2 | Status |
 |--------|------------|--------|--------|
-| ApplicationServiceSystem | 12 | 25 | LEAF |
-| WorkflowEngineSystem | 3 | 8 | LEAF |
+| ApplicationServiceSystem | 13 | 26 | LEAF |
+| WorkflowEngineSystem | 4 | 9 | LEAF |
 | McpServerSystem | 6 | 12 | LEAF |
-| TraceabilityEngineSystem | 3 | 12 | LEAF |
-| LlmAdapterSystem | 4 | 7 | LEAF |
-| RestApiAdapterSystem | 5 | 12 | LEAF |
-| BaselineServiceSystem | 3 | 8 | LEAF |
+| TraceabilityEngineSystem | 4 | 13 | LEAF |
+| LlmAdapterSystem | 5 | 8 | LEAF |
+| RestApiAdapterSystem | 6 | 13 | LEAF |
+| BaselineServiceSystem | 4 | 9 | LEAF |
 | ReactFrontendSystem | 6 | 12 | LEAF |
 | AuthAndTenancySystem | 3 | 10 | LEAF |
 | PresetConfigEngineSystem | 3 | 14 | LEAF |
-| AuditLogSystem | 2 | 7 | LEAF |
-| PersistenceLayerSystem | 5 | 9 | LEAF |
+| AuditLogSystem | 3 | 9 | LEAF |
+| PersistenceLayerSystem | 6 | 10 | LEAF |
+| SeMetricsSystem | 9 | 13 | LEAF |
 
 ### Naechster Schritt
 
-**Implementation-Handoff** an die Developer-Agents. Alle 12 L2-Systeme sind mit vollstaendigen Anforderungen, Architektur-Dokumenten und Test-Cases ausgestattet. Die Traceability-Matrix (`docs/se/traceability-matrix.md`) ermoeglicht lueckenlose Rueckverfolgbarkeit von Stakeholder Need bis zum Test Case.
+**Implementation-Handoff + Architectural Improvements addressed** — Alle 13 L2-Systeme sind mit vollständigen Anforderungen, Architektur-Dokumenten und Test-Cases ausgestattet. Die 9 Handlungsempfehlungen aus der Architektur-Analyse wurden eingearbeitet (RLS, Event-Bus, Delta-Storage, N+1-Optimierung, AuditLog-Archivierung, SignatureGate, VCRM, Zyklen-Verhinderung, Celery-Async). Die Traceability-Matrix (`docs/se/traceability-matrix.md`) ermöglicht lückenlose Rückverfolgbarkeit von Stakeholder Need bis zum Test Case.
 
 ---
 
