@@ -207,9 +207,9 @@ Das SeMetricsSystem SHALL ausschließlich lesende Operationen auf allen Quellsys
 
 ---
 
-### REQ-L2-SM-009: Optionale Metric-Cache-Persistenz
+### REQ-L2-SM-009: Optionale Metric-Cache-Persistenz mit proaktiver Vorberechnung
 
-Das SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer Metric-Cache-Entity (IF-L1-048) materialisieren, um wiederholte Berechnungen für denselben Workspace und Zeitraum zu vermeiden. Cache-Invalidierung SHALL bei Empfang eines Änderungsereignisses aus dem AuditLog für den betroffenen Workspace erfolgen oder nach einer konfigurierbaren TTL.
+Das SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer Metric-Cache-Entity (IF-L1-048) materialisieren, um wiederholte Berechnungen für denselben Workspace und Zeitraum zu vermeiden. Cache-Invalidierung SHALL bei Empfang eines Änderungsereignisses aus dem AuditLog für den betroffenen Workspace erfolgen oder nach einer konfigurierbaren TTL. Zusätzlich SHALL ein Celery-Beat-Job Metriken für aktive Workspaces in konfigurierbaren Intervallen (Default: alle 15 Minuten) proaktiv vorberechnen und Ergebnisse in den Cache schreiben, bevor ein Cache-Miss durch einen eingehenden Request ausgelöst wird.
 
 **Domain:** software
 **Priority:** desired
@@ -218,12 +218,14 @@ Das SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer M
 - [ ] Nach einer Requirement-Änderung im Workspace → Cache ungültig; nächster Aufruf berechnet neu
 - [ ] TTL konfigurierbar (Default: 5 Minuten)
 - [ ] Cache-Fehler → Fallback auf Live-Berechnung, kein HTTP 5xx
+- [ ] Celery-Beat-Job läuft alle 15 Minuten (konfigurierbar) und befüllt Cache für alle aktiven Workspaces proaktiv; nach einem erfolgreichen Beat-Lauf ist der Cache für alle aktiven Workspaces warm, bevor der nächste Request eintrifft
 
 **Interfaces:**
+- Incoming: IF-L1-042
 - Outgoing: IF-L1-048
 
 **Traceability:** REQ-L1-031, REQ-L1-026 (mitwirkend)
-**Rationale:** Materialisierter Cache reduziert Last auf Quellsysteme bei häufigen Dashboard-Refreshes.
+**Rationale:** Materialisierter Cache reduziert Last auf Quellsysteme bei häufigen Dashboard-Refreshes. Proaktive Vorberechnung per Celery-Beat verhindert, dass WSGI-Worker bei großen Workspaces durch schwere Aggregationen blockiert werden (Handlungsempfehlung 1.3).
 
 ---
 
@@ -287,6 +289,28 @@ Das SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat für de
 
 ---
 
+### REQ-L2-SM-013: Thundering-Herd-Prevention bei Cache-Miss
+
+Das SeMetricsSystem MUSS sicherstellen, dass bei einem Cache-Miss für einen Workspace/Zeitraum-Schlüssel genau EINE Celery-Task zur Neuberechnung ausgelöst wird. Alle parallel eingehenden Anfragen für denselben Workspace/Zeitraum-Schlüssel MÜSSEN auf das Ergebnis dieser Task warten, anstatt eigenständig weitere Berechnungen anzustoßen. Die Implementierung MUSS einen distributed Lock-Mechanismus (z.B. Redis-Lock) verwenden, der für die Dauer der Berechnung exklusiv gehalten wird.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] 50 gleichzeitige Anfragen für denselben Workspace/Zeitraum bei leerem Cache → genau 1 Celery-Task wird ausgelöst, 49 Anfragen warten auf das Ergebnis dieser Task (nachweisbar per Task-Zähler im Lasttest)
+- [ ] Redis-Lock wird vor Auslösung der Berechnung gesetzt und nach Schreiben des Cache-Eintrags freigegeben
+- [ ] Lock-Timeout konfigurierbar (Default: 30 Sekunden); nach Ablauf wird Lock freigegeben und nächste Anfrage darf neue Berechnung starten
+- [ ] Wartende Anfragen erhalten dasselbe Ergebnis wie die berechnende Task (kein doppeltes Lesen aus Quellsystemen)
+- [ ] Lock-Fehler (z.B. Redis nicht erreichbar) → Fallback auf direkte Live-Berechnung ohne Lock; kein HTTP 5xx
+
+**Interfaces:**
+- Incoming: IF-L1-042
+- Outgoing: IF-L1-048
+
+**Traceability:** REQ-L1-026 (primär), REQ-L1-031 (mitwirkend)
+**Rationale:** Ohne Thundering-Herd-Prevention können bei einem Cache-Miss gleichzeitige Requests alle eine schwere Aggregation starten, was WSGI-Worker blockiert und die Quellsysteme unter Last setzt. Ein distributed Lock stellt sicher, dass die teure Berechnung exakt einmal erfolgt (Handlungsempfehlung 1.3).
+
+---
+
 ## Traceability-Matrix: REQ-L2-SM → REQ-L1
 
 | REQ-L2-SM | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -303,6 +327,7 @@ Das SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat für de
 | REQ-L2-SM-010 | REQ-L1-031 | REQ-L1-015 |
 | REQ-L2-SM-011 | REQ-L1-031 | REQ-L1-026 |
 | REQ-L2-SM-012 | REQ-L1-031 | REQ-L1-006 |
+| REQ-L2-SM-013 | REQ-L1-026 | REQ-L1-031 |
 
 ---
 
@@ -310,8 +335,8 @@ Das SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat für de
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-SM | 12 |
-| Mandatory | 11 |
+| Anzahl REQ-L2-SM | 13 |
+| Mandatory | 12 |
 | Desired | 1 |
 | Optional | 0 |
 | Abgedeckte REQ-L1 (primär) | 1 (REQ-L1-031) |
