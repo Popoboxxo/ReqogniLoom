@@ -23,6 +23,7 @@
 | IF-AL-EXT-IN-001 | input | data | `log_write(actor, actor_type, op, entity_type, entity_id, version, change_reason?, ctx)` von ApplicationService |
 | IF-AL-EXT-IN-002 | input | data | Query-Anfrage mit Filter-Parametern |
 | IF-AL-EXT-OUT-001 | output | data | Persistenz an PersistenceLayer (ARCH-L1-010) |
+| IF-AL-EXT-OUT-002 | output | data | Export komprimierter JSON-Archive in Cold Storage (konfigurierbar, z.B. S3 Glacier) |
 
 ---
 
@@ -161,7 +162,7 @@ Das AuditLog-System SOLLTE folgende Performance-Ziele einhalten:
 - Query nach `entity_id`: < 50ms (p95) bei 100.000 Einträgen
 - Query nach Filterkombination: < 200ms (p95) bei 100.000 Einträgen
 
-Indizes mindestens auf: `entity_id`, `(tenant_id, timestamp)`, `(actor, operation)`.
+Indizes mindestens auf: `entity_id`, `(tenant_id, timestamp)`, `(actor, operation)`. Die Performance-Ziele werden durch die monatliche Table-Partitionierung (REQ-L2-AL-008) zusätzlich unterstützt.
 
 **Domain:** software
 **Priority:** desired
@@ -173,10 +174,53 @@ Indizes mindestens auf: `entity_id`, `(tenant_id, timestamp)`, `(actor, operatio
 
 **Interfaces:**
 - Incoming: IF-AL-EXT-IN-001, IF-AL-EXT-IN-002
-- Outgoing: IF-AL-EXT-OUT-001, IF-AL-EXT-OUT-001
+- Outgoing: IF-AL-EXT-OUT-001
 
 **Traceability:** REQ-L1-026 (mitwirkend)
 **Rationale:** Audit-Schreiboperationen liegen im kritischen Pfad.
+
+---
+
+### REQ-L2-AL-008: Table-Partitionierung der Audit-Tabelle
+
+Die `AuditLogEntry`-Tabelle MUSS per PostgreSQL-RANGE-Partitionierung auf dem Feld `timestamp` in monatliche Partitionen aufgeteilt werden. Neue Partitionen MÜSSEN automatisch zu Monatsbeginn erzeugt werden. Queries mit Timestamp-Filter MÜSSEN Partition-Pruning nutzen, d.h. ausschließlich die relevante(n) Partition(en) lesen.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Neue Partition wird automatisch am 1. eines Monats erstellt
+- [ ] EXPLAIN ANALYZE für Query auf Monat X zeigt ausschließlich Zugriff auf Partition X (kein Seq-Scan über alle Partitionen)
+- [ ] Bestehende Indizes (entity_id, tenant_id, timestamp, actor, operation) sind pro Partition aktiv
+- [ ] Partition-Setup ist via Django-Migration oder Migrations-Script reproduzierbar
+
+**Interfaces:**
+- Incoming: IF-AL-EXT-IN-001, IF-AL-EXT-IN-002
+- Outgoing: IF-AL-EXT-OUT-001
+
+**Traceability:** REQ-L1-026 (primär), REQ-L1-011 (mitwirkend)
+**Rationale:** Partition-Pruning reduziert den Scan-Aufwand bei Timestamp-gefilterten Queries erheblich und sichert die Performance-Ziele aus REQ-L2-AL-007 auch bei wachsendem Datenvolumen.
+
+---
+
+### REQ-L2-AL-009: Cold-Storage-Archivierung (Datenlebenszyklus)
+
+Ein konfigurierbarer Data-Lifecycle-Job SOLL Audit-Einträge, die älter als 2 Jahre sind, periodisch (monatlich via Celery-Beat) als komprimierte JSON-Archive in ein konfigurierbares Cold-Storage-Ziel (z.B. AWS S3 Glacier) exportieren und anschließend aus der Primärdatenbank löschen. Der Löschvorgang DARF ERST nach erfolgreich bestätigtem Export erfolgen (fail-safe).
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Export-Datei enthält alle Pflichtfelder (actor, actor_type, operation, entity_type, entity_id, timestamp, version, tenant_id, source)
+- [ ] Nach erfolgreichem Export: Einträge nicht mehr in der Primär-DB vorhanden
+- [ ] Bei Export-Fehler (z.B. S3 nicht erreichbar): kein Löschen aus Primär-DB; Job bricht ab und loggt Fehler
+- [ ] Archiv-Format: JSON komprimiert (z.B. gzip), Dateiname enthält Zeitraum (z.B. `auditlog_2024-01.json.gz`)
+- [ ] Cold-Storage-Ziel ist per Konfiguration (Environment-Variable oder Django-Setting) steuerbar
+
+**Interfaces:**
+- Incoming: IF-AL-EXT-IN-001 (Primär-DB als Quelle)
+- Outgoing: IF-AL-EXT-OUT-001 (Löschen aus Primär-DB nach Export), IF-AL-EXT-OUT-002 (Export-Ziel Cold Storage)
+
+**Traceability:** REQ-L1-011 (primär)
+**Rationale:** Langfristiger Datenzuwachs ohne Archivierungsstrategie beeinträchtigt Performance und widerspricht Compliance-Anforderungen (IEC 61508 v2). REQ-L2-AL-003 (Append-Only) gilt für den laufenden Betrieb; der Cold-Storage-Export ist kein Modifikationsvorgang, sondern ein kontrollierter Archivierungs- und Bereinigungsschritt.
 
 ---
 
@@ -197,6 +241,8 @@ v1: Operation-Level-Granularität. **Feld-Level-Diffs** sind explizit v2.
 | REQ-L2-AL-005 | REQ-L1-011 | — |
 | REQ-L2-AL-006 | REQ-L1-015 | — |
 | REQ-L2-AL-007 | REQ-L1-026 | — |
+| REQ-L2-AL-008 | REQ-L1-026 | REQ-L1-011 |
+| REQ-L2-AL-009 | REQ-L1-011 | — |
 
 ---
 
@@ -204,12 +250,12 @@ v1: Operation-Level-Granularität. **Feld-Level-Diffs** sind explizit v2.
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-AL | 7 |
-| Mandatory | 5 |
-| Desired | 2 |
+| Anzahl REQ-L2-AL | 9 |
+| Mandatory | 6 |
+| Desired | 3 |
 | Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | REQ-L1-011 |
-| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-002, -005, -009, -015, -025, -026 |
+| Abgedeckte REQ-L1 (primär) | REQ-L1-011, REQ-L1-026 |
+| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-002, -005, -009, -011, -015, -025, -026 |
 
 ---
 
