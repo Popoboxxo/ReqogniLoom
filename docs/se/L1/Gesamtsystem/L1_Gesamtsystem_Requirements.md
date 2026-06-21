@@ -28,8 +28,11 @@ sowohl Software-Teams (Epic → Story → Task) als auch Systems Engineers
 (System → Subsystem → Component).
 **Domain:** software
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Auswahl des synchronen API-Protokolls"
 **Externe Interfaces:**
-- Eingang: Nutzer- oder Agenten-Anfrage (REST / MCP) mit Artefakt-Daten
+- Eingang: Nutzer- oder Agenten-Anfrage (synchrone Web-API / MCP) mit Artefakt-Daten
 - Ausgang: Erstelltes / geändertes / gelöschtes Artefakt mit UUID und Hierarchiepfad
 **Traceability:** REQ-L0-002, REQ-L0-003
 
@@ -107,20 +110,23 @@ Read/Write-Zugriff ist Voraussetzung für alle primären AI-Workflows.
 
 ---
 
-### REQ-L1-006: REST API mit OpenAPI-Spezifikation für alle Entitäten
+### REQ-L1-006: Synchrone maschinenlesbare API mit Spezifikation für alle Entitäten
 
-Das System muss eine vollständige REST API mit CRUD-Unterstützung für alle Entitäten,
-Token-basierter Authentifizierung (Bearer Token / API Keys) und auto-generierter
-OpenAPI-Spezifikation bereitstellen — mit API-Antwortzeiten unter 200ms für
+Das System muss eine vollständige synchrone Web-API mit CRUD-Unterstützung für alle Entitäten,
+Token-basierter Authentifizierung und auto-generierter,
+maschinenlesbarer Schnittstellenspezifikation bereitstellen — mit API-Antwortzeiten unter 200ms für
 Standard-Queries bei bis zu 10.000 Requirements.
 
-**Rationale:** REST ist die gleichrangige zweite Schnittstelle neben MCP; OpenAPI
+**Rationale:** Die synchrone Web-API ist die gleichrangige zweite Schnittstelle neben MCP; eine Spezifikation
 ermöglicht Typ-sichere Client-Generierung und Integration-Tests.
 **Domain:** software
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Technologieauswahl für die synchrone Web-API und deren Spezifikationsformat"
 **Externe Interfaces:**
-- Eingang: HTTP-Anfrage mit Bearer Token / API Key, JSON-Body
-- Ausgang: JSON-Response, HTTP-Statuscodes, OpenAPI-Spec-Endpunkt
+- Eingang: API-Anfrage (synchrones Netzwerkprotokoll) mit Token, strukturiertem Payload
+- Ausgang: Strukturierte Response, Status-Indikator, Metadaten-Endpunkt für API-Spezifikation
 **Traceability:** REQ-L0-001, REQ-L0-012
 
 ---
@@ -208,8 +214,11 @@ mit Agent-Client-Identität und API-Key.
 MCP-Audit-Log ist Voraussetzung für sicheren Agenten-Schreibzugriff.
 **Domain:** software
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Auswahl des synchronen API-Protokolls"
 **Externe Interfaces:**
-- Eingang: Jede schreibende Operation (REST / MCP) mit Nutzer- oder Agenten-Kontext
+- Eingang: Jede schreibende Operation (synchrone Web-API / MCP) mit Nutzer- oder Agenten-Kontext
 - Ausgang: Audit-Log-Eintrag; Entität mit aktualisierten Audit-Feldern
 **Traceability:** REQ-L0-011
 
@@ -268,19 +277,22 @@ Dual-Zielgruppen-Strategie; API und MCP nutzen immer generische Entitätsnamen.
 
 ---
 
-### REQ-L1-015: Multi-Tenancy-Vorbereitung mit Row-Level-Isolation
+### REQ-L1-015: Mandantenfähigkeit ohne spätere Datenmigration
 
-Das System muss alle Entitäten mit einem tenant-Fremdschlüssel versehen und
-alle Datenbankabfragen automatisch mit einem tenant_id-Filter via Custom Django Manager
-und Middleware ausführen — sodass in v1 genau ein Default-Tenant existiert und
-die spätere Aktivierung weiterer Tenants keine Datenmigration erfordert.
+Das System muss Daten mandantenfähig isolieren, sodass Datenabfragen zwingend
+auf den Tenant des anfragenden Nutzers beschränkt bleiben. Für v1 muss ein Default-Tenant 
+existieren, und die spätere Aktivierung echter Mandantenfähigkeit darf keine 
+Datenmigration der Bestandsdaten erfordern.
 
-**Rationale:** Row-Level-Isolation ist Voraussetzung für den v2-SaaS-Betrieb;
-Schema-per-Tenant wurde bewusst abgelehnt wegen zu hohem Overhead.
-**Domain:** software
+**Rationale:** Isolation ist Voraussetzung für den v2-SaaS-Betrieb; die konkrete
+technische Umsetzung der Datenisolation ist eine Architektur-Entscheidung.
+**Domain:** system
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Mandantenfähigkeit mit strikter Datenisolation ohne spätere Datenmigration"
 **Externe Interfaces:**
-- Eingang: Jede API-Anfrage mit Authentifizierungstoken (Tenant-Extraktion aus JWT/API-Key)
+- Eingang: Jede Anfrage mit Authentifizierungskontext, aus dem der Tenant ableitbar ist
 - Ausgang: Gefilterte Ergebnisse exklusiv für den aktiven Tenant
 **Traceability:** REQ-L0-008
 
@@ -303,38 +315,45 @@ i18n-Integration ist teurer als proaktive Translation-Key-Nutzung.
 
 ---
 
-### REQ-L1-017: React-UI mit Dashboard, Editor und Navigations-Komponenten
+### REQ-L1-017: Grafische Benutzeroberfläche (GUI) für manuelle Workflows
 
-Das System muss eine React-Frontend-Anwendung bereitstellen mit: Dashboard
-(Projektübersicht, offene Punkte), Requirements-Editor (Inline-Editing, Markdown),
+Das System muss eine webbasierte grafische Benutzeroberfläche bereitstellen mit: 
+Dashboard (Projektübersicht, offene Punkte), Requirements-Editor (Inline-Editing, Markdown),
 Architecture-Editor, Artefakt-Navigation (Baumstruktur), Traceability-Anzeige
 und Workspace-Profil-Konfiguration.
 
-**Rationale:** UI ist Kernbestandteil von v1; manuelle Benutzer sind gleichwertig
-zur MCP-Agenten-Schnittstelle.
+**Rationale:** GUI ist Kernbestandteil von v1; manuelle Benutzer sind gleichwertig
+zur MCP-Agenten-Schnittstelle. Die Wahl der Frontend-Technologie ist eine Architektur-Entscheidung.
 **Domain:** software
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Webbasierte GUI für Interaktion mit Systemschnittstellen"
 **Externe Interfaces:**
-- Eingang: Nutzerinteraktion (Browser), API-Responses vom Backend
-- Ausgang: Gerenderte UI-Komponenten; REST-API-Aufrufe an Backend
+- Eingang: Nutzerinteraktion im Browser
+- Ausgang: Visuelle Darstellung von Systemzuständen und Artefakten
 **Traceability:** REQ-L0-012
 
 ---
 
-### REQ-L1-018: Docker-Compose-Deployment für Self-Hosted-Betrieb
+### REQ-L1-018: Eigenständiges Deployment für Self-Hosted-Betrieb
 
-Das System muss vollständig via Docker Compose deploybar sein — Backend (Django),
-Frontend (React), Datenbank (PostgreSQL) — ohne externe Cloud-Abhängigkeiten,
-sodass eine Produktionsinstanz mit einem einzigen `docker-compose up` gestartet
-werden kann.
+Das System muss als self-hosted Anwendung ohne externe Cloud-Abhängigkeiten bereitstellbar
+sein. Das Deployment muss über ein standardisiertes, leichtgewichtiges Verfahren
+erfolgen, sodass eine Produktionsinstanz durch einen einzigen konsolidierten Startbefehl
+hochgefahren werden kann.
 
-**Rationale:** Self-Hosted-only ist die v1-Deployment-Entscheidung; Docker Compose
-ist der Standard-Einstieg für die Zielgruppe (Developer-affine Teams).
+**Rationale:** Self-Hosted-only ist die v1-Deployment-Entscheidung; das Deployment
+muss für die Zielgruppe (Developer-affine Teams) niederschwellig sein. Die Auswahl 
+der Laufzeitumgebung und Bereitstellungstechnologie ist Teil der Architektur.
 **Domain:** system
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Einfaches, lokales Deployment ohne externe Abhängigkeiten"
 **Externe Interfaces:**
-- Eingang: Docker-Compose-Konfiguration, Umgebungsvariablen (LLM-API-Key, DB-Credentials)
-- Ausgang: Laufende ReqFlow-Instanz auf dem Host-System
+- Eingang: Konfigurationsdateien, Umgebungsvariablen (LLM-Zugang, DB-Credentials)
+- Ausgang: Lauffähige Gesamtsystem-Instanz auf dem Host-System
 **Traceability:** REQ-L0-006
 
 ---
@@ -453,8 +472,11 @@ partielle Schreibvorgänge können zu inkonsistenten Artefakt-Hierarchien,
 TraceLinks und Workflow-States führen.
 **Domain:** software
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Auswahl des synchronen API-Protokolls"
 **Externe Interfaces:**
-- Eingang: Jede schreibende Operation (REST / MCP) auf Entitäten oder TraceLinks
+- Eingang: Jede schreibende Operation (synchrone Web-API / MCP) auf Entitäten oder TraceLinks
 - Ausgang: Atomar persistierte Änderung oder vollständiges Rollback bei Fehler
 
 ---
@@ -466,12 +488,15 @@ für 95 % der API-Standard-Requests eine Antwortzeit von < 200 ms und für Vollt
 < 500 ms garantieren.
 
 **Rationale:** Performance ist eine übergreifende Non-Functional-Anforderung, die
-alle Schnittstellen (REST, MCP, UI) betrifft und für die Zielgruppe
+alle Schnittstellen betrifft und für die Zielgruppe
 (Developer-affine Teams, SE-Teams) entscheidend für die Akzeptanz ist.
 **Domain:** system
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Auswahl des synchronen API-Protokolls"
 **Externe Interfaces:**
-- Eingang: API-Requests (REST / MCP) unter definierter Last (50 gleichzeitige Nutzer, 10.000 Requirements)
+- Eingang: API-Requests (synchrone Web-API / MCP) unter definierter Last (50 gleichzeitige Nutzer, 10.000 Requirements)
 - Ausgang: Responses innerhalb der definierten Latenz-SLAs (95. Perzentil)
 
 ---
@@ -570,15 +595,15 @@ Requirements-Reviews und Change-Management.
 
 ### L2: Tenant-Isolation — Subsystem-Anforderungen
 
-#### L2-TI-01: Automatischer Tenant-Filter via Custom Django Manager
+#### L2-TI-01: Automatischer Tenant-Filter auf Datenzugriffsebene
 
-Das Tenant-Isolation-Subsystem muss sicherstellen, dass jede Datenbankabfrage
-automatisch mit einem tenant_id-Filter versehen wird — erzwungen durch einen
-Custom Django Manager auf allen Entitäten — sodass eine vergessene manuelle
+Das Tenant-Isolation-Subsystem muss sicherstellen, dass jede Datenabfrage
+automatisch mit einem tenant_id-Filter versehen wird — erzwungen durch eine
+zentrale Datenzugriffsschicht auf allen Entitäten — sodass eine vergessene manuelle
 Filterung keine Tenant-Datenleck-Lücke erzeugt.
 
-**Rationale:** Row-Level-Isolation via Custom Manager ist robuster als manuelle
-Filter-Disziplin; Grundlage für spätere Multi-Tenancy-Aktivierung.
+**Rationale:** Automatische Isolation auf Datensatz-Ebene in der Datenzugriffsebene ist robuster als manuelle
+Filter-Disziplin; Grundlage für spätere Multi-Tenancy-Aktivierung. Die konkrete Technologie wählt der Architekt.
 
 ---
 
@@ -698,7 +723,7 @@ Integration und formale Übergaben.
 
 Das System muss Architekturentscheidungen (ADRs), Risiken und Issues als eigenständige
 Artefakttypen mit konfigurierbaren Workflow-Zuständen verwalten und vollständig
-mit Requirements, ArchitectureElements und TestCases verknüpfen können — via REST
+mit Requirements, ArchitectureElements und TestCases verknüpfen können — via synchroner Web-API
 und MCP mit vollständigem CRUD.
 
 **Rationale:** ADRs, Risiken und Issues sind integrale SE-Artefakte. Ohne Verknüpfung
@@ -706,6 +731,9 @@ mit Anforderungen und Architektur fehlen Kontext, Rückverfolgbarkeit und
 die Grundlage für Safety-Cases und Compliance-Audits.
 **Domain:** software
 **Priorität:** desired
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Auswahl des synchronen API-Protokolls"
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage für ADR (Kontext, Entscheidung, Konsequenzen, Status) / Risiko (Wahrscheinlichkeit, Auswirkung, Mitigation) / Issue (Typ, Priorität)
 - Ausgang: Artefakt mit UUID, WorkflowState, TraceLinks zu verknüpften Anforderungen/Architekturelementen
@@ -738,35 +766,41 @@ Das System muss SE-Prozessmetriken berechnen und bereitstellen — mindestens:
 Requirements Volatility (Änderungsrate je Anforderung in konfigurierbarem Zeitraum),
 Traceability Coverage (Anteil verknüpfter Requirements), Workflow-Lücken (Items
 ohne vollständige Workflow-Historie) und offene Risiken nach Schweregrad —
-abrufbar via Dashboard und REST-API-Endpunkt.
+maschinenlesbar abrufbar und visuell aufbereitet im Dashboard.
 
 **Rationale:** Metrikenbasiertes Steuern ist ein explizites SE-Prinzip. Ohne Metriken
 fehlt die Datengrundlage für Prozesssteuerung und Qualitätsnachweise.
 **Domain:** software
 **Priorität:** desired
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Bereitstellung aggregierter Metriken (maschinenlesbar und für GUI)"
 **Externe Interfaces:**
-- Eingang: Metrikanfrage mit Workspace-ID, Zeitraum, optionalem Scope-Filter via GET /metrics/workspace/{id}
-- Ausgang: Strukturierter JSON-Metrikbericht; Dashboard-Darstellung in UI; konfigurierbare Schwellwert-Warnungen
+- Eingang: Metrikanfrage mit Workspace-Kontext, Zeitraum und Scope-Filter
+- Ausgang: Strukturierte Metrikdaten; konfigurierbare Schwellwert-Warnungen
 **Traceability:** REQ-L0-020
 
 ---
 
-### REQ-L1-032: Resilienz-Anforderung — Asynchrone Entkopplung und Graceful Degradation
+### REQ-L1-032: Resilienz-Anforderung — Fehlertoleranz und Graceful Degradation
 
-Das System muss sicherstellen, dass alle optionalen Subsystem-Aufrufe (LLM-Adapter,
-Webhook-Dispatcher, GitHub-Integration) über asynchrone Mechanismen mit konfigurierbarem
-Timeout und mindestens einem Retry ausgeführt werden — und dass der Kern
-(CRUD, Traceability, Baselines) bei Ausfall optionaler Subsysteme mit einer
-Kernverfügbarkeit von > 99,5 % erhalten bleibt.
+Das System muss bei Ausfall, Verzögerung oder Nichterreichbarkeit optionaler 
+Subsysteme und externer Schnittstellen (z.B. LLM-Anbieter, Webhooks, GitHub)
+die Funktionalität der Kern-Systeme (CRUD, Traceability, Baselines) mit einer
+Verfügbarkeit von > 99,5 % aufrechterhalten. Ausfälle in Randbereichen dürfen 
+nicht kaskadieren.
 
-**Rationale:** Resilienz durch zeitliche Entkopplung ist ein übergreifendes Systemprinzip.
-Ohne Graceful Degradation verlieren synchron-koppelnde Systeme bei jedem Teilausfall
-vollständig ihre Verfügbarkeit — inakzeptabel für Produktionsumgebungen.
+**Rationale:** Fehlertoleranz ist ein übergreifendes Systemprinzip.
+Ausfälle externer Abhängigkeiten dürfen nicht zum Gesamtausfall führen.
+Wie diese Entkopplung architektonisch umgesetzt wird, ist eine Design-Entscheidung.
 **Domain:** system
 **Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Entkopplung optionaler/externer Schnittstellen zur Vermeidung von Kaskadenfehlern"
 **Externe Interfaces:**
-- Eingang: Systemereignis, der ein optionales Subsystem triggert (LLM-Aufruf, Webhook, GitHub-Sync)
-- Ausgang: Ergebnis des optionalen Subsystems bei Erfolg; Graceful-Degradation-Response + Audit-Log-Eintrag bei Fehler
+- Eingang: Anfragen, die optionale Subsysteme involvieren
+- Ausgang: Erfolgreiche Antwort der Kernfunktionen trotz Ausfall der optionalen Erweiterungen (inkl. Fehlerprotokoll)
 **Traceability:** REQ-L0-021
 
 ---

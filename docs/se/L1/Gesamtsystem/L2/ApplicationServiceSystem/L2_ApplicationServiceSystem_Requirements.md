@@ -11,7 +11,7 @@
 
 ## Traceability
 
-- Abgeleitet von: REQ-L1-001, REQ-L1-002, REQ-L1-003, REQ-L1-004, REQ-L1-007, REQ-L1-008, REQ-L1-009, REQ-L1-010, REQ-L1-011, REQ-L1-012, REQ-L1-013, REQ-L1-015, REQ-L1-019, REQ-L1-020, REQ-L1-021, REQ-L1-022, REQ-L1-023, REQ-L1-024, REQ-L1-025, REQ-L1-026
+- Abgeleitet von: REQ-L1-001, REQ-L1-002, REQ-L1-003, REQ-L1-004, REQ-L1-007, REQ-L1-008, REQ-L1-009, REQ-L1-010, REQ-L1-011, REQ-L1-012, REQ-L1-013, REQ-L1-015, REQ-L1-019, REQ-L1-020, REQ-L1-021, REQ-L1-022, REQ-L1-023, REQ-L1-024, REQ-L1-025, REQ-L1-026, REQ-L1-029
 - Ziel: terminal (keine L3-Zerlegung)
 
 ---
@@ -36,7 +36,7 @@
 | IF-AS-EXT-OUT-004 | ARCH-L1-008 (PresetConfigEngine) | data | `get_preset()`, `is_feature_enabled()` |
 | IF-AS-EXT-OUT-005 | ARCH-L1-009 (LlmAdapter) | data | `validate`, `decompose`, `check_consistency` |
 | IF-AS-EXT-OUT-006 | ARCH-L1-012 (AuditLog) | data | `log_write()` |
-| IF-AS-EXT-OUT-007 | ARCH-L1-010 (PersistenceLayer) | data | Django ORM (alle Entitäten) |
+| IF-AS-EXT-OUT-007 | ARCH-L1-010 (PersistenceLayer) | data | Datenbank-Schnittstelle (alle Entitäten) |
 
 ---
 
@@ -64,10 +64,12 @@ Der ApplicationService SHALL bei Erstellung oder Änderung einer Parent-Child-Be
 
 ### REQ-L2-AS-002: Artifact Tree Query mit beliebiger Tiefe
 
-Der ApplicationService SHALL eine Tree-Query-Operation bereitstellen, die die vollständige Artefakt-Hierarchie als verschachtelte Struktur zurückgibt. Implementierung via PostgreSQL Recursive CTEs. ≤ 200ms bei 500 Artefakten.
+Der ApplicationService SHALL eine Tree-Query-Operation bereitstellen, die die vollständige Artefakt-Hierarchie als verschachtelte Struktur bis zu einer variablen Tiefe (N) zurückgibt. ≤ 200ms bei 500 Artefakten.
 
 **Domain:** software
 **Priority:** mandatory
+**Arch Impact:** true
+**Arch Trigger:** Effiziente hierarchische Datenabfrage bis zu variabler Tiefe.
 **Acceptance Criteria:**
 - [ ] Tree-Query über 500 Artefakte in 5 Ebenen → vollständige Struktur in < 200ms
 - [ ] `get_tree(root_id=B)` → nur B und Nachkommen
@@ -187,7 +189,7 @@ Der ApplicationService SHALL das aktive Terminologie-Profil als Metadatum in jed
 
 ### REQ-L2-AS-008: Full-Text Search across Artifact Types
 
-Der ApplicationService SHALL artefakttyp-übergreifende Volltextsuche über Requirements, ArchitectureElements und TestCases bereitstellen. PostgreSQL Full-Text Search (tsvector). Ergebnisse nach Relevanz sortiert mit Artefakttyp-Annotation. ≤ 500ms bei 10.000 Items.
+Der ApplicationService SHALL artefakttyp-übergreifende Volltextsuche über Requirements, ArchitectureElements und TestCases bereitstellen. Suche berücksichtigt Wortstämme und Tippfehler (Fuzzy Search/Stemming). Ergebnisse nach Relevanz sortiert mit Artefakttyp-Annotation. ≤ 500ms bei 10.000 Items.
 
 **Domain:** software
 **Priority:** mandatory
@@ -372,10 +374,12 @@ Der ApplicationService SOLLTE PDF-Report-Export für Anforderungsdokumente und T
 
 ### REQ-L2-AS-017: Webhook Dispatch
 
-Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requirement erstellt, geändert, Status-Übergang, Baseline erstellt) dispatchen. HTTP POST an konfigurierte URL mit JSON-Payload. Asynchron, blockiert nicht. Der Dispatch erfolgt als Subscriber des internen Domain Event-Bus (REQ-L2-AS-026).
+Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requirement erstellt, geändert, Status-Übergang, Baseline erstellt) dispatchen. HTTP POST an konfigurierte URL mit JSON-Payload. Der Dispatch der Webhooks MUSS asynchron erfolgen und DARF die auslösende Operation nicht blockieren. Entkopplung über asynchronen Messaging-Mechanismus (REQ-L2-AS-029).
 
 **Domain:** software
 **Priority:** desired
+**Arch Impact:** true
+**Arch Trigger:** Asynchroner, entkoppelter Webhook-Dispatch ohne Blockierung der synchronen Anfrage.
 **Acceptance Criteria:**
 - [ ] Requirement erstellt → HTTP POST an Webhook-URL mit JSON-Payload
 - [ ] Dispatch asynchron → `create_requirement()` kehrt zurück bevor Webhook-Response
@@ -384,16 +388,16 @@ Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requ
 
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
-- Incoming (intern): IF-AS-EXT-OUT-006 (Domain Events via Event-Bus)
+- Incoming (intern): IF-AS-EXT-OUT-006 (Domain Events via asynchronen Entkopplungsmechanismus)
 
 **Traceability:** REQ-L1-024
-**Rationale:** Ermöglicht externen Systemen auf Änderungen zu reagieren. Entkopplung vom ApplicationService via Event-Bus reduziert synchrone Abhängigkeiten.
+**Rationale:** Ermöglicht externen Systemen auf Änderungen zu reagieren. Entkopplung vom ApplicationService via asynchronen Entkopplungsmechanismus reduziert synchrone Abhängigkeiten.
 
 ---
 
 ### REQ-L2-AS-018: Transactional Consistency (ACID)
 
-Der ApplicationService SHALL alle Datenänderungen atomar und konsistent persistieren. Bei Fehlern: vollständiges Rollback. Nutzung von Django's `transaction.atomic()`.
+Der ApplicationService SHALL alle Datenänderungen atomar und konsistent persistieren. Bei Fehlern: vollständiges Rollback. Die Atomizität MUSS über das gesamte System sichergestellt sein (ACID-Garantien).
 
 **Domain:** software
 **Priority:** mandatory
@@ -412,22 +416,24 @@ Der ApplicationService SHALL alle Datenänderungen atomar und konsistent persist
 
 ### REQ-L2-AS-019: Audit Log Writing
 
-Der ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag schreiben: actor, operation, entity_id, timestamp, optionale Details. Der AuditLog-Eintrag wird vom AuditLogWriter als Subscriber des Domain Event-Bus (REQ-L2-AS-026) geschrieben. Das Domain-Event wird im selben Transaktionskontext persistiert (Transactional Outbox), sodass keine Schreiboperation ohne nachgelagerten AuditLog-Eintrag committed werden kann (Eventual-Write-Garantie, kein Fire-and-Forget).
+Der ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag schreiben: actor, operation, entity_id, timestamp, optionale Details. Der AuditLog-Eintrag MUSS durch einen entkoppelten, asynchronen Mechanismus (REQ-L2-AS-029) geschrieben werden. Die Persistierung des Events für das Audit-Log MUSS im selben Transaktionskontext erfolgen wie die Mutation (Eventual-Write-Garantie, kein Fire-and-Forget), ohne den AuditLogWriter direkt synchron aufzurufen.
 
 **Domain:** software
 **Priority:** mandatory
+**Arch Impact:** true
+**Arch Trigger:** Eventual-Write-Garantie für Audit-Logs ohne synchrone Kopplung an Mutationen.
 **Acceptance Criteria:**
 - [ ] Nach `create_requirement()` → AuditLog-Eintrag mit op="create" vorhanden (spätestens nach Event-Verarbeitung)
 - [ ] Nach `update_requirement()` → AuditLog-Eintrag mit op="update" vorhanden
 - [ ] Nach `transition()` → AuditLog-Eintrag mit op="transition" vorhanden
 - [ ] Rollback der Entity-Änderung → auch das Domain-Event wird zurückgerollt → kein AuditLog-Eintrag
-- [ ] Ausfall des async Workers nach Event-Persistierung → Event bleibt in Outbox, AuditLog wird nach Wiederanlauf nachgeholt
+- [ ] Ausfall des async Workers nach Event-Persistierung → Event bleibt persistent gespeichert, AuditLog wird nach Wiederanlauf nachgeholt
 
 **Interfaces:**
 - Outgoing: IF-AS-EXT-OUT-006
 
 **Traceability:** REQ-L1-011
-**Rationale:** Entkopplung von synchroner Schreiboperation und AuditLog-Schreibung via Event-Bus. Transactional Outbox sichert Eventual-Write-Garantie ohne starre In-Transaction-Kopplung.
+**Rationale:** Entkopplung von synchroner Schreiboperation und AuditLog-Schreibung via asynchronen Entkopplungsmechanismus. Dies sichert Eventual-Write-Garantie ohne starre In-Transaction-Kopplung.
 
 ---
 
@@ -554,12 +560,77 @@ Der ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requireme
 
 ---
 
-### REQ-L2-AS-026: Interner Domain Event-Bus
+### REQ-L2-AS-026: ADR CRUD
 
-Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes Domain-Event publizieren. Unterstützte Event-Typen: `RequirementCreated`, `RequirementUpdated`, `RequirementDeleted`, `BaselineCreated`, `WorkflowTransitioned`. Das Event-Publishing erfolgt im selben Transaktionskontext wie die Mutation (Transactional Outbox oder Django `post_commit`-Signal), sodass kein Event verloren geht und kein Event für eine zurückgerollte Mutation publiziert wird. AuditLogWriter, SeMetricsCollector und WebhookDispatcher registrieren sich als Event-Subscriber und verarbeiten Events asynchron. Der ApplicationService kennt keine Subscriber — die Kopplung ist ausschließlich über den Event-Typ.
+Der ApplicationService SOLLTE vollständiges CRUD für Architecture Decision Records (ADRs) bereitstellen. Mit Status-Übergängen, Verlinkung zu betroffenen ArchitectureElements und Requirements.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] `create_adr()` → ADR mit initialem Status erstellt
+- [ ] `update_adr_status(id, "accepted")` → AuditLog-Eintrag mit op="update_status" vorhanden
+- [ ] `link_adr(adr_id, target_id="REQ-123")` → TraceLink zu Requirement erstellt
+- [ ] `link_adr(adr_id, target_id="ARCH-123")` → TraceLink zu ArchitectureElement erstellt
+
+**Interfaces:**
+- Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
+- Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
+
+**Traceability:** REQ-L1-029
+**Rationale:** Dokumentation von Architektur-Entscheidungen im Kontext der betroffenen Elemente.
+
+---
+
+### REQ-L2-AS-027: Risiko CRUD
+
+Der ApplicationService SOLLTE vollständiges CRUD für Risiken (Risks) bereitstellen. Mit Severity, Probability, Mitigation-Strategien und TraceLinks zu Requirements/ArchitectureElements.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] `create_risk(severity="high", probability="low")` → Risiko mit korrekten Werten erstellt
+- [ ] `link_risk(risk_id, target_id="REQ-123")` → TraceLink zu Requirement erstellt
+- [ ] `link_risk(risk_id, target_id="ARCH-123")` → TraceLink zu ArchitectureElement erstellt
+- [ ] `delete_risk(id)` → Risiko und alle damit verbundenen TraceLinks gelöscht
+
+**Interfaces:**
+- Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
+- Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
+
+**Traceability:** REQ-L1-029
+**Rationale:** Risikomanagement als integrierter Bestandteil des SE-Lifecycles.
+
+---
+
+### REQ-L2-AS-028: Issue CRUD
+
+Der ApplicationService SOLLTE vollständiges CRUD für System-Issues bereitstellen. Mit Status, Assignee, und TraceLinks zu betroffenen Artefakten.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] `create_issue(status="open", assignee="user1")` → Issue mit Status und Assignee erstellt
+- [ ] `link_issue(issue_id, target_id="REQ-123")` → TraceLink zu Requirement erstellt
+- [ ] `link_issue(issue_id, target_id="ARCH-123")` → TraceLink zu ArchitectureElement erstellt
+- [ ] `update_issue_status(id, "closed")` → AuditLog-Eintrag mit op="update_status" vorhanden
+
+**Interfaces:**
+- Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
+- Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
+
+**Traceability:** REQ-L1-029
+**Rationale:** Integriertes Issue-Tracking für das laufende System-Engineering.
+
+---
+
+### REQ-L2-AS-029: Asynchroner Entkopplungsmechanismus
+
+Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes Domain-Event publizieren. Unterstützte Event-Typen: `RequirementCreated`, `RequirementUpdated`, `RequirementDeleted`, `BaselineCreated`, `WorkflowTransitioned`. Das Event-Publishing MUSS atomar an die auslösende Transaktion gebunden sein (Garantie: kein Event verloren, kein Event für zurückgerollte Mutation). AuditLogWriter, SeMetricsCollector und WebhookDispatcher empfangen Events asynchron. Der ApplicationService kennt keine Subscriber — die Kopplung erfolgt ausschließlich über den Event-Typ.
 
 **Domain:** software
 **Priority:** mandatory
+**Arch Impact:** true
+**Arch Trigger:** Transaktionssicheres, entkoppeltes Event-Publishing zur asynchronen Benachrichtigung von Subsystemen.
 **Acceptance Criteria:**
 - [ ] `create_requirement()` → `RequirementCreated`-Event persistiert, bevor HTTP-Response zurückkommt
 - [ ] Rollback der Mutation → kein Event persistiert → kein Subscriber wird ausgelöst
@@ -567,15 +638,15 @@ Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes D
 - [ ] SeMetricsCollector empfängt Event und aktualisiert Metriken asynchron
 - [ ] WebhookDispatcher empfängt Event und dispatcht Webhook asynchron (sofern konfiguriert)
 - [ ] Ausfall eines Subscribers → andere Subscriber nicht betroffen
-- [ ] Ausfall des async Workers → Event verbleibt in Outbox, wird nach Wiederanlauf verarbeitet
+- [ ] Ausfall des async Workers → Event verbleibt persistent gespeichert, wird nach Wiederanlauf verarbeitet
 - [ ] Neuer Subscriber kann registriert werden ohne Änderung am ApplicationService
 
 **Interfaces:**
 - Outgoing: IF-AS-EXT-OUT-006 (AuditLog via Event)
-- Outgoing: IF-AS-EXT-OUT-007 (Outbox-Persistierung via PersistenceLayer)
+- Outgoing: IF-AS-EXT-OUT-007 (Ereignis-Persistierung via PersistenceLayer)
 
 **Traceability:** REQ-L1-026 (Performance), REQ-L1-011 (Audit)
-**Rationale:** Synchrone Direktaufrufe von AuditLog, SeMetrics und WebhookDispatcher nach jeder Mutation verlängern Antwortzeiten und erzeugen starre strukturelle Kopplung. Der Event-Bus entkoppelt Publisher und Subscriber, reduziert Orchestrierungs-Overhead und ermöglicht unabhängige Skalierung der Subscriber.
+**Rationale:** Synchrone Direktaufrufe von AuditLog, SeMetrics und WebhookDispatcher nach jeder Mutation verlängern Antwortzeiten und erzeugen starre strukturelle Kopplung. Der asynchrone Entkopplungsmechanismus entkoppelt Publisher und Subscriber, reduziert Orchestrierungs-Overhead und ermöglicht unabhängige Skalierung der Subscriber.
 
 ---
 
@@ -608,7 +679,10 @@ Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes D
 | REQ-L2-AS-023 | Performance | REQ-L1-026 | mandatory |
 | REQ-L2-AS-024 | Decomposition | REQ-L1-002, REQ-L1-013 | mandatory |
 | REQ-L2-AS-025 | Coverage | REQ-L1-012 | mandatory |
-| REQ-L2-AS-026 | Domain Event-Bus | REQ-L1-026, REQ-L1-011 | mandatory |
+| REQ-L2-AS-026 | ADR CRUD | REQ-L1-029 | desired |
+| REQ-L2-AS-027 | Risiko CRUD | REQ-L1-029 | desired |
+| REQ-L2-AS-028 | Issue CRUD | REQ-L1-029 | desired |
+| REQ-L2-AS-029 | Asynchroner Entkopplungsmechanismus | REQ-L1-026, REQ-L1-011 | mandatory |
 
 ---
 
@@ -616,11 +690,11 @@ Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes D
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-AS | 26 |
+| Anzahl REQ-L2-AS | 29 |
 | Mandatory | 23 |
-| Desired | 3 |
+| Desired | 6 |
 | Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | 20 |
+| Abgedeckte REQ-L1 (primär) | 21 |
 | Abgedeckte REQ-L1 (mitwirkend) | 11 |
 
 ---

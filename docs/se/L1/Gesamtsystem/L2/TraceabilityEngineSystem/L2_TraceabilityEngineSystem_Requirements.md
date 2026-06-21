@@ -11,7 +11,7 @@
 
 ## Traceability
 
-- Abgeleitet von: REQ-L1-003 (primär), REQ-L1-001 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-008 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-012 (mitwirkend), REQ-L1-015 (mitwirkend), REQ-L1-020 (mitwirkend), REQ-L1-025 (mitwirkend), REQ-L1-026 (mitwirkend)
+- Abgeleitet von: REQ-L1-003 (primär), REQ-L1-030 (primär), REQ-L1-001 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-008 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-012 (mitwirkend), REQ-L1-015 (mitwirkend), REQ-L1-020 (mitwirkend), REQ-L1-025 (mitwirkend), REQ-L1-026 (mitwirkend)
 - Ziel: terminal (keine L3-Zerlegung)
 
 ---
@@ -24,7 +24,7 @@
 | IF-TE-EXT-IN-002 | input | data | `coverage(workspace_id, filters?, ctx)` von ApplicationService |
 | IF-TE-EXT-IN-003 | input | data | TraceLink-CRUD von ApplicationService |
 | IF-TE-EXT-IN-004 | input | data | `collect_trace_graph(workspace_id, ctx)` von BaselineService |
-| IF-TE-EXT-OUT-001 | output | data | Django ORM Persistenz an ARCH-L1-010 |
+| IF-TE-EXT-OUT-001 | output | data | Daten-Persistenz-Interface an ARCH-L1-010 |
 
 ---
 
@@ -45,7 +45,7 @@ Die TraceabilityEngine SHALL TraceLinks zwischen Requirements, ArchitectureEleme
 
 **Interfaces:**
 - Incoming: IF-TE-EXT-IN-003
-- Outgoing: IF-TE-EXT-OUT-001, IF-TE-EXT-OUT-001
+- Outgoing: IF-TE-EXT-OUT-001
 
 **Traceability:** REQ-L1-003, REQ-L1-015 (mitwirkend)
 **Rationale:** TraceLink-CRUD mit 6 Link-Typen ist die Kernfunktion.
@@ -74,9 +74,9 @@ Die TraceabilityEngine SHALL bei Single-Link-Operationen eine Eager-Zyklenprüfu
 
 ---
 
-### REQ-L2-TE-003: Atomare Batch-Operationen für TraceLinks mit Tarjan-Zyklenprüfung
+### REQ-L2-TE-003: Atomare Batch-Operationen für TraceLinks mit globaler Zyklenprüfung
 
-Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atomaren Transaktion unterstützen. Bei Teilfehler SHALL die gesamte Batch-Operation zurückgesetzt werden. Am Ende der DB-Transaktion SHALL ein Tarjan-Algorithmus den vollständigen Link-Graphen auf Zyklen über alle 6 Link-Typen prüfen. Bei erkanntem Zyklus SHALL die gesamte Transaktion zurückgesetzt werden und ein Fehlerbericht mit dem Zyklus-Pfad zurückgegeben werden.
+Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atomaren Persistenz-Transaktion unterstützen. Bei Teilfehler SHALL die gesamte Batch-Operation zurückgesetzt werden. Am Ende der Persistenz-Transaktion SHALL eine globale Zyklenprüfung den vollständigen Link-Graphen auf Zyklen über alle 6 Link-Typen prüfen. Bei erkanntem Zyklus SHALL die gesamte Transaktion zurückgesetzt werden und ein Fehlerbericht mit dem Zyklus-Pfad zurückgegeben werden.
 
 **Domain:** software
 **Priority:** mandatory
@@ -85,14 +85,14 @@ Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atoma
 - [ ] Batch mit einem ungültigen Link → alle zurückgesetzt
 - [ ] Batch von 100 TraceLinks in < 500ms
 - [ ] Batch mit 100 Links, wobei der letzte Link einen Zyklus schließt → vollständiger Rollback mit Fehlerbericht, der den Zyklus-Pfad enthält (z.B. `"Cycle: Req-A → Req-B → Req-C → Req-A"`)
-- [ ] Tarjan-Prüfung wird einmalig am Ende der Transaktion ausgeführt (nicht pro Link)
+- [ ] Globale Zyklenprüfung wird einmalig am Ende der Persistenz-Transaktion ausgeführt (nicht pro Link)
 
 **Interfaces:**
 - Incoming: IF-TE-EXT-IN-003
-- Outgoing: IF-TE-EXT-OUT-001, IF-TE-EXT-OUT-001
+- Outgoing: IF-TE-EXT-OUT-001
 
 **Traceability:** REQ-L1-003, REQ-L1-025 (mitwirkend)
-**Rationale:** Decompose-Workflow erstellt mehrere parent-child-Links in einer Transaktion. Tarjan am Transaktionsende ist effizienter als Eager-Prüfung pro Link bei Massenimporten und garantiert globale Zyklenfreiheit.
+**Rationale:** Decompose-Workflow erstellt mehrere parent-child-Links in einer Transaktion. Globale Zyklenprüfung am Transaktionsende ist effizienter als Eager-Prüfung pro Link bei Massenimporten und garantiert globale Zyklenfreiheit.
 
 ---
 
@@ -106,7 +106,10 @@ Die TraceabilityEngine SHALL Upstream- und Downstream-Queries für beliebige Art
 - [ ] `query_upstream(requirement_id)` → vollständiger Nachbar-Graph in ≤ 200ms (p95)
 - [ ] `query_downstream(requirement_id)` → ≤ 200ms (p95)
 - [ ] Ergebnis enthält Entity-ID, Entity-Typ, Link-Typ, Richtung
-- [ ] PostgreSQL-Indizes (GIST/GIN) aktiv
+- [ ] Query-Timeout nach 5 Sekunden → Abbruch mit Fehler `"Query timeout"`
+
+**Arch-Impact:** true
+**Arch-Trigger:** "schnelle Graph-Traversal-Operationen (< 200ms) bei großen Datenmengen"
 
 **Interfaces:**
 - Incoming: IF-TE-EXT-IN-001
@@ -126,6 +129,7 @@ Die TraceabilityEngine SHALL transitive Hüllen berechnen — alle indirekt erre
 **Acceptance Criteria:**
 - [ ] Req-A `derives-from` Arch-B `implements` Comp-C → `query_downstream(Req-A, transitive=true)` → {Arch-B (depth=1), Comp-C (depth=2)}
 - [ ] Transitive Query bei 10.000 Items → ≤ 200ms (p95)
+- [ ] Query-Timeout nach 5 Sekunden → Abbruch mit Fehler `"Query timeout"`
 
 **Interfaces:**
 - Incoming: IF-TE-EXT-IN-001
@@ -183,9 +187,10 @@ Die TraceabilityEngine SHALL auf Anfrage des BaselineService den vollständigen 
 **Priority:** mandatory
 **Acceptance Criteria:**
 - [ ] Workspace mit 50 TraceLinks → Graph mit exakt 50 Links
-- [ ] Graph JSON-serialisierbar
+- [ ] Graph maschinenlesbar serialisierbar
 - [ ] Leerer Workspace → leerer Graph
 - [ ] ≤ 500ms bei 10.000 Items
+- [ ] Memory-Limit-Schutz: Bei zu großem Graph (z.B. > 100k Items) → strukturierter Fehler `"Payload too large"` statt Out-of-Memory-Absturz
 
 **Interfaces:**
 - Incoming: IF-TE-EXT-IN-004
@@ -223,7 +228,7 @@ Jeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] TraceLink via REST → `created_by` = User-ID
+- [ ] TraceLink via Standard-API → `created_by` = User-ID
 - [ ] TraceLink via MCP → `created_by` = Agent-Client-ID
 - [ ] Änderung → `modified_by`/`modified_at` aktualisiert, `created_by`/`created_at` unverändert
 
@@ -238,7 +243,7 @@ Jeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `
 
 ### REQ-L2-TE-011: Tenant-Isolation für alle TraceLink-Operationen
 
-Die TraceabilityEngine SHALL für alle Operationen sicherstellen, dass ausschließlich TraceLinks des aktiven Tenants sichtbar und manipulierbar sind. Tenant-Filterung über PersistenceLayer-Custom-Manager.
+Die TraceabilityEngine SHALL für alle Operationen sicherstellen, dass ausschließlich TraceLinks des aktiven Tenants sichtbar und manipulierbar sind.
 
 **Domain:** software
 **Priority:** mandatory
@@ -251,8 +256,11 @@ Die TraceabilityEngine SHALL für alle Operationen sicherstellen, dass ausschlie
 - Incoming: IF-TE-EXT-IN-001, IF-TE-EXT-IN-002, IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001
 
+**Arch-Impact:** true
+**Arch-Trigger:** "strikte logische Mandantenisolation für alle Lese- und Schreibzugriffe"
+
 **Traceability:** REQ-L1-015, REQ-L1-003 (mitwirkend)
-**Rationale:** Row-Level-Isolation über `tenant_id`-FK auf allen Entitäten.
+**Rationale:** Mandantenfähigkeit erfordert strikte Isolation aller Daten pro Tenant.
 
 ---
 
@@ -267,11 +275,14 @@ Die TraceabilityEngine SHALL Performance-SLAs einhalten: ≤ 200ms (p95) für Gr
 - [ ] Transitive Query: ≤ 200ms (p95)
 - [ ] Coverage-Report: ≤ 500ms (p95)
 - [ ] Graph-Sammlung: ≤ 500ms (p95)
-- [ ] PostgreSQL-Indizes (GIST/GIN) vorhanden und verifiziert
+- [ ] Timeout-Strategie für alle Queries implementiert (z.B. Abbruch nach 5s) → strukturierter Fehler statt endlosem Blockieren
 
 **Interfaces:**
 - Incoming: IF-TE-EXT-IN-001, IF-TE-EXT-IN-002, IF-TE-EXT-IN-004
-- Outgoing: IF-TE-EXT-OUT-001, IF-TE-EXT-OUT-001
+- Outgoing: IF-TE-EXT-OUT-001
+
+**Arch-Impact:** true
+**Arch-Trigger:** "Performance-SLA-Garantien bei großem Datenbestand"
 
 **Traceability:** REQ-L1-026, REQ-L1-003 (mitwirkend)
 **Rationale:** Bündelt alle Performance-Aspekte der TraceabilityEngine.
@@ -301,6 +312,47 @@ Die TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Gen
 
 ---
 
+### REQ-L2-TE-014: Cross-Projekt-Link-CRUD
+
+Die TraceabilityEngine SOLLTE TraceLinks erstellen, lesen, aktualisieren und löschen (CRUD) können, deren Source und Target unterschiedlichen Workspaces (Projekten) innerhalb desselben Tenants angehören.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] TraceLink mit Source in Workspace A und Target in Workspace B erfolgreich erstellt
+- [ ] Link-Richtung und Typ bleiben domänen-übergreifend gültig
+- [ ] Löschen eines der verknüpften Artefakte entfernt den Cross-Projekt-Link (CASCADE)
+
+**Interfaces:**
+- Incoming: IF-TE-EXT-IN-003
+- Outgoing: IF-TE-EXT-OUT-001
+
+**Traceability:** REQ-L1-030
+**Rationale:** Ermöglicht projektübergreifende Verknüpfungen (z.B. Core-Bibliothek-Requirement zu Produkt-Requirement).
+
+---
+
+### REQ-L2-TE-015: Cross-Projekt-Graph-Query
+
+Die TraceabilityEngine SOLLTE Upstream-, Downstream- und Coverage-Queries über Projektgrenzen hinweg auflösen. Wenn Cross-Projekt-Links existieren, SHALL die Query die Artefakte des verknüpften Workspaces einbeziehen.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Upstream-Query für Artefakt in Workspace A gibt verknüpfte Artefakte aus Workspace B zurück
+- [ ] Graph-Resultate kennzeichnen den Workspace jedes Knotens eindeutig
+- [ ] Performance ≤ 300ms (p95) für Cross-Projekt-Queries
+- [ ] Query-Timeout nach 5 Sekunden → Abbruch mit Fehler `"Query timeout"`
+
+**Interfaces:**
+- Incoming: IF-TE-EXT-IN-001, IF-TE-EXT-IN-002
+- Outgoing: IF-TE-EXT-OUT-001
+
+**Traceability:** REQ-L1-030
+**Rationale:** Traceability- und Impact-Analysen müssen Systemgrenzen überschreiten können, wenn Abhängigkeiten existieren.
+
+---
+
 ## Traceability-Matrix: REQ-L2-TE → REQ-L1
 
 | REQ-L2-TE | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -318,6 +370,8 @@ Die TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Gen
 | REQ-L2-TE-011 | REQ-L1-015 | REQ-L1-003 |
 | REQ-L2-TE-012 | REQ-L1-026 | REQ-L1-003 |
 | REQ-L2-TE-013 | REQ-L1-003 | REQ-L1-012 |
+| REQ-L2-TE-014 | REQ-L1-030 | — |
+| REQ-L2-TE-015 | REQ-L1-030 | — |
 
 ---
 
@@ -325,11 +379,11 @@ Die TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Gen
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-TE | 13 |
+| Anzahl REQ-L2-TE | 15 |
 | Mandatory | 11 |
-| Desired | 2 |
+| Desired | 4 |
 | Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | 9 |
+| Abgedeckte REQ-L1 (primär) | 10 |
 | Abgedeckte REQ-L1 (mitwirkend) | 3 |
 
 ---

@@ -1,3 +1,12 @@
+---
+step: architecture
+agent: se-architect
+iteration: 2
+status: done
+timestamp: "2026-06-21T23:55:00+02:00"
+schema_version: "1.0.0"
+---
+
 # L2 BaselineService Architecture
 
 > **Level:** L2 (Subsystem white-box)
@@ -21,10 +30,11 @@ Erstellung unveraenderlicher, benannter Baselines auf drei Scopes (document, pro
 | ID | Richtung | Gegenstelle | Typ | Vertrag |
 |----|----------|-------------|-----|---------|
 | IF-BL-EXT-IN-001 | eingehend | ApplicationService | In-Process Python | `build(scope, workspace_id, name, description, ctx)`, `diff(baseline_a_id, baseline_b_id)`, `get(baseline_id)`, `list(workspace_id, scope?)` |
-| IF-BL-EXT-IN-002 | eingehend | PresetConfigEngine | In-Process Python | Preset-Regeln (Scope-Verfuegbarkeit) |
-| IF-BL-EXT-IN-003 | eingehend | TraceabilityEngine | In-Process Python | `collect_trace_graph(workspace_id) -> item_ids, versionen, trace_links` |
-| IF-BL-EXT-IN-004 | eingehend | AuditLog / VersionHistory | Django ORM | `get_version(item_id, version) -> ItemPayload` |
-| IF-BL-EXT-IN-005 | eingehend | IcdManagement | In-Process Python | `get_icd_versions(workspace_id, scope) -> icd_ids, versionen` |
+| IF-BL-EXT-OUT-002 | ausgehend | PresetConfigEngine | In-Process Python | Preset-Regeln (Scope-Verfuegbarkeit) |
+| IF-BL-EXT-OUT-003 | ausgehend | TraceabilityEngine | In-Process Python | `collect_trace_graph(workspace_id) -> item_ids, versionen, trace_links` |
+| IF-BL-EXT-OUT-004 | ausgehend | AuditLog / VersionHistory | Django ORM | `get_version(item_id, version) -> ItemPayload` |
+| IF-BL-EXT-OUT-005 | ausgehend | IcdManagement | In-Process Python | `get_icd_versions(workspace_id, scope) -> icd_ids, versionen` |
+| IF-BL-EXT-OUT-006 | ausgehend | IcdManagement | In-Process Python | `get_icd_payload(icd_id, version) -> IcdPayload` |
 | IF-BL-EXT-OUT-001 | ausgehend | PersistenceLayer | Django ORM | Baseline-Entitaet (INSERT/SELECT, immutable) |
 
 ---
@@ -64,10 +74,11 @@ flowchart TD
     ext_in1 -->|IF-BL-EXT-IN-001| C002
     ext_in1 -->|IF-BL-EXT-IN-001| C004
 
-    ext_in2["PresetConfigEngine"] -->|IF-BL-EXT-IN-002| C001
-    ext_in3["TraceabilityEngine"] -->|IF-BL-EXT-IN-003| C001
-    ext_in4["AuditLog / VersionHistory"] -->|IF-BL-EXT-IN-004| C004
-    ext_in5["IcdManagement"] -->|IF-BL-EXT-IN-005| C001
+    C001 -->|IF-BL-EXT-OUT-002| ext_out2["PresetConfigEngine"]
+    C001 -->|IF-BL-EXT-OUT-003| ext_out3["TraceabilityEngine"]
+    C004 -->|IF-BL-EXT-OUT-004| ext_out4["AuditLog / VersionHistory"]
+    C001 -->|IF-BL-EXT-OUT-005| ext_out5["IcdManagement"]
+    C004 -->|IF-BL-EXT-OUT-006| ext_out5
 
     C001 -->|IF-BL-INT-001| C003
     C002 -->|IF-BL-INT-002| C003
@@ -113,6 +124,15 @@ flowchart TD
 *Entscheidung:* Die Rekonstruktion historischer Item-Payloads wird in COMP-BL-004 (VersionReconstructor) isoliert; sie wird nicht in DeltaIndexBuilder oder BaselineStore eingebettet.
 *Rationale:* Indexierung (welche Items sind Teil einer Baseline) und Rekonstruktion (wie war der Zustand eines Items zur Baseline-Zeit) sind orthogonale Verantwortlichkeiten. Die Trennung erlaubt unabhaengige Caching-Strategien fuer den VersionReconstructor (z.B. LRU-Cache auf `(item_id, version)`-Ebene) und vereinfacht die Testisolation beider Belange. Die externe Abhaengigkeit zu AuditLog / RequirementVersion ist klar auf eine Komponente begrenzt.
 *Verworfene Alternative:* Payload-Rekonstruktion direkt im BaselineStore oder DeltaIndexBuilder — abgelehnt wegen SRP-Verletzung, erschwerter Testbarkeit und unklarer Abhaengigkeitsrichtung zur Versionshistorie.
+
+---
+
+## 6. Resilience (Failure Handling für externe Aufrufe)
+
+Da das BaselineServiceSystem stark von externen Domänen (TraceabilityEngine, IcdManagement, PresetConfigEngine) abhängig ist, gelten folgende Resilience-Regeln:
+- **Timeouts:** Alle Aufrufe an In-Process APIs oder den AuditLog erhalten definierte Timeouts.
+- **Circuit Breaker / Fallback:** Schlägt der Abruf von historischen Payloads über `VersionReconstructor` fehl, wird ein definierter Fehlerzustand zurückgegeben (keine Endlosschleife, kein vollständiger Systemabsturz).
+- **Transaktionsklammern:** Das Erstellen einer Baseline (`COMP-BL-001`) wird atomar durchgeführt. Schlägt ein externer Abruf während der Evaluierung fehl (z.B. Traceability nicht erreichbar), schlägt die gesamte Baseline-Erstellung fehl (Rollback) ohne inkonsistente Zwischenstände zu hinterlassen.
 
 ---
 
