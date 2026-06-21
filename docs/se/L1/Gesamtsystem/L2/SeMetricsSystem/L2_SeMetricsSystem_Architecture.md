@@ -1,0 +1,217 @@
+# L2 SeMetrics Architecture
+
+> **Level:** L2 (Subsystem white-box)
+> **System:** SeMetricsSystem (ARCH-L1-015)
+> **Parent:** L1_Gesamtsystem_Architecture.md
+> **Datum:** 2026-06-21
+> **Status:** entworfen
+> **Designation:** component (terminal — keine L3-Zerlegung)
+
+---
+
+## 1. Verantwortlichkeit
+
+Reines Read-Modell zur Berechnung und Exposition von SE-Prozessmetriken. Aggregiert Daten aus vier Quellsystemen — AuditLog (IF-L1-044), TraceabilityEngine (IF-L1-045), WorkflowEngine (IF-L1-046) und ApplicationService (IF-L1-047) — und stellt das Ergebnis als strukturierten JSON-Metrikbericht bereit. Das System fuehrt keine schreibenden Operationen auf Kern-Entitaeten durch. Einzige erlaubte Schreibzugriffe: optionaler Metric-Cache (IF-L1-048) und Schwellwert-Konfiguration (IF-L1-048).
+
+---
+
+## 2. Black-Box (Eingebettete Sicht)
+
+### Externe Schnittstellen
+
+| ID | Richtung | Gegenstelle | Typ | Vertrag |
+|----|----------|-------------|-----|---------|
+| IF-L1-042 | eingehend | RestApiAdapter | HTTP/JSON (In-Process Python) | `compute_metrics(workspace_id, timeframe, scope_filter)` via `GET /metrics/workspace/{id}` — Haupt-Trigger der Metrik-Berechnung |
+| IF-L1-043 | eingehend | ReactFrontend (via RestApiAdapter) | HTTP/JSON | Dashboard-Datenabruf; identischer Endpunkt wie IF-L1-042, unterschiedlicher Aufrufer (A001 → A002 → A015) |
+| IF-L1-044 | ausgehend | AuditLog | In-Process Python | `query_changes(workspace_id, timeframe)` — Lesezugriff auf AuditLogEntry fuer Volatility-Quelldaten |
+| IF-L1-045 | ausgehend | TraceabilityEngine | In-Process Python | `coverage(workspace_id)` — Lesezugriff auf TraceLink-Coverage fuer Coverage-Berechnung |
+| IF-L1-046 | ausgehend | WorkflowEngine | In-Process Python | `find_incomplete_states(workspace_id)` — Lesezugriff auf WorkflowState fuer Luecken-Erkennung |
+| IF-L1-047 | ausgehend | ApplicationService | In-Process Python | `query_risks_by_severity(workspace_id)` — Lesezugriff auf Risiko-Artefakte |
+| IF-L1-048 | ausgehend | PersistenceLayer | Django ORM | Metric-Cache-Entity (Lesen/Schreiben) + ThresholdConfig-Entity (Lesen/Schreiben) — einzige Schreibzugriffe des Systems |
+
+---
+
+## 3. White-Box (Komponenten-Zerlegung)
+
+### Komponenten
+
+| Komp-ID | Name | Verantwortlichkeit | Domain | REQ-Referenz |
+|---------|------|--------------------|--------|--------------|
+| COMP-SM-001 | MetricsQueryController | REST-Endpunkt-Adapter: empfaengt `GET /metrics/workspace/{id}`, validiert Bearer Token (401), prueft workspace_id-Existenz (404), fuehrt Tenant-Isolation-Check durch (403), parst und validiert `timeframe`- und `scope_filter`-Parameter (400), koordiniert MetricsAggregator und serialisiert die JSON-Antwort nach stabilem Format | software | REQ-L2-SM-001, REQ-L2-SM-002, REQ-L2-SM-010, REQ-L2-SM-012 |
+| COMP-SM-002 | MetricsAggregator | Kern-Orchestrator: ruft die vier Quell-Interfaces (IF-L1-044..047) parallel ab, delegiert Berechnungen an VolatilityCalculator, CoverageCalculator, WorkflowGapDetector und RiskClassifier, sammelt deren Ergebnisse, delegiert Schwellwert-Pruefung an ThresholdEvaluator, baut das vollstaendige MetricsResult-Objekt zusammen | software | REQ-L2-SM-001, REQ-L2-SM-008, REQ-L2-SM-011 |
+| COMP-SM-003 | VolatilityCalculator | Berechnet Requirements Volatility: zaehlt Aenderungsereignisse (Operation `update`/`workflow_transition`, EntityType `Requirement`) je Requirement aus AuditLog-Quelldaten, berechnet Gesamt-Aenderungsrate (total_changes / total_requirements), erstellt geordnete Top-10-Volatile-Liste | software | REQ-L2-SM-003 |
+| COMP-SM-004 | CoverageCalculator | Berechnet Traceability Coverage: ermittelt aus TraceabilityEngine-Quelldaten Anteil der Requirements mit mindestens einem ausgehenden TraceLink, berechnet coverage_percent (1 Nachkommastelle), erstellt Liste uncovered_ids | software | REQ-L2-SM-004 |
+| COMP-SM-005 | WorkflowGapDetector | Erkennt Workflow-Luecken: identifiziert aus WorkflowEngine-Quelldaten Items, die einen obligatorischen Zustand der aktiven WorkflowDefinition nie durchlaufen haben, erstellt Liste mit item_id, item_type und missing_state | software | REQ-L2-SM-005 |
+| COMP-SM-006 | RiskClassifier | Klassifiziert offene Risiken: filtert aus ApplicationService-Quelldaten Risiko-Artefakte mit WorkflowState != geschlossen/mitigation-abgeschlossen, aggregiert nach Schweregrad (critical, high, medium, low), berechnet Gesamtanzahl | software | REQ-L2-SM-006 |
+| COMP-SM-007 | ThresholdEvaluator | Prueft berechnete Metrikwerte gegen konfigurierte Schwellwerte je Workspace: liest ThresholdConfig via IF-SM-INT-006 aus MetricsCacheManager, erzeugt warnings-Liste mit Metrik-Name, Ist-Wert, Schwellwert und Beschreibung fuer Ueberschreitungen | software | REQ-L2-SM-007 |
+| COMP-SM-008 | MetricsCacheManager | Verwaltet optionalen Metric-Cache (IF-L1-048): prueft Cache-Treffer vor Berechnung, schreibt berechnete Ergebnisse nach Berechnung, invalidiert bei Aenderungsereignis oder nach TTL (Default: 5 min); verwaltet ThresholdConfig-Persistenz (CRUD via IF-L1-048); Cache-Fehler fuehren zu Fallback auf Live-Berechnung (kein 5xx) | software | REQ-L2-SM-007, REQ-L2-SM-009 |
+
+### Interne Schnittstellen
+
+| ID | Richtung | Quelle -> Ziel | Typ | Vertrag |
+|----|----------|----------------|-----|---------|
+| IF-SM-INT-001 | intern | COMP-SM-001 -> COMP-SM-002 | In-Process Python | `compute(workspace_id, timeframe, scope_filter, tenant_ctx) -> MetricsResult` |
+| IF-SM-INT-002 | intern | COMP-SM-002 -> COMP-SM-003 | In-Process Python | `calculate(audit_entries: list[AuditEntry], timeframe) -> VolatilityResult` |
+| IF-SM-INT-003 | intern | COMP-SM-002 -> COMP-SM-004 | In-Process Python | `calculate(coverage_data: CoverageData) -> CoverageResult` |
+| IF-SM-INT-004 | intern | COMP-SM-002 -> COMP-SM-005 | In-Process Python | `detect(incomplete_states: list[IncompleteState]) -> WorkflowGapResult` |
+| IF-SM-INT-005 | intern | COMP-SM-002 -> COMP-SM-006 | In-Process Python | `classify(risk_artifacts: list[RiskArtifact]) -> RiskResult` |
+| IF-SM-INT-006 | intern | COMP-SM-002 -> COMP-SM-007 | In-Process Python | `evaluate(metrics_result: MetricsResult, workspace_id) -> list[Warning]` |
+| IF-SM-INT-007 | intern | COMP-SM-007 -> COMP-SM-008 | In-Process Python | `get_threshold_config(workspace_id) -> ThresholdConfig` |
+| IF-SM-INT-008 | intern | COMP-SM-001 -> COMP-SM-008 | In-Process Python | `get_cached(workspace_id, timeframe) -> MetricsResult | None` und `put_cached(workspace_id, timeframe, result)` |
+
+### Dependency-Graph (azyklisch)
+
+Unidirektionaler Datenfluss: Eingang → Controller → Aggregator → Calculator-Schicht → Cache/Threshold
+
+```
+IF-L1-042/043 (extern, eingehend)
+        |
+        v
+COMP-SM-001 (MetricsQueryController)
+        |  IF-SM-INT-008 (Cache-Lookup)
+        |-----> COMP-SM-008 (MetricsCacheManager)
+        |                |
+        |                v
+        |           IF-L1-048 (PersistenceLayer)
+        |
+        | IF-SM-INT-001
+        v
+COMP-SM-002 (MetricsAggregator)
+    |   |   |   |   |
+    |   |   |   |   |-- IF-L1-044 --> AuditLog (extern)
+    |   |   |   |-- IF-L1-045 --> TraceabilityEngine (extern)
+    |   |   |-- IF-L1-046 --> WorkflowEngine (extern)
+    |   |-- IF-L1-047 --> ApplicationService (extern)
+    |
+    |-- IF-SM-INT-002 --> COMP-SM-003 (VolatilityCalculator)
+    |-- IF-SM-INT-003 --> COMP-SM-004 (CoverageCalculator)
+    |-- IF-SM-INT-004 --> COMP-SM-005 (WorkflowGapDetector)
+    |-- IF-SM-INT-005 --> COMP-SM-006 (RiskClassifier)
+    |-- IF-SM-INT-006 --> COMP-SM-007 (ThresholdEvaluator)
+                              |
+                              | IF-SM-INT-007
+                              v
+                         COMP-SM-008 (MetricsCacheManager)
+                              |
+                              v
+                         IF-L1-048 (PersistenceLayer)
+```
+
+**Nachweis Azyklizitaet:** Alle Pfeile verlaufen von oben nach unten (eingehend → Controller → Aggregator → Calculator-Schicht → CacheManager → PersistenceLayer). Keine Rueckpfeile. Kein Knoten taucht als Quelle und Ziel in einem Zyklus auf.
+
+### Komponentendiagramm (Mermaid)
+
+```mermaid
+flowchart TD
+    subgraph SeMetricsSystem
+        C001["COMP-SM-001: MetricsQueryController<br/>REST-Adapter, Auth, Param-Validierung,<br/>Tenant-Check, JSON-Serialisierung"]
+        C002["COMP-SM-002: MetricsAggregator<br/>Kern-Orchestrator, parallele Quell-Abfragen,<br/>Ergebnis-Zusammenfuehrung"]
+        C003["COMP-SM-003: VolatilityCalculator<br/>Aenderungsrate + Top-10-Volatile"]
+        C004["COMP-SM-004: CoverageCalculator<br/>TraceLink-Coverage %"]
+        C005["COMP-SM-005: WorkflowGapDetector<br/>Items mit fehlenden Pflicht-Zustaenden"]
+        C006["COMP-SM-006: RiskClassifier<br/>Offene Risiken nach Schweregrad"]
+        C007["COMP-SM-007: ThresholdEvaluator<br/>Schwellwert-Pruefung + Warnings"]
+        C008["COMP-SM-008: MetricsCacheManager<br/>Cache + ThresholdConfig-Persistenz"]
+    end
+
+    ext_api1["RestApiAdapter"] -->|IF-L1-042| C001
+    ext_api2["ReactFrontend<br/>(via RestApiAdapter)"] -->|IF-L1-043| C001
+
+    C001 -->|IF-SM-INT-008 Cache-Lookup| C008
+    C001 -->|IF-SM-INT-001| C002
+
+    C002 -->|IF-L1-044| ext_al["AuditLog"]
+    C002 -->|IF-L1-045| ext_te["TraceabilityEngine"]
+    C002 -->|IF-L1-046| ext_wf["WorkflowEngine"]
+    C002 -->|IF-L1-047| ext_as["ApplicationService"]
+
+    C002 -->|IF-SM-INT-002| C003
+    C002 -->|IF-SM-INT-003| C004
+    C002 -->|IF-SM-INT-004| C005
+    C002 -->|IF-SM-INT-005| C006
+    C002 -->|IF-SM-INT-006| C007
+
+    C007 -->|IF-SM-INT-007| C008
+    C008 -->|IF-L1-048| ext_pl["PersistenceLayer"]
+
+    C001 -.->|IF-SM-INT-008 Cache-Write| C008
+```
+
+**Legende:** Durchgezogene Pfeile = synchrone In-Process-Aufrufe. Gestrichelte Pfeile = optionale Post-Berechnung Cache-Schreibung.
+
+---
+
+## 4. Zugeordnete REQ-L2
+
+| REQ-L2 | Komponente(n) |
+|--------|---------------|
+| REQ-L2-SM-001 | COMP-SM-001, COMP-SM-002 |
+| REQ-L2-SM-002 | COMP-SM-001 |
+| REQ-L2-SM-003 | COMP-SM-003 |
+| REQ-L2-SM-004 | COMP-SM-004 |
+| REQ-L2-SM-005 | COMP-SM-005 |
+| REQ-L2-SM-006 | COMP-SM-006 |
+| REQ-L2-SM-007 | COMP-SM-007, COMP-SM-008 |
+| REQ-L2-SM-008 | COMP-SM-002, COMP-SM-003, COMP-SM-004, COMP-SM-005, COMP-SM-006 |
+| REQ-L2-SM-009 | COMP-SM-008 |
+| REQ-L2-SM-010 | COMP-SM-001 |
+| REQ-L2-SM-011 | COMP-SM-002, COMP-SM-008 |
+| REQ-L2-SM-012 | COMP-SM-001 |
+
+---
+
+## 5. Interface-Belegung (IF-L1-042..048)
+
+| Interface | Eigentuemerkomponente | Richtung | Zweck |
+|-----------|----------------------|----------|-------|
+| IF-L1-042 | COMP-SM-001 | eingehend | REST-Request von RestApiAdapter — Metrik-Abfrage ausloesen |
+| IF-L1-043 | COMP-SM-001 | eingehend | Dashboard-Datenabruf von ReactFrontend (via RestApiAdapter) |
+| IF-L1-044 | COMP-SM-002 | ausgehend | AuditLog-Lesezugriff fuer Volatility-Quelldaten |
+| IF-L1-045 | COMP-SM-002 | ausgehend | TraceabilityEngine-Lesezugriff fuer Coverage-Daten |
+| IF-L1-046 | COMP-SM-002 | ausgehend | WorkflowEngine-Lesezugriff fuer Luecken-Daten |
+| IF-L1-047 | COMP-SM-002 | ausgehend | ApplicationService-Lesezugriff fuer Risiko-Artefakte |
+| IF-L1-048 | COMP-SM-008 | ausgehend | PersistenceLayer fuer Cache-Entitaet und ThresholdConfig (einzige Schreibzugriffe) |
+
+---
+
+## 6. ADRs (lokal)
+
+**ADR-SM-01 — Strikter Read-Modell-Charakter mit dediziertem Aggregator**
+*Entscheidung:* MetricsAggregator (COMP-SM-002) ruft alle vier Quell-Interfaces (IF-L1-044..047) ausschliesslich lesend ab. Schreibzugriffe auf Kern-Entitaeten sind architektonisch ausgeschlossen.
+*Rationale:* Ein Read-Modell ohne Seiteneffekte verhindert zirkulaere Abhaengigkeiten (SeMetrics liest aus Systemen, die durch eigene Schreiboperationen veraendert wuerden). Trennung von Lese- und Schreibpfad folgt CQRS-Prinzip und schuetzt die transaktionalen Pfade der Quellsysteme vor unbeabsichtigter Veraenderung.
+*Verworfene Alternative:* SeMetrics mit eigenem Schreibzugriff auf WorkflowState (z.B. zum Markieren gepruefter Luecken) — abgelehnt, da dies den Read-Modell-Charakter verletzt und zirkulaere Abhaengigkeiten erzeugt.
+
+**ADR-SM-02 — Separation der vier Metrik-Berechnungen in eigenstaendige Calculator-Komponenten**
+*Entscheidung:* Vier dedizierte Calculator-Komponenten (COMP-SM-003..006) statt einer monolithischen Berechnungsklasse.
+*Rationale:* Jede Metrik hat eine eigenstaendige Datenquelle, einen eigenstaendigen Algorithmus und eigenstaendige Acceptance Criteria. Die Trennung ermoeglicht unabhaengige Testbarkeit, parallele Ausfuehrung der vier Quell-Abfragen im MetricsAggregator und spaetere Erweiterung (neue Metrik-Typen) ohne bestehende Berechnungen zu tangieren. Orthogonalitaet ist voll gewahrt — keine Calculator-Komponente teilt Zustand mit einer anderen.
+*Verworfene Alternative:* Einzelner `MetricsCalculator` mit vier Methoden — abgelehnt wegen eingeschraenkter Testbarkeit und schlechterer Kohäsion.
+
+**ADR-SM-03 — Optionaler Cache als eigenstaendige Komponente (COMP-SM-008), nicht als Querschnitts-Decorator**
+*Entscheidung:* MetricsCacheManager als separate Komponente mit expliziten Cache-Lookup- und Cache-Write-Aufrufen vom MetricsQueryController und MetricsAggregator.
+*Rationale:* Cache-Logik (TTL, Invalidierung, Fehler-Fallback) ist eigenstaendige Verantwortlichkeit. Als Decorator auf dem Aggregator wuerde sie die Calculator-Testbarkeit beeintraechtighen. Explizite Aufrufpunkte machen das Cache-Verhalten transparent und testbar. Cache-Fehler erzeugen keinen 5xx — Fallback auf Live-Berechnung ist in COMP-SM-008 lokalisiert.
+*Verworfene Alternative:* Transparentes Caching als Decorator-Pattern ueber den MetricsAggregator — abgelehnt wegen schlechterer Testbarkeit der Fallback-Logik und verschwommenem Verantwortungsschnitt.
+
+**ADR-SM-04 — ThresholdConfig-Persistenz in COMP-SM-008 (MetricsCacheManager)**
+*Entscheidung:* COMP-SM-008 verwaltet sowohl Metric-Cache als auch ThresholdConfig-Persistenz via IF-L1-048.
+*Rationale:* Beide sind Workspace-gebundene Konfigurationsdaten, die via IF-L1-048 (PersistenceLayer) gelesen und geschrieben werden. Gemeinsame Verwaltung in COMP-SM-008 vermeidet eine neunte Komponente ausschliesslich fuer Konfigurationspersistenz. IF-L1-048 ist der einzige legitime Schreibkanal des Read-Modells — seine Buendelung in einer Komponente macht den Read-Modell-Charakter des gesamten Systems verifizierbar.
+*Verworfene Alternative:* Separate ThresholdConfigManager-Komponente — abgelehnt, da dies zu zwei Komponenten mit identischer Schnittstellennutzung (IF-L1-048) und ueberlappendem Verantwortungsbereich fuehrt.
+
+---
+
+## 7. Decomposition Completeness
+
+| Aspekt | Abdeckung |
+|--------|-----------|
+| Alle IF-L1-042..048 eingebunden | vollstaendig (IF-L1-042/043 → COMP-SM-001; IF-L1-044..047 → COMP-SM-002; IF-L1-048 → COMP-SM-008) |
+| Alle REQ-L2-SM-001..012 zugewiesen | vollstaendig (jede REQ referenziert mindestens eine COMP-SM-xxx) |
+| Azyklischer Dependency-Graph | nachgewiesen (§3, Dependency-Graph-Abschnitt) |
+| Read-Modell-Charakter (REQ-L2-SM-008) | strukturell erzwungen (nur COMP-SM-008 hat IF-L1-048 Schreibzugriff) |
+| Tenant-Isolation (REQ-L2-SM-010) | COMP-SM-001 prueft Tenant-Kontext vor Delegation an COMP-SM-002 |
+| Performance-SLA (REQ-L2-SM-011) | COMP-SM-002 parallelisiert vier Quell-Abfragen; COMP-SM-008 Cache-Pfad ≤ 100ms |
+| Designation | terminal — component-level leaf, keine L3-Zerlegung |
+
+---
+
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
+*Handoff: HOFF-20260621-007 | Parent: ARCH-L1-015 | REQ-Quelle: REQ-L2-SM-001..012*
+*Designation: component (terminal) — decomposition_status: terminal*
