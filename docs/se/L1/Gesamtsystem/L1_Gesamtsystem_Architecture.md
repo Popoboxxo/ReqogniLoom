@@ -1,8 +1,8 @@
 # ReqFlow — L1 Architecture (Gesamtsystem)
 
-> Status: KONSOLIDIERT | Erstellt: 2026-06-17 | Aktualisiert: 2026-06-18 | Autor: se-architect-Agent (SE-Kaskade)
+> Status: ERWEITERT 2026-06-21 (REQ-L1-027..032) | Vorheriger Stand KONSOLIDIERT 2026-06-20 | Erstellt: 2026-06-17 | Autor: se-architect-Agent (SE-Kaskade)
 >
-> Quelle: `docs/KONZEPT.md` (FINAL, Runden 1–4) + `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` (REQ-L1-001 … REQ-L1-026, approved)
+> Quelle: `docs/KONZEPT.md` (FINAL, Runden 1–4) + `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` (REQ-L1-001 … REQ-L1-032, approved)
 >
 > Notation: Dieses Dokument folgt dem C4-Ansatz auf L1 (Kontext + Container).
 > L2-Whitebox-Inhalte sind in den jeweiligen `docs/se/L1/Gesamtsystem/L2/<SystemName>System/L2_<SystemName>System_Architecture.md` ausgelagert.
@@ -71,9 +71,11 @@ flowchart TD
 
 ---
 
-## 3. L1-Whitebox (12 Subsysteme / Architektureinheiten)
+## 3. L1-Whitebox (16 Subsysteme / Architektureinheiten)
 
-Die L1-Whitebox zerlegt ReqFlow in zwölf Subsysteme (Architektureinheiten, ARCH-L1-001 … ARCH-L1-012). Jedes Subsystem hat eine klar abgegrenzte Verantwortlichkeit und kommuniziert ausschließlich über definierte Schnittstellen. Jedes ARCH-L1-0xx entspricht einem L2-System (siehe jeweilige L2-Architektur-Dokumente).
+Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, ARCH-L1-001 … ARCH-L1-016). Jedes Subsystem hat eine klar abgegrenzte Verantwortlichkeit und kommuniziert ausschließlich über definierte Schnittstellen. Jedes ARCH-L1-0xx entspricht einem L2-System (siehe jeweilige L2-Architektur-Dokumente).
+
+> **Erweiterung 2026-06-21 (HOFF-20260621-004):** Vier neue L2-Systeme (ARCH-L1-013..016) wurden zur Abdeckung von REQ-L1-027..032 ergänzt. Drei bestehende Systeme (A004, A007, A009) erhalten Erweiterungs-Hooks. Siehe §3.3 (Neue Subsysteme) und §3.4 (Erweiterungen bestehender Subsysteme).
 
 ### 3.1 Subsysteme und Verantwortlichkeiten
 
@@ -322,7 +324,144 @@ Die L1-Whitebox zerlegt ReqFlow in zwölf Subsysteme (Architektureinheiten, ARCH
 
 ---
 
-### 3.2 L1-Komponentendiagramm (Mermaid)
+---
+
+### 3.3 Neue L2-Subsysteme (REQ-L1-027..032)
+
+> Hinzugefügt 2026-06-21 (HOFF-20260621-004) zur Abdeckung der neuen L0-Anforderungen REQ-L0-016..021.
+
+#### ARCH-L1-013 — DiagramService (Diagramm- und Grafik-Verwaltung)
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | neu |
+| **Verantwortlichkeit** | Verwaltet Diagramme (Blockdiagramm, Flussdiagramm, Kontextdiagramm — mindestens 3 Typen) als eigenständige, versionierte Artefakte mit strukturiertem Payload (z.B. Mermaid-Source, PlantUML-Source, oder strukturiertes JSON-Modell). Stellt Payload-Validierung, Versionierungs-Logik und renderbare Repräsentationen bereit. Verknüpft Diagramme via TraceabilityEngine mit Requirements/ArchitectureElements. |
+| **Ableitet von** | REQ-L1-027 |
+| **Domain** | software |
+| **Tier** | L2 |
+| **Schnittstellen (eingehend)** | IF-L1-032 (ApplicationService → DiagramService): `create_diagram`, `update_diagram`, `get_diagram`, `list_versions` <br> IF-L1-033 (McpServer → DiagramService): `artifact.get` für Diagramm-Artefakttyp |
+| **Schnittstellen (ausgehend)** | IF-L1-034 (DiagramService → TraceabilityEngine): TraceLink `documents` zwischen Diagramm und Requirement/ArchitectureElement <br> IF-L1-035 (DiagramService → PersistenceLayer): Diagram-Entity, DiagramVersion-Entity (Django ORM) <br> IF-L1-036 (DiagramService → AuditLog): Schreib-Operationen (via ApplicationService delegiert) |
+
+**Begründung (Separation of Concerns):**
+Diagramme haben einen distinkten Verantwortungsbereich: Payload-Validierung pro Diagramm-Typ, immutable Versionierung pro Änderung, optionale Server-side Render-Pipeline. Die Validierung von Mermaid-/PlantUML-Source oder strukturiertem JSON ist disjunkt von der CRUD-Logik für textuelle Anforderungen in ApplicationService. Ein eigenes System bewahrt die Kohäsion von A004 und ermöglicht spätere Render-Erweiterungen (PNG/SVG-Export) ohne A004 zu kontaminieren.
+
+→ Siehe `docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/L2_DiagramServiceSystem_Architecture.md` (anzulegen)
+
+---
+
+#### ARCH-L1-014 — IcdManagement (Interface Control Document Management)
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | neu |
+| **Verantwortlichkeit** | Verwaltet ICDs zwischen ArchitectureElements als versionierte, unveränderliche Interface-Verträge mit Feldern für Richtung, Typ, semantische Beschreibung, Vorbedingungen (Preconditions), Nachbedingungen (Postconditions) und Invarianten (Design-by-Contract). Erkennt inkompatible Änderungen über semantische Diff-Analyse und meldet Breaking-Change-Warnungen. ICD-Versionen sind Baseline-fähig. |
+| **Ableitet von** | REQ-L1-028 |
+| **Domain** | software |
+| **Tier** | L2 |
+| **Schnittstellen (eingehend)** | IF-L1-037 (ApplicationService → IcdManagement): `create_icd`, `update_icd`, `validate_compatibility`, `get_icd_history` <br> IF-L1-038 (BaselineService → IcdManagement): `get_icd_versions(workspace_id)` für Snapshot-Inklusion |
+| **Schnittstellen (ausgehend)** | IF-L1-039 (IcdManagement → TraceabilityEngine): TraceLink `realizes` zwischen ICD und source/target ArchitectureElement <br> IF-L1-040 (IcdManagement → PersistenceLayer): Icd-Entity, IcdVersion-Entity (immutable) <br> IF-L1-041 (IcdManagement → AuditLog): Breaking-Change-Events |
+
+**Begründung (Separation of Concerns):**
+ICDs sind keine generischen TraceLinks — sie sind versionierte Verträge mit semantischer Kompatibilitäts-Logik (Pre-/Post-/Invariant-Vergleich für Breaking-Change-Detection). Diese DbC-Validierung ist disjunkt von der reinen Graph-Verwaltung in TraceabilityEngine. Auch die Unveränderlichkeit jeder ICD-Version folgt einer eigenen Lifecycle-Regel (vergleichbar mit Baselines, aber pro Schnittstelle). Eigenes System verhindert, dass A007 zwei verschiedene Konsistenz-Modelle gleichzeitig pflegen muss.
+
+→ Siehe `docs/se/L1/Gesamtsystem/L2/IcdManagementSystem/L2_IcdManagementSystem_Architecture.md` (anzulegen)
+
+---
+
+#### ARCH-L1-015 — SeMetrics (SE-Prozess-Metrikmodul)
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | neu |
+| **Verantwortlichkeit** | Berechnet und exponiert SE-Prozessmetriken über alle Artefakttypen und Subsysteme: Requirements Volatility (Änderungsrate je Anforderung in konfigurierbarem Zeitraum), Traceability Coverage (Anteil verknüpfter Requirements), Workflow-Lücken (Items ohne vollständige Workflow-Historie), offene Risiken nach Schweregrad. Aggregiert aus AuditLog (Volatility), TraceabilityEngine (Coverage), WorkflowEngine (Lücken), ApplicationService (Risiko-Artefakte). Stellt Dashboard-Daten und REST-Endpunkt `GET /metrics/workspace/{id}` bereit. Konfigurierbare Schwellwert-Warnungen. |
+| **Ableitet von** | REQ-L1-031 |
+| **Domain** | software |
+| **Tier** | L2 |
+| **Schnittstellen (eingehend)** | IF-L1-042 (RestApiAdapter → SeMetrics): `compute_metrics(workspace_id, timeframe, scope_filter)` <br> IF-L1-043 (ReactFrontend → SeMetrics via REST): Dashboard-Datenabruf (über A002 → A015) |
+| **Schnittstellen (ausgehend)** | IF-L1-044 (SeMetrics → AuditLog): `query_changes(workspace_id, timeframe)` für Volatility <br> IF-L1-045 (SeMetrics → TraceabilityEngine): `coverage(workspace_id)` <br> IF-L1-046 (SeMetrics → WorkflowEngine): `find_incomplete_states(workspace_id)` <br> IF-L1-047 (SeMetrics → ApplicationService): `query_risks_by_severity(workspace_id)` <br> IF-L1-048 (SeMetrics → PersistenceLayer): Metric-Cache-Entity (materialisierte Aggregationen, optional) |
+
+**Begründung (Separation of Concerns):**
+Metrik-Aggregation ist ein eigenständiges Read-Modell, das Daten aus mindestens vier verschiedenen Subsystemen (AuditLog, TraceabilityEngine, WorkflowEngine, ApplicationService) konsolidiert. Eingebettet in eines dieser Systeme würde es zirkuläre Abhängigkeiten erzeugen oder das Host-System mit fremder Verantwortung belasten. Im ApplicationService wäre es ein Gott-System-Antipattern. SoC bewahrt Single-Responsibility und ermöglicht zukünftige Erweiterungen (materialisierte Views, Scheduled-Aggregation, Time-Series-Storage) ohne Auswirkung auf transaktionale Pfade.
+
+→ Siehe `docs/se/L1/Gesamtsystem/L2/SeMetricsSystem/L2_SeMetricsSystem_Architecture.md` (anzulegen)
+
+---
+
+#### ARCH-L1-016 — ResilienceOrchestrator (Resilienz / Graceful Degradation)
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | neu |
+| **Verantwortlichkeit** | Zentraler Resilienz-Manager für alle Outbound-Calls zu optionalen Subsystemen: LlmAdapter (extern: LLM-Provider), Webhook-Dispatcher (extern: Webhook-Targets), GitHub-Integration (extern: GitHub API). Stellt einheitliche Policies für asynchrone Entkopplung (Async-Queue), konfigurierbare Timeouts, mindestens einen Retry mit exponential backoff und Circuit-Breaker-Logik bereit. Garantiert Kernverfügbarkeit (CRUD, Traceability, Baselines) von > 99,5 % bei Ausfall optionaler Subsysteme. Schreibt Degradation-Events in AuditLog. |
+| **Ableitet von** | REQ-L1-032 |
+| **Priorität** | mandatory |
+| **Domain** | system |
+| **Tier** | L2 |
+| **Schnittstellen (eingehend)** | IF-L1-049 (ApplicationService → ResilienceOrchestrator): `execute_optional(operation, target_subsystem, payload, policy)` <br> IF-L1-050 (LlmAdapter → ResilienceOrchestrator): Wrapping aller HTTPS-Outbound-Calls zu LLM-Providern |
+| **Schnittstellen (ausgehend)** | IF-L1-051 (ResilienceOrchestrator → LlmAdapter / Webhook / GitHub): Delegierter Aufruf nach Policy-Anwendung <br> IF-L1-052 (ResilienceOrchestrator → AuditLog): Degradation-Events, Retry-Logs, Circuit-State-Changes |
+
+**Begründung (Separation of Concerns):**
+Resilienz-Policies (Timeout, Retry, Circuit-Breaker, Async-Decoupling) sind ein Cross-Cutting Concern für alle drei optionalen Outbound-Subsysteme. Lokal je System implementiert führt zu Policy-Drift, inkonsistenten Retry-Strategien und nicht-aggregierbaren Degradation-Metriken. Ein zentraler Resilienz-Manager garantiert konsistente Policy-Anwendung, einheitliches Audit von Degradation-Events und eine zentrale Stelle für Konfigurations-Tuning. Die mandatory-Priorität (im Gegensatz zu den anderen desired-Anforderungen) und die >99,5 %-Kernverfügbarkeitsgarantie rechtfertigen ein eigenes System statt einer reinen Library-Lösung. Domain "system" reflektiert den infrastruktur-nahen, übergreifenden Charakter.
+
+→ Siehe `docs/se/L1/Gesamtsystem/L2/ResilienceOrchestratorSystem/L2_ResilienceOrchestratorSystem_Architecture.md` (anzulegen)
+
+---
+
+### 3.4 Erweiterungen bestehender L2-Subsysteme (REQ-L1-027..032)
+
+#### Erweiterung ARCH-L1-004 ApplicationService — REQ-L1-029 (ADR/Risiko/Issue)
+
+- **Was neu:** Drei zusätzliche Domain-Services in der Fassade — `AdrService`, `RiskService`, `IssueService` — mit identischem CRUD-Lifecycle-Muster wie `RequirementService` und `ArchitectureService`. Die Services orchestrieren WorkflowEngine (für eigene WorkflowDefinitions pro Artefakttyp), TraceabilityEngine (für Verknüpfung zu Requirements/ArchitectureElements/TestCases), PersistenceLayer (für neue Entitäten Adr/Risk/Issue) und AuditLog.
+- **Warum hier:** ApplicationService ist die etablierte Fassade für alle artefakt-orientierten CRUD-Services und folgt einem einheitlichen Muster (siehe COMP-AS-001..005). ADR, Risiko und Issue sind Artefakttypen mit identischem Lifecycle-Profil — Workflow + TraceLinks + Audit. Sie in ein neues System auszulagern würde Code-Duplizierung erzeugen und die Konsistenz der Artefakt-CRUD-Logik gefährden.
+- **Neue Interfaces:** IF-L1-053..055 (intern in A004 als neue COMP-AS-013..015), keine neuen externen L1-Inter-System-Schnittstellen.
+- **Neue REQ-L2 erforderlich:** mindestens 3 (REQ-L2-AS-026 ADR-CRUD, REQ-L2-AS-027 Risiko-CRUD, REQ-L2-AS-028 Issue-CRUD).
+
+#### Erweiterung ARCH-L1-004 ApplicationService — REQ-L1-032 (Webhook/GitHub-Resilienz-Hooks)
+
+- **Was neu:** Bestehende `WebhookDispatcher`-Komponente (COMP-AS-011) und GitHub-Integration (REQ-L2-AS-015) werden umgestellt, ihre Outbound-Calls über ResilienceOrchestrator (A016) zu routen statt direkter HTTPS-Calls.
+- **Warum hier:** Diese Komponenten verbleiben in A004, weil ihre Trigger-Logik (Event-Emission bei Domain-Operationen) integraler Teil der Geschäftslogik ist. Nur die Ausführungs-/Transport-Schicht delegiert nach A016.
+- **Neue Interfaces:** IF-L1-049 (A004 → A016) als Wrapper-Aufruf.
+
+#### Erweiterung ARCH-L1-004 ApplicationService — REQ-L1-027 (Diagramm-Fassade)
+
+- **Was neu:** Neue Service-Klasse `DiagramFacadeService` als Fassaden-Eintrittspunkt für Diagramm-Operationen; delegiert an A013 DiagramService und orchestriert WorkflowEngine + TraceabilityEngine + AuditLog.
+- **Warum hier:** ApplicationService bleibt der einheitliche Eintrittspunkt für REST und MCP (ADR-01). Die fachliche Diagramm-Logik liegt in A013, die Fassade in A004 wahrt die Single-Entry-Point-Regel.
+- **Neue Interfaces:** IF-L1-032 (A004 → A013).
+
+#### Erweiterung ARCH-L1-004 ApplicationService — REQ-L1-028 (ICD-Fassade)
+
+- **Was neu:** Neue Service-Klasse `IcdFacadeService` als Fassade für ICD-Operationen; delegiert an A014 IcdManagement.
+- **Warum hier:** Identische Begründung wie für REQ-L1-027 — Single-Entry-Point-Regel via A004.
+- **Neue Interfaces:** IF-L1-037 (A004 → A014).
+
+#### Erweiterung ARCH-L1-007 TraceabilityEngine — REQ-L1-030 (Cross-Projekt-Traceability)
+
+- **Was neu:** TraceabilityEngine erhält Awareness für `project_id` auf Artefakt-Ebene. Query-Engine wird erweitert um Cross-Projekt-Graph-Traversal mit Cross-Projekt-Annotation in den Ergebnissen. Neue Validierungs-Regel im TraceLinkManager: Cross-Tenant-Links werden abgelehnt (Konsultation von A011 AuthAndTenancy für Tenant-Boundary-Check). Neuer Link-Typ optional; mindestens reicht Annotation `cross_project=true` im Query-Result.
+- **Warum hier:** Kernverantwortlichkeit von A007 ist Graph-Management von TraceLinks. project_id ist ein zusätzliches Feld auf Artefakten; die Graph-Traversal-Logik ist bereits dort gekapselt. Ein neues System wäre Duplizierung der Graph-Algorithmen.
+- **Neue Interfaces:** IF-L1-056 (A007 → A011): `validate_cross_tenant_boundary(source_artifact_id, target_artifact_id)` für Sicherheits-Guard.
+- **Neue REQ-L2 erforderlich:** mindestens 2 (REQ-L2-TE-013 Cross-Projekt-Link-CRUD, REQ-L2-TE-014 Cross-Projekt-Graph-Query mit Annotation).
+
+#### Erweiterung ARCH-L1-007 TraceabilityEngine — REQ-L1-027/028 (Neue Link-Typen)
+
+- **Was neu:** Zwei neue Link-Typen — `documents` (Diagramm → Requirement/ArchitectureElement) und `realizes` (ICD → ArchitectureElement). Erweiterung des Link-Type-Enums von 6 auf 8.
+- **Warum hier:** TraceLink-Typ-Verwaltung ist Single Source of Truth in A007.
+- **Neue Interfaces:** IF-L1-034 (A013 → A007), IF-L1-039 (A014 → A007).
+
+#### Erweiterung ARCH-L1-009 LlmAdapter — REQ-L1-032 (Resilienz-Routing)
+
+- **Was neu:** Bestehende HTTPS-Outbound-Calls (IF-L1-023) werden durch ResilienceOrchestrator (A016) geroutet. LlmAdapter ruft A016, A016 ruft den eigentlichen Provider mit Policy-Anwendung.
+- **Warum hier:** LlmAdapter bleibt Provider-Abstraktion (ADR-02). Resilienz ist orthogonal und wird zentral von A016 verwaltet.
+- **Neue Interfaces:** IF-L1-050 (A009 → A016).
+
+#### Erweiterung ARCH-L1-006 BaselineService — REQ-L1-028 (ICD-Snapshot)
+
+- **Was neu:** Baseline-Snapshot inkludiert ICD-Versionen für den Scope. Snapshot-Builder ruft IcdManagement (A014) für aktuelle ICD-Versionen ab.
+- **Warum hier:** Baselines sind übergreifend für alle versionierten Artefakte. ICD-Versionen sind versioniert und Baseline-relevant.
+- **Neue Interfaces:** IF-L1-038 (A006 → A014).
+
+---
+
+### 3.5 L1-Komponentendiagramm (Mermaid)
 
 ```mermaid
 flowchart TD
@@ -347,6 +486,13 @@ flowchart TD
             A008["ARCH-L1-008: PresetConfigEngine<br/>Presets + Terminologie"]
             A009["ARCH-L1-009: LlmAdapter<br/>Provider-agnostisch"]
             A012["ARCH-L1-012: AuditLog<br/>Append-only"]
+        end
+
+        subgraph BackendCt2["Container: Backend (Erweiterung 2026-06-21)"]
+            A013["ARCH-L1-013: DiagramService<br/>Diagramm-Verwaltung, Versionierung<br/>(REQ-L1-027)"]
+            A014["ARCH-L1-014: IcdManagement<br/>ICDs, Design-by-Contract,<br/>Breaking-Change-Detection<br/>(REQ-L1-028)"]
+            A015["ARCH-L1-015: SeMetrics<br/>Volatility, Coverage,<br/>Workflow-Lücken, Risiken<br/>(REQ-L1-031)"]
+            A016["ARCH-L1-016: ResilienceOrchestrator<br/>Async, Retry, Circuit-Breaker,<br/>Graceful Degradation<br/>(REQ-L1-032)"]
         end
 
         subgraph DbCt["Container: PostgreSQL"]
@@ -383,10 +529,26 @@ flowchart TD
     A012 --> A010
     A008 --> A010
 
-    A009 -. "HTTPS (optional)" .-> LLM
+    A004 --> A013
+    A004 --> A014
+    A004 --> A016
+    A006 --> A014
+    A013 --> A007
+    A013 --> A010
+    A014 --> A007
+    A014 --> A010
+    A014 --> A012
+    A002 --> A015
+    A015 --> A012
+    A015 --> A007
+    A015 --> A005
+    A015 --> A004
+    A009 --> A016
+    A016 --> A012
+    A016 -. "HTTPS (optional, mit Resilienz-Policy)" .-> LLM
 ```
 
-**Lesehinweis:** Durchgezogene Pfeile = synchrone In-Process-Aufrufe / DB-Zugriffe. Gestrichelte Pfeile = optionale externe HTTPS-Calls.
+**Lesehinweis:** Durchgezogene Pfeile = synchrone In-Process-Aufrufe / DB-Zugriffe. Gestrichelte Pfeile = optionale externe HTTPS-Calls. Erweiterung 2026-06-21: A013..A016 mit ihren Verbindungen sind die neuen Subsysteme zur Abdeckung von REQ-L1-027..032.
 
 ---
 
@@ -512,6 +674,35 @@ Die konsolidierte Schnittstellen-Registry liegt in `docs/se/interface-registry.m
 | `Any → PersistenceLayer` | * → A010 | Django ORM | Custom Manager erzwingt `tenant_id`-Filter |
 | `LlmAdapter → External LLM` | A009 → LLM | HTTPS-Outbound | Provider-spezifisch, hinter `LlmCapabilityInterface` versteckt |
 
+**Erweiterung 2026-06-21 (HOFF-20260621-004) — reservierte Interface-IDs:**
+
+> Die folgenden IDs sind **reserviert** für die neuen Verbindungen aus REQ-L1-027..032. Die finale Eintragung in `docs/se/interface-registry.md` erfolgt durch den `se-interface-mgr`-Agenten als nächsten Kaskaden-Schritt.
+
+| ID (reserviert) | Quelle → Ziel | Typ | Vertrag (Kurzform) | Quelle REQ |
+|-----------------|---------------|-----|---------------------|------------|
+| IF-L1-032 | A004 ApplicationService → A013 DiagramService | In-Process Python | `create_diagram`, `update_diagram`, `get_diagram`, `list_versions` | REQ-L1-027 |
+| IF-L1-033 | A003 McpServer → A013 DiagramService | In-Process Python | `artifact.get` für Diagramm-Typ | REQ-L1-027 |
+| IF-L1-034 | A013 DiagramService → A007 TraceabilityEngine | In-Process Python | TraceLink-Typ `documents` | REQ-L1-027 |
+| IF-L1-035 | A013 DiagramService → A010 PersistenceLayer | Django ORM | Diagram-Entity, DiagramVersion-Entity | REQ-L1-027 |
+| IF-L1-036 | A013 DiagramService → A012 AuditLog | In-Process Python | Schreib-Operationen (delegiert via A004) | REQ-L1-027 |
+| IF-L1-037 | A004 ApplicationService → A014 IcdManagement | In-Process Python | `create_icd`, `update_icd`, `validate_compatibility`, `get_icd_history` | REQ-L1-028 |
+| IF-L1-038 | A006 BaselineService → A014 IcdManagement | In-Process Python | `get_icd_versions(workspace_id)` für Snapshot | REQ-L1-028 |
+| IF-L1-039 | A014 IcdManagement → A007 TraceabilityEngine | In-Process Python | TraceLink-Typ `realizes` | REQ-L1-028 |
+| IF-L1-040 | A014 IcdManagement → A010 PersistenceLayer | Django ORM | Icd-Entity, IcdVersion-Entity (immutable) | REQ-L1-028 |
+| IF-L1-041 | A014 IcdManagement → A012 AuditLog | In-Process Python | Breaking-Change-Events | REQ-L1-028 |
+| IF-L1-042 | A002 RestApiAdapter → A015 SeMetrics | In-Process Python | `compute_metrics(workspace_id, timeframe, scope_filter)` | REQ-L1-031 |
+| IF-L1-043 | A001 ReactFrontend → A015 SeMetrics (via REST) | REST + Bearer Token | Dashboard-Datenabruf via A002 | REQ-L1-031 |
+| IF-L1-044 | A015 SeMetrics → A012 AuditLog | In-Process Python | `query_changes(workspace_id, timeframe)` für Volatility | REQ-L1-031 |
+| IF-L1-045 | A015 SeMetrics → A007 TraceabilityEngine | In-Process Python | `coverage(workspace_id)` | REQ-L1-031 |
+| IF-L1-046 | A015 SeMetrics → A005 WorkflowEngine | In-Process Python | `find_incomplete_states(workspace_id)` | REQ-L1-031 |
+| IF-L1-047 | A015 SeMetrics → A004 ApplicationService | In-Process Python | `query_risks_by_severity(workspace_id)` | REQ-L1-031 |
+| IF-L1-048 | A015 SeMetrics → A010 PersistenceLayer | Django ORM | Metric-Cache-Entity (optional, materialisierte Aggregationen) | REQ-L1-031 |
+| IF-L1-049 | A004 ApplicationService → A016 ResilienceOrchestrator | In-Process Python | `execute_optional(operation, target_subsystem, payload, policy)` | REQ-L1-032 |
+| IF-L1-050 | A009 LlmAdapter → A016 ResilienceOrchestrator | In-Process Python | Wrapping aller HTTPS-Outbound-Calls | REQ-L1-032 |
+| IF-L1-051 | A016 ResilienceOrchestrator → A009 / Webhook / GitHub | In-Process / HTTPS | Delegierter Aufruf nach Policy-Anwendung | REQ-L1-032 |
+| IF-L1-052 | A016 ResilienceOrchestrator → A012 AuditLog | In-Process Python | Degradation-Events, Retry-Logs, Circuit-State-Changes | REQ-L1-032 |
+| IF-L1-056 | A007 TraceabilityEngine → A011 AuthAndTenancy | In-Process Python | `validate_cross_tenant_boundary(source, target)` | REQ-L1-030 |
+
 ---
 
 ## 6. Architektur-Entscheidungen (ADR-Kurzform)
@@ -587,7 +778,11 @@ Die folgende Matrix ordnet jedem Architekturelement (Subsystem) die REQ-L1 zu, f
 | ARCH-L1-009 | LlmAdapter | REQ-L1-013 | REQ-L1-002, REQ-L1-004 |
 | ARCH-L1-010 | PersistenceLayer | REQ-L1-015, REQ-L1-025, REQ-L1-026 | REQ-L1-001–REQ-L1-024 (alle mit Persistenzbedarf) |
 | ARCH-L1-011 | AuthAndTenancy | REQ-L1-010, REQ-L1-015 | REQ-L1-002, REQ-L1-005, REQ-L1-006, REQ-L1-009, REQ-L1-011, REQ-L1-012 |
-| ARCH-L1-012 | AuditLog | REQ-L1-011 | REQ-L1-002, REQ-L1-005, REQ-L1-009, REQ-L1-025 |
+| ARCH-L1-012 | AuditLog | REQ-L1-011 | REQ-L1-002, REQ-L1-005, REQ-L1-009, REQ-L1-025, REQ-L1-032 (Degradation-Events) |
+| ARCH-L1-013 | DiagramService (neu) | REQ-L1-027 | — |
+| ARCH-L1-014 | IcdManagement (neu) | REQ-L1-028 | — |
+| ARCH-L1-015 | SeMetrics (neu) | REQ-L1-031 | — |
+| ARCH-L1-016 | ResilienceOrchestrator (neu) | REQ-L1-032 | — |
 
 ### 7.2 REQ-L1 → ARCH-L1 (Umkehransicht)
 
@@ -619,10 +814,18 @@ Die folgende Matrix ordnet jedem Architekturelement (Subsystem) die REQ-L1 zu, f
 | REQ-L1-024 | Webhook-Support | A004 | — |
 | REQ-L1-025 | Transaktionale Konsistenz (ACID) | A010 | A004 |
 | REQ-L1-026 | Performance | A010 | A001, A002, A003, A004 |
+| REQ-L1-027 | Diagramm- und Grafik-Verwaltung | A013 (neu) | A004 (Fassade), A007 (TraceLinks `documents`), A010, A012 |
+| REQ-L1-028 | ICD-Verwaltung mit DbC | A014 (neu) | A004 (Fassade), A006 (Baseline-Snapshot), A007 (TraceLinks `realizes`), A010, A012 |
+| REQ-L1-029 | ADR-, Risiko- und Issue-Verwaltung | A004 (erweitert) | A005 (WorkflowDefinitions), A007 (TraceLinks), A010, A012 |
+| REQ-L1-030 | Projektübergreifende Traceability | A007 (erweitert) | A004, A010, A011 (Cross-Tenant-Guard) |
+| REQ-L1-031 | SE-Prozess-Metrikmodul | A015 (neu) | A002 (REST-Endpunkt), A001 (Dashboard), A004, A005, A007, A010, A012 |
+| REQ-L1-032 | Resilienz / Graceful Degradation | A016 (neu) | A004 (Webhook/GitHub-Wrapping), A009 (LLM-Routing), A012 (Degradation-Events) |
 
 ### 7.3 Decomposition-Completeness — Begründung
 
-Die zwölf L1-Subsysteme decken alle 26 REQ-L1 vollständig ab. Jede REQ-L1 hat eine primär verantwortliche Architektureinheit und identifizierte Mitwirkende. Keine REQ-L1 ist ohne Owner. Keine Architektureinheit existiert ohne REQ-L1-Begründung. Die Querschnitts-Subsysteme (`AuthAndTenancy`, `PresetConfigEngine`, `AuditLog`, `PersistenceLayer`) sind durch mehrere REQ-L1 motiviert — das ist gewollt und reflektiert die tatsächliche Cross-Cutting-Natur dieser Anliegen.
+Die zwölf ursprünglichen L1-Subsysteme decken alle 26 ursprünglichen REQ-L1 vollständig ab. Jede REQ-L1 hat eine primär verantwortliche Architektureinheit und identifizierte Mitwirkende. Keine REQ-L1 ist ohne Owner. Keine Architektureinheit existiert ohne REQ-L1-Begründung. Die Querschnitts-Subsysteme (`AuthAndTenancy`, `PresetConfigEngine`, `AuditLog`, `PersistenceLayer`) sind durch mehrere REQ-L1 motiviert — das ist gewollt und reflektiert die tatsächliche Cross-Cutting-Natur dieser Anliegen.
+
+**Erweiterung 2026-06-21:** Die sechs neuen REQ-L1-027..032 sind vollständig abgedeckt: 4 durch neue L2-Systeme (A013 DiagramService für REQ-L1-027, A014 IcdManagement für REQ-L1-028, A015 SeMetrics für REQ-L1-031, A016 ResilienceOrchestrator für REQ-L1-032) und 2 durch Erweiterung bestehender Systeme (REQ-L1-029 durch A004 ApplicationService, REQ-L1-030 durch A007 TraceabilityEngine). Die Entscheidung "neu vs. erweitert" folgt dem Separation-of-Concerns-Prinzip: Anforderungen mit distinkter Domänenlogik (Diagramm-Payload-Validierung, DbC-Semantik, Cross-System-Aggregation, Cross-Cutting-Resilienz-Policies) bekommen eigene Systeme; Anforderungen mit identischem Lifecycle-Muster bestehender Verantwortlichkeiten (Artefakt-CRUD für ADR/Risk/Issue, TraceLink-Erweiterung für Cross-Projekt) werden in bestehende Systeme integriert.
 
 Offene Punkte aus L1_Gesamtsystem_Requirements.md (OP-01 LLM-Capability-Scope, OP-02 Preset-Downgrade-Semantik, OP-03 Workflow-Wechsel-Semantik) sind in der Architektur durch dedizierte Subsysteme/Sub-Komponenten adressierbar:
 
@@ -636,10 +839,11 @@ Offene Punkte aus L1_Gesamtsystem_Requirements.md (OP-01 LLM-Capability-Scope, O
 
 ## 8. L2-Cascade Status
 
-> **Status:** ABGESCHLOSSEN | Datum: 2026-06-20
+> **Status:** ERWEITERT 2026-06-21 — 4 neue Systeme + 3 erweiterte Systeme | Ursprüngliche L2-Cascade abgeschlossen 2026-06-20
 >
-> Alle 12 Subsysteme haben vollständige L2-Architekturen und L2-Anforderungen.
-> Termination-Entscheidung: Alle 12 Systeme sind **LEAF** (keine L3-Zerlegung).
+> Alle 12 ursprünglichen Subsysteme haben vollständige L2-Architekturen und L2-Anforderungen (Status LEAF).
+> Vier neue Subsysteme (ARCH-L1-013..016) benötigen L2-Zerlegung durch die SE-Kaskade.
+> Drei bestehende Subsysteme (A004, A007, A009) benötigen REQ-L2-Ergänzungen (neue REQ-L2-IDs).
 
 | System | Komponenten | REQ-L2 | Status |
 |--------|------------|--------|--------|
@@ -655,8 +859,16 @@ Offene Punkte aus L1_Gesamtsystem_Requirements.md (OP-01 LLM-Capability-Scope, O
 | PresetConfigEngineSystem | 3 | 14 | LEAF |
 | AuditLogSystem | 2 | 7 | LEAF |
 | PersistenceLayerSystem | 5 | 9 | LEAF |
+| **DiagramServiceSystem** | TBD | TBD | **PENDING (neu)** |
+| **IcdManagementSystem** | TBD | TBD | **PENDING (neu)** |
+| **SeMetricsSystem** | TBD | TBD | **PENDING (neu)** |
+| **ResilienceOrchestratorSystem** | TBD | TBD | **PENDING (neu)** |
 
-**Kennzahlen L2-Gesamt:**
+**Hinweis Erweiterung 2026-06-21:**
+- 4 neue Systeme (A013..A016) benötigen vollständige L2-Architektur + L2-Requirements via SE-Kaskade
+- 3 bestehende Systeme erhalten neue REQ-L2: A004 (mind. 4 neue: ADR/Risk/Issue + Webhook-Resilienz + Diagram-Fassade + ICD-Fassade), A007 (mind. 4 neue: Cross-Projekt-Link, Cross-Projekt-Query, 2 neue Link-Typen), A009 (mind. 1 neue: Resilienz-Routing)
+
+**Kennzahlen L2-Gesamt (vor Erweiterung):**
 
 | Metrik | Wert |
 |--------|------|
@@ -672,4 +884,5 @@ Nächster Schritt: Implementierung durch developer-Agenten.
 *Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade | 2026-06-18*
 *Aktualisiert: ARCH-L1-001..012 zugewiesen, REQ-L1-001..026 vollständig abgedeckt*
 *Aktualisiert 2026-06-20: L2-Cascade abgeschlossen, alle 12 Systeme LEAF*
-*Nächste Ebene: Siehe `docs/se/L1/Gesamtsystem/L2/<SystemName>System/L2_<SystemName>System_Architecture.md` (12 Systeme ARCH-L1-001 … ARCH-L1-012)*
+*Aktualisiert 2026-06-21 (HOFF-20260621-004): L1-Whitebox erweitert um ARCH-L1-013..016 für REQ-L1-027..032. A004, A007, A009 erhalten Erweiterungen.*
+*Nächste Ebene: Siehe `docs/se/L1/Gesamtsystem/L2/<SystemName>System/L2_<SystemName>System_Architecture.md` (16 Systeme ARCH-L1-001 … ARCH-L1-016; 4 davon PENDING)*
