@@ -24,6 +24,7 @@
 | IF-WE-EXT-IN-002 | input | data | `initialize(item_ids[], item_type, workspace_id, ctx)` von ApplicationService |
 | IF-WE-EXT-IN-003 | input | data | Preset-Regeln von PresetConfigEngine (ARCH-L1-008) |
 | IF-WE-EXT-IN-004 | input | data | Rollen-Kontext von AuthAndTenancy (ARCH-L1-011) |
+| IF-WE-EXT-IN-005 | input | data | Credential (Passwort / TOTP-Token) für SignatureGate-Verifizierung von ApplicationService |
 | IF-WE-EXT-OUT-001 | output | data | WorkflowDefinition, WorkflowState an PersistenceLayer (ARCH-L1-010) |
 
 ---
@@ -32,10 +33,11 @@
 
 ### REQ-L2-WE-001: Transition Validation
 
-Die WorkflowEngine SHALL jede Workflow-State-Transition (`from_state → to_state`) gegen die aktive WorkflowDefinition validieren. Die Validierung SHALL drei Regeln durchsetzen:
+Die WorkflowEngine SHALL jede Workflow-State-Transition (`from_state → to_state`) gegen die aktive WorkflowDefinition validieren. Die Validierung SHALL vier Regeln durchsetzen:
 1. Die Transition existiert in der aktiven WorkflowDefinition für den Item-Typ und Workspace.
 2. Die Rolle des anfragenden Nutzers ist in den `allowed_roles` der Transition enthalten.
 3. Falls `requires_change_reason = true`, MUSS ein nicht-leerer `change_reason` vorhanden sein.
+4. Falls die Transition ein `SignatureGate` besitzt, MUSS der Aufruf ein gültiges Credential (Passwort-Bestätigung oder TOTP-Token) enthalten.
 
 Bei Regelverletzung SHALL die Transition mit spezifischer Fehlermeldung abgelehnt werden.
 
@@ -46,9 +48,10 @@ Bei Regelverletzung SHALL die Transition mit spezifischer Fehlermeldung abgelehn
 - [ ] Nutzer mit `approver` versucht Transition ohne `change_reason` (Pflicht) → Fehler `"change_reason required"`
 - [ ] Nicht-definierte Transition `draft → deprecated` → Fehler `"Transition not allowed"`
 - [ ] Gültige Transition mit allen Bedingungen → WorkflowState aktualisiert, History-Eintrag
+- [ ] Transition mit SignatureGate ohne Credential → Fehler `"Signature required"`
 
 **Interfaces:**
-- Incoming: IF-WE-EXT-IN-001, IF-WE-EXT-IN-003, IF-WE-EXT-IN-004
+- Incoming: IF-WE-EXT-IN-001, IF-WE-EXT-IN-003, IF-WE-EXT-IN-004, IF-WE-EXT-IN-005
 - Outgoing: IF-WE-EXT-OUT-001
 
 **Traceability:** REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-010 (mitwirkend), REQ-L1-012 (mitwirkend)
@@ -63,7 +66,7 @@ Die WorkflowEngine SHALL WorkflowDefinitions pro Item-Typ und Workspace verwalte
 - **Standard:** States `[draft, approved, deprecated]`, rollenbasiert.
 - **Extended:** States `[draft, in_review, approved, deprecated]`, `in_review → approved` nur für `approver`, `change_reason` Pflicht.
 
-Custom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-Preset SHALL der Default-Workflow nicht konfigurierbar sein.
+Custom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-Preset SHALL der Default-Workflow nicht konfigurierbar sein. Jede Transition KANN optional ein `signature_gate`-Attribut (boolean) tragen; ist es gesetzt (`true`), wird bei der Ausführung ein Credential verlangt.
 
 **Domain:** software
 **Priority:** mandatory
@@ -72,6 +75,7 @@ Custom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-P
 - [ ] Neuer Workspace Extended → Default-Workflow: `[draft, in_review, approved, deprecated]`
 - [ ] Custom Workflow im Minimal-Preset → abgelehnt
 - [ ] Custom Workflow im Extended-Preset → persistiert
+- [ ] Transition mit `signature_gate: true` definiert → gespeichert und bei Validierung angewendet
 
 **Interfaces:**
 - Incoming: IF-WE-EXT-IN-003
@@ -84,7 +88,7 @@ Custom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-P
 
 ### REQ-L2-WE-003: WorkflowState History (Audit-Trail)
 
-Die WorkflowEngine SHALL für jede erfolgreiche Transition einen append-only History-Eintrag schreiben mit: `from_state`, `to_state`, `transitioned_by`, `transitioned_at` (UTC, ms-Präzision), `change_reason` (optional). History-Einträge DÜRFEN NICHT modifiziert oder gelöscht werden. Transition und History-Eintrag MÜSSEN atomar persistiert werden.
+Die WorkflowEngine SHALL für jede erfolgreiche Transition einen append-only History-Eintrag schreiben mit: `from_state`, `to_state`, `transitioned_by`, `transitioned_at` (UTC, ms-Präzision), `change_reason` (optional), `signature_seal` (kryptografisches Prüfsiegel, non-null wenn SignatureGate durchlaufen). History-Einträge DÜRFEN NICHT modifiziert oder gelöscht werden. Transition und History-Eintrag MÜSSEN atomar persistiert werden.
 
 **Domain:** software
 **Priority:** mandatory
@@ -93,6 +97,7 @@ Die WorkflowEngine SHALL für jede erfolgreiche Transition einen append-only His
 - [ ] Versuch History-Eintrag zu modifizieren → Exception `"History is append-only"`
 - [ ] History-Write-Fehler → State-Transition zurückgerollt
 - [ ] MCP-Transition → `transitioned_by` enthält Agent-Client-Identität
+- [ ] Transition mit SignatureGate → History-Eintrag enthält `signature_seal` (non-null)
 
 **Interfaces:**
 - Outgoing: IF-WE-EXT-OUT-001
@@ -200,6 +205,28 @@ Die WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + 
 
 ---
 
+### REQ-L2-WE-009: SignatureGate — Credential-Verifizierung
+
+Die WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das übergebene Credential (Passwort-Bestätigung oder TOTP-Token) gegen das AuthAndTenancy-System verifizieren, bevor die Transition ausgeführt wird. Schlägt die Verifizierung fehl, SHALL die Transition abgebrochen werden (HTTP 403) und kein AuditLog-Eintrag geschrieben werden. Bei erfolgreicher Verifizierung SHALL ein kryptografisches Prüfsiegel (`signature_seal`) als HMAC-SHA256 aus `transition_id + timestamp + user_id` berechnet und im History-Eintrag gespeichert werden. Ziel ist die Erfüllung der Anforderungen an Qualified Electronic Signatures (QES) für sicherheitskritische Systeme (IEC 61508 v2).
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Transition mit `signature_gate: true`, Passwort korrekt → Transition erfolgreich, `signature_seal` im History-Eintrag (non-null)
+- [ ] Transition mit `signature_gate: true`, TOTP-Token gültig → Transition erfolgreich, `signature_seal` im History-Eintrag (non-null)
+- [ ] Transition mit `signature_gate: true`, Passwort falsch → HTTP 403, kein History-Eintrag
+- [ ] Transition mit `signature_gate: true`, TOTP-Token ungültig → HTTP 403, kein History-Eintrag
+- [ ] `signature_seal` = HMAC-SHA256(`transition_id + timestamp + user_id`) — verifizierbar
+
+**Interfaces:**
+- Incoming: IF-WE-EXT-IN-001 (erweiterter Payload), IF-WE-EXT-IN-004, IF-WE-EXT-IN-005
+- Outgoing: IF-WE-EXT-OUT-001
+
+**Traceability:** REQ-L1-009, REQ-L1-010 (mitwirkend)
+**Rationale:** SignatureGate ermöglicht QES-konforme Workflow-Transitionen für IEC 61508 v2 (Safety-Critical Systems). Ohne kryptografisches Prüfsiegel im AuditLog sind Safety-Nachweise nicht auditierbar.
+
+---
+
 ## Traceability-Matrix: REQ-L2-WE → REQ-L1
 
 | REQ-L2-WE | REQ-L1 (primär) | REQ-L1 (mitwirkend) |
@@ -212,6 +239,7 @@ Die WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + 
 | REQ-L2-WE-006 | REQ-L1-015 | REQ-L1-009 |
 | REQ-L2-WE-007 | REQ-L1-007 | REQ-L1-009 |
 | REQ-L2-WE-008 | REQ-L1-026 | REQ-L1-009 |
+| REQ-L2-WE-009 | REQ-L1-009 | REQ-L1-010 |
 
 ---
 
@@ -219,9 +247,9 @@ Die WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + 
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-WE | 8 |
+| Anzahl REQ-L2-WE | 9 |
 | Mandatory | 5 |
-| Desired | 3 |
+| Desired | 4 |
 | Optional | 0 |
 | Abgedeckte REQ-L1 (primär) | REQ-L1-009, REQ-L1-015 |
 | Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-002, -004, -007, -010, -011, -012, -025, -026 |
