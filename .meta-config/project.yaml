@@ -173,5 +173,5 @@ tier-preset: Cheap
 se-focus: true
 model-overrides:
   Claude:
-    se-senior-developer: anthropic/claude-opus-4.8
-    se-developer: anthropic/claude-sonnet-4.6
+    se-senior-developer: claude-opus-4-8
+    se-developer: claude-sonnet-4-6
