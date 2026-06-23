@@ -1,0 +1,134 @@
+# ReqFlow Docker Compose Orchestration
+# ADR-08: Self-Hosted via Docker Compose — three services: backend, frontend, postgres
+# Start: docker-compose up
+# Build: docker-compose build
+
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────────────────────
+  # PostgreSQL — ARCH-L1-010 PersistenceLayer
+  # ─────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-reqflow}
+      POSTGRES_USER: ${DB_USER:-reqflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-reqflow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-reqflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────────────────
+  # Redis — ARCH-L1-016 ResilienceOrchestrator (Celery broker)
+  # ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────────────────
+  # Django Backend — All backend ARCH-L1 systems
+  # ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DJANGO_SETTINGS_MODULE: reqflow.settings
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      DEBUG: ${DEBUG:-True}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DB_NAME: ${DB_NAME:-reqflow}
+      DB_USER: ${DB_USER:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02)
+      # Set LLM_PROVIDER=anthropic|openai|ollama to enable AI features.
+      # Graceful degradation if not set (REQ-L1-032).
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  # ─────────────────────────────────────────────────────────
+  # Celery Worker — ARCH-L1-016 ResilienceOrchestrator
+  # Handles async tasks: LLM calls, Webhooks, GitHub integration
+  # ─────────────────────────────────────────────────────────
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DJANGO_SETTINGS_MODULE: reqflow.settings
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      DEBUG: ${DEBUG:-True}
+      DB_NAME: ${DB_NAME:-reqflow}
+      DB_USER: ${DB_USER:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqflow project
+    command: >
+      sh -c "celery -A reqflow worker --loglevel=info"
+
+  # ─────────────────────────────────────────────────────────
+  # React Frontend — ARCH-L1-001 ReactFrontend
+  # ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

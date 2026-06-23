@@ -1,0 +1,22 @@
+{
+  "app": {
+    "title": "ReqFlow",
+    "placeholder": "KI-natives Anforderungsmanagement — Implementierung in Bearbeitung."
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "requirements": "Anforderungen",
+    "architecture": "Architektur",
+    "tests": "Tests",
+    "baselines": "Baselines",
+    "traceability": "Traceability",
+    "metrics": "SE-Metriken",
+    "settings": "Workspace-Einstellungen"
+  },
+  "errors": {
+    "generic": "Ein unerwarteter Fehler ist aufgetreten.",
+    "not_found": "Ressource nicht gefunden.",
+    "unauthorized": "Sie sind nicht berechtigt, diese Aktion auszuführen.",
+    "llm_not_configured": "LLM-Provider ist nicht konfiguriert. KI-Features sind nicht verfügbar."
+  }
+}

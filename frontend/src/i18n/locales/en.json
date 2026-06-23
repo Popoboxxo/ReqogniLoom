@@ -1,0 +1,22 @@
+{
+  "app": {
+    "title": "ReqFlow",
+    "placeholder": "AI-native Requirements Management — implementation in progress."
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "requirements": "Requirements",
+    "architecture": "Architecture",
+    "tests": "Tests",
+    "baselines": "Baselines",
+    "traceability": "Traceability",
+    "metrics": "SE Metrics",
+    "settings": "Workspace Settings"
+  },
+  "errors": {
+    "generic": "An unexpected error occurred.",
+    "not_found": "Resource not found.",
+    "unauthorized": "You are not authorized to perform this action.",
+    "llm_not_configured": "LLM provider is not configured. AI features are unavailable."
+  }
+}
