@@ -1,30 +1,170 @@
 """
-ARCH-L1-004 ApplicationService — Service stubs.
+ARCH-L1-004 ApplicationService — Public service facade.
 
-TODO(COMP-AS-001): Implement RequirementService:
-  - create_requirement(data, ctx) -> Requirement
-  - update_requirement(id, data, ctx) -> Requirement
-  - delete_requirement(id, ctx) -> None
-  - decompose_requirement(id, ctx) -> list[Requirement]  (LLM-assisted via llm_adapter)
-TODO(COMP-AS-002): Implement ArchitectureService:
-  - create_architecture_element(data, ctx) -> ArchitectureElement
-  - update_architecture_element(id, data, ctx) -> ArchitectureElement
-TODO(COMP-AS-003): Implement TestCaseService:
-  - create_test_case(data, ctx) -> TestCase
-TODO(COMP-AS-004): Implement BaselineFacadeService — delegates to baseline app.
-TODO(COMP-AS-005): Implement WorkflowFacadeService — delegates to workflow app.
-TODO(COMP-AS-006): Implement TraceabilityFacadeService — delegates to traceability app.
-TODO(COMP-AS-007): Implement LlmFacadeService — delegates to llm_adapter app via resilience.
-TODO(COMP-AS-008): Implement SearchService — PostgreSQL Full-Text Search (ADR-09).
-TODO(COMP-AS-009): Implement ExportService — JSON/CSV/PDF export (REQ-L1-019, REQ-L1-023).
-TODO(COMP-AS-010): Implement CsvImportService (REQ-L1-021).
-TODO(COMP-AS-011): Implement WebhookDispatcher — routes via ResilienceOrchestrator (IF-L1-049).
-TODO(COMP-AS-012): Implement GitHubIntegrationService — routes via ResilienceOrchestrator.
-TODO(COMP-AS-013): Implement AdrService (REQ-L1-029, REQ-L2-AS-026).
-TODO(COMP-AS-014): Implement RiskService (REQ-L1-029, REQ-L2-AS-027).
-TODO(COMP-AS-015): Implement IssueService (REQ-L1-029, REQ-L2-AS-028).
-TODO(COMP-AS-016): Implement DiagramFacadeService (IF-L1-032, REQ-L1-027).
-TODO(COMP-AS-017): Implement IcdFacadeService (IF-L1-037, REQ-L1-028).
+leaf_id : ApplicationService Foundation (Step 1 of 3)
+req_id  : REQ-L2-AS-001 through REQ-L2-AS-025, REQ-L2-AS-029
 
-Reference: docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/L2_ApplicationServiceSystem_Architecture.md
+This module is the ONLY public import surface for downstream systems
+(rest_api, mcp_server).  ADR-01: Single Entry Point.
+
+Step-1 components (this file):
+  COMP-AS-001  ArtifactService
+  COMP-AS-002  RequirementService
+  COMP-AS-003  ArchitectureService
+  COMP-AS-004  TestService
+  COMP-AS-005  TraceLinkService
+  COMP-AS-012  PresetPolicyService
+  COMP-AS-016  DomainEventBus
+
+Extension pattern for Steps 2+3 (DO NOT modify this file):
+  1. Create application/services_step2.py (or services_step3.py).
+  2. Define your service class (subclass ServiceBase if writing).
+  3. At the bottom of that file add:
+
+       from application.services import _registry
+       _registry["MyNewService"] = MyNewService
+
+     OR simply import and re-export in a thin wrapper:
+
+       # services_step2.py
+       from application.baseline_facade import BaselineFacade      # noqa: F401
+       from application.workflow_facade import WorkflowFacade       # noqa: F401
+       __all__ = ["BaselineFacade", "WorkflowFacade"]
+
+  4. Downstream consumers then import from application.services_step2
+     OR from application.services after adding a re-export line (see below).
+
+Files NOT to modify when adding new services:
+  - application/base.py          (ServiceBase contract)
+  - application/event_bus.py     (DomainEventBus)
+  - application/models.py        (Outbox/DLQ models)
+  - application/services.py      (this file — except the __all__ extension)
+
+Import paths for downstream consumers:
+
+    from application.services import (
+        ArtifactService,
+        RequirementService,
+        ArchitectureService,
+        TestService,
+        TraceLinkService,
+        PresetPolicyService,
+        DomainEventBus,
+        get_event_bus,
+        poll_and_dispatch,
+        # Exceptions
+        PermissionDeniedError,
+        NotFoundError,
+        ValidationError,
+        OptimisticLockError,
+        LlmNotConfiguredError,
+        # Event type
+        DomainEvent,
+    )
+
+Architecture:
+  docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/
+    L2_ApplicationServiceSystem_Architecture.md
 """
+from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# Step-1 components — re-exported as the public facade
+# ---------------------------------------------------------------------------
+
+# COMP-AS-001
+from application.artifact_service import ArtifactService, TreeNodeDTO  # noqa: F401
+
+# COMP-AS-002
+from application.requirement_service import (  # noqa: F401
+    DecompositionResultDTO,
+    RequirementDTO,
+    RequirementService,
+)
+
+# COMP-AS-003
+from application.architecture_service import ArchitectureService  # noqa: F401
+
+# COMP-AS-004
+from application.test_service import TestService  # noqa: F401
+
+# COMP-AS-005
+from application.trace_link_service import TraceLinkService, VALID_LINK_TYPES  # noqa: F401
+
+# COMP-AS-012
+from application.preset_policy_service import (  # noqa: F401
+    PresetPolicyService,
+    get_preset_policy_service,
+)
+
+# COMP-AS-016
+from application.event_bus import (  # noqa: F401
+    DomainEvent,
+    DomainEventBus,
+    get_event_bus,
+    poll_and_dispatch,
+)
+
+# Shared exceptions
+from application.base import (  # noqa: F401
+    LlmNotConfiguredError,
+    NotFoundError,
+    OptimisticLockError,
+    PermissionDeniedError,
+    ServiceBase,
+    ValidationError,
+)
+
+# ---------------------------------------------------------------------------
+# Service registry (for Steps 2+3 to hook into without modifying this file)
+# ---------------------------------------------------------------------------
+# Steps 2+3 may call:
+#   from application.services import _registry
+#   _registry["MyNewService"] = MyNewService
+# This allows discovery without changing any existing import path.
+
+_registry: dict = {
+    "ArtifactService": ArtifactService,
+    "RequirementService": RequirementService,
+    "ArchitectureService": ArchitectureService,
+    "TestService": TestService,
+    "TraceLinkService": TraceLinkService,
+    "PresetPolicyService": PresetPolicyService,
+}
+
+# ---------------------------------------------------------------------------
+# Public surface declaration
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    # Step-1 services
+    "ArtifactService",
+    "RequirementService",
+    "ArchitectureService",
+    "TestService",
+    "TraceLinkService",
+    "PresetPolicyService",
+    # COMP-AS-016
+    "DomainEventBus",
+    "DomainEvent",
+    "get_event_bus",
+    "poll_and_dispatch",
+    # DTOs
+    "TreeNodeDTO",
+    "RequirementDTO",
+    "DecompositionResultDTO",
+    # Exceptions
+    "PermissionDeniedError",
+    "NotFoundError",
+    "ValidationError",
+    "OptimisticLockError",
+    "LlmNotConfiguredError",
+    # Base (for Steps 2+3 inheritance)
+    "ServiceBase",
+    # Registry (for extension)
+    "_registry",
+    # Constants
+    "VALID_LINK_TYPES",
+    # Helpers
+    "get_preset_policy_service",
+]
