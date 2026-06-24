@@ -141,6 +141,11 @@ _registry: dict = {
 # ---------------------------------------------------------------------------
 from application.services_step2 import *  # noqa: F401,F403,E402
 
+# ---------------------------------------------------------------------------
+# Step-3 re-export (COMP-AS-013..015) — DO NOT modify above this line
+# ---------------------------------------------------------------------------
+from application.services_step3 import *  # noqa: F401,F403,E402
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -187,4 +192,14 @@ __all__ = [
     "WebhookDispatcher",
     "SUBSCRIBED_EVENT_TYPES",
     "get_webhook_dispatcher",
+    # Step-3 services (COMP-AS-013..015)
+    "AdrService",
+    "AdrDTO",
+    "ADR_LINK_TYPES",
+    "RiskService",
+    "RiskDTO",
+    "RISK_LINK_TYPES",
+    "IssueService",
+    "IssueDTO",
+    "ISSUE_LINK_TYPES",
 ]

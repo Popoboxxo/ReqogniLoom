@@ -176,9 +176,230 @@ class WebhookDeliveryLog(models.Model):
         return f"WebhookDelivery:{self.subscription_id}:{self.event_type}:{self.attempt}"
 
 
+# ---------------------------------------------------------------------------
+# ADR / Risk / Issue models — COMP-AS-013, COMP-AS-014, COMP-AS-015
+# leaf_id : COMP-AS-013, COMP-AS-014, COMP-AS-015
+# req_id  : REQ-L1-029
+# ---------------------------------------------------------------------------
+
+
+class Adr(models.Model):
+    """Architecture Decision Record entity — COMP-AS-013 AdrService.
+
+    Stores the full lifecycle of architectural decision records with
+    append-only versioning (REQ-L3-ADR-002) and tenant isolation (REQ-L3-ADR-006).
+
+    leaf_id : COMP-AS-013
+    req_id  : REQ-L1-029
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "Draft"
+        IN_REVIEW = "In Review"
+        APPROVED = "Approved"
+        REJECTED = "Rejected"
+        SUPERSEDED = "Superseded"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace_id = models.UUIDField(db_index=True)
+    tenant_id = models.UUIDField(db_index=True)
+    title = models.CharField(max_length=200)
+    description = models.TextField(max_length=10000)
+    context = models.TextField(max_length=5000, blank=True)
+    consequences = models.TextField(max_length=5000, blank=True)
+    status = models.CharField(
+        max_length=32, choices=Status.choices, default=Status.DRAFT
+    )
+    version = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_adr"
+        indexes = [
+            models.Index(fields=["workspace_id", "status"], name="idx_adr_ws_status"),
+            models.Index(fields=["tenant_id", "workspace_id"], name="idx_adr_tenant_ws"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ADR:{self.id}:{self.title[:40]}"
+
+
+class Risk(models.Model):
+    """Risk entity — COMP-AS-014 RiskService.
+
+    Stores risk metadata with automatic score calculation
+    (probability × impact) and severity classification for SeMetrics.
+
+    leaf_id : COMP-AS-014
+    req_id  : REQ-L1-029
+    """
+
+    class Probability(models.TextChoices):
+        LOW = "low", "Low (1)"
+        MEDIUM = "medium", "Medium (2)"
+        HIGH = "high", "High (3)"
+
+    class Impact(models.TextChoices):
+        LOW = "low", "Low (1)"
+        MEDIUM = "medium", "Medium (2)"
+        HIGH = "high", "High (3)"
+
+    class Category(models.TextChoices):
+        TECHNICAL = "technical"
+        OPERATIONAL = "operational"
+        ORGANIZATIONAL = "organizational"
+        BUSINESS = "business"
+
+    class RiskStatus(models.TextChoices):
+        IDENTIFIED = "Identified"
+        MONITORED = "Monitored"
+        MITIGATED = "Mitigated"
+        ACCEPTED = "Accepted"
+        CLOSED = "Closed"
+
+    # Severity is derived from risk_score: low=1-3, medium=4-8, high>=9
+    class Severity(models.TextChoices):
+        LOW = "low"
+        MEDIUM = "medium"
+        HIGH = "high"
+
+    _PROB_NUMERIC = {"low": 1, "medium": 2, "high": 3}
+    _IMPACT_NUMERIC = {"low": 1, "medium": 2, "high": 3}
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace_id = models.UUIDField(db_index=True)
+    tenant_id = models.UUIDField(db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    category = models.CharField(
+        max_length=32, choices=Category.choices, default=Category.TECHNICAL
+    )
+    probability = models.CharField(
+        max_length=16, choices=Probability.choices, default=Probability.LOW
+    )
+    impact = models.CharField(
+        max_length=16, choices=Impact.choices, default=Impact.LOW
+    )
+    risk_score = models.IntegerField(default=1)
+    # Persisted severity (low/medium/high) derived from risk_score
+    severity = models.CharField(
+        max_length=16, choices=Severity.choices, default=Severity.LOW
+    )
+    owner = models.CharField(max_length=255, blank=True)
+    mitigation_strategy = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=32, choices=RiskStatus.choices, default=RiskStatus.IDENTIFIED
+    )
+    version = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_risk"
+        indexes = [
+            models.Index(fields=["workspace_id", "status"], name="idx_risk_ws_status"),
+            models.Index(fields=["tenant_id", "workspace_id"], name="idx_risk_tenant_ws"),
+            models.Index(fields=["workspace_id", "severity"], name="idx_risk_ws_severity"),
+            models.Index(fields=["workspace_id", "risk_score"], name="idx_risk_ws_score"),
+        ]
+
+    def compute_score(self) -> int:
+        """Return probability × impact numeric score (1–9)."""
+        p = self._PROB_NUMERIC.get(self.probability, 1)
+        i = self._IMPACT_NUMERIC.get(self.impact, 1)
+        return p * i
+
+    @staticmethod
+    def score_to_severity(score: int) -> str:
+        """Map numeric score to severity label (REQ-L3-RISK-007)."""
+        if score >= 9:
+            return Risk.Severity.HIGH
+        if score >= 4:
+            return Risk.Severity.MEDIUM
+        return Risk.Severity.LOW
+
+    def __str__(self) -> str:
+        return f"Risk:{self.id}:{self.title[:40]}"
+
+
+class Issue(models.Model):
+    """Issue entity — COMP-AS-015 IssueService.
+
+    Tracks defects/improvements with severity, assignee management and
+    multi-filter query support.
+
+    leaf_id : COMP-AS-015
+    req_id  : REQ-L1-029
+    """
+
+    class Severity(models.TextChoices):
+        CRITICAL = "critical"
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
+
+    class Category(models.TextChoices):
+        DEFECT = "defect"
+        IMPROVEMENT = "improvement"
+        DOCUMENTATION = "documentation"
+        QUESTION = "question"
+
+    class IssueStatus(models.TextChoices):
+        OPEN = "Open"
+        IN_PROGRESS = "In Progress"
+        RESOLVED = "Resolved"
+        CLOSED = "Closed"
+        WONTFIX = "Wontfix"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace_id = models.UUIDField(db_index=True)
+    tenant_id = models.UUIDField(db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    severity = models.CharField(
+        max_length=16, choices=Severity.choices, default=Severity.MEDIUM
+    )
+    category = models.CharField(
+        max_length=32, choices=Category.choices, default=Category.DEFECT
+    )
+    assignee_id = models.UUIDField(null=True, blank=True)
+    assignee_changed_date = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateTimeField(null=True, blank=True)
+    tags = models.JSONField(default=list)
+    status = models.CharField(
+        max_length=32, choices=IssueStatus.choices, default=IssueStatus.OPEN
+    )
+    version = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_issue"
+        indexes = [
+            models.Index(fields=["workspace_id", "status"], name="idx_issue_ws_status"),
+            models.Index(
+                fields=["workspace_id", "severity"], name="idx_issue_ws_severity"
+            ),
+            models.Index(fields=["tenant_id", "workspace_id"], name="idx_issue_tenant_ws"),
+            models.Index(
+                fields=["workspace_id", "assignee_id"], name="idx_issue_ws_assignee"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Issue:{self.id}:{self.title[:40]}"
+
+
 __all__ = [
     "DomainEventOutbox",
     "DomainEventDLQ",
     "WebhookSubscription",
     "WebhookDeliveryLog",
+    "Adr",
+    "Risk",
+    "Issue",
 ]
