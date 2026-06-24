@@ -195,14 +195,10 @@ class TestService(ServiceBase):
 
         # Store execution_status in description as tagged metadata
         # (schema v1 has no dedicated execution_status field — extend if needed)
-        test_case.description = (
-            f"[execution_status:{execution_status}] "
-            + test_case.description.lstrip(
-                "[execution_status:Passed] "
-                "[execution_status:Failed] "
-                "[execution_status:Not Run] "
-            )
-        )
+        # Remove any existing tag via regex (lstrip removes chars, not substrings)
+        import re
+        stripped = re.sub(r'^\[execution_status:[^\]]*\]\s*', '', test_case.description)
+        test_case.description = f"[execution_status:{execution_status}] {stripped}"
         test_case.save(update_fields=["description"])
 
         self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
