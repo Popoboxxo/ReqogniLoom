@@ -136,6 +136,11 @@ _registry: dict = {
 # Public surface declaration
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Step-2 re-export (COMP-AS-006..011) — DO NOT modify above this line
+# ---------------------------------------------------------------------------
+from application.services_step2 import *  # noqa: F401,F403,E402
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -167,4 +172,19 @@ __all__ = [
     "VALID_LINK_TYPES",
     # Helpers
     "get_preset_policy_service",
+    # Step-2 services (COMP-AS-006..011)
+    "BaselineFacade",
+    "WorkflowFacade",
+    "ExportService",
+    "ExportResult",
+    "ImportService",
+    "ImportResult",
+    "ImportRowError",
+    "SearchService",
+    "SearchResult",
+    "SearchHit",
+    "QueryParser",
+    "WebhookDispatcher",
+    "SUBSCRIBED_EVENT_TYPES",
+    "get_webhook_dispatcher",
 ]

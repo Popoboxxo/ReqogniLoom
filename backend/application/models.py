@@ -2,15 +2,18 @@
 ARCH-L1-004 ApplicationService — Models.
 
 COMP-AS-016 DomainEventBus owns the Transactional Outbox store.
+COMP-AS-011 WebhookDispatcher owns WebhookSubscription and WebhookDLQ.
 All other entities are owned by the persistence app (ARCH-L1-010).
 
-leaf_id : COMP-AS-016
-req_id  : REQ-L2-AS-026, REQ-L2-AS-029
+leaf_id : COMP-AS-016, COMP-AS-011
+req_id  : REQ-L2-AS-026, REQ-L2-AS-029, REQ-L1-024
 
 Reference:
   docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/
     Components/COMP-AS-016_DomainEventBus/
       L3_COMP-AS-016_DomainEventBus_Architecture.md
+  docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/
+    Components/COMP-AS-011_WebhookDispatcher/
 """
 from __future__ import annotations
 
@@ -104,7 +107,78 @@ class DomainEventDLQ(models.Model):
         return f"DLQ:{self.event_type}:{self.event_id}"
 
 
+class WebhookSubscription(models.Model):
+    """Webhook subscription configuration — COMP-AS-011 WebhookDispatcher.
+
+    Stores per-workspace webhook endpoints with event-type filtering.
+    REQ-L1-024, REQ-L3-WHOOK-002 (webhook config), REQ-L3-WHOOK-009 (tenant).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace_id = models.UUIDField(db_index=True)
+    # Comma-separated event types, e.g. "RequirementCreated,WorkflowTransitioned"
+    event_types = models.CharField(max_length=512, default="")
+    url = models.URLField(max_length=2048)
+    # Optional HMAC secret for payload signing (REQ-L3-WHOOK-004)
+    secret = models.CharField(max_length=255, blank=True)
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "as_webhook_subscription"
+        indexes = [
+            models.Index(
+                fields=["workspace_id", "enabled"],
+                name="idx_webhook_ws_enabled",
+            ),
+        ]
+
+    def get_event_types_list(self) -> list:
+        """Return event_types as a Python list."""
+        return [t.strip() for t in self.event_types.split(",") if t.strip()]
+
+    def __str__(self) -> str:
+        return f"WebhookSubscription:{self.workspace_id}:{self.url}"
+
+
+class WebhookDeliveryLog(models.Model):
+    """Delivery log entry per webhook attempt — COMP-AS-011.
+
+    REQ-L3-WHOOK-008: monitoring, DLQ inspection.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    subscription = models.ForeignKey(
+        WebhookSubscription,
+        on_delete=models.CASCADE,
+        related_name="delivery_logs",
+    )
+    event_id = models.UUIDField(db_index=True)
+    event_type = models.CharField(max_length=64)
+    attempt = models.IntegerField(default=1)
+    status_code = models.IntegerField(null=True, blank=True)
+    success = models.BooleanField(default=False)
+    error_message = models.TextField(blank=True)
+    dispatched_at = models.DateTimeField(auto_now_add=True)
+    # After MAX_RETRIES this row is "dead" — operators may retry manually
+    is_dead_letter = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "as_webhook_delivery_log"
+        indexes = [
+            models.Index(
+                fields=["subscription", "event_id"],
+                name="idx_webhook_log_sub_event",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"WebhookDelivery:{self.subscription_id}:{self.event_type}:{self.attempt}"
+
+
 __all__ = [
     "DomainEventOutbox",
     "DomainEventDLQ",
+    "WebhookSubscription",
+    "WebhookDeliveryLog",
 ]
