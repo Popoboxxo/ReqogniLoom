@@ -166,32 +166,68 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------------------------------------------------------------------------
 # Django REST Framework — ARCH-L1-002 RestApiAdapter
+# COMP-RA-003 AuthEnforcer: AuthTenancyAuthentication provides Bearer+API-Key auth.
+# COMP-RA-003 RbacPermission: enforces RBAC matrix (REQ-L2-RA-005, REQ-L2-RA-006).
+# COMP-RA-002 StandardPagination: offset-based, default 25, max 100 (REQ-L2-RA-010).
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        # TODO(ARCH-L1-011): Replace with custom BearerTokenAuthentication
-        # and ApiKeyAuthentication once auth_tenancy is implemented.
+        # COMP-RA-003: Delegates token validation to auth_tenancy (IF-RA-EXT-OUT-004)
+        "rest_api.auth_enforcer.BearerTokenAuthentication",
+        # Fallback for admin UI and browsable API
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
+        # COMP-RA-003: RBAC enforcement before ApplicationService delegation
+        "rest_api.auth_enforcer.RbacPermission",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 100,
+    # COMP-RA-002: Pagination — default 25, max 100 (REQ-L3-RA002-003)
+    "DEFAULT_PAGINATION_CLASS": "rest_api.serializers.StandardPagination",
+    "PAGE_SIZE": 25,
+    # Filter/ordering backends (REQ-L2-RA-010)
+    "DEFAULT_FILTER_BACKENDS": [
+        "rest_framework.filters.OrderingFilter",
+        "rest_framework.filters.SearchFilter",
+    ],
 }
 
 # ---------------------------------------------------------------------------
-# drf-spectacular — OpenAPI auto-generation
+# drf-spectacular — OpenAPI auto-generation (COMP-RA-005)
+# REQ-L3-RA005-001: securitySchemes defines Bearer token authentication.
+# REQ-L3-RA005-001: Schema endpoint served without auth (SERVE_INCLUDE_SCHEMA=False
+#   means drf-spectacular does not include the schema URL in its own output;
+#   the schema URL is accessible publicly via the URL conf).
 # ---------------------------------------------------------------------------
 SPECTACULAR_SETTINGS = {
     "TITLE": "ReqFlow API",
     "DESCRIPTION": (
         "AI-native Requirements Management Tool. "
-        "Dual-interface: REST API + MCP Server (ADR-01)."
+        "Dual-interface: REST API + MCP Server (ADR-01). "
+        "All endpoints require Bearer Token authentication (REQ-L2-RA-005). "
+        "Schema endpoints (/api/v1/schema/, /api/v1/schema/swagger-ui/) are public."
     ),
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # REQ-L3-RA005-001: Bearer token security scheme
+    "SECURITY": [{"BearerAuth": []}],
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": "/api/v1/",
+    # Security schemes for OpenAPI spec
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": (
+                    "Bearer token authentication. "
+                    "Use 'Authorization: Bearer <token>' header. "
+                    "API keys (rf_ prefix) are also accepted via this header."
+                ),
+            }
+        }
+    },
 }
 
 # ---------------------------------------------------------------------------
