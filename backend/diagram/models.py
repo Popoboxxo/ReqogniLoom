@@ -1,16 +1,146 @@
 """
-ARCH-L1-013 DiagramService — Models.
+ARCH-L1-013 DiagramService — ORM models.
 
-TODO(COMP-DS-001): Implement Diagram model.
-  Fields: id, tenant_id, workspace_id, name, diagram_type (enum: block/flow/context/...),
-  current_version_id (FK → DiagramVersion), created_at, created_by, artifact metadata.
-TODO(COMP-DS-002): Implement DiagramVersion model — immutable per change.
-  Fields: id, diagram_id (FK), version_number, payload_format (mermaid/plantuml/json),
-  payload (TextField/JSONField), created_at, created_by.
-  No update/delete path — append-only.
-TODO(COMP-DS-003): Implement PayloadValidator — validates payload syntax
-  per diagram_type and payload_format.
+leaf_id: COMP-DS-001 (DiagramManager), COMP-DS-002 (DiagramValidator)
+req_id: REQ-L1-027, REQ-L2-DS-001
 
-Reference: docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/L2_DiagramServiceSystem_Architecture.md
+Entities:
+  Diagram        — the mutable header record (name, type, current version pointer)
+  DiagramVersion — append-only, immutable payload per change (version N+1)
+
+Both inherit TenantScopedModel (UUID PK, tenant FK, audit fields, TenantManager).
+
+Architecture reference:
+  docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/
+  L2_DiagramServiceSystem_Architecture.md (IF-L1-035)
 """
-from django.db import models  # noqa: F401
+from __future__ import annotations
+
+from django.db import models
+
+from persistence.models import TenantScopedModel
+
+
+# ---------------------------------------------------------------------------
+# Enumerations
+# ---------------------------------------------------------------------------
+
+class DiagramType(models.TextChoices):
+    """Supported diagram types (REQ-L2-DS-002: at least 3 types).
+
+    COMP-DS-002 DiagramValidator uses this enum to route type-specific rules.
+    """
+
+    BLOCK = "block", "Block Diagram"
+    FLOW = "flow", "Flow Diagram"
+    CONTEXT = "context", "Context Diagram"
+
+
+class PayloadFormat(models.TextChoices):
+    """Supported payload serialisation formats.
+
+    COMP-DS-002 uses this to select the correct syntax validator.
+    COMP-DS-003 uses this to select the correct renderer hint.
+    """
+
+    MERMAID = "mermaid", "Mermaid"
+    PLANTUML = "plantuml", "PlantUML"
+    JSON = "json", "Structured JSON"
+
+
+# ---------------------------------------------------------------------------
+# Diagram (mutable header)
+# ---------------------------------------------------------------------------
+
+class Diagram(TenantScopedModel):
+    """Mutable header record for a versioned diagram artefact.
+
+    COMP-DS-001 DiagramManager creates and updates Diagram objects.
+    Each write operation creates a new DiagramVersion; the current_version
+    FK is updated to point at the latest immutable snapshot.
+
+    REQ-L2-DS-001, REQ-L3-DM-001, REQ-L3-DM-002, REQ-L3-DM-003 (IF-L1-035)
+    """
+
+    name = models.CharField(max_length=500)
+    diagram_type = models.CharField(
+        max_length=32,
+        choices=DiagramType.choices,
+        db_index=True,
+    )
+    current_version = models.ForeignKey(
+        "DiagramVersion",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    # Optional free-text description for UI / MCP context
+    description = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "diagram_diagram"
+
+    def __str__(self) -> str:
+        return f"{self.diagram_type}:{self.name}:{self.id}"
+
+
+# ---------------------------------------------------------------------------
+# DiagramVersion (immutable, append-only)
+# ---------------------------------------------------------------------------
+
+class DiagramVersion(TenantScopedModel):
+    """Immutable payload snapshot for a Diagram.
+
+    One record is created for every write (create / update).  Existing
+    records are NEVER modified after creation (REQ-L2-DS-001, REQ-L3-DM-002).
+
+    version_number increments monotonically per diagram (1, 2, 3 …).
+    payload holds the raw diagram source (Mermaid string, PlantUML string,
+    or a JSON-serialised dict depending on payload_format).
+
+    IF-L1-035 (PersistenceLayer outgoing data)
+    """
+
+    diagram = models.ForeignKey(
+        Diagram,
+        on_delete=models.CASCADE,
+        related_name="versions",
+    )
+    version_number = models.PositiveIntegerField()
+    payload_format = models.CharField(
+        max_length=16,
+        choices=PayloadFormat.choices,
+    )
+    payload = models.TextField()
+
+    class Meta:
+        db_table = "diagram_diagramversion"
+        # Composite unique constraint: each (diagram, version_number) must be unique.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["diagram", "version_number"],
+                name="uq_diagram_version_number",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["diagram", "version_number"],
+                name="idx_diagramversion_history",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.diagram_id}:v{self.version_number}"
+
+
+# ---------------------------------------------------------------------------
+# Public surface
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    "Diagram",
+    "DiagramVersion",
+    "DiagramType",
+    "PayloadFormat",
+]
