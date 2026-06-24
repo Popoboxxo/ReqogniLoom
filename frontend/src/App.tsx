@@ -1,31 +1,47 @@
 /**
  * ARCH-L1-001 ReactFrontend — Root application component.
  *
- * Placeholder scaffold. All feature components are to be implemented
- * by se-developer agents per their COMP-RF-* specifications.
+ * leaf_id: COMP-RF-001 (NavigationShell)
+ * req_id:  REQ-L2-RF-010 (Bearer-Token auth + 401 redirect),
+ *          REQ-L2-RF-001 (i18n DE/EN),
+ *          REQ-L2-RF-007 (Preset-basierte Sichtbarkeit),
+ *          REQ-L2-RF-008 (Terminologie-Profil)
  *
- * TODO(COMP-RF-001): Implement Router setup (react-router-dom).
- * TODO(COMP-RF-002): Implement Dashboard view.
- * TODO(COMP-RF-003): Implement RequirementsEditor view.
- * TODO(COMP-RF-004): Implement ArchitectureEditor view.
- * TODO(COMP-RF-005): Implement ArtifactNavigation sidebar.
- * TODO(COMP-RF-006): Implement TraceabilityView.
- * TODO(COMP-RF-007): Implement WorkspaceSettings view (Preset selector,
- *   Terminology profile — REQ-L1-007, REQ-L1-014).
- * TODO(COMP-RF-008): Implement SeMetricsDashboard (REQ-L1-031).
- *
- * Architecture: L2_ReactFrontendSystem_Architecture.md
- * Communicates exclusively with ARCH-L1-002 RestApiAdapter via REST + Bearer Token.
+ * Provider hierarchy:
+ *   BrowserRouter
+ *     └── AuthProvider (token management + 401 handler)
+ *           └── WorkspaceProvider (preset + terminology)
+ *                 └── NavigationShell (routes + auth gate)
  */
-import { useTranslation } from "react-i18next";
 
-export const App = (): JSX.Element => {
-  const { t } = useTranslation();
+import React from "react";
+import { BrowserRouter, useNavigate } from "react-router-dom";
+import { AuthProvider } from "./context/AuthContext";
+import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { NavigationShell } from "./components/NavigationShell/NavigationShell";
+
+// ---------------------------------------------------------------------------
+// Inner wrapper — needs Router context to call useNavigate
+// ---------------------------------------------------------------------------
+
+function AppInner(): JSX.Element {
+  const navigate = useNavigate();
 
   return (
-    <div>
-      <h1>{t("app.title")}</h1>
-      <p>{t("app.placeholder")}</p>
-    </div>
+    <AuthProvider onUnauthorized={() => navigate("/login", { replace: true })}>
+      <WorkspaceProvider>
+        <NavigationShell />
+      </WorkspaceProvider>
+    </AuthProvider>
   );
-};
+}
+
+// ---------------------------------------------------------------------------
+// App — top-level entry point
+// ---------------------------------------------------------------------------
+
+export const App = (): JSX.Element => (
+  <BrowserRouter>
+    <AppInner />
+  </BrowserRouter>
+);

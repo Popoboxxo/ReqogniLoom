@@ -11,12 +11,74 @@
     "baselines": "Baselines",
     "traceability": "Traceability",
     "metrics": "SE-Metriken",
-    "settings": "Workspace-Einstellungen"
+    "settings": "Workspace-Einstellungen",
+    "logout": "Abmelden"
   },
   "errors": {
     "generic": "Ein unerwarteter Fehler ist aufgetreten.",
     "not_found": "Ressource nicht gefunden.",
     "unauthorized": "Sie sind nicht berechtigt, diese Aktion auszuführen.",
     "llm_not_configured": "LLM-Provider ist nicht konfiguriert. KI-Features sind nicht verfügbar."
+  },
+  "login": {
+    "title": "Anmelden",
+    "tokenLabel": "Bearer-Token",
+    "tokenPlaceholder": "Token eingeben...",
+    "tokenRequired": "Bitte geben Sie einen Token ein.",
+    "submit": "Anmelden"
+  },
+  "loading": "Laden...",
+  "actions": {
+    "save": "Speichern",
+    "saving": "Speichert...",
+    "reload": "Neu laden",
+    "back": "Zurück",
+    "new": "Neu",
+    "delete": "Löschen",
+    "cancel": "Abbrechen"
+  },
+  "dashboard": {
+    "openItems": "Offene Punkte",
+    "preset": "Preset",
+    "empty": "Kein Workspace gefunden."
+  },
+  "editor": {
+    "title": "Titel",
+    "description": "Beschreibung",
+    "category": "Kategorie",
+    "workflowState": "Workflow-Status",
+    "editMode": "Bearbeiten",
+    "previewMode": "Vorschau",
+    "empty": "Keine Einträge vorhanden.",
+    "descriptionPlaceholder": "Beschreibung in Markdown eingeben...",
+    "newRequirementTitle": "Neue Anforderung",
+    "untitled": "Ohne Titel",
+    "selectRequirement": "Wählen Sie eine Anforderung aus der Liste.",
+    "deleteConfirm": "Wirklich löschen?"
+  },
+  "arch": {
+    "elementType": "Element-Typ",
+    "linkedRequirements": "Verknüpfte Anforderungen",
+    "selectElement": "Wählen Sie ein Architekturelement aus der Liste.",
+    "newElementTitle": "Neues Element",
+    "deleteTitle": "Element löschen",
+    "deleteConfirm": "Element wirklich löschen"
+  },
+  "traceability": {
+    "upstream": "Upstream-Links",
+    "downstream": "Downstream-Links",
+    "none": "Keine Links vorhanden.",
+    "placeholder": "Traceability-Anzeige — in Bearbeitung."
+  },
+  "baselines": {
+    "placeholder": "Baselines — in Bearbeitung."
+  },
+  "settings": {
+    "preset": "Preset",
+    "terminologyProfile": "Terminologie-Profil",
+    "language": "Sprache",
+    "devMode": "Entwickler-Modus",
+    "seMode": "SE-Modus",
+    "saved": "Gespeichert."
   }
 }
