@@ -1,5 +1,5 @@
 """
-COMP-AT-001 AuthenticationService — password login (REQ-L1-010).
+COMP-AT-004 CredentialAuthenticationService — password login (REQ-L1-010).
 
 Password-login extension to the AuthAndTenancy authentication component. Provides
 the credential -> token flow that backs ``POST /api/v1/auth/login/``:
@@ -17,8 +17,8 @@ no secret is embedded in code. The issuer side and the validator side read the
 same settings, which is what guarantees the round-trip.
 
 Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
-  Components/COMP-AT-001_AuthenticationService/
-  L3_COMP-AT-001_AuthenticationService_Architecture.md
+  Components/COMP-AT-004_CredentialAuthenticationService/
+  L3_COMP-AT-004_CredentialAuthenticationService_Architecture.md
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ _DUMMY_PASSWORD_HASH_CACHE: str | None = None
 
 
 class PasswordAuthenticationService:
-    """Username/password authentication and access-token issuance (COMP-AT-001).
+    """Username/password authentication and access-token issuance (COMP-AT-004).
 
     Stateless across calls; the only state is the database and the JWT settings.
     """

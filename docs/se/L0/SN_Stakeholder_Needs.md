@@ -363,3 +363,45 @@ vollständig ihre Verfügbarkeit. (SE-Manifest Punkt 3)
 ---
 
 *Erweiterung durch se-requirements-Agent | HOFF-20260621-002 | 2026-06-21*
+
+---
+
+## Stakeholder-Needs (Erweiterung v3 — REQ-L0-022)
+
+> **Quelle:** Bewusste Scope-Erweiterung — Feature bereits implementiert; Formalisierung nachgezogen
+> **Datum:** 2026-06-25
+> **Erstellt durch:** se-requirements-Agent | 2026-06-25
+
+---
+
+### REQ-L0-022 — SN-22: Credential-basierter User-Login (Benutzername/Passwort)
+
+Engineers und Admins müssen sich mit einem Benutzernamen und Passwort am System
+authentifizieren können, um einen Zugriffstoken zu erhalten — ohne ein Token
+vorab manuell erzeugen oder verwalten zu müssen. Das System übernimmt dabei die
+sichere Verifikation der Anmeldedaten und die Token-Ausgabe.
+
+**Rationale:** Bearer-Token und API Keys (STRATEGY.md §3) setzen voraus, dass ein
+Token existiert. Ohne einen Credential-basierten Login-Mechanismus gibt es keinen
+niedrigschwelligen Einstiegspunkt für interaktive Nutzer (Frontend) und keine
+automatisierte Token-Beschaffung für Skripte und Agenten. SSO (SAML/OIDC) ist
+bewusst auf v2 verschoben (STRATEGY.md §6 Out-of-Scope); SN-22 schließt die
+Lücke für v1 mit dem einfachsten vollständigen Credential-Flow.
+
+**Akzeptanzkriterien:**
+- AC1: Ein Nutzer mit gültigem Benutzernamen und Passwort erhält nach Anmeldung einen gültigen Bearer-Token, der für alle geschützten API-Endpunkte verwendbar ist.
+- AC2: Ein Nutzer mit falschem Passwort oder unbekanntem Benutzernamen erhält einen Fehler (keine Zugriffsberechtigung); keine Information über die Existenz des Kontos wird preisgegeben.
+- AC3: Ein inaktives oder gesperrtes Konto kann sich nicht anmelden und erhält einen Fehler.
+- AC4: Passwörter werden ausschließlich gehasht gespeichert; Klartext-Passwörter erscheinen nie in Logs, API-Responses oder Audit-Einträgen.
+- AC5: Das System stellt einen Endpunkt bereit, über den ein angemeldeter Nutzer seine eigene Identität (Benutzername, Rollen, Tenant) abrufen kann.
+
+**Abgrenzung:**
+- SSO (SAML/OIDC) ist explizit NOT in Scope für v1 (STRATEGY.md §6 Out-of-Scope, v2-Roadmap).
+- Passwort-Reset und E-Mail-Verifikation sind ebenfalls nicht Teil dieses Needs.
+
+**Abgeleitet von:** Bewusste Scope-Erweiterung (implementiert); verknüpft mit REQ-L0-005 (Rollen/RBAC), REQ-L0-008 (Mandantenfähigkeit)
+**Ableitet L1:** neue L1-Anforderung REQ-L1-033 erforderlich (Credential-basierte Authentifizierung mit Token-Ausgabe)
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-25*

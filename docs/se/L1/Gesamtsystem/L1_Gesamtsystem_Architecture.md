@@ -286,18 +286,20 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 #### ARCH-L1-011 — AuthAndTenancy (Auth-Middleware)
 
 **Domain:** software
-**Responsibility:** Token-basierte Authentifizierung (Bearer Token / API Keys). Vier Rollen (Admin, Editor, Viewer, Approver). Approver-Rolle nur im Extended-Preset aktiv. Extrahiert den aktiven Tenant aus dem Token und propagiert ihn in den Request-Context für `PersistenceLayer.CustomManager`. Erzwingt Berechtigungs-Checks pro Operation und Ressource.
+**Responsibility:** Token-basierte Authentifizierung (Bearer Token / API Keys). Vier Rollen (Admin, Editor, Viewer, Approver). Approver-Rolle nur im Extended-Preset aktiv. Extrahiert den aktiven Tenant aus dem Token und propagiert ihn in den Request-Context für `PersistenceLayer.CustomManager`. Erzwingt Berechtigungs-Checks pro Operation und Ressource. **Credential-Login (REQ-L1-033):** verifiziert Benutzername/Passwort (constant-time, enumeration-resistent) und stellt über einen öffentlichen Login-Endpunkt einen `BearerTokenAuthentication`-kompatiblen Token aus; ein geschützter Identitäts-Endpunkt (`/auth/me/`) liefert den Session-Bootstrap.
 
 **Externe Interfaces (eingehend):**
 - API-Client / ReactFrontend → Bearer Token / API Key
 - AI-Agent → API Key
+- RestApiAdapter (öffentlicher `POST /auth/login/`) → `{username, password}` (kein Auth-Header)
 
 **Interne Interfaces (ausgehend):**
-- ARCH-L1-011 → ARCH-L1-010: User, Role, Tenant Lookup
+- ARCH-L1-011 → ARCH-L1-010: User, Role, Tenant Lookup (inkl. Passwort-Hash-Check)
 - ARCH-L1-011 → ARCH-L1-004: Auth-Kontext (User, Tenant, Rollen)
 - ARCH-L1-011 → ARCH-L1-005: Rollen-Check (Approver-Transition)
+- ARCH-L1-011 → ARCH-L1-002: Login-Token-Ausgabe `{token, user, tenant_id, roles}`
 
-**Zugeordnete REQ-L1:** REQ-L1-010 (RBAC), REQ-L1-015 (Tenant-Extraktion)
+**Zugeordnete REQ-L1:** REQ-L1-010 (RBAC), REQ-L1-015 (Tenant-Extraktion), REQ-L1-033 (Credential-Login + Token-Ausgabe)
 **Mitwirkend bei:** REQ-L1-002, REQ-L1-005, REQ-L1-006, REQ-L1-009, REQ-L1-011, REQ-L1-012
 
 → Siehe `docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/L2_AuthAndTenancySystem_Architecture.md`

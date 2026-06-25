@@ -805,6 +805,44 @@ Wie diese Entkopplung architektonisch umgesetzt wird, ist eine Design-Entscheidu
 
 ---
 
+### REQ-L1-033: Credential-basierte Authentifizierung mit Token-Ausgabe
+
+Das System muss einen öffentlich erreichbaren Login-Endpunkt bereitstellen, der
+Benutzername und Passwort entgegennimmt, die Anmeldedaten gegen das gespeicherte
+Passwort-Hash (PBKDF2 oder gleichwertig) prüft und bei erfolgreicher Prüfung einen
+gültigen Bearer-Token zurückgibt — wobei dieser Token mit der bestehenden
+`BearerTokenAuthentication`-Schicht (REQ-L1-010) vollständig kompatibel ist und
+Tenant-Kontext sowie Rollen enthält. Zusätzlich muss ein geschützter Endpunkt die
+Identität des aktuell angemeldeten Nutzers zurückgeben (Session-Bootstrap).
+
+**Rationale:** Bearer-Token und API Keys (STRATEGY.md §3, KONZEPT.md §9) setzen voraus, dass ein
+Token existiert. Ohne Credential-basierten Login gibt es keinen niedrigschwelligen
+Einstiegspunkt für interaktive Nutzer (Frontend) und Agenten. SN-22 schließt diese
+Lücke für v1. SSO (SAML/OIDC) bleibt explizit v2 (STRATEGY.md §6 Out-of-Scope).
+**Domain:** software
+**Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Credential-basierter Login erfordert einen unauthentifizierten Einstiegspunkt für interaktive Nutzer und Agenten sowie sicheres Passwort-Hashing; Token-Ausgabe und -Format müssen mit der bestehenden Token-basierten Authentifizierungsschicht kompatibel sein."
+**Externe Interfaces:**
+- Eingang (Login): Öffentlicher POST-Endpunkt mit `{username, password}` (kein Auth-Header erforderlich)
+- Ausgang (Login): `{token, user, tenant_id, roles}` bei Erfolg; HTTP 401 bei falschen oder inaktiven Credentials
+- Eingang (Identitäts-Abfrage): GET-Endpunkt mit Bearer-Token im Authorization-Header
+- Ausgang (Identitäts-Abfrage): Nutzeridentität `{username, roles, tenant_id}` für Session-Bootstrap
+**Akzeptanzkriterien:**
+- AC1: `POST /auth/login/` mit gültigem `{username, password}` gibt HTTP 200 mit einem Bearer-Token zurück, der an allen geschützten Endpunkten akzeptiert wird.
+- AC2: `POST /auth/login/` mit falschem Passwort oder unbekanntem Benutzernamen gibt HTTP 401 zurück; keine Unterscheidung zwischen „Nutzer unbekannt" und „Passwort falsch" in der Response.
+- AC3: `POST /auth/login/` für ein inaktives Konto gibt HTTP 401 zurück.
+- AC4: Passwörter sind ausschließlich als Hash (PBKDF2 oder gleichwertig) in der Datenbank gespeichert; Klartext erscheint nie in API-Responses, Logs oder Audit-Einträgen (prüfbar per Schema-Inspektion und Log-Review).
+- AC5: Der ausgestellte Token ist round-trip-fähig: er wird von `BearerTokenAuthentication` (REQ-L1-010) akzeptiert und liefert den korrekten Rollen- und Tenant-Kontext für RBAC-Entscheidungen.
+- AC6: `GET /auth/me/` mit gültigem Bearer-Token gibt Nutzeridentität `{username, roles, tenant_id}` zurück; ohne Token oder mit ungültigem Token HTTP 401.
+**Abgrenzung:**
+- SSO (SAML/OIDC) ist explizit NOT in Scope für v1 (STRATEGY.md §6 Out-of-Scope; v2-Roadmap).
+- Passwort-Reset-Flow und E-Mail-Verifikation sind nicht Teil dieser Anforderung.
+**Traceability:** REQ-L0-022
+
+---
+
 ## Erweiterter Traceability-Abschnitt: REQ-L1-027..032 → REQ-L0
 
 | REQ-L1 | Abgeleitet von REQ-L0 |
@@ -815,7 +853,9 @@ Wie diese Entkopplung architektonisch umgesetzt wird, ist eine Design-Entscheidu
 | REQ-L1-030 | REQ-L0-019 |
 | REQ-L1-031 | REQ-L0-020 |
 | REQ-L1-032 | REQ-L0-021 |
+| REQ-L1-033 | REQ-L0-022 |
 
 ---
 
 *Erweiterung durch se-requirements-Agent | HOFF-20260621-002 | 2026-06-21*
+*Erweiterung durch se-requirements-Agent | 2026-06-25 (REQ-L1-033 Credential-Login)*
