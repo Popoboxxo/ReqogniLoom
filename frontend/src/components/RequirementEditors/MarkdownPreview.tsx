@@ -35,6 +35,7 @@ export function MarkdownPreview({
       >
         <button
           type="button"
+          data-testid="md-edit-btn"
           onClick={() => setIsPreview(false)}
           style={{
             fontWeight: !isPreview ? "bold" : "normal",
@@ -45,6 +46,7 @@ export function MarkdownPreview({
         </button>
         <button
           type="button"
+          data-testid="md-preview-btn"
           onClick={() => setIsPreview(true)}
           style={{
             fontWeight: isPreview ? "bold" : "normal",

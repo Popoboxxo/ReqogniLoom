@@ -29,6 +29,7 @@ export function WorkspaceCard({
 
   return (
     <div
+      data-testid="workspace-card"
       role="button"
       tabIndex={0}
       onClick={() => onSelect(workspace)}

@@ -65,6 +65,7 @@ export function TraceabilityPanel({
 
   return (
     <aside
+      data-testid="traceability-panel"
       style={{
         borderLeft: "1px solid #ddd",
         paddingLeft: "1rem",

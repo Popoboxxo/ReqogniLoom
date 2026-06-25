@@ -368,6 +368,7 @@ export default function ArchitectureEditors(): JSX.Element {
 
             {/* Linked requirements sidebar (REQ-L3-RF004-003) */}
             <aside
+              data-testid="arch-linked-reqs-panel"
               style={{
                 borderLeft: "1px solid #ddd",
                 paddingLeft: "1rem",

@@ -55,6 +55,7 @@ export default function DashboardViews(): JSX.Element {
         <p>{t("dashboard.empty")}</p>
       ) : (
         <div
+          data-testid="workspace-list"
           style={{
             display: "flex",
             flexWrap: "wrap",
