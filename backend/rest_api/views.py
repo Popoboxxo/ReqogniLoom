@@ -635,6 +635,9 @@ class BaselineViewSet(BaseEntityViewSet):
     """ViewSet for Baseline CRUD operations (REQ-L2-RA-001, REQ-L2-RA-008).
 
     Gated by preset: Baseline endpoints return 404 in Minimal preset.
+    The preset gate raises Http404 and deliberately re-raises it past DRF's
+    exception handler so callers (tests, middleware) receive the raw Django
+    Http404 (REQ-L3-RA004-001).
     """
 
     serializer_class = BaselineSerializer
@@ -642,6 +645,16 @@ class BaselineViewSet(BaseEntityViewSet):
 
     def _svc(self) -> BaselineFacade:
         return BaselineFacade()
+
+    def handle_exception(self, exc: Exception) -> Response:
+        """Re-raise Http404 so preset-gated 404s propagate past DRF.
+
+        DRF normally converts Http404 to a Response; for preset-gated
+        endpoints we want the raw Http404 to surface (REQ-L3-RA004-001).
+        """
+        if isinstance(exc, Http404):
+            raise
+        return super().handle_exception(exc)
 
     def _check_preset(self, request: Request) -> None:
         """Gate this endpoint by preset. Raises Http404 if not visible."""

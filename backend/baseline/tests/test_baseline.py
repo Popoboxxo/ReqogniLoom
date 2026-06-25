@@ -645,22 +645,21 @@ class TestDeltaIndexBuilderPresetGate:
 
     def test_minimal_preset_rejects_document_scope(self):
         """REQ-L2-BL-004: Minimal → document scope → ScopeNotAllowedError."""
-        with patch("baseline.delta_index_builder.is_scope_allowed", return_value=False, create=True):
-            with patch("presets.services.is_scope_allowed", return_value=False):
-                builder = DeltaIndexBuilder(store=MagicMock())
-                # Directly test _check_preset_gate
-                with pytest.raises(ScopeNotAllowedError):
-                    builder._check_preset_gate.__wrapped__ = None  # avoid caching issues
-                    # Simulate minimal preset via direct is_scope_allowed=False
-                    with patch("baseline.delta_index_builder.DeltaIndexBuilder._check_preset_gate") as gate:
-                        gate.side_effect = ScopeNotAllowedError(scope="document", preset="minimal")
-                        builder.build(
-                            scope="document",
-                            workspace_id=WORKSPACE_ID,
-                            name="BL",
-                            tenant_id=TENANT_ID,
-                            document_id=uuid.uuid4(),
-                        )
+        builder = DeltaIndexBuilder(store=MagicMock())
+        # Patch _check_preset_gate directly to simulate minimal preset rejection
+        with patch.object(
+            builder,
+            "_check_preset_gate",
+            side_effect=ScopeNotAllowedError(scope="document", preset="minimal"),
+        ):
+            with pytest.raises(ScopeNotAllowedError):
+                builder.build(
+                    scope="document",
+                    workspace_id=WORKSPACE_ID,
+                    name="BL",
+                    tenant_id=TENANT_ID,
+                    document_id=uuid.uuid4(),
+                )
 
     def test_empty_name_raises_before_scope_check(self):
         """REQ-L2-BL-005: Empty name rejected before any DB/preset call."""

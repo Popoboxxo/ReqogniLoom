@@ -402,6 +402,7 @@ class TestOptimisticLocking:
                 target_state="in_review",
                 transitioned_by="user",
                 validation_result=_ok_result(),
+                expected_version=item_state.version,  # caller's pre-bump version
             )
 
 

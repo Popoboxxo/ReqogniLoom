@@ -153,12 +153,15 @@ class StateLifecycleManager:
         transitioned_by: str,
         validation_result: ValidationResult,
         change_reason: str = "",
+        expected_version: Optional[int] = None,
     ) -> TransitionOutcome:
         """Atomically mutate state and append a history entry.
 
-        Uses Optimistic Locking: re-reads the WorkflowItemState inside the
-        transaction and checks ``version``.  If the version has changed since
-        the caller last read it, raises WorkflowConflictError (409).
+        Uses Optimistic Locking: reads the WorkflowItemState inside the
+        transaction and checks ``version``.  If ``expected_version`` is
+        supplied and does not match the DB value, raises WorkflowConflictError
+        (409).  Without ``expected_version`` the UPDATE acts as compare-and-swap
+        on the version read inside this transaction.
 
         IF-WE-INT-002 (ValidationResult carries the optional seal from COMP-WE-004).
 
@@ -171,6 +174,10 @@ class StateLifecycleManager:
             validation_result: Pre-validated result from TransitionValidator
                                (must have valid=True).
             change_reason:     Optional audit reason string.
+            expected_version:  Caller's last-seen version number.  When supplied,
+                               the UPDATE is guarded by ``version=expected_version``
+                               so that any concurrent increment raises 409 Conflict
+                               (REQ-L2-WE-003, ADR-L3-WE003-02).
 
         Returns:
             TransitionOutcome with all transition details.
@@ -185,8 +192,8 @@ class StateLifecycleManager:
                 "Cannot perform transition: ValidationResult is not valid"
             )
 
-        # SELECT FOR UPDATE to prevent lost-update race during the transaction.
-        # The Optimistic Lock counter is also incremented atomically here.
+        # SELECT FOR UPDATE to acquire a row-level lock for the duration of this
+        # transaction, preventing lost-update races on concurrent requests.
         item_state = (
             WorkflowItemState.objects.select_for_update()
             .filter(item_id=item_id, item_type=item_type, workspace_id=workspace_id)
@@ -200,13 +207,28 @@ class StateLifecycleManager:
 
         previous_state = item_state.current_state
 
-        # Optimistic Lock: use Django F expression to increment version
-        # atomically and detect concurrent modifications via UPDATE rowcount.
+        # Optimistic Lock: compare the caller's expected version against the
+        # locked DB value.  When expected_version is provided, use it as the
+        # guard; otherwise fall back to the just-read version (idempotent when
+        # no concurrent writer exists).
         from django.db.models import F
+
+        version_guard = (
+            expected_version if expected_version is not None else item_state.version
+        )
+
+        # Early conflict check when the caller supplied an expected version
+        # and the DB already shows a newer one.
+        if expected_version is not None and item_state.version != expected_version:
+            raise WorkflowConflictError(
+                f"Concurrent transition detected for item_id={item_id} "
+                f"(409 Conflict): expected version {expected_version}, "
+                f"found {item_state.version}"
+            )
 
         updated_count = WorkflowItemState.objects.filter(
             pk=item_state.pk,
-            version=item_state.version,  # guard against concurrent transition
+            version=version_guard,  # guard against concurrent transition
         ).update(
             current_state=target_state,
             version=F("version") + 1,

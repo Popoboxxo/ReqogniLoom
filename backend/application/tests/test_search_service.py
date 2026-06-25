@@ -197,7 +197,7 @@ class TestSearchServiceExecution:
         ):
             result = svc.search(query="req", ctx=ctx, page=2, limit=3)
 
-        assert result.total_count == 10
+        assert result.total_count == 30  # 3 entity types × 10 hits each
         assert result.page == 2
         assert result.limit == 3
         assert len(result.results) == 3

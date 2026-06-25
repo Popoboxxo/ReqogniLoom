@@ -331,11 +331,16 @@ class TestUrlRouting:
     def test_all_viewsets_registered_in_router(self) -> None:
         from rest_api.urls import router
 
-        registered_prefixes = {entry.url.pattern._route for entry in router.get_urls()}
+        def _pattern_str(url) -> str:
+            """Return the pattern string regardless of RoutePattern vs RegexPattern."""
+            p = url.pattern
+            return getattr(p, "_route", None) or getattr(p, "_regex", "") or str(p)
+
+        registered_prefixes = {_pattern_str(url) for url in router.get_urls()}
         # All 7 entity types should have routes
         expected = {"artifacts", "requirements", "architecture", "testcases", "tracelinks", "baselines", "workflows"}
         for entity in expected:
-            found = any(entity in url.pattern._route for url in router.get_urls())
+            found = any(entity in _pattern_str(url) for url in router.get_urls())
             assert found, f"Route not registered for: {entity!r}"
 
 

@@ -61,15 +61,20 @@ Regeln: Foundation-/Security-/Performance-kritische Systeme → **senior**. Rein
 | 8 | ext | ResilienceOrchestrator (016) | `resilience` | ✅ (31 Tests grün) | `ed731ab` |
 | 7 | 4 | ReactFrontend (001) | `frontend/` | ✅ (34 Dateien, Vitest) | `b01414a` |
 
-**Fertig:** 16 von 16 Systemen + ReactFrontend vollständig committet. **Implementierung abgeschlossen.**
-**Offen:** nur finale Integration (siehe unten).
+**Fertig:** 16 von 16 Systemen + ReactFrontend vollständig committet. **Implementierung + Validierung abgeschlossen.**
 
-### Finale Integration (offen)
-1. **audit.AuditEntry Index-Name >30 Zeichen** → Django-6.0 SystemCheck E034 bricht `pytest`/Container-Start. Index `idx_auditentry_tenant_timestamp` kürzen + Migration. **Blocker für Gesamttestlauf.**
-2. **persistence Model/Meta-Drift** (un-migriert, vorbestehend) → `makemigrations persistence` sauber nachziehen.
-3. **Celery-Broker-Wiring** in settings.py (AsyncDispatcher, WebhookDispatcher, SeMetrics-Cache, LlmAdapter-Async) — optional für Kernbetrieb.
-4. **WebhookDispatcher/LlmAdapter → ResilienceOrchestrator** umverdrahten (TODO-Marker gesetzt).
-5. **Docker-Gesamttestlauf:** `docker-compose up` + `pytest` über alle Apps (bisher nur LlmAdapter/MCP/SeMetrics/Resilience/Diagram rein-python grün; Rest braucht PostgreSQL).
+### Validierung (✅ erledigt)
+- `manage.py check`: 0 Issues (Index-Namen ≤30 Zeichen gefixt, E034 weg).
+- Sync-Migrationen generiert; `migrate` über alle Apps grün.
+- **Docker-Gesamttestlauf: 1042/1042 Tests grün** (`docker-compose run --rm --entrypoint "" backend python -m pytest`).
+- Foundation-Fix: `TenantManager.create()` injiziert `tenant_id` automatisch aus aktivem `TenantContext`.
+
+### Offene Tech-Debt (kein Blocker, v2/Folgearbeit)
+1. **Celery-Broker-Wiring** in settings.py (AsyncDispatcher, WebhookDispatcher, SeMetrics-Cache, LlmAdapter-Async) — optional, Kernbetrieb läuft synchron.
+2. **WebhookDispatcher/LlmAdapter → ResilienceOrchestrator** umverdrahten (TODO-Marker gesetzt).
+3. **persistence.User** ohne `password`-Feld → SignatureGate/AuthN-Passwortprüfung fallen sicher auf `False`.
+4. **TraceLink.link_type** DB-CHECK-Constraint (8 Typen) — derzeit nur Service-Layer-Validierung.
+5. **Honcho-Memory:** `HONCHO_API_KEY` setzen + `/honcho:setup`; Wissensbasis liegt in `docs/se/PROJECT_KNOWLEDGE.md` bereit.
 
 ---
 

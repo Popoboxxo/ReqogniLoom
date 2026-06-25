@@ -116,6 +116,11 @@ class TenantManager(models.Manager.from_queryset(TenantQuerySet)):  # type: igno
     REQ-L3-PL002-002: ``get_queryset`` calls :meth:`TenantContext.get_tenant`,
     which raises :class:`TenantContextNotSetError` before any SQL is produced when
     the context is missing — validation happens here, before the queryset is built.
+
+    ``create`` auto-injects the active tenant when neither ``tenant`` nor
+    ``tenant_id`` is supplied by the caller. This ensures callers that rely on an
+    active :class:`TenantContext` do not need to repeat the tenant FK explicitly
+    (REQ-L3-PL002-001, additive — only applied when tenant is absent).
     """
 
     def get_queryset(self) -> TenantQuerySet:
@@ -127,6 +132,21 @@ class TenantManager(models.Manager.from_queryset(TenantQuerySet)):  # type: igno
         """
         tenant_id = TenantContext.get_tenant()
         return super().get_queryset().filter(tenant_id=tenant_id)
+
+    def create(self, **kwargs):
+        """Create a new instance, auto-injecting the active tenant if absent.
+
+        If neither ``tenant`` nor ``tenant_id`` is provided in *kwargs*, the
+        active :class:`TenantContext` is used to populate ``tenant_id``.  This is
+        additive: explicit values are never overridden.
+
+        Raises:
+            TenantContextNotSetError: If tenant is absent from kwargs and no
+                tenant context is active.
+        """
+        if "tenant" not in kwargs and "tenant_id" not in kwargs:
+            kwargs["tenant_id"] = TenantContext.get_tenant()
+        return super().create(**kwargs)
 
 
 class UnscopedManager(models.Manager):

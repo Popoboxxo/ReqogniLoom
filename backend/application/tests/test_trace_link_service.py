@@ -127,6 +127,8 @@ class TestCreateTraceLink:
 
     def test_source_not_found_remapped_to_not_found_error(self):
         """SourceNotFoundError from TraceabilityEngine → NotFoundError."""
+        from traceability.services import SourceNotFoundError
+
         svc = TraceLinkService()
         ctx = _make_ctx()
 
@@ -134,14 +136,9 @@ class TestCreateTraceLink:
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch(
                 "traceability.services.create_trace_link",
-            ) as mock_te_create,
-            patch("traceability.services.SourceNotFoundError") as MockSrc,
+                side_effect=SourceNotFoundError("not found"),
+            ),
         ):
-            # Build a real exception of the right type
-            from traceability.services import SourceNotFoundError
-
-            mock_te_create.side_effect = SourceNotFoundError("not found")
-
             with pytest.raises(NotFoundError, match="Source entity"):
                 svc.create_trace_link(
                     source_id=SOURCE_ID,
