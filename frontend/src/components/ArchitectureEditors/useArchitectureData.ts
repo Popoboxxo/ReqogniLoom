@@ -47,7 +47,12 @@ export function useArchitectureData(selectedId?: string): ArchitectureData {
         setElements(resp.results);
 
         if (selectedId) {
-          const el = resp.results.find((e) => e.id === selectedId) ?? null;
+          let el: ArchitectureElement | null = null;
+          try {
+            el = await architectureApi.get(selectedId);
+          } catch {
+            el = null;
+          }
           setElement(el);
 
           if (el) {

@@ -49,7 +49,12 @@ export function useRequirementData(selectedId?: string): RequirementData {
         setRequirements(resp.results);
 
         if (selectedId) {
-          const req = resp.results.find((r) => r.id === selectedId) ?? null;
+          let req: Requirement | null = null;
+          try {
+            req = await requirementsApi.get(selectedId);
+          } catch {
+            req = null;
+          }
           setRequirement(req);
 
           if (req) {
