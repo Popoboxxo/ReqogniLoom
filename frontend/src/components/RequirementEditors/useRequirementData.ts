@@ -34,60 +34,63 @@ export function useRequirementData(selectedId?: string): RequirementData {
 
   const refresh = (): void => setTick((t) => t + 1);
 
+  // Effect 1: Load the list (sidebar)
   useEffect(() => {
     if (!activeWorkspace) return;
-
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
 
-    async function load(): Promise<void> {
+    async function loadList(): Promise<void> {
       if (!activeWorkspace) return;
       try {
         const resp = await requirementsApi.list(activeWorkspace.id);
         if (cancelled) return;
         setRequirements(resp.results);
+      } catch {
+        // list errors are non-fatal — detail effect handles its own errors
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
 
-        if (selectedId) {
-          let req: Requirement | null = null;
-          try {
-            req = await requirementsApi.get(selectedId);
-          } catch {
-            req = null;
-          }
-          setRequirement(req);
+    setIsLoading(true);
+    void loadList();
+    return () => { cancelled = true; };
+  }, [activeWorkspace, tick]);
 
-          if (req) {
-            // Load tracelinks for this requirement
-            const links = await tracelinksApi.listForArtifact(
-              activeWorkspace.id,
-              req.id
-            );
-            if (cancelled) return;
-            // Partition into upstream (target = req) and downstream (source = req)
-            setUpstreamLinks(
-              links.results.filter((l) => l.target_id === req.id)
-            );
-            setDownstreamLinks(
-              links.results.filter((l) => l.source_id === req.id)
-            );
-          }
-        }
+  // Effect 2: Load the selected requirement detail + tracelinks (independent of list)
+  useEffect(() => {
+    if (!activeWorkspace || !selectedId) {
+      setRequirement(null);
+      setUpstreamLinks([]);
+      setDownstreamLinks([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadDetail(): Promise<void> {
+      if (!activeWorkspace || !selectedId) return;
+      try {
+        const req = await requirementsApi.get(selectedId);
+        if (cancelled) return;
+        setRequirement(req);
+
+        const links = await tracelinksApi.listForArtifact(activeWorkspace.id, req.id);
+        if (cancelled) return;
+        setUpstreamLinks(links.results.filter((l) => l.target_id === req.id));
+        setDownstreamLinks(links.results.filter((l) => l.source_id === req.id));
       } catch (err: unknown) {
         if (cancelled) return;
         const msg =
           (err as { error?: { message?: string } })?.error?.message ??
           String(err);
         setError(msg);
-      } finally {
-        if (!cancelled) setIsLoading(false);
+        setRequirement(null);
       }
     }
 
-    void load();
-    return () => {
-      cancelled = true;
-    };
+    void loadDetail();
+    return () => { cancelled = true; };
   }, [activeWorkspace, selectedId, tick]);
 
   return {

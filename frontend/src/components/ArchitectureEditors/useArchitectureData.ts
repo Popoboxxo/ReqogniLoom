@@ -32,53 +32,61 @@ export function useArchitectureData(selectedId?: string): ArchitectureData {
 
   const refresh = (): void => setTick((t) => t + 1);
 
+  // Effect 1: Load the list (sidebar)
   useEffect(() => {
     if (!activeWorkspace) return;
-
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
 
-    async function load(): Promise<void> {
+    async function loadList(): Promise<void> {
       if (!activeWorkspace) return;
       try {
         const resp = await architectureApi.list(activeWorkspace.id);
         if (cancelled) return;
         setElements(resp.results);
+      } catch {
+        // list errors are non-fatal
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
 
-        if (selectedId) {
-          let el: ArchitectureElement | null = null;
-          try {
-            el = await architectureApi.get(selectedId);
-          } catch {
-            el = null;
-          }
-          setElement(el);
+    setIsLoading(true);
+    void loadList();
+    return () => { cancelled = true; };
+  }, [activeWorkspace, tick]);
 
-          if (el) {
-            const links = await tracelinksApi.listForArtifact(
-              activeWorkspace.id,
-              el.id
-            );
-            if (cancelled) return;
-            setLinkedTraceLinks(links.results);
-          }
-        }
+  // Effect 2: Load the selected element detail + tracelinks (independent of list)
+  useEffect(() => {
+    if (!activeWorkspace || !selectedId) {
+      setElement(null);
+      setLinkedTraceLinks([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadDetail(): Promise<void> {
+      if (!activeWorkspace || !selectedId) return;
+      try {
+        const el = await architectureApi.get(selectedId);
+        if (cancelled) return;
+        setElement(el);
+
+        const links = await tracelinksApi.listForArtifact(activeWorkspace.id, el.id);
+        if (cancelled) return;
+        setLinkedTraceLinks(links.results);
       } catch (err: unknown) {
         if (cancelled) return;
         const msg =
           (err as { error?: { message?: string } })?.error?.message ??
           String(err);
         setError(msg);
-      } finally {
-        if (!cancelled) setIsLoading(false);
+        setElement(null);
       }
     }
 
-    void load();
-    return () => {
-      cancelled = true;
-    };
+    void loadDetail();
+    return () => { cancelled = true; };
   }, [activeWorkspace, selectedId, tick]);
 
   return { elements, element, linkedTraceLinks, isLoading, error, refresh };
