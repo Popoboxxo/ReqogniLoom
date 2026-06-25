@@ -10,13 +10,13 @@ COPY package.json ./
 # Development stage
 FROM base AS development
 
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 COPY . .
 
-EXPOSE 3000
+EXPOSE 5173
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
 
 # Production build stage
 FROM base AS builder
