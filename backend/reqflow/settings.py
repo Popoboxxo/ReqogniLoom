@@ -231,6 +231,23 @@ SPECTACULAR_SETTINGS = {
 }
 
 # ---------------------------------------------------------------------------
+# AuthAndTenancy JWT — ARCH-L1-011 (REQ-L1-010, COMP-AT-001)
+# Shared HS256 secret + issuer/audience used by BOTH the issuer
+# (AuthenticationService.issue_token, password login) and the validator
+# (AuthenticationService.validate_bearer_token). Both ends MUST read these same
+# values so issued tokens round-trip through BearerTokenAuthentication.
+# No secret is hard-coded in code; the default below is for local/dev only and
+# MUST be overridden via the AUTH_JWT_SECRET env var in any real deployment.
+# ---------------------------------------------------------------------------
+AUTH_JWT_SECRET: str = config(
+    "AUTH_JWT_SECRET", default="CHANGE-ME-AUTH-JWT-SECRET-IN-PRODUCTION"
+)
+AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqflow")
+AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqflow-api")
+# Access-token lifetime in seconds (default 12h).
+AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=43200, cast=int)
+
+# ---------------------------------------------------------------------------
 # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02 Provider Abstraction)
 # Supported: mock | anthropic | openai | ollama | azure
 # ---------------------------------------------------------------------------
