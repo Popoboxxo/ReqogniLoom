@@ -82,7 +82,7 @@ class Migration(migrations.Migration):
             model_name="metriccache",
             constraint=models.UniqueConstraint(
                 fields=["workspace_id", "tenant_id", "timeframe_key"],
-                name="uq_sm_cache_workspace_timeframe",
+                name="uq_smcache_ws_timeframe",
             ),
         ),
         migrations.AddIndex(

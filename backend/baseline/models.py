@@ -66,7 +66,7 @@ class BaselineSnapshot(TenantScopedModel):
             # REQ-L2-BL-005: name unique per workspace
             models.UniqueConstraint(
                 fields=["workspace_id", "name"],
-                name="uq_baseline_snapshot_workspace_name",
+                name="uq_baseline_ws_name",
             ),
         ]
         indexes = [

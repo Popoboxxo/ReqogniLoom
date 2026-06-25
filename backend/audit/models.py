@@ -202,7 +202,7 @@ class AuditEntry(TenantScopedModel):
             models.Index(fields=["entity_id"], name="idx_auditentry_entity_id"),
             models.Index(
                 fields=["tenant", "timestamp"],
-                name="idx_auditentry_tenant_timestamp",
+                name="idx_audit_tenant_ts",
             ),
             models.Index(
                 fields=["actor", "op"],

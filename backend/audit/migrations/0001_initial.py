@@ -141,7 +141,7 @@ class Migration(migrations.Migration):
             model_name="AuditEntry",
             index=models.Index(
                 fields=["tenant", "timestamp"],
-                name="idx_auditentry_tenant_timestamp",
+                name="idx_audit_tenant_ts",
             ),
         ),
         migrations.AddIndex(

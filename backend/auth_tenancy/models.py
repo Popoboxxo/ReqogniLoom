@@ -119,7 +119,7 @@ class UserRole(TenantScopedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["workspace", "user", "role"],
-                name="uq_userrole_workspace_user_role",
+                name="uq_userrole_ws_user_role",
             ),
         ]
         indexes = [

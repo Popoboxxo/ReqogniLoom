@@ -93,7 +93,7 @@ class Migration(migrations.Migration):
             model_name="baselinesnapshot",
             constraint=models.UniqueConstraint(
                 fields=["workspace_id", "name"],
-                name="uq_baseline_snapshot_workspace_name",
+                name="uq_baseline_ws_name",
             ),
         ),
         migrations.AddIndex(

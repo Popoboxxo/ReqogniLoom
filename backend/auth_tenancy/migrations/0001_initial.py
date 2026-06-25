@@ -116,7 +116,7 @@ class Migration(migrations.Migration):
             model_name="userrole",
             constraint=models.UniqueConstraint(
                 fields=["workspace", "user", "role"],
-                name="uq_userrole_workspace_user_role",
+                name="uq_userrole_ws_user_role",
             ),
         ),
     ]

@@ -91,7 +91,7 @@ class WorkflowEngineDefinition(TenantScopedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["tenant", "workspace_id", "item_type"],
-                name="uq_we_definition_tenant_workspace_type",
+                name="uq_wedef_tenant_ws_type",
             )
         ]
         indexes = [

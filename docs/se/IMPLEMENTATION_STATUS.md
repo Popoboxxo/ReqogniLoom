@@ -55,14 +55,21 @@ Regeln: Foundation-/Security-/Performance-kritische Systeme → **senior**. Rein
 | 5d | 2 | ApplicationService Core-Tests + Bugfix | `application` | ✅ (131 Tests) | `5a22777` |
 | 6 | 3 | RestApiAdapter (002) | `rest_api` | ✅ | `9c77b5c` |
 | 6 | 3 | McpServer (003) | `mcp_server` | ✅ (71 Tests grün) | `9c77b5c` |
-| 7 | 4 | **ReactFrontend (001)** | `frontend/` | ⏳ **offen** | — |
-| 8 | ext | **DiagramService (013)** | `diagram` | ⏳ **offen** (nur Scaffold) | — |
-| 8 | ext | **IcdManagement (014)** | `icd` | ⏳ **offen** (nur Scaffold) | — |
-| 8 | ext | **SeMetrics (015)** | `se_metrics` | ⏳ **offen** (nur Scaffold) | — |
-| 8 | ext | **ResilienceOrchestrator (016)** | `resilience` | ⏳ **offen** (nur Scaffold) | — |
+| 8 | ext | DiagramService (013) | `diagram` | ✅ (42 Tests grün) | `ed731ab` |
+| 8 | ext | IcdManagement (014) | `icd` | ✅ (12 Unit grün) | `ed731ab` |
+| 8 | ext | SeMetrics (015) | `se_metrics` | ✅ (69 Tests grün) | `ed731ab` |
+| 8 | ext | ResilienceOrchestrator (016) | `resilience` | ✅ (31 Tests grün) | `ed731ab` |
+| 7 | 4 | ReactFrontend (001) | `frontend/` | ✅ (34 Dateien, Vitest) | `b01414a` |
 
-**Fertig:** 12 von 16 Systemen vollständig committet (Layer 0–3 + ApplicationService).
-**Offen:** ReactFrontend (Wave 7) + 4 Erweiterungs-Systeme (Wave 8) + finale Integration.
+**Fertig:** 16 von 16 Systemen + ReactFrontend vollständig committet. **Implementierung abgeschlossen.**
+**Offen:** nur finale Integration (siehe unten).
+
+### Finale Integration (offen)
+1. **audit.AuditEntry Index-Name >30 Zeichen** → Django-6.0 SystemCheck E034 bricht `pytest`/Container-Start. Index `idx_auditentry_tenant_timestamp` kürzen + Migration. **Blocker für Gesamttestlauf.**
+2. **persistence Model/Meta-Drift** (un-migriert, vorbestehend) → `makemigrations persistence` sauber nachziehen.
+3. **Celery-Broker-Wiring** in settings.py (AsyncDispatcher, WebhookDispatcher, SeMetrics-Cache, LlmAdapter-Async) — optional für Kernbetrieb.
+4. **WebhookDispatcher/LlmAdapter → ResilienceOrchestrator** umverdrahten (TODO-Marker gesetzt).
+5. **Docker-Gesamttestlauf:** `docker-compose up` + `pytest` über alle Apps (bisher nur LlmAdapter/MCP/SeMetrics/Resilience/Diagram rein-python grün; Rest braucht PostgreSQL).
 
 ---
 
