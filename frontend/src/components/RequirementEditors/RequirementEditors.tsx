@@ -23,7 +23,7 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { TraceabilityPanel } from "./TraceabilityPanel";
 import { requirementsApi } from "../../api/requirements";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import type { Requirement } from "../../types";
+import type { Requirement, TraceLink } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Workflow states (backend is source of truth, these are common values)
@@ -37,11 +37,15 @@ const WORKFLOW_STATES = ["draft", "review", "approved", "rejected", "deprecated"
 
 interface RequirementDetailEditorProps {
   requirement: Requirement;
+  upstreamLinks: TraceLink[];
+  downstreamLinks: TraceLink[];
   onSaved: () => void;
 }
 
 function RequirementDetailEditor({
   requirement,
+  upstreamLinks,
+  downstreamLinks,
   onSaved,
 }: RequirementDetailEditorProps): JSX.Element {
   const { t } = useTranslation();
@@ -155,10 +159,10 @@ function RequirementDetailEditor({
         </div>
       </div>
 
-      {/* Traceability sidebar */}
+      {/* Traceability sidebar (REQ-L3-RF003-003) */}
       <TraceabilityPanel
-        upstreamLinks={[]}
-        downstreamLinks={[]}
+        upstreamLinks={upstreamLinks}
+        downstreamLinks={downstreamLinks}
       />
     </div>
   );
@@ -173,7 +177,7 @@ export default function RequirementEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace, terminologyLabel } = useWorkspace();
-  const { requirements, requirement, isLoading, error, refresh } =
+  const { requirements, requirement, upstreamLinks, downstreamLinks, isLoading, error, refresh } =
     useRequirementData(selectedId);
 
   const reqLabel = terminologyLabel("requirements");
@@ -185,7 +189,10 @@ export default function RequirementEditors(): JSX.Element {
         workspace_id: activeWorkspace.id,
         title: t("editor.newRequirementTitle"),
       });
-      refresh();
+      // Navigate first — the hook re-fetches automatically when selectedId changes.
+      // Calling refresh() here would cause a double-fetch race where the first
+      // fetch runs with the old selectedId and may overwrite state set by the
+      // second fetch that already has the correct ID.
       navigate(`/requirements/${created.id}`);
     } catch (err: unknown) {
       console.error("Create failed:", err);
@@ -297,6 +304,8 @@ export default function RequirementEditors(): JSX.Element {
             <RequirementDetailEditor
               key={requirement.id}
               requirement={requirement}
+              upstreamLinks={upstreamLinks}
+              downstreamLinks={downstreamLinks}
               onSaved={refresh}
             />
           </>

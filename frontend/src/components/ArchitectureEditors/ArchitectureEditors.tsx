@@ -259,7 +259,8 @@ export default function ArchitectureEditors(): JSX.Element {
         title: t("arch.newElementTitle"),
         element_type: "component",
       });
-      refresh();
+      // Navigate first — the hook re-fetches automatically when selectedId changes.
+      // Calling refresh() before navigate() causes a double-fetch race condition.
       navigate(`/architecture/${created.id}`);
     } catch (err: unknown) {
       console.error("Create failed:", err);
