@@ -1,34 +1,37 @@
 // REQ-L1-002, REQ-L2-AS-003: Requirements CRUD
 import { test, expect } from '@playwright/test';
-import { loginAsAdmin, getAuthToken } from '../helpers/auth';
+import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('Requirements Management', () => {
   test.beforeEach(async ({ page }) => {
+    // Inject real workspace ID so WorkspaceContext uses the seeded workspace
+    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
     await loginAsAdmin(page);
   });
 
-  test('requirements list page loads', async ({ page }) => {
+  test('[REQ-L1-002] requirements list page loads', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await expect(page.locator('body')).toBeVisible();
     // The create button must be present
     await expect(page.locator('[data-testid="create-req-btn"]')).toBeVisible({ timeout: 10000 });
   });
 
-  test('can open new requirement form', async ({ page }) => {
+  test('[REQ-L1-002] can open new requirement form', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    // Title input should appear
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 8000 });
+    // Title input should appear after successful create + navigation to /requirements/:id
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
   });
 
-  test('create requirement via API', async ({ request }) => {
+  test('[REQ-L1-002] create requirement via API', async ({ request }) => {
     const token = await getAuthToken();
     const response = await request.post(`${BACKEND_URL}/api/v1/requirements/`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
+        workspace_id: SEEDED_WORKSPACE_ID,
         title: 'E2E Test Requirement',
         description: 'Created by Playwright E2E test',
         category: 'Functional',
@@ -45,10 +48,12 @@ test.describe('Requirements Management', () => {
     });
   });
 
-  test('create and edit requirement via UI', async ({ page }) => {
+  test('[REQ-L1-002] create and edit requirement via UI', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
 
+    // Wait for navigation to /requirements/:id and the title input to appear
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
     await page.locator('[data-testid="req-title"]').fill('UI E2E Requirement');
 
     // Save

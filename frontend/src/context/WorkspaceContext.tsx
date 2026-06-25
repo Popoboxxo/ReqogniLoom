@@ -41,8 +41,15 @@ export interface WorkspaceState {
 // Defaults (used until workspace loads)
 // ---------------------------------------------------------------------------
 
+// Allow E2E tests (and future workspace bootstrap) to override the workspace ID
+// by storing a real UUID in sessionStorage under "reqflow_workspace_id".
+const _storedWorkspaceId =
+  typeof sessionStorage !== "undefined"
+    ? sessionStorage.getItem("reqflow_workspace_id")
+    : null;
+
 const DEFAULT_WORKSPACE: Workspace = {
-  id: "00000000-0000-0000-0000-000000000000",
+  id: _storedWorkspaceId ?? "00000000-0000-0000-0000-000000000000",
   name: "Default Workspace",
   preset: "standard",
   terminology_profile: "se_mode",

@@ -14,7 +14,7 @@ test.describe('Authentication', () => {
 
   test('login with wrong password shows error', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/login`);
-    await page.fill('#username-input', TEST_USER.email);
+    await page.fill('#username-input', TEST_USER.username);
     await page.fill('#password-input', 'wrong-password-xyz');
     await page.click('button[type="submit"]');
     // Error alert must appear

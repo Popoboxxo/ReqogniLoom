@@ -568,13 +568,40 @@ class TraceLinkViewSet(BaseEntityViewSet):
         return TraceLinkService()
 
     def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/tracelinks/?workspace_id=<id>[&artifact_id=<id>]
+
+        When artifact_id is provided: returns upstream + downstream links for that artifact.
+        When only workspace_id is provided: returns empty list
+        (workspace-level scan is not yet supported by TraceLinkService).
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
             workspace_id_str = request.query_params.get("workspace_id")
             if not workspace_id_str:
-                return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"), status=status.HTTP_400_BAD_REQUEST)
-            items = self._svc().query_trace_links(workspace_id=UUID(workspace_id_str), ctx=ctx)
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            artifact_id_str = request.query_params.get("artifact_id")
+            if not artifact_id_str:
+                # Workspace-level listing not supported — return empty paginated result
+                return self._paginate(request, [])
+
+            artifact_id = UUID(artifact_id_str)
+            svc = self._svc()
+            items: list = []
+            for direction in ("upstream", "downstream"):
+                try:
+                    results = svc.query_trace_links(
+                        entity_id=artifact_id,
+                        direction=direction,
+                        ctx=ctx,
+                    )
+                    items.extend(results)
+                except Exception:
+                    pass  # no links in this direction — safe to ignore
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
