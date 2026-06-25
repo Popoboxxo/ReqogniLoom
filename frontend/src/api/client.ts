@@ -6,7 +6,7 @@
  *
  * All REST calls go through this module.
  * - Attaches Authorization: Bearer <token> to every request.
- * - On 401 → emits a redirect event; caller redirects to /login.
+ * - On 401 or 403 → emits a redirect event; caller redirects to /login.
  * - Accepts/sends JSON; sends Accept-Language from i18n.
  */
 
@@ -60,7 +60,8 @@ async function apiFetch<T>(
     headers,
   });
 
-  if (response.status === 401) {
+  // Treat both 401 and 403 as "not authenticated" (REQ-L2-RF-010)
+  if (response.status === 401 || response.status === 403) {
     _onUnauthorized?.();
     const err: ApiError = {
       error: {

@@ -22,10 +22,14 @@
   },
   "login": {
     "title": "Anmelden",
-    "tokenLabel": "Bearer-Token",
-    "tokenPlaceholder": "Token eingeben...",
-    "tokenRequired": "Bitte geben Sie einen Token ein.",
-    "submit": "Anmelden"
+    "usernameLabel": "Benutzername",
+    "usernamePlaceholder": "Benutzername eingeben...",
+    "usernameRequired": "Bitte geben Sie einen Benutzernamen ein.",
+    "passwordLabel": "Passwort",
+    "passwordPlaceholder": "Passwort eingeben...",
+    "passwordRequired": "Bitte geben Sie ein Passwort ein.",
+    "submit": "Anmelden",
+    "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut."
   },
   "loading": "Laden...",
   "actions": {

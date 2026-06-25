@@ -6,7 +6,7 @@
  *
  * Manages auth state and token lifecycle.
  * On mount: restores token from sessionStorage.
- * On 401:   clears token, redirects to /login.
+ * On 401/403: clears token, redirects to /login.
  */
 
 import React, {
@@ -23,10 +23,35 @@ import { setAuthToken, setUnauthorizedHandler } from "../api/client";
 // Types
 // ---------------------------------------------------------------------------
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  email: string;
+  is_active: boolean;
+  tenant_id: string | null;
+  roles: string[];
+}
+
+export interface LoginCredentials {
+  username: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: AuthUser;
+  tenant_id: string;
+  roles: string[];
+}
+
 export interface AuthState {
   isAuthenticated: boolean;
   token: string | null;
-  login: (token: string) => void;
+  user: AuthUser | null;
+  tenantId: string | null;
+  roles: string[];
+  /** POST /api/v1/auth/login/ — resolves on success, rejects with error message on failure */
+  login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => void;
 }
 
@@ -37,6 +62,16 @@ export interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 
 const TOKEN_KEY = "reqflow_token";
+const USER_KEY = "reqflow_user";
+
+function parseStoredUser(): AuthUser | null {
+  try {
+    const raw = sessionStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({
   children,
@@ -48,34 +83,79 @@ export function AuthProvider({
   const [token, setToken] = useState<string | null>(() =>
     sessionStorage.getItem(TOKEN_KEY)
   );
+  const [user, setUser] = useState<AuthUser | null>(() => parseStoredUser());
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [roles, setRoles] = useState<string[]>([]);
 
   // Keep API client in sync
   useEffect(() => {
     setAuthToken(token);
   }, [token]);
 
-  // Wire 401 handler (REQ-L2-RF-010)
+  // Wire 401/403 handler (REQ-L2-RF-010)
   useEffect(() => {
     setUnauthorizedHandler(() => {
       setToken(null);
+      setUser(null);
+      setTenantId(null);
+      setRoles([]);
       sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(USER_KEY);
       onUnauthorized?.();
     });
   }, [onUnauthorized]);
 
-  const login = useCallback((newToken: string) => {
-    sessionStorage.setItem(TOKEN_KEY, newToken);
-    setToken(newToken);
-  }, []);
+  /** Performs credential-based login via POST /api/v1/auth/login/ */
+  const login = useCallback(
+    async (credentials: LoginCredentials): Promise<void> => {
+      const response = await fetch("/api/v1/auth/login/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(credentials),
+      });
+
+      if (!response.ok) {
+        let message = "Invalid credentials";
+        try {
+          const body = await response.json();
+          if (body?.message) message = body.message;
+          else if (body?.error) message = body.error;
+        } catch {
+          // use default
+        }
+        throw new Error(message);
+      }
+
+      const data: LoginResponse = await response.json();
+
+      sessionStorage.setItem(TOKEN_KEY, data.token);
+      sessionStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      setToken(data.token);
+      setUser(data.user);
+      setTenantId(data.tenant_id ?? null);
+      setRoles(data.roles ?? []);
+    },
+    []
+  );
 
   const logout = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
     setToken(null);
+    setUser(null);
+    setTenantId(null);
+    setRoles([]);
   }, []);
 
   const value: AuthState = {
     isAuthenticated: !!token,
     token,
+    user,
+    tenantId,
+    roles,
     login,
     logout,
   };

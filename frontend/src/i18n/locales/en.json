@@ -22,10 +22,14 @@
   },
   "login": {
     "title": "Sign In",
-    "tokenLabel": "Bearer Token",
-    "tokenPlaceholder": "Enter token...",
-    "tokenRequired": "Please enter a token.",
-    "submit": "Sign In"
+    "usernameLabel": "Username",
+    "usernamePlaceholder": "Enter username...",
+    "usernameRequired": "Please enter a username.",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Enter password...",
+    "passwordRequired": "Please enter a password.",
+    "submit": "Sign In",
+    "invalidCredentials": "Invalid credentials. Please try again."
   },
   "loading": "Loading...",
   "actions": {

@@ -2,11 +2,12 @@
  * ARCH-L1-001 ReactFrontend — Login Page.
  *
  * leaf_id: COMP-RF-001 (NavigationShell)
- * req_id:  REQ-L2-RF-010 (Authentication, 401 → redirect to login)
+ * req_id:  REQ-L2-RF-010 (Authentication, 401/403 → redirect to login)
  *
- * Simple token-based login form.
- * Accepts a Bearer token directly (no username/password OAuth in scope).
- * The backend's auth mechanism is Bearer token; login stores the token.
+ * Credential-based login form (username + password).
+ * Calls POST /api/v1/auth/login/ via AuthContext.login().
+ * On success: stores token + user, navigates to the originally requested route.
+ * On failure: displays i18n error message.
  */
 
 import React, { useState, type FormEvent } from "react";
@@ -19,19 +20,37 @@ export function LoginPage(): JSX.Element {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [token, setToken] = useState("");
+
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/";
+  const from =
+    (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/";
 
-  const handleSubmit = (e: FormEvent): void => {
+  const handleSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!token.trim()) {
-      setError(t("login.tokenRequired"));
+    setError(null);
+
+    if (!username.trim()) {
+      setError(t("login.usernameRequired"));
       return;
     }
-    login(token.trim());
-    navigate(from, { replace: true });
+    if (!password) {
+      setError(t("login.passwordRequired"));
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await login({ username: username.trim(), password });
+      navigate(from, { replace: true });
+    } catch (err) {
+      setError(t("login.invalidCredentials"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -62,18 +81,34 @@ export function LoginPage(): JSX.Element {
             {error}
           </p>
         )}
-        <label htmlFor="token-input">{t("login.tokenLabel")}</label>
+        <label htmlFor="username-input">{t("login.usernameLabel")}</label>
         <input
-          id="token-input"
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder={t("login.tokenPlaceholder")}
-          autoComplete="current-password"
+          id="username-input"
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder={t("login.usernamePlaceholder")}
+          autoComplete="username"
+          disabled={isLoading}
           style={{ padding: "0.5rem", fontSize: "1rem" }}
         />
-        <button type="submit" style={{ padding: "0.75rem", fontSize: "1rem" }}>
-          {t("login.submit")}
+        <label htmlFor="password-input">{t("login.passwordLabel")}</label>
+        <input
+          id="password-input"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder={t("login.passwordPlaceholder")}
+          autoComplete="current-password"
+          disabled={isLoading}
+          style={{ padding: "0.5rem", fontSize: "1rem" }}
+        />
+        <button
+          type="submit"
+          disabled={isLoading}
+          style={{ padding: "0.75rem", fontSize: "1rem" }}
+        >
+          {isLoading ? t("loading") : t("login.submit")}
         </button>
       </form>
     </div>
