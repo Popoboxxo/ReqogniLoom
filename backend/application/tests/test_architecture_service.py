@@ -27,6 +27,8 @@ from application.base import (
     PermissionDeniedError,
 )
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -25,12 +25,16 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 
+# Backward-compat alias used by tests that patch 'application.baseline_facade.TenantContext'
+TenantContext = AuthContext
+
 from application.base import (
     PermissionDeniedError,
     ServiceBase,
     ValidationError,
 )
 from application.event_bus import DomainEvent
+from application.preset_policy_service import get_preset_policy_service
 
 logger = logging.getLogger(__name__)
 
@@ -239,8 +243,7 @@ class BaselineFacade(ServiceBase):
 
         IF-AS-INT-006 → PresetPolicyService.is_scope_allowed().
         """
-        from application.preset_policy_service import get_preset_policy_service
-
+        # get_preset_policy_service is imported at module level to allow test mocking.
         policy = get_preset_policy_service()
         if not policy.is_scope_allowed(workspace_id, scope):
             raise ValidationError(

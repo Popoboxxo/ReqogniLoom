@@ -25,11 +25,15 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from django.db import transaction
 
+# Backward-compat alias used by tests that patch 'application.workflow_facade.TenantContext'
+TenantContext = AuthContext
+
 from application.base import (
     PermissionDeniedError,
     ServiceBase,
     ValidationError,
 )
+from application.preset_policy_service import get_preset_policy_service
 
 logger = logging.getLogger(__name__)
 
@@ -189,8 +193,7 @@ class WorkflowFacade(ServiceBase):
 
         REQ-L3-WF-004. Delegates to IF-AS-INT-008.
         """
-        from application.preset_policy_service import get_preset_policy_service
-
+        # get_preset_policy_service is imported at module level to allow test mocking.
         policy = get_preset_policy_service()
         if policy.is_change_reason_required(workspace_id):
             if not change_reason or not change_reason.strip():
@@ -208,8 +211,7 @@ class WorkflowFacade(ServiceBase):
 
         REQ-L3-WF-001. Delegates to IF-AS-INT-007.
         """
-        from application.preset_policy_service import get_preset_policy_service
-
+        # get_preset_policy_service is imported at module level to allow test mocking.
         policy = get_preset_policy_service()
         allowed, error_msg = policy.validate_transition_roles(ctx, target_state)
         if not allowed:

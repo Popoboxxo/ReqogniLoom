@@ -14,8 +14,8 @@ Security notes
 * Password comparison uses hmac.compare_digest (timing-safe, ADR-L3-WE004-01).
 * HMAC key is read from WORKFLOW_HMAC_KEY env-var / Django SECRET_KEY fallback;
   never hardcoded (ADR-L3-WE004-02, REQ-L3-WE004-002).
-* This component has NO imports from workflow.models, definition_store, or
-  lifecycle_manager (isolation, ADR-L3-WE004-03, REQ-L3-WE004-003).
+* This component is isolated: no internal workflow module imports
+  (isolation, ADR-L3-WE004-03, REQ-L3-WE004-003).
 * TOTP is a v1 stub (desired-tier, REQ-L2-WE-009): always returns valid=False
   until pyotp integration is wired.  Marked clearly so the IEC 61508 v2
   compliance gate does not silently rely on unimplemented logic.
@@ -178,7 +178,7 @@ class SignatureGateVerifier:
     """Credential verification and HMAC seal generation (COMP-WE-004).
 
     Isolation contract (REQ-L3-WE004-003): this class has no imports from
-    workflow.models, workflow.definition_store, or workflow.lifecycle_manager.
+    any workflow-internal modules (models, stores, or state managers).
     Unit tests do not need any Workflow fixtures.
     """
 

@@ -22,6 +22,8 @@ import pytest
 from application.artifact_service import ArtifactService, TreeNodeDTO
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -20,6 +20,8 @@ import pytest
 from application.base import ValidationError
 from application.export_service import ExportResult, ExportService
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------- Helpers ----------
 

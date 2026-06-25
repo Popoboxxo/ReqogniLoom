@@ -32,6 +32,9 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from django.db import transaction
 
+# Backward-compat alias used by tests that patch 'application.import_service.TenantContext'
+TenantContext = AuthContext
+
 from application.base import NotFoundError, ServiceBase, ValidationError
 
 logger = logging.getLogger(__name__)

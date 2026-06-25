@@ -19,6 +19,8 @@ from application.base import NotFoundError, PermissionDeniedError, ValidationErr
 from application.risk_service import RiskService, RiskDTO, RiskValidator, RISK_LINK_TYPES
 from application.models import Risk
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------------------------------------------------------------------------
 # Helpers

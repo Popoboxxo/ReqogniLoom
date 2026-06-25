@@ -17,6 +17,8 @@ import pytest
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.baseline_facade import BaselineFacade, _remap_baseline_exc
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------- Helpers ----------
 

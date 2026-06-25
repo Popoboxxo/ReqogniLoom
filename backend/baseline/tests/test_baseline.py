@@ -739,6 +739,7 @@ class TestDiffResultSerialization:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestBaselineNotFoundError:
     def test_error_message(self):
         store = BaselineStore()

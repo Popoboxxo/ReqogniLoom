@@ -33,6 +33,8 @@ from application.event_bus import (
     MAX_RETRIES,
 )
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------------------------------------------------------------------------
 # DomainEvent

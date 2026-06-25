@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from persistence.models import Artifact, Requirement
+from persistence.models import Artifact, Requirement, Tenant, Workspace
 from persistence.transactions import TransactionContextManager, atomic_transaction
 
 from application.base import (
@@ -121,8 +121,7 @@ class RequirementService(ServiceBase):
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        from persistence.models import Tenant, Workspace
-
+        # Tenant and Workspace are imported at module level to allow test mocking.
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
         if tenant is None:
             raise NotFoundError(f"Tenant {ctx.tenant_id} not found")

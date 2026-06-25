@@ -33,6 +33,9 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 
+# Backward-compat alias used by tests that patch 'application.search_service.TenantContext'
+TenantContext = AuthContext
+
 from application.base import ServiceBase, ValidationError
 
 logger = logging.getLogger(__name__)

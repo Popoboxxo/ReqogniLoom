@@ -33,6 +33,8 @@ from uuid import UUID, uuid4
 from django.db import transaction
 from django.utils import timezone
 
+from application.models import DomainEventDLQ, DomainEventOutbox
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -146,8 +148,7 @@ class DomainEventBus:
         REQ-L3-DEB-002: Event is published in post_commit hook.
         REQ-L2-AS-029: Atomic binding to the mutating transaction.
         """
-        from application.models import DomainEventOutbox
-
+        # DomainEventOutbox is imported at module level to allow test mocking.
         def _insert() -> None:
             try:
                 DomainEventOutbox.objects.create(
@@ -247,8 +248,7 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
     Returns:
         Number of events processed in this poll cycle.
     """
-    from application.models import DomainEventDLQ, DomainEventOutbox
-
+    # DomainEventDLQ and DomainEventOutbox are imported at module level.
     bus = get_event_bus()
     processed = 0
 

@@ -35,6 +35,8 @@ import urllib.error
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from django.utils import timezone
+
 from application.event_bus import DomainEvent, get_event_bus
 
 logger = logging.getLogger(__name__)
@@ -158,8 +160,7 @@ class WebhookDispatcher:
 
         REQ-L3-WHOOK-003: event_type, entity_id, workspace_id, timestamp.
         """
-        from django.utils import timezone
-
+        # timezone is imported at module level to allow test mocking.
         data = {
             "event_type": event.event_type,
             "event_id": str(event.event_id),

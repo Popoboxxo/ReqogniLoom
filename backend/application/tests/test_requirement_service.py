@@ -33,6 +33,8 @@ from application.requirement_service import (
     RequirementService,
 )
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------------------------------------------------------------------------
 # Helpers

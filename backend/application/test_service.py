@@ -28,7 +28,7 @@ from typing import Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from persistence.models import Artifact, TestCase
+from persistence.models import Artifact, TestCase, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -75,8 +75,7 @@ class TestService(ServiceBase):
                 f"Invalid test_type '{test_type}'. Valid: {sorted(VALID_TEST_TYPES)}"
             )
 
-        from persistence.models import Tenant, Workspace
-
+        # Tenant and Workspace are imported at module level to allow test mocking.
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
         if tenant is None:
             raise NotFoundError(f"Tenant {ctx.tenant_id} not found")

@@ -19,6 +19,8 @@ from application.base import NotFoundError, PermissionDeniedError, ValidationErr
 from application.issue_service import IssueService, IssueDTO, IssueValidator, ISSUE_LINK_TYPES
 from application.models import Issue
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------------------------------------------------------------------------
 # Helpers

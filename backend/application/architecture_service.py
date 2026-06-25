@@ -28,7 +28,7 @@ from uuid import UUID
 from django.db.models import F
 
 from auth_tenancy.context import AuthContext
-from persistence.models import ArchitectureElement, Artifact
+from persistence.models import ArchitectureElement, Artifact, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, OptimisticLockError, ServiceBase
@@ -68,8 +68,7 @@ class ArchitectureService(ServiceBase):
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        from persistence.models import Tenant, Workspace
-
+        # Tenant and Workspace are imported at module level to allow test mocking.
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
         if tenant is None:
             raise NotFoundError(f"Tenant {ctx.tenant_id} not found")

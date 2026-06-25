@@ -22,6 +22,7 @@ import uuid
 from typing import Optional
 
 from baseline.exceptions import BaselineNotFoundError, ScopeMismatchError
+from baseline.models import BaselineSnapshot
 from baseline.types import ChangedItem, DiffResult
 
 
@@ -120,8 +121,7 @@ class DiffEngine:
             BaselineNotFoundError: If either baseline does not exist.
             ScopeMismatchError: If scopes differ.
         """
-        from baseline.models import BaselineSnapshot
-
+        # BaselineSnapshot is imported at module level to allow test mocking
         try:
             a = BaselineSnapshot.unscoped.only("scope").get(id=baseline_a_id)
         except BaselineSnapshot.DoesNotExist:

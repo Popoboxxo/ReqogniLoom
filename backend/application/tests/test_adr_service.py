@@ -18,6 +18,8 @@ from application.base import NotFoundError, PermissionDeniedError, ValidationErr
 from application.adr_service import AdrService, AdrDTO, AdrValidator, ADR_LINK_TYPES
 from application.models import Adr
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------------------------------------------------------------------------
 # Helpers

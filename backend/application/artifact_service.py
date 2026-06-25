@@ -31,7 +31,11 @@ from uuid import UUID
 from django.db import connection, transaction
 
 from auth_tenancy.context import AuthContext
-from persistence.models import Artifact
+
+# Backward-compat alias used by tests that patch 'application.artifact_service.TenantContext'
+TenantContext = AuthContext
+
+from persistence.models import Artifact, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -141,9 +145,7 @@ class ArtifactService(ServiceBase):
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        # Import Workspace inside method to avoid circular imports at module load
-        from persistence.models import Workspace
-
+        # Workspace and Tenant are imported at module level to allow test mocking.
         workspace = Workspace.objects.filter(id=workspace_id).first()
         if workspace is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
@@ -153,8 +155,6 @@ class ArtifactService(ServiceBase):
             if parent is None:
                 raise NotFoundError(f"Parent artifact {parent_id} not found")
             self._validate_no_cycle(artifact_id=UUID(str(parent_id)), new_parent_id=None)
-
-        from persistence.models import Tenant
 
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
         if tenant is None:

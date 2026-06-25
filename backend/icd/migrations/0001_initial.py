@@ -33,7 +33,8 @@ class Migration(migrations.Migration):
 
     operations = [
         # ------------------------------------------------------------------
-        # Icd — logical identity header
+        # Icd — logical identity header (without current_version FK first,
+        # to avoid forward-reference to IcdVersion which doesn't exist yet)
         # ------------------------------------------------------------------
         migrations.CreateModel(
             name="Icd",
@@ -83,16 +84,6 @@ class Migration(migrations.Migration):
                 ("source_element_id", models.UUIDField(db_index=True)),
                 ("target_element_id", models.UUIDField(db_index=True)),
                 ("name", models.CharField(max_length=500)),
-                (
-                    "current_version",
-                    models.OneToOneField(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="current_for_icd",
-                        to="icd.icdversion",
-                    ),
-                ),
             ],
             options={
                 "db_table": "icd_icd",
@@ -234,5 +225,20 @@ class Migration(migrations.Migration):
             DROP TRIGGER IF EXISTS trg_icd_version_immutable ON icd_version;
             DROP FUNCTION IF EXISTS icd_raise_version_immutable();
             """,
+        ),
+        # ------------------------------------------------------------------
+        # Add current_version FK on Icd after IcdVersion table exists
+        # (circular reference resolved by splitting CreateModel + AddField)
+        # ------------------------------------------------------------------
+        migrations.AddField(
+            model_name="icd",
+            name="current_version",
+            field=models.OneToOneField(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="current_for_icd",
+                to="icd.icdversion",
+            ),
         ),
     ]

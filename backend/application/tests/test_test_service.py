@@ -85,6 +85,7 @@ class TestConstants:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestCreateTestCase:
     """REQ-L2-AS-005."""
 
@@ -234,6 +235,7 @@ class TestCreateTestCase:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestUpdateTestCase:
     """REQ-L2-AS-005."""
 
@@ -297,6 +299,7 @@ class TestUpdateTestCase:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestUpdateTestStatus:
     """REQ-L2-AS-005: execution_status validation."""
 
@@ -405,6 +408,7 @@ class TestUpdateTestStatus:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestDeleteTestCase:
     """REQ-L2-AS-005."""
 

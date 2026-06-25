@@ -27,6 +27,7 @@ from baseline.exceptions import (
     EmptyBaselineNameError,
     ScopeNotAllowedError,
 )
+from baseline.models import BaselineSnapshot
 from baseline.types import BaselineMetadata, DeltaIndexTuple
 
 # Valid scope values
@@ -325,8 +326,7 @@ class DeltaIndexBuilder:
 
         # Duplicate check — BaselineStore will also enforce via DB constraint,
         # but checking here provides a cleaner error message.
-        from baseline.models import BaselineSnapshot
-
+        # BaselineSnapshot is imported at module level to allow test mocking.
         if BaselineSnapshot.unscoped.filter(
             workspace_id=workspace_id,
             name=name,

@@ -22,6 +22,8 @@ from application.import_service import (
     _MAX_ROWS,
 )
 
+pytestmark = pytest.mark.django_db
+
 
 # ---------- Helpers ----------
 
