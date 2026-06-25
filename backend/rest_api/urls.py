@@ -27,6 +27,7 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
+from rest_api.auth_views import LoginView, MeView
 from rest_api.views import (
     ArtifactViewSet,
     ArchitectureElementViewSet,
@@ -57,6 +58,10 @@ router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
 # ---------------------------------------------------------------------------
 
 urlpatterns = [
+    # Password login (REQ-L1-010) — public token exchange + authenticated bootstrap.
+    # auth/login/ is PUBLIC (AllowAny, no auth); auth/me/ requires a Bearer token.
+    path("auth/login/", LoginView.as_view(), name="api-v1-auth-login"),
+    path("auth/me/", MeView.as_view(), name="api-v1-auth-me"),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),
     # OpenAPI schema — accessible without auth (REQ-L2-RA-002, REQ-L3-RA005-001)

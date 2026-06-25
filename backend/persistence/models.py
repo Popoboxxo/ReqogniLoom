@@ -134,11 +134,20 @@ class User(AuditableModel):
     may exist without a tenant), hence ``tenant`` is nullable here and this model
     does NOT inherit ``TenantScopedModel``. AuthAndTenancy (ARCH-L1-011) owns the
     authentication semantics; this is the persisted record only.
+
+    Password storage (REQ-L1-010, password-login extension): ``password`` holds a
+    salted hash produced by Django's password hashers (PBKDF2 by default), never
+    the plaintext. Use :meth:`set_password` / :meth:`check_password`; never assign
+    a raw value to ``password`` directly. An empty ``password`` means "no usable
+    password" and never matches via :meth:`check_password`.
     """
 
     username = models.CharField(max_length=150, unique=True)
     email = models.EmailField(unique=True)
     is_active = models.BooleanField(default=True)
+    # Salted password hash (Django hasher format, e.g. "pbkdf2_sha256$..."), not
+    # the plaintext. Blank = no usable password set.
+    password = models.CharField(max_length=128, blank=True, default="")
     tenant = models.ForeignKey(
         Tenant,
         on_delete=models.PROTECT,
@@ -152,6 +161,28 @@ class User(AuditableModel):
 
     def __str__(self) -> str:
         return self.username
+
+    def set_password(self, raw_password: str) -> None:
+        """Hash and store ``raw_password`` on this instance (not saved to DB).
+
+        Delegates to Django's configured password hashers (PBKDF2 by default).
+        The caller is responsible for persisting the change via ``save()``.
+        """
+        from django.contrib.auth.hashers import make_password
+
+        self.password = make_password(raw_password)
+
+    def check_password(self, raw_password: str) -> bool:
+        """Return whether ``raw_password`` matches the stored password hash.
+
+        Returns ``False`` when no usable password is set. Uses Django's
+        constant-time verification (``check_password``) to avoid timing leaks.
+        """
+        from django.contrib.auth.hashers import check_password as _check
+
+        if not self.password:
+            return False
+        return _check(raw_password, self.password)
 
 
 # ---------------------------------------------------------------------------

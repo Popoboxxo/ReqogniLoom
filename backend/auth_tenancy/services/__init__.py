@@ -23,6 +23,7 @@ from .authorization import (
     Operation,
     PresetPolicyValidator,
 )
+from .password_authentication import PasswordAuthenticationService
 from .tenant_context import TenantContextService
 
 __all__ = [
@@ -30,6 +31,7 @@ __all__ = [
     "ApiKeyCreationResult",
     "hash_api_key",
     "generate_api_key_plaintext",
+    "PasswordAuthenticationService",
     "AuthorizationService",
     "AuthorizationDecision",
     "Operation",
