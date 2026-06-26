@@ -1,3 +1,4 @@
+# Hinweis: Submodul aktuell auf v0.64.1 — Upgrade empfohlen nach Sync
 agent-meta-version: 0.65.1
 test-repo:
   enabled: false
@@ -72,8 +73,8 @@ variables:
   DOCS_LANGUAGE: Englisch
   INTERNAL_DOCS_LANGUAGE: Deutsch
   CODE_LANGUAGE: Englisch
-  GIT_PLATFORM: GitHub
-  GIT_REMOTE_URL: https://github.com/owner/repo
+  GIT_PLATFORM: Codeberg
+  GIT_REMOTE_URL: https://codeberg.org/dduchrow/ai-native-reqflow-POC.git
   GIT_MAIN_BRANCH: main
   BUILD_COMMAND: docker-compose build
   TEST_COMMAND: pytest (Backend) + npm test (Frontend)
@@ -127,25 +128,66 @@ variables:
     - React-spezifisch: Functional Components, Hooks
 
     '
-  EXTRA_DONTS: ''
-  CODE_QUALITY_RULES: ''
-  REQ_CATEGORIES: ''
-  REQ_CATEGORIES_LIST: ''
+  EXTRA_DONTS: |
+    - NICHT direkt in .claude/agents/ schreiben (generierter Output)
+    - NICHT Docker-Services einzeln stoppen wenn andere laufen (Volume-Locks)
+    - NICHT frontend-Service neu starten ohne danach E2E-Tests zu prüfen (HMR-Problem auf Windows)
+  CODE_QUALITY_RULES: |
+    - TypeScript strict mode (tsconfig.json)
+    - PEP 8 für Python
+    - DRF Serializer-First-Approach (niemals direkte Model-Queries in Views)
+    - React: Functional Components + Hooks, kein class-based
+    - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht)
+    - CSS Custom Properties aus tokens.css verwenden (keine hardcodierten Farben/Größen)
+  REQ_CATEGORIES: |
+    - Functional: Features, User Stories
+    - Non-Functional: Performance, Sicherheit, Skalierbarkeit
+    - API: REST API und MCP Server Schnittstellen
+    - UI/UX: Frontend und Benutzerinteraktion
+    - Data: Datenmodelle, Artefakte, Zerlegungsstrukturen
+    - Integration: Externe Systeme, Import/Export
+    - Test: Testmanagement-Anforderungen
+  REQ_CATEGORIES_LIST: |
+    - **Functional** — Features, User Stories
+    - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit
+    - **API** — REST API und MCP Server Schnittstellen
+    - **UI/UX** — Frontend und Benutzerinteraktion
+    - **Data** — Datenmodelle, Artefakte, Zerlegungsstrukturen
+    - **Integration** — Externe Systeme, Import/Export
+    - **Test** — Testmanagement-Anforderungen
   TESTER_SNIPPETS_PATH: ''
   DEVELOPER_SNIPPETS_PATH: ''
   AGENT_META_REPO: Popoboxxo/agent-meta
-  SYSTEM_DEPENDENCIES: ''
-  SYSTEM_URLS: ''
-  SERVICE_NAME: ''
-  CONTAINER_NAME: ''
-  PRIMARY_PORT: ''
-  EXTRA_PORTS: ''
-  BUILD_OUTPUT: ''
+  SYSTEM_DEPENDENCIES: |
+    - Docker >= 24
+    - Docker Compose >= 2.x
+    - Node.js >= 18 (nur für E2E-Tests mit Playwright)
+    - Python 3.x (im Container)
+  SYSTEM_URLS: |
+    - Frontend: http://localhost:5173
+    - Backend API: http://localhost:8000/api/v1/
+    - Admin: http://localhost:8000/admin/
+  SERVICE_NAME: reqflow-backend
+  CONTAINER_NAME: ai-native-reqflow-poc-backend-1
+  PRIMARY_PORT: "8000"
+  EXTRA_PORTS: |
+    - 5173 (frontend Vite)
+    - 5432 (postgres)
+    - 6379 (redis)
+  BUILD_OUTPUT: "(kein Build-Artifact — Django served via gunicorn, React via Vite Dev Server oder build/)"
   ARTIFACT_ZIP_CMD: ''
   ARTIFACT_TAR_CMD: ''
   GH_ASSETS: ''
-  BUILD_SYSTEM_NOTES: ''
-  VERSION_DIST_BEHAVIOUR: ''
+  BUILD_SYSTEM_NOTES: |
+    docker-compose build erstellt Images für backend und frontend.
+    Backend: Dockerfile in backend/ (Python/Django).
+    Frontend: Dockerfile in frontend/ (Node/Vite).
+    Kein separates Build-Artifact — Deployment via Docker Compose.
+  VERSION_DIST_BEHAVIOUR: |
+    1. VERSION-Datei erhöhen (noch nicht vorhanden — zu erstellen)
+    2. CHANGELOG.md aktualisieren
+    3. git tag v<version>
+    4. docker-compose build && docker-compose push (optional)
   SE_MIN_DEPTH: 1
   SE_MAX_DEPTH: 4
   SE_MAX_CRITIC_ITERATIONS: 1
@@ -168,9 +210,22 @@ admin-ui:
   auto-sync-on-save: true
 rules-preset: ''
 speech-mode: short
-dod-preset: ''
+dod-preset: spec-driven
 tier-preset: Cheap
 se-focus: true
+memory:
+  enabled: true
+  default_scope: ""
+lifecycle-triggers:
+  on-merge:
+    - agent: code-reviewer
+      task: "Post-Merge Blast-Radius-Analyse: Prüfe betroffene Code-Pfade auf Clean-Code-Verletzungen."
+  on-release:
+    - agent: documenter
+      task: "Update CODEBASE_OVERVIEW.md and ARCHITECTURE.md for this release."
+hooks:
+  lifecycle-check:
+    enabled: true
 model-overrides:
   Claude:
     se-senior-developer: claude-opus-4-8
