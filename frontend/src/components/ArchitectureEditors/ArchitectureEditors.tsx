@@ -36,6 +36,59 @@ const ELEMENT_TYPES: { value: ElementType; label: string }[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Shared style helpers — token-based
+// ---------------------------------------------------------------------------
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  fontSize: "var(--font-size-base)",
+  padding: "var(--space-2) var(--space-3)",
+  marginBottom: "var(--space-4)",
+  boxSizing: "border-box",
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  color: "var(--color-text)",
+  fontFamily: "var(--font-sans)",
+  transition: "var(--transition-fast)",
+  outline: "none",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontWeight: 600,
+  display: "block",
+  marginBottom: "var(--space-2)",
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  background: "var(--color-primary)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-2) var(--space-4)",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 600,
+  cursor: "pointer",
+  transition: "var(--transition-fast)",
+  fontFamily: "var(--font-sans)",
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  background: "var(--color-danger)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-2) var(--space-4)",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 600,
+  cursor: "pointer",
+  transition: "var(--transition-fast)",
+  fontFamily: "var(--font-sans)",
+};
+
+// ---------------------------------------------------------------------------
 // Delete Confirmation Dialog (ADR-L3-RF-008)
 // ---------------------------------------------------------------------------
 
@@ -67,28 +120,57 @@ function DeleteConfirmationDialog({
     >
       <div
         style={{
-          background: "#fff",
-          padding: "2rem",
-          borderRadius: "8px",
+          background: "var(--color-surface)",
+          padding: "var(--space-6)",
+          borderRadius: "var(--radius-lg)",
+          boxShadow: "var(--shadow-md)",
           maxWidth: "400px",
           textAlign: "center",
+          fontFamily: "var(--font-sans)",
+          color: "var(--color-text)",
         }}
       >
-        <h3>{t("arch.deleteTitle")}</h3>
-        <p>
-          {t("arch.deleteConfirm")}: <strong>{elementName}</strong>?
+        <h3 style={{ margin: 0, marginBottom: "var(--space-3)", fontSize: "var(--font-size-lg)" }}>
+          {t("arch.deleteTitle")}
+        </h3>
+        <p style={{ margin: 0, marginBottom: "var(--space-4)", color: "var(--color-text-muted)" }}>
+          {t("arch.deleteConfirm")}: <strong style={{ color: "var(--color-text)" }}>{elementName}</strong>?
         </p>
-        <div style={{ display: "flex", gap: "1rem", justifyContent: "center", marginTop: "1rem" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-3)",
+            justifyContent: "center",
+            marginTop: "var(--space-4)",
+          }}
+        >
           <button
             data-testid="confirm-delete-btn"
             onClick={onConfirm}
-            style={{ padding: "0.5rem 1.5rem", background: "#cc0000", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+            style={dangerButtonStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = "#b91c1c";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-danger)";
+            }}
           >
             {t("actions.delete")}
           </button>
           <button
             onClick={onCancel}
-            style={{ padding: "0.5rem 1.5rem", cursor: "pointer" }}
+            style={{
+              background: "var(--color-surface-raised)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "var(--transition-fast)",
+              fontFamily: "var(--font-sans)",
+            }}
           >
             {t("actions.cancel")}
           </button>
@@ -156,7 +238,7 @@ function ArchElementForm({
         />
       )}
 
-      <label htmlFor="arch-title" style={{ fontWeight: "bold", display: "block" }}>
+      <label htmlFor="arch-title" style={labelStyle}>
         {t("editor.title")}
       </label>
       <input
@@ -164,17 +246,17 @@ function ArchElementForm({
         data-testid="arch-title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        style={{
-          width: "100%",
-          fontSize: "1.1rem",
-          padding: "0.4rem",
-          marginBottom: "1rem",
-          boxSizing: "border-box",
+        style={{ ...inputStyle, fontSize: "var(--font-size-lg)", fontWeight: 600 }}
+        onFocus={(e) => {
+          (e.currentTarget as HTMLInputElement).style.borderColor = "var(--color-primary)";
+        }}
+        onBlur={(e) => {
+          (e.currentTarget as HTMLInputElement).style.borderColor = "var(--color-border)";
         }}
       />
 
       {/* Element type dropdown (REQ-L3-RF004-001, ADR-L3-RF-007) */}
-      <label htmlFor="arch-type" style={{ fontWeight: "bold", display: "block" }}>
+      <label htmlFor="arch-type" style={labelStyle}>
         {t("arch.elementType")}
       </label>
       <select
@@ -182,7 +264,7 @@ function ArchElementForm({
         data-testid="arch-element-type"
         value={elementType}
         onChange={(e) => setElementType(e.target.value)}
-        style={{ padding: "0.4rem", marginBottom: "1rem" }}
+        style={{ ...inputStyle, width: "auto", minWidth: "200px" }}
       >
         {ELEMENT_TYPES.map((et) => (
           <option key={et.value} value={et.value}>
@@ -192,7 +274,7 @@ function ArchElementForm({
       </select>
 
       {/* Markdown description (REQ-L3-RF004-002) */}
-      <label style={{ fontWeight: "bold", display: "block", marginBottom: "0.25rem" }}>
+      <label style={labelStyle}>
         {t("editor.description")}
       </label>
       <MarkdownPreview
@@ -201,7 +283,14 @@ function ArchElementForm({
       />
 
       {saveError && (
-        <p role="alert" style={{ color: "red", marginTop: "0.5rem" }}>
+        <p
+          role="alert"
+          style={{
+            color: "var(--color-danger)",
+            marginTop: "var(--space-3)",
+            fontSize: "var(--font-size-sm)",
+          }}
+        >
           {saveError}
         </p>
       )}
@@ -209,27 +298,39 @@ function ArchElementForm({
       <div
         style={{
           display: "flex",
-          gap: "0.75rem",
-          marginTop: "1rem",
+          gap: "var(--space-3)",
+          marginTop: "var(--space-4)",
         }}
       >
         <button
           data-testid="arch-save-btn"
           onClick={() => void handleSave()}
           disabled={isSaving}
-          style={{ padding: "0.5rem 1.5rem" }}
+          style={{
+            ...primaryButtonStyle,
+            opacity: isSaving ? 0.6 : 1,
+            cursor: isSaving ? "not-allowed" : "pointer",
+          }}
+          onMouseEnter={(e) => {
+            if (!isSaving) {
+              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary-dark)";
+            }
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary)";
+          }}
         >
           {isSaving ? t("actions.saving") : t("actions.save")}
         </button>
         <button
           data-testid="arch-delete-btn"
           onClick={() => setShowDeleteDialog(true)}
-          style={{
-            padding: "0.5rem 1rem",
-            background: "#fee",
-            border: "1px solid #fcc",
-            cursor: "pointer",
-            borderRadius: "4px",
+          style={dangerButtonStyle}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = "#b91c1c";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = "var(--color-danger)";
           }}
         >
           {t("actions.delete")}
@@ -281,84 +382,198 @@ export default function ArchitectureEditors(): JSX.Element {
   );
 
   if (isLoading) {
-    return <p role="status">{t("loading")}</p>;
+    return (
+      <p
+        role="status"
+        style={{
+          color: "var(--color-text-muted)",
+          fontFamily: "var(--font-sans)",
+          padding: "var(--space-4)",
+        }}
+      >
+        {t("loading")}
+      </p>
+    );
   }
 
   if (error) {
     return (
-      <div role="alert">
-        <p style={{ color: "red" }}>{error}</p>
-        <button onClick={refresh}>{t("actions.reload")}</button>
+      <div
+        role="alert"
+        style={{
+          background: "var(--color-surface)",
+          borderRadius: "var(--radius-md)",
+          boxShadow: "var(--shadow-card)",
+          padding: "var(--space-4)",
+          fontFamily: "var(--font-sans)",
+        }}
+      >
+        <p style={{ color: "var(--color-danger)", marginTop: 0 }}>{error}</p>
+        <button onClick={refresh} style={primaryButtonStyle}>
+          {t("actions.reload")}
+        </button>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", gap: "1.5rem" }}>
-      {/* Elements list */}
-      <div style={{ minWidth: "240px", borderRight: "1px solid #ddd", paddingRight: "1rem" }}>
+    <div
+      style={{
+        display: "flex",
+        gap: "var(--space-6)",
+        fontFamily: "var(--font-sans)",
+        color: "var(--color-text)",
+      }}
+    >
+      {/* Elements list (left panel) */}
+      <div style={{ minWidth: "280px" }}>
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: "0.75rem",
+            marginBottom: "var(--space-4)",
           }}
         >
-          <h3 style={{ margin: 0 }}>{t("nav.architecture")}</h3>
+          <h3
+            style={{
+              margin: 0,
+              fontSize: "var(--font-size-lg)",
+              fontWeight: 700,
+              color: "var(--color-text)",
+            }}
+          >
+            {t("nav.architecture")}
+          </h3>
           <button
             data-testid="create-arch-btn"
             onClick={() => void handleCreate()}
-            style={{ fontSize: "0.85rem" }}
+            style={primaryButtonStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary-dark)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary)";
+            }}
           >
             + {t("actions.new")}
           </button>
         </div>
 
         {elements.length === 0 ? (
-          <p style={{ color: "#888", fontSize: "0.85rem" }}>{t("editor.empty")}</p>
+          <p
+            style={{
+              color: "var(--color-text-muted)",
+              fontSize: "var(--font-size-sm)",
+            }}
+          >
+            {t("editor.empty")}
+          </p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {elements.map((el) => (
-              <li
-                key={el.id}
-                style={{
-                  padding: "0.4rem 0.5rem",
-                  cursor: "pointer",
-                  borderRadius: "4px",
-                  background: el.id === selectedId ? "#e8eef8" : "transparent",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "0.2rem",
-                }}
-                onClick={() => navigate(`/architecture/${el.id}`)}
-              >
-                <span style={{ flex: 1 }}>{el.title || t("editor.untitled")}</span>
-                <span
+            {elements.map((el) => {
+              const isActive = el.id === selectedId;
+              return (
+                <li
+                  key={el.id}
+                  onClick={() => navigate(`/architecture/${el.id}`)}
                   style={{
-                    fontSize: "0.7rem",
-                    background: "#ddd",
-                    padding: "0.1rem 0.3rem",
-                    borderRadius: "3px",
-                    marginLeft: "0.5rem",
+                    background: isActive ? "#eef2ff" : "var(--color-surface)",
+                    borderRadius: "var(--radius-md)",
+                    boxShadow: "var(--shadow-card)",
+                    padding: "var(--space-3) var(--space-4)",
+                    marginBottom: "var(--space-2)",
+                    cursor: "pointer",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    transition: "var(--transition-fast)",
+                    borderLeft: isActive
+                      ? "3px solid var(--color-primary)"
+                      : "3px solid transparent",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLLIElement).style.background =
+                        "var(--color-surface-raised)";
+                      (e.currentTarget as HTMLLIElement).style.boxShadow =
+                        "var(--shadow-sm)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLLIElement).style.background =
+                        "var(--color-surface)";
+                      (e.currentTarget as HTMLLIElement).style.boxShadow =
+                        "var(--shadow-card)";
+                    }
                   }}
                 >
-                  {el.element_type}
-                </span>
-              </li>
-            ))}
+                  <span
+                    style={{
+                      flex: 1,
+                      fontSize: "var(--font-size-base)",
+                      color: "var(--color-text)",
+                      fontWeight: isActive ? 600 : 500,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {el.title || t("editor.untitled")}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "var(--font-size-sm)",
+                      background: "var(--color-badge-draft)",
+                      color: "var(--color-badge-draft-text)",
+                      padding: "2px 8px",
+                      borderRadius: "var(--radius-full)",
+                      marginLeft: "var(--space-2)",
+                      fontWeight: 500,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {el.element_type}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
 
-      {/* Detail editor */}
+      {/* Detail editor (right panel) */}
       <div style={{ flex: 1 }}>
         {element ? (
-          <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start" }}>
-            {/* Main form */}
-            <div style={{ flex: 1 }}>
-              <h2>{element.title || t("editor.untitled")}</h2>
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-6)",
+              alignItems: "flex-start",
+            }}
+          >
+            {/* Main form wrapper */}
+            <div
+              style={{
+                flex: 1,
+                background: "var(--color-surface)",
+                borderRadius: "var(--radius-lg)",
+                boxShadow: "var(--shadow-card)",
+                padding: "var(--space-6)",
+              }}
+            >
+              <h2
+                style={{
+                  margin: 0,
+                  marginBottom: "var(--space-4)",
+                  fontSize: "var(--font-size-2xl)",
+                  fontWeight: 700,
+                  color: "var(--color-text)",
+                }}
+              >
+                {element.title || t("editor.untitled")}
+              </h2>
               <ArchElementForm
                 key={element.id}
                 element={element}
@@ -371,16 +586,32 @@ export default function ArchitectureEditors(): JSX.Element {
             <aside
               data-testid="arch-linked-reqs-panel"
               style={{
-                borderLeft: "1px solid #ddd",
-                paddingLeft: "1rem",
-                minWidth: "200px",
+                minWidth: "240px",
+                background: "var(--color-surface)",
+                borderRadius: "var(--radius-lg)",
+                boxShadow: "var(--shadow-card)",
+                padding: "var(--space-4)",
               }}
             >
-              <h4 style={{ margin: "0 0 0.5rem" }}>
+              <h4
+                style={{
+                  margin: 0,
+                  marginBottom: "var(--space-3)",
+                  fontSize: "var(--font-size-base)",
+                  fontWeight: 700,
+                  color: "var(--color-text)",
+                }}
+              >
                 {t("arch.linkedRequirements")}
               </h4>
               {linkedTraceLinks.length === 0 ? (
-                <p style={{ fontSize: "0.85rem", color: "#888" }}>
+                <p
+                  style={{
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--color-text-muted)",
+                    margin: 0,
+                  }}
+                >
                   {t("traceability.none")}
                 </p>
               ) : (
@@ -388,17 +619,43 @@ export default function ArchitectureEditors(): JSX.Element {
                   {linkedTraceLinks.map((link) => (
                     <li
                       key={link.id}
-                      style={{
-                        padding: "0.3rem 0",
-                        borderBottom: "1px solid #eee",
-                        fontSize: "0.85rem",
-                        cursor: "pointer",
-                      }}
                       onClick={() =>
                         navigate(`/requirements/${link.source_id}`)
                       }
+                      style={{
+                        padding: "var(--space-2) var(--space-3)",
+                        marginBottom: "var(--space-2)",
+                        background: "var(--color-surface-raised)",
+                        borderRadius: "var(--radius-md)",
+                        fontSize: "var(--font-size-sm)",
+                        color: "var(--color-text)",
+                        cursor: "pointer",
+                        transition: "var(--transition-fast)",
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLLIElement).style.background =
+                          "#eef2ff";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLLIElement).style.background =
+                          "var(--color-surface-raised)";
+                      }}
                     >
-                      {link.source_id.slice(0, 8)}… ({link.link_type})
+                      <span style={{ fontFamily: "monospace" }}>
+                        {link.source_id.slice(0, 8)}…
+                      </span>{" "}
+                      <span
+                        style={{
+                          background: "var(--color-badge-draft)",
+                          color: "var(--color-badge-draft-text)",
+                          padding: "1px 6px",
+                          borderRadius: "var(--radius-full)",
+                          fontSize: "var(--font-size-sm)",
+                          marginLeft: "var(--space-1)",
+                        }}
+                      >
+                        {link.link_type}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -406,7 +663,14 @@ export default function ArchitectureEditors(): JSX.Element {
             </aside>
           </div>
         ) : (
-          <p style={{ color: "#888" }}>{t("arch.selectElement")}</p>
+          <p
+            style={{
+              color: "var(--color-text-muted)",
+              padding: "var(--space-4)",
+            }}
+          >
+            {t("arch.selectElement")}
+          </p>
         )}
       </div>
     </div>

@@ -34,14 +34,58 @@ export default function DashboardViews(): JSX.Element {
   };
 
   if (isLoading) {
-    return <p role="status">{t("loading")}</p>;
+    return (
+      <p
+        role="status"
+        style={{
+          fontSize: "var(--font-size-base)",
+          color: "var(--color-text-muted)",
+          padding: "var(--space-6)",
+        }}
+      >
+        {t("loading")}
+      </p>
+    );
   }
 
   if (error) {
     return (
-      <div role="alert">
-        <p style={{ color: "red" }}>{error}</p>
-        <button onClick={() => window.location.reload()}>
+      <div
+        role="alert"
+        style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--color-danger)",
+          borderRadius: "var(--radius-lg)",
+          padding: "var(--space-6)",
+          boxShadow: "var(--shadow-card)",
+          maxWidth: "480px",
+        }}
+      >
+        <p
+          style={{
+            color: "var(--color-danger)",
+            fontSize: "var(--font-size-base)",
+            fontWeight: 600,
+            margin: 0,
+            marginBottom: "var(--space-4)",
+          }}
+        >
+          {error}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            background: "var(--color-primary)",
+            color: "var(--color-surface)",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-2) var(--space-4)",
+            fontSize: "var(--font-size-base)",
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "var(--transition-fast)",
+          }}
+        >
           {t("actions.reload")}
         </button>
       </div>
@@ -50,17 +94,37 @@ export default function DashboardViews(): JSX.Element {
 
   return (
     <div>
-      <h2>{t("nav.dashboard")}</h2>
+      <h2
+        style={{
+          fontSize: "var(--font-size-2xl)",
+          fontWeight: 700,
+          color: "var(--color-text)",
+          marginTop: 0,
+          marginBottom: "var(--space-6)",
+        }}
+      >
+        {t("nav.dashboard")}
+      </h2>
       {workspaces.length === 0 ? (
-        <p>{t("dashboard.empty")}</p>
+        <p
+          style={{
+            fontSize: "var(--font-size-base)",
+            color: "var(--color-text-muted)",
+            padding: "var(--space-6)",
+            background: "var(--color-surface-raised)",
+            borderRadius: "var(--radius-lg)",
+            border: "1px dashed var(--color-border)",
+          }}
+        >
+          {t("dashboard.empty")}
+        </p>
       ) : (
         <div
           data-testid="workspace-list"
           style={{
             display: "flex",
             flexWrap: "wrap",
-            gap: "1rem",
-            marginTop: "1rem",
+            gap: "var(--space-4)",
           }}
         >
           {workspaces.map((ws) => (

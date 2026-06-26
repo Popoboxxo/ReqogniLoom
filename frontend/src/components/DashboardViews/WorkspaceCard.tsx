@@ -7,7 +7,7 @@
  *          REQ-L3-RF002-003 (Navigation von Dashboard zu Workspace-Detail)
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceWithMetrics } from "../../types";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -23,9 +23,15 @@ export function WorkspaceCard({
 }: WorkspaceCardProps): JSX.Element {
   const { t } = useTranslation();
   const { terminologyLabel } = useWorkspace();
+  const [isHovered, setIsHovered] = useState(false);
 
   // Use terminology-profile-aware label (REQ-L3-RF002-002)
   const reqLabel = terminologyLabel("requirements");
+
+  const terminologyText =
+    workspace.terminology_profile === "dev_mode"
+      ? t("settings.devMode")
+      : t("settings.seMode");
 
   return (
     <div
@@ -34,37 +40,125 @@ export function WorkspaceCard({
       tabIndex={0}
       onClick={() => onSelect(workspace)}
       onKeyDown={(e) => e.key === "Enter" && onSelect(workspace)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{
-        border: "1px solid #ddd",
-        borderRadius: "8px",
-        padding: "1.25rem",
+        position: "relative",
+        background: "var(--color-surface)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: isHovered
+          ? "var(--shadow-md)"
+          : "var(--shadow-card)",
+        padding: "var(--space-6)",
+        minWidth: "260px",
+        maxWidth: "320px",
+        flex: "1 1 260px",
         cursor: "pointer",
-        background: "#fff",
-        transition: "box-shadow 0.15s",
-        minWidth: "220px",
+        transition: "var(--transition-normal)",
+        transform: isHovered ? "translateY(-2px)" : "translateY(0)",
+        border: "1px solid var(--color-border)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-4)",
+        boxSizing: "border-box",
       }}
-      onMouseEnter={(e) =>
-        ((e.currentTarget as HTMLDivElement).style.boxShadow =
-          "0 2px 8px rgba(0,0,0,0.12)")
-      }
-      onMouseLeave={(e) =>
-        ((e.currentTarget as HTMLDivElement).style.boxShadow = "none")
-      }
     >
-      <h3 style={{ margin: "0 0 0.75rem" }}>{workspace.name}</h3>
-      <div style={{ fontSize: "0.9rem", color: "#444" }}>
-        <div>
-          {reqLabel}: <strong>{workspace.requirement_count}</strong>
+      <div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "var(--space-2)",
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              fontSize: "var(--font-size-xl)",
+              fontWeight: 700,
+              color: "var(--color-text)",
+              lineHeight: 1.3,
+            }}
+          >
+            {workspace.name}
+          </h3>
+          <span
+            style={{
+              background: "var(--color-badge-draft)",
+              color: "var(--color-badge-draft-text)",
+              borderRadius: "var(--radius-full)",
+              fontSize: "var(--font-size-sm)",
+              padding: "2px 10px",
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            {workspace.preset}
+          </span>
         </div>
-        <div>
-          {t("dashboard.openItems")}:{" "}
-          <strong>{workspace.open_item_count}</strong>
+        <div
+          style={{
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
+          }}
+        >
+          {terminologyText}
         </div>
-        <div style={{ marginTop: "0.5rem", fontStyle: "italic", fontSize: "0.8rem" }}>
-          {t("dashboard.preset")}: {workspace.preset} |{" "}
-          {workspace.terminology_profile === "dev_mode"
-            ? t("settings.devMode")
-            : t("settings.seMode")}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "var(--space-4)",
+          paddingTop: "var(--space-4)",
+          borderTop: "1px solid var(--color-border)",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <strong
+            style={{
+              fontSize: "var(--font-size-2xl)",
+              fontWeight: 700,
+              color: "var(--color-primary)",
+              lineHeight: 1.1,
+            }}
+          >
+            {workspace.requirement_count}
+          </strong>
+          <span
+            style={{
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-muted)",
+              marginTop: "var(--space-1)",
+            }}
+          >
+            {reqLabel}
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <strong
+            style={{
+              fontSize: "var(--font-size-2xl)",
+              fontWeight: 700,
+              color: "var(--color-primary)",
+              lineHeight: 1.1,
+            }}
+          >
+            {workspace.open_item_count}
+          </strong>
+          <span
+            style={{
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-muted)",
+              marginTop: "var(--space-1)",
+            }}
+          >
+            {t("dashboard.openItems")}
+          </span>
         </div>
       </div>
     </div>
