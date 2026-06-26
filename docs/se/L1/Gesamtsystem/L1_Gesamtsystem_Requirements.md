@@ -859,3 +859,198 @@ Lücke für v1. SSO (SAML/OIDC) bleibt explizit v2 (STRATEGY.md §6 Out-of-Scope
 
 *Erweiterung durch se-requirements-Agent | HOFF-20260621-002 | 2026-06-21*
 *Erweiterung durch se-requirements-Agent | 2026-06-25 (REQ-L1-033 Credential-Login)*
+
+---
+
+## Offene L1-Ableitungen (REQ-L0-023..028)
+
+> **Quelle:** se-requirements-Agent | HOFF-20260626-001 | 2026-06-26
+>
+> Abgeleitet von SN-23..SN-28 aus `docs/se/L0/SN_Stakeholder_Needs_Backlog.md`.
+> Version-Tags: `v1.1` = near-term feasible; `v2.0` = längerfristig / infrastrukturaufwändig.
+> Status: **OFFEN — ausstehende Architektur-Zerlegung**
+
+---
+
+### REQ-L1-034: ReqIF-Import und -Export für MBSE-Datenaustausch
+
+Das System muss Anforderungsstrukturen inklusive hierarchischer Beziehungen, Attributen
+und TraceLinks verlustfrei im ReqIF-Format (Requirements Interchange Format, aktuelle
+Spezifikation) importieren und exportieren können — unter der Bedingung, dass ein
+ReqIF-Dokument mindestens SpecObjects, SpecRelations und SpecHierarchies vollständig
+abbildet und Validierungsfehler mit Elementreferenz zurückgemeldet werden.
+
+**Rationale:** CSV-Export (REQ-L1-019) reicht für hierarchische MBSE-Strukturen mit
+Trace-Links nicht aus. ReqIF ist in regulierten Industrien (Automotive, Avionik) zwingend
+erforderlich für den Austausch mit DOORS, Polarion und ähnlichen Werkzeugen.
+**Domain:** software
+**Priorität:** desired
+**Version:** v2.0
+**Externe Interfaces:**
+- Eingang: ReqIF-Datei-Upload (.reqif) oder Export-Anfrage mit Scope (Workspace/Projekt)
+- Ausgang: Importierte Artefakte mit UUID und Hierarchie; .reqif-Datei-Download mit vollständiger Struktur
+**Traceability:** REQ-L0-023
+
+---
+
+### REQ-L1-035: Test-Run-Protokollierung mit Ausführungsstatus
+
+Das System muss Testläufe (Test Runs) als eigenständige Entitäten verwalten, die
+einer definierten Menge von TestCases zugeordnet sind, wobei jeder Testlauf
+Ausführungsstatus (Passed / Failed / Blocked / Not Run) pro TestCase aufzeichnet
+und Gesamtlauf-Ergebnis, Zeitstempel sowie ausführende Instanz protokolliert —
+mit vollständigem CRUD via synchroner Web-API und MCP.
+
+**Rationale:** REQ-L1-012 definiert Testfälle und deren Coverage. Ohne Test-Run-Protokollierung
+fehlt der Ausführungsnachweis auf der rechten Seite des V-Modells (Verification & Validation).
+**Domain:** software
+**Priorität:** desired
+**Version:** v1.1
+**Externe Interfaces:**
+- Eingang: Test-Run-Erstellungsanfrage mit TestCase-IDs und optionalem Zeitplan; Status-Update-Anfrage pro TestCase
+- Ausgang: Test-Run-Entität mit aggregiertem Ergebnis (Passed/Failed/Partial), Coverage-Delta, Zeitstempel
+**Traceability:** REQ-L0-024
+
+---
+
+### REQ-L1-036: Automatisierte Test-Ergebnis-Einspeisung via API und MCP
+
+Das System muss automatisierten Pipelines und CI/CD-Systemen ermöglichen, Testergebnisse
+direkt als Test-Run-Ergebniseinträge über die synchrone Web-API und den MCP-Server
+(test.record_result) einzuspeisen — unter der Bedingung, dass die aufrufende Instanz
+mit einem gültigen API-Key authentifiziert ist und jede Einspeisung im Audit-Log
+mit Agent-Client-Identität erfasst wird.
+
+**Rationale:** Manuelle Einspeisung von CI/CD-Ergebnissen erzeugt Medienbrüche und unterbricht
+die Traceability-Kette. Automatisierte Einspeisung schließt den V-Modell-Kreislauf ohne
+manuelle Intervention.
+**Domain:** software
+**Priorität:** desired
+**Version:** v1.1
+**Externe Interfaces:**
+- Eingang: API-Key-authentifizierter POST-Aufruf (API oder MCP test.record_result) mit TestCase-ID, Ergebnisstatus, Ausgabe-Payload
+- Ausgang: Audit-Log-Eintrag mit Agent-Identität; aktualisierter Test-Run-Status; HTTP 200 bei Erfolg
+**Traceability:** REQ-L0-024
+
+---
+
+### REQ-L1-037: Kontextbezogene Kommentar-Threads mit Mention-Benachrichtigung
+
+Das System muss pro Artefakt (Requirement, ArchitectureElement, TestCase) threaded
+Kommentare ermöglichen — mit @Mention-Syntax für registrierte Nutzer, Zeitstempel,
+Autor-Angabe und vollständigem Kommentar-History-Protokoll — wobei erwähnte Nutzer
+eine In-App-Benachrichtigung erhalten und alle Kommentare im Audit-Trail erfasst werden.
+
+**Rationale:** Ohne integrierte Kommunikation finden Abstimmungen in externen Tools statt,
+wodurch der Entscheidungskontext für AI-Agenten und zukünftige Reviews verloren geht.
+Kommentar-Threads ermöglichen die kontextgebundene Dokumentation von Klärungen direkt
+am betroffenen Artefakt.
+**Domain:** software
+**Priorität:** optional
+**Version:** v2.0
+**Externe Interfaces:**
+- Eingang: Kommentar-Erstellungsanfrage mit Artefakt-ID, Text (inkl. @Mention-Syntax), Autor-Kontext
+- Ausgang: Kommentar-Thread mit UUID, Zeitstempel, Autor; In-App-Benachrichtigung an erwähnte Nutzer
+**Traceability:** REQ-L0-025
+
+---
+
+### REQ-L1-038: Semantische Vektorsuche über alle Artefakttypen (RAG)
+
+Das System muss eine semantische, vektorbasierte Suche über alle Artefakttypen
+bereitstellen, die inhaltlich ähnliche Anforderungen, Duplikate und fehlende
+Verknüpfungen identifiziert — abfragbar via UI und MCP (artifact.semantic_search)
+— wobei Embeddings bei Artefakt-Erstellung und -Änderung automatisch aktualisiert
+und im selben Deployment persistiert werden.
+
+**Rationale:** Volltextsuche (REQ-L1-020) skaliert bei tausenden Anforderungen semantisch nicht.
+Vektorbasierte Suche ist Grundlage für AI-gestützte Konsistenz- und Lückenanalysen.
+Infrastrukturaufwand (Embedding-Modell, Vektordatenbank) macht dies zu einem v2-Feature.
+**Domain:** software
+**Priorität:** optional
+**Version:** v2.0
+**Externe Interfaces:**
+- Eingang: Semantische Suchanfrage (natürlichsprachlicher Query oder Artefakt-ID für Ähnlichkeitssuche)
+- Ausgang: Gerankte Trefferliste mit Ähnlichkeits-Score; Duplikat-Warnungen; vorgeschlagene TraceLinks
+**Traceability:** REQ-L0-026
+
+---
+
+### REQ-L1-039: Granulare Item-Level-Zugriffskontrolle
+
+Das System muss Projekt-Administratoren ermöglichen, Sichtbarkeits- und Bearbeitungsrechte
+auf Subsystem- oder Artefakt-Ebene zu konfigurieren — sodass externe Partner oder
+Zulieferer Lesezugriff auf definierte Teilmengen eines Projekts erhalten, ohne den
+gesamten Systemkontext einzusehen — unter der Bedingung, dass Item-Level-Regeln
+die Workspace-RBAC (REQ-L1-010) verfeinern und niemals überschreiben.
+
+**Rationale:** Workspace-RBAC (REQ-L1-010) und Mandantenfähigkeit (REQ-L1-015) trennen
+Kunden vollständig. In großen Projekten müssen externe Partner am selben Projekt
+mitarbeiten, ohne den gesamten Systemkontext zu sehen — eine Anforderung, die
+feingranulare Zugriffslisten erfordert.
+**Domain:** software
+**Priorität:** optional
+**Version:** v2.0
+**Externe Interfaces:**
+- Eingang: Zugriffsregel-Konfiguration mit Artefakt-ID oder Subsystem-ID, Nutzer/Gruppe, Berechtigungstyp (read/write)
+- Ausgang: Gefilterte API-Antworten gemäß Item-Level-Regeln; HTTP 403 bei Regelverstoß
+**Traceability:** REQ-L0-027
+
+---
+
+### REQ-L1-040: Visuelles Artefakt-Diff zwischen Versionen
+
+Das System muss Änderungen an einem einzelnen Artefakt (Requirement, ArchitectureElement,
+TestCase) zwischen zwei beliebigen Versionen als visuellen Text-Diff darstellen —
+mit Hervorhebung von hinzugefügten, geänderten und gelöschten Feldinhalten —
+abrufbar in der Artefakt-Detailansicht der GUI und via synchroner Web-API.
+
+**Rationale:** Das Audit-Log (REQ-L1-011) speichert alle Änderungen, ist aber für
+Menschen schwer lesbar. Ein visueller Diff pro Artefakt ist für formale Reviews
+und Freigabe-Entscheidungen unerlässlich.
+**Domain:** software
+**Priorität:** desired
+**Version:** v1.1
+**Externe Interfaces:**
+- Eingang: Diff-Anfrage mit Artefakt-ID und zwei Versions-Referenzen (version_a, version_b)
+- Ausgang: Strukturiertes Diff-Objekt mit Feld-Level-Änderungen; UI-Darstellung mit Syntaxhervorhebung
+**Traceability:** REQ-L0-028
+
+---
+
+### REQ-L1-041: Visuelles Baseline-Diff zwischen zwei Baselines
+
+Das System muss den Vergleich zweier benannter Baselines desselben oder kompatiblen
+Scopes als visuellen Diff darstellen — mit kategorisierten Änderungslisten
+(hinzugefügte, geänderte, gelöschte Artefakte inkl. Versions-Delta) — abrufbar
+in der GUI und als maschinenlesbarer API-Response.
+
+**Rationale:** L2-BL-02 definiert den Baseline-Vergleich auf Datenebene. Diese Anforderung
+ergänzt die menschlesbare Darstellung, die für formale Reviews und Freigabe-Entscheidungen
+in regulierten Umgebungen zwingend erforderlich ist.
+**Domain:** software
+**Priorität:** desired
+**Version:** v1.1
+**Externe Interfaces:**
+- Eingang: Baseline-Diff-Anfrage mit baseline_id_a und baseline_id_b
+- Ausgang: Diff-Report mit kategorisierten Artefakt-Änderungslisten (added/modified/deleted); GUI-Darstellung und maschinenlesbarer JSON-Response
+**Traceability:** REQ-L0-028
+
+---
+
+## Erweiterter Traceability-Abschnitt: REQ-L1-034..041 → REQ-L0
+
+| REQ-L1 | Abgeleitet von REQ-L0 |
+|---------|----------------------|
+| REQ-L1-034 | REQ-L0-023 |
+| REQ-L1-035 | REQ-L0-024 |
+| REQ-L1-036 | REQ-L0-024 |
+| REQ-L1-037 | REQ-L0-025 |
+| REQ-L1-038 | REQ-L0-026 |
+| REQ-L1-039 | REQ-L0-027 |
+| REQ-L1-040 | REQ-L0-028 |
+| REQ-L1-041 | REQ-L0-028 |
+
+---
+
+*Erweiterung durch se-requirements-Agent | HOFF-20260626-001 | 2026-06-26 (REQ-L1-034..041 aus SN-23..SN-28)*
