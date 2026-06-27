@@ -35,6 +35,24 @@ from persistence.tenancy import TenantManager, UnscopedManager
 
 
 # ---------------------------------------------------------------------------
+# Custom manager for User (AUTH_USER_MODEL compatibility)
+# ---------------------------------------------------------------------------
+
+
+class UserManager(models.Manager):
+    """Manager for :class:`User` providing Django auth interface methods.
+
+    ``get_by_natural_key`` is required by ``ModelBackend.authenticate()`` to
+    look up users by username. Without it, Django admin login and
+    ``django.contrib.auth.authenticate()`` fail.
+    """
+
+    def get_by_natural_key(self, username: str):
+        """Look up a user by username (case-sensitive, matching AbstractUser)."""
+        return self.get(**{self.model.USERNAME_FIELD: username})
+
+
+# ---------------------------------------------------------------------------
 # Domain enums (COMP-PL-001)
 # ---------------------------------------------------------------------------
 
@@ -163,9 +181,28 @@ class User(AuditableModel):
     password" and never matches via :meth:`check_password`.
     """
 
+    # Django auth interface — identifies the unique identifier field and
+    # additional required fields for createsuperuser (AUTH_USER_MODEL compat).
+    USERNAME_FIELD = "username"
+    REQUIRED_FIELDS: list[str] = ["email"]
+
+    # Explicit manager with get_by_natural_key for Django auth backend.
+    objects = UserManager()
+
     username = models.CharField(max_length=150, unique=True)
     email = models.EmailField(unique=True)
     is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(
+        default=False,
+        help_text="Designates whether the user can log into the Django admin site.",
+    )
+    is_superuser = models.BooleanField(
+        default=False,
+        help_text=(
+            "Designates that this user has all permissions without "
+            "explicitly assigning them."
+        ),
+    )
     # Salted password hash (Django hasher format, e.g. "pbkdf2_sha256$..."), not
     # the plaintext. Blank = no usable password set.
     password = models.CharField(max_length=128, blank=True, default="")
@@ -182,6 +219,8 @@ class User(AuditableModel):
 
     def __str__(self) -> str:
         return self.username
+
+    # -- Django auth interface (needed for AUTH_USER_MODEL compatibility) ------
 
     def set_password(self, raw_password: str) -> None:
         """Hash and store ``raw_password`` on this instance (not saved to DB).
@@ -204,6 +243,32 @@ class User(AuditableModel):
         if not self.password:
             return False
         return _check(raw_password, self.password)
+
+    def has_perm(self, perm: str, obj=None) -> bool:
+        """Return ``True`` if the user has the given permission.
+
+        Superusers get all permissions; other users get none (the project uses
+        its own RBAC layer via auth_tenancy.UserRole for fine-grained access).
+        """
+        return self.is_active and self.is_superuser
+
+    def has_module_perms(self, app_label: str) -> bool:
+        """Return ``True`` if the user has permissions to view the given app."""
+        return self.is_active and self.is_superuser
+
+    def get_username(self) -> str:
+        """Return the username (Django auth interface compatibility)."""
+        return self.username
+
+    @property
+    def is_authenticated(self) -> bool:
+        """Always ``True`` for User instances (Django auth interface)."""
+        return True
+
+    @property
+    def is_anonymous(self) -> bool:
+        """Always ``False`` for User instances (Django auth interface)."""
+        return False
 
 
 # ---------------------------------------------------------------------------

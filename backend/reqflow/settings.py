@@ -160,6 +160,13 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # ---------------------------------------------------------------------------
+# Auth user model — use the persistence-layer User (REQ-L1-010).
+# This lets Django admin, session auth and DRF SessionAuthentication work
+# with the same user table that the ReqFlow API authenticates against.
+# ---------------------------------------------------------------------------
+AUTH_USER_MODEL = "persistence.User"
+
+# ---------------------------------------------------------------------------
 # Default primary key type
 # ---------------------------------------------------------------------------
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
