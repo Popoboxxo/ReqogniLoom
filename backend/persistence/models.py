@@ -446,6 +446,72 @@ class AuditLogEntry(TenantScopedModel):
         return f"{self.action}:{self.object_type}:{self.object_id}"
 
 
+class TestRun(TenantScopedModel):
+    """TestRun entity — group of TestCase executions (REQ-L2-AS-030).
+
+    Not linked to Artifact hierarchy — operational record for test execution runs.
+    """
+
+    name = models.CharField(max_length=255)
+    workspace = models.ForeignKey(
+        Workspace, on_delete=models.CASCADE, related_name="test_runs"
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=32,
+        choices=[
+            ("in_progress", "In Progress"),
+            ("passed", "Passed"),
+            ("failed", "Failed"),
+            ("partial", "Partial"),
+        ],
+        default="in_progress",
+    )
+    ci_job_id = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        db_table = "pl_test_run"
+        verbose_name = "Test Run"
+        verbose_name_plural = "Test Runs"
+
+    def __str__(self) -> str:
+        return f"TestRun:{self.name}:{self.status}"
+
+
+class TestRunResult(TenantScopedModel):
+    """Individual TestCase execution result within a TestRun (REQ-L2-AS-030)."""
+
+    test_run = models.ForeignKey(
+        TestRun, on_delete=models.CASCADE, related_name="results"
+    )
+    test_case = models.ForeignKey(
+        TestCase, on_delete=models.SET_NULL, null=True, blank=True, related_name="run_results"
+    )
+    test_case_title = models.CharField(max_length=500, blank=True, default="")
+    status = models.CharField(
+        max_length=32,
+        choices=[
+            ("passed", "Passed"),
+            ("failed", "Failed"),
+            ("blocked", "Blocked"),
+            ("not_run", "Not Run"),
+        ],
+        default="not_run",
+    )
+    executed_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    message = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "pl_test_run_result"
+        verbose_name = "Test Run Result"
+        verbose_name_plural = "Test Run Results"
+
+    def __str__(self) -> str:
+        return f"Result:{self.test_case_title}:{self.status}"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -464,4 +530,6 @@ __all__ = [
     "WorkflowDefinition",
     "WorkflowState",
     "AuditLogEntry",
+    "TestRun",
+    "TestRunResult",
 ]
