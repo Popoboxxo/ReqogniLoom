@@ -232,5 +232,28 @@
     "type.block": "Block-Diagramm",
     "type.flow": "Fluss-Diagramm",
     "type.context": "Kontext-Diagramm"
+  },
+  "metrics": {
+    "title": "SE-Prozess-Metriken",
+    "coverage": "Traceability-Coverage",
+    "volatility": "Anforderungs-Volatilität",
+    "workflowGap": "Workflow-Lücken",
+    "openRisks": "Offene Risiken",
+    "openRisksCritical": "Kritische Risiken",
+    "traceDensity": "Trace-Dichte",
+    "refresh": "Aktualisieren",
+    "refreshing": "Aktualisiere...",
+    "lastUpdate": "Letzte Aktualisierung",
+    "filter": "Filter",
+    "filterAll": "Alle",
+    "noWorkspace": "Workspace auswählen, um Metriken anzuzeigen.",
+    "timeframe": "Zeitraum",
+    "workspace": "Workspace",
+    "status": {
+      "healthy": "OK",
+      "warning": "Warnung",
+      "critical": "Kritisch",
+      "neutral": "Info"
+    }
   }
 }

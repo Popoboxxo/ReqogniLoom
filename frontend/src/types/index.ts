@@ -276,6 +276,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     csv_import: false,
     icds: false,
     diagrams: false,
+    metrics: false,
   },
   standard: {
     baselines: true,
@@ -292,6 +293,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     csv_import: true,
     icds: true,
     diagrams: true,
+    metrics: true,
   },
   extended: {
     baselines: true,
@@ -308,6 +310,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     csv_import: true,
     icds: true,
     diagrams: true,
+    metrics: true,
   },
 };
 

@@ -232,5 +232,28 @@
     "type.block": "Block Diagram",
     "type.flow": "Flow Diagram",
     "type.context": "Context Diagram"
+  },
+  "metrics": {
+    "title": "SE Process Metrics",
+    "coverage": "Traceability Coverage",
+    "volatility": "Requirements Volatility",
+    "workflowGap": "Workflow Gaps",
+    "openRisks": "Open Risks",
+    "openRisksCritical": "Critical Risks",
+    "traceDensity": "Trace Density",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing...",
+    "lastUpdate": "Last update",
+    "filter": "Filter",
+    "filterAll": "All",
+    "noWorkspace": "Select a workspace to view metrics.",
+    "timeframe": "Timeframe",
+    "workspace": "Workspace",
+    "status": {
+      "healthy": "Healthy",
+      "warning": "Warning",
+      "critical": "Critical",
+      "neutral": "Info"
+    }
   }
 }
