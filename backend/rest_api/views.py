@@ -996,6 +996,148 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         return Response(WorkspaceSerializer(_workspace_to_dict(item)).data)
 
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/workspaces/ — create a new workspace + preset config.
+
+        Body: {name, preset?, terminology_profile?, language?}
+        Returns: 201 Created with the serialized Workspace.
+        """
+        lang = detect_lang(request)
+        name = request.data.get("name")
+        if not name or not str(name).strip():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="name is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        preset = request.data.get("preset", "standard")
+        terminology_profile = request.data.get("terminology_profile", "se_mode")
+        language = request.data.get("language", "de")
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create_workspace(
+                ctx=ctx,
+                name=str(name),
+                preset=str(preset),
+                terminology_profile=str(terminology_profile),
+                language=str(language),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(
+            WorkspaceSerializer(_workspace_to_dict(item)).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ---------------------------------------------------------------------------
+# SearchViewSet — Full-text search across Requirements, ArchitectureElements,
+# and TestCases (COMP-AS-010 SearchService).
+# REQ-L1-020, REQ-L3-SEARCH-001 through REQ-L3-SEARCH-009
+# ---------------------------------------------------------------------------
+
+
+class SearchViewSet(viewsets.ViewSet):
+    """ViewSet for full-text search.
+
+    Delegates to SearchService (COMP-AS-010, ADR-01).
+    No business logic in this class (REQ-L3-RA001-004).
+
+    GET /api/v1/search/?q=<query>&workspace_id=<id>[&type=Requirement&page=1&limit=20]
+    """
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/search/ — full-text search.
+
+        Query params:
+          q             — search query (required)
+          workspace_id  — workspace UUID (required)
+          type          — optional type filter (Requirement|ArchitectureElement|TestCase)
+                          may be repeated
+          page          — page number (default 1)
+          limit         — page size (default 20, max 100)
+        """
+        lang = detect_lang(request)
+        query = request.query_params.get("q", "").strip()
+        workspace_id_str = request.query_params.get("workspace_id")
+
+        # Empty query or missing workspace → return empty result without error
+        if not query or not workspace_id_str:
+            return Response(
+                {
+                    "results": [],
+                    "total_count": 0,
+                    "page": 1,
+                    "limit": 20,
+                    "query": query,
+                }
+            )
+
+        try:
+            workspace_id = UUID(workspace_id_str)
+        except ValueError:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id must be a UUID"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Parse type filter (may be repeated)
+        type_filter = request.query_params.getlist("type") or None
+
+        # Parse pagination
+        try:
+            page = int(request.query_params.get("page", "1"))
+            limit = int(request.query_params.get("limit", "20"))
+        except ValueError:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="page and limit must be integers"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+            result = SearchService().search(
+                query=query,
+                ctx=ctx,
+                workspace_id=workspace_id,
+                type_filter=type_filter,
+                page=page,
+                limit=limit,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        # Serialize SearchHit dataclasses to dicts
+        serialized_hits = [
+            {
+                "id": hit.id,
+                "artifact_type": hit.artifact_type,
+                "title": hit.title,
+                "description": hit.description,
+                "relevance_score": hit.relevance_score,
+                "workspace_id": hit.workspace_id,
+            }
+            for hit in result.results
+        ]
+        return Response(
+            {
+                "results": serialized_hits,
+                "total_count": result.total_count,
+                "page": result.page,
+                "limit": result.limit,
+                "query": result.query,
+            }
+        )
+
 
 __all__ = [
     "RequirementViewSet",
@@ -1006,4 +1148,5 @@ __all__ = [
     "BaselineViewSet",
     "WorkflowDefinitionViewSet",
     "WorkspaceViewSet",
+    "SearchViewSet",
 ]

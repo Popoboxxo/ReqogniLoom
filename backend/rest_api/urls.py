@@ -34,6 +34,7 @@ from rest_api.views import (
     ArchitectureElementViewSet,
     BaselineViewSet,
     RequirementViewSet,
+    SearchViewSet,
     TestCaseViewSet,
     TraceLinkViewSet,
     WorkflowDefinitionViewSet,
@@ -53,6 +54,7 @@ router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
 router.register(r"baselines", BaselineViewSet, basename="baseline")
 router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
+router.register(r"search", SearchViewSet, basename="search")
 
 # ---------------------------------------------------------------------------
 # URL patterns
