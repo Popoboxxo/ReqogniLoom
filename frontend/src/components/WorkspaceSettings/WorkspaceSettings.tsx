@@ -4,13 +4,15 @@
  * leaf_id: COMP-RF-001 (NavigationShell scope — Workspace-Konfigurations-UI)
  * req_id:  REQ-L2-RF-012 (Workspace-Konfigurations-UI),
  *          REQ-L2-RF-007 (Preset-Wechsel),
- *          REQ-L2-RF-008 (Terminologie-Profil)
+ *          REQ-L2-RF-008 (Terminologie-Profil),
+ *          REQ-L1-042 (Workspace Lifecycle Management)
  */
 
 import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { useAuth } from "../../context/AuthContext";
 import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
@@ -24,12 +26,22 @@ const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReaso
 export default function WorkspaceSettings(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace, reloadWorkspaces, isFeatureVisible } = useWorkspace();
+  const { roles } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = useState(activeWorkspace?.name ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+
+  // Lifecycle state (REQ-L1-042)
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+
+  const isAdmin = roles.includes("admin");
 
   if (!activeWorkspace) {
     return <p style={{ padding: "var(--space-6)" }}>{t("errors.generic")}</p>;
@@ -91,6 +103,54 @@ export default function WorkspaceSettings(): JSX.Element {
       setIsSaving(false);
     }
   }, [activeWorkspace, name, reloadWorkspaces]);
+
+  // ---- Lifecycle handlers (REQ-L1-042) ----
+
+  const handleCloseWorkspace = useCallback(async (): Promise<void> => {
+    if (!window.confirm(t("settings.closeConfirm"))) return;
+    setSaveError(null);
+    setIsClosing(true);
+    try {
+      await workspacesApi.closeWorkspace(activeWorkspace.id);
+      await reloadWorkspaces(activeWorkspace.id);
+      setSavedOk(true);
+    } catch (err: unknown) {
+      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+    } finally {
+      setIsClosing(false);
+    }
+  }, [activeWorkspace, reloadWorkspaces, t]);
+
+  const handleReactivateWorkspace = useCallback(async (): Promise<void> => {
+    setSaveError(null);
+    try {
+      await workspacesApi.reactivateWorkspace(activeWorkspace.id);
+      await reloadWorkspaces(activeWorkspace.id);
+      setSavedOk(true);
+    } catch (err: unknown) {
+      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+    }
+  }, [activeWorkspace, reloadWorkspaces]);
+
+  const handleDeleteWorkspace = useCallback(async (): Promise<void> => {
+    if (deleteConfirmation !== activeWorkspace.name) {
+      setDeleteError(t("settings.deleteConfirmationMismatch"));
+      return;
+    }
+    setDeleteError(null);
+    setIsDeleting(true);
+    try {
+      await workspacesApi.deleteWorkspace(activeWorkspace.id, deleteConfirmation);
+      setShowDeleteModal(false);
+      setDeleteConfirmation("");
+      // Navigate to dashboard since workspace no longer exists
+      navigate("/");
+    } catch (err: unknown) {
+      setDeleteError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [activeWorkspace, deleteConfirmation, navigate, t]);
 
   const sectionStyle: React.CSSProperties = {
     background: "var(--color-surface)",
@@ -270,6 +330,159 @@ export default function WorkspaceSettings(): JSX.Element {
           >
             {t("import.title", "CSV Import")}
           </button>
+        </section>
+      )}
+
+      {/* Workspace Administration (REQ-L1-042) — admin only */}
+      {isAdmin && (
+        <section style={sectionStyle} data-testid="lifecycle-section">
+          <h3 style={headingStyle}>{t("settings.lifecycleSection", "Workspace Administration")}</h3>
+
+          {/* Close button — visible when workspace is active */}
+          {activeWorkspace.is_active !== false && (
+            <button
+              type="button"
+              data-testid="close-workspace-btn"
+              onClick={() => void handleCloseWorkspace()}
+              disabled={isClosing}
+              style={{
+                background: "var(--color-warning, #f59e0b)",
+                color: "white",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                cursor: "pointer",
+                marginRight: "var(--space-2)",
+                opacity: isClosing ? 0.5 : 1,
+              }}
+            >
+              {isClosing ? "…" : t("settings.closeWorkspace", "Close Workspace")}
+            </button>
+          )}
+
+          {/* Reactivate button — visible when workspace is closed */}
+          {activeWorkspace.is_active === false && (
+            <button
+              type="button"
+              data-testid="reactivate-workspace-btn"
+              onClick={() => void handleReactivateWorkspace()}
+              style={{
+                background: "var(--color-success, #16a34a)",
+                color: "white",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                cursor: "pointer",
+                marginRight: "var(--space-2)",
+              }}
+            >
+              {t("settings.reactivateWorkspace", "Reactivate Workspace")}
+            </button>
+          )}
+
+          {/* Delete button — always visible for admin */}
+          <button
+            type="button"
+            data-testid="delete-workspace-btn"
+            onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeleteConfirmation(""); }}
+            style={{
+              background: "var(--color-danger, #dc2626)",
+              color: "white",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {t("settings.deleteWorkspace", "Delete Workspace")}
+          </button>
+
+          {/* Delete confirmation modal */}
+          {showDeleteModal && (
+            <div
+              data-testid="delete-modal"
+              role="dialog"
+              style={{
+                marginTop: "var(--space-4)",
+                padding: "var(--space-4)",
+                background: "var(--color-bg, #f9fafb)",
+                border: "1px solid var(--color-danger, #dc2626)",
+                borderRadius: "var(--radius-md)",
+              }}
+            >
+              <p style={{ fontWeight: 600, marginBottom: "var(--space-2)" }}>
+                {t("settings.deleteConfirmTitle", "Delete Workspace")}
+              </p>
+              <p style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)" }}>
+                {t("settings.deleteCaptchaPrompt", { name: activeWorkspace.name })}
+              </p>
+              <input
+                data-testid="delete-confirmation-input"
+                type="text"
+                value={deleteConfirmation}
+                onChange={(e) => { setDeleteConfirmation(e.target.value); setDeleteError(null); }}
+                placeholder={activeWorkspace.name}
+                style={{
+                  width: "100%",
+                  background: "var(--color-surface)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-3)",
+                  color: "var(--color-text)",
+                  fontSize: "var(--font-size-base)",
+                  marginBottom: "var(--space-2)",
+                }}
+              />
+              {deleteError && (
+                <div role="alert" data-testid="delete-error" style={{ color: "var(--color-danger, #dc2626)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
+                  {deleteError}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <button
+                  type="button"
+                  data-testid="delete-confirm-btn"
+                  onClick={() => void handleDeleteWorkspace()}
+                  disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
+                  style={{
+                    background: "var(--color-danger, #dc2626)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "var(--font-size-sm)",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    opacity: (isDeleting || deleteConfirmation !== activeWorkspace.name) ? 0.5 : 1,
+                  }}
+                >
+                  {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="delete-cancel-btn"
+                  onClick={() => { setShowDeleteModal(false); setDeleteConfirmation(""); setDeleteError(null); }}
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-text-muted)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "var(--font-size-sm)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {t("actions.cancel", "Cancel")}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       )}
 

@@ -138,7 +138,19 @@
     "seMode": "SE Mode",
     "saved": "Saved.",
     "dataManagement": "Data Management",
-    "dataManagementHint": "Import existing requirements from a CSV file."
+    "dataManagementHint": "Import existing requirements from a CSV file.",
+    "lifecycleSection": "Workspace Administration",
+    "closeWorkspace": "Close Workspace",
+    "reactivateWorkspace": "Reactivate Workspace",
+    "deleteWorkspace": "Delete Workspace",
+    "deleteCaptchaPrompt": "Type the workspace name '{{name}}' to confirm deletion",
+    "deleteConfirmationMismatch": "Confirmation does not match workspace name",
+    "workspaceClosed": "Workspace has been closed.",
+    "workspaceReactivated": "Workspace has been reactivated.",
+    "workspaceDeleted": "Workspace has been deleted.",
+    "closeConfirm": "Are you sure you want to close this workspace? Data will be preserved but you can't edit it.",
+    "deleteConfirmTitle": "Delete Workspace",
+    "deleteConfirmButton": "Permanently Delete"
   },
   "categories": {
     "functional": "Functional",

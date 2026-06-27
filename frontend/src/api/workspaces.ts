@@ -70,4 +70,31 @@ export const workspacesApi = {
     }
     return resp.blob();
   },
+
+  // ---- Lifecycle API (REQ-L1-042) ----
+
+  /**
+   * Soft-close a workspace (admin only).
+   * POST /api/v1/workspaces/{id}/close/
+   */
+  closeWorkspace(id: UUID): Promise<Workspace> {
+    return apiClient.post<Workspace>(`/workspaces/${id}/close/`);
+  },
+
+  /**
+   * Reactivate a closed workspace (admin only).
+   * POST /api/v1/workspaces/{id}/reactivate/
+   */
+  reactivateWorkspace(id: UUID): Promise<Workspace> {
+    return apiClient.post<Workspace>(`/workspaces/${id}/reactivate/`);
+  },
+
+  /**
+   * Hard-delete a workspace with captcha confirmation (admin only).
+   * POST /api/v1/workspaces/{id}/delete/
+   * Body: { confirmation: "<workspace name>" }
+   */
+  deleteWorkspace(id: UUID, confirmation: string): Promise<void> {
+    return apiClient.post<void>(`/workspaces/${id}/delete/`, { confirmation });
+  },
 };

@@ -138,7 +138,19 @@
     "seMode": "SE-Modus",
     "saved": "Gespeichert.",
     "dataManagement": "Datenverwaltung",
-    "dataManagementHint": "Bestehende Anforderungen aus einer CSV-Datei importieren."
+    "dataManagementHint": "Bestehende Anforderungen aus einer CSV-Datei importieren.",
+    "lifecycleSection": "Workspace-Verwaltung",
+    "closeWorkspace": "Workspace schließen",
+    "reactivateWorkspace": "Workspace reaktivieren",
+    "deleteWorkspace": "Workspace löschen",
+    "deleteCaptchaPrompt": "Geben Sie den Workspace-Namen '{{name}}' ein, um das Löschen zu bestätigen",
+    "deleteConfirmationMismatch": "Bestätigung stimmt nicht mit dem Workspace-Namen überein",
+    "workspaceClosed": "Workspace wurde geschlossen.",
+    "workspaceReactivated": "Workspace wurde reaktiviert.",
+    "workspaceDeleted": "Workspace wurde gelöscht.",
+    "closeConfirm": "Sind Sie sicher, dass Sie diesen Workspace schließen möchten? Daten bleiben erhalten, aber Sie können nicht mehr bearbeiten.",
+    "deleteConfirmTitle": "Workspace löschen",
+    "deleteConfirmButton": "Endgültig löschen"
   },
   "categories": {
     "functional": "Funktional",
