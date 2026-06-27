@@ -37,4 +37,15 @@ export const workspacesApi = {
   create(payload: WorkspaceCreatePayload): Promise<Workspace> {
     return apiClient.post<Workspace>("/workspaces/", payload);
   },
+
+  update(
+    id: UUID,
+    data: Partial<{ name: string; language: string; terminology_profile: TerminologyProfile }>
+  ): Promise<Workspace> {
+    return apiClient.patch<Workspace>(`/workspaces/${id}/`, data);
+  },
+
+  setPreset(id: UUID, preset: WorkspacePreset): Promise<{ id: string; preset: string }> {
+    return apiClient.patch<{ id: string; preset: string }>(`/workspaces/${id}/preset/`, { preset });
+  },
 };

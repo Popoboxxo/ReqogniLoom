@@ -84,6 +84,7 @@ function AppShell(): JSX.Element {
               <Route path="/traceability" element={<TraceabilityView />} />
               <Route path="/baselines" element={<BaselinesView />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
+              <Route path="/workspace-settings" element={<WorkspaceSettings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
