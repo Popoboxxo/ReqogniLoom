@@ -8,3 +8,6 @@ export { requirementsApi } from "./requirements";
 export { architectureApi } from "./architecture";
 export { tracelinksApi } from "./tracelinks";
 export { artifactsApi } from "./artifacts";
+export { baselinesApi } from "./baselines";
+export type { Baseline } from "./baselines";
+export { workspacesApi } from "./workspaces";

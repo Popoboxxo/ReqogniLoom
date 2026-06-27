@@ -68,6 +68,9 @@ from application.webhook_dispatcher import (  # noqa: F401
     get_webhook_dispatcher,
 )
 
+# COMP-AS-WS (read-only Workspace surface, REQ-L1-017)
+from application.workspace_service import WorkspaceService  # noqa: F401
+
 # ---------- Registry hook (services.py extension pattern) ----------
 from application.services import _registry  # noqa: E402
 
@@ -77,6 +80,7 @@ _registry["ExportService"] = ExportService
 _registry["ImportService"] = ImportService
 _registry["SearchService"] = SearchService
 _registry["WebhookDispatcher"] = WebhookDispatcher
+_registry["WorkspaceService"] = WorkspaceService
 
 # ---------- Public surface ----------
 
@@ -101,4 +105,6 @@ __all__ = [
     "WebhookDispatcher",
     "SUBSCRIBED_EVENT_TYPES",
     "get_webhook_dispatcher",
+    # COMP-AS-WS
+    "WorkspaceService",
 ]
