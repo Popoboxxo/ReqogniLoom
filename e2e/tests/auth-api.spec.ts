@@ -39,10 +39,59 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     expect(body.doc_url).toContain('invalid_api_key');
   });
 
-  test.skip('[REQ-L3-AT001-003] API key lifecycle (create/list/revoke) via REST', async () => {
-    // No REST endpoint for API key management exposed in rest_api/urls.py.
-    // API keys are issued out-of-band via the auth_tenancy service / management command.
-    // Skipping until REST surface is added.
+  test('[REQ-L3-AT001-003] API key lifecycle (create/list/revoke) via REST', async ({ request }) => {
+    const token = await getAuthToken();
+    const headers = { Authorization: `Bearer ${token}` };
+
+    // Step 1: List — should be empty initially
+    const listBefore = await request.get(`${BACKEND_URL}/api/v1/api-keys/`, { headers });
+    expect(listBefore.status()).toBe(200);
+    const keysBefore = await listBefore.json();
+    const initialCount = Array.isArray(keysBefore) ? keysBefore.length : 0;
+
+    // Step 2: Create — returns plaintext once
+    const createResp = await request.post(`${BACKEND_URL}/api/v1/api-keys/`, {
+      headers,
+      data: { name: 'E2E test key' },
+    });
+    expect(createResp.status()).toBe(201);
+    const created = await createResp.json();
+    expect(created.id).toBeDefined();
+    expect(created.name).toBe('E2E test key');
+    expect(created.plaintext).toMatch(/^rf_/);
+    expect(created.warning).toBeDefined();
+
+    // Step 3: List — should now have 1 more item
+    const listAfter = await request.get(`${BACKEND_URL}/api/v1/api-keys/`, { headers });
+    expect(listAfter.status()).toBe(200);
+    const keysAfter = await listAfter.json();
+    const afterCount = Array.isArray(keysAfter) ? keysAfter.length : 0;
+    expect(afterCount).toBe(initialCount + 1);
+
+    // Verify no plaintext in the list response
+    const listedKeys: Record<string, unknown>[] = Array.isArray(keysAfter) ? keysAfter : [];
+    for (const key of listedKeys) {
+      expect(key).not.toHaveProperty('plaintext');
+    }
+
+    // Step 4: Revoke
+    const revokeResp = await request.delete(
+      `${BACKEND_URL}/api/v1/api-keys/${created.id}/`,
+      { headers },
+    );
+    expect(revokeResp.status()).toBe(204);
+
+    // Step 5: List — key should still be present but revoked
+    const listFinal = await request.get(`${BACKEND_URL}/api/v1/api-keys/`, { headers });
+    expect(listFinal.status()).toBe(200);
+    const keysFinal = await listFinal.json();
+    const finalList: Record<string, unknown>[] = Array.isArray(keysFinal) ? keysFinal : [];
+    const revokedKey = finalList.find((k) => k.id === created.id);
+    expect(revokedKey).toBeDefined();
+    // revoked field could be boolean 'revoked: true' or the key is still present
+    if (revokedKey && 'revoked' in revokedKey) {
+      expect(revokedKey.revoked).toBe(true);
+    }
   });
 
   test('[REQ-L3-AT001-004] auth error body has error + message + doc_url fields', async ({ request }) => {
