@@ -75,20 +75,35 @@ class Command(BaseCommand):
         """Get-or-create the admin user and (re)apply the demo password.
 
         Uses the unscoped manager: ``User`` is not tenant-scoped.
+        Sets is_staff=True, is_superuser=True so the admin user can access
+        the Django admin site at /admin/ (REQ-L1-010).
         """
         user, _created = User.objects.get_or_create(
             username=_DEMO_ADMIN_USERNAME,
             defaults={
                 "email": _DEMO_ADMIN_EMAIL,
                 "is_active": True,
+                "is_staff": True,
+                "is_superuser": True,
                 "tenant": tenant,
             },
         )
-        # Keep the user attached to the demo tenant and active across reruns.
+        # Keep the user attached to the demo tenant, active and staff across reruns.
         user.tenant = tenant
         user.is_active = True
+        user.is_staff = True
+        user.is_superuser = True
         user.set_password(password)
-        user.save(update_fields=["tenant", "is_active", "password", "modified_at"])
+        user.save(
+            update_fields=[
+                "tenant",
+                "is_active",
+                "is_staff",
+                "is_superuser",
+                "password",
+                "modified_at",
+            ]
+        )
         return user
 
     def _ensure_workspace(self, tenant: Tenant) -> Workspace:
