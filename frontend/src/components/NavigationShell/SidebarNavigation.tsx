@@ -42,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/traceability", labelKey: "nav.traceability", feature: "traceability" },
   { path: "/baselines", labelKey: "nav.baselines", feature: "baselines" },
   { path: "/import", labelKey: "nav.import", feature: "csv_import" },
+  { path: "/icds", labelKey: "nav.icds", feature: "icds" },
   { path: "/settings", labelKey: "nav.settings", feature: "dashboard" },
 ];
 

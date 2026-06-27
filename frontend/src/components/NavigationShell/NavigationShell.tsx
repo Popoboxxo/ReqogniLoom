@@ -53,6 +53,7 @@ const RiskList = lazy(() => import("../RiskList/RiskList"));
 const IssueList = lazy(() => import("../IssueList/IssueList"));
 const TestRunsComponent = lazy(() => import("../TestRuns/TestRuns"));
 const CsvImport = lazy(() => import("../CsvImport/CsvImport"));
+const IcdView = lazy(() => import("../IcdView/IcdView"));
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -93,6 +94,8 @@ function AppShell(): JSX.Element {
               <Route path="/issues" element={<IssueList />} />
               <Route path="/test-runs" element={<TestRunsComponent />} />
               <Route path="/import" element={<CsvImport />} />
+              <Route path="/icds" element={<IcdView />} />
+              <Route path="/icds/:id" element={<IcdView />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
               <Route path="/workspace-settings" element={<WorkspaceSettings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
