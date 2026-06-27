@@ -1501,6 +1501,87 @@ class WorkspaceViewSet(BaseEntityViewSet):
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
+    # ---- Lifecycle actions (REQ-L1-042) ----
+
+    @action(detail=True, methods=["post"], url_path="close")
+    def close(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """POST /api/v1/workspaces/{pk}/close/ — soft-close a workspace.
+
+        REQ-L1-042: Admin-only. Sets is_active=False, closed_at, closed_by.
+        Returns 200 with the updated workspace.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().close_workspace(
+                workspace_id=UUID(pk), ctx=ctx
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(WorkspaceSerializer(_workspace_to_dict(item)).data)
+
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """POST /api/v1/workspaces/{pk}/reactivate/ — re-open a closed workspace.
+
+        REQ-L1-042: Admin-only. Sets is_active=True, clears closed_at/by.
+        Returns 200 with the updated workspace.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().reactivate_workspace(
+                workspace_id=UUID(pk), ctx=ctx
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(WorkspaceSerializer(_workspace_to_dict(item)).data)
+
+    @action(detail=True, methods=["post"], url_path="delete")
+    def delete_workspace(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """POST /api/v1/workspaces/{pk}/delete/ — hard-delete with captcha.
+
+        REQ-L1-042: Admin-only. Body must contain ``{"confirmation": "<name>"}``
+        matching the workspace name (case-sensitive). On mismatch returns 409.
+        On success returns 204.
+        """
+        lang = detect_lang(request)
+        confirmation = request.data.get("confirmation", "")
+        if not confirmation:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="confirmation field is required",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            self._svc().delete_workspace(
+                workspace_id=UUID(pk),
+                confirmation_text=str(confirmation),
+                ctx=ctx,
+            )
+        except ValidationError as exc:
+            # Captcha mismatch → 409 Conflict
+            return Response(
+                build_error_response(
+                    "CONFLICT", lang,
+                    message=str(exc),
+                    details={"code": "confirmation_mismatch"},
+                ),
+                status=status.HTTP_409_CONFLICT,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 # ---------------------------------------------------------------------------
 # AdrViewSet — COMP-AS-013 (REQ-L1-029)
