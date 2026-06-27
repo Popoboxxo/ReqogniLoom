@@ -124,6 +124,7 @@ export function SidebarNavigation(): JSX.Element {
         terminology_profile: "se_mode",
         language: "de",
       });
+      navigate("/");
     } catch (err) {
       const apiErr = err as { error?: { message?: string } };
       setCreateError(
@@ -731,6 +732,7 @@ export function SidebarNavigation(): JSX.Element {
           {/* Dropdown */}
           {isSwitcherOpen && workspaces.length > 0 && (
             <ul
+              data-testid="workspace-list"
               role="listbox"
               aria-label="Workspace switcher"
               style={{
