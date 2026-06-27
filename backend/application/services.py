@@ -151,6 +151,11 @@ from application.services_step3 import *  # noqa: F401,F403,E402
 # ---------------------------------------------------------------------------
 from application.services_step4 import *  # noqa: F401,F403,E402
 
+# ---------------------------------------------------------------------------
+# COMP-AS-019 — ArtifactDiffService (REQ-L2-AS-032, REQ-L1-040)
+# ---------------------------------------------------------------------------
+from application.artifact_diff_service import ArtifactDiffService  # noqa: F401,E402
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -210,4 +215,6 @@ __all__ = [
     # Step-4 services (COMP-AS-017..018)
     "TestRunService",
     "VALID_RESULT_STATUSES",
+    # COMP-AS-019 (REQ-L2-AS-032, REQ-L1-040)
+    "ArtifactDiffService",
 ]
