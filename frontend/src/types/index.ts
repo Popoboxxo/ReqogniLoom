@@ -321,3 +321,41 @@ export const REQ_CATEGORIES = [
 ] as const;
 
 export type ReqCategory = typeof REQ_CATEGORIES[number];
+
+// ---------------------------------------------------------------------------
+// TestRun (REQ-L2-AS-030)
+// ---------------------------------------------------------------------------
+
+export interface TestRunResult {
+  id: UUID;
+  test_run_id: UUID;
+  test_case_id: UUID | null;
+  test_case_title: string;
+  status: "passed" | "failed" | "blocked" | "not_run";
+  message: string;
+  duration_ms: number | null;
+  executed_at: ISODateTime | null;
+  created_at: ISODateTime;
+}
+
+export interface TestRunResultSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  not_run: number;
+}
+
+export interface TestRun {
+  id: UUID;
+  workspace_id: UUID;
+  name: string;
+  status: "in_progress" | "passed" | "failed" | "partial";
+  ci_job_id: string;
+  started_at: ISODateTime | null;
+  finished_at: ISODateTime | null;
+  result_summary: TestRunResultSummary;
+  version: number;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}

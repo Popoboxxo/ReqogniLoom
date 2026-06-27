@@ -14,6 +14,7 @@
     "adrs": "ADRs",
     "risks": "Risks",
     "issues": "Issues",
+    "testRuns": "Test Runs",
     "settings": "Workspace Settings",
     "logout": "Logout"
   },
@@ -151,5 +152,11 @@
   "req": {
     "changeReason": "Change Reason",
     "changeReasonPlaceholder": "Why is this requirement being changed?"
+  },
+  "testRuns": {
+    "create": "Create Run",
+    "closeRun": "Close Test Run",
+    "namePlaceholder": "Run name...",
+    "empty": "No test runs yet. Create one to get started."
   }
 }

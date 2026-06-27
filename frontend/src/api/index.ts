@@ -16,3 +16,4 @@ export type { SearchHit, SearchResponse } from "./search";
 export { adrsApi } from "./adrs";
 export { risksApi } from "./risks";
 export { issuesApi } from "./issues";
+export { testRunsApi } from "./test-runs";
