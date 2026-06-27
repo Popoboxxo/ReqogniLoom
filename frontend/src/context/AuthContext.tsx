@@ -136,6 +136,8 @@ export function AuthProvider({
 
       sessionStorage.setItem(TOKEN_KEY, data.token);
       sessionStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      // Sync token into apiClient BEFORE setToken triggers re-render + WorkspaceContext
+      setAuthToken(data.token);
       setToken(data.token);
       setUser(data.user);
       setTenantId(data.tenant_id ?? null);
