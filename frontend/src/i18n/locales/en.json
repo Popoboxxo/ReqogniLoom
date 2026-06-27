@@ -16,7 +16,8 @@
     "issues": "Issues",
     "testRuns": "Test Runs",
     "settings": "Workspace Settings",
-    "logout": "Logout"
+    "logout": "Logout",
+    "import": "Import"
   },
   "workspaceCreate": {
     "button": "Create workspace",
@@ -131,9 +132,11 @@
     "preset": "Preset",
     "terminologyProfile": "Terminology Profile",
     "language": "Language",
-    "devMode": "Developer Mode",
+    "devMode": "Dev Mode",
     "seMode": "SE Mode",
-    "saved": "Saved."
+    "saved": "Saved.",
+    "dataManagement": "Data Management",
+    "dataManagementHint": "Import existing requirements from a CSV file."
   },
   "categories": {
     "functional": "Functional",
@@ -158,5 +161,17 @@
     "closeRun": "Close Test Run",
     "namePlaceholder": "Run name...",
     "empty": "No test runs yet. Create one to get started."
+  },
+  "import": {
+    "title": "CSV Import",
+    "entityType": "Entity Type",
+    "selectFile": "Select CSV File",
+    "dropHint": "Drop CSV file here or click to browse",
+    "upload": "Import",
+    "uploading": "Importing...",
+    "progress": "Processing CSV file...",
+    "success": "Successfully imported {{count}} rows",
+    "failed": "Import failed",
+    "errorGeneric": "Import failed"
   }
 }

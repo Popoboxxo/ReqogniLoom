@@ -17,3 +17,5 @@ export { adrsApi } from "./adrs";
 export { risksApi } from "./risks";
 export { issuesApi } from "./issues";
 export { testRunsApi } from "./test-runs";
+export { importApi } from "./import";
+export type { ImportResult, ImportRowError, EntityType } from "./import";

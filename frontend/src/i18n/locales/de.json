@@ -16,7 +16,8 @@
     "issues": "Probleme",
     "testRuns": "Testläufe",
     "settings": "Workspace-Einstellungen",
-    "logout": "Abmelden"
+    "logout": "Abmelden",
+    "import": "Import"
   },
   "workspaceCreate": {
     "button": "Workspace erstellen",
@@ -133,7 +134,9 @@
     "language": "Sprache",
     "devMode": "Entwickler-Modus",
     "seMode": "SE-Modus",
-    "saved": "Gespeichert."
+    "saved": "Gespeichert.",
+    "dataManagement": "Datenverwaltung",
+    "dataManagementHint": "Bestehende Anforderungen aus einer CSV-Datei importieren."
   },
   "categories": {
     "functional": "Funktional",
@@ -158,5 +161,17 @@
     "closeRun": "Testlauf abschließen",
     "namePlaceholder": "Name des Testlaufs...",
     "empty": "Noch keine Testläufe. Erstellen Sie einen, um zu beginnen."
+  },
+  "import": {
+    "title": "CSV-Import",
+    "entityType": "Entitätstyp",
+    "selectFile": "CSV-Datei auswählen",
+    "dropHint": "CSV-Datei hier ablegen oder klicken zum Durchsuchen",
+    "upload": "Importieren",
+    "uploading": "Importiere...",
+    "progress": "CSV-Datei wird verarbeitet...",
+    "success": "{{count}} Zeilen erfolgreich importiert",
+    "failed": "Import fehlgeschlagen",
+    "errorGeneric": "Import fehlgeschlagen"
   }
 }
