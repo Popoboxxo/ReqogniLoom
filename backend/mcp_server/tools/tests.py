@@ -37,6 +37,7 @@ from auth_tenancy.context import AuthContext
 from application.services import (
     NotFoundError,
     PermissionDeniedError,
+    TestRunService,
     TestService,
     TraceLinkService,
     ValidationError,
@@ -54,6 +55,7 @@ from mcp_server.tools.base import (
 logger = logging.getLogger(__name__)
 
 _VALID_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
+_VALID_RUN_RESULT_STATUSES = frozenset({"passed", "failed", "blocked", "not_run"})
 
 
 def _test_case_to_dict(tc: Any) -> Dict[str, Any]:
@@ -74,7 +76,7 @@ def _test_case_to_dict(tc: Any) -> Dict[str, Any]:
 
 
 class McpTestToolGroup(BaseToolGroup):
-    """COMP-MC-005 — Test tool group (5 tools)."""
+    """COMP-MC-005 — Test tool group (8 tools)."""
 
     _TOOL_MAP = {
         "test.get": "_handle_get",
@@ -82,15 +84,20 @@ class McpTestToolGroup(BaseToolGroup):
         "test.create": "_handle_create",
         "test.update": "_handle_update",
         "test.link": "_handle_link",
+        "test.run_create": "_handle_run_create",
+        "test.run_get": "_handle_run_get",
+        "test.run_report_results": "_handle_run_report_results",
     }
 
     def __init__(
         self,
         service: Optional[TestService] = None,
         trace_service: Optional[TraceLinkService] = None,
+        run_service: Optional[TestRunService] = None,
     ) -> None:
         self._service = service or TestService()
         self._trace_service = trace_service or TraceLinkService()
+        self._run_service = run_service or TestRunService()
 
     # ------------------------------------------------------------------
     # test.get
@@ -324,6 +331,183 @@ class McpTestToolGroup(BaseToolGroup):
                 "requirement_id": str(req_id),
                 "link_type": "verifies",
             }
+        })
+
+
+    # ------------------------------------------------------------------
+    # test.run_create
+    # ------------------------------------------------------------------
+
+    def _handle_run_create(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.run_create — create a TestRun."""
+        workspace_id = require_uuid(params, "workspace_id")
+        name = require_param(params, "name")
+        ci_job_id: str = params.get("ci_job_id", "")
+        test_case_ids_raw = params.get("test_case_ids", [])
+
+        try:
+            test_case_ids = [UUID(str(tc)) for tc in test_case_ids_raw]
+        except (ValueError, AttributeError):
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "test_case_ids must be a list of valid UUIDs.",
+            )
+
+        try:
+            tr = self._run_service.create_test_run(
+                workspace_id=workspace_id,
+                name=str(name),
+                ctx=auth_context,
+                ci_job_id=str(ci_job_id),
+                test_case_ids=test_case_ids,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="create",
+            entity_type="TestRun",
+            entity_id=tr.id,
+            tool_name="test.run_create",
+            api_key=api_key,
+        )
+
+        return ToolResult.ok({
+            "test_run": {
+                "id": str(tr.id),
+                "workspace_id": str(tr.workspace_id),
+                "name": tr.name,
+                "status": tr.status,
+                "ci_job_id": tr.ci_job_id,
+            }
+        })
+
+    # ------------------------------------------------------------------
+    # test.run_get
+    # ------------------------------------------------------------------
+
+    def _handle_run_get(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.run_get — fetch a TestRun by UUID."""
+        run_id = require_uuid(params, "run_id")
+        try:
+            tr = self._run_service.get_test_run(run_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        results = [
+            {
+                "id": str(r.id),
+                "test_case_id": str(r.test_case_id) if r.test_case_id else None,
+                "test_case_title": r.test_case_title,
+                "status": r.status,
+                "message": r.message,
+                "duration_ms": r.duration_ms,
+            }
+            for r in tr.results.all()
+        ]
+
+        return ToolResult.ok({
+            "test_run": {
+                "id": str(tr.id),
+                "workspace_id": str(tr.workspace_id),
+                "name": tr.name,
+                "status": tr.status,
+                "ci_job_id": tr.ci_job_id,
+                "started_at": tr.started_at.isoformat() if tr.started_at else None,
+                "finished_at": tr.finished_at.isoformat() if tr.finished_at else None,
+            },
+            "results": results,
+            "result_count": len(results),
+        })
+
+    # ------------------------------------------------------------------
+    # test.run_report_results
+    # ------------------------------------------------------------------
+
+    def _handle_run_report_results(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.run_report_results — add results to a TestRun (bulk).
+
+        REQ-L2-MC-013: accepts run_id + list of results.
+        Each result entry: {test_case_id, status, message?, duration_ms?}
+        """
+        run_id = require_uuid(params, "run_id")
+        results_raw = params.get("results", [])
+
+        if not results_raw or not isinstance(results_raw, list):
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'results' must be a non-empty array.",
+            )
+
+        # Validate each entry
+        normalized: list[dict] = []
+        for entry in results_raw:
+            tc_id = entry.get("test_case_id")
+            if not tc_id:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    "Each result entry must have a 'test_case_id'.",
+                )
+            status = entry.get("status", "not_run")
+            if status not in _VALID_RUN_RESULT_STATUSES:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"Invalid status '{status}'. Valid: {sorted(_VALID_RUN_RESULT_STATUSES)}",
+                )
+            normalized.append({
+                "test_case_id": str(tc_id),
+                "status": status,
+                "message": entry.get("message", ""),
+                "duration_ms": entry.get("duration_ms"),
+            })
+
+        try:
+            created = self._run_service.add_results_bulk(
+                test_run_id=run_id,
+                results=normalized,
+                ctx=auth_context,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="TestRun",
+            entity_id=run_id,
+            tool_name="test.run_report_results",
+            api_key=api_key,
+            details={"count": len(created)},
+        )
+
+        return ToolResult.ok({
+            "recorded": len(created),
+            "results": [
+                {
+                    "id": str(r.id),
+                    "test_case_id": str(r.test_case_id) if r.test_case_id else None,
+                    "test_case_title": r.test_case_title,
+                    "status": r.status,
+                }
+                for r in created
+            ],
         })
 
 

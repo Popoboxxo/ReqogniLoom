@@ -60,6 +60,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "test.create",
     "test.update",
     "test.link",
+    "test.run_create",
+    "test.run_report_results",
 )
 
 # ---------------------------------------------------------------------------
