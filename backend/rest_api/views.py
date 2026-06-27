@@ -290,11 +290,11 @@ class RequirementViewSet(BaseEntityViewSet):
         return Response(RequirementSerializer(_dto_from_orm(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/architecture/{pk}/ — delete an architecture element. Returns 204."""
+        """DELETE /api/v1/requirements/{pk}/ — delete a requirement. Returns 204."""
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_architecture_element(UUID(pk), ctx)
+            self._svc().delete_requirement(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
