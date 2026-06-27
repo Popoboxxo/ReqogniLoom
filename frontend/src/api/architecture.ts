@@ -9,7 +9,7 @@
  */
 
 import { apiClient, getList } from "./client";
-import type { ArchitectureElement, PaginatedResponse, UUID } from "../types";
+import type { ArchitectureElement, PaginatedResponse, UUID, ArtifactDiffResult, ArtifactVersion } from "../types";
 
 export const architectureApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<ArchitectureElement>> {
@@ -42,5 +42,15 @@ export const architectureApi = {
 
   delete(id: UUID): Promise<void> {
     return apiClient.delete(`/architecture/${id}/`);
+  },
+
+  diff(id: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {
+    return apiClient.get<ArtifactDiffResult>(
+      `/architecture/${id}/diff/?from_version=${fromVersion}&to_version=${toVersion}`
+    );
+  },
+
+  versions(id: UUID): Promise<ArtifactVersion[]> {
+    return apiClient.get<ArtifactVersion[]>(`/architecture/${id}/versions/`);
   },
 };

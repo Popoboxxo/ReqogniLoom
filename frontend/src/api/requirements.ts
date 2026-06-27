@@ -8,7 +8,7 @@
  */
 
 import { apiClient, getList } from "./client";
-import type { Requirement, PaginatedResponse, UUID } from "../types";
+import type { Requirement, PaginatedResponse, UUID, ArtifactDiffResult, ArtifactVersion } from "../types";
 
 export const requirementsApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<Requirement>> {
@@ -39,5 +39,15 @@ export const requirementsApi = {
 
   delete(id: UUID): Promise<void> {
     return apiClient.delete(`/requirements/${id}/`);
+  },
+
+  diff(id: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {
+    return apiClient.get<ArtifactDiffResult>(
+      `/requirements/${id}/diff/?from_version=${fromVersion}&to_version=${toVersion}`
+    );
+  },
+
+  versions(id: UUID): Promise<ArtifactVersion[]> {
+    return apiClient.get<ArtifactVersion[]>(`/requirements/${id}/versions/`);
   },
 };

@@ -19,6 +19,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
 import { MarkdownPreview } from "../RequirementEditors/MarkdownPreview";
+import { ArtifactDiff } from "../ArtifactDiff/ArtifactDiff";
 import { architectureApi } from "../../api/architecture";
 import { tracelinksApi } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
@@ -214,6 +215,7 @@ function ArchElementForm({
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
 
   const handleSave = useCallback(async (): Promise<void> => {
     setIsSaving(true);
@@ -383,7 +385,35 @@ function ArchElementForm({
         >
           {t("actions.delete")}
         </button>
+        <button
+          data-testid="arch-view-diff-btn"
+          onClick={() => setShowDiff(!showDiff)}
+          style={{
+            background: showDiff ? "var(--color-primary)" : "transparent",
+            color: showDiff ? "white" : "var(--color-primary)",
+            border: "1px solid var(--color-primary)",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-2) var(--space-4)",
+            fontSize: "var(--font-size-sm)",
+            cursor: "pointer",
+            fontWeight: 500,
+          }}
+        >
+          {showDiff ? "Hide Diff" : "View Diff"}
+        </button>
       </div>
+
+      {/* Artifact Diff View (REQ-L2-RF-014) */}
+      {showDiff && (
+        <ArtifactDiff
+          entityId={element.id}
+          entityType="architecture"
+          currentVersion={element.version}
+          diffFetcher={architectureApi.diff}
+          versionsFetcher={architectureApi.versions}
+          onClose={() => setShowDiff(false)}
+        />
+      )}
     </div>
   );
 }

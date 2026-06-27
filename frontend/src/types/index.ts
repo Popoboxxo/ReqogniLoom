@@ -240,6 +240,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     adr: false,
     risk: false,
     issue: false,
+    csv_import: false,
   },
   standard: {
     baselines: true,
@@ -253,6 +254,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     adr: true,
     risk: true,
     issue: true,
+    csv_import: true,
   },
   extended: {
     baselines: true,
@@ -266,6 +268,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     adr: true,
     risk: true,
     issue: true,
+    csv_import: true,
   },
 };
 
@@ -358,4 +361,32 @@ export interface TestRun {
   version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+}
+
+// ---------------------------------------------------------------------------
+// ArtifactDiff (REQ-L2-RF-014, COMP-AS-019)
+// ---------------------------------------------------------------------------
+
+export type DiffFieldStatus = "added" | "removed" | "modified" | "unchanged";
+
+export interface DiffField {
+  name: string;
+  status: DiffFieldStatus;
+  from?: string;
+  to?: string;
+  lines?: string[];
+}
+
+export interface ArtifactDiffResult {
+  from_version: number;
+  to_version: number;
+  entity_type: string;
+  fields: DiffField[];
+  note?: string;
+}
+
+export interface ArtifactVersion {
+  version: number;
+  label: string;
+  modified_at?: string | null;
 }

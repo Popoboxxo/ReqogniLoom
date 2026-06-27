@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { useRequirementData } from "./useRequirementData";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { TraceabilityPanel } from "./TraceabilityPanel";
+import { ArtifactDiff } from "../ArtifactDiff/ArtifactDiff";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
 import { workspacesApi } from "../../api/workspaces";
@@ -89,6 +90,7 @@ function RequirementDetailEditor({
   const [changeReason, setChangeReason] = useState(requirement.change_reason ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
@@ -244,7 +246,35 @@ function RequirementDetailEditor({
           >
             {isSaving ? t("actions.saving") : t("actions.save")}
           </SaveButton>
+          <button
+            data-testid="view-diff-btn"
+            onClick={() => setShowDiff(!showDiff)}
+            style={{
+              background: showDiff ? "var(--color-primary)" : "transparent",
+              color: showDiff ? "white" : "var(--color-primary)",
+              border: "1px solid var(--color-primary)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-sm)",
+              cursor: "pointer",
+              fontWeight: 500,
+            }}
+          >
+            {showDiff ? "Hide Diff" : "View Diff"}
+          </button>
         </div>
+
+        {/* Artifact Diff View (REQ-L2-RF-014) */}
+        {showDiff && (
+          <ArtifactDiff
+            entityId={requirement.id}
+            entityType="requirement"
+            currentVersion={requirement.version}
+            diffFetcher={requirementsApi.diff}
+            versionsFetcher={requirementsApi.versions}
+            onClose={() => setShowDiff(false)}
+          />
+        )}
 
         {/* TraceLink panel for this requirement (REQ-L2-RF-006) */}
         <ReqTraceLinkPanel
@@ -853,6 +883,24 @@ export default function RequirementEditors(): JSX.Element {
               }}
             >
               {isExportingPdf ? "Exporting…" : "Export PDF"}
+            </button>
+            <button
+              type="button"
+              data-testid="csv-import-toolbar-btn"
+              onClick={() => navigate("/import")}
+              disabled={!activeWorkspace}
+              style={{
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                cursor: activeWorkspace ? "pointer" : "not-allowed",
+                opacity: activeWorkspace ? 1 : 0.5,
+              }}
+            >
+              {t("import.upload", "Import CSV")}
             </button>
             <button
               data-testid="create-req-btn"
