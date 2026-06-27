@@ -288,6 +288,31 @@ Der McpServer SHALL bei jeder schreibenden Operation über den ApplicationServic
 
 ---
 
+## Erweiterung Phase 3 (se-architect, 2026-06-27)
+
+### REQ-L2-MC-013: Test-Ergebnis-Einspeisung via MCP (test.record_result)
+
+Der McpServer SHALL das MCP-Tool `test.record_result` implementieren, das TestCase-ID, Ergebnisstatus (Passed/Failed/Blocked) und optionale Ausgabe-Payload akzeptiert. Das Tool MUSS einen gültigen API-Key zur Authentifizierung erfordern. Jede Einspeisung SHALL einen Audit-Log-Eintrag mit Client-Identität erzeugen.
+
+**Domain:** software
+**Priority:** desired
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] MCP-Tool `test.record_result(test_run_id, test_case_id, status, output?)` → Ergebnis protokolliert
+- [ ] Fehlender/ungültiger API-Key → Fehler mit HTTP 401-Äquivalent
+- [ ] Jede Einspeisung erzeugt Audit-Log-Eintrag mit Client-Identität
+- [ ] Tool ist via MCP-Protokoll (stdio, SSE, HTTP) aufrufbar
+- [ ] Tool akzeptiert optionale Ausgabe-Payload (z.B. Test-Log, Screenshot-Referenz)
+
+**Interfaces:**
+- Incoming: IF-MC-EXT-IN-001
+- Outgoing: IF-MC-EXT-OUT-001, IF-MC-EXT-OUT-003
+
+**Traceability:** REQ-L1-036, REQ-L1-011 (mitwirkend)
+**Rationale:** MCP-Tool ermöglicht AI-Agenten und CI/CD-Systemen direkte Test-Ergebnis-Einspeisung.
+
+---
+
 ## Traceability-Matrix: REQ-L2-MC → REQ-L1
 
 | REQ-L2-MC | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -304,6 +329,7 @@ Der McpServer SHALL bei jeder schreibenden Operation über den ApplicationServic
 | REQ-L2-MC-010 | REQ-L1-026 | REQ-L1-005 |
 | REQ-L2-MC-011 | REQ-L1-005 | — |
 | REQ-L2-MC-012 | REQ-L1-011 | REQ-L1-005 |
+| REQ-L2-MC-013 | REQ-L1-036 | REQ-L1-011 |
 
 ---
 
@@ -311,11 +337,11 @@ Der McpServer SHALL bei jeder schreibenden Operation über den ApplicationServic
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-MC | 12 |
+| Anzahl REQ-L2-MC | 13 |
 | Mandatory | 10 |
-| Desired | 2 |
+| Desired | 3 |
 | Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | REQ-L1-005, REQ-L1-010, REQ-L1-011, REQ-L1-026, REQ-L1-007 |
+| Abgedeckte REQ-L1 (primär) | REQ-L1-005, REQ-L1-010, REQ-L1-011, REQ-L1-026, REQ-L1-007, REQ-L1-036 |
 | Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-002, REQ-L1-003, REQ-L1-004, REQ-L1-006, REQ-L1-012, REQ-L1-013, REQ-L1-020 |
 
 ---

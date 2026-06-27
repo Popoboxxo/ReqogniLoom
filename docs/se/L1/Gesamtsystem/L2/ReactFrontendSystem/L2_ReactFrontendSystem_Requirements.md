@@ -280,6 +280,54 @@ Das ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der
 
 ---
 
+## Erweiterung Phase 3 (se-architect, 2026-06-27)
+
+### REQ-L2-RF-014: Visuelles Artefakt-Diff
+
+Das ReactFrontend MUSS Änderungen an einem einzelnen Artefakt zwischen zwei beliebigen Versionen als visuellen Text-Diff darstellen. Das Diff MUSS mit visueller Hervorhebung angezeigt werden (grün=hinzugefügt, rot=gelöscht, gelb=geändert). Die Diff-Ansicht ist in der Artefakt-Detailansicht integriert und zeigt Feld-Level-Änderungen.
+
+**Domain:** software
+**Priority:** desired
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] GUI zeigt Diff mit visueller Hervorhebung (grün=hinzugefügt, rot=gelöscht, gelb=geändert)
+- [ ] Diff-Ansicht ist in der Artefakt-Detailansicht integriert
+- [ ] Versionsauswahl (from/to) via UI-Steuerung möglich
+- [ ] Markdown-Felder werden als Text-Diff dargestellt
+- [ ] Diff wird via REST-API (GET /artifacts/{id}/diff) geladen
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (GET /artifacts/{id}/diff?from=v1&to=v2)
+- Outgoing: IF-RF-EXT-OUT-002 (Gerenderte Diff-Ansicht)
+
+**Traceability:** REQ-L1-040
+**Rationale:** Visueller Diff ist für formale Reviews und Freigabe-Entscheidungen unerlässlich.
+
+---
+
+### REQ-L2-RF-015: Visuelles Baseline-Diff
+
+Das ReactFrontend MUSS den Vergleich zweier benannter Baselines als visuellen Diff darstellen. Die Diff-Ansicht zeigt eine kategorisierte Liste (hinzugefügte, geänderte, gelöschte Artefakte inkl. Versions-Delta) mit Navigation zwischen Kategorien. Vergleich inkompatibler Scopes (document↔project) MUSS einen klaren Fehlerhinweis anzeigen.
+
+**Domain:** software
+**Priority:** desired
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] GUI zeigt Diff mit kategorisierter Liste (added/modified/deleted)
+- [ ] Navigation zwischen Kategorien möglich
+- [ ] Modified-Liste zeigt Versions-Delta (Version in Baseline A → Version in Baseline B)
+- [ ] Vergleich kompatibler Scopes (document↔document, project↔project) möglich
+- [ ] Vergleich inkompatibler Scopes → klarer Fehlerhinweis in UI
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (GET /baselines/{id_a}/diff/{id_b})
+- Outgoing: IF-RF-EXT-OUT-002 (Gerenderte Baseline-Diff-Ansicht)
+
+**Traceability:** REQ-L1-041
+**Rationale:** Baseline-Diff ist für formale Reviews und Compliance-Nachweise in regulierten Umgebungen zwingend.
+
+---
+
 ## Traceability-Matrix: REQ-L2-RF → REQ-L1
 
 | REQ-L2-RF | Titel | REQ-L1 (primär) | REQ-L1 (mitwirkend) |
@@ -296,6 +344,9 @@ Das ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der
 | REQ-L2-RF-010 | REST-API-Kommunikation | REQ-L1-017 | REQ-L1-006 |
 | REQ-L2-RF-011 | Fehleranzeige | REQ-L1-016 | REQ-L1-017 |
 | REQ-L2-RF-012 | Workspace-Konfigurations-UI | REQ-L1-017 | REQ-L1-007, REQ-L1-014 |
+| REQ-L2-RF-013 | (reserviert) | — | — |
+| REQ-L2-RF-014 | Visuelles Artefakt-Diff | REQ-L1-040 | — |
+| REQ-L2-RF-015 | Visuelles Baseline-Diff | REQ-L1-041 | — |
 
 ---
 

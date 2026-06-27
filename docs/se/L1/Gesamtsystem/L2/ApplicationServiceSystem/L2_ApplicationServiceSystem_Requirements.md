@@ -650,6 +650,77 @@ Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes D
 
 ---
 
+## Erweiterung Phase 3 (se-architect, 2026-06-27)
+
+### REQ-L2-AS-030: Test-Run-Protokollierung
+
+Der ApplicationService SHALL Testläufe (Test Runs) als eigenständige Entitäten verwalten. Ein TestRun wird mit 1..n TestCase-IDs erstellt. Jeder TestCase im Run kann individuell den Status Passed/Failed/Blocked/Not Run erhalten. Das aggregierte Lauf-Ergebnis wird automatisch berechnet (Passed = alle Passed, Failed = mindestens ein Failed, Partial = mindestens ein Blocked/Not Run). Der TestRun enthält Zeitstempel (Start, Ende) und die ausführende Instanz (z.B. CI-Job-ID). Vollständiges CRUD via REST-API und MCP.
+
+**Domain:** software
+**Priority:** desired
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] TestRun kann mit 1..n TestCase-IDs erstellt werden — initialer Status aller Cases: 'Not Run'
+- [ ] Jeder TestCase im Run kann einzeln auf Passed/Failed/Blocked/Not Run gesetzt werden
+- [ ] Aggregiertes Lauf-Ergebnis wird automatisch berechnet (Passed/Failed/Partial)
+- [ ] TestRun enthält Zeitstempel (Start, Ende) und ausführende Instanz (CI-Job-ID)
+- [ ] TestRun ist via REST-API und MCP (test.create_run, test.update_result) vollständig CRUD-fähig
+
+**Interfaces:**
+- Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
+- Outgoing: IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
+
+**Traceability:** REQ-L1-035, REQ-L1-012 (mitwirkend)
+**Rationale:** Test-Run-Protokollierung schließt den V-Modell-Kreislauf (Verification & Validation).
+
+---
+
+### REQ-L2-AS-031: Automatisierte Test-Ergebnis-Einspeisung
+
+Der ApplicationService SHALL automatisierten Pipelines und CI/CD-Systemen ermöglichen, Testergebnisse direkt als Test-Run-Ergebniseinträge über die REST-API und den MCP-Server (test.record_result) einzuspeisen. Die aufrufende Instanz MUSS mit einem gültigen API-Key authentifiziert sein. Jede Einspeisung SHALL im Audit-Log mit Agent-Client-Identität erfasst werden. Gleichzeitige Einspeisungen verschiedener Pipelines in denselben TestRun WERDEN serialisiert verarbeitet.
+
+**Domain:** software
+**Priority:** desired
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] CI/CD-System sendet POST /api/v1/test-runs/{id}/results mit API-Key → Ergebnis protokolliert, HTTP 200
+- [ ] MCP-Tool test.record_result akzeptiert TestCase-ID + Status + optionaler Ausgabe-Payload
+- [ ] Fehlender/ungültiger API-Key → HTTP 401; Einspeisung wird nicht protokolliert
+- [ ] Jede Einspeisung erzeugt einen Audit-Log-Eintrag mit Client-Identität, TestRun-ID, Status und Zeitstempel
+- [ ] Gleichzeitige Einspeisungen in denselben TestRun werden serialisiert verarbeitet
+
+**Interfaces:**
+- Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
+- Outgoing: IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
+
+**Traceability:** REQ-L1-036, REQ-L1-011 (mitwirkend)
+**Rationale:** Automatisierte Einspeisung schließt den V-Modell-Kreislauf ohne manuelle Intervention.
+
+---
+
+### REQ-L2-AS-032: Artefakt Field-Level Diff
+
+Der ApplicationService SHALL ein strukturiertes JSON-Diff zwischen zwei beliebigen Versionen eines Artefakts berechnen. Das Diff enthält hinzugefügte Felder, geänderte Felder (alt→neu) und gelöschte Felder. Markdown-Felder werden als Text-Diff dargestellt (kein strukturelles AST-Diff). Der Diff ist via REST-API (GET /artifacts/{id}/diff?from=v1&to=v2) abrufbar.
+
+**Domain:** software
+**Priority:** desired
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] REST-API-Endpunkt GET /artifacts/{id}/diff?from=v1&to=v2 gibt strukturiertes JSON-Diff zurück
+- [ ] Diff enthält: hinzugefügte Felder, geänderte Felder (alt→neu), gelöschte Felder
+- [ ] Vergleich beliebiger Versionen (nicht nur aufeinanderfolgende) ist möglich
+- [ ] Markdown-Felder werden als Text-Diff dargestellt
+- [ ] Diff-Berechnung ≤ 500ms für Artefakte mit bis zu 50 Feldern
+
+**Interfaces:**
+- Incoming: IF-AS-EXT-IN-001
+- Outgoing: IF-AS-EXT-OUT-007
+
+**Traceability:** REQ-L1-040, REQ-L1-011 (mitwirkend)
+**Rationale:** Visueller Diff pro Artefakt ist für formale Reviews und Freigabe-Entscheidungen unerlässlich.
+
+---
+
 ## Traceability-Matrix: REQ-L2-AS → REQ-L1
 
 | REQ-L2-AS | Titel (Kurz) | REQ-L1 | Priorität |
@@ -683,6 +754,9 @@ Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes D
 | REQ-L2-AS-027 | Risiko CRUD | REQ-L1-029 | desired |
 | REQ-L2-AS-028 | Issue CRUD | REQ-L1-029 | desired |
 | REQ-L2-AS-029 | Asynchroner Entkopplungsmechanismus | REQ-L1-026, REQ-L1-011 | mandatory |
+| REQ-L2-AS-030 | Test-Run-Protokollierung | REQ-L1-035 | desired |
+| REQ-L2-AS-031 | Test-Ergebnis-Einspeisung | REQ-L1-036 | desired |
+| REQ-L2-AS-032 | Artefakt Field-Level Diff | REQ-L1-040 | desired |
 
 ---
 
@@ -690,12 +764,12 @@ Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes D
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-AS | 29 |
+| Anzahl REQ-L2-AS | 32 |
 | Mandatory | 23 |
-| Desired | 6 |
+| Desired | 9 |
 | Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | 21 |
-| Abgedeckte REQ-L1 (mitwirkend) | 11 |
+| Abgedeckte REQ-L1 (primär) | 24 |
+| Abgedeckte REQ-L1 (mitwirkend) | 13 |
 
 ---
 

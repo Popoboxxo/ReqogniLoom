@@ -388,6 +388,54 @@ Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzer
 
 ---
 
+## Erweiterung Phase 3 (se-architect, 2026-06-27)
+
+### REQ-L2-AT-017: Item-Level-RBAC Regelverwaltung
+
+Das AuthAndTenancySystem SHALL Projekt-Administratoren ermöglichen, Sichtbarkeits- und Bearbeitungsrechte auf Subsystem- oder Artefakt-Ebene zu konfigurieren. Item-Level-Regeln verfeinern die Workspace-RBAC (REQ-L1-010), überschreiben sie jedoch niemals — Admin-Rechte auf Workspace-Ebene haben weiterhin Vorrang. Regeln werden via UI (Berechtigungs-Editor) und API-Endpunkt konfiguriert.
+
+**Domain:** software
+**Priority:** optional
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] Admin konfiguriert: 'Nutzer X hat Lesezugriff auf Subsystem Y' → Regel gespeichert
+- [ ] Item-Level-Regel überschreibt keine Workspace-RBAC (Admin-Rechte haben Vorrang)
+- [ ] Konfiguration via UI (Berechtigungs-Editor) und API-Endpunkt (POST /permissions/item)
+- [ ] Regel-Validierung: Zielnutzer muss Tenant-Mitglied sein
+- [ ] Regel-Löschung → Berechtigung sofort widerrufen
+
+**Interfaces:**
+- Incoming: IF-AT-EXT-IN-001 (Admin-Request via REST-API)
+- Outgoing: IF-AT-EXT-OUT-003, IF-AT-EXT-OUT-004
+
+**Traceability:** REQ-L1-039, REQ-L1-010 (mitwirkend)
+**Rationale:** Feingranulare Zugriffsregeln ermöglichen externe Partner/Zulieferer ohne vollständigen Systemkontext.
+
+---
+
+### REQ-L2-AT-018: Item-Level Permission Enforcement
+
+Das AuthAndTenancySystem SHALL Item-Level-Regeln bei allen API-Zugriffen auswerten (keine UI-only-Beschränkung). Die Enforcement erfolgt via PostgreSQL Row-Level Security (RLS) Policies. Der Permission-Cache (TTL: 60s) reduziert die Evaluierungs-Latenz. Performance: max. 10% Overhead auf API-Response-Zeiten für Workspaces mit ≤ 100 Item-Level-Regeln.
+
+**Domain:** software
+**Priority:** optional
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] Item-Level-Regel wird bei API-Zugriffen ausgewertet (keine UI-only-Beschränkung)
+- [ ] Nutzer ohne Item-Level-Berechtigung → HTTP 403 bei Zugriff auf geschütztes Artefakt
+- [ ] Enforcement via PostgreSQL RLS Policies (datenbankseitig)
+- [ ] Permission-Cache (TTL: 60s) → max. 10% Overhead auf API-Response-Zeiten
+- [ ] Cache-Invalidierung bei Regel-Änderung (sofort)
+
+**Interfaces:**
+- Incoming: IF-AT-EXT-IN-001 (Auth-Context von REST-API/MCP)
+- Outgoing: IF-AT-EXT-OUT-003 (Berechtigungsentscheid allow/deny)
+
+**Traceability:** REQ-L1-039, REQ-L1-026 (mitwirkend — Performance)
+**Rationale:** RLS-basierte Enforcement verhindert, dass neue API-Endpunkte versehentlich Item-Level-Regeln umgehen.
+
+---
+
 ## Traceability-Matrix: REQ-L2-AT → REQ-L1
 
 | REQ-L2-AT | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -408,6 +456,8 @@ Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzer
 | REQ-L2-AT-014 | REQ-L1-033 | — |
 | REQ-L2-AT-015 | REQ-L1-033 | — |
 | REQ-L2-AT-016 | REQ-L1-033 | — |
+| REQ-L2-AT-017 | REQ-L1-039 | REQ-L1-010 |
+| REQ-L2-AT-018 | REQ-L1-039 | REQ-L1-026 |
 
 ---
 
@@ -415,12 +465,12 @@ Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzer
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-AT | 16 |
+| Anzahl REQ-L2-AT | 18 |
 | Mandatory | 15 |
 | Desired | 1 |
-| Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | REQ-L1-010, REQ-L1-015, REQ-L1-033 |
-| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-002, -005, -006, -007, -009, -011, -012, -016 |
+| Optional | 2 |
+| Abgedeckte REQ-L1 (primär) | REQ-L1-010, REQ-L1-015, REQ-L1-033, REQ-L1-039 |
+| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-002, -005, -006, -007, -009, -011, -012, -016, -026 |
 
 ---
 

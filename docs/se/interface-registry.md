@@ -566,6 +566,320 @@ sequenceDiagram
 ---
 
 *Konsolidiert durch se-interface-mgr-Agent | ReqFlow SE-Kaskade*
-*Quellen: L1_Gesamtsystem_Architecture.md, 12 L2-Architekturen*
-*Datum: 2026-06-20 | Branch: refactor/se-structure*
-*Handoff: HOFF-20260620-005*
+*Quellen: L1_Gesamtsystem_Architecture.md, 12 L2-Architekturen, L2_architectural_decomposition_iter-1.md*
+*Datum: 2026-06-27 | Branch: feat/se-implementation*
+*Handoff: HOFF-20260627-001*
+
+---
+
+## 9. L1-Backlog Interfaces (v2 — Backlog REQ-L1-034..041)
+
+> **Status:** Neu registriert aus L2_architectural_decomposition_iter-1.md (Phase 3)
+> **Datum:** 2026-06-27
+> **Scope:** 3 priorisierte Cross-System-Interfaces aus 3 neuen L2-Subsystemen (RQ, CM, VS)
+> **Design-by-Contract:** Vollständige Vertragsfacetten (version, preconditions, postconditions, invariants)
+
+### 9.1 IF-L1-032: ApplicationService → VectorSearchServiceSystem (Domain-Event Embedding Trigger)
+
+| Attribut | Wert |
+|----------|------|
+| **ID** | IF-L1-032 |
+| **Source** | ApplicationService (004) — COMP-AS-0xx (ArtifactWriteHandler) |
+| **Target** | VectorSearchServiceSystem (VS) — COMP-VS-002 (EmbeddingPipeline) |
+| **System-ID Source** | REQ-L2-AS / ARCH-L1-004 |
+| **System-ID Target** | REQ-L2-VS / VectorSearchServiceSystem |
+| **Subsystem-Boundary-ID** | IF-VS-EXT-IN-002 |
+| **Direction** | AS → VS (uni) |
+| **Signal Type** | event (async fire-and-forget) |
+| **Protocol** | async message queue (Celery / Redis pub-sub) |
+| **Trigger** | Domain Event: `ArtifactCreated` / `ArtifactUpdated` (inkl. Requirement, ArchitectureElement, TestCase) |
+| **Payload Schema** | `{ "event_type": "ArtifactCreated"|"ArtifactUpdated", "artifact_id": "uuid", "artifact_type": "requirement"|"architecture_element"|"test_case", "workspace_id": "uuid", "tenant_id": "uuid", "version": "int", "timestamp": "ISO8601" }` |
+| **REQ-L1** | REQ-L1-038 |
+| **Response** | None (async — acknowledged via queue ACK) |
+| **Acceptance Latency** | Event → Embedding-Start: p95 < 30s; Full Embedding: ≤ 5 min (REQ-L2-VS-002) |
+| **Failure Mode** | Queue persistiert Event; Dead-Letter-Queue bei wiederholtem Fehlschlag (max 3 Retries); Graceful Degradation — Suche arbeitet mit veralteten Embeddings |
+| **Versioning** | `event_type` versioniert via Schema-Registry; add-only Felder (keine Breaking-Änderungen an existierenden Feldern) |
+| **Idempotency** | Consumer (VS) muss idempotent sein — selbes `artifact_id`+`version`-Paar darf nur einmal verarbeitet werden |
+| **Auth** | Interner System-zu-System-Call (kein User-Token); Queue-Zugriff via Service-Account |
+
+**Design-by-Contract:**
+| Facette | Definition |
+|---------|-----------|
+| **version** | `1.0.0` |
+| **preconditions** | (1) Artefakt erfolgreich in PersistenceLayer persistiert, (2) Embedding-Pipeline (VS) ist registriert und aktiv, (3) Event enthält gültige `artifact_id` und `workspace_id` |
+| **postconditions** | (1) Event ist in der Queue bestätigt (ACK), (2) Embedding wird innerhalb von 5 Min aktualisiert ODER Event landet in DLQ nach 3 Fehlversuchen, (3) Embedding-Vektor ist unter `artifact_id` auffindbar |
+| **invariants** | (1) Embedding ist stets eine berechnete Funktion des Artefakt-Inhalts (kein manuelles Override), (2) Embedding-Dimension ist durch Modell-Konfiguration festgelegt (konfigurierbar), (3) Haupt-Write-Path wird durch Embedding NICHT blockiert (REQ-L1-026) |
+
+### 9.2 IF-L1-033: AuthAndTenancySystem → PersistenceLayer (RLS-Policy-Enforcement)
+
+| Attribut | Wert |
+|----------|------|
+| **ID** | IF-L1-033 |
+| **Source** | AuthAndTenancySystem (011) — COMP-AT-005 (ItemPermissionStore) |
+| **Target** | PersistenceLayer (010) — COMP-PL-002 (TenantIsolationManager) |
+| **System-ID Source** | REQ-L2-AT-017 / ARCH-L1-011 |
+| **System-ID Target** | REQ-L2-PL / ARCH-L1-010 |
+| **Subsystem-Boundary-ID** | (neu — Control-Plane, kein EXT-ID nötig) |
+| **Direction** | AT → PL (uni — Policy-Definition; PL evaluiert automatisch) |
+| **Signal Type** | control (declarative policy injection) |
+| **Protocol** | PostgreSQL Row-Level Security (RLS) — DDL `ALTER POLICY` + DML `SET LOCAL rls.item_permissions` |
+| **Trigger** | (1) Policy-Create/Update: Admin setzt Item-Level-Regel via AuthAndTenancy → `CREATE/ALTER POLICY`; (2) Query-Time: PersistenceLayer setzt Session-Context-Variable `rls.item_permissions` aus Auth-Context |
+| **Payload Schema (Policy Def)** | `{ "policy_id": "uuid", "artifact_id": "uuid"|"*", "principal_type": "user"|"group", "principal_id": "uuid", "permission": "read"|"write", "effect": "allow"|"deny", "priority": "int", "created_at": "ISO8601" }` |
+| **Payload Schema (Query-Time)** | SQL `SET LOCAL rls.item_permissions = '{user_id, role_list, tenant_id}'` |
+| **REQ-L1** | REQ-L1-039 |
+| **Acceptance Latency** | Policy-Update: < 1s bis RLS-Policy aktiv; Query-Overhead: < 10% (durch Permission-Cache TTL 60s) |
+| **Failure Mode** | Fail-Closed: Wenn RLS-Policy nicht evaluierbar (z.B. fehlender Tenant-Context) → Query liefert 0 Ergebnisse (kein Daten-Leak) |
+| **Versioning** | RLS-Policies versioniert via Migrations; Policy-Änderungen sind additive DDL-Operationen |
+| **Idempotency** | `CREATE POLICY IF NOT EXISTS` / `ALTER POLICY` — RLS ist deklarativ und idempotent |
+| **Auth** | Admin-Rechte für DDL (Datenbank-ROLE `reqflow_admin`); Query-Time via Session-Context (vertrauenswürdig) |
+
+**Design-by-Contract:**
+| Facette | Definition |
+|---------|-----------|
+| **version** | `1.0.0` |
+| **preconditions** | (1) ItemPermissionStore hat gültige Policy-Definition, (2) PostgreSQL RLS ist auf der Ziel-Tabelle aktiviert, (3) Query-Session hat gültigen Auth-Context (user_id, tenant_id) |
+| **postconditions** | (1) RLS-Policy ist auf Datenbankebene aktiv (DDL committed), (2) Query-Ergebnisse sind gemäß Policy gefiltert, (3) Permission-Cache ist nach TTL (60s) aktualisiert |
+| **invariants** | (1) Item-Level-Regeln verfeinern NIEMALS Workspace-RBAC — sie schränken nur ein, erweitern nie, (2) Fehlende Policy → Default-Deny (kein Daten-Leak), (3) RLS-Policies persistieren über Deployment-Grenzen hinweg |
+
+### 9.3 IF-L1-034: CommentServiceSystem → AuditLogSystem (Audit-Log-Pflicht)
+
+| Attribut | Wert |
+|----------|------|
+| **ID** | IF-L1-034 |
+| **Source** | CommentServiceSystem (CM) — COMP-CM-001/003 (CommentManager, NotificationDispatcher) |
+| **Target** | AuditLogSystem (012) — COMP-AL-001 (AuditLogWriter) |
+| **System-ID Source** | REQ-L2-CM / CommentServiceSystem |
+| **System-ID Target** | REQ-L2-AL / ARCH-L1-012 |
+| **Subsystem-Boundary-ID** | IF-CM-EXT-OUT-001 |
+| **Direction** | CM → AL (uni) |
+| **Signal Type** | data (audit write) |
+| **Protocol** | sync (in-process Python) — identisch zu IF-L1-016 (ApplicationService → AuditLog) |
+| **Trigger** | Jede Kommentar-Operation: `comment_created`, `comment_updated`, `comment_deleted`, `mention_resolved`, `notification_dispatched` |
+| **Payload Schema** | `{ "actor": "uuid"|"system", "operation": "comment_created"|"comment_updated"|"comment_deleted"|"mention_resolved"|"notification_dispatched", "entity_id": "uuid", "entity_type": "comment"|"mention"|"notification", "artifact_id": "uuid", "details": { "comment_snippet": "string (truncated 200 chars)", "mentioned_users": ["uuid", ...], "thread_parent_id": "uuid|null" }, "timestamp": "ISO8601", "source": "comment_service" }` |
+| **REQ-L1** | REQ-L1-037 |
+| **Acceptance Latency** | Sync — innerhalb der Transaktion des aufrufenden CM-Vorgangs (< 50ms Overhead) |
+| **Failure Mode** | Fail-Closed: Wenn AuditLog nicht schreibbar → CM-Operation schlägt fehl (Transaction Rollback) — Audit-Pflicht darf nicht umgangen werden |
+| **Versioning** | Add-only Felder im Payload; neue Operation-Typen via Enum-Erweiterung |
+| **Idempotency** | Nicht erforderlich — jede CM-Operation erzeugt genau einen Audit-Eintrag (keine Duplikatserkennung nötig, da Transaktionsgarantie) |
+| **Auth** | Interner System-Call (trusted subsystem) |
+
+**Design-by-Contract:**
+| Facette | Definition |
+|---------|-----------|
+| **version** | `1.0.0` |
+| **preconditions** | (1) CM-Operation (create/update/delete) ist im eigenen System erfolgreich abgeschlossen, (2) actor ist identifiziert (user_id oder "system"), (3) entity_id referenziert eine existierende Kommentar/Mention-Entität |
+| **postconditions** | (1) AuditLogEntry ist append-only persistiert (IF-L1-022 → PL), (2) Audit-Eintrag enthält alle relevanten Metadaten für Nachvollziehbarkeit, (3) Bei Fehler: gesamte Transaktion rolled back (Fail-Closed) |
+| **invariants** | (1) AuditLogEntry wird NIEMALS gelöscht oder modifiziert (append-only), (2) Jede Kommentar-Operation erzeugt mindestens einen Audit-Eintrag, (3) `source = "comment_service"` ermöglicht Filterung im Audit-Log-Query |
+
+---
+
+## 10. New Subsystem Interfaces (Phase 5 Scan)
+
+> **Scan-Tiefe:** L2 Requirements-Dateien der 3 neuen Subsysteme (RQ, CM, VS)
+> **Erkannt:** 4 zusätzliche Interfaces über die priorisierten 3 hinaus
+> **Status:** Registriert — teils mit Hinweisen für se-termination (Tiefe/Komplexität)
+
+### 10.1 IF-L1-035: ApplicationService ↔ ReqIFServiceSystem (Import/Export Request)
+
+| Attribut | Wert |
+|----------|------|
+| **ID** | IF-L1-035 |
+| **Source ↔ Target** | ApplicationService (004) ↔ ReqIFServiceSystem (RQ) |
+| **Subsystem-Boundary-ID** | IF-RQ-EXT-IN-001 |
+| **Direction** | bidirektional (AS initiiert; RQ liefert Ergebnis zurück) |
+| **Signal Type** | request-response (sync) |
+| **Protocol** | in-process Python (sync) |
+| **Trigger** | User/Agent triggert Import oder Export über REST/MCP |
+| **Payload Schema (Import-Request)** | `{ "workspace_id": "uuid", "reqif_file": "base64"|"S3-key", "options": { "dry_run": bool, "import_tracelinks": bool, "conflict_strategy": "skip"|"override"|"new_version" } }` |
+| **Payload Schema (Export-Request)** | `{ "workspace_id": "uuid", "scope": "workspace"|"project", "include_tracelinks": bool, "format": "reqif_1_0"|"reqif_1_1" }` |
+| **Response Schema (Import)** | `{ "artifacts_created": int, "tracelinks_created": int, "warnings": ["string", ...], "errors": [{"element_ref": "string", "reason": "string"}], "dry_run": bool }` |
+| **Response Schema (Export)** | `{ "reqif_file": "base64", "spec_object_count": int, "spec_relation_count": int, "spec_hierarchy_count": int }` |
+| **REQ-L1** | REQ-L1-034 |
+| **Versioning** | `1.0.0` — Breaking Change nur bei neuem ReqIF-Schema |
+| **Auth** | AuthContext aus AS (User/Agent-Identität) |
+
+**Design-by-Contract:**
+| Facette | Definition |
+|---------|-----------|
+| **version** | `1.0.0` |
+| **preconditions** | (1) AuthContext validiert (User hat Workspace-Rechte), (2) ReqIF-Datei valide gegen ReqIF-Schema (Import), (3) Workspace existiert und ist nicht im Baseline-Freeze (Export) |
+| **postconditions** | (1) Import: Artefakte + TraceLinks persistiert (über PL/TE), (2) Export: Vollständige .reqif-Datei inkl. SpecHierarchies, (3) Dry-Run: Nur Validierung, keine Persistenz |
+| **invariants** | (1) Roundtrip-Treue: Export→Import erzeugt strukturgleiche Artefakte, (2) Import überschreibt NIEMALS bestehende Artefakte ohne explizite Strategie |
+
+### 10.2 IF-L1-036: ReqIFServiceSystem → TraceabilityEngine (SpecRelations → TraceLinks)
+
+| Attribut | Wert |
+|----------|------|
+| **ID** | IF-L1-036 |
+| **Source** | ReqIFServiceSystem (RQ) — COMP-RQ-001 (ReqIFParser) |
+| **Target** | TraceabilityEngine (007) — COMP-TE-001 (TraceLinkManager) |
+| **Subsystem-Boundary-ID** | IF-RQ-EXT-OUT-002 |
+| **Direction** | RQ → TE (uni) |
+| **Signal Type** | data (CRUD) |
+| **Protocol** | in-process Python (sync) |
+| **Trigger** | ReqIF-Import: SpecRelations → `create_trace_link()` Calls |
+| **Payload Schema** | `{ "source_artifact_id": "uuid", "target_artifact_id": "uuid", "link_type": "derives_from"|"satisfies"|"refines"|"traces", "workspace_id": "uuid", "reqif_relation_id": "string (original)" }` |
+| **REQ-L1** | REQ-L1-034 |
+| **Acceptance Latency** | Sync — innerhalb der Import-Transaktion |
+| **Idempotency** | Erforderlich — doppelter Import derselben ReqIF-Datei sollte keine Duplikat-TraceLinks erzeugen (Key: `reqif_relation_id` + `workspace_id`) |
+
+**Design-by-Contract:**
+| Facette | Definition |
+|---------|-----------|
+| **version** | `1.0.0` |
+| **preconditions** | (1) Quell- und Ziel-Artefakt existieren in PersistenceLayer, (2) TraceLink-Typ ist valide, (3) Workspace-Kontext ist gesetzt |
+| **postconditions** | (1) TraceLink persistiert via PersistenceLayer, (2) Bei Duplikat: keine doppelte Erstellung (idempotent), (3) Fehler → gesamter Import rolled back |
+| **invariants** | (1) Jeder SpecRelation wird genau ein TraceLink (oder Warnung bei Fehler), (2) TraceLink-Referenzen sind referentiell integer |
+
+### 10.3 IF-L1-037: ApplicationService ↔ CommentServiceSystem (Comment CRUD Delegation)
+
+| Attribut | Wert |
+|----------|------|
+| **ID** | IF-L1-037 |
+| **Source ↔ Target** | ApplicationService (004) ↔ CommentServiceSystem (CM) |
+| **Subsystem-Boundary-ID** | IF-CM-EXT-IN-001 |
+| **Direction** | bidirektional (AS delegiert CRUD; CM liefert Ergebnis) |
+| **Signal Type** | request-response (sync) |
+| **Protocol** | in-process Python (sync) |
+| **Trigger** | User/Agent erstellt/listet/aktualisiert Kommentar via REST/MCP |
+| **Payload Schema (Create)** | `{ "artifact_id": "uuid", "parent_comment_id": "uuid|null", "text": "string", "author_id": "uuid", "workspace_id": "uuid" }` |
+| **Payload Schema (List)** | `{ "artifact_id": "uuid", "include_deleted": bool, "page": int, "page_size": int }` |
+| **REQ-L1** | REQ-L1-037 |
+| **Acceptance Latency** | p95 < 200ms (REQ-L1-026 konform) |
+
+**Design-by-Contract:**
+| Facette | Definition |
+|---------|-----------|
+| **version** | `1.0.0` |
+| **preconditions** | (1) Artefakt-ID existiert, (2) AuthContext validiert (Schreibrecht auf Artefakt), (3) Text ist nicht leer |
+| **postconditions** | (1) Kommentar (oder Antwort) persistiert, (2) Audit-Eintrag via IF-L1-034, (3) @Mentions asynchron aufgelöst, (4) In-App-Notification bei Mention |
+| **invariants** | (1) Thread-Struktur immer konsistent (parent_comment_id zeigt auf existierenden Kommentar), (2) Kommentar-Versionierung erhält Historie |
+
+### 10.4 IF-L1-038: ApplicationService ↔ VectorSearchServiceSystem (Semantic Search Query)
+
+| Attribut | Wert |
+|----------|------|
+| **ID** | IF-L1-038 |
+| **Source ↔ Target** | ApplicationService (004) ↔ VectorSearchServiceSystem (VS) |
+| **Subsystem-Boundary-ID** | IF-VS-EXT-IN-001 |
+| **Direction** | bidirektional (AS sendet Query; VS liefert RankedResults) |
+| **Signal Type** | request-response (sync) |
+| **Protocol** | in-process Python (sync) |
+| **Trigger** | User/Agent triggert semantische Suche via REST/UI/MCP |
+| **Payload Schema (Query)** | `{ "query": "string (natural language)"|null, "artifact_id": "uuid (similarity search)"|null, "workspace_id": "uuid", "filters": { "artifact_types": ["requirement","architecture_element","test_case"], "limit": int, "min_score": float }, "hybrid": bool }` |
+| **Payload Schema (Result)** | `{ "results": [{"artifact_id": "uuid", "artifact_type": "string", "title": "string", "score": float, "snippet": "string"}], "total_count": int, "query_vector_used": bool }` |
+| **REQ-L1** | REQ-L1-038 (primär), REQ-L1-020 (Volltext-Fallback) |
+| **Acceptance Latency** | p95 < 2s (REQ-L2-VS-001) — workspace ≤ 10.000 artefacts |
+| **Failure Mode** | VS-Ausfall → Graceful Degradation auf Volltextsuche (REQ-L1-020); User erhält Hinweis "Semantic search unavailable, using full-text fallback" |
+
+**Design-by-Contract:**
+| Facette | Definition |
+|---------|-----------|
+| **version** | `1.0.0` |
+| **preconditions** | (1) Workspace existiert, (2) Entweder query ODER artifact_id ist gesetzt (nicht beide null), (3) Embedding-Pipeline ist initialisiert |
+| **postconditions** | (1) Rankierte Ergebnisse mit Ähnlichkeits-Score zurückgegeben, (2) Hybrid-Suche wenn `hybrid=true` kombiniert Vektor + Volltext, (3) Bei leerem Ergebnis: leere Liste, kein Fehler |
+| **invariants** | (1) Ergebnisse sind immer auf Workspace beschränkt (Tenant-Isolation via IF-L1-022), (2) Score ist normalisiert [0,1], (3) Keine Schreiboperationen als Seiteneffekt |
+
+### 10.5 IF-L1-039: CommentServiceSystem → NotificationService (Mention Notification) [STUB]
+
+| Attribut | Wert |
+|----------|------|
+| **ID** | IF-L1-039 |
+| **Source** | CommentServiceSystem (CM) — COMP-CM-003 (NotificationDispatcher) |
+| **Target** | NotificationService (ZUKÜNFTIG — Out-of-Scope für v2) |
+| **Subsystem-Boundary-ID** | Keine — neues System in Planung |
+| **Direction** | CM → NotificationService (uni) |
+| **Signal Type** | event (async — geplant) |
+| **Protocol** | Offen — Celery/Redis/WebSocket (Entscheidung in Zukunft) |
+| **Trigger** | @Mention eines registrierten Nutzers → Notification-Event |
+| **Payload Schema (Vorschlag)** | `{ "notification_type": "mention", "mentioned_user_id": "uuid", "triggered_by_user_id": "uuid", "comment_id": "uuid", "artifact_id": "uuid", "workspace_id": "uuid", "snippet": "string (truncated 100 chars)", "timestamp": "ISO8601" }` |
+| **REQ-L1** | REQ-L1-037 (mitwirkend) |
+| **Status** | **STUB** — CM-003 (NotificationDispatcher) implementiert In-App-Notification intern; externe Notification (E-Mail, Push) ist Out-of-Scope für v2, aber Interface ist hier dokumentiert für zukünftige Erweiterung |
+| **Outstanding Decision** | se-termination muss entscheiden: (1) Notification als eigenständiges L2-System? (2) Oder als Erweiterung von CommentServiceSystem? (3) Benötigt Notification-System L3-Zerlegung? |
+
+**Design-by-Contract (Stub):**
+| Facette | Definition |
+|---------|-----------|
+| **version** | `0.1.0` (vorgeschlagen — noch nicht implementiert) |
+| **preconditions** | (1) Mention wurde validiert (User existiert), (2) Notification-Typ ist definiert, (3) Empfänger hat Notification-Präferenz aktiv |
+| **postconditions** | (1) Notification wurde zugestellt (Kanal-abhängig), (2) Notification ist im Audit-Log (via IF-L1-034) |
+| **invariants** | (1) Kein Spam: gleicher Mention nicht doppelt notifizieren, (2) Empfänger kann Notifications deaktivieren |
+
+---
+
+## 11. Propagations-Map (L2→L3)
+
+> **Mechanismus:** Für jedes Subsystem in der L2-Zerlegung werden die Interfaces gelistet, die an die L3-Zelle propagiert werden.
+> **Anwendung:** se-termination verwendet diese Map, um Zell-Inputs für L3 zu bestimmen.
+
+### 11.1 ReqIFServiceSystem (RQ)
+
+| Richtung | Interface(s) |
+|----------|-------------|
+| **Inherited External** | — (keine direkten Akteure — immer via ApplicationService) |
+| **Incoming (AS → RQ)** | IF-L1-035 (AS→RQ Import/Export Request) |
+| **Outgoing (RQ → extern)** | IF-L1-036 (RQ→TE TraceLinks), IF-L1-022 (RQ→PL Persistenz) |
+
+### 11.2 CommentServiceSystem (CM)
+
+| Richtung | Interface(s) |
+|----------|-------------|
+| **Inherited External** | — (keine direkten Akteure) |
+| **Incoming (AS → CM)** | IF-L1-037 (AS→CM Comment CRUD) |
+| **Outgoing (CM → extern)** | IF-L1-034 (CM→AL Audit Log), IF-CM-EXT-OUT-002 (CM→AT Nutzer-Lookup), IF-L1-022 (CM→PL Persistenz), IF-L1-039 (CM→Notification — STUB) |
+
+### 11.3 VectorSearchServiceSystem (VS)
+
+| Richtung | Interface(s) |
+|----------|-------------|
+| **Inherited External** | — (keine direkten Akteure) |
+| **Incoming (AS → VS)** | IF-L1-032 (AS→VS Domain Event), IF-L1-038 (AS↔VS Search Query) |
+| **Outgoing (VS → extern)** | IF-VS-EXT-OUT-001 (VS→LA Embedding), IF-L1-022 (VS→PL Persistenz — pgvector) |
+
+---
+
+## 12. Synchronisationsanalyse (Deterministic Sync Check)
+
+### 12.1 Ordering Constraints
+
+| Pfad | Abhängigkeit | Garantie |
+|------|-------------|----------|
+| **Write → Embedding** | Embedding (IF-L1-032) MUSS nach erfolgreichem Write erfolgen | Async Queue garantiert > 0 Ordering; Write-Transaktion committed bevor Event published |
+| **Import → TraceLinks** | TraceLink-CRUD (IF-L1-036) MUSS nach Artefakt-Persistenz erfolgen | Synchrone Transaktion — innerhalb einer `transaction.atomic()` |
+| **Comment → Audit** | Audit-Write (IF-L1-034) MUSS nach Kommentar-Persistenz erfolgen | Transaktionsgarantie via `transaction.atomic()` |
+| **Search → Embedding** | Suche (IF-L1-038) KANN mit veralteten Embeddings arbeiten | Async bedeutet Eventual Consistency; User erhält Hinweis bei Suche während Embedding-Pipeline-Aktivität |
+
+### 12.2 Async Path Analysis
+
+| Async Interface | Queue Depth Limit | Dead-Letter | Blocking Risk |
+|----------------|-------------------|-------------|---------------|
+| IF-L1-032 (Domain Event → Embedding) | 10.000 Events (konfigurierbar) | DLQ nach 3 Failed Retries | **Niedrig** — Queue ist entkoppelt; Write-Path niemals blockiert |
+| IF-L1-039 (Notification — STUB) | Noch nicht definiert | Noch nicht definiert | **N/A** — noch nicht implementiert |
+
+### 12.3 Sync-vs-Async Rationale
+
+| Interface | Entscheidung | Begründung |
+|-----------|-------------|------------|
+| IF-L1-032 (AS→VS Domain Event) | **Async** | REQ-L1-026 (Performance) fordert < 200ms Response für Write-Path. Embedding-Generierung kann mehrere Sekunden dauern → darf Write nicht blockieren. REQ-L2-VS-002 erlaubt 5 Min Verzögerung → async adäquat. |
+| IF-L1-033 (AT→PL RLS) | **Control-Plane (DDL) + Query-Time (sync)** | RLS ist deklarativ — Policy-Definition ist DDL (asynchron okay), aber Query-Time-Enforcement muss synchron sein (Datenbankebene). |
+| IF-L1-034 (CM→AL Audit) | **Sync** | Konsistent zu IF-L1-016 (ApplicationService→AuditLog). Audit ist append-only mit Transaktionsgarantie. Fail-Closed = Audit-Pflicht darf nicht umgangen werden. |
+| IF-L1-035 (AS↔RQ Import/Export) | **Sync** | Import/Export ist eine zusammenhängende Operation. Async würde den User zwingen, später zurückzukommen. Bei großen Imports (100+ Artefakte) kann Async in Betracht gezogen werden (Phase 5 Optimierung). |
+| IF-L1-038 (AS↔VS Semantic Search) | **Sync** | Suche ist User-facing mit ≤ 2s Latenz (REQ-L2-VS-001). Sync ist adäquat. Fallback bei Ausfall: Graceful Degradation zu Volltext. |
+
+### 12.4 Top 3 Deterministic-Sync Risks
+
+| # | Risk | Description | Mitigation |
+|---|------|-------------|------------|
+| **1** | **Embedding Lag → Stale Search Results** | Wenn Embedding-Pipeline (IF-L1-032) mehrere Minuten Verzögerung hat, zeigt semantische Suche (IF-L1-038) veraltete Ergebnisse. Nutzer vertraut potenziell falscher "completeness". | UI-Hinweis "Embedding in Progress" bei kürzlich geänderten Artefakten; Batch-Reprocessing nach Pipeline-Neustart |
+| **2** | **Queue Overflow bei Bulk-Import** | ReqIF-Import (IF-L1-035) erzeugt 100+ Artefakte → 100+ Domain Events auf IF-L1-032. Queue kann überlaufen oder Embedding-Pipeline verstopfen. | Batch-Event `ArtifactsBulkCreated` mit `artifact_ids: [uuid]` für Bulk-Operationen; max Queue-Depth 10.000 |
+| **3** | **RLS Policy-Query Overhead** | IF-L1-033 (RLS) könnte bei komplexen Item-Level-Regeln den Query-Overhead über 10% treiben, was REQ-L1-026 (Performance) gefährdet. | Permission-Cache (TTL 60s) reduziert Evaluierung; HNSW-Index (pgvector) läuft unabhängig von RLS; Monitoring-Alarm bei >15% Overhead |
+
+---
+
+## 13. Interface Change Log (Erweiterung)
+
+| Datum | Änderung | Betroffene IDs | Begründung |
+|-------|----------|---------------|------------|
+| 2026-06-27 | **Phase 5:** 3 priorisierte L1-Backlog-Interfaces registriert (Full Design-by-Contract) | IF-L1-032, IF-L1-033, IF-L1-034 | REQ-L1-038, REQ-L1-039, REQ-L1-037 — neue Subsysteme VS, CM, RQ |
+| 2026-06-27 | **Phase 5:** 4 zusätzliche Interfaces aus Subsystem-Scan | IF-L1-035, IF-L1-036, IF-L1-037, IF-L1-038, IF-L1-039 (STUB) | Neue Subsysteme RQ, CM, VS — Schnittstellen zu AS, TE, AL, Notification |
+| 2026-06-27 | **Phase 5:** Propagations-Map + Sync-Analyse + Top-3-Risiken | Alle neuen IF-L1 | Deterministische Synchronisation validiert |

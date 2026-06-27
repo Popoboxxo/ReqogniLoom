@@ -1,7 +1,7 @@
-last_completed_step: se-critic-arch
-next_expected_step: se-interface-mgr
+last_completed_step: se-termination
+next_expected_step: se-developer (Pipeline B) / se-validator (L1-Gesamtsystem)
 last_completed_iteration: 1
-budget_consumed: 2
+budget_consumed: 4
 se-critic-req:
   status: approved
   iteration: 1
@@ -48,3 +48,61 @@ se-critic-arch:
   testability: pass
   id_schema: pass
   architectural_laws: pass
+se-interface-mgr:
+  status: approved
+  iteration: 1
+  interfaces_registered: 8
+  interfaces_flagged: 3
+  interfaces_scanned: 4
+  interfaces_stub: 1
+  sync_risks_identified: 3
+  subsystems_touched: 3
+  existing_systems_touched: 6
+  report_path: "docs/se/reports/se-phase5-interfaces-2026-06-27.md"
+  registry_updated: true
+  timestamp: "2026-06-27T23:00:00Z"
+se-termination:
+  status: completed
+  iteration: 1
+  leaf_count: 6
+  continue_count: 3
+  pipeline_b_eligible: 6
+  decisions:
+    - req_id: REQ-L1-023
+      decision: leaf
+      designation: component
+      tier: se-senior-developer
+    - req_id: REQ-L1-034
+      decision: continue
+      designation: system
+      l1_cascade: ReqIFServiceSystem
+    - req_id: REQ-L1-035
+      decision: leaf
+      designation: component
+      tier: se-junior-developer
+    - req_id: REQ-L1-036
+      decision: leaf
+      designation: component
+      tier: se-developer
+    - req_id: REQ-L1-037
+      decision: continue
+      designation: system
+      l1_cascade: CommentServiceSystem
+    - req_id: REQ-L1-038
+      decision: continue
+      designation: system
+      l1_cascade: VectorSearchServiceSystem
+    - req_id: REQ-L1-039
+      decision: leaf
+      designation: component
+      tier: se-senior-developer
+    - req_id: REQ-L1-040
+      decision: leaf
+      designation: component
+      tier: se-developer
+    - req_id: REQ-L1-041
+      decision: leaf
+      designation: component
+      tier: se-junior-developer
+  report_path: "docs/se/reports/se-phase6-termination-2026-06-27.md"
+  timestamp: "2026-06-27T23:45:00Z"
