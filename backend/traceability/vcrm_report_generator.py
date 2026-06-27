@@ -151,15 +151,16 @@ class VCRMReportGenerator:
         workspace_id: uuid.UUID,
         baseline_id: Optional[uuid.UUID] = None,
     ) -> bytes:
-        """Export the VCRM matrix as a PDF (optional feature).
+        """Export the VCRM matrix as a PDF.
 
-        REQ-L2-TE-013: PDF export is optional; raises NotImplementedError
-        until a template renderer dependency is added.
-        ADR-L3-TE4-02: explicitly documented as not implemented.
+        REQ-L2-TE-013 / REQ-L2-AS-016: PDF export is now implemented
+        via the pdf_report_generator module (reportlab).
         """
-        raise NotImplementedError(
-            "PDF export is not yet implemented. "
-            "Use export_vcrm_csv() for the mandatory CSV format."
+        from traceability.pdf_report_generator import generate_pdf_report
+
+        return generate_pdf_report(
+            workspace_id=workspace_id,
+            layout="traceability_matrix",
         )
 
     # -----------------------------------------------------------------------

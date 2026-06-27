@@ -2,7 +2,8 @@
 COMP-TE-004 VCRMReportGenerator — VCRM matrix generation and export tests.
 
 Covers:
-  REQ-L2-TE-013: VCRM matrix generation, CSV export, PDF optional
+  REQ-L2-TE-013: VCRM matrix generation, CSV export, PDF export
+  REQ-L2-AS-016: PDF report generation (requirement_document, traceability_matrix)
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import pytest
 from traceability.vcrm_report_generator import VCRMReportGenerator
 from traceability.coverage_calculator import CoverageCalculator
 from traceability.query_engine import QueryEngine
+from traceability.pdf_report_generator import generate_pdf_report, VALID_LAYOUTS
 from traceability.tests.conftest import (
     active_tenant,
     make_artifact,
@@ -156,16 +158,101 @@ class TestCSVExport:
 
 
 # ---------------------------------------------------------------------------
-# REQ-L2-TE-013: PDF export (optional)
+# REQ-L2-AS-016: PDF export (implemented via reportlab)
 # ---------------------------------------------------------------------------
 
 class TestPDFExport:
-    """REQ-L2-TE-013: PDF export is optional (raises NotImplementedError)."""
+    """REQ-L2-AS-016: PDF export produces valid PDF bytes."""
 
-    def test_pdf_export_raises_not_implemented(
+    def test_pdf_export_returns_valid_pdf(
         self, vcrm_gen, tenant_a, workspace_a
     ):
-        """PDF export raises NotImplementedError per ADR-L3-TE4-02."""
+        """PDF export returns non-empty bytes starting with %PDF-."""
         with active_tenant(tenant_a):
-            with pytest.raises(NotImplementedError):
-                vcrm_gen.export_vcrm_pdf(workspace_a.id)
+            make_requirement(tenant_a, workspace_a, "R-1")
+            pdf_bytes = vcrm_gen.export_vcrm_pdf(workspace_a.id)
+
+        assert isinstance(pdf_bytes, bytes)
+        assert len(pdf_bytes) > 1024  # > 1KB
+        assert pdf_bytes[:5] == b"%PDF-"
+
+    def test_pdf_requirement_document_contains_workspace_title(
+        self, tenant_a, workspace_a
+    ):
+        """Requirement document PDF contains the workspace name."""
+        from pypdf import PdfReader
+
+        with active_tenant(tenant_a):
+            make_requirement(tenant_a, workspace_a, "R-PDF-Test")
+            pdf_bytes = generate_pdf_report(
+                workspace_a.id, layout="requirement_document"
+            )
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+
+        assert "TE-WS-A" in text
+
+    def test_pdf_traceability_matrix_contains_all_requirements(
+        self, tenant_a, workspace_a
+    ):
+        """Traceability matrix PDF contains all requirement titles."""
+        from pypdf import PdfReader
+
+        with active_tenant(tenant_a):
+            _, req1 = make_requirement(tenant_a, workspace_a, "Matrix-Req-1")
+            _, req2 = make_requirement(tenant_a, workspace_a, "Matrix-Req-2")
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-1")
+            # Link req1 -> tc via verifies
+            art_req1 = req1.artifact
+            make_trace_link(art_req1, tc_art, tenant_a, "verifies")
+
+            pdf_bytes = generate_pdf_report(
+                workspace_a.id, layout="traceability_matrix"
+            )
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+
+        assert "Matrix-Req-1" in text
+        assert "Matrix-Req-2" in text
+
+    def test_pdf_invalid_layout_raises(self, tenant_a, workspace_a):
+        """Unknown layout raises ValueError."""
+        with active_tenant(tenant_a):
+            with pytest.raises(ValueError, match="Unknown layout"):
+                generate_pdf_report(
+                    workspace_a.id, layout="nonexistent_layout"
+                )
+
+    def test_pdf_tenant_isolation(
+        self, tenant_a, tenant_b, workspace_a, workspace_b_tenant_b
+    ):
+        """Workspace A's report doesn't include workspace B's data."""
+        from pypdf import PdfReader
+
+        with active_tenant(tenant_a):
+            make_requirement(tenant_a, workspace_a, "TenantA-Req")
+
+        with active_tenant(tenant_b):
+            make_requirement(
+                tenant_b, workspace_b_tenant_b, "TenantB-Req-Secret"
+            )
+
+        # Generate report for workspace A under tenant A context
+        with active_tenant(tenant_a):
+            pdf_bytes = generate_pdf_report(
+                workspace_a.id, layout="requirement_document"
+            )
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+
+        assert "TenantA-Req" in text
+        assert "TenantB-Req-Secret" not in text

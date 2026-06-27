@@ -193,8 +193,11 @@ class TestFacadeVCRM:
         assert isinstance(csv_str, str)
         assert "requirement_id" in csv_str
 
-    def test_export_pdf_raises_via_facade(self, tenant_a, workspace_a):
-        """export_vcrm_pdf raises NotImplementedError."""
+    def test_export_pdf_returns_bytes_via_facade(self, tenant_a, workspace_a):
+        """export_vcrm_pdf returns valid PDF bytes."""
         with active_tenant(tenant_a):
-            with pytest.raises(NotImplementedError):
-                svc.export_vcrm_pdf(workspace_a.id)
+            make_requirement(tenant_a, workspace_a, "R-1")
+            pdf_bytes = svc.export_vcrm_pdf(workspace_a.id)
+
+        assert isinstance(pdf_bytes, bytes)
+        assert pdf_bytes[:5] == b"%PDF-"

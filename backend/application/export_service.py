@@ -250,7 +250,7 @@ class ExportService(ServiceBase):
             record_count=len(rows),
         )
 
-    # ---------- PDF (stub) ----------
+    # ---------- PDF (REQ-L2-AS-016) ----------
 
     def export_pdf(
         self,
@@ -259,21 +259,47 @@ class ExportService(ServiceBase):
         ctx: AuthContext,
         artifact_id: Optional[UUID | str] = None,
     ) -> ExportResult:
-        """Export entities as PDF — STUB, not yet implemented.
+        """Export workspace report as PDF.
 
-        REQ-L1-023 requires PDF export. Implementation blocked pending
-        reportlab/weasyprint availability in the container image.
+        REQ-L2-AS-016 / REQ-L1-023: PDF export via reportlab.
+        Delegates to traceability.pdf_report_generator for workspace-level
+        reports.
 
-        TODO-PDF: Install a PDF library and implement _render_pdf().
-        Until then this raises NotImplementedError.
+        Args:
+            entity_type: "Requirement" | "ArchitectureElement" | "TestCase"
+                (used to select layout: Requirement → requirement_document,
+                others → traceability_matrix).
+            workspace_id: Workspace UUID.
+            ctx: AuthContext for tenant scoping.
+            artifact_id: Optional — ignored for workspace-level PDF.
 
-        Raises:
-            NotImplementedError: Always — PDF lib not installed.
+        Returns:
+            ExportResult with media_type="application/pdf".
         """
-        raise NotImplementedError(
-            "PDF export (REQ-L1-023) is not yet implemented. "
-            "Add reportlab or weasyprint to requirements.txt and implement "
-            "ExportService._render_pdf(). Tracking: TODO-PDF."
+        self._set_tenant_context(ctx)
+        self._validate_entity_type(entity_type)
+
+        ws_uuid = UUID(str(workspace_id))
+
+        # Select layout based on entity_type
+        layout = (
+            "requirement_document"
+            if entity_type == "Requirement"
+            else "traceability_matrix"
+        )
+
+        from traceability.pdf_report_generator import generate_pdf_report
+
+        pdf_bytes = generate_pdf_report(
+            workspace_id=ws_uuid,
+            layout=layout,
+        )
+
+        return ExportResult(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            filename=f"export_{entity_type.lower()}.pdf",
+            record_count=1,  # workspace-level report
         )
 
     # ---------- Private helpers ----------

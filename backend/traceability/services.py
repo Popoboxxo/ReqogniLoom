@@ -277,14 +277,28 @@ def export_vcrm_pdf(
     workspace_id: uuid.UUID,
     baseline_id: Optional[uuid.UUID] = None,
 ) -> bytes:
-    """Export the VCRM matrix as PDF (raises NotImplementedError).
+    """Export the VCRM matrix as PDF.
 
-    REQ-L2-TE-013: PDF is optional per ADR-L3-TE4-02.
+    REQ-L2-TE-013 / REQ-L2-AS-016: delegates to pdf_report_generator.
     """
     return _vcrm_gen.export_vcrm_pdf(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
     )
+
+
+def generate_pdf_report(
+    workspace_id: uuid.UUID,
+    layout: str = "requirement_document",
+    ctx: object = None,
+) -> bytes:
+    """Generate a PDF report for a workspace.
+
+    REQ-L2-AS-016: public facade for pdf_report_generator.
+    """
+    from traceability.pdf_report_generator import generate_pdf_report as _gen
+
+    return _gen(workspace_id=workspace_id, layout=layout, ctx=ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +332,8 @@ __all__ = [
     "generate_vcrm",
     "export_vcrm_csv",
     "export_vcrm_pdf",
+    # PDF Report
+    "generate_pdf_report",
     # Integrity
     "validate_graph_integrity",
     # Exceptions (re-exported)

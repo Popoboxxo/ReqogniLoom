@@ -230,15 +230,35 @@ class TestExportMarkdown:
         assert result.media_type == "text/markdown"
 
 
-# ---------- PDF stub ----------
+# ---------- PDF export (REQ-L2-AS-016) ----------
 
 
 class TestExportPdf:
-    def test_raises_not_implemented(self):
-        """REQ-L1-023: PDF stub raises NotImplementedError with TODO-PDF marker."""
+    def test_returns_pdf_result(self):
+        """REQ-L2-AS-016: export_pdf returns ExportResult with PDF bytes."""
+        svc = ExportService()
+        ctx = _make_ctx()
+        fake_pdf = b"%PDF-1.4 fake pdf content"
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "traceability.pdf_report_generator.generate_pdf_report",
+                return_value=fake_pdf,
+            ),
+        ):
+            result = svc.export_pdf("Requirement", WS_ID, ctx)
+
+        assert isinstance(result, ExportResult)
+        assert result.media_type == "application/pdf"
+        assert result.content == fake_pdf
+        assert result.filename.endswith(".pdf")
+
+    def test_invalid_entity_type_raises(self):
+        """export_pdf still validates entity_type."""
         svc = ExportService()
         ctx = _make_ctx()
 
         with patch("application.export_service.TenantContext"):
-            with pytest.raises(NotImplementedError, match="TODO-PDF"):
-                svc.export_pdf("Requirement", WS_ID, ctx)
+            with pytest.raises(ValidationError, match="Unsupported entity_type"):
+                svc.export_pdf("UnknownType", WS_ID, ctx)
