@@ -13,6 +13,7 @@ Registers:
   /api/v1/tracelinks/         TraceLinkViewSet
   /api/v1/baselines/          BaselineViewSet  (preset-gated)
   /api/v1/workflows/          WorkflowDefinitionViewSet
+  /api/v1/workspaces/         WorkspaceViewSet (list + retrieve, REQ-L1-017)
 
 Schema endpoints (served at project-level via drf-spectacular):
   /api/v1/schema/             SpectacularAPIView
@@ -36,6 +37,7 @@ from rest_api.views import (
     TestCaseViewSet,
     TraceLinkViewSet,
     WorkflowDefinitionViewSet,
+    WorkspaceViewSet,
 )
 
 # ---------------------------------------------------------------------------
@@ -50,6 +52,7 @@ router.register(r"testcases", TestCaseViewSet, basename="testcase")
 router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
 router.register(r"baselines", BaselineViewSet, basename="baseline")
 router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
+router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
 
 # ---------------------------------------------------------------------------
 # URL patterns

@@ -302,6 +302,26 @@ class WorkflowDefinitionSerializer(
     created_at = serializers.DateTimeField(read_only=True)
 
 
+class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for Workspace entity (REQ-L1-017).
+
+    ``terminology_profile`` is sourced from the optional
+    ``WorkspacePresetConfig`` one-to-one companion; ``language`` is reserved
+    for a future per-workspace setting and currently defaults to ``"en"``.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(max_length=255)
+    preset = serializers.JSONField(required=False, default=dict)
+    terminology_profile = serializers.CharField(
+        required=False, default="se_mode", max_length=32
+    )
+    language = serializers.CharField(required=False, default="en", max_length=8)
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
 # ---------------------------------------------------------------------------
 # Queryset optimization helpers (REQ-L2-RA-013, COMP-RA-006 integration point)
 # ---------------------------------------------------------------------------
@@ -366,6 +386,7 @@ __all__ = [
     "TraceLinkSerializer",
     "BaselineSerializer",
     "WorkflowDefinitionSerializer",
+    "WorkspaceSerializer",
     "StandardPagination",
     "PresetAwareSerializerMixin",
     "build_error_response",

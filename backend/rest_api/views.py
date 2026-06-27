@@ -50,6 +50,7 @@ from application.services import (
     TraceLinkService,
     ValidationError,
     WorkflowFacade,
+    WorkspaceService,
     ExportService,
     ImportService,
     AdrService,
@@ -67,6 +68,7 @@ from rest_api.serializers import (
     TestCaseSerializer,
     TraceLinkSerializer,
     WorkflowDefinitionSerializer,
+    WorkspaceSerializer,
     build_error_response,
     detect_lang,
 )
@@ -311,13 +313,17 @@ class ArtifactViewSet(BaseEntityViewSet):
                     build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            items = self._svc().get_tree(UUID(workspace_id_str), ctx)
+            self._svc()._set_tenant_context(ctx)
+            from persistence.models import Artifact
+            qs = Artifact.unscoped.filter(workspace_id=UUID(workspace_id_str)).values(
+                "id", "parent_id", "artifact_type"
+            )
+            items = list(qs)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        # get_tree returns TreeNodeDTO — serialize directly
-        serialized = [_tree_node_to_dict(item) for item in items]
+        serialized = [{"id": str(r["id"]), "parent_id": str(r["parent_id"]) if r["parent_id"] else None, "artifact_type": r["artifact_type"], "name": r.get("name", "")} for r in items]
         return self._paginate(request, serialized)
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -668,7 +674,7 @@ class BaselineViewSet(BaseEntityViewSet):
     """
 
     serializer_class = BaselineSerializer
-    preset_endpoint_key = "baseline_endpoints"
+    preset_endpoint_key = "baselines"
 
     def _svc(self) -> BaselineFacade:
         return BaselineFacade()
@@ -917,6 +923,80 @@ def _baseline_to_dict(bl: Any) -> dict[str, Any]:
     }
 
 
+def _workspace_to_dict(ws: Any) -> dict[str, Any]:
+    """Convert Workspace ORM object to serializer-compatible dict.
+
+    ``terminology_profile`` is resolved from the optional
+    ``WorkspacePresetConfig`` companion (defaults to ``"se_mode"`` when no
+    preset config has been provisioned yet).
+    """
+    terminology_profile = "se_mode"
+    preset_config = getattr(ws, "preset_config", None)
+    if preset_config is not None:
+        terminology_profile = getattr(
+            preset_config, "terminology_profile", terminology_profile
+        )
+    return {
+        "id": str(ws.id),
+        "name": ws.name,
+        "preset": ws.preset or {},
+        "terminology_profile": terminology_profile,
+        "language": "en",
+        "version": ws.version,
+        "created_at": ws.created_at,
+        "updated_at": ws.modified_at,
+    }
+
+
+# ---------------------------------------------------------------------------
+# WorkspaceViewSet (read-only — list + retrieve, REQ-L1-017)
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceViewSet(BaseEntityViewSet):
+    """ViewSet for Workspace lookup (REQ-L1-017).
+
+    Read-only surface: workspaces are provisioned via seeding / admin tooling
+    today. ``list`` returns all workspaces of the active tenant; ``retrieve``
+    fetches a single workspace by id. Tenant scoping is enforced by
+    WorkspaceService via TenantContext.
+    """
+
+    serializer_class = WorkspaceSerializer
+    preset_endpoint_key = ""  # Workspaces are always visible
+
+    def _svc(self) -> WorkspaceService:
+        return WorkspaceService()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/ — list workspaces in the active tenant."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            items = self._svc().list_workspaces(ctx=ctx)
+        except (ValidationError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        serialized = [WorkspaceSerializer(_workspace_to_dict(item)).data for item in items]
+        return self._paginate(request, serialized)
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/{pk}/ — fetch a single workspace by id."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_workspace(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(WorkspaceSerializer(_workspace_to_dict(item)).data)
+
+
 __all__ = [
     "RequirementViewSet",
     "ArtifactViewSet",
@@ -925,4 +1005,5 @@ __all__ = [
     "TraceLinkViewSet",
     "BaselineViewSet",
     "WorkflowDefinitionViewSet",
+    "WorkspaceViewSet",
 ]
