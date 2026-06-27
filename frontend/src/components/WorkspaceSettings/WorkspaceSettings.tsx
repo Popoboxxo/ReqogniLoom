@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { WorkspacePreset, TerminologyProfile } from "../../types";
@@ -22,7 +23,8 @@ const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReaso
 
 export default function WorkspaceSettings(): JSX.Element {
   const { t } = useTranslation();
-  const { activeWorkspace, reloadWorkspaces } = useWorkspace();
+  const { activeWorkspace, reloadWorkspaces, isFeatureVisible } = useWorkspace();
+  const navigate = useNavigate();
 
   const [name, setName] = useState(activeWorkspace?.name ?? "");
   const [isSaving, setIsSaving] = useState(false);
@@ -243,6 +245,33 @@ export default function WorkspaceSettings(): JSX.Element {
           </label>
         ))}
       </section>
+
+      {/* Data Management (REQ-L0-013, REQ-L2-RF-016) */}
+      {isFeatureVisible("csv_import") && (
+        <section style={sectionStyle}>
+          <h3 style={headingStyle}>{t("settings.dataManagement", "Data Management")}</h3>
+          <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
+            {t("settings.dataManagementHint", "Import existing requirements from a CSV file.")}
+          </p>
+          <button
+            type="button"
+            data-testid="settings-csv-import-btn"
+            onClick={() => navigate("/import")}
+            style={{
+              background: "var(--color-primary)",
+              color: "white",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {t("import.title", "CSV Import")}
+          </button>
+        </section>
+      )}
 
       {/* Status */}
       {saveError && (
