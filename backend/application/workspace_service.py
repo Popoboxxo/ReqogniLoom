@@ -7,6 +7,11 @@ via ``TenantContext``; the write path (``create_workspace``) provisions a new
 Workspace together with its ``WorkspacePresetConfig`` companion so the
 preset/terminology profile selection is persisted from the start.
 
+Lifecycle operations (REQ-L1-042):
+  ``close_workspace``     — soft-delete (is_active=False, closed_at, closed_by).
+  ``reactivate_workspace`` — undo close (is_active=True, clear closed_at/by).
+  ``delete_workspace``    — hard-delete with captcha confirmation + full cascade.
+
 Interfaces consumed:
   IF-AS-EXT-OUT-007 persistence.models.Workspace (Django ORM)
   persistence.tenancy.TenantContext         (tenant scoping)
@@ -19,7 +24,18 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from persistence.models import Tenant, Workspace
+from django.utils import timezone
+from persistence.models import (
+    ArchitectureElement,
+    Artifact,
+    AuditLogEntry,
+    Baseline,
+    Requirement,
+    TestCase,
+    Tenant,
+    TraceLink,
+    Workspace,
+)
 from persistence.transactions import atomic_transaction
 from presets.models import (
     PRESET_CHOICES,
@@ -27,7 +43,7 @@ from presets.models import (
     WorkspacePresetConfig,
 )
 
-from application.base import NotFoundError, ServiceBase, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ServiceBase, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +154,169 @@ class WorkspaceService(ServiceBase):
         )
 
         return workspace
+
+    # ---------- Lifecycle API (REQ-L1-042) ----------
+
+    @atomic_transaction
+    def close_workspace(self, workspace_id: UUID, ctx: AuthContext) -> Workspace:
+        """Soft-delete a workspace (REQ-L1-042).
+
+        Sets ``is_active=False``, ``closed_at=now``, ``closed_by=ctx.user_id``.
+        Data is preserved; the workspace can be reactivated later.
+
+        Requires ``admin`` role (COMP-AT-002).
+
+        Raises:
+            NotFoundError: workspace does not exist.
+            PermissionDeniedError: user lacks admin role.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_permission(ctx, "admin")
+
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+        workspace.is_active = False
+        workspace.closed_at = timezone.now()
+        workspace.closed_by_id = ctx.user_id
+        workspace.save(update_fields=["is_active", "closed_at", "closed_by"])
+
+        self._audit(
+            ctx=ctx,
+            operation="workspace.close",
+            entity_type="Workspace",
+            entity_id=workspace.id,
+            details={"name": workspace.name},
+        )
+
+        return workspace
+
+    @atomic_transaction
+    def reactivate_workspace(self, workspace_id: UUID, ctx: AuthContext) -> Workspace:
+        """Undo a workspace close (REQ-L1-042).
+
+        Sets ``is_active=True``, ``closed_at=None``, ``closed_by=None``.
+
+        Requires ``admin`` role (COMP-AT-002).
+
+        Raises:
+            NotFoundError: workspace does not exist.
+            PermissionDeniedError: user lacks admin role.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_permission(ctx, "admin")
+
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+        workspace.is_active = True
+        workspace.closed_at = None
+        workspace.closed_by = None
+        workspace.save(update_fields=["is_active", "closed_at", "closed_by"])
+
+        self._audit(
+            ctx=ctx,
+            operation="workspace.reactivate",
+            entity_type="Workspace",
+            entity_id=workspace.id,
+            details={"name": workspace.name},
+        )
+
+        return workspace
+
+    @atomic_transaction
+    def delete_workspace(
+        self,
+        workspace_id: UUID,
+        confirmation_text: str,
+        ctx: AuthContext,
+    ) -> None:
+        """Hard-delete a workspace with captcha confirmation (REQ-L1-042).
+
+        Validates that ``confirmation_text`` matches the workspace name
+        (case-sensitive). If valid, performs a full cascade delete in this order:
+          1. AuditLogEntry rows for this workspace
+          2. Baseline rows
+          3. TraceLink rows
+          4. TestCase rows
+          5. ArchitectureElement rows
+          6. Requirement rows
+          7. Artifact rows
+          8. Workspace itself
+
+        All operations are wrapped in ``transaction.atomic()`` for all-or-nothing
+        semantics (REQ-L2-AS-018).
+
+        Requires ``admin`` role (COMP-AT-002).
+
+        Raises:
+            NotFoundError: workspace does not exist.
+            PermissionDeniedError: user lacks admin role.
+            ValidationError: confirmation text does not match workspace name.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_permission(ctx, "admin")
+
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+        # Captcha validation: case-sensitive match
+        if confirmation_text != workspace.name:
+            raise ValidationError(
+                f"Confirmation mismatch: expected '{workspace.name}', "
+                f"got '{confirmation_text}'"
+            )
+
+        # Cascade delete in specified order
+        # Use unscoped manager to bypass tenant filtering for delete operations
+        workspace_pk = workspace.pk
+
+        # 1. AuditLogEntry rows for this workspace
+        AuditLogEntry.unscoped.filter(
+            object_type="Workspace", object_id=workspace_pk
+        ).delete()
+
+        # 2-7. Delete through artifacts (Baseline, TraceLink, TestCase,
+        # ArchitectureElement, Requirement, Artifact)
+        artifact_ids = list(
+            Artifact.unscoped.filter(workspace_id=workspace_pk).values_list("id", flat=True)
+        )
+
+        if artifact_ids:
+            # 2. Baseline rows
+            Baseline.unscoped.filter(artifact_id__in=artifact_ids).delete()
+            # 3. TraceLink rows (source or target)
+            TraceLink.unscoped.filter(
+                source_id__in=artifact_ids
+            ).delete()
+            TraceLink.unscoped.filter(
+                target_id__in=artifact_ids
+            ).delete()
+            # 4. TestCase rows
+            TestCase.unscoped.filter(artifact_id__in=artifact_ids).delete()
+            # 5. ArchitectureElement rows
+            ArchitectureElement.unscoped.filter(artifact_id__in=artifact_ids).delete()
+            # 6. Requirement rows
+            Requirement.unscoped.filter(artifact_id__in=artifact_ids).delete()
+            # 7. Artifact rows
+            Artifact.unscoped.filter(workspace_id=workspace_pk).delete()
+
+        # Also delete WorkspacePresetConfig companion
+        WorkspacePresetConfig.unscoped.filter(workspace_id=workspace_pk).delete()
+
+        # 8. Workspace itself
+        Workspace.unscoped.filter(pk=workspace_pk).delete()
+
+        self._audit(
+            ctx=ctx,
+            operation="workspace.delete",
+            entity_type="Workspace",
+            entity_id=workspace_pk,
+            details={"name": workspace.name, "artifact_count": len(artifact_ids)},
+        )
 
 
 __all__ = ["WorkspaceService"]
