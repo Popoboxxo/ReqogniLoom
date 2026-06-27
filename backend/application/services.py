@@ -146,6 +146,11 @@ from application.services_step2 import *  # noqa: F401,F403,E402
 # ---------------------------------------------------------------------------
 from application.services_step3 import *  # noqa: F401,F403,E402
 
+# ---------------------------------------------------------------------------
+# Step-4 re-export (COMP-AS-017..018) — DO NOT modify above this line
+# ---------------------------------------------------------------------------
+from application.services_step4 import *  # noqa: F401,F403,E402
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -202,4 +207,7 @@ __all__ = [
     "IssueService",
     "IssueDTO",
     "ISSUE_LINK_TYPES",
+    # Step-4 services (COMP-AS-017..018)
+    "TestRunService",
+    "VALID_RESULT_STATUSES",
 ]
