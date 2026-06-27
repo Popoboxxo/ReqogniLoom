@@ -375,6 +375,46 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
+class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for TestRun entity (REQ-L2-AS-030)."""
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    name = serializers.CharField(max_length=255)
+    status = serializers.CharField(read_only=True)
+    ci_job_id = serializers.CharField(allow_blank=True, default="")
+    started_at = serializers.DateTimeField(read_only=True)
+    finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    result_summary = serializers.JSONField(read_only=True, required=False)
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for TestRunResult entity (REQ-L2-AS-030)."""
+
+    id = serializers.UUIDField(read_only=True)
+    test_run_id = serializers.UUIDField(read_only=True)
+    test_case_id = serializers.UUIDField(required=True)
+    test_case_title = serializers.CharField(read_only=True)
+    status = serializers.ChoiceField(
+        choices=["passed", "failed", "blocked", "not_run"],
+        default="not_run",
+    )
+    executed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    duration_ms = serializers.IntegerField(allow_null=True, required=False)
+    message = serializers.CharField(allow_blank=True, default="")
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+
+class TestRunResultBulkSerializer(serializers.Serializer):
+    """Serializer for bulk result ingestion (REQ-L2-AS-031)."""
+
+    results = TestRunResultSerializer(many=True)
+
+
 class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for Issue entity (REQ-L1-029, COMP-AS-015)."""
 
@@ -466,6 +506,9 @@ __all__ = [
     "AdrSerializer",
     "RiskSerializer",
     "IssueSerializer",
+    "TestRunSerializer",
+    "TestRunResultSerializer",
+    "TestRunResultBulkSerializer",
     "StandardPagination",
     "PresetAwareSerializerMixin",
     "build_error_response",

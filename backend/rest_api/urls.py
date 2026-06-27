@@ -47,6 +47,7 @@ from rest_api.views import (
     RiskViewSet,
     SearchViewSet,
     TestCaseViewSet,
+    TestRunViewSet,
     TraceLinkViewSet,
     WorkflowDefinitionViewSet,
     WorkspaceViewSet,
@@ -68,6 +69,7 @@ router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
 router.register(r"adrs", AdrViewSet, basename="adr")
 router.register(r"risks", RiskViewSet, basename="risk")
 router.register(r"issues", IssueViewSet, basename="issue")
+router.register(r"test-runs", TestRunViewSet, basename="test-run")
 router.register(r"search", SearchViewSet, basename="search")
 router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
 router.register(r"diagrams", DiagramViewSet, basename="diagram")

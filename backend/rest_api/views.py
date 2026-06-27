@@ -49,6 +49,7 @@ from application.services import (
     ArchitectureService,
     SearchService,
     TestService,
+    TestRunService,
     TraceLinkService,
     ValidationError,
     WorkflowFacade,
@@ -74,6 +75,8 @@ from rest_api.serializers import (
     RiskSerializer,
     StandardPagination,
     TestCaseSerializer,
+    TestRunSerializer,
+    TestRunResultSerializer,
     TraceLinkSerializer,
     WorkflowDefinitionSerializer,
     WorkspaceSerializer,
@@ -925,6 +928,56 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
+def _result_summary(test_run: Any) -> dict:
+    """Compute result summary from a TestRun's results."""
+    results = list(getattr(test_run, "_prefetched_results", test_run.results.all() if hasattr(test_run, "results") else []))
+    total = len(results)
+    passed = sum(1 for r in results if r.status == "passed")
+    failed = sum(1 for r in results if r.status == "failed")
+    blocked = sum(1 for r in results if r.status == "blocked")
+    not_run = sum(1 for r in results if r.status == "not_run")
+    return {
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "blocked": blocked,
+        "not_run": not_run,
+    }
+
+
+def _test_run_to_dict(tr: Any) -> dict[str, Any]:
+    """Convert TestRun ORM object to serializer-compatible dict."""
+    return {
+        "id": str(tr.id),
+        "workspace_id": str(tr.workspace_id),
+        "name": tr.name,
+        "status": tr.status,
+        "ci_job_id": getattr(tr, "ci_job_id", ""),
+        "started_at": tr.started_at,
+        "finished_at": tr.finished_at,
+        "result_summary": _result_summary(tr),
+        "version": tr.version,
+        "created_at": tr.created_at,
+        "updated_at": tr.modified_at,
+    }
+
+
+def _test_run_result_to_dict(r: Any) -> dict[str, Any]:
+    """Convert TestRunResult ORM object to serializer-compatible dict."""
+    return {
+        "id": str(r.id),
+        "test_run_id": str(r.test_run_id),
+        "test_case_id": str(r.test_case_id) if r.test_case_id else None,
+        "test_case_title": getattr(r, "test_case_title", ""),
+        "status": r.status,
+        "message": getattr(r, "message", ""),
+        "duration_ms": getattr(r, "duration_ms", None),
+        "executed_at": r.executed_at,
+        "version": r.version,
+        "created_at": r.created_at,
+    }
+
+
 def _dto_from_orm(req: Any) -> dict[str, Any]:
     """Convert Requirement ORM object to serializer-compatible dict."""
     return {
@@ -1738,6 +1791,179 @@ class IssueViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# TestRunViewSet — REQ-L2-AS-030 / REQ-L2-AS-031
+# ---------------------------------------------------------------------------
+
+
+class TestRunViewSet(BaseEntityViewSet):
+    """ViewSet for TestRun CRUD and result management.
+
+    Endpoints:
+      GET    /api/v1/test-runs/?workspace_id=<id>
+      POST   /api/v1/test-runs/
+      GET    /api/v1/test-runs/{id}/
+      PATCH  /api/v1/test-runs/{id}/
+      POST   /api/v1/test-runs/{id}/close/
+      POST   /api/v1/test-runs/{id}/results/
+      POST   /api/v1/test-runs/{id}/results/bulk/
+    """
+
+    serializer_class = TestRunSerializer
+    preset_endpoint_key = ""
+
+    def _svc(self) -> TestRunService:
+        return TestRunService()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/test-runs/?workspace_id=<id> — list test runs."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.query_params.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            items = self._svc().list_test_runs(workspace_id=UUID(workspace_id_str), ctx=ctx)
+        except (ValidationError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        serialized = [_test_run_to_dict(item) for item in items]
+        return self._paginate(request, serialized)
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/test-runs/{id}/ — retrieve single test run."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_test_run(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        return Response(_test_run_to_dict(item))
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/test-runs/ — create a test run. Returns 201."""
+        lang = detect_lang(request)
+        workspace_id = request.data.get("workspace_id")
+        name = request.data.get("name")
+        if not workspace_id or not name:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="workspace_id and name are required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create_test_run(
+                workspace_id=UUID(str(workspace_id)),
+                name=str(name),
+                ctx=ctx,
+                ci_job_id=str(request.data.get("ci_job_id", "")),
+                test_case_ids=[UUID(str(tc_id)) for tc_id in request.data.get("test_case_ids", [])],
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(_test_run_to_dict(item), status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/test-runs/{id}/ — update test run metadata. Returns 200."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().update_test_run(
+                test_run_id=UUID(pk),
+                ctx=ctx,
+                name=request.data.get("name"),
+                ci_job_id=request.data.get("ci_job_id"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(_test_run_to_dict(item))
+
+    # ---- Actions ----
+
+    @action(detail=True, methods=["post"])
+    def close(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/test-runs/{id}/close/ — close test run, recalc aggregate."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().close_test_run(test_run_id=UUID(pk), ctx=ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(_test_run_to_dict(item))
+
+    @action(detail=True, methods=["post"])
+    def results(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/test-runs/{id}/results/ — add single result."""
+        lang = detect_lang(request)
+        test_case_id = request.data.get("test_case_id")
+        status_val = request.data.get("status", "not_run")
+        if not test_case_id:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="test_case_id is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            result = self._svc().add_result(
+                test_run_id=UUID(pk),
+                test_case_id=UUID(str(test_case_id)),
+                status=str(status_val),
+                ctx=ctx,
+                message=str(request.data.get("message", "")),
+                duration_ms=request.data.get("duration_ms"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(_test_run_result_to_dict(result), status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="results/bulk")
+    def results_bulk(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/test-runs/{id}/results/bulk/ — add multiple results (CI-friendly)."""
+        lang = detect_lang(request)
+        results_data = request.data.get("results", [])
+        if not results_data or not isinstance(results_data, list):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="results array is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            created = self._svc().add_results_bulk(
+                test_run_id=UUID(pk),
+                results=results_data,
+                ctx=ctx,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(
+            {"results": [_test_run_result_to_dict(r) for r in created], "count": len(created)},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/test-runs/{id}/ — not supported (immutable)."""
+        return Response(
+            build_error_response("PERMISSION_DENIED", detect_lang(request), message="Test runs cannot be deleted."),
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
 
 # ---------------------------------------------------------------------------
