@@ -23,6 +23,7 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { TraceabilityPanel } from "./TraceabilityPanel";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
+import { workspacesApi } from "../../api/workspaces";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { Requirement, TraceLink, LinkType, UUID } from "../../types";
 import { REQ_CATEGORIES } from "../../types";
@@ -735,6 +736,7 @@ export default function RequirementEditors(): JSX.Element {
 
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [newBtnHovered, setNewBtnHovered] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const reqLabel = terminologyLabel("requirements");
 
@@ -768,6 +770,29 @@ export default function RequirementEditors(): JSX.Element {
     },
     [t, refresh, navigate]
   );
+
+  const handleExportPdf = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace) return;
+    setIsExportingPdf(true);
+    try {
+      const blob = await workspacesApi.downloadPdfReport(
+        activeWorkspace.id,
+        "requirement_document"
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `requirement_document_${activeWorkspace.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }, [activeWorkspace]);
 
   if (isLoading) {
     return <p role="status">{t("loading")}</p>;
@@ -810,24 +835,44 @@ export default function RequirementEditors(): JSX.Element {
           >
             {reqLabel}
           </h3>
-          <button
-            data-testid="create-req-btn"
-            onClick={() => void handleCreate()}
-            onMouseEnter={() => setNewBtnHovered(true)}
-            onMouseLeave={() => setNewBtnHovered(false)}
-            style={{
-              background: newBtnHovered ? "var(--color-primary-dark)" : "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              cursor: "pointer",
-              transition: "var(--transition-fast)",
-            }}
-          >
-            + {t("actions.new")}
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button
+              type="button"
+              data-testid="export-pdf-btn"
+              onClick={() => void handleExportPdf()}
+              disabled={!activeWorkspace || isExportingPdf}
+              style={{
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                cursor: activeWorkspace ? "pointer" : "not-allowed",
+                opacity: isExportingPdf ? 0.6 : 1,
+              }}
+            >
+              {isExportingPdf ? "Exporting…" : "Export PDF"}
+            </button>
+            <button
+              data-testid="create-req-btn"
+              onClick={() => void handleCreate()}
+              onMouseEnter={() => setNewBtnHovered(true)}
+              onMouseLeave={() => setNewBtnHovered(false)}
+              style={{
+                background: newBtnHovered ? "var(--color-primary-dark)" : "var(--color-primary)",
+                color: "white",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                cursor: "pointer",
+                transition: "var(--transition-fast)",
+              }}
+            >
+              + {t("actions.new")}
+            </button>
+          </div>
         </div>
 
         {requirements.length === 0 ? (

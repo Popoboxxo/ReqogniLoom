@@ -9,7 +9,7 @@
  * Wraps /api/v1/workspaces/ endpoints.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getList, getAuthToken } from "./client";
 import type {
   PaginatedResponse,
   TerminologyProfile,
@@ -47,5 +47,27 @@ export const workspacesApi = {
 
   setPreset(id: UUID, preset: WorkspacePreset): Promise<{ id: string; preset: string }> {
     return apiClient.patch<{ id: string; preset: string }>(`/workspaces/${id}/preset/`, { preset });
+  },
+
+  /**
+   * Download a PDF report for the workspace.
+   * REQ-L2-AS-016 / REQ-L2-RF-005 / REQ-L2-RF-006.
+   */
+  async downloadPdfReport(
+    id: UUID,
+    layout: "requirement_document" | "traceability_matrix" = "requirement_document"
+  ): Promise<Blob> {
+    const token = getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    const resp = await fetch(
+      `/api/v1/workspaces/${id}/reports/pdf/?layout=${layout}`
+    , { headers });
+    if (!resp.ok) {
+      throw new Error(`PDF export failed: ${resp.status}`);
+    }
+    return resp.blob();
   },
 };

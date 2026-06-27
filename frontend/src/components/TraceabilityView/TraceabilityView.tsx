@@ -21,6 +21,7 @@ import { tracelinksApi } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
 import { artifactsApi } from "../../api/artifacts";
+import { workspacesApi } from "../../api/workspaces";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
   ArchitectureElement,
@@ -111,6 +112,7 @@ export default function TraceabilityView(): JSX.Element {
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
 
   useEffect(() => {
     if (!activeWorkspace) {
@@ -206,6 +208,29 @@ export default function TraceabilityView(): JSX.Element {
   function cancelCreateForm(): void {
     setShowCreateForm(false);
     setFormError(null);
+  }
+
+  async function handleExportPdf(): Promise<void> {
+    if (!activeWorkspace) return;
+    setIsExportingPdf(true);
+    try {
+      const blob = await workspacesApi.downloadPdfReport(
+        activeWorkspace.id,
+        "traceability_matrix"
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `traceability_matrix_${activeWorkspace.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    } finally {
+      setIsExportingPdf(false);
+    }
   }
 
   async function submitCreateForm(
@@ -328,24 +353,45 @@ export default function TraceabilityView(): JSX.Element {
           {t("nav.traceability")}
         </h2>
         {!showCreateForm && (
-          <button
-            type="button"
-            data-testid="tracelink-create-btn"
-            onClick={openCreateForm}
-            disabled={!activeWorkspace}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-base)",
-              fontWeight: 500,
-              background: "var(--color-primary)",
-              color: "var(--color-on-primary, #fff)",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              cursor: activeWorkspace ? "pointer" : "not-allowed",
-            }}
-          >
-            {t("traceability.create")}
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button
+              type="button"
+              data-testid="export-pdf-btn"
+              onClick={handleExportPdf}
+              disabled={!activeWorkspace || isExportingPdf}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-base)",
+                fontWeight: 500,
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                cursor: activeWorkspace ? "pointer" : "not-allowed",
+                opacity: isExportingPdf ? 0.6 : 1,
+              }}
+            >
+              {isExportingPdf ? "Exporting…" : "Export PDF"}
+            </button>
+            <button
+              type="button"
+              data-testid="tracelink-create-btn"
+              onClick={openCreateForm}
+              disabled={!activeWorkspace}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-base)",
+                fontWeight: 500,
+                background: "var(--color-primary)",
+                color: "var(--color-on-primary, #fff)",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                cursor: activeWorkspace ? "pointer" : "not-allowed",
+              }}
+            >
+              {t("traceability.create")}
+            </button>
+          </div>
         )}
       </div>
 
