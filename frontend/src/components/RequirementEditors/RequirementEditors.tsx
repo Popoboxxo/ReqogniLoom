@@ -75,10 +75,12 @@ function RequirementDetailEditor({
   onSaved,
 }: RequirementDetailEditorProps): JSX.Element {
   const { t } = useTranslation();
+  const { activeWorkspace } = useWorkspace();
   const [title, setTitle] = useState(requirement.title);
   const [description, setDescription] = useState(requirement.description);
   const [category, setCategory] = useState(requirement.category);
   const [workflowState, setWorkflowState] = useState(requirement.status);
+  const [changeReason, setChangeReason] = useState(requirement.change_reason ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -110,6 +112,7 @@ function RequirementDetailEditor({
         title,
         description,
         category,
+        change_reason: changeReason,
       });
       onSaved();
     } catch (err: unknown) {
@@ -120,7 +123,7 @@ function RequirementDetailEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [requirement.id, title, description, category, onSaved]);
+  }, [requirement.id, title, description, category, changeReason, onSaved]);
 
   return (
     <div
@@ -200,6 +203,24 @@ function RequirementDetailEditor({
             </option>
           ))}
         </select>
+
+        {/* Change reason (REQ-L2-RF-012 Extended preset) */}
+        {(activeWorkspace?.preset === "extended") && (
+          <div>
+            <label htmlFor="change-reason" style={labelStyle}>
+              {t("req.changeReason")} <span style={{color: "var(--color-danger)"}}>*</span>
+            </label>
+            <textarea
+              id="change-reason"
+              data-testid="change-reason-input"
+              value={changeReason}
+              onChange={(e) => setChangeReason(e.target.value)}
+              rows={2}
+              style={{...inputStyle, resize: "vertical"}}
+              placeholder={t("req.changeReasonPlaceholder")}
+            />
+          </div>
+        )}
 
         {saveError && (
           <p role="alert" style={{ color: "var(--color-danger)" }}>

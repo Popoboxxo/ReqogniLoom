@@ -201,6 +201,11 @@ class RequirementService(ServiceBase):
 
         workspace_id = requirement.artifact.workspace_id
 
+        # Enforce change_reason policy (ADR-L3-AS002-02)
+        if self._preset_policy.is_change_reason_required(str(workspace_id)):
+            if not change_reason:
+                raise ValidationError("change_reason required by workspace preset policy")
+
         if title is not None:
             requirement.title = title
         if description is not None:

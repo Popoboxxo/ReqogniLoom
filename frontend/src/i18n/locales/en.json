@@ -138,5 +138,9 @@
     "placeholder": "Search...",
     "noResults": "No results.",
     "loading": "Searching..."
+  },
+  "req": {
+    "changeReason": "Change Reason",
+    "changeReasonPlaceholder": "Why is this requirement being changed?"
   }
 }

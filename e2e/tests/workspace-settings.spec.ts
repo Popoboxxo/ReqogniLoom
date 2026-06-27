@@ -1,0 +1,34 @@
+import { test, expect } from '@playwright/test';
+import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+test.describe('Workspace Settings', () => {
+  test.beforeEach(async ({ page }) => {
+    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
+    await loginAsAdmin(page);
+  });
+
+  test('[REQ-L2-RF-012] workspace settings page renders', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/workspace-settings`);
+    await expect(page.locator('[data-testid="workspace-settings"]')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('[REQ-L2-RF-012] preset selector is visible', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/workspace-settings`);
+    await expect(page.locator('[data-testid="preset-selector"]')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('[REQ-L2-RF-012] can create new workspace', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/`);
+    const btn = page.locator('[data-testid="create-workspace-btn"]');
+    await expect(btn).toBeVisible({ timeout: 10000 });
+    await btn.click();
+    const nameInput = page.locator('[data-testid="new-workspace-name"]');
+    await expect(nameInput).toBeVisible({ timeout: 5000 });
+    await nameInput.fill('Test Workspace E2E');
+    await page.locator('[data-testid="new-workspace-submit"]').click();
+    // After creation, dashboard should show (no blank screen)
+    await expect(page.locator('[data-testid="workspace-list"]')).toBeVisible({ timeout: 15000 });
+  });
+});

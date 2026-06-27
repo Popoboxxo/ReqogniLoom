@@ -1032,6 +1032,118 @@ class WorkspaceViewSet(BaseEntityViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    def partial_update(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """PATCH /api/v1/workspaces/{pk}/ — update workspace metadata.
+
+        Body: {name?, language?, terminology_profile?}
+        REQ-L2-RF-012: Workspace-Konfigurations-UI write path.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            from persistence.models import Workspace
+            self._svc()._set_tenant_context(ctx)
+            ws = Workspace.objects.filter(id=pk).first()
+            if ws is None:
+                return Response(
+                    build_error_response("NOT_FOUND", lang),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            update_fields: list[str] = []
+            preset_blob = dict(ws.preset or {})
+
+            if "name" in request.data:
+                new_name = str(request.data.get("name") or "").strip()
+                if not new_name:
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR", lang, message="name must not be empty"
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                ws.name = new_name
+                update_fields.append("name")
+
+            if "language" in request.data:
+                preset_blob["language"] = str(request.data["language"])
+                ws.preset = preset_blob
+                if "preset" not in update_fields:
+                    update_fields.append("preset")
+
+            if "terminology_profile" in request.data:
+                target_profile = str(request.data["terminology_profile"])
+                if target_profile not in ("dev_mode", "se_mode"):
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="terminology_profile must be dev_mode or se_mode",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                from presets.services import switch_terminology_profile
+                switch_terminology_profile(
+                    workspace_id=str(pk), target_profile=target_profile
+                )
+                preset_blob["terminology_profile"] = target_profile
+                ws.preset = preset_blob
+                if "preset" not in update_fields:
+                    update_fields.append("preset")
+
+            if update_fields:
+                ws.save(update_fields=update_fields)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(WorkspaceSerializer(_workspace_to_dict(ws)).data)
+
+    @action(detail=True, methods=["patch"], url_path="preset")
+    def set_preset(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """PATCH /api/v1/workspaces/{pk}/preset/ — switch active preset tier.
+
+        Body: {preset: "minimal" | "standard" | "extended"}
+        REQ-L2-RF-007 / REQ-L2-RF-012: Preset switch from Workspace Settings UI.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            target_tier = request.data.get("preset")
+            if not target_tier or target_tier not in (
+                "minimal",
+                "standard",
+                "extended",
+            ):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message="preset must be minimal, standard or extended",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            from presets.services import switch_preset
+            switch_preset(workspace_id=str(pk), target_preset=str(target_tier))
+            from persistence.models import Workspace
+            self._svc()._set_tenant_context(ctx)
+            ws = Workspace.objects.filter(id=pk).first()
+            if ws is None:
+                return Response(
+                    build_error_response("NOT_FOUND", lang),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            preset_blob = dict(ws.preset or {})
+            preset_blob["tier"] = target_tier
+            preset_blob["name"] = target_tier
+            ws.preset = preset_blob
+            ws.save(update_fields=["preset"])
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response({"id": str(pk), "preset": target_tier})
+
 
 # ---------------------------------------------------------------------------
 # SearchViewSet — Full-text search across Requirements, ArchitectureElements,

@@ -138,5 +138,9 @@
     "placeholder": "Suchen...",
     "noResults": "Keine Treffer.",
     "loading": "Suche..."
+  },
+  "req": {
+    "changeReason": "Änderungsgrund",
+    "changeReasonPlaceholder": "Warum wird diese Anforderung geändert?"
   }
 }
