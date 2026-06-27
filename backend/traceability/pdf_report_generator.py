@@ -32,7 +32,7 @@ import uuid
 from typing import Any, Optional
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
@@ -303,9 +303,10 @@ def _build_traceability_matrix(data: dict[str, Any]) -> bytes:
     REQ-L2-AS-016 AC-2: traceability_matrix layout.
     """
     buf = io.BytesIO()
+    page_size = landscape(A4)
     doc = SimpleDocTemplate(
         buf,
-        pagesize=A4,
+        pagesize=page_size,
         leftMargin=15 * mm,
         rightMargin=15 * mm,
         topMargin=20 * mm,
@@ -392,10 +393,11 @@ def _build_traceability_matrix(data: dict[str, Any]) -> bytes:
 
     # Calculate column widths
     n_cols = 1 + len(testcases)
-    available_width = A4[0] - 30 * mm  # page width minus margins
+    available_width = page_size[0] - 30 * mm  # page width minus margins
     req_col_width = 50 * mm
-    tc_col_width = (
-        (available_width - req_col_width) / max(len(testcases), 1)
+    tc_col_width = max(
+        (available_width - req_col_width) / max(len(testcases), 1),
+        12 + 4,  # minimum: leftPadding + rightPadding + 4pt for content
     )
     col_widths = [req_col_width] + [tc_col_width] * len(testcases)
 
