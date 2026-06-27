@@ -86,6 +86,40 @@ export async function setWorkspaceId(page: Page, workspaceId: string): Promise<v
   }, workspaceId);
 }
 
+/**
+ * Workspace preset tier name as accepted by PATCH /api/v1/workspaces/{id}/preset/.
+ */
+export type WorkspacePresetName = 'minimal' | 'standard' | 'extended';
+
+/**
+ * Reset the seeded workspace's active preset via API.
+ *
+ * The REQ-L0-002 preset switcher test mutates the seeded workspace's preset
+ * (extended → minimal → extended) and its UI-driven cleanup is not always
+ * reliable as a state reset for downstream tests. Tests that depend on a
+ * specific preset (e.g. REQ-L0-012 smoke test, which requires the extended
+ * preset so /api/v1/baselines/ returns 200) call this helper in their
+ * beforeEach to guarantee a known starting preset regardless of file order
+ * or test isolation state.
+ */
+export async function setWorkspacePreset(preset: WorkspacePresetName): Promise<void> {
+  const token = await getAuthToken();
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  const response = await ctx.patch(
+    `/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/preset/`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { preset },
+    }
+  );
+  await ctx.dispose();
+  if (!response.ok()) {
+    throw new Error(
+      `Failed to set workspace preset to '${preset}': ${response.status()} ${await response.text()}`
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Seeded workspace ID — matches what seed_demo creates for the demo tenant.
 // Resolved once at module load via a synchronous env var or hardcoded fallback.

@@ -4,6 +4,7 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  setWorkspacePreset,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
@@ -340,6 +341,16 @@ test.describe('[REQ-L0-011] Audit trail', () => {
 // (detailed coverage in api-completeness.spec.ts)
 // ---------------------------------------------------------------------------
 test.describe('[REQ-L0-012] REST API completeness — smoke', () => {
+  test.beforeEach(async () => {
+    // Reset the seeded workspace to the extended preset before the smoke test
+    // runs. The REQ-L0-002 preset switcher test mutates this workspace's
+    // preset (extended → minimal → extended) earlier in the same file, and
+    // the UI-driven cleanup does not always leave the workspace in the
+    // expected state. /api/v1/baselines/ is preset-gated and returns 404 in
+    // the minimal preset, so the smoke test must start in extended.
+    await setWorkspacePreset('extended');
+  });
+
   test('[REQ-L0-012] all core entity endpoints are reachable', async ({ request }) => {
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
