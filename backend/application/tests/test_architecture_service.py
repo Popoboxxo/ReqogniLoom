@@ -498,7 +498,7 @@ class TestElementTypeValidation:
         """Return a context-manager stack that mocks all create dependencies."""
         from unittest.mock import patch, MagicMock
 
-        return (
+        return list((
             patch("application.architecture_service.ServiceBase._set_tenant_context"),
             patch(
                 "application.architecture_service.ServiceBase._assert_write_permission"
@@ -523,7 +523,7 @@ class TestElementTypeValidation:
             ),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
-        )
+        ))
 
     def test_create_with_all_valid_element_types(self):
         """Each of the 5 ElementType values is accepted and stored lowercase."""
