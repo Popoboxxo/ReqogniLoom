@@ -9,20 +9,30 @@
  * titles where possible so the table stays human-readable.
  *
  * Interfaces consumed:
- *   IF-RF-EXT-OUT-001 → GET /api/v1/tracelinks/?workspace_id=<id>
- *   IF-RF-EXT-OUT-001 → GET /api/v1/requirements/ (title resolution)
+ *   IF-RF-EXT-OUT-001 → GET  /api/v1/tracelinks/?workspace_id=<id>
+ *   IF-RF-EXT-OUT-001 → POST /api/v1/tracelinks/
+ *   IF-RF-EXT-OUT-001 → GET  /api/v1/requirements/ (title resolution)
+ *   IF-RF-EXT-OUT-001 → GET  /api/v1/artifacts/?workspace_id=<id> (form options)
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { tracelinksApi } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
+import { artifactsApi } from "../../api/artifacts";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import type { TraceLink, Requirement, UUID } from "../../types";
+import type {
+  Artifact,
+  LinkType,
+  Requirement,
+  TraceLink,
+  UUID,
+} from "../../types";
 
 interface TraceabilityState {
   links: TraceLink[];
   titles: Record<UUID, string>;
+  artifacts: Artifact[];
   isLoading: boolean;
   error: string | null;
 }
@@ -30,12 +40,13 @@ interface TraceabilityState {
 const INITIAL_STATE: TraceabilityState = {
   links: [],
   titles: {},
+  artifacts: [],
   isLoading: true,
   error: null,
 };
 
 // Canonical link_type order (REQ-L2-RF-006 — predictable section order)
-const LINK_TYPE_ORDER: string[] = [
+const LINK_TYPE_ORDER: LinkType[] = [
   "parent-child",
   "derives-from",
   "satisfies",
@@ -44,6 +55,18 @@ const LINK_TYPE_ORDER: string[] = [
   "refines",
 ];
 
+interface CreateFormData {
+  source_id: string;
+  target_id: string;
+  link_type: LinkType;
+}
+
+const INITIAL_FORM: CreateFormData = {
+  source_id: "",
+  target_id: "",
+  link_type: "parent-child",
+};
+
 function formatId(id: UUID): string {
   return `${id.slice(0, 8)}…`;
 }
@@ -51,6 +74,10 @@ function formatId(id: UUID): string {
 function renderEndpoint(id: UUID, titles: Record<UUID, string>): string {
   const title = titles[id];
   return title ? `${title} (${formatId(id)})` : formatId(id);
+}
+
+function artifactLabel(a: Artifact): string {
+  return `${a.artifact_type} (${formatId(a.id)})`;
 }
 
 function groupByLinkType(links: TraceLink[]): Record<string, TraceLink[]> {
@@ -66,7 +93,7 @@ function groupByLinkType(links: TraceLink[]): Record<string, TraceLink[]> {
 function orderedGroupKeys(grouped: Record<string, TraceLink[]>): string[] {
   const known = LINK_TYPE_ORDER.filter((k) => grouped[k]);
   const unknown = Object.keys(grouped)
-    .filter((k) => !LINK_TYPE_ORDER.includes(k))
+    .filter((k) => !LINK_TYPE_ORDER.includes(k as LinkType))
     .sort();
   return [...known, ...unknown];
 }
@@ -75,10 +102,21 @@ export default function TraceabilityView(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   const [state, setState] = useState<TraceabilityState>(INITIAL_STATE);
+  const [showCreateForm, setShowCreateForm] = useState<boolean>(false);
+  const [formData, setFormData] = useState<CreateFormData>(INITIAL_FORM);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [reloadKey, setReloadKey] = useState<number>(0);
 
   useEffect(() => {
     if (!activeWorkspace) {
-      setState({ links: [], titles: {}, isLoading: false, error: null });
+      setState({
+        links: [],
+        titles: {},
+        artifacts: [],
+        isLoading: false,
+        error: null,
+      });
       return;
     }
 
@@ -88,11 +126,13 @@ export default function TraceabilityView(): JSX.Element {
     async function load(): Promise<void> {
       if (!activeWorkspace) return;
       try {
-        // Load links and requirements in parallel — requirements provide titles
-        // for endpoint rendering so the table is human-readable.
-        const [linksResp, reqResp] = await Promise.all([
+        // Load links, requirements and artifacts in parallel.
+        // - requirements provide titles for endpoint rendering
+        // - artifacts populate the create-form selects
+        const [linksResp, reqResp, artifactsResp] = await Promise.all([
           tracelinksApi.list(activeWorkspace.id),
           requirementsApi.list(activeWorkspace.id),
+          artifactsApi.list(activeWorkspace.id),
         ]);
         if (cancelled) return;
 
@@ -104,6 +144,7 @@ export default function TraceabilityView(): JSX.Element {
         setState({
           links: linksResp.results,
           titles,
+          artifacts: artifactsResp.results,
           isLoading: false,
           error: null,
         });
@@ -115,6 +156,7 @@ export default function TraceabilityView(): JSX.Element {
           setState({
             links: [],
             titles: {},
+            artifacts: [],
             isLoading: false,
             error: null,
           });
@@ -123,7 +165,13 @@ export default function TraceabilityView(): JSX.Element {
         const msg =
           (err as { error?: { message?: string } })?.error?.message ??
           String(err);
-        setState({ links: [], titles: {}, isLoading: false, error: msg });
+        setState({
+          links: [],
+          titles: {},
+          artifacts: [],
+          isLoading: false,
+          error: msg,
+        });
       }
     }
 
@@ -131,10 +179,65 @@ export default function TraceabilityView(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspace, t]);
+  }, [activeWorkspace, t, reloadKey]);
 
   const grouped = useMemo(() => groupByLinkType(state.links), [state.links]);
   const groupKeys = useMemo(() => orderedGroupKeys(grouped), [grouped]);
+
+  // ---------------------------------------------------------------------------
+  // Create-form handlers
+  // ---------------------------------------------------------------------------
+
+  function openCreateForm(): void {
+    setFormData(INITIAL_FORM);
+    setFormError(null);
+    setShowCreateForm(true);
+  }
+
+  function cancelCreateForm(): void {
+    setShowCreateForm(false);
+    setFormError(null);
+  }
+
+  async function submitCreateForm(
+    e: React.FormEvent<HTMLFormElement>
+  ): Promise<void> {
+    e.preventDefault();
+    if (!activeWorkspace) return;
+
+    if (!formData.source_id) {
+      setFormError(t("traceability.sourceRequired"));
+      return;
+    }
+    if (!formData.target_id) {
+      setFormError(t("traceability.targetRequired"));
+      return;
+    }
+    if (formData.source_id === formData.target_id) {
+      setFormError(t("traceability.sameEndpoints"));
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(null);
+    try {
+      await tracelinksApi.create({
+        source_id: formData.source_id,
+        target_id: formData.target_id,
+        link_type: formData.link_type,
+      });
+      setShowCreateForm(false);
+      setFormData(INITIAL_FORM);
+      setReloadKey((k) => k + 1);
+    } catch (err: unknown) {
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        String(err);
+      setFormError(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Render
@@ -179,19 +282,236 @@ export default function TraceabilityView(): JSX.Element {
     );
   }
 
+  const hasArtifacts = state.artifacts.length > 0;
+
   return (
     <div data-testid="traceability-view">
-      <h2
+      <div
         style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          marginTop: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
           marginBottom: "var(--space-6)",
         }}
       >
-        {t("nav.traceability")}
-      </h2>
+        <h2
+          style={{
+            fontSize: "var(--font-size-2xl)",
+            fontWeight: 700,
+            color: "var(--color-text)",
+            margin: 0,
+          }}
+        >
+          {t("nav.traceability")}
+        </h2>
+        {!showCreateForm && (
+          <button
+            type="button"
+            data-testid="tracelink-create-btn"
+            onClick={openCreateForm}
+            disabled={!activeWorkspace}
+            style={{
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-base)",
+              fontWeight: 500,
+              background: "var(--color-primary)",
+              color: "var(--color-on-primary, #fff)",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              cursor: activeWorkspace ? "pointer" : "not-allowed",
+            }}
+          >
+            {t("traceability.create")}
+          </button>
+        )}
+      </div>
+
+      {showCreateForm && (
+        <form
+          data-testid="tracelink-create-form"
+          onSubmit={submitCreateForm}
+          style={{
+            background: "var(--color-surface)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "var(--space-5)",
+            marginBottom: "var(--space-6)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-3)",
+            boxShadow: "var(--shadow-card)",
+            maxWidth: "640px",
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text)",
+            }}
+          >
+            <span>{t("traceability.source")}</span>
+            <select
+              data-testid="tracelink-source-select"
+              value={formData.source_id}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, source_id: e.target.value }))
+              }
+              disabled={!hasArtifacts || isSubmitting}
+              required
+              style={{
+                padding: "var(--space-2)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-base)",
+              }}
+            >
+              <option value="">
+                {hasArtifacts ? "—" : t("traceability.noArtifacts")}
+              </option>
+              {state.artifacts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {artifactLabel(a)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text)",
+            }}
+          >
+            <span>{t("traceability.target")}</span>
+            <select
+              data-testid="tracelink-target-select"
+              value={formData.target_id}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, target_id: e.target.value }))
+              }
+              disabled={!hasArtifacts || isSubmitting}
+              required
+              style={{
+                padding: "var(--space-2)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-base)",
+              }}
+            >
+              <option value="">
+                {hasArtifacts ? "—" : t("traceability.noArtifacts")}
+              </option>
+              {state.artifacts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {artifactLabel(a)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text)",
+            }}
+          >
+            <span>{t("traceability.linkType")}</span>
+            <select
+              data-testid="tracelink-type-select"
+              value={formData.link_type}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  link_type: e.target.value as LinkType,
+                }))
+              }
+              disabled={isSubmitting}
+              required
+              style={{
+                padding: "var(--space-2)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-base)",
+              }}
+            >
+              {LINK_TYPE_ORDER.map((lt) => (
+                <option key={lt} value={lt}>
+                  {lt}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {formError && (
+            <p
+              role="alert"
+              data-testid="tracelink-form-error"
+              style={{
+                color: "var(--color-danger)",
+                fontSize: "var(--font-size-sm)",
+                margin: 0,
+              }}
+            >
+              {formError}
+            </p>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <button
+              type="button"
+              data-testid="tracelink-cancel-btn"
+              onClick={cancelCreateForm}
+              disabled={isSubmitting}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-base)",
+                background: "var(--color-surface-raised)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+              }}
+            >
+              {t("actions.cancel")}
+            </button>
+            <button
+              type="submit"
+              data-testid="tracelink-submit-btn"
+              disabled={isSubmitting || !hasArtifacts}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-base)",
+                fontWeight: 500,
+                background: "var(--color-primary)",
+                color: "var(--color-on-primary, #fff)",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                cursor:
+                  isSubmitting || !hasArtifacts ? "not-allowed" : "pointer",
+              }}
+            >
+              {isSubmitting
+                ? t("traceability.submitting")
+                : t("traceability.submit")}
+            </button>
+          </div>
+        </form>
+      )}
 
       {state.links.length === 0 ? (
         <p

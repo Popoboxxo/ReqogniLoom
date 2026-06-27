@@ -50,6 +50,7 @@ export interface WorkspaceState {
   setActiveWorkspace: (ws: Workspace | null) => void;
   isFeatureVisible: (feature: string) => boolean;
   terminologyLabel: (key: string) => string;
+  reloadWorkspaces: (selectId?: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,54 +100,54 @@ export function WorkspaceProvider({
     }
   }, []);
 
+  // Reusable loader so callers can refresh workspaces (e.g. after create).
+  const reloadWorkspaces = useCallback(
+    async (selectId?: string): Promise<void> => {
+      setIsLoadingWorkspace(true);
+      try {
+        const resp = await workspacesApi.list();
+        const list = (resp.results ?? []).map(normalizePreset);
+        setWorkspaces(list);
+        if (list.length > 0) {
+          const storedId =
+            typeof sessionStorage !== "undefined"
+              ? sessionStorage.getItem("reqflow_workspace_id")
+              : null;
+          const preferredId = selectId ?? storedId;
+          const selected =
+            (preferredId && list.find((w) => w.id === preferredId)) || list[0];
+          setActiveWorkspaceState(selected);
+          if (typeof sessionStorage !== "undefined") {
+            sessionStorage.setItem("reqflow_workspace_id", selected.id);
+          }
+        } else {
+          setActiveWorkspaceState(DEFAULT_WORKSPACE);
+        }
+      } catch {
+        setWorkspaces([]);
+        setActiveWorkspaceState(DEFAULT_WORKSPACE);
+      } finally {
+        setIsLoadingWorkspace(false);
+      }
+    },
+    []
+  );
+
   // Bootstrap workspaces after authentication (REQ-L2-RF-012)
   useEffect(() => {
     if (!isAuthenticated) {
       setWorkspaces([]);
       return;
     }
-
     let cancelled = false;
-    setIsLoadingWorkspace(true);
-
-    async function load(): Promise<void> {
-      try {
-        const resp = await workspacesApi.list();
-        if (cancelled) return;
-        const list = (resp.results ?? []).map(normalizePreset);
-        setWorkspaces(list);
-        if (list.length > 0) {
-          // Prefer previously selected workspace if it still exists,
-          // otherwise default to the first one.
-          const storedId =
-            typeof sessionStorage !== "undefined"
-              ? sessionStorage.getItem("reqflow_workspace_id")
-              : null;
-          const selected =
-            (storedId && list.find((w) => w.id === storedId)) || list[0];
-          setActiveWorkspaceState(selected);
-          if (typeof sessionStorage !== "undefined") {
-            sessionStorage.setItem("reqflow_workspace_id", selected.id);
-          }
-        } else {
-          // No workspaces returned — keep DEFAULT_WORKSPACE fallback.
-          setActiveWorkspaceState(DEFAULT_WORKSPACE);
-        }
-      } catch {
-        if (cancelled) return;
-        // Fall back to DEFAULT_WORKSPACE on error (offline / legacy backend)
-        setWorkspaces([]);
-        setActiveWorkspaceState(DEFAULT_WORKSPACE);
-      } finally {
-        if (!cancelled) setIsLoadingWorkspace(false);
-      }
-    }
-
-    void load();
+    void (async () => {
+      await reloadWorkspaces();
+      if (cancelled) return;
+    })();
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, reloadWorkspaces]);
 
   // Preset-based feature visibility (REQ-L2-RF-007)
   const isFeatureVisible = useCallback(
@@ -175,6 +176,7 @@ export function WorkspaceProvider({
     setActiveWorkspace,
     isFeatureVisible,
     terminologyLabel,
+    reloadWorkspaces,
   };
 
   return (

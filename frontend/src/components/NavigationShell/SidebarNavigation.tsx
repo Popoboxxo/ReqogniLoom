@@ -12,11 +12,14 @@
  */
 
 import React from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
 import { i18n } from "../../i18n/index";
+import { searchApi, type SearchHit } from "../../api/search";
+import { workspacesApi } from "../../api/workspaces";
+import type { TerminologyProfile, WorkspacePreset } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Navigation items — preset-gated (REQ-L3-RF001-002)
@@ -54,9 +57,11 @@ export function SidebarNavigation(): JSX.Element {
     workspaces,
     setActiveWorkspace,
     terminologyLabel,
+    reloadWorkspaces,
   } = useWorkspace();
   const { logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [hoveredPath, setHoveredPath] = React.useState<string | null>(null);
   const [hoveredButton, setHoveredButton] = React.useState<string | null>(null);
   const [isSwitcherOpen, setIsSwitcherOpen] = React.useState<boolean>(false);
@@ -64,6 +69,198 @@ export function SidebarNavigation(): JSX.Element {
     null
   );
   const switcherRef = React.useRef<HTMLDivElement | null>(null);
+
+  // ---- Create-workspace modal state ---------------------------------------
+  const [isCreateOpen, setIsCreateOpen] = React.useState<boolean>(false);
+  const [createName, setCreateName] = React.useState<string>("");
+  const [createPreset, setCreatePreset] =
+    React.useState<WorkspacePreset>("standard");
+  const [createTerminology, setCreateTerminology] =
+    React.useState<TerminologyProfile>("se_mode");
+  const [createLanguage, setCreateLanguage] = React.useState<string>("de");
+  const [createError, setCreateError] = React.useState<string | null>(null);
+  const [isCreating, setIsCreating] = React.useState<boolean>(false);
+
+  const resetCreateForm = (): void => {
+    setCreateName("");
+    setCreatePreset("standard");
+    setCreateTerminology("se_mode");
+    setCreateLanguage("de");
+    setCreateError(null);
+  };
+
+  const closeCreateModal = (): void => {
+    setIsCreateOpen(false);
+    resetCreateForm();
+  };
+
+  const submitCreateWorkspace = async (): Promise<void> => {
+    const name = createName.trim();
+    if (!name) {
+      setCreateError(t("workspaceCreate.errorRequired"));
+      return;
+    }
+    setIsCreating(true);
+    setCreateError(null);
+    try {
+      const ws = await workspacesApi.create({
+        name,
+        preset: createPreset,
+        terminology_profile: createTerminology,
+        language: createLanguage,
+      });
+      await reloadWorkspaces(ws.id);
+      closeCreateModal();
+    } catch {
+      setCreateError(t("workspaceCreate.errorGeneric"));
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  // ---- Global search state (REQ-L1-020) -----------------------------------
+  const [searchQuery, setSearchQuery] = React.useState<string>("");
+  const [searchResults, setSearchResults] = React.useState<SearchHit[]>([]);
+  const [isSearching, setIsSearching] = React.useState<boolean>(false);
+  const [isSearchOpen, setIsSearchOpen] = React.useState<boolean>(false);
+  const [hoveredHitId, setHoveredHitId] = React.useState<string | null>(null);
+  const searchRef = React.useRef<HTMLDivElement | null>(null);
+  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---- Workspace create form state ---------------------------------------
+  const [showCreateForm, setShowCreateForm] = React.useState<boolean>(false);
+  const [createFormData, setCreateFormData] = React.useState<{
+    name: string;
+    preset: WorkspacePreset;
+    terminology_profile: TerminologyProfile;
+    language: string;
+  }>({
+    name: "",
+    preset: "standard",
+    terminology_profile: "se_mode",
+    language: "de",
+  });
+  const [isCreating, setIsCreating] = React.useState<boolean>(false);
+  const [createError, setCreateError] = React.useState<string | null>(null);
+
+  const handleCreateSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ): Promise<void> => {
+    event.preventDefault();
+    if (!createFormData.name.trim()) {
+      setCreateError(t("workspace.create.nameRequired") || "Name is required");
+      return;
+    }
+    setIsCreating(true);
+    setCreateError(null);
+    try {
+      await workspacesApi.create({
+        name: createFormData.name.trim(),
+        preset: createFormData.preset,
+        terminology_profile: createFormData.terminology_profile,
+        language: createFormData.language,
+      });
+      window.location.reload();
+    } catch (err) {
+      const apiErr = err as { error?: { message?: string } };
+      setCreateError(
+        apiErr?.error?.message ||
+          t("workspace.create.error") ||
+          "Failed to create workspace"
+      );
+      setIsCreating(false);
+    }
+  };
+
+  const handleCreateCancel = (): void => {
+    setShowCreateForm(false);
+    setCreateError(null);
+    setCreateFormData({
+      name: "",
+      preset: "standard",
+      terminology_profile: "se_mode",
+      language: "de",
+    });
+  };
+
+  // Click-outside handler for search dropdown
+  React.useEffect(() => {
+    if (!isSearchOpen) return;
+    const handler = (event: MouseEvent): void => {
+      if (
+        searchRef.current &&
+        !searchRef.current.contains(event.target as Node)
+      ) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [isSearchOpen]);
+
+  // Debounced search execution
+  const runSearch = React.useCallback(
+    (query: string): void => {
+      if (!activeWorkspace || !query.trim()) {
+        setSearchResults([]);
+        setIsSearching(false);
+        return;
+      }
+      setIsSearching(true);
+      searchApi
+        .search(query.trim(), activeWorkspace.id, { limit: 10 })
+        .then((resp) => {
+          setSearchResults(resp.results);
+          setIsSearchOpen(true);
+        })
+        .catch(() => {
+          setSearchResults([]);
+        })
+        .finally(() => {
+          setIsSearching(false);
+        });
+    },
+    [activeWorkspace]
+  );
+
+  const handleSearchChange = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ): void => {
+    const value = event.target.value;
+    setSearchQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!value.trim()) {
+      setSearchResults([]);
+      setIsSearchOpen(false);
+      return;
+    }
+    debounceRef.current = setTimeout(() => runSearch(value), 300);
+  };
+
+  const handleSearchKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>
+  ): void => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      runSearch(searchQuery);
+    } else if (event.key === "Escape") {
+      setIsSearchOpen(false);
+    }
+  };
+
+  const handleHitClick = (hit: SearchHit): void => {
+    setIsSearchOpen(false);
+    setSearchQuery("");
+    setSearchResults([]);
+    const route =
+      hit.artifact_type === "Requirement"
+        ? `/requirements/${hit.id}`
+        : hit.artifact_type === "ArchitectureElement"
+        ? `/architecture/${hit.id}`
+        : `/tests/${hit.id}`;
+    navigate(route);
+  };
 
   // Click-outside handler — close dropdown when clicking outside
   React.useEffect(() => {
@@ -144,6 +341,129 @@ export function SidebarNavigation(): JSX.Element {
         >
           ReqFlow
         </span>
+      </div>
+
+      {/* Global search (REQ-L1-020) */}
+      <div
+        ref={searchRef}
+        style={{
+          position: "relative",
+          marginBottom: "var(--space-4)",
+        }}
+      >
+        <input
+          type="search"
+          placeholder={t("nav.searchPlaceholder", "Suchen...")}
+          data-testid="global-search"
+          value={searchQuery}
+          onChange={handleSearchChange}
+          onKeyDown={handleSearchKeyDown}
+          onFocus={() => {
+            if (searchResults.length > 0) setIsSearchOpen(true);
+          }}
+          style={{
+            width: "100%",
+            padding: "var(--space-2) var(--space-3)",
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(255,255,255,0.2)",
+            borderRadius: "var(--radius-md)",
+            color: "white",
+            fontSize: "var(--font-size-sm)",
+            boxSizing: "border-box" as const,
+            fontFamily: "inherit",
+            outline: "none",
+          }}
+        />
+        {isSearchOpen && (searchResults.length > 0 || isSearching) && (
+          <ul
+            role="listbox"
+            aria-label="Search results"
+            style={{
+              position: "absolute",
+              top: "calc(100% + var(--space-1))",
+              left: 0,
+              right: 0,
+              listStyle: "none",
+              margin: 0,
+              padding: "var(--space-1)",
+              background: SIDEBAR_BG,
+              border: `1px solid ${SIDEBAR_BORDER}`,
+              borderRadius: "var(--radius-md)",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+              maxHeight: "320px",
+              overflowY: "auto",
+              zIndex: 100,
+            }}
+          >
+            {isSearching && (
+              <li
+                style={{
+                  padding: "var(--space-2) var(--space-3)",
+                  color: SIDEBAR_TEXT_MUTED,
+                  fontSize: "var(--font-size-sm)",
+                }}
+              >
+                {t("nav.searching", "Suche läuft...")}
+              </li>
+            )}
+            {!isSearching &&
+              searchResults.map((hit) => {
+                const isHovered = hoveredHitId === hit.id;
+                return (
+                  <li key={hit.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      data-testid="global-search-result"
+                      onClick={() => handleHitClick(hit)}
+                      onMouseEnter={() => setHoveredHitId(hit.id)}
+                      onMouseLeave={() => setHoveredHitId(null)}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: "2px",
+                        width: "100%",
+                        padding: "var(--space-2) var(--space-3)",
+                        borderRadius: "var(--radius-sm)",
+                        border: "none",
+                        background: isHovered ? HOVER_BG : "transparent",
+                        color: SIDEBAR_TEXT,
+                        fontSize: "var(--font-size-sm)",
+                        fontWeight: 500,
+                        fontFamily: "inherit",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "var(--transition-fast)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          maxWidth: "100%",
+                        }}
+                        title={hit.title}
+                      >
+                        {hit.title}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.7rem",
+                          color: SIDEBAR_TEXT_MUTED,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                        }}
+                      >
+                        {hit.artifact_type}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+          </ul>
+        )}
       </div>
 
       {/* Nav links */}
@@ -280,6 +600,167 @@ export function SidebarNavigation(): JSX.Element {
               {terminologyLabel("requirement")}
             </span>
           </div>
+
+          {/* Create workspace button */}
+          {!showCreateForm && (
+            <button
+              type="button"
+              data-testid="create-workspace-btn"
+              onClick={() => setShowCreateForm(true)}
+              style={{
+                marginTop: "var(--space-2)",
+                width: "100%",
+                background: "var(--color-primary)",
+                color: "white",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2)",
+                cursor: "pointer",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                fontFamily: "inherit",
+                transition: "var(--transition-fast)",
+              }}
+            >
+              + Workspace
+            </button>
+          )}
+
+          {/* Inline create form */}
+          {showCreateForm && (
+            <form
+              data-testid="create-workspace-form"
+              onSubmit={handleCreateSubmit}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-2)",
+                marginTop: "var(--space-2)",
+                padding: "var(--space-2)",
+                background: "rgba(255,255,255,0.04)",
+                borderRadius: "var(--radius-md)",
+                border: `1px solid ${SIDEBAR_BORDER}`,
+              }}
+            >
+              <input
+                type="text"
+                data-testid="create-workspace-name"
+                placeholder={t("workspace.create.namePlaceholder") || "Name"}
+                value={createFormData.name}
+                onChange={(e) =>
+                  setCreateFormData((d) => ({ ...d, name: e.target.value }))
+                }
+                disabled={isCreating}
+                autoFocus
+                style={{
+                  padding: "var(--space-2)",
+                  borderRadius: "var(--radius-sm)",
+                  border: `1px solid ${SIDEBAR_BORDER}`,
+                  background: SIDEBAR_BG,
+                  color: SIDEBAR_TEXT,
+                  fontSize: "var(--font-size-sm)",
+                  fontFamily: "inherit",
+                }}
+              />
+              <select
+                data-testid="create-workspace-preset"
+                value={createFormData.preset}
+                onChange={(e) =>
+                  setCreateFormData((d) => ({
+                    ...d,
+                    preset: e.target.value as WorkspacePreset,
+                  }))
+                }
+                disabled={isCreating}
+                style={{
+                  padding: "var(--space-2)",
+                  borderRadius: "var(--radius-sm)",
+                  border: `1px solid ${SIDEBAR_BORDER}`,
+                  background: SIDEBAR_BG,
+                  color: SIDEBAR_TEXT,
+                  fontSize: "var(--font-size-sm)",
+                  fontFamily: "inherit",
+                }}
+              >
+                <option value="standard">standard</option>
+                <option value="extended">extended</option>
+              </select>
+              <select
+                data-testid="create-workspace-language"
+                value={createFormData.language}
+                onChange={(e) =>
+                  setCreateFormData((d) => ({ ...d, language: e.target.value }))
+                }
+                disabled={isCreating}
+                style={{
+                  padding: "var(--space-2)",
+                  borderRadius: "var(--radius-sm)",
+                  border: `1px solid ${SIDEBAR_BORDER}`,
+                  background: SIDEBAR_BG,
+                  color: SIDEBAR_TEXT,
+                  fontSize: "var(--font-size-sm)",
+                  fontFamily: "inherit",
+                }}
+              >
+                <option value="de">DE</option>
+                <option value="en">EN</option>
+              </select>
+              {createError && (
+                <div
+                  data-testid="create-workspace-error"
+                  style={{
+                    color: "var(--color-danger, #f87171)",
+                    fontSize: "0.75rem",
+                  }}
+                >
+                  {createError}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <button
+                  type="submit"
+                  data-testid="create-workspace-submit"
+                  disabled={isCreating}
+                  style={{
+                    flex: 1,
+                    background: "var(--color-primary)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "var(--space-2)",
+                    cursor: isCreating ? "not-allowed" : "pointer",
+                    fontSize: "var(--font-size-sm)",
+                    fontWeight: 600,
+                    fontFamily: "inherit",
+                    opacity: isCreating ? 0.6 : 1,
+                  }}
+                >
+                  {isCreating
+                    ? t("workspace.create.creating") || "..."
+                    : t("workspace.create.submit") || "Create"}
+                </button>
+                <button
+                  type="button"
+                  data-testid="create-workspace-cancel"
+                  onClick={handleCreateCancel}
+                  disabled={isCreating}
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    color: SIDEBAR_TEXT,
+                    border: `1px solid ${SIDEBAR_BORDER}`,
+                    borderRadius: "var(--radius-sm)",
+                    padding: "var(--space-2)",
+                    cursor: isCreating ? "not-allowed" : "pointer",
+                    fontSize: "var(--font-size-sm)",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {t("workspace.create.cancel") || "Cancel"}
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Dropdown */}
           {isSwitcherOpen && workspaces.length > 0 && (
