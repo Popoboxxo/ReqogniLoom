@@ -16,6 +16,12 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 - **Testcase Management** — Attach test cases to requirements and track coverage
 - **Traceability** — Automatic and manual linking between requirements, architecture elements, and test cases (8 link types)
 - **Baselines & Snapshots** — Capture and compare system states across time
+- **Visual Artifact Diff** — Side-by-side and unified field-level change highlighting for requirements, architecture elements, and test cases
+- **History Endpoint** — Full audit trail per artifact (GET /api/v1/requirements/{id}/history/)
+- **PDF Report Export** — Generate Requirement Documents and Traceability Matrices as PDF with metadata
+- **Test Run Tracking** — Test-Run-Protokollierung with bulk result ingestion via REST and MCP
+- **CSV Bulk Import** — Atomic CSV import for Requirements, ArchitectureElements, and TestCases
+- **API-Key Management** — Create, list, and revoke API keys for CI/CD integration
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
@@ -33,7 +39,7 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 ### Developer Experience
 - **REST API** — Full-featured /api/v1/ with JWT authentication
 - **Type-Safe Frontend** — React 18 + TypeScript + Vite
-- **Comprehensive Tests** — 1060+ backend tests (pytest) + 31/32 E2E tests (Playwright)
+- **Comprehensive Tests** — 1,130 backend tests (pytest) + 111 E2E tests (Playwright/Chromium)
 - **Docker Compose** — Production-ready local development stack
 
 ## Architecture
@@ -42,11 +48,11 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 Layer 4 (UI)       │  React 18 + TypeScript + Vite
                    │  (CSS Design System, i18n DE/EN, JWT Auth)
 ───────────────────┼─────────────────────────────────────
-Layer 3 (API)      │  REST API (DRF, 6 ViewSets)
-                   │  MCP Server (20 AI Tools)
+Layer 3 (API)      │  REST API (DRF, 16 ViewSets + 2 APIViews)
+                    │  MCP Server (20 AI Tools)
 ───────────────────┼─────────────────────────────────────
 Layer 2 (App)      │  Single Entry Point
-                   │  16 Domain Services (Requirements, Tests, Architecture, etc.)
+                    │  19 Domain Services (16 Core + 3 v1.1)
 ───────────────────┼─────────────────────────────────────
 Layer 1 (Core)     │  LLM Adapter, Traceability Engine, Workflow, Baseline,
                    │  Diagram Generation, ICD (Interface Control Documents)
@@ -55,6 +61,8 @@ Layer 0 (Base)     │  Persistence, Auth & Tenancy, Presets, Audit Log
                    │
 Cross-Cutting      │  SE Metrics, Resilience (Retry/Circuit-Breaker)
 ```
+
+**V-Model Traceability:** ReqFlow follows a 3-tier V-Model decomposition (L0 stakeholder needs → L1 system requirements → L2 subsystem requirements → L3 components), with full REQ traceability from stakeholder needs down to test cases.
 
 **Services:** postgres (PostgreSQL) + redis (caching/Celery) + backend (Django :8000) + frontend (Vite :5173) + celery (async tasks)
 
@@ -148,7 +156,7 @@ docker-compose exec backend pytest --cov=reqflow_backend --cov-report=html
 docker-compose exec backend pytest tests/test_requirements.py
 ```
 
-**Status:** 1060+ tests, all passing on feat/se-implementation branch.
+**Status:** 1,130 tests, all passing on feat/se-implementation branch.
 
 ### End-to-End Tests (Playwright)
 
@@ -167,7 +175,7 @@ npx playwright test --ui
 npx playwright test tests/requirements.spec.ts
 ```
 
-**Status:** 31/32 tests passing. See `e2e/README.md` for detailed documentation.
+**Status:** 111 tests passing (Playwright/Chromium). See `e2e/README.md` for detailed documentation.
 
 ## MCP Server
 
@@ -368,18 +376,32 @@ DEBUG=pw:api npx playwright test
 
 ## Roadmap
 
-### v1.1 (Next)
-- ReqIF import/export for tool interoperability
-- Test run tracking and execution history
-- Visual requirement diffing (baseline comparison UI)
-- Semantic search with RAG (requires LLM)
+### v1.1 (Implemented — 2026-06-27)
+- ✅ PDF-Report-Export (Requirement Documents + Traceability Matrix)
+- ✅ Test-Run-Protokollierung with bulk ingestion via REST and MCP
+- ✅ CSV-Bulk-Import for Requirements / ArchitectureElements / TestCases
+- ✅ Visual Artifact Diff (field-level change highlighting)
+- ✅ History-Endpoint for full audit trail
+- ✅ API-Key Management (list / create / revoke)
+- ✅ Visual Baselines (existing) & Visual Baseline Diff
 
-### v2.0 (Future)
-- Comment threads and collaborative annotations
+### v2.0 (Next)
+- ReqIF import/export for tool interoperability
+- Comment threads and collaborative annotations with @Mention
 - Granular access control (role-based permissions per requirement)
+- Semantic search with RAG (requires LLM)
 - WebSocket-based real-time collaboration
 - Embedded diagram editor (SysML, UML blocks)
 - Automated compliance reporting (for safety standards like IEC 61508, DO-178B)
+
+### Changelog Highlights
+
+Detailed session reports: [`docs/se/reports/`](docs/se/reports/)
+
+| Release | Date | Highlights |
+|---------|------|------------|
+| **v1.1 — Session 2026-06-27** | 2026-06-27 | 1,130 pytest / 111 E2E tests; 9 L1 REQs decomposed (SE-Phases 1-6); 6 leaf REQs in Pipeline B (3 implemented); 3 continue REQs for v2.0 (ReqIF, Comments, RAG) |
+| **v1.0 — Greenfield** | 2026-06-25 | 1,042 pytest tests; 16 L2 subsystems; 12 L2 architectures terminal; full SE-Kaskade L0→L2 |
 
 ## License
 

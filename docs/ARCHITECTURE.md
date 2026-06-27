@@ -1,15 +1,32 @@
 # ReqFlow — Architektur
 
-> **Status:** Greenfield-Implementierung abgeschlossen  
-> **Letzte Aktualisierung:** 2026-06-25  
+> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6)  
+> **Letzte Aktualisierung:** 2026-06-27  
 > **Branch:** `feat/se-implementation`  
-> **Tech-Stack:** Django + React + PostgreSQL + Docker Compose
+> **Tech-Stack:** Django + React + PostgreSQL + Docker Compose  
+> **Tests:** 1.130 pytest / 111 E2E (Playwright) | L0=13/22 (59%), L1+L2=183/186 (98,4%)
 
 ---
 
 ## Architektur-Übersicht
 
 ReqFlow folgt einer **geschichteten SE-Kaskade** von der L0-Infrastruktur bis zur L4-Präsentation. Die Gesamtarchitektur wird formal in `docs/se/STRATEGY.md` (Strategie) und `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Architecture.md` (L1-Spezifikation) definiert. Dieses Dokument gibt die Vogelperspektive und verweist auf detaillierte Quellen.
+
+### SE-Kaskaden-Status
+
+Die SE-Kaskade (Phasen 1–6) ist für das v2-Backlog abgeschlossen:
+
+- **9 L1-REQs** zerlegt (PDF-Export, ReqIF, Test-Run, Test-Einspeisung, Kommentare, RAG, Item-RBAC, Artefakt-Diff, Baseline-Diff)
+- **15 L2-REQs** definiert, **11 neue Komponenten** spezifiziert
+- **3 neue Subsysteme** als v2.0 geplant: ReqIFServiceSystem (RQ), CommentServiceSystem (CM), VectorSearchServiceSystem (VS)
+- **8 neue L1-Interfaces** registriert (IF-L1-032..039)
+- **6 leaf REQs** (Pipeline B — 3 implementiert, 3 offen) + **3 continue REQs** (Pipeline C — v2.0)
+
+| Pipeline | REQs | Status |
+|----------|------|--------|
+| **B — Implementiert** | REQ-L1-023 (PDF-Export), REQ-L1-035 (Test-Run), REQ-L1-040 (Artefakt-Diff) | ✅ v1.1 |
+| **B — Offen** | REQ-L1-036 (Test-Einspeisung), REQ-L1-039 (Item-RBAC), REQ-L1-041 (Baseline-Diff) | 🟡 Pipeline B |
+| **C — v2.0** | REQ-L1-034 (ReqIF), REQ-L1-037 (Kommentare), REQ-L1-038 (Vektorsuche) | 🔵 Pipeline C |
 
 ### Die 5 Architektur-Layer
 
@@ -22,7 +39,7 @@ ReqFlow folgt einer **geschichteten SE-Kaskade** von der L0-Infrastruktur bis zu
 │  - MCP Server (20 Tools)                    │
 ├─────────────────────────────────────────────┤
 │ Layer 2: Orchestration (ApplicationService) │  application/
-│  - 16 Domain Services                       │  (ADR-01: Single Entry Point)
+│  - 19 Domain Services (16 Core + 3 v1.1)   │  (ADR-01: Single Entry Point)
 ├─────────────────────────────────────────────┤
 │ Layer 1: Domain Services                    │  llm_adapter/, traceability/,
 │  - LLM Adapter                              │  workflow/, baseline/,
@@ -103,15 +120,20 @@ ReqFlow folgt einer **geschichteten SE-Kaskade** von der L0-Infrastruktur bis zu
 
 | System | App | Funktion | Abhängigkeiten |
 |--------|-----|----------|----------------|
-| **ApplicationService** (004) | `application` | 16 Domain Services; Central Facade (ADR-01) | ALL Layer-1 + Layer-0 |
+| **ApplicationService** (004) | `application` | 19 Domain Services (16 Core + 3 v1.1); Central Facade (ADR-01) | ALL Layer-1 + Layer-0 |
 
-**16 Services:**
+**16 Core Services + 3 v1.1:**
 ```
 ArtifactService, RequirementService, ArchitectureService, TestCaseService,
 TraceabilityService, BaselineService, WorkflowService,
 ValidationService, DecompositionService, ConsistencyService,
 AuditService, AuthorizationService, ConfigurationService,
-MetricsService, RiskService, IssueService
+MetricsService, RiskService, IssueService,
+
+# v1.1 new
+ImportService,         # CSV-Bulk-Import (COMP-AS-009)
+TestRunService,        # Test-Run-Protokollierung (COMP-AS-017)
+ArtifactDiffService,   # Strukturiertes Feld-Level-Diff (COMP-AS-019)
 ```
 
 **Architektur-Invarianten:**
@@ -133,23 +155,40 @@ MetricsService, RiskService, IssueService
 | **RestApiAdapter** (002) | `rest_api` | Django REST Framework ViewSets + DRF-spectacular (OpenAPI) | ApplicationService, Auth, Presets |
 | **McpServer** (003) | `mcp_server` | MCP-Tool-Registry (20 Tools in 4 Gruppen) | ApplicationService, Auth, Audit, Presets |
 
-**REST Endpoints (+ Auth-Endpoints):**
+**REST Endpoints (+ Auth-Endpoints, + v1.1):**
 ```
+# Auth & Identity
 POST   /api/v1/auth/login                 # Email + Password → JWT
 GET    /api/v1/auth/me                    # Current User (Bearer Token)
-GET    /api/v1/artifacts/
-POST   /api/v1/artifacts/
-GET    /api/v1/requirements/
-POST   /api/v1/requirements/
-GET    /api/v1/architecture/
-POST   /api/v1/architecture/
-GET    /api/v1/testcases/
-POST   /api/v1/testcases/
-GET    /api/v1/traceability/links/
-POST   /api/v1/traceability/links/
-GET    /api/v1/baselines/
-POST   /api/v1/baselines/
-GET    /api/v1/baselines/{id}/diff/
+
+# Core CRUD (ViewSets)
+GET    /api/v1/artifacts/                 # +POST
+GET    /api/v1/requirements/              # +POST, PATCH, DELETE
+GET    /api/v1/architecture/              # +POST, PATCH, DELETE
+GET    /api/v1/testcases/                 # +POST, PATCH, DELETE
+GET    /api/v1/tracelinks/                # +POST, DELETE
+GET    /api/v1/baselines/                 # +POST; GET /{id}/diff/?baseline2=
+GET    /api/v1/workflows/                 # +POST, PATCH, DELETE
+GET    /api/v1/workspaces/                # +POST, PATCH, DELETE; PATCH /{id}/preset/
+
+# ADR / Risk / Issue
+GET    /api/v1/adrs/                      # +POST, PATCH, DELETE
+GET    /api/v1/risks/                     # +POST, PATCH, DELETE
+GET    /api/v1/issues/                    # +POST, PATCH, DELETE
+
+# Search & Diagrams
+GET    /api/v1/search/?q=...              # Globale Suche
+GET    /api/v1/diagrams/                  # Diagramm-Rendering
+GET    /api/v1/icds/                      # ICD-Management
+GET    /api/v1/metrics/                   # Metriken/KPIs
+
+# v1.1 New Features
+GET    /api/v1/requirements/{id}/history/ # Audit-Trail
+GET    /api/v1/requirements/{id}/diff/    # Artifact-Diff (auch architecture, testcases)
+GET    /api/v1/workspaces/{id}/reports/pdf/  # PDF-Export
+POST   /api/v1/workspaces/{id}/import/csv/   # CSV-Bulk-Import
+GET    /api/v1/test-runs/                 # +POST; GET /{id}/; POST /{id}/results/bulk/
+GET    /api/v1/api-keys/                  # +POST; DELETE /{id}/
 ```
 
 **MCP Tools (20 in 4 Gruppen):**
@@ -191,6 +230,30 @@ GET    /api/v1/baselines/{id}/diff/
 |--------|-----|----------|----------------|
 | **SeMetrics** (015) | `se_metrics` | Read Model über audit/workflow/traceability/application; KPIs | Layer-0, Layer-1 |
 | **ResilienceOrchestrator** (016) | `resilience` | Retry, Circuit-Breaker, Timeout Decorators | — |
+
+### Geplante Subsysteme (v2.0 — Pipeline C)
+
+Drei neue Subsysteme wurden in der SE-Kaskade (Phasen 1–6) identifiziert, aber als `continue` terminiert — sie erfordern eine L3-Zerlegung und sind noch nicht implementiert:
+
+| System | Akronym | App | Funktion | REQ-L1 | L2-REQs | Komponenten |
+|--------|---------|-----|----------|--------|:-------:|:-----------:|
+| **ReqIFServiceSystem** (017) | RQ | *geplant* | ReqIF-Import/Export (XML-Parser/Serializer) | REQ-L1-034 | 2 | COMP-RQ-001, COMP-RQ-002 |
+| **CommentServiceSystem** (018) | CM | *geplant* | Kommentar-Threads, @Mention, Benachrichtigungen | REQ-L1-037 | 3 | COMP-CM-001..003 |
+| **VectorSearchServiceSystem** (019) | VS | *geplant* | Semantische Vektorsuche, Embedding-Pipeline, pgvector | REQ-L1-038 | 3 | COMP-VS-001..003 |
+
+**Schnittstellen (8 neue IF-L1):**
+| ID | Quelle → Ziel | Vertrag | Status |
+|----|---------------|---------|--------|
+| IF-L1-032 | ApplicationService → VectorSearchService | Domain-Event Embedding Trigger (async) | spezifiziert |
+| IF-L1-033 | AuthAndTenancy → PersistenceLayer | RLS-Policy-Enforcement | spezifiziert |
+| IF-L1-034 | CommentService → AuditLogSystem | Audit-Log-Pflicht | spezifiziert |
+| IF-L1-035 | ApplicationService ↔ ReqIFService | Import/Export Request (sync) | spezifiziert |
+| IF-L1-036 | ReqIFService → TraceabilityEngine | SpecRelations → TraceLinks | spezifiziert |
+| IF-L1-037 | ApplicationService ↔ CommentService | Comment CRUD Delegation | spezifiziert |
+| IF-L1-038 | ApplicationService ↔ VectorSearchService | Semantic Search Query | spezifiziert |
+| IF-L1-039 | CommentService → NotificationService | Mention Notification (STUB) | spezifiziert |
+
+Alle Interfaces sind vollständig in `docs/se/interface-registry.md` §9–10 dokumentiert (Design-by-Contract).
 
 ---
 
@@ -305,7 +368,7 @@ Siehe `docs/se/integration-strategy.md` für formale Strategie. Kurz:
 
 ## Test-Strategie
 
-### Abdeckung (1042+ Tests)
+### Abdeckung (1130+ Tests)
 
 ```
 Layer 0: ~300 Tests
@@ -337,7 +400,7 @@ Cross-Cutting: ~100 Tests
 ### Test-Befehl
 
 ```bash
-docker-compose exec backend pytest              # Alle Tests (1042)
+docker-compose exec backend pytest              # Alle Tests (1130)
 docker-compose exec backend pytest backend/persistence/  # Einzelne App
 docker-compose exec frontend npm test            # Frontend
 ```
@@ -428,9 +491,13 @@ Alle ADRs sind in `backend/README.md` dokumentiert. Kurzform:
 - `docs/se/STRATEGY.md` — Strategische Entscheidungen
 - `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Architecture.md` — L1-Spezifikation (formale Anforderungen, Interfaces)
 - `docs/se/L1/Gesamtsystem/L2/*/L2_*_Architecture.md` — 16 L2-Subsystem-Architekturen (detaillierte Komponenten-Spezifikationen)
-- `docs/se/interface-registry.md` — Zentrale Schnittstellen-Registry (alle L1-Interfaces, L2-Interfaces)
+- `docs/se/interface-registry.md` — Zentrale Schnittstellen-Registry (alle L1-Interfaces, L2-Interfaces + v2-Backlog IF-L1-032..039)
 - `docs/se/integration-strategy.md` — Bottom-Up Integrations-Ansatz
 - `docs/se/test-strategy.md` — 338+ Test-Szenarien (Model-Based Testing)
+- `docs/se/reports/` — Session-Berichte (SE-Phasen 1–6, Implementation Reports)
+  - `se-phase1-v2-backlog-2026-06-27.md` — V2-Backlog-Klarstellung
+  - `se-phase6-termination-2026-06-27.md` — Leaf/Continue-Entscheidungen
+  - `implementation_status_2026-06-27.md` — Implementierungsstand
 - `docs/se/traceability-matrix.md` — REQ → SYS-REQ → COMP-REQ → TEST-CASE Mapping
 
 **Code-Dokumentation:**
@@ -439,4 +506,4 @@ Alle ADRs sind in `backend/README.md` dokumentiert. Kurzform:
 
 ---
 
-**Zuletzt aktualisiert:** 2026-06-25 (Branch `feat/se-implementation`, Commit `b01414a`)
+**Zuletzt aktualisiert:** 2026-06-27 (Branch `feat/se-implementation`)

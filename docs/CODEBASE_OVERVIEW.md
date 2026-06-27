@@ -1,15 +1,17 @@
 # ReqFlow — Codebase-Übersicht (IST-Zustand)
 
-> **Status:** Greenfield-Implementierung abgeschlossen (SE-Kaskade → Code)  
-> **Letzte Aktualisierung:** 2026-06-25  
+> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6)  
+> **Letzte Aktualisierung:** 2026-06-27  
 > **Branch:** `feat/se-implementation`  
-> **Validierung:** 1042/1042 Tests grün; `manage.py check` 0 Issues
+> **Validierung:** 1130/1130 pytest Tests grün; 111/112 E2E Tests (Playwright) grün; `manage.py check` 0 Issues
 
 ---
 
 ## Übersicht
 
 ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Support. Die Implementierung folgt einer SE-Kaskade (L0 → L1 → L2 → L3 → L4) mit 16 L2-Systemen auf dem Backend (Django-Apps), einer React-SPA im Frontend, und einer PostgreSQL-Datenbank mit Tenant-Isolation.
+
+**SE-Kaskade:** 9 L1-REQs aus dem v2-Backlog in SE-Phasen 1–6 vollständig zerlegt (15 L2-REQs, 11 Komponenten). 6 REQs als leaf terminiert (Pipeline B), 3 als continue (Pipeline C — ReqIF, Comments, RAG).
 
 **Architektur-Schichten:**
 - **Layer 0 (Foundation):** Persistierung, Auth/Tenancy, Konfiguration, Audit
@@ -209,6 +211,24 @@ from traceability.services import (
 
 ---
 
+#### `traceability/pdf_report_generator.py` (COMP-TE-004, REQ-L1-023)
+**Modell:** PDF-Report-Generator für Requirement-Dokumente und Traceability-Matrizen.
+
+**Exportierte API:**
+```python
+from traceability.pdf_report_generator import (
+    generate_pdf_report,            # generate_pdf_report(workspace_id, layout, ctx) → bytes
+)
+```
+
+**Layouts:**
+- `requirement_document` — Formatiertes Anforderungsdokument mit Metadaten
+- `traceability_matrix` — Traceability-Matrix mit Link-Typen und Coverage
+
+**Test-Coverage:** 10+ Tests (Integration + PDF-Validierung)
+
+---
+
 #### `workflow/` (ARCH-L1-005)
 **Modell:** Konfigurierbare State Machines pro Workspace über WorkflowDefinition.
 
@@ -304,7 +324,7 @@ from icd.services import (
 #### `application/` (ARCH-L1-004)
 **Modell:** Central Facade mit 16 Domain Services (ADR-01: Single Entry Point). Alle höheren Schichten rufen nur `ApplicationService` auf.
 
-**Exportierte API (16 Services):**
+**Exportierte API (19 Services — 16 Core + 3 v1.1):**
 ```python
 from application.services import (
     # Core
@@ -338,10 +358,15 @@ from application.services import (
     # Risk & Issue Management (Wave 7)
     RiskService,                   # Risk.query_risks_by_severity()
     IssueService,                  # Issue-Tracking
+
+    # v1.1 New Features (SE-Phasen 1–6)
+    ImportService,                 # CSV bulk import
+    TestRunService,                # Test-Run-Protokollierung
+    ArtifactDiffService,           # Strukturiertes Feld-Level-Diff
 )
 ```
 
-**Komponenten (13 im `services/` Subpackage):**
+**Komponenten (16 im `services/` Subpackage — 13 Core + 3 v1.1):**
 - `artifact_service.py` — `ArtifactService`
 - `requirement_service.py` — `RequirementService`
 - `architecture_service.py` — `ArchitectureService`
@@ -358,6 +383,9 @@ from application.services import (
 - `metrics_service.py` — `MetricsService`
 - `risk_service.py` — `RiskService` (neu Wave 7)
 - `issue_service.py` — `IssueService` (neu Wave 7)
+- `import_service.py` — `ImportService` (COMP-AS-009, v1.1 CSV-Bulk-Import)
+- `test_run_service.py` — `TestRunService` (COMP-AS-017, v1.1 Test-Run-Protokollierung)
+- `artifact_diff_service.py` — `ArtifactDiffService` (COMP-AS-019, v1.1 Feld-Level-Diff)
 
 **Signature (Beispiel):**
 ```python
@@ -377,7 +405,7 @@ class RiskService:
 - `services_step2.py` — Zusätzliche Services (wird beim Init leer erzeugt)
 - `services_step3.py` — Weitere Erweiterungen (wird beim Init leer erzeugt)
 
-**Test-Coverage:** 131 Tests grün
+**Test-Coverage:** 165 Tests grün (131 Core + 34 neue v1.1 Tests für ImportService, TestRunService, ArtifactDiffService)
 
 ---
 
@@ -386,7 +414,7 @@ class RiskService:
 #### `rest_api/` (ARCH-L1-002)
 **Modell:** Django REST Framework ViewSets + Serializers gegen ApplicationService. OpenAPI über `drf-spectacular`.
 
-**Exportierte API (6 ViewSets):**
+**Exportierte API (16 ViewSets + 2 APIViews):**
 ```python
 # In rest_api/views/
 class ArtifactViewSet(viewsets.ModelViewSet):
@@ -396,23 +424,65 @@ class ArtifactViewSet(viewsets.ModelViewSet):
 class RequirementViewSet(viewsets.ModelViewSet):
     # GET/POST /api/v1/requirements/
     # GET/PUT/DELETE /api/v1/requirements/{id}/
+    # @action: GET /api/v1/requirements/{id}/diff/?from_version=0&to_version=2
+    # @action: GET /api/v1/requirements/{id}/versions/
 
 class ArchitectureViewSet(viewsets.ModelViewSet):
     # GET/POST /api/v1/architecture/
     # GET/PUT/DELETE /api/v1/architecture/{id}/
+    # @action: GET /api/v1/architecture/{id}/diff/?from_version=0&to_version=2
+    # @action: GET /api/v1/architecture/{id}/versions/
 
 class TestCaseViewSet(viewsets.ModelViewSet):
     # GET/POST /api/v1/testcases/
     # GET/PUT/DELETE /api/v1/testcases/{id}/
+    # @action: GET /api/v1/testcases/{id}/diff/?from_version=0&to_version=2
 
-class TraceabilityViewSet(viewsets.ViewSet):
-    # GET /api/v1/traceability/links/?source={id}
-    # POST /api/v1/traceability/links/ (create link)
+class TraceLinkViewSet(viewsets.ModelViewSet):
+    # GET/POST /api/v1/tracelinks/
+    # GET/PUT/DELETE /api/v1/tracelinks/{id}/
 
 class BaselineViewSet(viewsets.ViewSet):
     # GET /api/v1/baselines/?workspace={id}
     # POST /api/v1/baselines/ (create)
     # GET /api/v1/baselines/{id}/diff/?baseline2={id}
+
+class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
+    # GET/POST /api/v1/workflows/
+
+class WorkspaceViewSet(viewsets.ModelViewSet):
+    # GET/POST /api/v1/workspaces/
+    # PATCH /api/v1/workspaces/{id}/
+    # @action: PATCH /api/v1/workspaces/{id}/preset/
+    # @action: GET /api/v1/workspaces/{id}/reports/pdf/?layout=...
+
+class AdrViewSet(viewsets.ModelViewSet):
+    # GET/POST /api/v1/adrs/
+
+class RiskViewSet(viewsets.ModelViewSet):
+    # GET/POST /api/v1/risks/
+
+class IssueViewSet(viewsets.ModelViewSet):
+    # GET/POST /api/v1/issues/
+
+class TestRunViewSet(viewsets.ModelViewSet):
+    # GET/POST /api/v1/test-runs/
+    # GET /api/v1/test-runs/{id}/
+    # POST /api/v1/test-runs/{id}/results/bulk/
+
+class SearchViewSet(viewsets.ViewSet):
+    # GET /api/v1/search/?q=...&workspace_id=...
+
+class ApiKeyViewSet(viewsets.ViewSet):
+    # GET    /api/v1/api-keys/          — list keys (metadata only)
+    # POST   /api/v1/api-keys/          — create key (plaintext returned ONCE)
+    # DELETE /api/v1/api-keys/<pk>/     — revoke key
+
+class CsvImportView(APIView):
+    # POST /api/v1/workspaces/{pk}/import/csv/
+
+class RequirementHistoryView(APIView):
+    # GET /api/v1/requirements/{pk}/history/
 ```
 
 **Auth-Endpoints:**
@@ -423,18 +493,24 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ```
 
 **Komponenten:**
-- `views/` — 6 ViewSets
+- `views.py` — 16 ViewSets + 2 APIViews (alle CRUD-Operationen)
+- `api_key_views.py` — ApiKeyViewSet (Key-Lifecycle: list/create/revoke)
+- `auth_views.py` — LoginView, MeView
+- `diagram_views.py` — DiagramViewSet
+- `icd_views.py` — IcdViewSet
+- `metrics_views.py` — MetricsViewSet
 - `serializers/` — DRF Serializers mit Validation
 - `permissions/` — DRF Permission-Klassen (TenantPermission, AdminOnlyPermission)
 - `pagination/` — LimitOffsetPagination (default 50, max 500)
 - `filters/` — SearchFilter, OrderingFilter
+- `openapi.py` — OpenAPI Schema-Generierung (drf-spectacular)
 
 **Settings Integration:**
 - `DEFAULT_AUTHENTICATION_CLASSES` → TokenAuthentication
 - `DEFAULT_PERMISSION_CLASSES` → TenantPermission
 - `AUTO_SCHEMA_CLASS` → drf-spectacular (OpenAPI 3.0)
 
-**Test-Coverage:** 13+ Tests (Endpoint-Integration)
+**Test-Coverage:** 30+ Tests (Endpoint-Integration + PDF-Report + CSV-Import)
 
 ---
 
@@ -552,6 +628,7 @@ frontend/
       architecture.ts             # API-Wrapper für Architecture
       artifacts.ts                # API-Wrapper für Artifacts
       tracelinks.ts               # API-Wrapper für Traceability
+      workspaces.ts               # API-Wrapper für Workspace-CRUD
       index.ts                    # Re-exports
     components/
       DashboardViews/             # Dashboard-Container
@@ -560,35 +637,61 @@ frontend/
         useRequirementData.ts      # Custom Hook
       ArchitectureEditors/        # Architecture-CRUD
         useArchitectureData.ts     # Custom Hook
+      ArtifactDiff/               # Visueller Artefakt-Diff (side-by-side + unified)
+        ArtifactDiff.tsx
+      CsvImport/                  # CSV-Bulk-Import UI
+        CsvImport.tsx
+      TestRuns/                   # Test-Run-Ansicht mit Ergebnisliste
+        TestRuns.tsx
+      AdrList/                    # ADR-Liste (Architecture Decision Records)
+        AdrList.tsx
+      RiskList/                   # Risiko-Liste
+        RiskList.tsx
+      IssueList/                  # Issue-Liste
+        IssueList.tsx
+      BaselinesView/              # Baseline-Verwaltung und Diff-Viewer
+      TraceabilityView/           # Trace-Link-Visualisierung
+      NavigationShell/            # Sidebar, Workspace-Switcher, globale Suche
+      WorkspaceSettings/          # Workspace-Settings (Preset, Terminologie, Sprache)
     context/
-      index.ts                    # React Context (Auth, Tenant, Presets)
+      index.ts                    # React Context (Auth, Tenant, Presets, Workspace)
     types/
       index.ts                    # TypeScript Interfaces (Artifact, Requirement, etc.)
     i18n/
       index.ts                    # i18next Config (DE/EN)
+      locales/de.json             # Deutsche Übersetzungen
+      locales/en.json             # Englische Übersetzungen
     test/
       setup.ts                    # Vitest Setup
   package.json                    # Dependencies (React, Vite, react-i18next, etc.)
   vitest.config.ts                # Vitest Config
 ```
 
-**Key Components (6 hauptsächliche):**
+**Key Components (13 hauptsächliche):**
 1. `DashboardViews` — Übersichts-Dashboards (Requirements, Architecture, Tests)
 2. `RequirementEditors` — Requirement-Create/Edit/Delete Forms
 3. `ArchitectureEditors` — Architecture-Element-Editor
-4. `TestEditors` — Test-Case-Management
-5. `TraceabilityViewer` — Trace-Link-Visualisierung
-6. `BaselineManager` — Baseline-Verwaltung und Diff-Viewer
+4. `TraceabilityView` — Trace-Link-Visualisierung und Create-Formular
+5. `BaselinesView` — Baseline-Verwaltung und Diff-Viewer
+6. `NavigationShell` — Sidebar mit Workspace-Switcher, globaler Suche
+7. `WorkspaceSettings` — Workspace-Settings (Preset, Terminologie, Sprache)
+8. `ArtifactDiff` — Visueller Artefakt-Diff (side-by-side + unified, Feld-Highlighting)
+9. `CsvImport` — CSV-Bulk-Import UI
+10. `TestRuns` — Test-Run-Ansicht mit Ergebnisliste
+11. `AdrList` — ADR-Liste (Architecture Decision Records)
+12. `RiskList` — Risiko-Liste
+13. `IssueList` — Issue-Liste
 
 **Hooks:**
 - `useDashboardData()` — Fetch via `api/requirements`, caching
 - `useRequirementData(id)` — Load single requirement
 - `useArchitectureData(id)` — Load architecture element
 - `useAuthContext()` — Auth-State (Token, CurrentUser, Tenant)
+- `useWorkspaceContext()` — Workspace-State, Preset, Terminologie
 
-**i18n:** DE/EN via react-i18next (Übersetzungen in `locales/`)
+**i18n:** DE/EN via react-i18next (Übersetzungen in `locales/de.json`, `locales/en.json`)
 
-**Test-Coverage:** 34 Dateien; Vitest für Unit-Tests (bei Bedarf erweiterbar)
+**Test-Coverage:** 34+ Frontend-Dateien; Vitest für Unit-Tests; 111 E2E Tests (Playwright/Chromium)
 
 ---
 
@@ -708,7 +811,7 @@ docker-compose exec backend python manage.py seed_demo
 
 ### Tests
 ```bash
-# Alle Backend-Tests (1042 Tests)
+# Alle Backend-Tests (1130 Tests)
 docker-compose exec backend pytest
 
 # Nach Änderungen (Auto-Test im CI)
@@ -772,12 +875,13 @@ Alle höheren Schichten (REST, MCP) greifen auf `ApplicationService` zu. Es gibt
 
 ---
 
-## Offene Integrations-Aufgaben (v1.1+)
+## Offene Integrations-Aufgaben (v1.2+)
 
 1. **Celery-Broker-Wiring** — AsyncDispatcher, WebhookDispatcher, SeMetrics-Cache
 2. **WebhookDispatcher → ResilienceOrchestrator Umverdrahtung** — TODO-Marker gesetzt
 3. **Prod-Secrets via ENV** — `AUTH_JWT_SECRET`, `DEMO_ADMIN_PASSWORD`, LLM-Keys
+4. **Pipeline C (v2.0)** — ReqIF-Import/Export (ReqIFServiceSystem), Kommentar-Threads (CommentServiceSystem), Semantische Vektorsuche (VectorSearchServiceSystem)
 
 ---
 
-**Zuletzt aktualisiert:** 2026-06-25 (Branch `feat/se-implementation`, Commit `b01414a`)
+**Zuletzt aktualisiert:** 2026-06-27 (Branch `feat/se-implementation`)
