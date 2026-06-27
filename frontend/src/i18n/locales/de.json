@@ -87,7 +87,8 @@
     "selectElement": "Wählen Sie ein Architekturelement aus der Liste.",
     "newElementTitle": "Neues Element",
     "deleteTitle": "Element löschen",
-    "deleteConfirm": "Element wirklich löschen"
+    "deleteConfirm": "Element wirklich löschen",
+    "tracelinkPanelTitle": "TraceLinks"
   },
   "traceability": {
     "upstream": "Upstream-Links",

@@ -14,14 +14,23 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
 import { MarkdownPreview } from "../RequirementEditors/MarkdownPreview";
 import { architectureApi } from "../../api/architecture";
+import { tracelinksApi } from "../../api/tracelinks";
+import { requirementsApi } from "../../api/requirements";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import type { ArchitectureElement, ElementType } from "../../types";
+import type {
+  ArchitectureElement,
+  ElementType,
+  LinkType,
+  Requirement,
+  TraceLink,
+  UUID,
+} from "../../types";
 
 // ---------------------------------------------------------------------------
 // Element type options (REQ-L3-RF004-001, ADR-L3-RF-007)
@@ -188,17 +197,20 @@ interface ArchElementFormProps {
   element: ArchitectureElement;
   onSaved: () => void;
   onDelete: (id: string) => void;
+  isExtendedPreset: boolean;
 }
 
 function ArchElementForm({
   element,
   onSaved,
   onDelete,
+  isExtendedPreset,
 }: ArchElementFormProps): JSX.Element {
   const { t } = useTranslation();
   const [title, setTitle] = useState(element.title);
   const [description, setDescription] = useState(element.description);
   const [elementType, setElementType] = useState(element.element_type);
+  const [changeReason, setChangeReason] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -207,11 +219,22 @@ function ArchElementForm({
     setIsSaving(true);
     setSaveError(null);
     try {
-      await architectureApi.update(element.id, {
+      // For extended preset, also send change_reason (REQ-L2-RF-009).
+      const payload: Partial<
+        Pick<
+          ArchitectureElement,
+          "title" | "description" | "element_type"
+        >
+      > & { change_reason?: string } = {
         title,
         description,
         element_type: elementType,
-      });
+      };
+      if (isExtendedPreset && changeReason.trim()) {
+        payload.change_reason = changeReason.trim();
+      }
+      await architectureApi.update(element.id, payload);
+      setChangeReason("");
       onSaved();
     } catch (err: unknown) {
       const msg =
@@ -221,7 +244,15 @@ function ArchElementForm({
     } finally {
       setIsSaving(false);
     }
-  }, [element.id, title, description, elementType, onSaved]);
+  }, [
+    element.id,
+    title,
+    description,
+    elementType,
+    changeReason,
+    isExtendedPreset,
+    onSaved,
+  ]);
 
   const handleConfirmDelete = useCallback(async (): Promise<void> => {
     setShowDeleteDialog(false);
@@ -261,7 +292,7 @@ function ArchElementForm({
       </label>
       <select
         id="arch-type"
-        data-testid="arch-element-type"
+        data-testid="arch-element-type-select"
         value={elementType}
         onChange={(e) => setElementType(e.target.value)}
         style={{ ...inputStyle, width: "auto", minWidth: "200px" }}
@@ -281,6 +312,23 @@ function ArchElementForm({
         value={description}
         onChange={setDescription}
       />
+
+      {/* Change reason — only visible under the extended preset (REQ-L2-RF-009). */}
+      {isExtendedPreset && (
+        <>
+          <label htmlFor="arch-change-reason" style={labelStyle}>
+            {t("req.changeReason")}
+          </label>
+          <input
+            id="arch-change-reason"
+            data-testid="arch-change-reason-input"
+            value={changeReason}
+            onChange={(e) => setChangeReason(e.target.value)}
+            placeholder={t("req.changeReasonPlaceholder")}
+            style={inputStyle}
+          />
+        </>
+      )}
 
       {saveError && (
         <p
@@ -336,6 +384,384 @@ function ArchElementForm({
           {t("actions.delete")}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ArchTraceLinkPanel — list + create TraceLinks for a specific element
+// (REQ-L2-RF-006, REQ-L3-RF004-003)
+// ---------------------------------------------------------------------------
+
+const ARCH_LINK_TYPES: LinkType[] = [
+  "satisfies",
+  "implements",
+  "verifies",
+  "derives-from",
+];
+
+interface ArchTraceLinkPanelProps {
+  workspaceId: UUID;
+  elementId: UUID;
+}
+
+function ArchTraceLinkPanel({
+  workspaceId,
+  elementId,
+}: ArchTraceLinkPanelProps): JSX.Element {
+  const { t } = useTranslation();
+  const [links, setLinks] = useState<TraceLink[]>([]);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState<boolean>(false);
+  const [targetId, setTargetId] = useState<string>("");
+  const [linkType, setLinkType] = useState<LinkType>("satisfies");
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState<number>(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    async function load(): Promise<void> {
+      try {
+        const [linksResp, reqResp] = await Promise.all([
+          tracelinksApi.listForArtifact(workspaceId, elementId),
+          requirementsApi.list(workspaceId),
+        ]);
+        if (cancelled) return;
+        setLinks(linksResp.results);
+        setRequirements(reqResp.results);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          String(err);
+        setError(msg);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, elementId, reloadKey]);
+
+  const requirementsById: Record<UUID, Requirement> = React.useMemo(() => {
+    const m: Record<UUID, Requirement> = {};
+    for (const r of requirements) m[r.id] = r;
+    return m;
+  }, [requirements]);
+
+  function openForm(): void {
+    setTargetId("");
+    setLinkType("satisfies");
+    setSubmitError(null);
+    setShowForm(true);
+  }
+
+  function cancelForm(): void {
+    setShowForm(false);
+    setSubmitError(null);
+  }
+
+  async function submitForm(
+    e: React.FormEvent<HTMLFormElement>
+  ): Promise<void> {
+    e.preventDefault();
+    if (!targetId) {
+      setSubmitError(t("traceability.targetRequired"));
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await tracelinksApi.create({
+        source_id: elementId,
+        target_id: targetId,
+        link_type: linkType,
+      });
+      setShowForm(false);
+      setTargetId("");
+      setReloadKey((k) => k + 1);
+    } catch (err: unknown) {
+      const apiErr = err as {
+        error?: {
+          message?: string;
+          details?: { field?: string; errors?: string[] }[];
+        };
+      };
+      const baseMsg = apiErr?.error?.message;
+      const firstDetail = apiErr?.error?.details?.[0];
+      const detailMsg = firstDetail
+        ? `${firstDetail.field ?? ""}: ${(firstDetail.errors ?? []).join(", ")}`
+        : "";
+      const msg = baseMsg
+        ? detailMsg
+          ? `${baseMsg} — ${detailMsg}`
+          : baseMsg
+        : String(err);
+      setSubmitError(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      data-testid="arch-tracelink-panel"
+      style={{
+        marginTop: "var(--space-4)",
+        background: "var(--color-surface)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-card)",
+        padding: "var(--space-4)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "var(--space-3)",
+        }}
+      >
+        <h4
+          style={{
+            margin: 0,
+            fontSize: "var(--font-size-base)",
+            fontWeight: 700,
+            color: "var(--color-text)",
+          }}
+        >
+          {t("arch.tracelinkPanelTitle")}
+        </h4>
+        {!showForm && (
+          <button
+            type="button"
+            data-testid="arch-tracelink-create-btn"
+            onClick={openForm}
+            style={primaryButtonStyle}
+          >
+            {t("traceability.create")}
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <form
+          onSubmit={(e) => void submitForm(e)}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-2)",
+            marginBottom: "var(--space-3)",
+            padding: "var(--space-3)",
+            background: "var(--color-surface-raised)",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <label style={{ ...labelStyle, marginBottom: "var(--space-1)" }}>
+            {t("traceability.source")}
+          </label>
+          <input
+            value={elementId}
+            readOnly
+            style={{
+              ...inputStyle,
+              marginBottom: "var(--space-2)",
+              fontFamily: "monospace",
+              fontSize: "var(--font-size-sm)",
+            }}
+          />
+
+          <label style={{ ...labelStyle, marginBottom: "var(--space-1)" }}>
+            {t("traceability.target")}
+          </label>
+          <select
+            data-testid="arch-tracelink-target-select"
+            value={targetId}
+            onChange={(e) => setTargetId(e.target.value)}
+            disabled={isSubmitting}
+            required
+            style={{ ...inputStyle, marginBottom: "var(--space-2)" }}
+          >
+            <option value="">
+              {requirements.length === 0
+                ? t("traceability.noArtifacts")
+                : "—"}
+            </option>
+            {requirements.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title || t("editor.untitled")}
+              </option>
+            ))}
+          </select>
+
+          <label style={{ ...labelStyle, marginBottom: "var(--space-1)" }}>
+            {t("traceability.linkType")}
+          </label>
+          <select
+            data-testid="arch-tracelink-type-select"
+            value={linkType}
+            onChange={(e) => setLinkType(e.target.value as LinkType)}
+            disabled={isSubmitting}
+            style={{ ...inputStyle, marginBottom: "var(--space-2)" }}
+          >
+            {ARCH_LINK_TYPES.map((lt) => (
+              <option key={lt} value={lt}>
+                {lt}
+              </option>
+            ))}
+          </select>
+
+          {submitError && (
+            <p
+              role="alert"
+              style={{
+                color: "var(--color-danger)",
+                fontSize: "var(--font-size-sm)",
+                margin: 0,
+              }}
+            >
+              {submitError}
+            </p>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <button
+              type="button"
+              data-testid="arch-tracelink-cancel-btn"
+              onClick={cancelForm}
+              disabled={isSubmitting}
+              style={{
+                background: "var(--color-surface-raised)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+              }}
+            >
+              {t("actions.cancel")}
+            </button>
+            <button
+              type="submit"
+              data-testid="arch-tracelink-submit-btn"
+              disabled={isSubmitting}
+              style={{
+                ...primaryButtonStyle,
+                opacity: isSubmitting ? 0.6 : 1,
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+              }}
+            >
+              {isSubmitting
+                ? t("traceability.submitting")
+                : t("traceability.submit")}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {isLoading && (
+        <p
+          role="status"
+          style={{
+            color: "var(--color-text-muted)",
+            fontSize: "var(--font-size-sm)",
+            margin: 0,
+          }}
+        >
+          {t("loading")}
+        </p>
+      )}
+
+      {error && !isLoading && (
+        <p
+          role="alert"
+          style={{
+            color: "var(--color-danger)",
+            fontSize: "var(--font-size-sm)",
+            margin: 0,
+          }}
+        >
+          {error}
+        </p>
+      )}
+
+      {!isLoading && !error && links.length === 0 && (
+        <p
+          style={{
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
+            margin: 0,
+          }}
+        >
+          {t("traceability.none")}
+        </p>
+      )}
+
+      {!isLoading && !error && links.length > 0 && (
+        <ul
+          data-testid="arch-tracelink-list"
+          style={{ listStyle: "none", padding: 0, margin: 0 }}
+        >
+          {links.map((link) => {
+            const targetReq = requirementsById[link.target_id];
+            const sourceReq = requirementsById[link.source_id];
+            return (
+              <li
+                key={link.id}
+                data-testid="arch-tracelink-item"
+                style={{
+                  padding: "var(--space-2) var(--space-3)",
+                  marginBottom: "var(--space-2)",
+                  background: "var(--color-surface-raised)",
+                  borderRadius: "var(--radius-md)",
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ fontFamily: "monospace" }}>
+                  {sourceReq?.title ?? link.source_id.slice(0, 8) + "…"}
+                </span>
+                <span
+                  style={{
+                    background: "var(--color-badge-draft)",
+                    color: "var(--color-badge-draft-text)",
+                    padding: "1px 6px",
+                    borderRadius: "var(--radius-full)",
+                    fontSize: "var(--font-size-sm)",
+                  }}
+                >
+                  {link.link_type}
+                </span>
+                <span style={{ fontFamily: "monospace" }}>
+                  {targetReq?.title ?? link.target_id.slice(0, 8) + "…"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -579,7 +1005,19 @@ export default function ArchitectureEditors(): JSX.Element {
                 element={element}
                 onSaved={refresh}
                 onDelete={(id) => void handleDelete(id)}
+                isExtendedPreset={activeWorkspace?.preset === "extended"}
               />
+
+              {/* TraceLink panel for this element (REQ-L2-RF-006).
+                  Use activeWorkspace.id if available, otherwise fall back to
+                  element.workspace_id so the panel still renders when navigating
+                  directly to /architecture/:id without a workspace in context. */}
+              {(activeWorkspace?.id || element.workspace_id) && (
+                <ArchTraceLinkPanel
+                  workspaceId={activeWorkspace?.id ?? element.workspace_id}
+                  elementId={element.id}
+                />
+              )}
             </div>
 
             {/* Linked requirements sidebar (REQ-L3-RF004-003) */}
