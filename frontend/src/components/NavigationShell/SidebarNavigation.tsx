@@ -70,54 +70,6 @@ export function SidebarNavigation(): JSX.Element {
   );
   const switcherRef = React.useRef<HTMLDivElement | null>(null);
 
-  // ---- Create-workspace modal state ---------------------------------------
-  const [isCreateOpen, setIsCreateOpen] = React.useState<boolean>(false);
-  const [createName, setCreateName] = React.useState<string>("");
-  const [createPreset, setCreatePreset] =
-    React.useState<WorkspacePreset>("standard");
-  const [createTerminology, setCreateTerminology] =
-    React.useState<TerminologyProfile>("se_mode");
-  const [createLanguage, setCreateLanguage] = React.useState<string>("de");
-  const [createError, setCreateError] = React.useState<string | null>(null);
-  const [isCreating, setIsCreating] = React.useState<boolean>(false);
-
-  const resetCreateForm = (): void => {
-    setCreateName("");
-    setCreatePreset("standard");
-    setCreateTerminology("se_mode");
-    setCreateLanguage("de");
-    setCreateError(null);
-  };
-
-  const closeCreateModal = (): void => {
-    setIsCreateOpen(false);
-    resetCreateForm();
-  };
-
-  const submitCreateWorkspace = async (): Promise<void> => {
-    const name = createName.trim();
-    if (!name) {
-      setCreateError(t("workspaceCreate.errorRequired"));
-      return;
-    }
-    setIsCreating(true);
-    setCreateError(null);
-    try {
-      const ws = await workspacesApi.create({
-        name,
-        preset: createPreset,
-        terminology_profile: createTerminology,
-        language: createLanguage,
-      });
-      await reloadWorkspaces(ws.id);
-      closeCreateModal();
-    } catch {
-      setCreateError(t("workspaceCreate.errorGeneric"));
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
   // ---- Global search state (REQ-L1-020) -----------------------------------
   const [searchQuery, setSearchQuery] = React.useState<string>("");
   const [searchResults, setSearchResults] = React.useState<SearchHit[]>([]);
@@ -148,26 +100,39 @@ export function SidebarNavigation(): JSX.Element {
   ): Promise<void> => {
     event.preventDefault();
     if (!createFormData.name.trim()) {
-      setCreateError(t("workspace.create.nameRequired") || "Name is required");
+      setCreateError(
+        t("workspaceCreate.errorRequired") ||
+          t("workspace.create.nameRequired") ||
+          "Name is required"
+      );
       return;
     }
     setIsCreating(true);
     setCreateError(null);
     try {
-      await workspacesApi.create({
+      const ws = await workspacesApi.create({
         name: createFormData.name.trim(),
         preset: createFormData.preset,
         terminology_profile: createFormData.terminology_profile,
         language: createFormData.language,
       });
-      window.location.reload();
+      await reloadWorkspaces(ws.id);
+      setShowCreateForm(false);
+      setCreateFormData({
+        name: "",
+        preset: "standard",
+        terminology_profile: "se_mode",
+        language: "de",
+      });
     } catch (err) {
       const apiErr = err as { error?: { message?: string } };
       setCreateError(
         apiErr?.error?.message ||
+          t("workspaceCreate.errorGeneric") ||
           t("workspace.create.error") ||
           "Failed to create workspace"
       );
+    } finally {
       setIsCreating(false);
     }
   };
@@ -682,6 +647,7 @@ export function SidebarNavigation(): JSX.Element {
                   fontFamily: "inherit",
                 }}
               >
+                <option value="minimal">minimal</option>
                 <option value="standard">standard</option>
                 <option value="extended">extended</option>
               </select>
