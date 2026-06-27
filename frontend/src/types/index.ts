@@ -81,7 +81,7 @@ export interface ArchitectureElement {
   workspace_id: UUID;
   title: string;
   description: string;
-  element_type: string;
+  element_type: ElementType;
   version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -236,7 +236,6 @@ export const REQ_CATEGORIES = [
   "ui-ux",
   "data",
   "integration",
-  "test",
 ] as const;
 
 export type ReqCategory = typeof REQ_CATEGORIES[number];
