@@ -18,7 +18,8 @@
     "settings": "Workspace Settings",
     "logout": "Logout",
     "import": "Import",
-    "icds": "ICDs"
+    "icds": "ICDs",
+    "diagrams": "Diagrams"
   },
   "workspaceCreate": {
     "button": "Create workspace",
@@ -211,5 +212,25 @@
     "createFailed": "Failed to create ICD.",
     "newVersionFailed": "Failed to create new version.",
     "immutableHint": "Past versions are immutable. Use 'New Version' to evolve the contract."
+  },
+  "diagrams": {
+    "title": "Diagrams",
+    "create": "New Diagram",
+    "edit": "Edit Source",
+    "delete": "Delete",
+    "deleteConfirm": "Really delete this diagram?",
+    "type": "Type",
+    "source": "Source",
+    "description": "Description",
+    "name": "Name",
+    "nameRequired": "Please enter a name.",
+    "noItems": "No diagrams yet. Create one to get started.",
+    "emptySource": "(no source content)",
+    "notFound": "Diagram not found.",
+    "traceability": "Traceability",
+    "noTraceLinks": "No artifacts are linked to this diagram yet.",
+    "type.block": "Block Diagram",
+    "type.flow": "Flow Diagram",
+    "type.context": "Context Diagram"
   }
 }

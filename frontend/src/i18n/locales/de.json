@@ -18,7 +18,8 @@
     "settings": "Workspace-Einstellungen",
     "logout": "Abmelden",
     "import": "Import",
-    "icds": "ICDs"
+    "icds": "ICDs",
+    "diagrams": "Diagramme"
   },
   "workspaceCreate": {
     "button": "Workspace erstellen",
@@ -211,5 +212,25 @@
     "createFailed": "ICD konnte nicht erstellt werden.",
     "newVersionFailed": "Neue Version konnte nicht erstellt werden.",
     "immutableHint": "Frühere Versionen sind unveränderlich. Über 'Neue Version' den Vertrag weiterentwickeln."
+  },
+  "diagrams": {
+    "title": "Diagramme",
+    "create": "Neues Diagramm",
+    "edit": "Quelle bearbeiten",
+    "delete": "Löschen",
+    "deleteConfirm": "Dieses Diagramm wirklich löschen?",
+    "type": "Typ",
+    "source": "Quelle",
+    "description": "Beschreibung",
+    "name": "Name",
+    "nameRequired": "Bitte einen Namen angeben.",
+    "noItems": "Noch keine Diagramme. Erstellen Sie eines, um zu beginnen.",
+    "emptySource": "(kein Quellinhalt)",
+    "notFound": "Diagramm nicht gefunden.",
+    "traceability": "Traceability",
+    "noTraceLinks": "Keine Artefakte mit diesem Diagramm verknüpft.",
+    "type.block": "Block-Diagramm",
+    "type.flow": "Fluss-Diagramm",
+    "type.context": "Kontext-Diagramm"
   }
 }
