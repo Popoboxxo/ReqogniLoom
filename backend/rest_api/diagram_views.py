@@ -1,0 +1,229 @@
+"""
+COMP-RA-001 — DiagramViewSet (REQ-L2-DS-001).
+
+Minimal REST endpoints for Diagram CRUD.
+
+Endpoints:
+  GET    /api/v1/diagrams/           — list diagrams (filter by workspace_id)
+  POST   /api/v1/diagrams/           — create diagram with initial version
+  GET    /api/v1/diagrams/<pk>/      — retrieve diagram details
+  PATCH  /api/v1/diagrams/<pk>/      — update diagram (creates new version)
+  DELETE /api/v1/diagrams/<pk>/      — delete diagram
+"""
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID
+
+from rest_framework import status
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.viewsets import ViewSet
+
+from diagram.models import Diagram, DiagramType, PayloadFormat
+from diagram.services import (
+    create_diagram,
+    get_diagram,
+    list_versions,
+    update_diagram,
+    DiagramResult,
+)
+from persistence.models import Tenant, User
+from rest_api.auth_enforcer import get_auth_context
+from rest_api.serializers import StandardPagination, build_error_response, detect_lang
+
+
+class DiagramViewSet(ViewSet):
+    """REST ViewSet for Diagram CRUD operations."""
+
+    pagination_class = StandardPagination
+
+    # -- helpers -----------------------------------------------------------
+
+    @property
+    def paginator(self) -> StandardPagination:
+        if not hasattr(self, "_paginator"):
+            self._paginator = self.pagination_class()
+        return self._paginator
+
+    def _paginate(self, request: Request, data: list) -> Response:
+        page = self.paginator.paginate_queryset(data, request, view=self)
+        if page is not None:
+            return self.paginator.get_paginated_response(page)
+        return Response(data)
+
+    def _resolve_tenant(self, request: Request) -> Tenant:
+        ctx = get_auth_context(request)
+        return Tenant.objects.get(id=ctx.tenant_id)
+
+    def _resolve_user(self, request: Request) -> User | None:
+        ctx = get_auth_context(request)
+        return User.objects.filter(id=ctx.user_id).first()
+
+    def _diagram_to_dict(self, diagram: Diagram) -> dict[str, Any]:
+        return {
+            "id": str(diagram.id),
+            "name": diagram.name,
+            "diagram_type": diagram.diagram_type,
+            "description": diagram.description,
+            "current_version": str(diagram.current_version_id) if diagram.current_version_id else None,
+            "created_at": diagram.created_at.isoformat() if diagram.created_at else None,
+            "version_count": diagram.versions.count() if diagram.id else 0,
+        }
+
+    # -- list --------------------------------------------------------------
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/diagrams/ — list diagrams, filtered by workspace_id."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id = request.query_params.get("workspace_id")
+            if not workspace_id:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # Tenant-scoped query
+            diagrams = Diagram.objects.filter(
+                tenant_id=ctx.tenant_id,
+            ).order_by("-created_at")
+            serialized = [self._diagram_to_dict(d) for d in diagrams]
+            return self._paginate(request, serialized)
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # -- create ------------------------------------------------------------
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/diagrams/ — create a new diagram with initial version."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            name = request.data.get("name")
+            diagram_type = request.data.get("diagram_type", DiagramType.BLOCK)
+            payload_format = request.data.get("payload_format", PayloadFormat.JSON)
+            content = request.data.get("content", "{}")
+            description = request.data.get("description", "")
+
+            if not name or not str(name).strip():
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="name is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            tenant = self._resolve_tenant(request)
+            user = self._resolve_user(request)
+
+            diagram = create_diagram(
+                name=str(name).strip(),
+                diagram_type=str(diagram_type),
+                payload_format=str(payload_format),
+                content=str(content),
+                tenant=tenant,
+                description=str(description),
+                created_by=user,
+            )
+            return Response(
+                self._diagram_to_dict(diagram),
+                status=status.HTTP_201_CREATED,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # -- retrieve ----------------------------------------------------------
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/diagrams/<pk>/ — get diagram details with version info."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            result: DiagramResult = get_diagram(diagram_id=UUID(pk))
+            diagram = result.diagram
+            version = result.version
+            return Response({
+                "id": str(diagram.id),
+                "name": diagram.name,
+                "diagram_type": diagram.diagram_type,
+                "description": diagram.description,
+                "payload_format": version.payload_format if version else None,
+                "content": version.payload if version else None,
+                "version_number": version.version_number if version else None,
+                "created_at": diagram.created_at.isoformat() if diagram.created_at else None,
+            })
+        except Diagram.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # -- partial_update ----------------------------------------------------
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/diagrams/<pk>/ — update diagram (creates new version)."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            payload_format = request.data.get("payload_format")
+            content = request.data.get("content")
+
+            if not payload_format or not content:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="payload_format and content are required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user = self._resolve_user(request)
+            new_version = update_diagram(
+                diagram_id=UUID(pk),
+                payload_format=str(payload_format),
+                content=str(content),
+                modified_by=user,
+            )
+            return Response({
+                "version_number": new_version.version_number,
+                "payload_format": new_version.payload_format,
+                "content": new_version.payload,
+            })
+        except Diagram.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # -- destroy -----------------------------------------------------------
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/diagrams/<pk>/ — delete a diagram and all versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            diagram = Diagram.objects.get(id=UUID(pk), tenant_id=ctx.tenant_id)
+            diagram.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Diagram.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
