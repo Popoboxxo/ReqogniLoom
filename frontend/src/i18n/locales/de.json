@@ -14,6 +14,26 @@
     "settings": "Workspace-Einstellungen",
     "logout": "Abmelden"
   },
+  "workspaceCreate": {
+    "button": "Workspace erstellen",
+    "title": "Neuen Workspace erstellen",
+    "nameLabel": "Name",
+    "namePlaceholder": "Workspace-Name",
+    "presetLabel": "Preset",
+    "presetMinimal": "Minimal",
+    "presetStandard": "Standard",
+    "presetExtended": "Erweitert",
+    "terminologyLabel": "Terminologie",
+    "terminologySeMode": "Systems Engineering",
+    "terminologyDevMode": "Dev Mode",
+    "languageLabel": "Sprache",
+    "languageDe": "Deutsch",
+    "languageEn": "Englisch",
+    "submit": "Erstellen",
+    "cancel": "Abbrechen",
+    "errorRequired": "Bitte geben Sie einen Namen an.",
+    "errorGeneric": "Workspace konnte nicht erstellt werden."
+  },
   "errors": {
     "generic": "Ein unerwarteter Fehler ist aufgetreten.",
     "not_found": "Ressource nicht gefunden.",

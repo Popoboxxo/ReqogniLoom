@@ -14,6 +14,26 @@
     "settings": "Workspace Settings",
     "logout": "Logout"
   },
+  "workspaceCreate": {
+    "button": "Create workspace",
+    "title": "Create new workspace",
+    "nameLabel": "Name",
+    "namePlaceholder": "Workspace name",
+    "presetLabel": "Preset",
+    "presetMinimal": "Minimal",
+    "presetStandard": "Standard",
+    "presetExtended": "Extended",
+    "terminologyLabel": "Terminology",
+    "terminologySeMode": "Systems Engineering",
+    "terminologyDevMode": "Dev Mode",
+    "languageLabel": "Language",
+    "languageDe": "German",
+    "languageEn": "English",
+    "submit": "Create",
+    "cancel": "Cancel",
+    "errorRequired": "Please enter a name.",
+    "errorGeneric": "Failed to create workspace."
+  },
   "errors": {
     "generic": "An unexpected error occurred.",
     "not_found": "Resource not found.",
