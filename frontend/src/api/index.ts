@@ -11,3 +11,5 @@ export { artifactsApi } from "./artifacts";
 export { baselinesApi } from "./baselines";
 export type { Baseline } from "./baselines";
 export { workspacesApi } from "./workspaces";
+export { searchApi } from "./search";
+export type { SearchHit, SearchResponse } from "./search";
