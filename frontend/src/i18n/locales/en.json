@@ -50,6 +50,7 @@
     "title": "Title",
     "description": "Description",
     "category": "Category",
+    "categoryPlaceholder": "Select category",
     "workflowState": "Workflow State",
     "editMode": "Edit",
     "previewMode": "Preview",
@@ -76,7 +77,14 @@
     "empty": "No trace links available.",
     "source": "Source",
     "target": "Target",
-    "linkType": "Link Type"
+    "linkType": "Link Type",
+    "create": "New Link",
+    "noArtifacts": "No artifacts available.",
+    "sourceRequired": "Please select a source artifact.",
+    "targetRequired": "Please select a target artifact.",
+    "sameEndpoints": "Source and target must differ.",
+    "submit": "Create",
+    "submitting": "Creating..."
   },
   "baselines": {
     "placeholder": "Baselines — in progress.",
@@ -96,5 +104,19 @@
     "devMode": "Developer Mode",
     "seMode": "SE Mode",
     "saved": "Saved."
+  },
+  "categories": {
+    "functional": "Functional",
+    "non-functional": "Non-Functional",
+    "api": "API",
+    "ui-ux": "UI/UX",
+    "data": "Data",
+    "integration": "Integration",
+    "test": "Test"
+  },
+  "search": {
+    "placeholder": "Search...",
+    "noResults": "No results.",
+    "loading": "Searching..."
   }
 }

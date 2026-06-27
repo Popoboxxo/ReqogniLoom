@@ -224,3 +224,19 @@ export const TERMINOLOGY_LABELS: Record<TerminologyProfile, TerminologyLabels> =
     component: "Component",
   },
 };
+
+// ---------------------------------------------------------------------------
+// Requirement categories (REQ-L2-RF-001)
+// ---------------------------------------------------------------------------
+
+export const REQ_CATEGORIES = [
+  "functional",
+  "non-functional",
+  "api",
+  "ui-ux",
+  "data",
+  "integration",
+  "test",
+] as const;
+
+export type ReqCategory = typeof REQ_CATEGORIES[number];

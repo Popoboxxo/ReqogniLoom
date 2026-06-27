@@ -24,6 +24,7 @@ import { TraceabilityPanel } from "./TraceabilityPanel";
 import { requirementsApi } from "../../api/requirements";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { Requirement, TraceLink } from "../../types";
+import { REQ_CATEGORIES } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Workflow states (backend is source of truth, these are common values)
@@ -167,13 +168,20 @@ function RequirementDetailEditor({
         <label htmlFor="req-category" style={{ ...labelStyle, marginTop: "var(--space-4)" }}>
           {t("editor.category")}
         </label>
-        <input
+        <select
           id="req-category"
           data-testid="req-category"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           style={inputStyle}
-        />
+        >
+          <option value="">-- {t("editor.categoryPlaceholder")} --</option>
+          {REQ_CATEGORIES.map((cat) => (
+            <option key={cat} value={cat}>
+              {t(`categories.${cat}`)}
+            </option>
+          ))}
+        </select>
 
         {/* Workflow state (REQ-L3-RF003-002) */}
         <label htmlFor="req-workflow" style={labelStyle}>

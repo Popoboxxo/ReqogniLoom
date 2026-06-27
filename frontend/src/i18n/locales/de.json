@@ -50,6 +50,7 @@
     "title": "Titel",
     "description": "Beschreibung",
     "category": "Kategorie",
+    "categoryPlaceholder": "Kategorie wählen",
     "workflowState": "Workflow-Status",
     "editMode": "Bearbeiten",
     "previewMode": "Vorschau",
@@ -76,7 +77,14 @@
     "empty": "Keine TraceLinks vorhanden.",
     "source": "Quelle",
     "target": "Ziel",
-    "linkType": "Link-Typ"
+    "linkType": "Link-Typ",
+    "create": "Neuen Link erstellen",
+    "noArtifacts": "Keine Artefakte vorhanden.",
+    "sourceRequired": "Bitte ein Quell-Artefakt auswählen.",
+    "targetRequired": "Bitte ein Ziel-Artefakt auswählen.",
+    "sameEndpoints": "Quelle und Ziel müssen unterschiedlich sein.",
+    "submit": "Erstellen",
+    "submitting": "Erstellt..."
   },
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",
@@ -96,5 +104,19 @@
     "devMode": "Entwickler-Modus",
     "seMode": "SE-Modus",
     "saved": "Gespeichert."
+  },
+  "categories": {
+    "functional": "Funktional",
+    "non-functional": "Nicht-funktional",
+    "api": "API",
+    "ui-ux": "UI/UX",
+    "data": "Daten",
+    "integration": "Integration",
+    "test": "Test"
+  },
+  "search": {
+    "placeholder": "Suchen...",
+    "noResults": "Keine Treffer.",
+    "loading": "Suche..."
   }
 }
