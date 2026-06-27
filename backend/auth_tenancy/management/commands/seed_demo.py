@@ -27,6 +27,7 @@ from django.core.management.base import BaseCommand
 from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
+from presets.models import WorkspacePresetConfig
 
 _DEMO_TENANT_SLUG = "demo"
 _DEMO_TENANT_NAME = "Demo Tenant"
@@ -96,6 +97,17 @@ class Command(BaseCommand):
             tenant=tenant,
             name=_DEMO_WORKSPACE_NAME,
             defaults={"preset": {"name": "extended"}},
+        )
+        # Ensure WorkspacePresetConfig matches the workspace.preset JSONField so
+        # FeatureGateService uses the correct tier instead of defaulting to minimal.
+        WorkspacePresetConfig.unscoped.update_or_create(
+            workspace=workspace,
+            defaults={
+                "tenant": tenant,
+                "active_tier": "extended",
+                "terminology_profile": "se_mode",
+                "downgrade_policy": "warn",
+            },
         )
         return workspace
 

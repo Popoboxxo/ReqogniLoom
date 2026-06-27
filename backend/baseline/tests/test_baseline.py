@@ -786,3 +786,163 @@ class TestScopeMismatchMessage:
         with pytest.raises(ScopeMismatchError) as exc_info:
             raise ScopeMismatchError()
         assert "different scopes" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# REQ-L2-RA-008: Baseline CRUD round-trip with extended preset
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestBaselineBuiltinWithExtendedPreset:
+    """Baseline create → get round-trip when WorkspacePresetConfig uses
+    extended tier (REQ-L2-RA-008). Verifies that the lazy-created config in
+    presets/gate.py picks up the correct tier from workspace.preset."""
+
+    def _make_tenant(self):
+        from persistence.models import Tenant
+        return Tenant.objects.create(
+            name="BL-Ext-Tenant",
+            slug=f"bl-ext-{uuid.uuid4().hex[:8]}",
+        )
+
+    def test_create_and_get_baseline_round_trip(self):
+        """REQ-L2-RA-008: With extended preset, create baseline then
+        retrieve it — snapshot must exist with correct entries."""
+        from persistence.tenancy import TenantContext
+        from persistence.models import Workspace
+        from presets.models import WorkspacePresetConfig
+        from baseline.store import BaselineStore
+
+        tenant = self._make_tenant()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.unscoped.create(
+                tenant=tenant,
+                name="Extended Workspace",
+                preset={"name": "extended"},
+            )
+            WorkspacePresetConfig.unscoped.create(
+                workspace=workspace,
+                tenant=tenant,
+                active_tier="extended",
+                terminology_profile="se_mode",
+                downgrade_policy="warn",
+            )
+
+            store = BaselineStore()
+            tuples = _make_delta_tuples(3, entity_type="requirement")
+            meta = _make_metadata(
+                name="Ext-Preset-BL",
+                scope="project",
+                workspace_id=workspace.id,
+            )
+            bl_id = store.persist_delta_index(tuples, meta, tenant_id=tenant.id)
+
+            # Round-trip: get the baseline back
+            detail = store.get(bl_id)
+            assert detail.baseline_id == bl_id
+            assert detail.scope == "project"
+            assert detail.name == "Ext-Preset-BL"
+            assert len(detail.entries) == 3
+
+            # Verify snapshot content
+            stored_ids = {e.item_id for e in detail.entries}
+            expected_ids = {t.item_id for t in tuples}
+            assert stored_ids == expected_ids
+
+            # Verify listing also works
+            summaries = store.list(
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+            )
+            names = [s.name for s in summaries]
+            assert "Ext-Preset-BL" in names
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_create_and_list_with_extended_preset(self):
+        """With extended preset, multiple baselines can be created and listed."""
+        from persistence.tenancy import TenantContext
+        from persistence.models import Workspace
+        from presets.models import WorkspacePresetConfig
+        from baseline.store import BaselineStore
+
+        tenant = self._make_tenant()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.unscoped.create(
+                tenant=tenant,
+                name="Extended List WS",
+                preset={"name": "extended"},
+            )
+            WorkspacePresetConfig.unscoped.create(
+                workspace=workspace,
+                tenant=tenant,
+                active_tier="extended",
+                terminology_profile="se_mode",
+                downgrade_policy="warn",
+            )
+            store = BaselineStore()
+            ids = []
+            for i in range(3):
+                bl_id = store.persist_delta_index(
+                    [],
+                    _make_metadata(
+                        name=f"BL-{i}",
+                        workspace_id=workspace.id,
+                    ),
+                    tenant_id=tenant.id,
+                )
+                ids.append(bl_id)
+
+            # Verify all created baselines are listable
+            summaries = store.list(workspace_id=workspace.id, tenant_id=tenant.id)
+            assert len(summaries) == 3
+            returned_ids = {s.baseline_id for s in summaries}
+            assert returned_ids == set(ids)
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_workspace_preset_name_propagates_to_config(self):
+        """When gate.py lazy-creates WorkspacePresetConfig, it should pick
+        up the tier name from workspace.preset JSONField."""
+        from persistence.tenancy import TenantContext
+        from persistence.models import Workspace
+        from presets.gate import _get_or_create_preset_config
+
+        tenant = self._make_tenant()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.unscoped.create(
+                tenant=tenant,
+                name="Extended WS",
+                preset={"name": "extended"},
+            )
+            # Direct call to the lazy-creator (simulates first FeatureGateService access)
+            config = _get_or_create_preset_config(str(workspace.id))
+            assert config.active_tier == "extended", (
+                f"Expected active_tier='extended' from workspace.preset, "
+                f"got '{config.active_tier}'"
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_workspace_without_preset_defaults_to_minimal(self):
+        """When workspace.preset is empty, lazy-created config defaults to minimal."""
+        from persistence.tenancy import TenantContext
+        from persistence.models import Workspace
+        from presets.gate import _get_or_create_preset_config
+
+        tenant = self._make_tenant()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.unscoped.create(
+                tenant=tenant,
+                name="Minimal WS",
+                preset={},
+            )
+            config = _get_or_create_preset_config(str(workspace.id))
+            assert config.active_tier == "minimal"
+        finally:
+            TenantContext.clear_tenant()

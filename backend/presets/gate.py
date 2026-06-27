@@ -31,6 +31,7 @@ from presets.exceptions import (
 from presets.registry import (
     FEATURE_KEYS,
     TIER_MINIMAL,
+    TIER_STANDARD,
     TIER_EXTENDED,
     PresetConfig,
     PresetRegistry,
@@ -88,11 +89,21 @@ def _get_or_create_preset_config(workspace_id: str):
     from presets.models import WorkspacePresetConfig
 
     workspace = Workspace.unscoped.get(pk=workspace_id)
+
+    # Read the initial tier from workspace.preset JSONField (set by seed_demo
+    # or manual bootstrap).  Falls back to TIER_MINIMAL when the field is
+    # empty or contains an unknown tier name.
+    initial_tier = TIER_MINIMAL
+    if isinstance(workspace.preset, dict):
+        preset_name = workspace.preset.get("name")
+        if preset_name in (TIER_MINIMAL, TIER_STANDARD, TIER_EXTENDED):
+            initial_tier = preset_name
+
     config, _ = WorkspacePresetConfig.unscoped.get_or_create(
         workspace=workspace,
         defaults={
             "tenant": workspace.tenant,
-            "active_tier": TIER_MINIMAL,
+            "active_tier": initial_tier,
             "terminology_profile": PROFILE_DEV_MODE,
             "downgrade_policy": "block",
         },
