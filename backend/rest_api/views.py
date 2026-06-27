@@ -33,7 +33,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -1290,6 +1290,50 @@ class WorkspaceViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response({"id": str(pk), "preset": target_tier})
+
+    @action(detail=True, methods=["get"], url_path="reports/pdf")
+    def report_pdf(self, request: Request, pk: str = None, **kwargs: Any) -> HttpResponse:
+        """GET /api/v1/workspaces/{pk}/reports/pdf/?layout=...
+
+        REQ-L2-AS-016 / REQ-L1-023: Generate a PDF report for the workspace.
+
+        Query params:
+            layout: "requirement_document" (default) | "traceability_matrix"
+
+        Returns:
+            application/pdf response with Content-Disposition header.
+        """
+        lang = detect_lang(request)
+        layout = request.query_params.get("layout", "requirement_document")
+
+        try:
+            ctx = get_auth_context(request)
+            # Verify workspace exists and user has access
+            ws = self._svc().get_workspace(UUID(pk), ctx)
+
+            from traceability.pdf_report_generator import generate_pdf_report
+
+            pdf_bytes = generate_pdf_report(
+                workspace_id=UUID(pk),
+                layout=layout,
+                ctx=ctx,
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        ws_name = ws.name.replace(" ", "_")
+        filename = f"{ws_name}_{layout}.pdf"
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
 
 # ---------------------------------------------------------------------------
