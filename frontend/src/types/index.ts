@@ -123,6 +123,79 @@ export interface Artifact {
 }
 
 // ---------------------------------------------------------------------------
+// ADR (mirrors AdrSerializer, REQ-L1-029)
+// ---------------------------------------------------------------------------
+
+export type AdrStatus =
+  | "Draft"
+  | "In Review"
+  | "Approved"
+  | "Rejected"
+  | "Superseded";
+
+export interface Adr {
+  id: UUID;
+  workspace_id: UUID;
+  title: string;
+  description: string;
+  context: string;
+  consequences: string;
+  status: AdrStatus;
+  version: number;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+// ---------------------------------------------------------------------------
+// Risk (mirrors RiskSerializer, REQ-L1-029)
+// ---------------------------------------------------------------------------
+
+export type RiskProbability = "low" | "medium" | "high";
+export type RiskImpact = "low" | "medium" | "high";
+export type RiskSeverity = "low" | "medium" | "high";
+export type RiskCategory = "technical" | "operational" | "organizational" | "business";
+export type RiskStatus = "Identified" | "Monitored" | "Mitigated" | "Accepted" | "Closed";
+
+export interface Risk {
+  id: UUID;
+  workspace_id: UUID;
+  title: string;
+  description: string;
+  probability: RiskProbability;
+  impact: RiskImpact;
+  risk_score: number;
+  severity: RiskSeverity;
+  category: RiskCategory;
+  owner: string;
+  mitigation_strategy: string;
+  status: RiskStatus;
+  version: number;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+// ---------------------------------------------------------------------------
+// Issue (mirrors IssueSerializer, REQ-L1-029)
+// ---------------------------------------------------------------------------
+
+export type IssueSeverity = "critical" | "high" | "medium" | "low";
+export type IssueCategory = "defect" | "improvement" | "documentation" | "question";
+export type IssueStatus = "Open" | "In Progress" | "Resolved" | "Closed" | "Wontfix";
+
+export interface Issue {
+  id: UUID;
+  workspace_id: UUID;
+  title: string;
+  description: string;
+  severity: IssueSeverity;
+  category: IssueCategory;
+  status: IssueStatus;
+  tags: string[];
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+// ---------------------------------------------------------------------------
 // Paginated response (mirrors StandardPagination format)
 // ---------------------------------------------------------------------------
 

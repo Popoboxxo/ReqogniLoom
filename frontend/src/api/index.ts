@@ -13,3 +13,6 @@ export type { Baseline } from "./baselines";
 export { workspacesApi } from "./workspaces";
 export { searchApi } from "./search";
 export type { SearchHit, SearchResponse } from "./search";
+export { adrsApi } from "./adrs";
+export { risksApi } from "./risks";
+export { issuesApi } from "./issues";
