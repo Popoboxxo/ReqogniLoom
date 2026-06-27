@@ -610,7 +610,7 @@ export function SidebarNavigation(): JSX.Element {
             >
               <input
                 type="text"
-                data-testid="create-workspace-name"
+                data-testid="new-workspace-name"
                 placeholder={t("workspace.create.namePlaceholder") || "Name"}
                 value={createFormData.name}
                 onChange={(e) =>
@@ -686,7 +686,7 @@ export function SidebarNavigation(): JSX.Element {
               <div style={{ display: "flex", gap: "var(--space-2)" }}>
                 <button
                   type="submit"
-                  data-testid="create-workspace-submit"
+                  data-testid="new-workspace-submit"
                   disabled={isCreating}
                   style={{
                     flex: 1,

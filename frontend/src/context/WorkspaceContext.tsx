@@ -30,11 +30,22 @@ import { PRESET_VISIBILITY, TERMINOLOGY_LABELS } from "../types";
 import { workspacesApi } from "../api/workspaces";
 import { useAuth } from "./AuthContext";
 
-// Normalize preset field: backend may return {name: "extended"} or "extended"
+// Normalize preset field: backend may return {name: "extended"}, {tier: "minimal", language, terminology_profile}, or "extended"
 function normalizePreset(ws: Workspace): Workspace {
   const raw = ws.preset as unknown;
-  if (typeof raw === "object" && raw !== null && "name" in raw) {
-    return { ...ws, preset: (raw as { name: string }).name as WorkspacePreset };
+  if (typeof raw === "object" && raw !== null) {
+    if ("name" in raw) {
+      return { ...ws, preset: (raw as { name: string }).name as WorkspacePreset };
+    }
+    if ("tier" in raw) {
+      const p = raw as { tier: string; language?: string; terminology_profile?: string };
+      return {
+        ...ws,
+        preset: p.tier as WorkspacePreset,
+        language: ws.language ?? p.language,
+        terminology_profile: ws.terminology_profile ?? (p.terminology_profile as import("../types").TerminologyProfile | undefined),
+      };
+    }
   }
   return ws;
 }
