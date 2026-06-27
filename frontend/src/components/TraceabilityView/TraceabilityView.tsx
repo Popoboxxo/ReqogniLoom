@@ -19,9 +19,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { tracelinksApi } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
+import { architectureApi } from "../../api/architecture";
 import { artifactsApi } from "../../api/artifacts";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
+  ArchitectureElement,
   Artifact,
   LinkType,
   Requirement,
@@ -64,7 +66,7 @@ interface CreateFormData {
 const INITIAL_FORM: CreateFormData = {
   source_id: "",
   target_id: "",
-  link_type: "parent-child",
+  link_type: "satisfies",
 };
 
 function formatId(id: UUID): string {
@@ -76,7 +78,9 @@ function renderEndpoint(id: UUID, titles: Record<UUID, string>): string {
   return title ? `${title} (${formatId(id)})` : formatId(id);
 }
 
-function artifactLabel(a: Artifact): string {
+function artifactLabel(a: Artifact, titles: Record<UUID, string>): string {
+  const title = titles[a.id];
+  if (title) return `${a.artifact_type}: ${title} (${formatId(a.id)})`;
   return `${a.artifact_type} (${formatId(a.id)})`;
 }
 
@@ -126,12 +130,14 @@ export default function TraceabilityView(): JSX.Element {
     async function load(): Promise<void> {
       if (!activeWorkspace) return;
       try {
-        // Load links, requirements and artifacts in parallel.
-        // - requirements provide titles for endpoint rendering
-        // - artifacts populate the create-form selects
-        const [linksResp, reqResp, artifactsResp] = await Promise.all([
+        // Load links, requirements, architecture elements and artifacts in parallel.
+        // - requirements + architecture provide titles for endpoint rendering
+        // - artifacts populate the create-form selects (artifact UUIDs are
+        //   the actual TraceLink endpoint identifiers).
+        const [linksResp, reqResp, archResp, artifactsResp] = await Promise.all([
           tracelinksApi.list(activeWorkspace.id),
           requirementsApi.list(activeWorkspace.id),
+          architectureApi.list(activeWorkspace.id),
           artifactsApi.list(activeWorkspace.id),
         ]);
         if (cancelled) return;
@@ -139,6 +145,9 @@ export default function TraceabilityView(): JSX.Element {
         const titles: Record<UUID, string> = {};
         for (const r of reqResp.results as Requirement[]) {
           titles[r.id] = r.title || t("editor.untitled");
+        }
+        for (const el of archResp.results as ArchitectureElement[]) {
+          titles[el.id] = el.title || t("editor.untitled");
         }
 
         setState({
@@ -230,9 +239,23 @@ export default function TraceabilityView(): JSX.Element {
       setFormData(INITIAL_FORM);
       setReloadKey((k) => k + 1);
     } catch (err: unknown) {
-      const msg =
-        (err as { error?: { message?: string } })?.error?.message ??
-        String(err);
+      // Prefer backend message + first detail; fallback to stringified error.
+      const apiErr = err as {
+        error?: {
+          message?: string;
+          details?: { field?: string; errors?: string[] }[];
+        };
+      };
+      const baseMsg = apiErr?.error?.message;
+      const firstDetail = apiErr?.error?.details?.[0];
+      const detailMsg = firstDetail
+        ? `${firstDetail.field ?? ""}: ${(firstDetail.errors ?? []).join(", ")}`
+        : "";
+      const msg = baseMsg
+        ? detailMsg
+          ? `${baseMsg} — ${detailMsg}`
+          : baseMsg
+        : String(err);
       setFormError(msg);
     } finally {
       setIsSubmitting(false);
@@ -373,7 +396,7 @@ export default function TraceabilityView(): JSX.Element {
               </option>
               {state.artifacts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {artifactLabel(a)}
+                  {artifactLabel(a, state.titles)}
                 </option>
               ))}
             </select>
@@ -409,7 +432,7 @@ export default function TraceabilityView(): JSX.Element {
               </option>
               {state.artifacts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {artifactLabel(a)}
+                  {artifactLabel(a, state.titles)}
                 </option>
               ))}
             </select>
