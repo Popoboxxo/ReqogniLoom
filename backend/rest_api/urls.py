@@ -31,7 +31,11 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
+from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.auth_views import LoginView, MeView
+from rest_api.diagram_views import DiagramViewSet
+from rest_api.icd_views import IcdViewSet
+from rest_api.metrics_views import MetricsViewSet
 from rest_api.views import (
     AdrViewSet,
     ArtifactViewSet,
@@ -65,6 +69,10 @@ router.register(r"adrs", AdrViewSet, basename="adr")
 router.register(r"risks", RiskViewSet, basename="risk")
 router.register(r"issues", IssueViewSet, basename="issue")
 router.register(r"search", SearchViewSet, basename="search")
+router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
+router.register(r"diagrams", DiagramViewSet, basename="diagram")
+router.register(r"icds", IcdViewSet, basename="icd")
+router.register(r"metrics", MetricsViewSet, basename="metrics")
 
 # ---------------------------------------------------------------------------
 # URL patterns
