@@ -48,11 +48,37 @@ const HOVER_BG = "rgba(255,255,255,0.05)";
 
 export function SidebarNavigation(): JSX.Element {
   const { t } = useTranslation();
-  const { isFeatureVisible, activeWorkspace, terminologyLabel } = useWorkspace();
+  const {
+    isFeatureVisible,
+    activeWorkspace,
+    workspaces,
+    setActiveWorkspace,
+    terminologyLabel,
+  } = useWorkspace();
   const { logout } = useAuth();
   const location = useLocation();
   const [hoveredPath, setHoveredPath] = React.useState<string | null>(null);
   const [hoveredButton, setHoveredButton] = React.useState<string | null>(null);
+  const [isSwitcherOpen, setIsSwitcherOpen] = React.useState<boolean>(false);
+  const [hoveredOptionId, setHoveredOptionId] = React.useState<string | null>(
+    null
+  );
+  const switcherRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Click-outside handler — close dropdown when clicking outside
+  React.useEffect(() => {
+    if (!isSwitcherOpen) return;
+    const handler = (event: MouseEvent): void => {
+      if (
+        switcherRef.current &&
+        !switcherRef.current.contains(event.target as Node)
+      ) {
+        setIsSwitcherOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [isSwitcherOpen]);
 
   const handleLanguageToggle = (): void => {
     const next = i18n.language.startsWith("de") ? "en" : "de";
@@ -160,10 +186,12 @@ export function SidebarNavigation(): JSX.Element {
         })}
       </ul>
 
-      {/* Workspace info */}
+      {/* Workspace switcher (REQ-L2-RF-012) */}
       {activeWorkspace && (
         <div
+          ref={switcherRef}
           style={{
+            position: "relative",
             borderTop: `1px solid ${SIDEBAR_BORDER}`,
             paddingTop: "var(--space-3)",
             marginTop: "var(--space-3)",
@@ -174,20 +202,60 @@ export function SidebarNavigation(): JSX.Element {
             padding: "var(--space-3) var(--space-2) 0",
           }}
         >
-          <div
-            title="Active workspace"
+          <button
+            type="button"
+            data-testid="workspace-switcher"
+            aria-haspopup="listbox"
+            aria-expanded={isSwitcherOpen}
+            onClick={() => setIsSwitcherOpen((open) => !open)}
+            onMouseEnter={() => setHoveredButton("switcher")}
+            onMouseLeave={() => setHoveredButton(null)}
             style={{
-              color: SIDEBAR_TEXT_MUTED,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "var(--space-2)",
+              width: "100%",
+              padding: "var(--space-2) var(--space-3)",
+              borderRadius: "var(--radius-md)",
+              border: `1px solid ${SIDEBAR_BORDER}`,
+              background: hoveredButton === "switcher" ? HOVER_BG : "transparent",
+              color: SIDEBAR_TEXT,
               fontSize: "var(--font-size-sm)",
               fontWeight: 500,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              fontFamily: "inherit",
+              cursor: "pointer",
+              transition: "var(--transition-fast)",
+              textAlign: "left",
             }}
           >
-            {activeWorkspace.name}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+            <span
+              style={{
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                flex: 1,
+              }}
+              title={activeWorkspace.name}
+            >
+              {activeWorkspace.name}
+            </span>
+            <span
+              aria-hidden="true"
+              style={{
+                fontSize: "0.7rem",
+                color: SIDEBAR_TEXT_MUTED,
+                transform: isSwitcherOpen ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "var(--transition-fast)",
+                display: "inline-block",
+              }}
+            >
+              ▾
+            </span>
+          </button>
+
+          {/* Preset + terminology meta line */}
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", padding: "0 var(--space-1)" }}>
             <span
               style={{
                 display: "inline-block",
@@ -212,6 +280,96 @@ export function SidebarNavigation(): JSX.Element {
               {terminologyLabel("requirement")}
             </span>
           </div>
+
+          {/* Dropdown */}
+          {isSwitcherOpen && workspaces.length > 0 && (
+            <ul
+              role="listbox"
+              aria-label="Workspace switcher"
+              style={{
+                position: "absolute",
+                bottom: "calc(100% + var(--space-2))",
+                left: "var(--space-2)",
+                right: "var(--space-2)",
+                listStyle: "none",
+                margin: 0,
+                padding: "var(--space-1)",
+                background: SIDEBAR_BG,
+                border: `1px solid ${SIDEBAR_BORDER}`,
+                borderRadius: "var(--radius-md)",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                maxHeight: "240px",
+                overflowY: "auto",
+                zIndex: 100,
+              }}
+            >
+              {workspaces.map((ws) => {
+                const isActive = ws.id === activeWorkspace.id;
+                const isHovered = hoveredOptionId === ws.id;
+                return (
+                  <li key={ws.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      data-testid="workspace-switcher-option"
+                      onClick={() => {
+                        setActiveWorkspace(ws);
+                        setIsSwitcherOpen(false);
+                      }}
+                      onMouseEnter={() => setHoveredOptionId(ws.id)}
+                      onMouseLeave={() => setHoveredOptionId(null)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "var(--space-2)",
+                        width: "100%",
+                        padding: "var(--space-2) var(--space-3)",
+                        borderRadius: "var(--radius-sm)",
+                        border: "none",
+                        background: isActive
+                          ? ACTIVE_BG
+                          : isHovered
+                          ? HOVER_BG
+                          : "transparent",
+                        color: SIDEBAR_TEXT,
+                        fontSize: "var(--font-size-sm)",
+                        fontWeight: isActive ? 600 : 500,
+                        fontFamily: "inherit",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "var(--transition-fast)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          flex: 1,
+                        }}
+                        title={ws.name}
+                      >
+                        {ws.name}
+                      </span>
+                      {isActive && (
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            color: "var(--color-primary)",
+                            fontSize: "0.8rem",
+                          }}
+                        >
+                          ✓
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
 

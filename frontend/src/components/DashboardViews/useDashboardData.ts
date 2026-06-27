@@ -3,21 +3,18 @@
  *
  * leaf_id: COMP-RF-002 (DashboardViews)
  * req_id:  REQ-L3-RF002-001 (Workspace-Kartenliste mit Metriken),
- *          REQ-L2-RF-002 (Dashboard)
+ *          REQ-L2-RF-002 (Dashboard),
+ *          REQ-L2-RF-012 (Workspace-Konfigurations-UI)
  *
- * ESCALATION NOTE:
- *   GET /api/v1/workspaces/ is NOT implemented in the backend.
- *   The backend URLs only register: artifacts, requirements, architecture,
- *   testcases, tracelinks, baselines, workflows.
- *   WorkspaceWithMetrics data is simulated from the default workspace context.
- *   See dev-result-v1 escalation section.
+ * Loads the workspace list from WorkspaceContext (sourced from
+ * GET /api/v1/workspaces/) and augments each workspace with
+ * requirement counts via GET /api/v1/requirements/?workspace_id=...
  *
- * Once /api/v1/workspaces/ is added, replace the mock with:
- *   apiClient.get<PaginatedResponse<WorkspaceWithMetrics>>('/workspaces/')
+ * If no workspaces are available the hook returns an empty list.
  */
 
 import { useState, useEffect } from "react";
-import type { WorkspaceWithMetrics } from "../../types";
+import type { Workspace, WorkspaceWithMetrics } from "../../types";
 import { requirementsApi } from "../../api/requirements";
 import { useWorkspace } from "../../context/WorkspaceContext";
 
@@ -28,7 +25,7 @@ export interface DashboardData {
 }
 
 export function useDashboardData(): DashboardData {
-  const { activeWorkspace } = useWorkspace();
+  const { workspaces, activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const [data, setData] = useState<DashboardData>({
     workspaces: [],
     isLoading: true,
@@ -36,7 +33,21 @@ export function useDashboardData(): DashboardData {
   });
 
   useEffect(() => {
-    if (!activeWorkspace) {
+    if (isLoadingWorkspace) {
+      setData((prev) => ({ ...prev, isLoading: true }));
+      return;
+    }
+
+    // Use real workspaces when available, otherwise fall back to the
+    // single activeWorkspace (legacy / offline mode).
+    const source: Workspace[] =
+      workspaces.length > 0
+        ? workspaces
+        : activeWorkspace
+        ? [activeWorkspace]
+        : [];
+
+    if (source.length === 0) {
       setData({ workspaces: [], isLoading: false, error: null });
       return;
     }
@@ -44,24 +55,32 @@ export function useDashboardData(): DashboardData {
     let cancelled = false;
 
     async function load(): Promise<void> {
-      if (!activeWorkspace) return;
       try {
-        // Load requirements to compute counts (fallback until /workspaces/ exists)
-        const reqResp = await requirementsApi.list(activeWorkspace.id);
+        const enriched = await Promise.all(
+          source.map(async (ws): Promise<WorkspaceWithMetrics> => {
+            try {
+              const reqResp = await requirementsApi.list(ws.id);
+              const openItemCount = reqResp.results.filter(
+                (r) => r.status === "draft"
+              ).length;
+              return {
+                ...ws,
+                requirement_count: reqResp.count,
+                open_item_count: openItemCount,
+              };
+            } catch {
+              // Per-workspace failure → zero metrics, don't break the dashboard
+              return {
+                ...ws,
+                requirement_count: 0,
+                open_item_count: 0,
+              };
+            }
+          })
+        );
+
         if (cancelled) return;
-
-        const requirements = reqResp.results;
-        const openItemCount = requirements.filter(
-          (r) => r.status === "draft"
-        ).length;
-
-        const workspace: WorkspaceWithMetrics = {
-          ...activeWorkspace,
-          requirement_count: reqResp.count,
-          open_item_count: openItemCount,
-        };
-
-        setData({ workspaces: [workspace], isLoading: false, error: null });
+        setData({ workspaces: enriched, isLoading: false, error: null });
       } catch (err: unknown) {
         if (cancelled) return;
         const msg =
@@ -75,7 +94,8 @@ export function useDashboardData(): DashboardData {
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspace]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaces, activeWorkspace, isLoadingWorkspace]);
 
   return data;
 }

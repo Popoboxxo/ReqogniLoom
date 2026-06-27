@@ -7,9 +7,10 @@
  *          REQ-L2-RF-012 (Workspace-Konfigurations-UI)
  *
  * Holds active workspace state and exposes preset/profile helpers.
- * Workspace data is provided by NavigationShell after login.
- * NOTE: /api/v1/workspaces/ is not implemented in backend yet — see Escalations.
- *       This context works with a mock workspace until the endpoint is added.
+ * After login the provider loads the real workspaces from
+ * GET /api/v1/workspaces/ and selects the first one as active.
+ * Falls back to DEFAULT_WORKSPACE only if the API call fails or
+ * returns no workspaces (legacy / offline mode).
  */
 
 import React, {
@@ -17,6 +18,7 @@ import React, {
   useContext,
   useState,
   useCallback,
+  useEffect,
   type ReactNode,
 } from "react";
 import type {
@@ -25,6 +27,17 @@ import type {
   TerminologyProfile,
 } from "../types";
 import { PRESET_VISIBILITY, TERMINOLOGY_LABELS } from "../types";
+import { workspacesApi } from "../api/workspaces";
+import { useAuth } from "./AuthContext";
+
+// Normalize preset field: backend may return {name: "extended"} or "extended"
+function normalizePreset(ws: Workspace): Workspace {
+  const raw = ws.preset as unknown;
+  if (typeof raw === "object" && raw !== null && "name" in raw) {
+    return { ...ws, preset: (raw as { name: string }).name as WorkspacePreset };
+  }
+  return ws;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,13 +45,15 @@ import { PRESET_VISIBILITY, TERMINOLOGY_LABELS } from "../types";
 
 export interface WorkspaceState {
   activeWorkspace: Workspace | null;
+  workspaces: Workspace[];
+  isLoadingWorkspace: boolean;
   setActiveWorkspace: (ws: Workspace | null) => void;
   isFeatureVisible: (feature: string) => boolean;
   terminologyLabel: (key: string) => string;
 }
 
 // ---------------------------------------------------------------------------
-// Defaults (used until workspace loads)
+// Defaults (used until workspace loads / fallback)
 // ---------------------------------------------------------------------------
 
 // Allow E2E tests (and future workspace bootstrap) to override the workspace ID
@@ -69,13 +84,69 @@ export function WorkspaceProvider({
 }: {
   children: ReactNode;
 }): JSX.Element {
+  const { isAuthenticated } = useAuth();
+
   const [activeWorkspace, setActiveWorkspaceState] = useState<Workspace | null>(
     DEFAULT_WORKSPACE
   );
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState<boolean>(false);
 
   const setActiveWorkspace = useCallback((ws: Workspace | null) => {
     setActiveWorkspaceState(ws);
+    if (ws && typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("reqflow_workspace_id", ws.id);
+    }
   }, []);
+
+  // Bootstrap workspaces after authentication (REQ-L2-RF-012)
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setWorkspaces([]);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingWorkspace(true);
+
+    async function load(): Promise<void> {
+      try {
+        const resp = await workspacesApi.list();
+        if (cancelled) return;
+        const list = (resp.results ?? []).map(normalizePreset);
+        setWorkspaces(list);
+        if (list.length > 0) {
+          // Prefer previously selected workspace if it still exists,
+          // otherwise default to the first one.
+          const storedId =
+            typeof sessionStorage !== "undefined"
+              ? sessionStorage.getItem("reqflow_workspace_id")
+              : null;
+          const selected =
+            (storedId && list.find((w) => w.id === storedId)) || list[0];
+          setActiveWorkspaceState(selected);
+          if (typeof sessionStorage !== "undefined") {
+            sessionStorage.setItem("reqflow_workspace_id", selected.id);
+          }
+        } else {
+          // No workspaces returned — keep DEFAULT_WORKSPACE fallback.
+          setActiveWorkspaceState(DEFAULT_WORKSPACE);
+        }
+      } catch {
+        if (cancelled) return;
+        // Fall back to DEFAULT_WORKSPACE on error (offline / legacy backend)
+        setWorkspaces([]);
+        setActiveWorkspaceState(DEFAULT_WORKSPACE);
+      } finally {
+        if (!cancelled) setIsLoadingWorkspace(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
 
   // Preset-based feature visibility (REQ-L2-RF-007)
   const isFeatureVisible = useCallback(
@@ -99,6 +170,8 @@ export function WorkspaceProvider({
 
   const value: WorkspaceState = {
     activeWorkspace,
+    workspaces,
+    isLoadingWorkspace,
     setActiveWorkspace,
     isFeatureVisible,
     terminologyLabel,

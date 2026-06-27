@@ -80,14 +80,17 @@ export function AuthProvider({
   children: ReactNode;
   onUnauthorized?: () => void;
 }): JSX.Element {
-  const [token, setToken] = useState<string | null>(() =>
-    sessionStorage.getItem(TOKEN_KEY)
-  );
+  const [token, setToken] = useState<string | null>(() => {
+    const t = sessionStorage.getItem(TOKEN_KEY);
+    // Sync immediately so WorkspaceContext can call the API on first render
+    if (t) setAuthToken(t);
+    return t;
+  });
   const [user, setUser] = useState<AuthUser | null>(() => parseStoredUser());
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
 
-  // Keep API client in sync
+  // Keep API client in sync on subsequent token changes
   useEffect(() => {
     setAuthToken(token);
   }, [token]);
