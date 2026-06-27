@@ -46,10 +46,8 @@ test.describe('Workspace Lifecycle (REQ-L1-042)', () => {
 
     // Type wrong name
     await page.fill('[data-testid="delete-confirmation-input"]', 'Wrong Name');
-    await page.click('[data-testid="delete-confirm-btn"]');
 
-    // The button should be disabled when input doesn't match, so error won't show
-    // Instead verify the button is disabled
+    // The confirm button should be disabled when input doesn't match workspace name
     const confirmBtn = page.locator('[data-testid="delete-confirm-btn"]');
     await expect(confirmBtn).toBeDisabled({ timeout: 3000 });
   });

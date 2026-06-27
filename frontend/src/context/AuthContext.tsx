@@ -88,7 +88,10 @@ export function AuthProvider({
   });
   const [user, setUser] = useState<AuthUser | null>(() => parseStoredUser());
   const [tenantId, setTenantId] = useState<string | null>(null);
-  const [roles, setRoles] = useState<string[]>([]);
+  const [roles, setRoles] = useState<string[]>(() => {
+    const stored = parseStoredUser();
+    return stored?.roles ?? [];
+  });
 
   // Keep API client in sync on subsequent token changes
   useEffect(() => {
