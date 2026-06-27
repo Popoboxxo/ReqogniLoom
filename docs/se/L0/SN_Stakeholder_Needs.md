@@ -405,3 +405,45 @@ Lücke für v1 mit dem einfachsten vollständigen Credential-Flow.
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-25*
+
+---
+
+## Stakeholder-Needs (Erweiterung v4 — REQ-L0-029)
+
+> **Quelle:** Gap-Analyse `docs/se/reports/req-gap-workspace-lifecycle-2026-06-27.md`
+> **Datum:** 2026-06-27
+> **Erstellt durch:** se-requirements-Agent | 2026-06-27
+
+---
+
+### REQ-L0-029 — SN-29: Workspace-Lifecycle-Management für Administratoren
+
+Administratoren müssen Workspaces explizit schließen, archivieren, reaktivieren oder
+(nach Bestätigung) endgültig löschen können. Ein geschlossener Workspace bleibt für
+Read-Only-Zugriffe (Audit, Compliance) erhalten, ist aber nicht mehr aktiv editierbar.
+Gelöschte Workspaces werden mit allen abhängigen Daten (Requirements, Architecture,
+TestCases, TraceLinks, Baselines, AuditLog-Einträge) vollständig entfernt — vor dem
+endgültigen Löschen ist eine explizite Bestätigung mit Eingabe des Workspace-Namens
+erforderlich.
+
+**Rationale:** Ohne expliziten Lifecycle können Workspaces nur über direkten
+Datenbankzugriff entfernt werden — fehleranfällig, inkompatibel mit
+Multi-Tenancy-Isolation und blockiert jede Form von Compliance-Archivierung.
+RBAC (REQ-L0-008) und Configurable-Rigor (REQ-L0-002) benötigen einen definierten
+Workspace-Lebenszyklus.
+
+**Akzeptanzkriterien:**
+- AC1: Admin kann Workspace auf Status `closed` setzen → `is_active=false`, aber Daten bleiben erhalten
+- AC2: Admin kann geschlossenen Workspace auf `active` reaktivieren (sofern noch nicht gelöscht)
+- AC3: Admin kann Workspace löschen mit Bestätigungsdialog (Eingabe Workspace-Name als Captcha)
+- AC4: Delete ist kaskadierend: alle Requirements, Architecture, TestCases, TraceLinks, Baselines, Audit-Logs werden mit gelöscht (in dieser Reihenfolge, transaktional)
+- AC5: Soft-Delete (`closed`) ist die Standardoption; Hard-Delete erfordert explizite Captcha-Bestätigung
+- AC6: Audit-Log-Eintrag wird sowohl bei `close` als auch bei `delete` geschrieben
+- AC7: Nicht-Admin-Nutzer sehen weder Close- noch Delete-Buttons
+
+**Abgeleitet von:** Gap-Analyse (Workspace-Lifecycle vollständig fehlend)
+**Ableitet L1:** neue L1-Anforderung REQ-L1-042 erforderlich (Workspace-Lifecycle-Operationen mit RBAC)
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-27 | Gap-Analyse Workspace-Lifecycle*

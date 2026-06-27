@@ -1038,7 +1038,51 @@ in regulierten Umgebungen zwingend erforderlich ist.
 
 ---
 
-## Erweiterter Traceability-Abschnitt: REQ-L1-034..041 → REQ-L0
+### REQ-L1-042: Workspace-Lifecycle-Operationen mit RBAC
+
+Das System MUSS Workspace-Lifecycle-Operationen (close, reactivate, delete) auf
+REST- und UI-Ebene bereitstellen, wobei nur Nutzer mit der Rolle `admin` im
+Workspace diese Operationen ausführen dürfen. Close setzt einen Soft-Delete-Flag
+(`is_active=false, closed_at=now, closed_by=user.id`). Delete erfordert eine
+Captcha-Bestätigung (Eingabe des Workspace-Namens) und führt eine transaktionale
+Kaskaden-Löschung aller Workspace-Daten (Requirements, ArchitectureElements,
+TestCases, TraceLinks, Baselines, AuditLog-Einträge) aus. Reactivate setzt
+einen geschlossenen Workspace zurück (`is_active=true, closed_at=null,
+closed_by=null`). Jede Lifecycle-Operation erzeugt einen AuditLog-Eintrag mit
+Operationstyp, Actor, Workspace-ID und Zeitstempel.
+
+**Rationale:** Schließt eine Lücke zwischen RBAC (REQ-L1-010) und
+Multi-Tenancy (REQ-L1-015) — ohne expliziten Lifecycle gibt es keine saubere
+Trennung zwischen "aktiv" und "historisch". Workspaces könnten nur über direkten
+DB-Zugriff entfernt werden.
+**Domain:** system
+**Priorität:** mandatory
+**Architektur-Impact:**
+- `arch_impact`: false
+- `arch_trigger`: "Kein neues Architekturmuster erforderlich — Lifecycle-Operationen ergänzen bestehenden WorkspaceService + WorkspaceViewSet um neue Endpunkte und Service-Methoden."
+**Externe Interfaces:**
+- Eingang: POST /api/v1/workspaces/{id}/close/ (kein Body) — Admin-Rolle erforderlich
+- Eingang: POST /api/v1/workspaces/{id}/reactivate/ (kein Body) — Admin-Rolle erforderlich
+- Eingang: POST /api/v1/workspaces/{id}/delete/ (Body: `{"confirmation": "<workspace_name>"}`) — Admin-Rolle erforderlich
+- Ausgang: HTTP 200 mit aktualisiertem Workspace; 403 bei fehlender Admin-Rolle; 409 bei Captcha-Mismatch; 404 bei unbekanntem Workspace
+**Akzeptanzkriterien:**
+- AC1: Close setzt `is_active=false, closed_at=now, closed_by=user.id` in Workspace
+- AC2: Reactivate setzt `is_active=true, closed_at=null, closed_by=null`
+- AC3: Delete mit korrektem Workspace-Namen im confirmation-Feld → HTTP 200, Workspace + alle abhängigen Daten gelöscht
+- AC4: Delete mit falschem Workspace-Namen → HTTP 409 `{"error": "confirmation_mismatch"}`
+- AC5: Nicht-Admin erhält HTTP 403 auf allen drei Lifecycle-Endpunkten
+- AC6: AuditLog-Eintrag mit operation=close|reactivate|delete, actor=user_id, workspace_id, timestamp
+- AC7: Geschlossener Workspace ist via GET /api/v1/workspaces/ weiterhin sichtbar (read-only)
+- AC8: Gelöschter Workspace ist via GET /api/v1/workspaces/ nicht mehr sichtbar
+**Abgrenzung:**
+- Kein neues Subsystem erforderlich — Lifecycle-Methoden erweitern bestehenden WorkspaceService
+- WorkspacePresetConfig wird im selben CASCADE gelöscht (gehört zum Workspace)
+- Tenant-Isolation (REQ-L1-015) bleibt gewahrt: Lifecycle-Operationen sind tenant-scoped
+**Traceability:** REQ-L0-029, REQ-L1-010 (RBAC), REQ-L1-015 (Mandantenfähigkeit), REQ-L1-011 (Audit)
+
+---
+
+## Erweiterter Traceability-Abschnitt: REQ-L1-034..042 → REQ-L0
 
 | REQ-L1 | Abgeleitet von REQ-L0 |
 |---------|----------------------|
@@ -1050,7 +1094,9 @@ in regulierten Umgebungen zwingend erforderlich ist.
 | REQ-L1-039 | REQ-L0-027 |
 | REQ-L1-040 | REQ-L0-028 |
 | REQ-L1-041 | REQ-L0-028 |
+| REQ-L1-042 | REQ-L0-029 |
 
 ---
 
 *Erweiterung durch se-requirements-Agent | HOFF-20260626-001 | 2026-06-26 (REQ-L1-034..041 aus SN-23..SN-28)*
+*Erweiterung durch se-requirements-Agent | 2026-06-27 (REQ-L1-042 aus SN-29 — Gap-Analyse Workspace-Lifecycle)*
