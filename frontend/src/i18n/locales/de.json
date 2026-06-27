@@ -11,6 +11,9 @@
     "baselines": "Baselines",
     "traceability": "Traceability",
     "metrics": "SE-Metriken",
+    "adrs": "ADRs",
+    "risks": "Risiken",
+    "issues": "Probleme",
     "settings": "Workspace-Einstellungen",
     "logout": "Abmelden"
   },
@@ -83,6 +86,11 @@
   },
   "arch": {
     "elementType": "Element-Typ",
+    "elementType.component": "Komponente",
+    "elementType.interface": "Schnittstelle",
+    "elementType.subsystem": "Subsystem",
+    "elementType.layer": "Schicht",
+    "elementType.module": "Modul",
     "linkedRequirements": "Verknüpfte Anforderungen",
     "selectElement": "Wählen Sie ein Architekturelement aus der Liste.",
     "newElementTitle": "Neues Element",

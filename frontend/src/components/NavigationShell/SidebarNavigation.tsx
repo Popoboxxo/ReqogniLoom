@@ -35,6 +35,9 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/", labelKey: "nav.dashboard", feature: "dashboard" },
   { path: "/requirements", labelKey: "nav.requirements", feature: "requirements" },
   { path: "/architecture", labelKey: "nav.architecture", feature: "architecture" },
+  { path: "/adrs", labelKey: "nav.adrs", feature: "adr" },
+  { path: "/risks", labelKey: "nav.risks", feature: "risk" },
+  { path: "/issues", labelKey: "nav.issues", feature: "issue" },
   { path: "/traceability", labelKey: "nav.traceability", feature: "traceability" },
   { path: "/baselines", labelKey: "nav.baselines", feature: "baselines" },
   { path: "/settings", labelKey: "nav.settings", feature: "dashboard" },
@@ -224,6 +227,12 @@ export function SidebarNavigation(): JSX.Element {
         ? `/requirements/${hit.id}`
         : hit.artifact_type === "ArchitectureElement"
         ? `/architecture/${hit.id}`
+        : hit.artifact_type === "Adr"
+        ? `/adrs/${hit.id}`
+        : hit.artifact_type === "Risk"
+        ? `/risks/${hit.id}`
+        : hit.artifact_type === "Issue"
+        ? `/issues/${hit.id}`
         : `/tests/${hit.id}`;
     navigate(route);
   };

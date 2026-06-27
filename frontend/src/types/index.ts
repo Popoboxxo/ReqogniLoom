@@ -237,6 +237,9 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     requirements: true,
     traceability: true,
     dashboard: true,
+    adr: false,
+    risk: false,
+    issue: false,
   },
   standard: {
     baselines: true,
@@ -247,6 +250,9 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     requirements: true,
     traceability: true,
     dashboard: true,
+    adr: true,
+    risk: true,
+    issue: true,
   },
   extended: {
     baselines: true,
@@ -257,6 +263,9 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     requirements: true,
     traceability: true,
     dashboard: true,
+    adr: true,
+    risk: true,
+    issue: true,
   },
 };
 

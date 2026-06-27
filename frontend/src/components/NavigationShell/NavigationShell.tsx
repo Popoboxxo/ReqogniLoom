@@ -48,6 +48,9 @@ const TraceabilityView = lazy(
 const BaselinesView = lazy(
   () => import("../BaselinesView/BaselinesView")
 );
+const AdrList = lazy(() => import("../AdrList/AdrList"));
+const RiskList = lazy(() => import("../RiskList/RiskList"));
+const IssueList = lazy(() => import("../IssueList/IssueList"));
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -83,6 +86,9 @@ function AppShell(): JSX.Element {
               <Route path="/architecture/:id" element={<ArchitectureEditors />} />
               <Route path="/traceability" element={<TraceabilityView />} />
               <Route path="/baselines" element={<BaselinesView />} />
+              <Route path="/adrs" element={<AdrList />} />
+              <Route path="/risks" element={<RiskList />} />
+              <Route path="/issues" element={<IssueList />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
               <Route path="/workspace-settings" element={<WorkspaceSettings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
