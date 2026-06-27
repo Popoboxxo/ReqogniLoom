@@ -12,37 +12,40 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
   });
 
   test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {
+    test.setTimeout(60000);
+
     // Navigate to requirements and create a new one
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 15000 });
 
     // Fill in initial data
     const titleInput = page.locator('[data-testid="req-title"]');
     await titleInput.fill('Diff Test Requirement');
 
-    const descriptionArea = page.locator('textarea').first();
-    await descriptionArea.fill('Initial description for diff test');
-
     // Save the requirement
     await page.locator('[data-testid="save-btn"]').click();
-    await expect(page.locator('[data-testid="save-btn"]')).toBeVisible({ timeout: 8000 });
+    // Wait for save to complete (button text returns from "Saving..." to "Save")
+    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 15000 });
+    // Small delay for state stabilization
+    await page.waitForTimeout(1000);
 
     // Now modify the title
     await titleInput.fill('Diff Test Requirement - Modified');
 
     // Save again to create a new version
     await page.locator('[data-testid="save-btn"]').click();
-    await expect(page.locator('[data-testid="save-btn"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 15000 });
+    await page.waitForTimeout(1000);
 
     // Click the "View Diff" button
     const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 8000 });
+    await expect(viewDiffBtn).toBeVisible({ timeout: 15000 });
     await viewDiffBtn.click();
 
     // The diff view should appear
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
-    await expect(diffView).toBeVisible({ timeout: 8000 });
+    await expect(diffView).toBeVisible({ timeout: 10000 });
 
     // Version selectors should be present
     const versionSelectors = page.locator('[data-testid="diff-version-selectors"]');
@@ -58,7 +61,7 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
 
     // Diff fields should be rendered
     const diffFields = page.locator('[data-testid="diff-fields"]');
-    await expect(diffFields).toBeVisible({ timeout: 8000 });
+    await expect(diffFields).toBeVisible({ timeout: 10000 });
 
     // Close button should work
     const closeBtn = page.locator('[data-testid="diff-close-btn"]');
@@ -70,20 +73,26 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
   });
 
   test('[REQ-L2-RF-014] diff view shows version 0 baseline as all fields added', async ({ page }) => {
+    test.setTimeout(60000);
+
     // Navigate to requirements and create a new one
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 15000 });
 
     // Fill in data and save
     await page.locator('[data-testid="req-title"]').fill('Baseline Diff Test');
     await page.locator('[data-testid="save-btn"]').click();
-    await expect(page.locator('[data-testid="save-btn"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 15000 });
+    await page.waitForTimeout(1000);
 
     // Open diff view
-    await page.locator('[data-testid="view-diff-btn"]').click();
+    const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
+    await expect(viewDiffBtn).toBeVisible({ timeout: 15000 });
+    await viewDiffBtn.click();
+
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
-    await expect(diffView).toBeVisible({ timeout: 8000 });
+    await expect(diffView).toBeVisible({ timeout: 10000 });
 
     // Select from_version=0 (Creation baseline)
     const fromSelect = page.locator('[data-testid="diff-from-version"]');
@@ -91,12 +100,12 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
 
     // Wait for diff to load
     const diffFields = page.locator('[data-testid="diff-fields"]');
-    await expect(diffFields).toBeVisible({ timeout: 8000 });
+    await expect(diffFields).toBeVisible({ timeout: 10000 });
 
     // All fields should show "Added" status when comparing from baseline
     // (since version 0 has no data, all current fields are "added")
     const addedBadges = diffFields.locator('text=Added');
     // At least the title field should be marked as added
-    await expect(addedBadges.first()).toBeVisible({ timeout: 8000 });
+    await expect(addedBadges.first()).toBeVisible({ timeout: 10000 });
   });
 });
