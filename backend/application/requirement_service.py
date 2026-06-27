@@ -183,6 +183,7 @@ class RequirementService(ServiceBase):
         title: Optional[str] = None,
         description: Optional[str] = None,
         category: Optional[str] = None,
+        status: Optional[str] = None,
         change_reason: Optional[str] = None,
     ) -> Requirement:
         """Update a Requirement, enforcing change_reason policy.
@@ -212,6 +213,8 @@ class RequirementService(ServiceBase):
             requirement.description = description
         if category is not None:
             requirement.category = category
+        if status is not None:
+            requirement.status = status
 
         requirement.save()
 

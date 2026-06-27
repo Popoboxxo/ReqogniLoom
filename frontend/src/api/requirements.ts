@@ -32,7 +32,7 @@ export const requirementsApi = {
 
   update(
     id: UUID,
-    data: Partial<Pick<Requirement, "title" | "description" | "category" | "change_reason">>
+    data: Partial<Pick<Requirement, "title" | "description" | "category" | "status" | "change_reason">>
   ): Promise<Requirement> {
     return apiClient.patch<Requirement>(`/requirements/${id}/`, data);
   },
