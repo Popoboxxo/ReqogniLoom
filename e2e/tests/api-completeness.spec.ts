@@ -59,9 +59,10 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     const created = await createResp.json();
 
     // Try PATCH first; fall back to PUT if PATCH is not supported (405)
+    // change_reason is required in extended preset (REQ-L0-011 / KONZEPT.md §7.3)
     let patchResp = await request.patch(`${BACKEND_URL}/api/v1/requirements/${created.id}/`, {
       headers,
-      data: { title: 'PATCH Updated Requirement' },
+      data: { title: 'PATCH Updated Requirement', change_reason: 'API completeness test update' },
     });
 
     if (!patchResp.ok()) {

@@ -16,7 +16,7 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
     await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
 
     // Element-type dropdown is visible with the 5 ADR-L3-RF-007 options
-    const typeSelect = page.locator('[data-testid="arch-element-type"]');
+    const typeSelect = page.locator('[data-testid="arch-element-type-select"]');
     await expect(typeSelect).toBeVisible();
     const options = await typeSelect.locator('option').allTextContents();
     expect(options).toEqual(
