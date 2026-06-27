@@ -33,3 +33,16 @@ export type {
   CreateIcdPayload,
   NewVersionPayload,
 } from "./icds";
+export { metricsApi } from "./metrics";
+export type {
+  MetricsResult,
+  MetricsQueryOptions,
+  MetricType,
+  VolatilityMetric,
+  TraceabilityCoverageMetric,
+  WorkflowGapMetric,
+  WorkflowGapItem,
+  RiskMetric,
+  RiskSeverity,
+  ThresholdWarning,
+} from "./metrics";
