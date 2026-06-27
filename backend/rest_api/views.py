@@ -42,6 +42,7 @@ from rest_framework.views import APIView
 
 from application.services import (
     ArtifactService,
+    ArtifactDiffService,
     BaselineFacade,
     NotFoundError,
     PermissionDeniedError,
@@ -289,16 +290,125 @@ class RequirementViewSet(BaseEntityViewSet):
         return Response(RequirementSerializer(_dto_from_orm(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/requirements/{pk}/ — delete a requirement. Returns 204."""
+        """DELETE /api/v1/architecture/{pk}/ — delete an architecture element. Returns 204."""
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_requirement(UUID(pk), ctx)
+            self._svc().delete_architecture_element(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/architecture/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L2-AS-032 / REQ-L1-040: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            el = self._svc().get_architecture_element(UUID(pk), ctx)
+            artifact_id = el.artifact_id
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(el.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff(
+                artifact_id=UUID(str(artifact_id)),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/architecture/{pk}/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            el = self._svc().get_architecture_element(UUID(pk), ctx)
+            artifact_id = el.artifact_id
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.list_versions(
+                artifact_id=UUID(str(artifact_id)),
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/requirements/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L2-AS-032 / REQ-L1-040: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            # Resolve artifact_id from requirement
+            req = self._svc().get_requirement(UUID(pk), ctx)
+            artifact_id = req.artifact_id
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(req.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff(
+                artifact_id=UUID(str(artifact_id)),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/requirements/{pk}/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            req = self._svc().get_requirement(UUID(pk), ctx)
+            artifact_id = req.artifact_id
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.list_versions(
+                artifact_id=UUID(str(artifact_id)),
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
 
 
 # ---------------------------------------------------------------------------
@@ -1781,16 +1891,50 @@ class IssueViewSet(BaseEntityViewSet):
         return Response(IssueSerializer(_issue_to_dict(item)).data)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/issues/{pk}/ — delete an Issue. Returns 204."""
+        """DELETE /api/v1/testcases/{pk}/ — delete a test case. Returns 204."""
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_issue(UUID(pk), ctx)
+            self._svc().delete_test_case(UUID(pk), ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/testcases/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L2-AS-032 / REQ-L1-040: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            tc = self._svc().get_test_case(UUID(pk), ctx)
+            artifact_id = tc.artifact_id
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(tc.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff(
+                artifact_id=UUID(str(artifact_id)),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
 
 
 # ---------------------------------------------------------------------------
@@ -2072,6 +2216,139 @@ class SearchViewSet(viewsets.ViewSet):
         )
 
 
+# ---------------------------------------------------------------------------
+# CsvImportView — COMP-AS-009 REST facade (REQ-L0-013, REQ-L2-AS-014)
+# ---------------------------------------------------------------------------
+
+
+class CsvImportView(APIView):
+    """POST /api/v1/workspaces/{id}/import/csv/ — Bulk CSV import.
+
+    REQ-L0-013: Effiziente Übernahme bestehender Anforderungsdaten.
+    REQ-L2-AS-014: CSV Bulk Import (ApplicationService layer).
+    REQ-L2-RF-016: Frontend CSV import UI.
+
+    Body: multipart/form-data with:
+        - ``file``: CSV file (RFC 4180, UTF-8).
+        - ``entity_type``: "Requirement" | "ArchitectureElement" | "TestCase"
+
+    Returns:
+        201 with ImportResult summary on success.
+        400 with validation errors (missing file, bad entity_type, malformed CSV,
+        row limit exceeded, per-row validation failures).
+    """
+
+    _VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase"}
+
+    def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """Handle CSV import POST request."""
+        lang = detect_lang(request)
+
+        # --- Validate workspace param ---
+        if not pk:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="Workspace ID is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        # --- Validate entity_type ---
+        entity_type = request.data.get("entity_type")
+        if not entity_type:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="entity_type is required. Allowed: Requirement, ArchitectureElement, TestCase",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if entity_type not in self._VALID_ENTITY_TYPES:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message=f"Unsupported entity_type '{entity_type}'. Allowed: {sorted(self._VALID_ENTITY_TYPES)}",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --- Validate file ---
+        uploaded_file = request.FILES.get("file")
+        if not uploaded_file:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="No CSV file uploaded. Provide a 'file' field in multipart/form-data.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Read file content (UTF-8)
+        try:
+            csv_text = uploaded_file.read().decode("utf-8")
+        except UnicodeDecodeError:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="CSV file must be UTF-8 encoded.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not csv_text.strip():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="CSV file is empty.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --- Delegate to ImportService ---
+        try:
+            svc = ImportService()
+            result = svc.import_csv(
+                csv_text=csv_text,
+                entity_type=entity_type,
+                workspace_id=pk,
+                ctx=ctx,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("CsvImportView: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        # --- Build response ---
+        response_data = {
+            "success": result.success,
+            "imported_count": result.imported_count,
+            "skipped_count": result.skipped_count,
+            "status": result.status,
+            "errors": [
+                {
+                    "row_number": e.row_number,
+                    "field": e.field,
+                    "message": e.message,
+                }
+                for e in result.errors
+            ],
+        }
+
+        http_status = status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST
+        return Response(response_data, status=http_status)
+
+
 __all__ = [
     "RequirementViewSet",
     "ArtifactViewSet",
@@ -2085,4 +2362,6 @@ __all__ = [
     "RiskViewSet",
     "IssueViewSet",
     "SearchViewSet",
+    "CsvImportView",
+    "ArtifactDiffService",
 ]
