@@ -35,6 +35,7 @@ from rest_framework import pagination, serializers
 from rest_framework.request import Request
 
 from rest_api.preset_guard import FieldFilter
+from persistence.models import ElementType
 
 # ---------------------------------------------------------------------------
 # i18n error translation (REQ-L2-RA-004, REQ-L3-RA002-002)
@@ -245,7 +246,9 @@ class ArchitectureElementSerializer(
     workspace_id = serializers.UUIDField(required=True)
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
-    element_type = serializers.CharField(max_length=64, allow_blank=True, default="")
+    element_type = serializers.ChoiceField(
+        choices=ElementType.choices, allow_blank=True, default=ElementType.COMPONENT
+    )
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
@@ -322,6 +325,79 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
+class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for ADR entity (REQ-L1-029, COMP-AS-013)."""
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    title = serializers.CharField(max_length=200)
+    description = serializers.CharField(allow_blank=True, default="")
+    context = serializers.CharField(allow_blank=True, default="")
+    consequences = serializers.CharField(allow_blank=True, default="")
+    status = serializers.ChoiceField(
+        choices=["Draft", "In Review", "Approved", "Rejected", "Superseded"],
+        default="Draft",
+    )
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for Risk entity (REQ-L1-029, COMP-AS-014)."""
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    title = serializers.CharField(max_length=200)
+    description = serializers.CharField(allow_blank=True, default="")
+    probability = serializers.ChoiceField(
+        choices=["low", "medium", "high"], default="medium"
+    )
+    impact = serializers.ChoiceField(
+        choices=["low", "medium", "high"], default="medium"
+    )
+    risk_score = serializers.IntegerField(read_only=True)
+    severity = serializers.ChoiceField(
+        choices=["low", "medium", "high"], default="medium"
+    )
+    category = serializers.ChoiceField(
+        choices=["technical", "operational", "organizational", "business"],
+        default="technical",
+    )
+    owner = serializers.CharField(allow_blank=True, default="")
+    mitigation_strategy = serializers.CharField(allow_blank=True, default="")
+    status = serializers.ChoiceField(
+        choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
+        default="Identified",
+    )
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for Issue entity (REQ-L1-029, COMP-AS-015)."""
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    title = serializers.CharField(max_length=200)
+    description = serializers.CharField(allow_blank=True, default="")
+    severity = serializers.ChoiceField(
+        choices=["critical", "high", "medium", "low"], default="medium"
+    )
+    category = serializers.ChoiceField(
+        choices=["defect", "improvement", "documentation", "question"],
+        default="defect",
+    )
+    status = serializers.ChoiceField(
+        choices=["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
+        default="Open",
+    )
+    tags = serializers.JSONField(required=False, default=list)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
 # ---------------------------------------------------------------------------
 # Queryset optimization helpers (REQ-L2-RA-013, COMP-RA-006 integration point)
 # ---------------------------------------------------------------------------
@@ -387,6 +463,9 @@ __all__ = [
     "BaselineSerializer",
     "WorkflowDefinitionSerializer",
     "WorkspaceSerializer",
+    "AdrSerializer",
+    "RiskSerializer",
+    "IssueSerializer",
     "StandardPagination",
     "PresetAwareSerializerMixin",
     "build_error_response",

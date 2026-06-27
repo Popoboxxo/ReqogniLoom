@@ -14,6 +14,9 @@ Registers:
   /api/v1/baselines/          BaselineViewSet  (preset-gated)
   /api/v1/workflows/          WorkflowDefinitionViewSet
   /api/v1/workspaces/         WorkspaceViewSet (list + retrieve, REQ-L1-017)
+  /api/v1/adrs/               AdrViewSet (REQ-L1-029)
+  /api/v1/risks/              RiskViewSet (REQ-L1-029)
+  /api/v1/issues/             IssueViewSet (REQ-L1-029)
 
 Schema endpoints (served at project-level via drf-spectacular):
   /api/v1/schema/             SpectacularAPIView
@@ -30,11 +33,14 @@ from rest_framework.routers import DefaultRouter
 
 from rest_api.auth_views import LoginView, MeView
 from rest_api.views import (
+    AdrViewSet,
     ArtifactViewSet,
     ArchitectureElementViewSet,
     BaselineViewSet,
+    IssueViewSet,
     RequirementHistoryView,
     RequirementViewSet,
+    RiskViewSet,
     SearchViewSet,
     TestCaseViewSet,
     TraceLinkViewSet,
@@ -55,6 +61,9 @@ router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
 router.register(r"baselines", BaselineViewSet, basename="baseline")
 router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
+router.register(r"adrs", AdrViewSet, basename="adr")
+router.register(r"risks", RiskViewSet, basename="risk")
+router.register(r"issues", IssueViewSet, basename="issue")
 router.register(r"search", SearchViewSet, basename="search")
 
 # ---------------------------------------------------------------------------

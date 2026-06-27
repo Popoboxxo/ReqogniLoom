@@ -62,10 +62,13 @@ from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.serializers import (
+    AdrSerializer,
     ArtifactSerializer,
     ArchitectureElementSerializer,
     BaselineSerializer,
+    IssueSerializer,
     RequirementSerializer,
+    RiskSerializer,
     StandardPagination,
     TestCaseSerializer,
     TraceLinkSerializer,
@@ -270,6 +273,7 @@ class RequirementViewSet(BaseEntityViewSet):
                 title=data.get("title"),
                 description=data.get("description"),
                 category=data.get("category"),
+                status=data.get("status"),
                 change_reason=data.get("change_reason"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
@@ -1031,6 +1035,59 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
     }
 
 
+def _adr_to_dict(adr: Any) -> dict[str, Any]:
+    """Convert Adr ORM object to serializer-compatible dict."""
+    return {
+        "id": str(adr.id),
+        "workspace_id": str(adr.workspace_id),
+        "title": adr.title,
+        "description": getattr(adr, "description", ""),
+        "context": getattr(adr, "context", ""),
+        "consequences": getattr(adr, "consequences", ""),
+        "status": getattr(adr, "status", "Draft"),
+        "version": adr.version,
+        "created_at": adr.created_at,
+        "updated_at": adr.updated_at,
+    }
+
+
+def _risk_to_dict(risk: Any) -> dict[str, Any]:
+    """Convert Risk ORM object to serializer-compatible dict."""
+    return {
+        "id": str(risk.id),
+        "workspace_id": str(risk.workspace_id),
+        "title": risk.title,
+        "description": getattr(risk, "description", ""),
+        "probability": getattr(risk, "probability", "low"),
+        "impact": getattr(risk, "impact", "low"),
+        "risk_score": getattr(risk, "risk_score", 1),
+        "severity": getattr(risk, "severity", "low"),
+        "category": getattr(risk, "category", "technical"),
+        "owner": getattr(risk, "owner", ""),
+        "mitigation_strategy": getattr(risk, "mitigation_strategy", ""),
+        "status": getattr(risk, "status", "Identified"),
+        "version": risk.version,
+        "created_at": risk.created_at,
+        "updated_at": risk.updated_at,
+    }
+
+
+def _issue_to_dict(issue: Any) -> dict[str, Any]:
+    """Convert Issue ORM object to serializer-compatible dict."""
+    return {
+        "id": str(issue.id),
+        "workspace_id": str(issue.workspace_id),
+        "title": issue.title,
+        "description": getattr(issue, "description", ""),
+        "severity": getattr(issue, "severity", "medium"),
+        "category": getattr(issue, "category", "defect"),
+        "status": getattr(issue, "status", "Open"),
+        "tags": issue.tags if isinstance(issue.tags, list) else [],
+        "created_at": issue.created_at,
+        "updated_at": issue.updated_at,
+    }
+
+
 # ---------------------------------------------------------------------------
 # WorkspaceViewSet (read-only — list + retrieve, REQ-L1-017)
 # ---------------------------------------------------------------------------
@@ -1229,6 +1286,410 @@ class WorkspaceViewSet(BaseEntityViewSet):
 
 
 # ---------------------------------------------------------------------------
+# AdrViewSet — COMP-AS-013 (REQ-L1-029)
+# ---------------------------------------------------------------------------
+
+
+class AdrViewSet(BaseEntityViewSet):
+    """ViewSet for ADR CRUD operations (REQ-L1-029).
+
+    Delegates to AdrService (COMP-AS-013, ADR-01).
+    No business logic in this class (REQ-L3-RA001-004).
+    """
+
+    serializer_class = AdrSerializer
+    preset_endpoint_key = ""
+
+    def _svc(self) -> AdrService:
+        return AdrService()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/adrs/ — list all ADRs in a workspace."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.query_params.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            workspace_id = UUID(workspace_id_str)
+            items = self._svc().list_adrs(workspace_id=workspace_id, ctx=ctx)
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        serialized = [AdrSerializer(_adr_to_dict(item)).data for item in items]
+        return self._paginate(request, serialized)
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/adrs/{pk}/ — retrieve single ADR."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_adr(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(AdrSerializer(_adr_to_dict(item)).data)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/adrs/ — create an ADR. Returns 201."""
+        lang = detect_lang(request)
+        ser = AdrSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create_adr(
+                workspace_id=UUID(str(data["workspace_id"])),
+                title=data["title"],
+                description=data.get("description", ""),
+                ctx=ctx,
+                context=data.get("context", ""),
+                consequences=data.get("consequences", ""),
+                status=data.get("status", "Draft"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(AdrSerializer(_adr_to_dict(item)).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/adrs/{pk}/ — update an ADR. Returns 200."""
+        lang = detect_lang(request)
+        ser = AdrSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().update_adr(
+                adr_id=UUID(pk),
+                ctx=ctx,
+                title=data.get("title"),
+                description=data.get("description"),
+                context=data.get("context"),
+                consequences=data.get("consequences"),
+                change_reason=data.get("change_reason"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(AdrSerializer(_adr_to_dict(item)).data)
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/adrs/{pk}/ — delete an ADR. Returns 204."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().delete_adr(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# RiskViewSet — COMP-AS-014 (REQ-L1-029)
+# ---------------------------------------------------------------------------
+
+
+class RiskViewSet(BaseEntityViewSet):
+    """ViewSet for Risk CRUD operations (REQ-L1-029).
+
+    Delegates to RiskService (COMP-AS-014, ADR-01).
+    No business logic in this class (REQ-L3-RA001-004).
+    """
+
+    serializer_class = RiskSerializer
+    preset_endpoint_key = ""
+
+    def _svc(self) -> RiskService:
+        return RiskService()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/risks/ — list all Risks in a workspace."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.query_params.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            workspace_id = UUID(workspace_id_str)
+            items = self._svc().list_risks(workspace_id=workspace_id, ctx=ctx)
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        serialized = [RiskSerializer(_risk_to_dict(item)).data for item in items]
+        return self._paginate(request, serialized)
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/risks/{pk}/ — retrieve single Risk."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_risk(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(RiskSerializer(_risk_to_dict(item)).data)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/risks/ — create a Risk. Returns 201."""
+        lang = detect_lang(request)
+        ser = RiskSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create_risk(
+                workspace_id=UUID(str(data["workspace_id"])),
+                title=data["title"],
+                probability=data.get("probability", "medium"),
+                impact=data.get("impact", "medium"),
+                ctx=ctx,
+                description=data.get("description", ""),
+                category=data.get("category", "technical"),
+                owner=data.get("owner", ""),
+                mitigation_strategy=data.get("mitigation_strategy", ""),
+                status=data.get("status", "Identified"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(RiskSerializer(_risk_to_dict(item)).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/risks/{pk}/ — update a Risk. Returns 200."""
+        lang = detect_lang(request)
+        ser = RiskSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().update_risk(
+                risk_id=UUID(pk),
+                ctx=ctx,
+                title=data.get("title"),
+                description=data.get("description"),
+                probability=data.get("probability"),
+                impact=data.get("impact"),
+                category=data.get("category"),
+                owner=data.get("owner"),
+                mitigation_strategy=data.get("mitigation_strategy"),
+                change_reason=data.get("change_reason"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(RiskSerializer(_risk_to_dict(item)).data)
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/risks/{pk}/ — delete a Risk. Returns 204."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().delete_risk(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# IssueViewSet — COMP-AS-015 (REQ-L1-029)
+# ---------------------------------------------------------------------------
+
+
+class IssueViewSet(BaseEntityViewSet):
+    """ViewSet for Issue CRUD operations (REQ-L1-029).
+
+    Delegates to IssueService (COMP-AS-015, ADR-01).
+    No business logic in this class (REQ-L3-RA001-004).
+    """
+
+    serializer_class = IssueSerializer
+    preset_endpoint_key = ""
+
+    def _svc(self) -> IssueService:
+        return IssueService()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/issues/ — list all Issues in a workspace."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.query_params.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            workspace_id = UUID(workspace_id_str)
+            items = self._svc().list_issues(workspace_id=workspace_id, ctx=ctx)
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        serialized = [IssueSerializer(_issue_to_dict(item)).data for item in items]
+        return self._paginate(request, serialized)
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/issues/{pk}/ — retrieve single Issue."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_issue(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(IssueSerializer(_issue_to_dict(item)).data)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/issues/ — create an Issue. Returns 201."""
+        lang = detect_lang(request)
+        ser = IssueSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create_issue(
+                workspace_id=UUID(str(data["workspace_id"])),
+                title=data["title"],
+                severity=data.get("severity", "medium"),
+                ctx=ctx,
+                description=data.get("description", ""),
+                category=data.get("category", "defect"),
+                tags=data.get("tags"),
+                status=data.get("status", "Open"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(IssueSerializer(_issue_to_dict(item)).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/issues/{pk}/ — update an Issue. Returns 200."""
+        lang = detect_lang(request)
+        ser = IssueSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().update_issue(
+                issue_id=UUID(pk),
+                ctx=ctx,
+                title=data.get("title"),
+                description=data.get("description"),
+                severity=data.get("severity"),
+                category=data.get("category"),
+                tags=data.get("tags"),
+                change_reason=data.get("change_reason"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(IssueSerializer(_issue_to_dict(item)).data)
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/issues/{pk}/ — delete an Issue. Returns 204."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().delete_issue(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
 # SearchViewSet — Full-text search across Requirements, ArchitectureElements,
 # and TestCases (COMP-AS-010 SearchService).
 # REQ-L1-020, REQ-L3-SEARCH-001 through REQ-L3-SEARCH-009
@@ -1343,5 +1804,8 @@ __all__ = [
     "BaselineViewSet",
     "WorkflowDefinitionViewSet",
     "WorkspaceViewSet",
+    "AdrViewSet",
+    "RiskViewSet",
+    "IssueViewSet",
     "SearchViewSet",
 ]
