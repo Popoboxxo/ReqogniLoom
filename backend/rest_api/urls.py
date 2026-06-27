@@ -33,6 +33,7 @@ from rest_api.views import (
     ArtifactViewSet,
     ArchitectureElementViewSet,
     BaselineViewSet,
+    RequirementHistoryView,
     RequirementViewSet,
     SearchViewSet,
     TestCaseViewSet,
@@ -67,6 +68,13 @@ urlpatterns = [
     # auth/login/ is PUBLIC (AllowAny, no auth); auth/me/ requires a Bearer token.
     path("auth/login/", LoginView.as_view(), name="api-v1-auth-login"),
     path("auth/me/", MeView.as_view(), name="api-v1-auth-me"),
+    # Requirement audit-trail (REQ-L0-011) — must precede router.urls to avoid
+    # being swallowed by the router's requirements/<pk>/ catch-all pattern.
+    path(
+        "requirements/<uuid:pk>/history/",
+        RequirementHistoryView.as_view(),
+        name="requirement-history",
+    ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),
     # OpenAPI schema — accessible without auth (REQ-L2-RA-002, REQ-L3-RA005-001)

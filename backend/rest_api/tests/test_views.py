@@ -27,6 +27,7 @@ from rest_framework.test import APIRequestFactory
 
 from rest_api.views import (
     RequirementViewSet,
+    RequirementHistoryView,
     ArtifactViewSet,
     ArchitectureElementViewSet,
     TestCaseViewSet,
@@ -228,6 +229,146 @@ class TestRequirementViewSetRouting:
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 404
         assert "error" in response.data
+
+
+# ---------------------------------------------------------------------------
+# RequirementHistoryView — audit-trail endpoint (REQ-L0-011)
+# ---------------------------------------------------------------------------
+
+
+class TestRequirementHistoryView:
+    """GET /api/v1/requirements/{pk}/history/ returns paginated audit entries."""
+
+    def _make_audit_entry(self, **kwargs):
+        """Build a mock AuditEntry with sensible defaults."""
+        entry = MagicMock()
+        entry.id = kwargs.get("id", uuid.uuid4())
+        entry.actor = kwargs.get("actor", "user-1")
+        entry.actor_type = kwargs.get("actor_type", "user")
+        entry.op = kwargs.get("op", "create")
+        entry.timestamp = kwargs.get("timestamp", None) or __import__("datetime").datetime(
+            2026, 1, 1, 12, 0, 0, tzinfo=__import__("datetime").timezone.utc
+        )
+        entry.change_reason = kwargs.get("change_reason", None)
+        entry.entity_version = kwargs.get("entity_version", 1)
+        entry.source = kwargs.get("source", "rest")
+        return entry
+
+    def test_history_returns_audit_entries(self) -> None:
+        """GET history returns 200 with paginated audit entries."""
+        pk = uuid.uuid4()
+        entry1 = self._make_audit_entry(op="create", entity_version=1)
+        entry2 = self._make_audit_entry(op="update", entity_version=2, change_reason="fix typo")
+
+        mock_result = MagicMock()
+        mock_result.entries = [entry1, entry2]
+        mock_result.total = 2
+        mock_result.page = 1
+        mock_result.page_size = 50
+
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/requirements/{pk}/history/")
+        req.auth_context = _make_auth_context()
+
+        svc_mock = MagicMock()
+        svc_mock.get_requirement.return_value = MagicMock()
+
+        with patch("rest_api.views.RequirementService", return_value=svc_mock), \
+             patch("rest_api.views.AuditLogQuery.query", return_value=mock_result) as query_mock:
+            response = RequirementHistoryView.as_view()(req, pk=str(pk))
+
+        assert response.status_code == 200
+        assert response.data["total"] == 2
+        assert len(response.data["results"]) == 2
+        assert response.data["results"][0]["operation"] == "create"
+        assert response.data["results"][1]["operation"] == "update"
+        assert response.data["results"][1]["change_reason"] == "fix typo"
+
+        # Verify AuditLogQuery was called with correct filters
+        query_mock.assert_called_once()
+        call_kwargs = query_mock.call_args
+        assert call_kwargs.kwargs["page"] == 1
+        assert call_kwargs.kwargs["page_size"] == 50
+
+    def test_history_returns_404_for_missing_requirement(self) -> None:
+        """GET history returns 404 when requirement does not exist."""
+        from application.services import NotFoundError
+
+        pk = uuid.uuid4()
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/requirements/{pk}/history/")
+        req.auth_context = _make_auth_context()
+
+        svc_mock = MagicMock()
+        svc_mock.get_requirement.side_effect = NotFoundError("not found")
+
+        with patch("rest_api.views.RequirementService", return_value=svc_mock):
+            response = RequirementHistoryView.as_view()(req, pk=str(pk))
+
+        assert response.status_code == 404
+        assert "error" in response.data
+
+    def test_history_pagination_params(self) -> None:
+        """GET history respects page and page_size query params."""
+        pk = uuid.uuid4()
+        mock_result = MagicMock()
+        mock_result.entries = []
+        mock_result.total = 0
+        mock_result.page = 3
+        mock_result.page_size = 10
+
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/requirements/{pk}/history/?page=3&page_size=10")
+        req.auth_context = _make_auth_context()
+
+        svc_mock = MagicMock()
+        svc_mock.get_requirement.return_value = MagicMock()
+
+        with patch("rest_api.views.RequirementService", return_value=svc_mock), \
+             patch("rest_api.views.AuditLogQuery.query", return_value=mock_result) as query_mock:
+            response = RequirementHistoryView.as_view()(req, pk=str(pk))
+
+        assert response.status_code == 200
+        assert response.data["page"] == 3
+        assert response.data["page_size"] == 10
+        query_mock.assert_called_once()
+        call_kwargs = query_mock.call_args
+        assert call_kwargs.kwargs["page"] == 3
+        assert call_kwargs.kwargs["page_size"] == 10
+
+    def test_history_page_size_capped_at_100(self) -> None:
+        """page_size is capped at 100 to prevent excessive queries."""
+        pk = uuid.uuid4()
+        mock_result = MagicMock()
+        mock_result.entries = []
+        mock_result.total = 0
+        mock_result.page = 1
+        mock_result.page_size = 100
+
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/requirements/{pk}/history/?page_size=500")
+        req.auth_context = _make_auth_context()
+
+        svc_mock = MagicMock()
+        svc_mock.get_requirement.return_value = MagicMock()
+
+        with patch("rest_api.views.RequirementService", return_value=svc_mock), \
+             patch("rest_api.views.AuditLogQuery.query", return_value=mock_result) as query_mock:
+            response = RequirementHistoryView.as_view()(req, pk=str(pk))
+
+        assert response.status_code == 200
+        call_kwargs = query_mock.call_args
+        assert call_kwargs.kwargs["page_size"] == 100
+
+    def test_history_url_registered(self) -> None:
+        """The history URL pattern is registered in rest_api.urls."""
+        from rest_api.urls import urlpatterns
+
+        history_patterns = [
+            p for p in urlpatterns
+            if hasattr(p, "name") and p.name == "requirement-history"
+        ]
+        assert len(history_patterns) == 1
 
 
 # ---------------------------------------------------------------------------

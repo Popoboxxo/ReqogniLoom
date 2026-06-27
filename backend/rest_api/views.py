@@ -37,6 +37,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from application.services import (
     ArtifactService,
@@ -57,6 +58,7 @@ from application.services import (
     RiskService,
     IssueService,
 )
+from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.serializers import (
@@ -287,6 +289,87 @@ class RequirementViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# RequirementHistoryView — REQ-L0-011: Audit-Trail for Requirements
+# ---------------------------------------------------------------------------
+
+
+class RequirementHistoryView(APIView):
+    """GET /api/v1/requirements/{pk}/history/ — Audit-Trail für Requirements.
+
+    REQ-L0-011: Returns paginated audit entries from the audit_entry table
+    for a specific Requirement. Uses AuditLogQuery (COMP-AL-002) for
+    filtered/paginated access with tenant isolation.
+
+    Query params:
+        page      — page number (default 1)
+        page_size — entries per page (default 50, max 100)
+    """
+
+    def get(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            # Verify requirement exists and user has access (also sets tenant context)
+            req_service = RequirementService()
+            req_service.get_requirement(UUID(pk), ctx)
+
+            # Parse pagination params
+            try:
+                page = int(request.query_params.get("page", 1))
+                page_size = int(request.query_params.get("page_size", 50))
+            except (ValueError, TypeError):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang,
+                        message="page and page_size must be integers",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Cap page_size to prevent excessive queries
+            page_size = min(page_size, 100)
+
+            # Query audit entries for this requirement
+            filters = AuditQueryFilters(
+                entity_id=UUID(pk),
+                entity_type="Requirement",
+            )
+            result = AuditLogQuery.query(
+                filters=filters,
+                page=page,
+                page_size=page_size,
+            )
+
+            return Response({
+                "results": [
+                    {
+                        "id": str(e.id),
+                        "actor": e.actor,
+                        "actor_type": e.actor_type,
+                        "operation": e.op,
+                        "timestamp": e.timestamp.isoformat(),
+                        "change_reason": e.change_reason,
+                        "entity_version": e.entity_version,
+                        "source": e.source,
+                    }
+                    for e in result.entries
+                ],
+                "total": result.total,
+                "page": result.page,
+                "page_size": result.page_size,
+            })
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
 
 
 # ---------------------------------------------------------------------------
