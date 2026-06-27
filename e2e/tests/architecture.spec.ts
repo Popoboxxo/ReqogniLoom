@@ -32,7 +32,7 @@ test.describe('Architecture Management', () => {
       data: {
         workspace_id: SEEDED_WORKSPACE_ID,
         title: 'E2E Test Architecture Element',
-        element_type: 'Component',
+        element_type: 'component',
       },
     });
     expect(response.ok()).toBeTruthy();

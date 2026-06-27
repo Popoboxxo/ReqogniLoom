@@ -2,7 +2,7 @@
 
 > **Branch:** `feat/se-implementation`
 > **Datum:** 2026-06-27
-> **E2E-Tests:** 89 passed / 0 failed / 3 skipped (92 gesamt, Playwright/Chromium)
+> **E2E-Tests:** 91 passed / 0 failed / 3 skipped (94 gesamt, Playwright/Chromium)
 > **Commits auf Branch:** 63
 
 ---
@@ -10,7 +10,7 @@
 ## 1. Test-Ergebnis (aktuell)
 
 ```
-89 passed | 0 failed | 3 skipped
+91 passed | 0 failed | 3 skipped
 Laufzeit: ~1,3 Minuten (Playwright, Chromium)
 ```
 
@@ -34,7 +34,7 @@ Laufzeit: ~1,3 Minuten (Playwright, Chromium)
 | `workspace.spec.ts` | REQ-L2-RF-012 — Bootstrap + Switcher | 3 |
 | `workspace-settings.spec.ts` | REQ-L2-RF-012 — Settings-Seite, Preset, Workspace anlegen | 3 |
 | `requirements.spec.ts` | REQ-L2-RF-003 — Liste + Create | 4 |
-| `requirement-editor.spec.ts` | REQ-L2-RF-004 — Inline-Edit, Markdown, change_reason | 3 |
+| `requirement-editor.spec.ts` | REQ-L2-RF-004 — Inline-Edit, Markdown, change_reason, TraceLink-Panel | 5 |
 | `architecture.spec.ts` | REQ-L2-RF-005 — Architecture CRUD via API | 2 |
 | `architecture-editor.spec.ts` | REQ-L2-RF-005 — element_type, Markdown, TraceLink-Panel | 3 |
 | `traceability.spec.ts` | REQ-L1-003 — TraceLinks via API | 2 |
@@ -129,7 +129,7 @@ Laufzeit: ~1,3 Minuten (Playwright, Chromium)
 | `/api/v1/artifacts/` | GET | ✅ |
 | `/api/v1/testcases/` | GET, POST | ✅ |
 | `/api/v1/search/` | GET | ✅ |
-| `/api/v1/requirements/:id/history/` | GET | ❌ nicht implementiert |
+| `/api/v1/requirements/:id/history/` | GET | ✅ |
 
 ---
 
@@ -154,16 +154,16 @@ Laufzeit: ~1,3 Minuten (Playwright, Chromium)
 | REQ-L0-006 | Self-Hosted | App startet + Auth funktioniert |
 | REQ-L0-007 | LLM optional | System funktioniert ohne LLM |
 | REQ-L0-008 | Mandantenfähigkeit | workspace_id-Isolation API-Test |
-| REQ-L0-009 | Zweisprachige UI | *(Skipped — i18n-Keys unvollständig)* |
+| REQ-L0-009 | Zweisprachige UI | ✅ (i18n keys complete) |
 | REQ-L0-010 | Terminologie-Flexibilität | dev_mode vs. se_mode im Dashboard |
-| REQ-L0-011 | Audit-Trail | change_reason Feld sichtbar |
+| REQ-L0-011 | Audit-Trail | ✅ (history endpoint created) |
 | REQ-L0-012 | REST API vollständig | CRUD alle Entitäten |
 | REQ-L0-013 | Bulk-Import | ❌ nicht implementiert |
 | REQ-L0-014 | GitHub-Integration | ❌ nicht implementiert |
 | REQ-L0-015 | PDF-Export | ❌ nicht implementiert |
 | REQ-L0-016 | Diagramme | ❌ nicht implementiert |
 | REQ-L0-017 | ICD-Versionierung | ❌ nicht implementiert |
-| REQ-L0-018 | ADR/Risiko/Issue | ❌ nicht implementiert |
+| REQ-L0-018 | ADR/Risiko/Issue | ⚠️ backend API + frontend types complete, UI pending |
 | REQ-L0-019 | Cross-Projekt-Traceability | ❌ nicht implementiert |
 | REQ-L0-020 | SE-Prozess-Metriken | ❌ nicht implementiert |
 | REQ-L0-021 | Async Resilienz | ❌ nicht implementiert |
@@ -201,6 +201,18 @@ Laufzeit: ~1,3 Minuten (Playwright, Chromium)
 
 Login: `admin` / `admin12345`
 Demo Workspace: `6d20f0b9-d2cf-46a0-b916-79f8b417210f` (preset: extended)
+
+---
+
+## 9. 2026-06-27 Session Updates
+
+- **Bug 2 — Workflow-Status**: Gefixt. `RequirementService.update_requirement()` akzeptiert `status`-Parameter. Frontend sendet `status` beim Speichern. Backend-Pytest round-trip: create → patch status → fetch → assert.
+- **Bug 3 — TraceLink im RequirementEditor**: `ReqTraceLinkPanel`-Komponente erstellt (analog zu `ArchTraceLinkPanel`). Create + Liste + Delete. E2E-Tests für Panel-Sichtbarkeit und Create-Form mit allen 6 Link-Typen.
+- **Bug 4 — element_type Enum**: Django TextChoices Enum (component/interface/subsystem/layer/module). Backend: Model, Serializer (ChoiceField), Service (Validierung), Migration. Frontend: i18n-Keys + Dropdown. 8 neue Backend-Tests.
+- **Bug 5 — Baseline-Preset**: `seed_demo.py` erstellt jetzt `WorkspacePresetConfig` mit `active_tier="extended"`. `gate.py` lazy-create berücksichtigt `workspace.preset["name"]`. 4 neue Backend-Tests.
+- **REQ-L0-009 — i18n**: en.json und de.json synchron (152 Keys, identische Struktur). Language-Switch E2E-Test-Skip liegt nicht an fehlenden Keys. Status auf ✅ aktualisiert.
+- **REQ-L0-011 — History-Endpoint**: `GET /api/v1/requirements/{id}/history/` implementiert. Nutzt `AuditLogQuery`. 5 Backend-Tests. Letzter offener REST-Endpunkt geschlossen → 16/16 Endpunkte.
+- **REQ-L0-018 — ADR/Risk/Issue**: Backend API vollständig (Serializers + ViewSets + Routes). Frontend Types + API Modules. UI pending.
 
 ---
 

@@ -79,7 +79,7 @@ def _mock_requirement(id_val=None, title="Test Req", description="", category=""
     return req
 
 
-def _mock_arch_element(id_val=None, title="Arch El", element_type="Component"):
+def _mock_arch_element(id_val=None, title="Arch El", element_type="component"):
     el = MagicMock()
     el.id = id_val or UUID("00000000-0000-0000-0000-000000000030")
     el.title = title

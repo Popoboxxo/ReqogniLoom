@@ -33,6 +33,27 @@ from django.db import models
 
 from persistence.tenancy import TenantManager, UnscopedManager
 
+
+# ---------------------------------------------------------------------------
+# Domain enums (COMP-PL-001)
+# ---------------------------------------------------------------------------
+
+
+class ElementType(models.TextChoices):
+    """Allowed architecture element types (REQ-L2-AS-004).
+
+    Values are lowercase for API consistency.  The human-readable label
+    (second tuple element) is used by Django admin and serializer choice
+    descriptions only — the stored DB value is always the lowercase key.
+    """
+
+    COMPONENT = "component", "Component"
+    INTERFACE = "interface", "Interface"
+    SUBSYSTEM = "subsystem", "Subsystem"
+    LAYER = "layer", "Layer"
+    MODULE = "module", "Module"
+
+
 # ---------------------------------------------------------------------------
 # Abstract base classes (COMP-PL-001, ADR-L3-PL-001)
 # ---------------------------------------------------------------------------
@@ -283,7 +304,12 @@ class ArchitectureElement(TenantScopedModel):
     )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
-    element_type = models.CharField(max_length=64, blank=True)
+    element_type = models.CharField(
+        max_length=64,
+        blank=True,
+        choices=ElementType.choices,
+        default=ElementType.COMPONENT,
+    )
 
     class Meta:
         db_table = "pl_architecture_element"
@@ -430,6 +456,7 @@ __all__ = [
     "Workspace",
     "Artifact",
     "Requirement",
+    "ElementType",
     "ArchitectureElement",
     "TraceLink",
     "TestCase",

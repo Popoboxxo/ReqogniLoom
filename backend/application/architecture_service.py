@@ -28,10 +28,10 @@ from uuid import UUID
 from django.db.models import F
 
 from auth_tenancy.context import AuthContext
-from persistence.models import ArchitectureElement, Artifact, Tenant, Workspace
+from persistence.models import ArchitectureElement, Artifact, ElementType, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
-from application.base import NotFoundError, OptimisticLockError, ServiceBase
+from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
 
 logger = logging.getLogger(__name__)
@@ -40,15 +40,31 @@ logger = logging.getLogger(__name__)
 class ArchitectureService(ServiceBase):
     """COMP-AS-003 — ArchitectureElement lifecycle management."""
 
-    # Supported element types (extensible via enum in future)
-    VALID_ELEMENT_TYPES = frozenset(
-        {"Component", "Interface", "Subsystem", "Layer", "Module"}
-    )
+    # Supported element types — derived from ElementType TextChoices enum
+    VALID_ELEMENT_TYPES = frozenset(ElementType.values)
 
     def __init__(self, trace_link_service=None) -> None:
         from application.trace_link_service import TraceLinkService
 
         self._trace_link_service = trace_link_service or TraceLinkService()
+
+    # ---------- helpers ----------
+
+    @staticmethod
+    def _validate_element_type(element_type: str) -> str:
+        """Validate and normalize *element_type* to a lowercase enum value.
+
+        Accepts both exact lowercase values (``"component"``) and legacy
+        PascalCase labels (``"Component"``).  Raises ``ValidationError``
+        for anything outside the ElementType enum (e.g. ``"banane"``).
+        """
+        normalized = (element_type or "").strip().lower()
+        if normalized not in ArchitectureService.VALID_ELEMENT_TYPES:
+            raise ValidationError(
+                f"Invalid element_type '{element_type}'. "
+                f"Allowed values: {', '.join(sorted(ElementType.values))}"
+            )
+        return normalized
 
     # ---------- CRUD (REQ-L2-AS-004) ----------
 
@@ -59,7 +75,7 @@ class ArchitectureService(ServiceBase):
         title: str,
         ctx: AuthContext,
         description: str = "",
-        element_type: str = "Component",
+        element_type: str = ElementType.COMPONENT,
     ) -> ArchitectureElement:
         """Create an ArchitectureElement with initial version=1.
 
@@ -67,6 +83,9 @@ class ArchitectureService(ServiceBase):
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
+
+        # Validate element_type against enum (rejects "banane" etc.)
+        element_type = self._validate_element_type(element_type)
 
         # Tenant and Workspace are imported at module level to allow test mocking.
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
@@ -154,7 +173,7 @@ class ArchitectureService(ServiceBase):
         if description is not None:
             arch_el.description = description
         if element_type is not None:
-            arch_el.element_type = element_type
+            arch_el.element_type = self._validate_element_type(element_type)
 
         # Atomic version increment
         ArchitectureElement.objects.filter(id=arch_el_id, version=expected_version).update(

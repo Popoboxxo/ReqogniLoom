@@ -140,7 +140,7 @@ class ArchitectureToolGroup(BaseToolGroup):
         title = require_param(params, "title")
         workspace_id = require_uuid(params, "workspace_id")
         description: str = params.get("description", "")
-        element_type: str = params.get("element_type", "Component")
+        element_type: str = params.get("element_type", "component")
 
         try:
             el = self._service.create_architecture_element(

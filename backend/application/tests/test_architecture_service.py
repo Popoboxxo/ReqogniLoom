@@ -25,6 +25,7 @@ from application.base import (
     NotFoundError,
     OptimisticLockError,
     PermissionDeniedError,
+    ValidationError,
 )
 
 pytestmark = pytest.mark.django_db
@@ -55,7 +56,7 @@ def _make_arch_el(**kwargs):
     el.id = kwargs.get("id", ARCH_EL_ID)
     el.title = kwargs.get("title", "Component A")
     el.description = kwargs.get("description", "")
-    el.element_type = kwargs.get("element_type", "Component")
+    el.element_type = kwargs.get("element_type", "component")
     el.version = kwargs.get("version", 1)
     artifact = MagicMock()
     artifact.id = uuid.uuid4()
@@ -480,3 +481,276 @@ class TestTenantIsolation:
             svc.get_architecture_element(ARCH_EL_ID, ctx)
 
         mock_stc.assert_called_once_with(ctx)
+
+
+# ---------------------------------------------------------------------------
+# element_type validation (Bug 4 — "banane" fix)
+# ---------------------------------------------------------------------------
+
+
+class TestElementTypeValidation:
+    """REQ-L2-AS-004 — element_type must be one of the 5 enum values."""
+
+    # -- helpers to set up the standard mock chain for create --
+
+    @staticmethod
+    def _patch_create_chain(svc):
+        """Return a context-manager stack that mocks all create dependencies."""
+        from unittest.mock import patch, MagicMock
+
+        return (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.Tenant",
+                **{"objects.filter.return_value.first.return_value": MagicMock()},
+            ),
+            patch(
+                "application.architecture_service.Workspace",
+                **{"objects.filter.return_value.first.return_value": MagicMock()},
+            ),
+            patch(
+                "application.architecture_service.Artifact.objects.create",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.create",
+                side_effect=lambda **kw: _make_arch_el(
+                    element_type=kw.get("element_type", "component")
+                ),
+            ),
+            patch.object(svc, "_audit"),
+            patch.object(svc, "_emit_event"),
+        )
+
+    def test_create_with_all_valid_element_types(self):
+        """Each of the 5 ElementType values is accepted and stored lowercase."""
+        from persistence.models import ElementType
+
+        for etype in ElementType.values:
+            svc = ArchitectureService()
+            ctx = _make_ctx()
+            patches = self._patch_create_chain(svc)
+
+            # Enter all patches
+            cms = [p.start() for p in patches]
+            try:
+                result = svc.create_architecture_element(
+                    workspace_id=WS_ID,
+                    title=f"Test {etype}",
+                    ctx=ctx,
+                    element_type=etype,
+                )
+                assert result.element_type == etype
+            finally:
+                for p in patches:
+                    p.stop()
+
+    def test_create_normalizes_pascal_case_to_lowercase(self):
+        """Legacy PascalCase values like 'Component' are normalized to 'component'."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        patches = self._patch_create_chain(svc)
+
+        # Override the create side_effect to capture the actual kwargs
+        from unittest.mock import MagicMock
+
+        captured = {}
+
+        def capture_create(**kw):
+            captured.update(kw)
+            return _make_arch_el(element_type=kw.get("element_type", "component"))
+
+        patches[5] = patch(
+            "application.architecture_service.ArchitectureElement.objects.create",
+            side_effect=capture_create,
+        )
+
+        cms = [p.start() for p in patches]
+        try:
+            svc.create_architecture_element(
+                workspace_id=WS_ID,
+                title="PascalCase Test",
+                ctx=ctx,
+                element_type="Component",  # PascalCase → should be normalized
+            )
+            assert captured["element_type"] == "component"
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_create_with_invalid_element_type_raises_validation_error(self):
+        """Invalid element_type like 'banane' raises ValidationError."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+        ):
+            with pytest.raises(ValidationError, match="Invalid element_type"):
+                svc.create_architecture_element(
+                    workspace_id=WS_ID,
+                    title="Invalid",
+                    ctx=ctx,
+                    element_type="banane",
+                )
+
+    def test_create_with_empty_string_raises_validation_error(self):
+        """Empty string element_type raises ValidationError."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+        ):
+            with pytest.raises(ValidationError, match="Invalid element_type"):
+                svc.create_architecture_element(
+                    workspace_id=WS_ID,
+                    title="Empty",
+                    ctx=ctx,
+                    element_type="",
+                )
+
+    def test_update_with_valid_element_type(self):
+        """update_architecture_element accepts valid element_type values."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=1, element_type="component")
+
+        mock_filter_qs = MagicMock()
+        mock_filter_qs.update = MagicMock()
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_el))
+                    )
+                ),
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=mock_filter_qs,
+            ),
+            patch.object(svc, "_audit"),
+            patch.object(svc, "_emit_event"),
+        ):
+            result = svc.update_architecture_element(
+                arch_el_id=ARCH_EL_ID,
+                ctx=ctx,
+                expected_version=1,
+                element_type="subsystem",
+            )
+
+        assert mock_el.element_type == "subsystem"
+
+    def test_update_with_invalid_element_type_raises_validation_error(self):
+        """update_architecture_element rejects invalid element_type."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=1)
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_el))
+                    )
+                ),
+            ),
+        ):
+            with pytest.raises(ValidationError, match="Invalid element_type"):
+                svc.update_architecture_element(
+                    arch_el_id=ARCH_EL_ID,
+                    ctx=ctx,
+                    expected_version=1,
+                    element_type="banane",
+                )
+
+    def test_update_normalizes_pascal_case_element_type(self):
+        """update_architecture_element normalizes PascalCase to lowercase."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=1, element_type="component")
+
+        mock_filter_qs = MagicMock()
+        mock_filter_qs.update = MagicMock()
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_el))
+                    )
+                ),
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=mock_filter_qs,
+            ),
+            patch.object(svc, "_audit"),
+            patch.object(svc, "_emit_event"),
+        ):
+            svc.update_architecture_element(
+                arch_el_id=ARCH_EL_ID,
+                ctx=ctx,
+                expected_version=1,
+                element_type="Layer",  # PascalCase → normalized
+            )
+
+        assert mock_el.element_type == "layer"
+
+    def test_default_element_type_is_component(self):
+        """create_architecture_element defaults to 'component' when not specified."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        patches = self._patch_create_chain(svc)
+
+        from unittest.mock import MagicMock
+
+        captured = {}
+
+        def capture_create(**kw):
+            captured.update(kw)
+            return _make_arch_el(element_type=kw.get("element_type", "component"))
+
+        patches[5] = patch(
+            "application.architecture_service.ArchitectureElement.objects.create",
+            side_effect=capture_create,
+        )
+
+        cms = [p.start() for p in patches]
+        try:
+            svc.create_architecture_element(
+                workspace_id=WS_ID,
+                title="Default Type",
+                ctx=ctx,
+                # element_type not specified → should default to "component"
+            )
+            assert captured["element_type"] == "component"
+        finally:
+            for p in patches:
+                p.stop()

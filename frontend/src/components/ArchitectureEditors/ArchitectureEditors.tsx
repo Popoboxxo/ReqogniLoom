@@ -36,12 +36,12 @@ import type {
 // Element type options (REQ-L3-RF004-001, ADR-L3-RF-007)
 // ---------------------------------------------------------------------------
 
-const ELEMENT_TYPES: { value: ElementType; label: string }[] = [
-  { value: "component", label: "Component" },
-  { value: "interface", label: "Interface" },
-  { value: "subsystem", label: "Subsystem" },
-  { value: "layer", label: "Layer" },
-  { value: "module", label: "Module" },
+const ELEMENT_TYPES: { value: ElementType; labelKey: string }[] = [
+  { value: "component", labelKey: "arch.elementType.component" },
+  { value: "interface", labelKey: "arch.elementType.interface" },
+  { value: "subsystem", labelKey: "arch.elementType.subsystem" },
+  { value: "layer", labelKey: "arch.elementType.layer" },
+  { value: "module", labelKey: "arch.elementType.module" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -299,7 +299,7 @@ function ArchElementForm({
       >
         {ELEMENT_TYPES.map((et) => (
           <option key={et.value} value={et.value}>
-            {et.label}
+            {t(et.labelKey)}
           </option>
         ))}
       </select>
@@ -960,7 +960,7 @@ export default function ArchitectureEditors(): JSX.Element {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {el.element_type}
+                    {t(`arch.elementType.${el.element_type}`)}
                   </span>
                 </li>
               );

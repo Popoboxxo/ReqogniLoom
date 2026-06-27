@@ -145,7 +145,7 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
       data: {
         workspace_id: SEEDED_WORKSPACE_ID,
         title: 'API Completeness E2E — Architecture Element',
-        element_type: 'Component',
+        element_type: 'component',
       },
     });
     expect(response.status()).toBe(201);
@@ -166,7 +166,7 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
       data: {
         workspace_id: SEEDED_WORKSPACE_ID,
         title: 'DELETE Target Arch Element',
-        element_type: 'Module',
+        element_type: 'module',
       },
     });
     expect(createResp.ok()).toBeTruthy();
