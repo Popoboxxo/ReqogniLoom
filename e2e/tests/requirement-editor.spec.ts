@@ -1,4 +1,5 @@
 // REQ-L2-RF-003, REQ-L3-RF003-001/002/003: Requirements editor (inline, workflow, traceability)
+// REQ-L2-RF-006: TraceLink creation in RequirementEditor
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
@@ -65,5 +66,40 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     // Panel has upstream + downstream sections (h4 headers)
     const headers = await panel.locator('h4').count();
     expect(headers).toBeGreaterThanOrEqual(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // REQ-L2-RF-006 — TraceLink create panel visible in requirement editor
+  // -------------------------------------------------------------------------
+  test('[REQ-L2-RF-006] requirement editor shows tracelink panel with create button', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/requirements`);
+    await page.locator('[data-testid="create-req-btn"]').click();
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+
+    // ReqTraceLinkPanel must be rendered
+    const panel = page.locator('[data-testid="req-tracelink-panel"]');
+    await expect(panel).toBeVisible({ timeout: 8000 });
+
+    // Create button must be present
+    const createBtn = page.locator('[data-testid="req-tracelink-create-btn"]');
+    await expect(createBtn).toBeVisible({ timeout: 4000 });
+  });
+
+  test('[REQ-L2-RF-006] tracelink create form shows target and type selectors', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/requirements`);
+    await page.locator('[data-testid="create-req-btn"]').click();
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+
+    // Open the create form
+    await page.locator('[data-testid="req-tracelink-create-btn"]').click();
+    await expect(page.locator('[data-testid="req-tracelink-target-select"]')).toBeVisible({ timeout: 6000 });
+    await expect(page.locator('[data-testid="req-tracelink-type-select"]')).toBeVisible({ timeout: 4000 });
+    await expect(page.locator('[data-testid="req-tracelink-submit-btn"]')).toBeVisible({ timeout: 4000 });
+
+    // All 6 link types must be available
+    const typeOptions = await page.locator('[data-testid="req-tracelink-type-select"]').locator('option').allTextContents();
+    const realTypes = typeOptions.filter((o) => o.trim());
+    expect(realTypes).toEqual(expect.arrayContaining(['parent-child', 'derives-from', 'satisfies', 'verifies', 'implements', 'refines']));
+    expect(realTypes.length).toBeGreaterThanOrEqual(6);
   });
 });

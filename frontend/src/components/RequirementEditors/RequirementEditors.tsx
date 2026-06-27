@@ -15,15 +15,16 @@
  *   IF-RF-EXT-OUT-001 → GET/PATCH /api/v1/requirements/
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useRequirementData } from "./useRequirementData";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { TraceabilityPanel } from "./TraceabilityPanel";
 import { requirementsApi } from "../../api/requirements";
+import { tracelinksApi } from "../../api/tracelinks";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import type { Requirement, TraceLink } from "../../types";
+import type { Requirement, TraceLink, LinkType, UUID } from "../../types";
 import { REQ_CATEGORIES } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,8 @@ interface RequirementDetailEditorProps {
   requirement: Requirement;
   upstreamLinks: TraceLink[];
   downstreamLinks: TraceLink[];
+  requirements: Requirement[];
+  workspaceId: UUID;
   onSaved: () => void;
 }
 
@@ -72,6 +75,8 @@ function RequirementDetailEditor({
   requirement,
   upstreamLinks,
   downstreamLinks,
+  requirements,
+  workspaceId,
   onSaved,
 }: RequirementDetailEditorProps): JSX.Element {
   const { t } = useTranslation();
@@ -112,6 +117,7 @@ function RequirementDetailEditor({
         title,
         description,
         category,
+        status: workflowState,
         change_reason: changeReason,
       });
       onSaved();
@@ -123,7 +129,7 @@ function RequirementDetailEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [requirement.id, title, description, category, changeReason, onSaved]);
+  }, [requirement.id, title, description, category, workflowState, changeReason, onSaved]);
 
   return (
     <div
@@ -238,6 +244,14 @@ function RequirementDetailEditor({
             {isSaving ? t("actions.saving") : t("actions.save")}
           </SaveButton>
         </div>
+
+        {/* TraceLink panel for this requirement (REQ-L2-RF-006) */}
+        <ReqTraceLinkPanel
+          workspaceId={workspaceId}
+          requirementId={requirement.id}
+          requirements={requirements}
+          onLinksChanged={onSaved}
+        />
       </div>
 
       {/* Traceability sidebar (REQ-L3-RF003-003) */}
@@ -282,6 +296,428 @@ function SaveButton({ padding = "var(--space-2) var(--space-4)", style, children
     >
       {children}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ReqTraceLinkPanel — create/list/delete TraceLinks for a requirement
+// (REQ-L2-RF-006)
+// ---------------------------------------------------------------------------
+
+const REQ_LINK_TYPES: LinkType[] = [
+  "parent-child",
+  "derives-from",
+  "satisfies",
+  "verifies",
+  "implements",
+  "refines",
+];
+
+const reqPanelInputStyle: React.CSSProperties = {
+  width: "100%",
+  fontSize: "var(--font-size-base)",
+  padding: "var(--space-2) var(--space-3)",
+  marginBottom: "var(--space-2)",
+  boxSizing: "border-box",
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  color: "var(--color-text)",
+  fontFamily: "var(--font-sans)",
+};
+
+const reqPanelLabelStyle: React.CSSProperties = {
+  fontWeight: 600,
+  display: "block",
+  marginBottom: "var(--space-1)",
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const reqPanelPrimaryBtn: React.CSSProperties = {
+  background: "var(--color-primary)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-2) var(--space-4)",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+interface ReqTraceLinkPanelProps {
+  workspaceId: UUID;
+  requirementId: UUID;
+  requirements: Requirement[];
+  onLinksChanged: () => void;
+}
+
+function ReqTraceLinkPanel({
+  workspaceId,
+  requirementId,
+  requirements,
+  onLinksChanged,
+}: ReqTraceLinkPanelProps): JSX.Element {
+  const { t } = useTranslation();
+  const [links, setLinks] = useState<TraceLink[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState<boolean>(false);
+  const [targetId, setTargetId] = useState<string>("");
+  const [linkType, setLinkType] = useState<LinkType>("derives-from");
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState<number>(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    async function load(): Promise<void> {
+      try {
+        const resp = await tracelinksApi.listForArtifact(workspaceId, requirementId);
+        if (cancelled) return;
+        setLinks(resp.results);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          String(err);
+        setError(msg);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, requirementId, reloadKey]);
+
+  const requirementsById: Record<UUID, Requirement> = React.useMemo(() => {
+    const m: Record<UUID, Requirement> = {};
+    for (const r of requirements) m[r.id] = r;
+    return m;
+  }, [requirements]);
+
+  const otherRequirements = requirements.filter((r) => r.id !== requirementId);
+
+  function openForm(): void {
+    setTargetId("");
+    setLinkType("derives-from");
+    setSubmitError(null);
+    setShowForm(true);
+  }
+
+  function cancelForm(): void {
+    setShowForm(false);
+    setSubmitError(null);
+  }
+
+  async function submitForm(
+    e: React.FormEvent<HTMLFormElement>
+  ): Promise<void> {
+    e.preventDefault();
+    if (!targetId) {
+      setSubmitError(t("traceability.targetRequired"));
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await tracelinksApi.create({
+        source_id: requirementId,
+        target_id: targetId,
+        link_type: linkType,
+      });
+      setShowForm(false);
+      setTargetId("");
+      setReloadKey((k) => k + 1);
+      onLinksChanged();
+    } catch (err: unknown) {
+      const apiErr = err as {
+        error?: {
+          message?: string;
+          details?: { field?: string; errors?: string[] }[];
+        };
+      };
+      const baseMsg = apiErr?.error?.message;
+      const firstDetail = apiErr?.error?.details?.[0];
+      const detailMsg = firstDetail
+        ? `${firstDetail.field ?? ""}: ${(firstDetail.errors ?? []).join(", ")}`
+        : "";
+      const msg = baseMsg
+        ? detailMsg
+          ? `${baseMsg} — ${detailMsg}`
+          : baseMsg
+        : String(err);
+      setSubmitError(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleDelete(linkId: UUID): Promise<void> {
+    try {
+      await tracelinksApi.delete(linkId);
+      setReloadKey((k) => k + 1);
+      onLinksChanged();
+    } catch (err: unknown) {
+      console.error("Delete tracelink failed:", err);
+    }
+  }
+
+  return (
+    <div
+      data-testid="req-tracelink-panel"
+      style={{
+        marginTop: "var(--space-6)",
+        background: "var(--color-surface)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-card)",
+        padding: "var(--space-4)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "var(--space-3)",
+        }}
+      >
+        <h4
+          style={{
+            margin: 0,
+            fontSize: "var(--font-size-base)",
+            fontWeight: 700,
+            color: "var(--color-text)",
+          }}
+        >
+          {t("arch.tracelinkPanelTitle")}
+        </h4>
+        {!showForm && (
+          <button
+            type="button"
+            data-testid="req-tracelink-create-btn"
+            onClick={openForm}
+            style={reqPanelPrimaryBtn}
+          >
+            {t("traceability.create")}
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <form
+          onSubmit={(e) => void submitForm(e)}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-2)",
+            marginBottom: "var(--space-3)",
+            padding: "var(--space-3)",
+            background: "var(--color-surface-raised)",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <label style={reqPanelLabelStyle}>
+            {t("traceability.target")}
+          </label>
+          <select
+            data-testid="req-tracelink-target-select"
+            value={targetId}
+            onChange={(e) => setTargetId(e.target.value)}
+            disabled={isSubmitting}
+            required
+            style={reqPanelInputStyle}
+          >
+            <option value="">
+              {otherRequirements.length === 0
+                ? t("traceability.noArtifacts")
+                : "—"}
+            </option>
+            {otherRequirements.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title || t("editor.untitled")}
+              </option>
+            ))}
+          </select>
+
+          <label style={reqPanelLabelStyle}>
+            {t("traceability.linkType")}
+          </label>
+          <select
+            data-testid="req-tracelink-type-select"
+            value={linkType}
+            onChange={(e) => setLinkType(e.target.value as LinkType)}
+            disabled={isSubmitting}
+            style={reqPanelInputStyle}
+          >
+            {REQ_LINK_TYPES.map((lt) => (
+              <option key={lt} value={lt}>
+                {lt}
+              </option>
+            ))}
+          </select>
+
+          {submitError && (
+            <p
+              role="alert"
+              style={{
+                color: "var(--color-danger)",
+                fontSize: "var(--font-size-sm)",
+                margin: 0,
+              }}
+            >
+              {submitError}
+            </p>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <button
+              type="button"
+              data-testid="req-tracelink-cancel-btn"
+              onClick={cancelForm}
+              disabled={isSubmitting}
+              style={{
+                background: "var(--color-surface-raised)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+              }}
+            >
+              {t("actions.cancel")}
+            </button>
+            <button
+              type="submit"
+              data-testid="req-tracelink-submit-btn"
+              disabled={isSubmitting}
+              style={{
+                ...reqPanelPrimaryBtn,
+                opacity: isSubmitting ? 0.6 : 1,
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+              }}
+            >
+              {isSubmitting
+                ? t("traceability.submitting")
+                : t("traceability.submit")}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {isLoading && (
+        <p
+          role="status"
+          style={{
+            color: "var(--color-text-muted)",
+            fontSize: "var(--font-size-sm)",
+            margin: 0,
+          }}
+        >
+          {t("loading")}
+        </p>
+      )}
+
+      {error && !isLoading && (
+        <p
+          role="alert"
+          style={{
+            color: "var(--color-danger)",
+            fontSize: "var(--font-size-sm)",
+            margin: 0,
+          }}
+        >
+          {error}
+        </p>
+      )}
+
+      {!isLoading && !error && links.length === 0 && (
+        <p
+          style={{
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
+            margin: 0,
+          }}
+        >
+          {t("traceability.none")}
+        </p>
+      )}
+
+      {!isLoading && !error && links.length > 0 && (
+        <ul
+          data-testid="req-tracelink-list"
+          style={{ listStyle: "none", padding: 0, margin: 0 }}
+        >
+          {links.map((link) => {
+            const targetReq = requirementsById[link.target_id];
+            return (
+              <li
+                key={link.id}
+                data-testid="req-tracelink-item"
+                style={{
+                  padding: "var(--space-2) var(--space-3)",
+                  marginBottom: "var(--space-2)",
+                  background: "var(--color-surface-raised)",
+                  borderRadius: "var(--radius-md)",
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
+                  flexWrap: "wrap",
+                }}
+              >
+                <span
+                  style={{
+                    background: "var(--color-badge-draft)",
+                    color: "var(--color-badge-draft-text)",
+                    padding: "1px 6px",
+                    borderRadius: "var(--radius-full)",
+                    fontSize: "var(--font-size-sm)",
+                  }}
+                >
+                  {link.link_type}
+                </span>
+                <span style={{ fontFamily: "monospace" }}>
+                  → {targetReq?.title ?? link.target_id.slice(0, 8) + "…"}
+                </span>
+                <button
+                  data-testid="req-tracelink-delete-btn"
+                  onClick={() => void handleDelete(link.id)}
+                  style={{
+                    marginLeft: "auto",
+                    background: "none",
+                    border: "none",
+                    color: "var(--color-danger)",
+                    cursor: "pointer",
+                    fontSize: "var(--font-size-sm)",
+                    fontWeight: 600,
+                  }}
+                  title={t("actions.delete")}
+                >
+                  ×
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -468,6 +904,8 @@ export default function RequirementEditors(): JSX.Element {
             requirement={requirement}
             upstreamLinks={upstreamLinks}
             downstreamLinks={downstreamLinks}
+            requirements={requirements}
+            workspaceId={activeWorkspace!.id}
             onSaved={refresh}
           />
         ) : (
