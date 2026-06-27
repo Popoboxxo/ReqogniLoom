@@ -29,6 +29,7 @@ Design decisions:
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -60,6 +61,8 @@ from application.services import (
 )
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
+
+logger = logging.getLogger(__name__)
 from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.serializers import (
     AdrSerializer,
@@ -318,7 +321,9 @@ class RequirementHistoryView(APIView):
             ctx = get_auth_context(request)
             # Verify requirement exists and user has access (also sets tenant context)
             req_service = RequirementService()
-            req_service.get_requirement(UUID(pk), ctx)
+            # pk is already a UUID object from Django <uuid:pk> URL converter
+            req_pk = pk if isinstance(pk, UUID) else UUID(pk)
+            req_service.get_requirement(req_pk, ctx)
 
             # Parse pagination params
             try:
@@ -338,7 +343,7 @@ class RequirementHistoryView(APIView):
 
             # Query audit entries for this requirement
             filters = AuditQueryFilters(
-                entity_id=UUID(pk),
+                entity_id=req_pk,
                 entity_type="Requirement",
             )
             result = AuditLogQuery.query(
@@ -366,6 +371,7 @@ class RequirementHistoryView(APIView):
                 "page_size": result.page_size,
             })
         except (NotFoundError, PermissionDeniedError) as exc:
+            logger.error("RequirementHistoryView: auth error %s", exc)
             return _service_error_response(exc, lang)
         except ValueError as exc:
             return Response(
@@ -373,6 +379,7 @@ class RequirementHistoryView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as exc:
+            logger.exception("RequirementHistoryView: unhandled exception for pk=%s type(pk)=%s", pk, type(pk).__name__)
             return _service_error_response(exc, lang)
 
 

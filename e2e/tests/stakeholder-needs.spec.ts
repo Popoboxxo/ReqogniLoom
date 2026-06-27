@@ -323,14 +323,10 @@ test.describe('[REQ-L0-011] Audit trail', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (historyResp.status() === 404) {
-      test.skip(true, 'History endpoint not implemented yet');
-    } else {
-      expect(historyResp.ok()).toBeTruthy();
-      const history = await historyResp.json();
-      const items = Array.isArray(history) ? history : history.results ?? [];
-      expect(items.length).toBeGreaterThan(0);
-    }
+    expect(historyResp.ok()).toBeTruthy();
+    const history = await historyResp.json();
+    const items = Array.isArray(history) ? history : history.results ?? [];
+    expect(items.length).toBeGreaterThan(0);
 
     // Cleanup
     await request.delete(`${BACKEND_URL}/api/v1/requirements/${req.id}/`, {
