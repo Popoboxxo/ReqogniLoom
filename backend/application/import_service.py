@@ -191,12 +191,13 @@ class ImportService(ServiceBase):
                 # REQ-L3-IMP-004: batch audit event
                 self._audit(
                     ctx=ctx,
-                    operation=f"{entity_type.lower()}.import",
+                    operation="create",
                     entity_type=entity_type,
                     entity_id=ws_uuid,  # workspace as aggregate entity_id for batch
                     details={
                         "workspace_id": str(ws_uuid),
                         "imported_count": imported,
+                        "operation_type": "bulk_import",
                     },
                 )
 

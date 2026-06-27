@@ -41,6 +41,7 @@ from rest_api.views import (
     ArtifactViewSet,
     ArchitectureElementViewSet,
     BaselineViewSet,
+    CsvImportView,
     IssueViewSet,
     RequirementHistoryView,
     RequirementViewSet,
@@ -93,6 +94,12 @@ urlpatterns = [
         "requirements/<uuid:pk>/history/",
         RequirementHistoryView.as_view(),
         name="requirement-history",
+    ),
+    # CSV bulk import (REQ-L0-013, REQ-L2-AS-014) — workspace-scoped.
+    path(
+        "workspaces/<uuid:pk>/import/csv/",
+        CsvImportView.as_view(),
+        name="workspace-csv-import",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),
