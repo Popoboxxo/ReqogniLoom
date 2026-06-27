@@ -842,6 +842,7 @@ export function SidebarNavigation(): JSX.Element {
         }}
       >
         <button
+          data-testid="lang-switch"
           onClick={handleLanguageToggle}
           onMouseEnter={() => setHoveredButton("lang")}
           onMouseLeave={() => setHoveredButton(null)}
