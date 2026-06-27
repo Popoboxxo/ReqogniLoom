@@ -17,7 +17,8 @@
     "testRuns": "Test Runs",
     "settings": "Workspace Settings",
     "logout": "Logout",
-    "import": "Import"
+    "import": "Import",
+    "icds": "ICDs"
   },
   "workspaceCreate": {
     "button": "Create workspace",
@@ -173,5 +174,42 @@
     "success": "Successfully imported {{count}} rows",
     "failed": "Import failed",
     "errorGeneric": "Import failed"
+  },
+  "icds": {
+    "title": "Interface Control Documents",
+    "empty": "No ICDs defined yet. Create one to capture the contract between two architecture elements.",
+    "create": "New ICD",
+    "newVersion": "New Version",
+    "nameLabel": "ICD Name",
+    "namePlaceholder": "e.g. OrderService -> PaymentService",
+    "source": "Source Element",
+    "target": "Target Element",
+    "direction": "Direction",
+    "directionUnidirectional": "Unidirectional",
+    "directionBidirectional": "Bidirectional",
+    "interfaceType": "Interface Type",
+    "interfaceTypePlaceholder": "e.g. REST API, gRPC, Message Queue",
+    "contract": "Contract Spec",
+    "contractPlaceholder": "Semantic description of the interface contract",
+    "preconditions": "Preconditions",
+    "postconditions": "Postconditions",
+    "invariants": "Invariants",
+    "versions": "Version History",
+    "currentVersion": "Current Version",
+    "versionBadge": "v{{n}}",
+    "superseded": "Superseded",
+    "current": "Current",
+    "traceability": "Traceability",
+    "noTraceLinks": "No trace links connected to this ICD.",
+    "noArtifacts": "No architecture elements available. Create elements first.",
+    "selectSource": "Select source element",
+    "selectTarget": "Select target element",
+    "nameRequired": "Please enter an ICD name.",
+    "sourceRequired": "Please select a source element.",
+    "targetRequired": "Please select a target element.",
+    "loadFailed": "Failed to load ICDs.",
+    "createFailed": "Failed to create ICD.",
+    "newVersionFailed": "Failed to create new version.",
+    "immutableHint": "Past versions are immutable. Use 'New Version' to evolve the contract."
   }
 }

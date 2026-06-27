@@ -17,7 +17,8 @@
     "testRuns": "Testläufe",
     "settings": "Workspace-Einstellungen",
     "logout": "Abmelden",
-    "import": "Import"
+    "import": "Import",
+    "icds": "ICDs"
   },
   "workspaceCreate": {
     "button": "Workspace erstellen",
@@ -173,5 +174,42 @@
     "success": "{{count}} Zeilen erfolgreich importiert",
     "failed": "Import fehlgeschlagen",
     "errorGeneric": "Import fehlgeschlagen"
+  },
+  "icds": {
+    "title": "Schnittstellen-Kontrolldokumente (ICDs)",
+    "empty": "Noch keine ICDs definiert. Erstellen Sie eines, um den Vertrag zwischen zwei Architekturelementen zu erfassen.",
+    "create": "Neues ICD",
+    "newVersion": "Neue Version",
+    "nameLabel": "ICD-Name",
+    "namePlaceholder": "z.B. OrderService -> PaymentService",
+    "source": "Quell-Element",
+    "target": "Ziel-Element",
+    "direction": "Richtung",
+    "directionUnidirectional": "Unidirektional",
+    "directionBidirectional": "Bidirektional",
+    "interfaceType": "Schnittstellentyp",
+    "interfaceTypePlaceholder": "z.B. REST API, gRPC, Message Queue",
+    "contract": "Vertragsspezifikation",
+    "contractPlaceholder": "Semantische Beschreibung des Schnittstellenvertrags",
+    "preconditions": "Vorbedingungen",
+    "postconditions": "Nachbedingungen",
+    "invariants": "Invarianten",
+    "versions": "Versionsverlauf",
+    "currentVersion": "Aktuelle Version",
+    "versionBadge": "v{{n}}",
+    "superseded": "Abgelöst",
+    "current": "Aktuell",
+    "traceability": "Traceability",
+    "noTraceLinks": "Keine TraceLinks mit diesem ICD verknüpft.",
+    "noArtifacts": "Keine Architekturelemente verfügbar. Bitte zuerst Elemente anlegen.",
+    "selectSource": "Quell-Element auswählen",
+    "selectTarget": "Ziel-Element auswählen",
+    "nameRequired": "Bitte einen ICD-Namen eingeben.",
+    "sourceRequired": "Bitte ein Quell-Element auswählen.",
+    "targetRequired": "Bitte ein Ziel-Element auswählen.",
+    "loadFailed": "ICDs konnten nicht geladen werden.",
+    "createFailed": "ICD konnte nicht erstellt werden.",
+    "newVersionFailed": "Neue Version konnte nicht erstellt werden.",
+    "immutableHint": "Frühere Versionen sind unveränderlich. Über 'Neue Version' den Vertrag weiterentwickeln."
   }
 }

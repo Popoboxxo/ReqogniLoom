@@ -196,6 +196,39 @@ export interface Issue {
 }
 
 // ---------------------------------------------------------------------------
+// Diagram (mirrors DiagramSerializer, REQ-L0-016 / REQ-L2-DS-001)
+// ---------------------------------------------------------------------------
+
+export type DiagramType = "block" | "flow" | "context";
+
+export type PayloadFormat = "mermaid" | "plantuml" | "json";
+
+export interface Diagram {
+  id: UUID;
+  name: string;
+  diagram_type: DiagramType;
+  description: string;
+  current_version: UUID | null;
+  created_at: ISODateTime | null;
+  version_count?: number;
+}
+
+export interface DiagramDetail extends Diagram {
+  payload_format: PayloadFormat | null;
+  content: string | null;
+  version_number: number | null;
+}
+
+export interface DiagramTraceLink {
+  id: UUID;
+  source_id: UUID;
+  target_id: UUID;
+  link_type: string;
+  target_type: string;
+  target_title: string;
+}
+
+// ---------------------------------------------------------------------------
 // Paginated response (mirrors StandardPagination format)
 // ---------------------------------------------------------------------------
 
@@ -241,6 +274,8 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     risk: false,
     issue: false,
     csv_import: false,
+    icds: false,
+    diagrams: false,
   },
   standard: {
     baselines: true,
@@ -255,6 +290,8 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     risk: true,
     issue: true,
     csv_import: true,
+    icds: true,
+    diagrams: true,
   },
   extended: {
     baselines: true,
@@ -269,6 +306,8 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     risk: true,
     issue: true,
     csv_import: true,
+    icds: true,
+    diagrams: true,
   },
 };
 
