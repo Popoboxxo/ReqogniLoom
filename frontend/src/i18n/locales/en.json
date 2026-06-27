@@ -72,10 +72,22 @@
     "upstream": "Upstream Links",
     "downstream": "Downstream Links",
     "none": "No links available.",
-    "placeholder": "Traceability view — in progress."
+    "placeholder": "Traceability view — in progress.",
+    "empty": "No trace links available.",
+    "source": "Source",
+    "target": "Target",
+    "linkType": "Link Type"
   },
   "baselines": {
-    "placeholder": "Baselines — in progress."
+    "placeholder": "Baselines — in progress.",
+    "empty": "No baselines available.",
+    "create": "New Baseline",
+    "id": "ID",
+    "scope": "Scope",
+    "artifact": "Artifact",
+    "created": "Created",
+    "noArtifacts": "No artifacts available",
+    "artifactRequired": "Please select an artifact."
   },
   "settings": {
     "preset": "Preset",

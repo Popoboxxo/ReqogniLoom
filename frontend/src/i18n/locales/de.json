@@ -72,10 +72,22 @@
     "upstream": "Upstream-Links",
     "downstream": "Downstream-Links",
     "none": "Keine Links vorhanden.",
-    "placeholder": "Traceability-Anzeige — in Bearbeitung."
+    "placeholder": "Traceability-Anzeige — in Bearbeitung.",
+    "empty": "Keine TraceLinks vorhanden.",
+    "source": "Quelle",
+    "target": "Ziel",
+    "linkType": "Link-Typ"
   },
   "baselines": {
-    "placeholder": "Baselines — in Bearbeitung."
+    "placeholder": "Baselines — in Bearbeitung.",
+    "empty": "Keine Baselines vorhanden.",
+    "create": "Neue Baseline",
+    "id": "ID",
+    "scope": "Scope",
+    "artifact": "Artefakt",
+    "created": "Erstellt",
+    "noArtifacts": "Keine Artefakte vorhanden",
+    "artifactRequired": "Bitte ein Artefakt auswählen."
   },
   "settings": {
     "preset": "Preset",
