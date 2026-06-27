@@ -81,6 +81,9 @@ const DEFAULT_WORKSPACE: Workspace = {
   preset: "standard",
   terminology_profile: "se_mode",
   language: "en",
+  is_active: true,
+  closed_at: null,
+  closed_by: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };

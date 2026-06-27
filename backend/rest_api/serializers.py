@@ -306,11 +306,14 @@ class WorkflowDefinitionSerializer(
 
 
 class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for Workspace entity (REQ-L1-017).
+    """Serializer for Workspace entity (REQ-L1-017, REQ-L1-042).
 
     ``terminology_profile`` is sourced from the optional
     ``WorkspacePresetConfig`` one-to-one companion; ``language`` is reserved
     for a future per-workspace setting and currently defaults to ``"en"``.
+
+    Lifecycle fields (REQ-L1-042):
+      ``is_active``, ``closed_at``, ``closed_by`` — soft-delete / close metadata.
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -320,6 +323,9 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         required=False, default="se_mode", max_length=32
     )
     language = serializers.CharField(required=False, default="en", max_length=8)
+    is_active = serializers.BooleanField(read_only=True, default=True)
+    closed_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
+    closed_by = serializers.UUIDField(read_only=True, allow_null=True, default=None)
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)

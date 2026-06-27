@@ -295,10 +295,33 @@ class Role(TenantScopedModel):
 
 
 class Workspace(TenantScopedModel):
-    """Workspace — preset/configuration scope within a tenant (REQ-L1-008)."""
+    """Workspace — preset/configuration scope within a tenant (REQ-L1-008).
+
+    Lifecycle fields (REQ-L1-042):
+      ``is_active``  — soft-delete flag; False means the workspace is closed.
+      ``closed_at``  — timestamp when the workspace was closed (nullable).
+      ``closed_by``  — user who closed the workspace (nullable, SET_NULL).
+    """
 
     name = models.CharField(max_length=255)
     preset = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Soft-delete flag. False = workspace is closed (REQ-L1-042).",
+    )
+    closed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when the workspace was closed.",
+    )
+    closed_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="User who closed this workspace.",
+    )
 
     class Meta:
         db_table = "pl_workspace"

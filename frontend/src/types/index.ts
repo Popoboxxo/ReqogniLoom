@@ -39,6 +39,9 @@ export interface Workspace {
   preset: WorkspacePreset;
   terminology_profile: TerminologyProfile;
   language: string;
+  is_active: boolean;
+  closed_at: ISODateTime | null;
+  closed_by: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
