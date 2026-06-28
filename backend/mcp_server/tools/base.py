@@ -12,7 +12,6 @@ Provides:
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
@@ -80,12 +79,12 @@ def write_mcp_audit(
     """Write an MCP-specific audit log entry synchronously.
 
     REQ-L2-MC-012: Audit entry must be written before the response is sent.
-    The api_key is hashed before storage (SHA-256, never plaintext).
+    The api_key is passed as the raw secret to ``audit.services.log_write``;
+    the SHA-256 hashing (with ``"sha256:"`` prefix) is performed by
+    ``audit.writer.ContextEnricher`` — the raw key is never stored.
     """
     try:
         from audit.services import log_write
-
-        api_key_hash = "sha256:" + hashlib.sha256(api_key.encode()).hexdigest()
 
         log_write(
             actor=str(ctx.user_id),
@@ -95,8 +94,8 @@ def write_mcp_audit(
             entity_id=entity_id,
             ctx={
                 "source": "mcp",
-                "tool_name": tool_name,
-                "api_key_hash": api_key_hash,
+                "client_name": tool_name,
+                "api_key": api_key,
             },
             details=details,
         )
