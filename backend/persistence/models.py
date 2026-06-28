@@ -452,22 +452,6 @@ class TestCase(TenantScopedModel):
         return self.title
 
 
-class Baseline(TenantScopedModel):
-    """Baseline snapshot definition (ADR-07, REQ-L1-008)."""
-
-    artifact = models.ForeignKey(
-        Artifact, on_delete=models.CASCADE, related_name="baselines"
-    )
-    scope = models.CharField(max_length=64)
-    definition = models.JSONField(default=dict, blank=True)
-
-    class Meta:
-        db_table = "pl_baseline"
-
-    def __str__(self) -> str:
-        return f"baseline:{self.scope}:{self.id}"
-
-
 class WorkflowDefinition(TenantScopedModel):
     """Workflow definition (state machine config, ADR-06, REQ-L1-009)."""
 
@@ -614,7 +598,6 @@ __all__ = [
     "ArchitectureElement",
     "TraceLink",
     "TestCase",
-    "Baseline",
     "WorkflowDefinition",
     "WorkflowState",
     "AuditLogEntry",

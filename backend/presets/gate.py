@@ -322,15 +322,16 @@ class FeatureGateService:
         Returns:
             List of incompatibility description strings; empty if clean.
         """
-        from persistence.models import Artifact, Baseline
+        from persistence.models import Artifact
+        from baseline.models import BaselineSnapshot
 
         issues: List[str] = []
 
         # Extended → Standard: global baselines must not exist
         if target_tier in ("minimal", "standard"):
             try:
-                count = Baseline.unscoped.filter(
-                    artifact__workspace_id=workspace_id,
+                count = BaselineSnapshot.unscoped.filter(
+                    workspace_id=workspace_id,
                     scope="global",
                 ).count()
                 if count:

@@ -24,7 +24,6 @@ from persistence.models import (
     ArchitectureElement,
     Artifact,
     AuditLogEntry,
-    Baseline,
     Requirement,
     Tenant,
     TestCase,
@@ -32,6 +31,7 @@ from persistence.models import (
     User,
     Workspace,
 )
+from baseline.models import BaselineSnapshot
 
 pytestmark = pytest.mark.django_db
 
@@ -230,13 +230,17 @@ class TestDeleteWorkspace:
         assert not Requirement.unscoped.filter(pk=req.pk).exists()
 
     def test_delete_workspace_cascades_to_baselines(self):
-        """Delete cascades to Baselines through Artifacts."""
+        """Delete cascades to BaselineSnapshots through workspace."""
         tenant, user = _create_tenant_and_user()
         workspace = _create_workspace(tenant, name="Baseline Test")
 
         art = Artifact.unscoped.create(workspace=workspace, artifact_type="generic", tenant=tenant)
-        baseline = Baseline.unscoped.create(
-            artifact=art, scope="workspace", tenant=tenant
+        snapshot = BaselineSnapshot.unscoped.create(
+            workspace_id=workspace.id,
+            name="test-baseline",
+            scope="document",
+            artifact=art,
+            tenant=tenant,
         )
 
         ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
@@ -245,7 +249,7 @@ class TestDeleteWorkspace:
         with patch("application.workspace_service.ServiceBase._audit"):
             svc.delete_workspace(workspace.id, "Baseline Test", ctx)
 
-        assert not Baseline.unscoped.filter(pk=baseline.pk).exists()
+        assert not BaselineSnapshot.unscoped.filter(pk=snapshot.pk).exists()
 
     def test_delete_workspace_cascades_to_tracelinks(self):
         """Delete cascades to TraceLinks through Artifacts."""
@@ -313,9 +317,9 @@ class TestDeleteWorkspace:
         ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
         svc = WorkspaceService()
 
-        # Simulate a failure during cascade by making Baseline.unscoped.filter raise
+        # Simulate a failure during cascade by making BaselineSnapshot.unscoped.filter raise
         with patch("application.workspace_service.ServiceBase._audit"):
-            with patch("persistence.models.Baseline.unscoped") as mock_bl:
+            with patch("baseline.models.BaselineSnapshot.unscoped") as mock_bl:
                 mock_bl.filter.side_effect = RuntimeError("Simulated DB failure")
                 with pytest.raises(RuntimeError, match="Simulated DB failure"):
                     svc.delete_workspace(workspace.id, "Atomic Test", ctx)

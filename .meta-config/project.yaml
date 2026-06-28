@@ -230,3 +230,10 @@ model-overrides:
   Claude:
     se-senior-developer: claude-opus-4-8
     se-developer: claude-sonnet-4-6
+  Opencode:
+    senior-developer: opencode-go/kimi-k2.7-code
+    orchestrator: opencode-go/minimax-m3
+    se-junior-developer: opencode-go/minimax-m3
+    developer: opencode-go/minimax-m3
+    prompt-engineer: opencode-go/minimax-m3
+    agent-meta-manager: opencode-go/minimax-m3

@@ -60,6 +60,16 @@ class BaselineSnapshot(TenantScopedModel):
     # User / agent identifier that triggered creation (stored as string)
     created_by_ref = models.CharField(max_length=255, blank=True, default="")
 
+    # Optional link to the root Artifact (nullable for project/global scope).
+    # Migrated from legacy persistence.Baseline (REQ-L2-BL-001).
+    artifact = models.ForeignKey(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="baseline_snapshots",
+    )
+
     class Meta:
         db_table = "bl_baseline_snapshot"
         constraints = [

@@ -13,8 +13,10 @@ import type { PaginatedResponse, UUID, ISODateTime } from "../types";
 export interface Baseline {
   id: UUID;
   workspace_id: UUID;
-  artifact_id: UUID;
+  name: string;
   scope: string;
+  description: string;
+  artifact_id: UUID | null;
   version: number;
   created_at: ISODateTime;
 }
@@ -32,8 +34,10 @@ export const baselinesApi = {
 
   create(data: {
     workspace_id: UUID;
-    artifact_id: UUID;
+    name: string;
     scope?: string;
+    description?: string;
+    artifact_id?: UUID | null;
   }): Promise<Baseline> {
     return apiClient.post<Baseline>("/baselines/", data);
   },

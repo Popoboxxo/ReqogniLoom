@@ -286,8 +286,10 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
-    artifact_id = serializers.UUIDField()
-    scope = serializers.CharField(max_length=64)
+    name = serializers.CharField(max_length=500)
+    scope = serializers.CharField(max_length=32)
+    description = serializers.CharField(allow_blank=True, required=False, default="")
+    artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
 

@@ -29,7 +29,6 @@ from persistence.models import (
     ArchitectureElement,
     Artifact,
     AuditLogEntry,
-    Baseline,
     Requirement,
     TestCase,
     Tenant,
@@ -286,8 +285,9 @@ class WorkspaceService(ServiceBase):
         )
 
         if artifact_ids:
-            # 2. Baseline rows
-            Baseline.unscoped.filter(artifact_id__in=artifact_ids).delete()
+            # 2. BaselineSnapshot rows (via workspace_id or artifact FK)
+            from baseline.models import BaselineSnapshot
+            BaselineSnapshot.unscoped.filter(workspace_id=workspace_pk).delete()
             # 3. TraceLink rows (source or target)
             TraceLink.unscoped.filter(
                 source_id__in=artifact_ids

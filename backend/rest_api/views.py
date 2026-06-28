@@ -938,12 +938,15 @@ class BaselineViewSet(BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            item = self._svc().create_baseline(
+            baseline_id = self._svc().create_baseline(
+                scope=data.get("scope", "document"),
                 workspace_id=str(data["workspace_id"]),
-                artifact_id=str(data["artifact_id"]),
-                scope=data.get("scope", "workspace"),
+                name=data["name"],
+                description=data.get("description"),
                 ctx=ctx,
             )
+            # Fetch the newly created baseline detail for the response
+            item = self._svc().get_baseline(baseline_id, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -1169,13 +1172,15 @@ def _tracelink_to_dict(tl: Any) -> dict[str, Any]:
 
 
 def _baseline_to_dict(bl: Any) -> dict[str, Any]:
-    """Convert Baseline ORM object to dict."""
+    """Convert BaselineSummary / BaselineDetail dataclass to dict."""
     return {
-        "id": str(bl.id),
-        "workspace_id": str(bl.artifact.workspace_id) if hasattr(bl, "artifact") else None,
-        "artifact_id": str(bl.artifact_id),
+        "id": str(bl.baseline_id),
+        "workspace_id": str(bl.workspace_id),
+        "name": getattr(bl, "name", ""),
         "scope": getattr(bl, "scope", ""),
-        "version": bl.version,
+        "description": getattr(bl, "description", ""),
+        "artifact_id": None,
+        "version": getattr(bl, "version", 1),
         "created_at": bl.created_at,
     }
 
