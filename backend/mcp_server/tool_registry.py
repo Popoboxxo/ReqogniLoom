@@ -256,47 +256,70 @@ class ToolRegistry:
         self._ensure_groups()
 
         # --- Step 1: API-key validation (REQ-L2-MC-006) ---
+        # Auth runs BEFORE the TenantContext is activated. On auth failure we
+        # return early without ever touching the context — the failure path
+        # does not need cleanup.
         auth_ctx, auth_error = self._validate_api_key(api_key)
         if auth_error:
             return ToolResult.error("AUTH_FAILED", auth_error)
 
-        # --- Step 2: Resolve active roles ---
-        workspace_id: Optional[str] = params.get("workspace_id")
-        auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
-
-        # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
-        if self._is_write_tool(tool_name):
-            rbac_error = self._check_rbac(auth_ctx)  # type: ignore[arg-type]
-            if rbac_error:
-                return ToolResult.error("PERMISSION_DENIED", rbac_error)
-
-        # --- Step 4: Preset feature gate (REQ-L2-MC-008) ---
-        if workspace_id:
-            preset_error = self._check_preset(workspace_id, tool_name)
-            if preset_error:
-                return ToolResult.error(
-                    "FEATURE_NOT_ENABLED",
-                    f"Tool '{tool_name}' is not available in the active workspace preset.",
-                )
-
-        # --- Step 5: Route to tool group (ADR-L3-MC002-03) ---
-        assert self._router is not None
-        group, route_error = self._router.route(tool_name)
-        if route_error:
-            return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
-
-        # --- Step 6: Execute tool ---
+        # --- Activate TenantContext for tenant-scoped queries ---
+        # Subsequent steps (role resolution via UserRole.objects, RBAC, preset
+        # lookup, tool execution) all hit tenant-scoped models whose default
+        # manager requires an active TenantContext. We must set the context
+        # INSIDE this method — the View layer cannot do it earlier because
+        # the auth lookup that produces the tenant id happens here, and
+        # clearing it must happen here too so no thread-local state leaks
+        # into the next request handled on the same worker thread.
+        # The try/finally guarantees the context is cleared on every
+        # exit path (success, early-return error, or unhandled exception).
         try:
-            result: ToolResult = group.execute_tool(  # type: ignore[union-attr]
-                tool_name=tool_name,
-                params=params,
-                auth_context=auth_ctx,
-                api_key=api_key,
-            )
-            return result
-        except Exception as exc:
-            logger.exception("Unexpected error in tool group for tool=%s", tool_name)
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            from persistence.tenancy import TenantContext
+
+            if auth_ctx is not None and auth_ctx.tenant_id is not None:
+                TenantContext.set_tenant(auth_ctx.tenant_id)
+
+            # --- Step 2: Resolve active roles ---
+            workspace_id: Optional[str] = params.get("workspace_id")
+            auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
+
+            # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
+            if self._is_write_tool(tool_name):
+                rbac_error = self._check_rbac(auth_ctx)  # type: ignore[arg-type]
+                if rbac_error:
+                    return ToolResult.error("PERMISSION_DENIED", rbac_error)
+
+            # --- Step 4: Preset feature gate (REQ-L2-MC-008) ---
+            if workspace_id:
+                preset_error = self._check_preset(workspace_id, tool_name)
+                if preset_error:
+                    return ToolResult.error(
+                        "FEATURE_NOT_ENABLED",
+                        f"Tool '{tool_name}' is not available in the active workspace preset.",
+                    )
+
+            # --- Step 5: Route to tool group (ADR-L3-MC002-03) ---
+            assert self._router is not None
+            group, route_error = self._router.route(tool_name)
+            if route_error:
+                return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
+
+            # --- Step 6: Execute tool ---
+            try:
+                result: ToolResult = group.execute_tool(  # type: ignore[union-attr]
+                    tool_name=tool_name,
+                    params=params,
+                    auth_context=auth_ctx,
+                    api_key=api_key,
+                )
+                return result
+            except Exception as exc:
+                logger.exception("Unexpected error in tool group for tool=%s", tool_name)
+                return ToolResult.error("INTERNAL_ERROR", str(exc))
+        finally:
+            from persistence.tenancy import TenantContext
+
+            TenantContext.clear_tenant()
 
     # ------------------------------------------------------------------
     # Internal helpers
