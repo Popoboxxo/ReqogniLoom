@@ -562,3 +562,180 @@ Workspace-Lebenszyklus.
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-27 | Gap-Analyse Workspace-Lifecycle*
+
+---
+
+## Stakeholder-Needs (Erweiterung v5 — REQ-L0-030 bis REQ-L0-035)
+
+> **Quelle:** User-Feedback zu `docs/se/reqflow_ontology_analysis.md` (Gap-Analyse Abschnitt 4)
+> **Datum:** 2026-06-28
+> **Erstellt durch:** se-requirements-Agent | 2026-06-28
+> **Status:** formalisiert
+
+---
+
+### REQ-L0-030 — SN-30: Suspect-Link-Propagierung bei Anforderungsänderungen
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need aus Gap-Analyse; kein Code-Äquivalent vorhanden.
+**Test Status:** Missing
+**Remarks:** Abgeleitet aus reqflow_ontology_analysis.md Gap 1. User-Feedback: „JA BITTE AUFNEHMEN!"
+
+Wenn sich eine übergeordnete Anforderung ändert, müssen alle direkt und transitiv abhängigen
+Artefakte (abgeleitete Anforderungen, Testfälle, Architektur-Elemente) automatisch als
+„suspect" (prüfbedürftig) markiert werden. Die Markierung bleibt bestehen, bis ein
+autorisierter Reviewer die Konsistenz explizit bestätigt.
+
+**Rationale:** Traceability zeigt bislang nur die *Existenz* einer Kante, nicht die
+*Konsistenz* der Inhalte an beiden Enden. Ohne Suspect-Marking verletzt das System den
+Grundsatz der Change-Impact-Transparenz, der insbesondere in sicherheitskritischen
+Projekten (Automotive, Aerospace) zwingend ist.
+
+**Akzeptanzkriterien:**
+- AC1: Jede Änderung an einem Requirement (Inhalt, Status, Titel) löst eine automatische Propagierung aus, die alle `derives-from`- und `parent-child`-Nachfolger als `suspect` markiert
+- AC2: Verknüpfte TestCases werden ebenfalls als `suspect` markiert
+- AC3: Suspect-Status ist in der UI sichtbar (z. B. Warnsymbol) und über die API abfragbar
+- AC4: Ein autorisierter Reviewer kann `suspect` auf `reviewed` zurücksetzen, mit Zeitstempel und Nutzerkennung im Audit-Log
+- AC5: Der TraceLink-Graph kann nach `suspect`-Status gefiltert werden (Impact-Analyse)
+- AC6: Die Propagierung erfolgt transitiv über beliebig viele Ebenen
+
+**Abgeleitet von:** reqflow_ontology_analysis.md Gap 1 | User-Feedback 2026-06-28
+**Ableitet L1:** neue L1-Anforderung REQ-L1-043 erforderlich (Suspect-Link-Engine)
+
+---
+
+### REQ-L0-032 — SN-32: Semantisches Projekt-Glossar (Data Dictionary)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need aus Gap-Analyse; kein Code-Äquivalent vorhanden.
+**Test Status:** Missing
+**Remarks:** Abgeleitet aus reqflow_ontology_analysis.md Gap 3. User-Feedback: „JA BITTE AUFNEHMEN!" — Kritisch für AI-Agenten-Validierung gegen definierte Begriffe.
+
+Jedes Projekt muss ein zentrales, maschinenlesbares Glossar mit domänenspezifischen
+Begriffsdefinitionen pflegen können. AI-Agenten, Reviewer und Werkzeuge müssen gegen
+dieses Glossar prüfen, um Halluzinationen, Mehrdeutigkeiten und Begriffsinkonsistenz
+in Anforderungen zu erkennen.
+
+**Rationale:** AI-Agenten validieren Anforderungen semantisch, benötigen dazu aber ein
+hart definiertes Vokabular. Ohne Glossar können Agenten Begriffe unterschiedlich
+interpretieren, was zu inkonsistenten Reviews führt (reqflow_ontology_analysis.md Gap 3).
+
+**Akzeptanzkriterien:**
+- AC1: Pro Projekt kann ein Glossar mit Term, Definition, Synonym-Liste und Abkürzung gepflegt werden
+- AC2: Glossar-Einträge sind versioniert und in Baselines enthalten
+- AC3: Die API stellt einen Endpunkt bereit, über den AI-Agenten das Glossar maschinenlesbar abrufen können (JSON/YAML)
+- AC4: Beim Erstellen/Bearbeiten einer Anforderung warnt das System bei Verwendung unbekannter Begriffe (nicht im Glossar) oder bei Begriffen, die dem Glossar widersprechen
+- AC5: Glossar-Begriffe sind bidirektional mit Requirements verknüpfbar (TraceLink-Typ `uses-term`)
+- AC6: Glossar ist durchsuchbar (Volltext und semantisch)
+
+**Abgeleitet von:** reqflow_ontology_analysis.md Gap 3 | User-Feedback 2026-06-28
+**Ableitet L1:** neue L1-Anforderung REQ-L1-044 erforderlich (Semantisches Projekt-Glossar)
+
+---
+
+### REQ-L0-033 — SN-33: Isolierte Requirement-Sandboxes (Branch & Merge)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need aus Gap-Analyse; kein Code-Äquivalent vorhanden.
+**Test Status:** Missing
+**Remarks:** Abgeleitet aus reqflow_ontology_analysis.md Gap 4. User-Feedback: „JA BITTE AUFNEHMEN! ggf. Git-Mechanismus prüfen."
+
+Systems Engineers müssen Teile des Anforderungsbaums oder einer Architekturdekomposition
+„auschecken", isoliert bearbeiten (Sandbox) und kontrolliert mit dem Haupt-Zweig
+zusammenführen können. Änderungen im Sandbox-Zweig dürfen den freigegebenen Hauptstand
+erst nach einem expliziten Merge-Schritt mit Konfliktauflösung beeinflussen.
+
+**Rationale:** Baselines sichern vergangene Stände (Snapshot), erlauben aber keine
+parallele Entwicklung. Ohne Branching-Konzept für Artefakte können Teams nicht
+gleichzeitig an alternativen Lösungsansätzen arbeiten, ohne den freigegebenen Hauptstand
+zu gefährden (reqflow_ontology_analysis.md Gap 4).
+
+> **Lösungsneutralität:** Diese Anforderung beschreibt das *Was* (isolierte, parallele
+> Arbeitskopie mit kontrolliertem Merge), nicht das *Wie*. Die Implementierung darf
+> keinen bestimmten Mechanismus vorschreiben.
+>
+> **Implementation Hint (informativ, nicht normativ):** Als möglicher Ansatz wurde
+> ein datenbankinterner Git-ähnlicher Branching-Mechanismus identifiziert. Weitere
+> mögliche Ansätze umfassen Event-Sourcing-basierte Parallelzweige oder Copy-on-Write-
+> Snapshots mit Merge-Logik. Die endgültige Technologieentscheidung obliegt der
+> Architekturphase (ADR erforderlich).
+
+**Akzeptanzkriterien:**
+- AC1: Nutzer kann einen neuen Sandbox-Zweig aus dem aktuellen Hauptstand erstellen (expliziter Scope: Workspace, Subsystem oder einzelne Artefakt-Unterstruktur)
+- AC2: Änderungen im Sandbox-Zweig sind für andere Nutzer unsichtbar, bis ein Merge erfolgt
+- AC3: Merge-Vorgang zeigt einen visuellen Diff zwischen Sandbox und Hauptstand
+- AC4: Konflikte (gleichzeitige Änderung desselben Artefakts) werden erkannt und müssen manuell aufgelöst werden
+- AC5: Jeder Merge wird im Audit-Log protokolliert (Ersteller, Zeitstempel, Scope, Konflikte)
+- AC6: Ein Sandbox-Zweig kann ohne Merge verworfen werden (Discard)
+- AC7: Bestehende Baselines bleiben von Sandbox-Aktivitäten unberührt
+
+**Abgeleitet von:** reqflow_ontology_analysis.md Gap 4 | User-Feedback 2026-06-28
+**Ableitet L1:** neue L1-Anforderung REQ-L1-045 erforderlich (Artefakt-Branching & Merging)
+
+---
+
+### REQ-L0-034 — SN-34: Instanz-Backup, Disaster Recovery & Baseline-Vergleich
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need aus Gap-Analyse; kein Code-Äquivalent vorhanden.
+**Test Status:** Missing
+**Remarks:** Abgeleitet aus reqflow_ontology_analysis.md Gap 5. User-Feedback: „JA BITTE AUFNEHMEN! Inkl. Versionsvergleich von Elementen, Elemententypen und ganzen Baseline vergleichen. Und Möglichkeit Baseline zurückzuspielen."
+
+Administratoren müssen automatisierbare Wege haben, um vollständige Instanz-Snapshots
+(inkl. Audit-Trails, Nutzer, Konfigurationen und alle Projektdaten) zu erstellen und
+wiederherzustellen. Zusätzlich müssen Reviewer zwei beliebige Baselines oder
+Artefakt-Versionen visuell als Diff vergleichen und einen früheren Zustand
+(Baseline-Restore) gezielt wiederherstellen können.
+
+**Rationale:** Projekt-Exporte (CSV/JSON/ReqIF) sichern nur Nutzdaten, nicht den
+Systemzustand. Für regulierte Domänen ist ein vollständiges DR-Konzept (inkl.
+Nachweis der Wiederherstellbarkeit) Pflicht. Baseline-Vergleiche und Restore
+ermöglichen fundierte Freigabe-Entscheidungen und Fehleranalysen.
+
+**Akzeptanzkriterien:**
+- AC1: Admin kann einen vollständigen Instanz-Snapshot (Backup) manuell oder zeitgesteuert auslösen
+- AC2: Backup umfasst: alle Projekte, Requirements, Architecture, TestCases, TraceLinks, Baselines, AuditLog, Nutzer (ohne Passwort-Klartexte), Konfigurationen
+- AC3: Backup kann vollständig auf einer leeren Instanz wiederhergestellt werden (Restore)
+- AC4: Reviewer können zwei Baselines (oder zwei Versionen eines Artefakts) als visuellen Diff vergleichen — auf Feld-Ebene (Changed/Added/Removed)
+- AC5: Eine Baseline kann in einen Sandbox-Zweig (SN-33) zurückgespielt werden, ohne den aktiven Hauptstand zu überschreiben
+- AC6: Hard-Restore auf den Hauptstand erfordert Admin-Berechtigung + Captcha-Bestätigung
+- AC7: Alle Backup- und Restore-Operationen werden im Audit-Log protokolliert
+
+**Abgeleitet von:** reqflow_ontology_analysis.md Gap 5 | User-Feedback 2026-06-28
+**Ableitet L1:** neue L1-Anforderung REQ-L1-046 erforderlich (Backup, DR & Baseline-Restore)
+
+---
+
+### REQ-L0-035 — SN-35: Direkte Traceability-Verknüpfungen über mehrere Ebenen (Cross-Level-Links)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need — aus User-Feedback zur strikten L0→L1→L2-Traceability-Regel.
+**Test Status:** Missing
+**Remarks:** Gegenpart zu der Regel „kein Ebenensprung". Das System muss Sprünge technisch erlauben, aber klar als solche kennzeichnen und validierbar machen.
+
+Nutzer und AI-Agenten müssen in der Lage sein, einen TraceLink direkt von einem
+Stakeholder-Need (L0) zu einer Komponenten-Anforderung (L2/L3) zu setzen, wenn
+eine Zwischenebene (L1) nachweislich keinen zusätzlichen Erkenntnisgewinn bietet —
+zum Beispiel bei rein technischen Nicht-Funktions-Anforderungen. Solche Cross-Level-Links
+müssen als abweichend von der Kaskaden-Norm explizit markiert, begründet und separat
+auditierbar sein.
+
+**Rationale:** Strikte Ebenen-Traceability erzwingt artifizielle Zwischenschritte für
+einfache Sachverhalte. Gleichzeitig dürfen unkontrollierte Ebenensprünge die
+Nachvollziehbarkeit nicht untergraben. Das System braucht daher ein kontrolliertes,
+begründungspflichtiges Cross-Level-Link-Konzept.
+
+**Akzeptanzkriterien:**
+- AC1: Ein TraceLink kann mit dem Typ `cross-level` über beliebig viele Ebenen gesetzt werden
+- AC2: Cross-Level-Links erfordern eine Pflichtbegründung (Freitext, min. 20 Zeichen)
+- AC3: Cross-Level-Links sind in der Traceability-Matrix und im TraceLink-Graph visuell distinkt markiert (z. B. gestrichelte Linie, separates Icon)
+- AC4: Ein Report „Cross-Level-Links ohne Begründung" kann generiert werden
+- AC5: AI-Agenten können Cross-Level-Links in ihrer Traceability-Analyse gesondert ausweisen
+- AC6: Die Standardregel (keine Ebenensprünge) bleibt der empfohlene Pfad; Cross-Level-Links sind eine dokumentierte Ausnahme
+
+**Abgeleitet von:** User-Feedback 2026-06-28 (Kommentar zu Implementierungsplan)
+**Ableitet L1:** neue L1-Anforderung REQ-L1-047 erforderlich (Cross-Level-TraceLink-Konzept)
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-28 | User-Feedback Gap-Analyse reqflow_ontology_analysis.md*

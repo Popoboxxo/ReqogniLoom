@@ -35,14 +35,15 @@ Die Komponente TraceabilityConnector kapselt die Erstellung von TraceLinks zwisc
 ## L3 Anforderungen
 
 ### REQ-L3-ICD-003-001: Erstellung von realizes-TraceLinks
-
 Die Komponente TraceabilityConnector SHALL bei Aufruf von `link_to_architecture` (IF-ICD-INT-002) einen TraceLink vom Typ `realizes` generieren und diesen via IF-L1-039 an die externe TraceabilityEngine senden.
-**Domain:** software
-**Priority:** mandatory
+
 **Implementation State:** Not Implemented
 **Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
 **Remarks:** Sollte implementiert werden.
+
+**Domain:** software
+**Priority:** mandatory
 
 **Traceability:** REQ-L2-ICD-004
 **Acceptance Criteria:**

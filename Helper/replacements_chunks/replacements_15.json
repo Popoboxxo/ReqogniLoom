@@ -1,0 +1,35 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\ReqIFServiceSystem\\L2_ReqIFServiceSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-RQ-001: ReqIF-Import\n\nDer ReqIFService SHALL ReqIF-Dateien (.reqif) importieren und SpecObjects, SpecRelations und SpecHierarchies auf das interne Datenmodell abbilden. SpecObjects SHALL als Requirements oder ArchitectureElements (abh\u00e4ngig vom SpecType) erzeugt werden. SpecRelations SHALL als TraceLinks abgebildet werden. SpecHierarchies SHALL als Parent-Child-Hierarchie abgebildet werden. Validierungsfehler SHALL mit Elementreferenz und Ursache zur\u00fcckgemeldet werden.\n",
+      "ReplacementContent": "### REQ-L2-RQ-001: ReqIF-Import\n\nDer ReqIFService SHALL ReqIF-Dateien (.reqif) importieren und SpecObjects, SpecRelations und SpecHierarchies auf das interne Datenmodell abbilden. SpecObjects SHALL als Requirements oder ArchitectureElements (abh\u00e4ngig vom SpecType) erzeugt werden. SpecRelations SHALL als TraceLinks abgebildet werden. SpecHierarchies SHALL als Parent-Child-Hierarchie abgebildet werden. Validierungsfehler SHALL mit Elementreferenz und Ursache zur\u00fcckgemeldet werden.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 98,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 98,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RQ-002: ReqIF-Export\n\nDer ReqIFService SHALL interne Artefakte (Requirements, ArchitectureElements, TraceLinks, Hierarchien) als ReqIF-Datei exportieren. Die exportierte Datei SHALL SpecObjects, SpecRelations und SpecHierarchies vollst\u00e4ndig enthalten. Re-Import des exportierten ReqIF SHALL strukturgleiche Artefakte erzeugen (Roundtrip-Treue).\n",
+      "ReplacementContent": "### REQ-L2-RQ-002: ReqIF-Export\n\nDer ReqIFService SHALL interne Artefakte (Requirements, ArchitectureElements, TraceLinks, Hierarchien) als ReqIF-Datei exportieren. Die exportierte Datei SHALL SpecObjects, SpecRelations und SpecHierarchies vollst\u00e4ndig enthalten. Re-Import des exportierten ReqIF SHALL strukturgleiche Artefakte erzeugen (Roundtrip-Treue).\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 98,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 98,
+      "AllowMultiple": false
+    }
+  ]
+}

@@ -1310,3 +1310,167 @@ DB-Zugriff entfernt werden.
 
 *Erweiterung durch se-requirements-Agent | HOFF-20260626-001 | 2026-06-26 (REQ-L1-034..041 aus SN-23..SN-28)*
 *Erweiterung durch se-requirements-Agent | 2026-06-27 (REQ-L1-042 aus SN-29 — Gap-Analyse Workspace-Lifecycle)*
+
+---
+
+## Erweiterung v6 — REQ-L1-043 bis REQ-L1-048 (aus SN-30, SN-32 bis SN-35 & Feedback)
+
+> **Quelle:** REQ-L0-030, REQ-L0-032 bis REQ-L0-035 (formalisiert 2026-06-28) + User-Feedback zu reqflow_ontology_analysis.md
+> **Datum:** 2026-06-28
+
+---
+
+### REQ-L1-043: Suspect-Link-Engine (Automatische Änderungsmarkierung)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent vorhanden. Voraussetzung: TraceabilityEngine muss Event-Listener-Mechanismus besitzen.
+**Test Status:** Missing
+**Remarks:** Direkt abgeleitet von REQ-L0-030 (SN-30).
+
+Das System MUSS bei jeder inhaltlichen Änderung an einem Requirement automatisch
+alle direkt und transitiv davon abhängigen Artefakte (Requirements, TestCases,
+Architecture Elements) als `suspect` markieren. Die Markierung bleibt aktiv, bis
+ein autorisierter Nutzer die Konsistenz explizit bestätigt.
+
+**Verifikationsmethode:** Systemtest — Änderung an REQ → Prüfung aller Nachfolger auf `suspect`-Flag
+**Verifikiert durch:** L1-SystemAcceptanceTest-043
+**Abgeleitet von:** REQ-L0-030
+**Ableitet L2:** TraceabilityEngineSystem — REQ-L2-TRACE-xxx (Suspect-Link-Propagation)
+
+---
+
+### REQ-L1-044: Semantisches Projekt-Glossar (Data Dictionary)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent vorhanden. Neue Entität `GlossaryTerm` im Datenmodell erforderlich.
+**Test Status:** Missing
+**Remarks:** Direkt abgeleitet von REQ-L0-032 (SN-32).
+
+Das System MUSS pro Projekt ein maschinenlesbares Glossar mit Begriffsdefinitionen,
+Synonymen und Abkürzungen bereitstellen. AI-Agenten MÜSSEN das Glossar über die API
+abrufen können. Das System SOLL bei Anforderungsbearbeitung vor Begriffen warnen,
+die nicht im Glossar enthalten oder zu bestehenden Definitionen inkonsistent sind.
+Glossar-Einträge MÜSSEN versioniert und in Baselines enthalten sein.
+
+**Verifikationsmethode:** API-Test + UI-Integrationstest
+**Verifikiert durch:** L1-SystemAcceptanceTest-044
+**Abgeleitet von:** REQ-L0-032
+**Ableitet L2:** ApplicationServiceSystem — REQ-L2-APP-xxx (Glossar-CRUD), RestApiAdapterSystem — REQ-L2-API-xxx (Glossar-Endpunkt)
+
+---
+
+### REQ-L1-045: Artefakt-Branching & Merging (Isolierte Sandboxes)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent vorhanden. Baseline-Service bietet nur Snapshots, kein Branching. ADR erforderlich.
+**Test Status:** Missing
+**Remarks:** Direkt abgeleitet von REQ-L0-033 (SN-33). Lösungsneutral formuliert — Implementation Hints im L0-Dokument.
+
+Das System MUSS es ermöglichen, einen isolierten Arbeitszweig (Sandbox) aus dem
+aktuellen Zustand eines definierten Scopes (Workspace, Subsystem, Artefakt-Unterbaum)
+zu erzeugen. Änderungen in einem Sandbox-Zweig MÜSSEN für andere Nutzer unsichtbar
+sein, bis ein expliziter Merge-Schritt ausgeführt wird. Der Merge-Vorgang MUSS
+einen visuellen Diff anzeigen und Konflikte erkennen. Bestehende Baselines DÜRFEN
+durch Sandbox-Aktivitäten nicht verändert werden.
+
+> **Lösungsneutralität:** Diese Anforderung schreibt keinen Implementierungsansatz vor.
+> Die Architekturreferenz (ADR) entscheidet über Git-Mechanismus, Event-Sourcing oder
+> Copy-on-Write. Zulässige Ansätze sind in REQ-L0-033 (Implementation Hint) dokumentiert.
+
+**Verifikationsmethode:** Systemtest — Parallele Änderungen in Sandbox + Hauptzweig, Merge + Konfliktauflösung
+**Verifikiert durch:** L1-SystemAcceptanceTest-045
+**Abgeleitet von:** REQ-L0-033
+**Ableitet L2:** BaselineServiceSystem — REQ-L2-BASE-xxx (Branch/Merge-Logik), ReactFrontendSystem — REQ-L2-FE-xxx (Diff-UI)
+
+---
+
+### REQ-L1-046: Instanz-Backup, Disaster Recovery & Baseline-Restore
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent vorhanden. ResilienceOrchestrator bietet nur Circuit-Breaker, kein Backup.
+**Test Status:** Missing
+**Remarks:** Direkt abgeleitet von REQ-L0-034 (SN-34).
+
+Das System MUSS vollständige, automatisierbare Instanz-Snapshots (Backup) aller
+Daten (Projekte, Requirements, Architecture, TestCases, TraceLinks, Baselines,
+AuditLog, Nutzer ohne Passwort-Klartexte, Konfigurationen) ermöglichen. Ein Backup
+MUSS auf einer leeren Instanz wiederherstellbar sein (Full Restore). Reviewer MÜSSEN
+zwei Baselines oder Artefaktversionen als visuellen Diff vergleichen können. Eine
+Baseline MUSS in einen Sandbox-Zweig (REQ-L1-045) zurückgespielt werden können
+(Soft-Restore). Ein Hard-Restore auf den Hauptstand MUSS Admin-Berechtigung und
+Captcha-Bestätigung erfordern.
+
+**Verifikationsmethode:** Systemtest — Backup-Dump erstellen, Restore auf leerer Instanz, Datenintegrität prüfen
+**Verifikiert durch:** L1-SystemAcceptanceTest-046
+**Abgeleitet von:** REQ-L0-034
+**Ableitet L2:** PersistenceLayerSystem — REQ-L2-PERS-xxx (Backup/Restore), ResilienceOrchestratorSystem — REQ-L2-RES-xxx (DR-Koordination), ReactFrontendSystem — REQ-L2-FE-xxx (Baseline-Diff-UI)
+
+---
+
+### REQ-L1-047: Cross-Level-TraceLink-Konzept (Kontrollierte Ebenensprünge)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent vorhanden. TraceabilityEngine kennt aktuell keine Link-Typen mit Ebenenvalidierung.
+**Test Status:** Missing
+**Remarks:** Direkt abgeleitet von REQ-L0-035 (SN-35). Gegenpart zur Kaskadennorm.
+
+Das System MUSS TraceLinks mit dem Typ `cross-level` unterstützen, die Artefakte
+über mehr als eine Kaskaden-Ebene direkt verbinden. Cross-Level-Links MÜSSEN eine
+Pflichtbegründung (min. 20 Zeichen) enthalten. Sie MÜSSEN in der Traceability-Matrix
+und im TraceLink-Graphen visuell distinkt markiert sein. AI-Agenten MÜSSEN Cross-Level-Links
+in ihren Analysen gesondert ausweisen können. Die Standardnorm (stufenweise Kaskade)
+MUSS die empfohlene Route bleiben; Cross-Level-Links sind eine dokumentierte Ausnahme.
+
+**Verifikationsmethode:** API-Test — Cross-Level-Link anlegen, Begründung fehlt → Fehler; mit Begründung → Erfolg + visuelles Marking prüfen
+**Verifikiert durch:** L1-SystemAcceptanceTest-047
+**Abgeleitet von:** REQ-L0-035
+**Ableitet L2:** TraceabilityEngineSystem — REQ-L2-TRACE-xxx (Cross-Level-Link-Typ + Validierung)
+
+---
+
+### REQ-L1-048: Flache und Ebenenbasierte Artefaktansicht (Multi-View)
+
+**Implementation State:** Not Implemented
+**Review Findings:** UI zeigt aktuell nur Flat-View ohne Ebenen-Navigation. User-Feedback: „In der aktuellen Umsetzung kann ich diese Verschachtelung kaum erkennen."
+**Test Status:** Missing
+**Remarks:** Abgeleitet aus User-Feedback zu REQ-L1-001 (reqflow_ontology_analysis.md Abschnitt 2). Betrifft alle Artefakttypen.
+
+Das System MUSS für alle Artefakttypen (Requirements, Architecture, TestCases,
+TraceLinks) zwei Ansichtsmodi bereitstellen:
+1. **Flache Ansicht (Flat View):** Alle Artefakte eines Workspaces auf einer Ebene,
+   filterbar und sortierbar.
+2. **Ebenenansicht (Level View):** Hierarchische Darstellung gemäß Kaskaden-Ebene
+   (L0 → L1 → L2 → Ln), navigierbar und kollabierbar.
+
+Beide Ansichten MÜSSEN in einem Workspace verfügbar und umschaltbar sein.
+
+**Verifikationsmethode:** UI-Integrationstest — Wechsel zwischen Flat View und Level View, Konsistenz der dargestellten Artefakte
+**Verifikiert durch:** L1-SystemAcceptanceTest-048
+**Abgeleitet von:** REQ-L1-001 (Erweiterung) + User-Feedback reqflow_ontology_analysis.md
+**Ableitet L2:** ReactFrontendSystem — REQ-L2-FE-xxx (Level-View-Komponente)
+
+---
+
+## Erweiterter Traceability-Abschnitt: REQ-L1-034..048 → REQ-L0
+
+| REQ-L1 | Abgeleitet von REQ-L0 |
+|---------|----------------------|
+| REQ-L1-034 | REQ-L0-023 |
+| REQ-L1-035 | REQ-L0-024 |
+| REQ-L1-036 | REQ-L0-024 |
+| REQ-L1-037 | REQ-L0-025 |
+| REQ-L1-038 | REQ-L0-026 |
+| REQ-L1-039 | REQ-L0-027 |
+| REQ-L1-040 | REQ-L0-028 |
+| REQ-L1-041 | REQ-L0-028 |
+| REQ-L1-042 | REQ-L0-029 |
+| REQ-L1-043 | REQ-L0-030 |
+| REQ-L1-044 | REQ-L0-032 |
+| REQ-L1-045 | REQ-L0-033 |
+| REQ-L1-046 | REQ-L0-034 |
+| REQ-L1-047 | REQ-L0-035 |
+| REQ-L1-048 | REQ-L1-001 (Feedback-Erweiterung) |
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L1-043..048 aus SN-30, SN-32..35 & User-Feedback)*

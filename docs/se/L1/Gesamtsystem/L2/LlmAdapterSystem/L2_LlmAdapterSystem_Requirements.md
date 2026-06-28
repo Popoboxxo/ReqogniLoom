@@ -30,8 +30,12 @@
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-LA-001: LLM-Capability-Interface mit Provider-Abstraktion
-
 Der LlmAdapter SHALL ein stabiles internes Interface (`LlmCapabilityInterface`) mit drei Operationen bereitstellen: `validate_artifact`, `decompose_requirement`, `check_consistency`. Provider-Implementierungen SÜLLEN über ein Plugin-Interface austauschbar sein. Kein Domain-Modul DARF den konkreten Provider kennen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -46,10 +50,6 @@ Der LlmAdapter SHALL ein stabiles internes Interface (`LlmCapabilityInterface`) 
 - Incoming: IF-LA-EXT-IN-001
 - Outgoing: IF-LA-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-013, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend)
 **Rationale:** Provider-Abstraktion verhindert Vendor-Lock-in (ADR-02).
@@ -58,8 +58,12 @@ Der LlmAdapter SHALL ein stabiles internes Interface (`LlmCapabilityInterface`) 
 ---
 
 ### REQ-L2-LA-002: Graceful Degradation bei fehlender LLM-Konfiguration
-
 Der LlmAdapter SHALL bei fehlender LLM-Konfiguration einen strukturierten Fehler `{error: {code: "LLM_NOT_CONFIGURED"}}` zurückgeben. Das restliche System SHALL vollständig funktionsfähig bleiben.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -74,10 +78,6 @@ Der LlmAdapter SHALL bei fehlender LLM-Konfiguration einen strukturierten Fehler
 - Incoming: IF-LA-EXT-IN-001
 - Outgoing: IF-LA-EXT-OUT-001 (strukturierter Fehler)
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-013
 **Rationale:** Self-Hosted-First bedeutet, dass Deployments ohne LLM der Normalfall sein können.
@@ -86,8 +86,12 @@ Der LlmAdapter SHALL bei fehlender LLM-Konfiguration einen strukturierten Fehler
 ---
 
 ### REQ-L2-LA-003: Selektive Capability-Aktivierung
-
 Der LlmAdapter SHALL per-Capability Aktivierung/Deaktivierung über Deployment-Konfiguration unterstützen. Deaktivierte Capabilities SÜLLEN `LLM_NOT_CONFIGURED` zurückgeben, auch wenn ein Provider konfiguriert ist.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -100,10 +104,6 @@ Der LlmAdapter SHALL per-Capability Aktivierung/Deaktivierung über Deployment-K
 **Interfaces:**
 - Incoming: IF-LA-EXT-IN-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-013
 **Rationale:** Adressiert OP-01 (LLM-Capability-Scope).
@@ -112,8 +112,12 @@ Der LlmAdapter SHALL per-Capability Aktivierung/Deaktivierung über Deployment-K
 ---
 
 ### REQ-L2-LA-004: Standardisiertes LLM-Ergebnisformat
-
 Der LlmAdapter SHALL standardisierte Ergebnisobjekte zurückgeben. `LlmResult`: `score` (0.0–1.0), `suggestions`, `provider`, `model`, `token_usage`. `LlmDecompositionResult` erweitert mit `children`. `LlmConsistencyResult` erweitert mit `issues`. Score außerhalb [0.0, 1.0] SHALL `ValueError` auslösen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -126,10 +130,6 @@ Der LlmAdapter SHALL standardisierte Ergebnisobjekte zurückgeben. `LlmResult`: 
 **Interfaces:**
 - Outgoing: IF-LA-EXT-IN-001 (Rückgabewerte)
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-013
 **Rationale:** Standardisierte Formate ermöglichen provider-unabhängige Verarbeitung.
@@ -138,8 +138,12 @@ Der LlmAdapter SHALL standardisierte Ergebnisobjekte zurückgeben. `LlmResult`: 
 ---
 
 ### REQ-L2-LA-005: Provider-Fehlerbehandlung und Timeout
-
 Der LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukturierten Fehler `LLM_PROVIDER_ERROR` zurückgeben. Keine unhandled Exceptions. Konfigurierbarer Timeout (Default: 30s). Bei synchron ausgeführten Operationen gilt das Timeout als HTTP-Request-Timeout; bei asynchronen Celery-Tasks (siehe REQ-L2-LA-008) wird das Timeout auf Worker-Ebene konfiguriert (`CELERY_TASK_SOFT_TIME_LIMIT`, `CELERY_TASK_TIME_LIMIT`) und greift nicht als HTTP-Request-Timeout.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -154,10 +158,6 @@ Der LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukt
 **Interfaces:**
 - Outgoing: IF-LA-EXT-OUT-001, IF-LA-EXT-IN-001 (Fehler)
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-013, REQ-L1-026 (mitwirkend)
 **Rationale:** LLM-Ausfälle dürfen das Gesamtsystem nicht beeinträchtigen. Async-Tasks lösen das HTTP-Timeout-Problem für Langläufer (REQ-L2-LA-008).
@@ -166,8 +166,12 @@ Der LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukt
 ---
 
 ### REQ-L2-LA-006: LLM-Audit-Logging
-
 Der LlmAdapter SHALL jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen) im AuditLog protokollieren mit: `provider`, `capability`, `artifact_id`, `token_usage`, `success`, `error`.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -180,10 +184,6 @@ Der LlmAdapter SHALL jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen) im Audit
 **Interfaces:**
 - Outgoing: IF-LA-EXT-OUT-002
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-011, REQ-L1-013 (mitwirkend)
 **Rationale:** Vollständige Auditierbarkeit umfasst LLM-Aufrufe.
@@ -192,8 +192,12 @@ Der LlmAdapter SHALL jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen) im Audit
 ---
 
 ### REQ-L2-LA-007: Azure-OpenAI Provider-Unterstützung
-
 Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LLM_PROVIDER=azure`). Azure-spezifische Konfiguration: Endpoint-URL, Deployment-Name, API-Version.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 
 **Domain:** software
 **Priority:** desired
@@ -205,10 +209,6 @@ Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LL
 **Interfaces:**
 - Outgoing: IF-LA-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-013
 **Rationale:** Azure-OpenAI ist für Enterprise-Deployments relevant.
@@ -217,8 +217,12 @@ Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LL
 ---
 
 ### REQ-L2-LA-008: Asynchrone LLM-Task-Ausführung via Celery
-
 Der LlmAdapter SHALL LLM-Langläufer-Operationen (`decompose_requirement`, `check_consistency`) als Celery-Tasks asynchron ausführen. Diese Operationen DÜRFEN den WSGI/ASGI-Worker NICHT blockieren. Der Adapter SHALL bei Aufruf einer async-fähigen Capability sofort eine `task_id` zurückgeben. Der Status des Tasks ist über ein separates Interface abfragbar: `task.status(task_id)` → `{status: "pending|running|done|failed", result?, error?}`. Die Capability `validate_artifact` DARF synchron bleiben (typische Laufzeit < 5s).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -236,10 +240,6 @@ Der LlmAdapter SHALL LLM-Langläufer-Operationen (`decompose_requirement`, `chec
 - Incoming: IF-LA-EXT-IN-001
 - Outgoing: IF-LA-EXT-OUT-001 (LLM-Provider-Aufruf durch Celery-Worker), IF-LA-EXT-OUT-003 (Task-Dispatch an Celery-Queue)
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-013 (primär), REQ-L1-026 (mitwirkend)
 **Rationale:** Massenzerlegungen und Konsistenzprüfungen können mehrere Minuten dauern. Blockierende Synchronaufrufe erschöpfen den WSGI/ASGI-Worker-Pool und machen das System für andere Nutzer unresponsiv. Celery entkoppelt Aufruf und Ausführung.

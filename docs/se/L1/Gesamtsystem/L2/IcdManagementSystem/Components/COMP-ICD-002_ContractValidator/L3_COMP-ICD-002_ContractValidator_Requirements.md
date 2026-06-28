@@ -34,28 +34,30 @@ Die Komponente ContractValidator ist für die Überprüfung des semantischen Ver
 ## L3 Anforderungen
 
 ### REQ-L3-ICD-002-001: Design-by-Contract Validierung
-
 Die Komponente ContractValidator SHALL bei der Vertragsprüfung die korrekte Struktur der Felder für Richtung, Typ, Beschreibung, Vorbedingungen, Nachbedingungen und Invarianten validieren.
-**Domain:** software
-**Priority:** mandatory
+
 **Implementation State:** Not Implemented
 **Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
 **Remarks:** Sollte implementiert werden.
+
+**Domain:** software
+**Priority:** mandatory
 
 **Traceability:** REQ-L2-ICD-002
 **Acceptance Criteria:**
 - [ ] Fehlerhafte Strukturen im Design-by-Contract Modell werden mit entsprechenden Validierungsfehlern abgelehnt.
 
 ### REQ-L3-ICD-002-002: Breaking Change Erkennung
-
 Die Komponente ContractValidator SHALL beim Aufruf von `validate_contract` (IF-ICD-INT-001) einen semantischen Vergleich der Felder durchführen, um inkompatible Änderungen (Breaking Changes) wie z.B. Verschärfungen der Vorbedingungen oder Aufweichungen der Nachbedingungen zu identifizieren.
-**Domain:** software
-**Priority:** mandatory
+
 **Implementation State:** Not Implemented
 **Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
 **Remarks:** Sollte implementiert werden.
+
+**Domain:** software
+**Priority:** mandatory
 
 **Traceability:** REQ-L2-ICD-003
 **Acceptance Criteria:**

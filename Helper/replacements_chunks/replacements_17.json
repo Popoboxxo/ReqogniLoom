@@ -1,0 +1,77 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\DiagramServiceSystem\\L2_DiagramServiceSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-DS-001: Diagramm CRUD und Versionierung\n\nDas DiagramServiceSystem SHALL vollst\u00e4ndiges CRUD f\u00fcr Diagramm-Artefakte bereitstellen, wobei jede inhaltliche \u00c4nderung zwingend eine neue, unver\u00e4nderliche Version (DiagramVersion) erzeugt.\n",
+      "ReplacementContent": "### REQ-L2-DS-001: Diagramm CRUD und Versionierung\n\nDas DiagramServiceSystem SHALL vollst\u00e4ndiges CRUD f\u00fcr Diagramm-Artefakte bereitstellen, wobei jede inhaltliche \u00c4nderung zwingend eine neue, unver\u00e4nderliche Version (DiagramVersion) erzeugt.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-DS-002: Strukturierte Payload-Validierung\n\nDas DiagramServiceSystem SHALL den Payload der Diagramme gegen typspezifische Regeln (z.B. Syntax von Mermaid oder PlantUML) validieren. Unterst\u00fctzt werden M\u00dcSSEN mindestens 3 Typen: Blockdiagramm, Flussdiagramm, Kontextdiagramm.\n",
+      "ReplacementContent": "### REQ-L2-DS-002: Strukturierte Payload-Validierung\n\nDas DiagramServiceSystem SHALL den Payload der Diagramme gegen typspezifische Regeln (z.B. Syntax von Mermaid oder PlantUML) validieren. Unterst\u00fctzt werden M\u00dcSSEN mindestens 3 Typen: Blockdiagramm, Flussdiagramm, Kontextdiagramm.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-DS-003: Renderbare Repr\u00e4sentation\n\nDas DiagramServiceSystem SHALL renderbare Repr\u00e4sentationen (oder den rohen, validierten String) bereitstellen, die das Frontend zur grafischen Darstellung nutzen kann.\n",
+      "ReplacementContent": "### REQ-L2-DS-003: Renderbare Repr\u00e4sentation\n\nDas DiagramServiceSystem SHALL renderbare Repr\u00e4sentationen (oder den rohen, validierten String) bereitstellen, die das Frontend zur grafischen Darstellung nutzen kann.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-DS-004: Traceability-Verkn\u00fcpfung (Typ: documents)\n\nDas DiagramServiceSystem SHALL bei der Erstellung oder Aktualisierung von Diagrammen die M\u00f6glichkeit bieten, diese mit Requirements oder ArchitectureElements \u00fcber den Link-Typ `documents` zu verkn\u00fcpfen.\n",
+      "ReplacementContent": "### REQ-L2-DS-004: Traceability-Verkn\u00fcpfung (Typ: documents)\n\nDas DiagramServiceSystem SHALL bei der Erstellung oder Aktualisierung von Diagrammen die M\u00f6glichkeit bieten, diese mit Requirements oder ArchitectureElements \u00fcber den Link-Typ `documents` zu verkn\u00fcpfen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-DS-005: MCP-Tool Integration\n\nDas DiagramServiceSystem SHALL den Diagramm-Abruf \u00fcber das MCP-Tool `artifact.get` unterst\u00fctzen, um KI-Agenten direkten Zugriff auf Diagramminhalte zu erm\u00f6glichen.\n",
+      "ReplacementContent": "### REQ-L2-DS-005: MCP-Tool Integration\n\nDas DiagramServiceSystem SHALL den Diagramm-Abruf \u00fcber das MCP-Tool `artifact.get` unterst\u00fctzen, um KI-Agenten direkten Zugriff auf Diagramminhalte zu erm\u00f6glichen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 185,
+      "AllowMultiple": false
+    }
+  ]
+}

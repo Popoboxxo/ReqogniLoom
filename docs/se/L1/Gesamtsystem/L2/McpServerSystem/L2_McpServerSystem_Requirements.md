@@ -29,348 +29,6 @@
 |----|----------|------|-----|--------------|
 | IF-MC-EXT-OUT-002 | output | ARCH-L1-011 | data | API-Key-Validierung, Agent-Identität, Tenant, Rollen |
 | IF-MC-EXT-OUT-003 | output | ARCH-L1-004 | data | Use-Case-Methoden (In-Process Python) |
-| IF-MC-EXT-OUT-004 | output | ARCH-L1-008 | data | Preset-Abfrage |
-
----
-
-## L2 Subsystem-Anforderungen
-
-### REQ-L2-MC-001: Requirements-Tool-Gruppe (6 Tools)
-
-Der McpServer SHALL die sechs Tools `requirement.get`, `requirement.query`, `requirement.create`, `requirement.update`, `requirement.decompose` und `requirement.validate` implementieren. Jedes Tool SHALL seine Eingabeparameter gegen ein JSON-Schema validieren und die Operation an den ApplicationService delegieren. `requirement.validate` SHALL nur bei konfiguriertem LLM-Provider ausführbar sein; ohne LLM SOLL ein strukturierter Fehler `LLM_NOT_CONFIGURED` zurückgegeben werden.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle 6 Tools via MCP-Protokoll aufrufbar mit korrekt serialisierten Ergebnissen
-- [ ] `requirement.get(id)` liefert Requirement mit Traces, Workflow-History und Audit-Feldern
-- [ ] `requirement.validate(id)` ohne LLM-Config → Fehler `LLM_NOT_CONFIGURED`
-- [ ] `requirement.decompose(id)` ohne LLM-Config → Fehler `LLM_NOT_CONFIGURED`
-- [ ] Schreibende Operationen erzeugen AuditLog-Eintrag mit Agent-Identität und API-Key
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-IN-001 (MCP-Tool-Aufruf `requirement.*`)
-- Outgoing: IF-MC-EXT-OUT-001 (JSON-Response)
-- Internal: IF-MC-EXT-OUT-003
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-005, REQ-L1-002 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-013 (mitwirkend)
-**Rationale:** Die sechs Requirements-Tools decken den primären AI-Workflow ab.
-
-
----
-
-### REQ-L2-MC-002: Architecture-Tool-Gruppe (5 Tools)
-
-Der McpServer SHALL die fünf Tools `architecture.get`, `architecture.query`, `architecture.create`, `architecture.update` und `architecture.link` implementieren. `architecture.link` SHALL das Verknüpfen eines ArchitectureElements mit einem Requirement, TestCase oder ArchitectureElement unter Angabe des Link-Typs unterstützen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle 5 Tools via MCP-Protokoll aufrufbar
-- [ ] `architecture.create(title, description, element_type, workspace_id)` → ArchitectureElement mit UUID
-- [ ] `architecture.link(arch_id, target_id, target_type, link_type)` → TraceLink mit validem Link-Typ
-- [ ] Schreibende Operationen erzeugen AuditLog-Einträge
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-IN-001
-- Outgoing: IF-MC-EXT-OUT-001
-- Internal: IF-MC-EXT-OUT-003
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-005, REQ-L1-004 (mitwirkend), REQ-L1-003 (mitwirkend), REQ-L1-011 (mitwirkend)
-**Rationale:** Architektur-Tools ermöglichen AI-Agenten strukturierte Architektur-Verwaltung.
-
-
----
-
-### REQ-L2-MC-003: Test-Tool-Gruppe (5 Tools)
-
-Der McpServer SHALL die fünf Tools `test.get`, `test.query`, `test.create`, `test.update` und `test.link` implementieren. `test.update` SHALL das Schreiben des Test-Status (Passed/Failed/Not Run) ermöglichen. `test.link` SHALL nachträgliche TraceLink-Erzeugung vom Typ `verifies` unterstützen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle 5 Tools via MCP-Protokoll aufrufbar
-- [ ] `test.create(title, type, linked_req_id)` → TestCase und optional TraceLink `verifies`
-- [ ] `test.update(id, {status: "Passed"})` → Test-Status aktualisiert
-- [ ] `test.link(test_id, req_id)` → TraceLink `verifies` erzeugt
-- [ ] AuditLog-Einträge für alle schreibenden Operationen
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-IN-001
-- Outgoing: IF-MC-EXT-OUT-001
-- Internal: IF-MC-EXT-OUT-003
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-005, REQ-L1-012 (mitwirkend), REQ-L1-003 (mitwirkend), REQ-L1-011 (mitwirkend)
-**Rationale:** Test-Tools ermöglichen automatisierte Coverage-Analyse als AI-Workflow.
-
-
----
-
-### REQ-L2-MC-004: Übergreifende Tools (4 Tools)
-
-Der McpServer SHALL die vier Tools `traceability.query`, `artifact.search`, `artifact.get_tree` und `workspace.get_context` implementieren. `workspace.get_context` SHALL den kompletten Workspace-Status zurückgeben und als Orientierungspunkt für AI-Agenten beim Sitzungsstart dienen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] `traceability.query(artifact_id, direction)` → Upstream/Downstream-Graph mit Link-Typ-Annotation
-- [ ] `artifact.search(query)` → gemischte Ergebnisliste über alle Artefakttypen
-- [ ] `artifact.get_tree(root_id)` → hierarchische Artefakt-Struktur
-- [ ] `workspace.get_context()` → Preset, Terminologie-Profil, Coverage-Summary, offene Requirements
-- [ ] Alle 4 Tools funktionieren ohne LLM-Konfiguration
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-IN-001
-- Outgoing: IF-MC-EXT-OUT-001
-- Internal: IF-MC-EXT-OUT-003
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-005, REQ-L1-020 (mitwirkend), REQ-L1-003 (mitwirkend), REQ-L1-007 (mitwirkend)
-**Rationale:** Übergreifende Tools vermeiden redundante Einzel-Calls.
-
-
----
-
-### REQ-L2-MC-005: MCP-Transportprotokoll-Unterstützung
-
-Der McpServer SHALL mindestens drei Transportprotokolle unterstützen: stdio, Server-Sent Events (SSE) und HTTP. Der Transport SHALL für die Tool-Handler transparent sein.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] MCP-Tool-Aufrufe über stdio korrekt dispatcht und beantwortet
-- [ ] MCP-Tool-Aufrufe über SSE korrekt dispatcht und beantwortet
-- [ ] MCP-Tool-Aufrufe über HTTP korrekt dispatcht und beantwortet
-- [ ] Handler kennen nur den Dispatch-Contract, nicht das Transportprotokoll
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-IN-001
-- Outgoing: IF-MC-EXT-OUT-001
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-005
-**Rationale:** Verschiedene AI-Agent-Clients verwenden unterschiedliche Transportmechanismen.
-
-
----
-
-### REQ-L2-MC-006: API-Key-Authentifizierung
-
-Der McpServer SHALL vor jeder Tool-Ausführung den API-Key an AuthAndTenancy (ARCH-L1-011) zur Validierung weiterleiten. Bei ungültigem oder fehlendem API-Key SHALL die Anfrage mit Fehler `AUTH_FAILED` abgelehnt werden.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Tool-Aufruf ohne API-Key → Fehler `AUTH_FAILED`
-- [ ] Tool-Aufruf mit ungültigem API-Key → Fehler `AUTH_FAILED`
-- [ ] Tool-Aufruf mit gültigem API-Key → Auth-Kontext wird verwendet
-- [ ] API-Key wird nicht an ApplicationService weitergegeben
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-IN-001 (API-Key)
-- Outgoing: IF-MC-EXT-OUT-001 (Fehler bei Auth-Fehler)
-- Internal: IF-MC-EXT-OUT-002
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-005, REQ-L1-010 (mitwirkend), REQ-L1-011 (mitwirkend)
-**Rationale:** API-Key-Auth ist Voraussetzung für sicheren MCP-Schreibzugriff.
-
-
----
-
-### REQ-L2-MC-007: RBAC für MCP-Operationen
-
-Der McpServer SHALL vor jeder schreibenden Operation prüfen, ob die Rolle des authentifizierten Nutzers die Operation erlaubt. Bei unzureichenden Berechtigungen SHALL die Anfrage mit Fehler `PERMISSION_DENIED` abgelehnt werden.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] `requirement.create` durch Viewer → Fehler `PERMISSION_DENIED`
-- [ ] `requirement.create` durch Editor → erfolgreich
-- [ ] Lese-Operationen liefern nur Daten des aktiven Tenants
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-OUT-002 (Auth-Kontext mit Rollen)
-- Outgoing: IF-MC-EXT-OUT-001 (Fehler bei Berechtigungsverletzung)
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-010, REQ-L1-005 (mitwirkend)
-**Rationale:** RBAC-Enforcement verhindert unautorisierte Operationen durch AI-Agenten.
-
-
----
-
-### REQ-L2-MC-008: Preset-basierte Tool-Sichtbarkeit
-
-Der McpServer SHALL das Preset des aktiven Workspaces über PresetConfigEngine (ARCH-L1-008) abfragen. Tools, die im aktiven Preset nicht aktiviert sind, SHALL mit Fehler `FEATURE_NOT_ENABLED` abgelehnt oder nicht registriert werden.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Minimal-Preset: Nur freigegebene Tools sichtbar/aufrufbar
-- [ ] Extended-Preset: Alle 20 Tools sichtbar/aufrufbar
-- [ ] Aufruf eines deaktivierten Tools → Fehler `FEATURE_NOT_ENABLED`
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-OUT-004 (Preset-Regeln)
-- Outgoing: IF-MC-EXT-OUT-001 (Fehler bei deaktiviertem Feature)
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-007, REQ-L1-005 (mitwirkend)
-**Rationale:** Configurable Rigor erfordert werkzeugseitige SE-Tiefe-Abbildung.
-
-
----
-
-### REQ-L2-MC-009: Direkter ApplicationService-Zugriff (keine REST-Umleitung)
-
-Der McpServer SHALL alle Domain-Operationen direkt über den ApplicationService (ARCH-L1-004) via In-Process-Python ausführen. KEINE HTTP-Roundtrips über die REST-API. Der McpServer SHALL denselben Domain-Kontrakt verwenden wie der RestApiAdapter.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] MCP-Tool-Aufruf ruft direkt ApplicationService-Methoden auf — kein HTTP
-- [ ] MCP-Responses semantisch identisch mit REST-Responses für dieselben Operationen
-- [ ] MCP-spezifische Audit-Felder ohne REST-Adapter
-
-**Interfaces:**
-- Internal: IF-MC-EXT-OUT-003
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-005, REQ-L1-006 (mitwirkend)
-**Rationale:** ADR-01: Vermeidet HTTP-Roundtrip-Overhead und garantiert semantische Konsistenz.
-
-
----
-
-### REQ-L2-MC-010: MCP-Performance-Anforderung
-
-Der McpServer SHALL für 95% aller MCP-Standard-Requests eine Gesamtantwortzeit von unter 200ms garantieren — unter der Lastannahme von bis zu 50 gleichzeitigen Agenten und 10.000 Requirements. Exklusive externer LLM-Aufrufe.
-
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Lasttest: 50 gleichzeitige MCP-Clients → p95 < 200ms für Standard-Queries
-- [ ] Schreiboperationen < 200ms (p95) exklusive AuditLog-Persistenz
-- [ ] `workspace.get_context` < 500ms (p95) bei 10.000 Items
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-IN-001 (unter Last)
-- Outgoing: IF-MC-EXT-OUT-001 (innerhalb SLA)
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L1-026, REQ-L1-005 (mitwirkend)
-**Rationale:** Hohe Latenz beeinträchtigt alle AI-gestützten Workflows.
-
-
----
-
-### REQ-L2-MC-011: Strukturierter Fehler-Response
-
-Der McpServer SHALL bei Fehlern eine strukturierte JSON-Fehlerantwort zurückgeben mit: `error_code` (maschinenlesbar), `message` (menschenlesbar, i18n-fähig) und `details` (optional).
-
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Auth-Fehler → `{"error_code": "AUTH_FAILED", "message": "..."}`
-- [ ] LLM-Fehler → `{"error_code": "LLM_NOT_CONFIGURED", "message": "..."}`
-- [ ] Berechtigungsverletzung → `{"error_code": "PERMISSION_DENIED", "message": "..."}`
-- [ ] Validierungsfehler → `{"error_code": "VALIDATION_ERROR", "message": "...", "details": {...}}`
-
-**Interfaces:**
-- Outgoing: IF-MC-EXT-OUT-001
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-005
-**Rationale:** AI-Agenten benötigen maschinenlesbare Fehlercodes für robuste Workflows.
-
-
----
-
-### REQ-L2-MC-012: Vollständiger MCP-Audit-Trail
-
-Der McpServer SHALL bei jeder schreibenden Operation über den ApplicationService (ARCH-L1-004) einen AuditLog-Eintrag erzeugen mit: Agent-Client-Identität, API-Key-Hash, Tool-Name, Operation, Entitäts-ID(s) und Zeitstempel. Der Eintrag SHALL synchron vor der Response geschrieben werden.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Nach `requirement.create`: AuditLog enthält Agent-User-ID, API-Key-Hash, Tool-Name, UUID
-- [ ] Nach `architecture.link`: AuditLog enthält TraceLink-ID
-- [ ] Lese-Operationen erzeugen KEINEN AuditLog-Eintrag
-- [ ] AuditLog-Eintrag vorhanden bevor Response gesendet wird
-
-**Interfaces:**
-- Internal: IF-MC-EXT-OUT-003
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-011, REQ-L1-005 (mitwirkend)
-**Rationale:** Vollständige Rückverfolgbarkeit von AI-Agent-Änderungen. AuditLog wird ausschließlich durch ApplicationService geschrieben (L1-Architektur ADR-01).
-
-
----
-
-## Erweiterung Phase 3 (se-architect, 2026-06-27)
-
-### REQ-L2-MC-013: Test-Ergebnis-Einspeisung via MCP (test.record_result)
-
-Der McpServer SHALL das MCP-Tool `test.record_result` implementieren, das TestCase-ID, Ergebnisstatus (Passed/Failed/Blocked) und optionale Ausgabe-Payload akzeptiert. Das Tool MUSS einen gültigen API-Key zur Authentifizierung erfordern. Jede Einspeisung SHALL einen Audit-Log-Eintrag mit Client-Identität erzeugen.
-
-**Domain:** software
-**Priority:** desired
-**arch_impact:** false
-**Acceptance Criteria:**
-- [ ] MCP-Tool `test.record_result(test_run_id, test_case_id, status, output?)` → Ergebnis protokolliert
 - [ ] Fehlender/ungültiger API-Key → Fehler mit HTTP 401-Äquivalent
 - [ ] Jede Einspeisung erzeugt Audit-Log-Eintrag mit Client-Identität
 - [ ] Tool ist via MCP-Protokoll (stdio, SSE, HTTP) aufrufbar
@@ -380,10 +38,88 @@ Der McpServer SHALL das MCP-Tool `test.record_result` implementieren, das TestCa
 - Incoming: IF-MC-EXT-IN-001
 - Outgoing: IF-MC-EXT-OUT-001, IF-MC-EXT-OUT-003
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Implementation State:** Not Implemented
+**Review Findings:** Anforderung ist in Tests abgedeckt, aber Implementierung fehlt.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Implementierung abschließen.
+
+**Traceability:** REQ-L1-036, REQ-L1-011 (mitwirkend)
+**Rationale:** MCP-Tool ermöglicht AI-Agenten und CI/CD-Systemen direkte Test-Ergebnis-Einspeisung.
+
+
+---
+
+## Traceability-Matrix: REQ-L2-MC → REQ-L1
+
+| REQ-L2-MC | Primäre REQ-L1 | Mitwirkende REQ-L1 |
+|-----------|----------------|---------------------|
+| REQ-L2-MC-001 | REQ-L1-005 | REQ-L1-002, REQ-L1-011, REQ-L1-013 |
+| REQ-L2-MC-002 | REQ-L1-005 | REQ-L1-004, REQ-L1-003, REQ-L1-011 |
+| REQ-L2-MC-003 | REQ-L1-005 | REQ-L1-012, REQ-L1-003, REQ-L1-011 |
+| REQ-L2-MC-004 | REQ-L1-005 | REQ-L1-020, REQ-L1-003, REQ-L1-007 |
+| REQ-L2-MC-005 | REQ-L1-005 | — |
+| REQ-L2-MC-006 | REQ-L1-005 | REQ-L1-010, REQ-L1-011 |
+| REQ-L2-MC-007 | REQ-L1-010 | REQ-L1-005 |
+| REQ-L2-MC-008 | REQ-L1-007 | REQ-L1-005 |
+| REQ-L2-MC-009 | REQ-L1-005 | REQ-L1-006 |
+| REQ-L2-MC-010 | REQ-L1-026 | REQ-L1-005 |
+| REQ-L2-MC-011 | REQ-L1-005 | — |
+| REQ-L2-MC-012 | REQ-L1-011 | REQ-L1-005 |
+| REQ-L2-MC-013 | REQ-L1-036 | REQ-L1-011 |
+
+---
+
+## Zusammenfassung
+
+| Metrik | Wert |
+|--------|------|
+| Anzahl REQ-L2-MC | 13 |
+| Mandatory | 10 |
+| Desired | 3 |
+# L2 McpServer Requirements
+
+> **Level:** L2 (Subsystem-Anforderungen)
+> **System:** McpServerSystem (ARCH-L1-003)
+> **Parent:** L1_Gesamtsystem_Requirements.md
+> **Datum:** 2026-06-20
+> **Status:** formalisiert
+> **Designation:** LEAF (terminal, keine L3-Zerlegung)
+
+---
+
+## Traceability
+
+- Abgeleitet von: REQ-L1-005 (primär), REQ-L1-007 (mitwirkend), REQ-L1-010 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-013 (mitwirkend), REQ-L1-020 (mitwirkend), REQ-L1-026 (mitwirkend)
+- Ziel: terminal (keine L3-Zerlegung)
+
+---
+
+## Externe Schnittstellen (Systemgrenze)
+
+| ID | Richtung | Typ | Beschreibung |
+|----|----------|-----|--------------|
+| IF-MC-EXT-IN-001 | input | data | AI-Agent → McpServer: MCP-Protokoll (JSON-RPC über stdio/SSE/HTTP) mit API-Key |
+| IF-MC-EXT-OUT-001 | output | data | McpServer → AI-Agent: Strukturierte Tool-Response (JSON) oder Fehler |
+
+## Externe Schnittstellen (ausgehend)
+
+| ID | Richtung | Ziel | Typ | Beschreibung |
+|----|----------|------|-----|--------------|
+| IF-MC-EXT-OUT-002 | output | ARCH-L1-011 | data | API-Key-Validierung, Agent-Identität, Tenant, Rollen |
+| IF-MC-EXT-OUT-003 | output | ARCH-L1-004 | data | Use-Case-Methoden (In-Process Python) |
+- [ ] Fehlender/ungültiger API-Key → Fehler mit HTTP 401-Äquivalent
+- [ ] Jede Einspeisung erzeugt Audit-Log-Eintrag mit Client-Identität
+- [ ] Tool ist via MCP-Protokoll (stdio, SSE, HTTP) aufrufbar
+- [ ] Tool akzeptiert optionale Ausgabe-Payload (z.B. Test-Log, Screenshot-Referenz)
+
+**Interfaces:**
+- Incoming: IF-MC-EXT-IN-001
+- Outgoing: IF-MC-EXT-OUT-001, IF-MC-EXT-OUT-003
+
+**Implementation State:** Not Implemented
+**Review Findings:** Anforderung ist in Tests abgedeckt, aber Implementierung fehlt.
+**Test Status:** Covered
+**Remarks:** Implementierung abschließen.
 
 **Traceability:** REQ-L1-036, REQ-L1-011 (mitwirkend)
 **Rationale:** MCP-Tool ermöglicht AI-Agenten und CI/CD-Systemen direkte Test-Ergebnis-Einspeisung.
@@ -427,3 +163,94 @@ Der McpServer SHALL das MCP-Tool `test.record_result` implementieren, das TestCa
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-Mcp → REQ-L2-MC, Template-Standardisierung*
 *Designation: LEAF (terminal, keine L3-Zerlegung)*
+
+---
+
+## Erweiterung v2 — REQ-L2-MC-014..015 (aus REQ-L1-036 und REQ-L1-038)
+
+> **Datum:** 2026-06-28 | **Quelle:** REQ-L0-024 → REQ-L1-036, REQ-L0-026 → REQ-L1-038
+
+---
+
+### REQ-L2-MC-014: MCP-Tool `semantic_search` (Semantische Suche für AI-Agenten)
+
+**Implementation State:** Not Implemented
+**Review Findings:** MCP-Server hat kein `semantic_search`-Tool. VectorSearchService (REQ-L2-VS-001) muss zuerst implementiert werden.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26). Abhängigkeit: REQ-L2-VS-001.
+
+Der MCP-Server MUSS ein Tool `semantic_search` bereitstellen, über das AI-Agenten
+semantische Suchanfragen gegen einen Workspace stellen können. Das Tool delegiert
+intern an den VectorSearchService (REQ-L2-VS-001) und gibt die Top-N Ergebnisse
+mit Artefakt-ID, Typ, Titel und Ähnlichkeitsscore zurück.
+
+**MCP-Tool-Spezifikation:**
+```json
+{
+  "name": "semantic_search",
+  "description": "Search requirements semantically using vector embeddings",
+  "inputSchema": {
+    "workspace_id": "string (required)",
+    "query": "string (required)",
+    "top_n": "integer (default: 10)",
+    "threshold": "float (default: 0.7)"
+  }
+}
+```
+
+**Akzeptanzkriterien:**
+- AC1: `semantic_search(workspace_id, query)` → Liste der Top-N ähnlichsten Artefakte
+- AC2: Tool ist im MCP-Tool-Katalog registriert und per `list_tools` sichtbar
+- AC3: Fehlerfall (VectorSearch nicht verfügbar) → strukturierter MCP-Fehler
+- AC4: Latenz innerhalb MCP-Timeout (< 30 s)
+
+**Verifikationsmethode:** MCP-Integrationstest — Tool-Call, Response-Validierung
+**Verifikiert durch:** L2-MC-Test-014
+**Abgeleitet von:** REQ-L1-038
+**Übergeordnete REQ-L0:** REQ-L0-026
+
+---
+
+### REQ-L2-MC-015: MCP-Tool `record_test_result` (Testergebnis-Einspeisung)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Das Tool `test.record_result` existiert in der Spezifikation, ist aber nicht implementiert.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-036 (← REQ-L0-024, SN-24). Kritisch für CI/CD-Integration.
+
+Der MCP-Server MUSS ein Tool `record_test_result` bereitstellen, über das
+CI/CD-Pipelines und AI-Agenten Testergebnisse direkt in ReqFlow einspeisen können.
+Ein TestRun-Record wird angelegt und mit dem zugehörigen TestCase verknüpft.
+Das Tool persistiert: TestCase-ID, Status (passed/failed/skipped), Ausführungszeit,
+Fehlermeldung (optional) und Zeitstempel.
+
+**MCP-Tool-Spezifikation:**
+```json
+{
+  "name": "record_test_result",
+  "description": "Record a test execution result for a test case",
+  "inputSchema": {
+    "testcase_id": "string (required)",
+    "status": "enum: passed | failed | skipped (required)",
+    "duration_ms": "integer",
+    "error_message": "string (optional)",
+    "run_id": "string (optional, CI-Pipeline-Referenz)"
+  }
+}
+```
+
+**Akzeptanzkriterien:**
+- AC1: `record_test_result(testcase_id, status="passed")` → TestRun-Record angelegt
+- AC2: TestRun ist über API abrufbar und mit TestCase verknüpft
+- AC3: `status="failed"` mit `error_message` → Fehlermeldung im TestRun gespeichert
+- AC4: Unbekannte `testcase_id` → strukturierter MCP-Fehler (kein Crash)
+- AC5: Tool ist im MCP-Tool-Katalog per `list_tools` sichtbar
+
+**Verifikationsmethode:** MCP-Integrationstest — Tool-Call, TestRun-Persistenz prüfen
+**Verifikiert durch:** L2-MC-Test-015
+**Abgeleitet von:** REQ-L1-036
+**Übergeordnete REQ-L0:** REQ-L0-024
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-MC-014..015 aus REQ-L1-036, REQ-L1-038)*

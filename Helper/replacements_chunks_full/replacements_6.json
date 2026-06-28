@@ -1,0 +1,14 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\IcdManagementSystem\\Components\\COMP-ICD-003_TraceabilityConnector\\L3_COMP-ICD-003_TraceabilityConnector_Requirements.md",
+  "Instruction": "Update requirement fields correctly, deleting old properties and inserting new ones",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L3-ICD-003-001: Erstellung von realizes-TraceLinks\n\nDie Komponente TraceabilityConnector SHALL bei Aufruf von `link_to_architecture` (IF-ICD-INT-002) einen TraceLink vom Typ `realizes` generieren und diesen via IF-L1-039 an die externe TraceabilityEngine senden.\n**Domain:** software\n**Priority:** mandatory\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Traceability:** REQ-L2-ICD-004\n**Acceptance Criteria:**\n- [ ] Beim Aufruf wird erfolgreich ein TraceLink zwischen `icd_id` und den jeweiligen Architekturelementen in der TraceabilityEngine persistiert.\n\n---\n\n*Erstellt durch se-requirements-Agent | 2026-06-21*\n",
+      "ReplacementContent": "### REQ-L3-ICD-003-001: Erstellung von realizes-TraceLinks\nDie Komponente TraceabilityConnector SHALL bei Aufruf von `link_to_architecture` (IF-ICD-INT-002) einen TraceLink vom Typ `realizes` generieren und diesen via IF-L1-039 an die externe TraceabilityEngine senden.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Domain:** software\n**Priority:** mandatory\n\n**Traceability:** REQ-L2-ICD-004\n**Acceptance Criteria:**\n- [ ] Beim Aufruf wird erfolgreich ein TraceLink zwischen `icd_id` und den jeweiligen Architekturelementen in der TraceabilityEngine persistiert.\n\n---\n\n*Erstellt durch se-requirements-Agent | 2026-06-21*\n",
+      "StartLine": 1,
+      "EndLine": 54,
+      "AllowMultiple": false
+    }
+  ]
+}

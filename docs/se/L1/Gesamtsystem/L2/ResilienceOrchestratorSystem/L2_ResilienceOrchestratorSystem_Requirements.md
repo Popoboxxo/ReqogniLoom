@@ -37,8 +37,12 @@ Das ResilienceOrchestratorSystem ist der zentrale Resilienz-Manager für alle ex
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-RO-001: Asynchrone Entkopplung
-
 Das ResilienceOrchestratorSystem SHALL externe Aufrufe asynchron über eine Queue (z.B. Celery) ausführen, sodass synchrone Request-Threads im ApplicationService nicht blockiert werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** system
 **Priority:** mandatory
@@ -50,10 +54,6 @@ Das ResilienceOrchestratorSystem SHALL externe Aufrufe asynchron über eine Queu
 - Incoming: IF-L1-049
 - Outgoing: IF-L1-051
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-032
 **Rationale:** Verhindert Thread-Erschöpfung bei hängenden externen Services.
@@ -61,8 +61,12 @@ Das ResilienceOrchestratorSystem SHALL externe Aufrufe asynchron über eine Queu
 ---
 
 ### REQ-L2-RO-002: Konfigurierbare Timeouts
-
 Das ResilienceOrchestratorSystem SHALL für jeden externen Aufruf eine konfigurierbare Timeout-Policy anwenden. Wird der Timeout überschritten, MUSS der Aufruf abgebrochen werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** system
 **Priority:** mandatory
@@ -73,10 +77,6 @@ Das ResilienceOrchestratorSystem SHALL für jeden externen Aufruf eine konfiguri
 **Interfaces:**
 - Outgoing: IF-L1-051
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-032
 **Rationale:** Schützt das System vor unendlich hängenden Requests.
@@ -84,8 +84,12 @@ Das ResilienceOrchestratorSystem SHALL für jeden externen Aufruf eine konfiguri
 ---
 
 ### REQ-L2-RO-003: Retry-Logik mit Exponential Backoff
-
 Das ResilienceOrchestratorSystem SHALL bei transienten Fehlern mindestens einen Retry ausführen. Die Retry-Strategie MUSS ein Exponential Backoff verwenden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** system
 **Priority:** mandatory
@@ -96,10 +100,6 @@ Das ResilienceOrchestratorSystem SHALL bei transienten Fehlern mindestens einen 
 **Interfaces:**
 - Outgoing: IF-L1-051
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-032
 **Rationale:** Erhöht die Erfolgsquote bei temporären Netzwerkproblemen.
@@ -107,8 +107,12 @@ Das ResilienceOrchestratorSystem SHALL bei transienten Fehlern mindestens einen 
 ---
 
 ### REQ-L2-RO-004: Circuit-Breaker-Logik
-
 Das ResilienceOrchestratorSystem SHALL einen Circuit-Breaker implementieren, der bei einer definierbaren Fehlerquote in den Zustand "Open" wechselt und nachfolgende Aufrufe direkt blockiert, bis eine "Half-Open" Recovery erfolgreich ist.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** system
 **Priority:** mandatory
@@ -119,10 +123,6 @@ Das ResilienceOrchestratorSystem SHALL einen Circuit-Breaker implementieren, der
 **Interfaces:**
 - Outgoing: IF-L1-051
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-032
 **Rationale:** Verhindert Kaskadeneffekte und gibt externen Systemen Zeit zur Erholung.
@@ -130,8 +130,12 @@ Das ResilienceOrchestratorSystem SHALL einen Circuit-Breaker implementieren, der
 ---
 
 ### REQ-L2-RO-005: Graceful Degradation und Kernverfügbarkeit
-
 Das ResilienceOrchestratorSystem SHALL sicherstellen, dass Fehler in externen Subsystemen isoliert bleiben. Die Kernverfügbarkeit des restlichen Systems (CRUD, Baselines) MUSS bei Ausfall > 99,5 % bleiben.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** system
 **Priority:** mandatory
@@ -142,10 +146,6 @@ Das ResilienceOrchestratorSystem SHALL sicherstellen, dass Fehler in externen Su
 **Interfaces:**
 - Incoming: IF-L1-049, IF-L1-050
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-032
 **Rationale:** Produktionsstabilität darf nicht von optionalen Drittsystemen abhängen.
@@ -153,8 +153,12 @@ Das ResilienceOrchestratorSystem SHALL sicherstellen, dass Fehler in externen Su
 ---
 
 ### REQ-L2-RO-006: Audit-Logging für Resilienz-Events
-
 Das ResilienceOrchestratorSystem SHALL Degradation-Events, Retry-Logs und Statuswechsel des Circuit-Breakers im AuditLog protokollieren.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** system
 **Priority:** mandatory
@@ -165,10 +169,6 @@ Das ResilienceOrchestratorSystem SHALL Degradation-Events, Retry-Logs und Status
 **Interfaces:**
 - Outgoing: IF-L1-052
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-032
 **Rationale:** Sichtbarkeit für Administratoren zur Fehlerdiagnose bei externen Systemen.

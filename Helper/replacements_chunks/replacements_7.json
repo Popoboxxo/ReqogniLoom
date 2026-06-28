@@ -1,0 +1,133 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\AuditLogSystem\\L2_AuditLogSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-AL-001: Vollst\u00e4ndige Audit-Eintr\u00e4ge f\u00fcr alle Schreiboperationen\n\nDas AuditLog-System SHALL f\u00fcr jede schreibende Operation (Create, Update, Delete) auf Requirement, ArchitectureElement, TestCase und TraceLink einen Audit-Eintrag persistieren mit: `actor`, `actor_type` (user | agent), `operation`, `entity_type`, `entity_id`, `timestamp` (ISO-8601 UTC), `version`, `change_reason` (optional).\n",
+      "ReplacementContent": "### REQ-L2-AL-001: Vollst\u00e4ndige Audit-Eintr\u00e4ge f\u00fcr alle Schreiboperationen\n\nDas AuditLog-System SHALL f\u00fcr jede schreibende Operation (Create, Update, Delete) auf Requirement, ArchitectureElement, TestCase und TraceLink einen Audit-Eintrag persistieren mit: `actor`, `actor_type` (user | agent), `operation`, `entity_type`, `entity_id`, `timestamp` (ISO-8601 UTC), `version`, `change_reason` (optional).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AL-002: MCP-Audit-Anreicherung mit Agent-Identit\u00e4t und API-Key-Hash\n\nDas AuditLog-System SHALL bei MCP-Schreiboperationen zus\u00e4tzlich `client_name` und `api_key_hash` (SHA-256, Prefix `sha256:`) erfassen. `source`-Feld: `mcp` oder `rest`. API-Key NIEMALS im Klartext.\n",
+      "ReplacementContent": "### REQ-L2-AL-002: MCP-Audit-Anreicherung mit Agent-Identit\u00e4t und API-Key-Hash\n\nDas AuditLog-System SHALL bei MCP-Schreiboperationen zus\u00e4tzlich `client_name` und `api_key_hash` (SHA-256, Prefix `sha256:`) erfassen. `source`-Feld: `mcp` oder `rest`. API-Key NIEMALS im Klartext.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AL-003: Unver\u00e4nderlichkeit des Audit-Logs (Append-Only)\n\nDas AuditLog-System SHALL Audit-Eintr\u00e4ge ausschlie\u00dflich append-only persistieren. Nach dem Schreiben DARF ein Eintrag NICHT ver\u00e4ndert oder gel\u00f6scht werden. Erzwingung auf Datenbankebene.\n",
+      "ReplacementContent": "### REQ-L2-AL-003: Unver\u00e4nderlichkeit des Audit-Logs (Append-Only)\n\nDas AuditLog-System SHALL Audit-Eintr\u00e4ge ausschlie\u00dflich append-only persistieren. Nach dem Schreiben DARF ein Eintrag NICHT ver\u00e4ndert oder gel\u00f6scht werden. Erzwingung auf Datenbankebene.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AL-004: Atomare Konsistenz mit ausl\u00f6sender Operation\n\nDas AuditLog-System SHALL die Persistierung in dieselbe Datenbank-Transaktion wie die ausl\u00f6sende Operation integrieren. Gesch\u00e4ftstransaktion fehlschl\u00e4gt \u2192 Audit-Eintrag zur\u00fcckgerollt. Audit-Persistierung fehlschl\u00e4gt \u2192 gesamte Transaktion zur\u00fcckgerollt.\n",
+      "ReplacementContent": "### REQ-L2-AL-004: Atomare Konsistenz mit ausl\u00f6sender Operation\n\nDas AuditLog-System SHALL die Persistierung in dieselbe Datenbank-Transaktion wie die ausl\u00f6sende Operation integrieren. Gesch\u00e4ftstransaktion fehlschl\u00e4gt \u2192 Audit-Eintrag zur\u00fcckgerollt. Audit-Persistierung fehlschl\u00e4gt \u2192 gesamte Transaktion zur\u00fcckgerollt.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AL-005: Query- und Retrieval-F\u00e4higkeit\n\nDas AuditLog-System SOLLTE eine Query-Schnittstelle bereitstellen mit Filtern: `entity_id`, `actor`, `operation`, `entity_type`, `timestamp`-Bereich, `source`. Paginierte Ergebnisse (Default: 50, max: 200), sortiert nach `timestamp` DESC.\n",
+      "ReplacementContent": "### REQ-L2-AL-005: Query- und Retrieval-F\u00e4higkeit\n\nDas AuditLog-System SOLLTE eine Query-Schnittstelle bereitstellen mit Filtern: `entity_id`, `actor`, `operation`, `entity_type`, `timestamp`-Bereich, `source`. Paginierte Ergebnisse (Default: 50, max: 200), sortiert nach `timestamp` DESC.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AL-006: Tenant-Isolation f\u00fcr Audit-Eintr\u00e4ge\n\nDas AuditLog-System SHALL jeden Audit-Eintrag mit `tenant_id` versehen. Queries S\u00dcLLEN ausschlie\u00dflich Eintr\u00e4ge des aktiven Tenants zur\u00fcckliefern. Tenant-Isolation \u00fcber Custom Django Manager.\n",
+      "ReplacementContent": "### REQ-L2-AL-006: Tenant-Isolation f\u00fcr Audit-Eintr\u00e4ge\n\nDas AuditLog-System SHALL jeden Audit-Eintrag mit `tenant_id` versehen. Queries S\u00dcLLEN ausschlie\u00dflich Eintr\u00e4ge des aktiven Tenants zur\u00fcckliefern. Tenant-Isolation \u00fcber Custom Django Manager.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AL-007: Performance-Anforderungen\n\nDas AuditLog-System SOLLTE folgende Performance-Ziele einhalten:\n- Audit-INSERT: +10ms maximal zur API-Gesamtantwortzeit\n- Query nach `entity_id`: < 50ms (p95) bei 100.000 Eintr\u00e4gen\n- Query nach Filterkombination: < 200ms (p95) bei 100.000 Eintr\u00e4gen\n\nIndizes mindestens auf: `entity_id`, `(tenant_id, timestamp)`, `(actor, operation)`. Die Performance-Ziele werden durch die monatliche Table-Partitionierung (REQ-L2-AL-008) zus\u00e4tzlich unterst\u00fctzt.\n",
+      "ReplacementContent": "### REQ-L2-AL-007: Performance-Anforderungen\n\nDas AuditLog-System SOLLTE folgende Performance-Ziele einhalten:\n- Audit-INSERT: +10ms maximal zur API-Gesamtantwortzeit\n- Query nach `entity_id`: < 50ms (p95) bei 100.000 Eintr\u00e4gen\n- Query nach Filterkombination: < 200ms (p95) bei 100.000 Eintr\u00e4gen\n\nIndizes mindestens auf: `entity_id`, `(tenant_id, timestamp)`, `(actor, operation)`. Die Performance-Ziele werden durch die monatliche Table-Partitionierung (REQ-L2-AL-008) zus\u00e4tzlich unterst\u00fctzt.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AL-008: Table-Partitionierung der Audit-Tabelle\n\nDie `AuditLogEntry`-Tabelle MUSS per PostgreSQL-RANGE-Partitionierung auf dem Feld `timestamp` in monatliche Partitionen aufgeteilt werden. Neue Partitionen M\u00dcSSEN automatisch zu Monatsbeginn erzeugt werden. Queries mit Timestamp-Filter M\u00dcSSEN Partition-Pruning nutzen, d.h. ausschlie\u00dflich die relevante(n) Partition(en) lesen.\n",
+      "ReplacementContent": "### REQ-L2-AL-008: Table-Partitionierung der Audit-Tabelle\n\nDie `AuditLogEntry`-Tabelle MUSS per PostgreSQL-RANGE-Partitionierung auf dem Feld `timestamp` in monatliche Partitionen aufgeteilt werden. Neue Partitionen M\u00dcSSEN automatisch zu Monatsbeginn erzeugt werden. Queries mit Timestamp-Filter M\u00dcSSEN Partition-Pruning nutzen, d.h. ausschlie\u00dflich die relevante(n) Partition(en) lesen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AL-009: Cold-Storage-Archivierung (Datenlebenszyklus)\n\nEin konfigurierbarer Data-Lifecycle-Job SOLL Audit-Eintr\u00e4ge, die \u00e4lter als 2 Jahre sind, periodisch (monatlich via Celery-Beat) als komprimierte JSON-Archive in ein konfigurierbares Cold-Storage-Ziel (z.B. AWS S3 Glacier) exportieren und anschlie\u00dfend aus der Prim\u00e4rdatenbank l\u00f6schen. Der L\u00f6schvorgang DARF ERST nach erfolgreich best\u00e4tigtem Export erfolgen (fail-safe).\n",
+      "ReplacementContent": "### REQ-L2-AL-009: Cold-Storage-Archivierung (Datenlebenszyklus)\n\nEin konfigurierbarer Data-Lifecycle-Job SOLL Audit-Eintr\u00e4ge, die \u00e4lter als 2 Jahre sind, periodisch (monatlich via Celery-Beat) als komprimierte JSON-Archive in ein konfigurierbares Cold-Storage-Ziel (z.B. AWS S3 Glacier) exportieren und anschlie\u00dfend aus der Prim\u00e4rdatenbank l\u00f6schen. Der L\u00f6schvorgang DARF ERST nach erfolgreich best\u00e4tigtem Export erfolgen (fail-safe).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 310,
+      "AllowMultiple": false
+    }
+  ]
+}

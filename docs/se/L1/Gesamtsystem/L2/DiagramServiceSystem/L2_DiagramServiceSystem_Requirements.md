@@ -38,8 +38,12 @@ Das DiagramServiceSystem ist für die Verwaltung von Diagrammen als eigenständi
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-DS-001: Diagramm CRUD und Versionierung
-
 Das DiagramServiceSystem SHALL vollständiges CRUD für Diagramm-Artefakte bereitstellen, wobei jede inhaltliche Änderung zwingend eine neue, unveränderliche Version (DiagramVersion) erzeugt.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -52,10 +56,6 @@ Das DiagramServiceSystem SHALL vollständiges CRUD für Diagramm-Artefakte berei
 - Incoming: IF-L1-032, IF-L1-033
 - Outgoing: IF-L1-035, IF-L1-036
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-027
 **Rationale:** Unveränderliche Versionen sind notwendig für Auditierbarkeit und Nachverfolgbarkeit von Architekturänderungen.
@@ -63,8 +63,12 @@ Das DiagramServiceSystem SHALL vollständiges CRUD für Diagramm-Artefakte berei
 ---
 
 ### REQ-L2-DS-002: Strukturierte Payload-Validierung
-
 Das DiagramServiceSystem SHALL den Payload der Diagramme gegen typspezifische Regeln (z.B. Syntax von Mermaid oder PlantUML) validieren. Unterstützt werden MÜSSEN mindestens 3 Typen: Blockdiagramm, Flussdiagramm, Kontextdiagramm.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -75,10 +79,6 @@ Das DiagramServiceSystem SHALL den Payload der Diagramme gegen typspezifische Re
 **Interfaces:**
 - Incoming: IF-L1-032
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-027
 **Rationale:** Nur validierter Payload stellt sicher, dass Diagramme fehlerfrei im Frontend gerendert werden können.
@@ -86,8 +86,12 @@ Das DiagramServiceSystem SHALL den Payload der Diagramme gegen typspezifische Re
 ---
 
 ### REQ-L2-DS-003: Renderbare Repräsentation
-
 Das DiagramServiceSystem SHALL renderbare Repräsentationen (oder den rohen, validierten String) bereitstellen, die das Frontend zur grafischen Darstellung nutzen kann.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -97,10 +101,6 @@ Das DiagramServiceSystem SHALL renderbare Repräsentationen (oder den rohen, val
 **Interfaces:**
 - Incoming: IF-L1-032
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-027
 **Rationale:** Die primäre Nutzung der Diagramme erfolgt visuell in der UI.
@@ -108,8 +108,12 @@ Das DiagramServiceSystem SHALL renderbare Repräsentationen (oder den rohen, val
 ---
 
 ### REQ-L2-DS-004: Traceability-Verknüpfung (Typ: documents)
-
 Das DiagramServiceSystem SHALL bei der Erstellung oder Aktualisierung von Diagrammen die Möglichkeit bieten, diese mit Requirements oder ArchitectureElements über den Link-Typ `documents` zu verknüpfen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -121,10 +125,6 @@ Das DiagramServiceSystem SHALL bei der Erstellung oder Aktualisierung von Diagra
 - Incoming: IF-L1-032
 - Outgoing: IF-L1-034
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-027
 **Rationale:** Traceability schließt die Lücke zwischen grafischem Modell und textueller Anforderung.
@@ -132,8 +132,12 @@ Das DiagramServiceSystem SHALL bei der Erstellung oder Aktualisierung von Diagra
 ---
 
 ### REQ-L2-DS-005: MCP-Tool Integration
-
 Das DiagramServiceSystem SHALL den Diagramm-Abruf über das MCP-Tool `artifact.get` unterstützen, um KI-Agenten direkten Zugriff auf Diagramminhalte zu ermöglichen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -143,10 +147,6 @@ Das DiagramServiceSystem SHALL den Diagramm-Abruf über das MCP-Tool `artifact.g
 **Interfaces:**
 - Incoming: IF-L1-033
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-027
 **Rationale:** KI-Agenten müssen architektonischen Kontext aus Diagrammen extrahieren können.

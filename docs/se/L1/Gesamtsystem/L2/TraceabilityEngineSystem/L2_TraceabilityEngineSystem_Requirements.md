@@ -31,8 +31,12 @@
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-TE-001: TraceLink-Verwaltung mit 6 Link-Typen
-
 Die TraceabilityEngine SHALL TraceLinks zwischen Requirements, ArchitectureElements und TestCases verwalten. Unterstützte Link-Typen: `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`. Source und Target MÜSSEN demselben Tenant angehören.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -47,10 +51,6 @@ Die TraceabilityEngine SHALL TraceLinks zwischen Requirements, ArchitectureEleme
 - Incoming: IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-003, REQ-L1-015 (mitwirkend)
 **Rationale:** TraceLink-CRUD mit 6 Link-Typen ist die Kernfunktion.
@@ -58,8 +58,12 @@ Die TraceabilityEngine SHALL TraceLinks zwischen Requirements, ArchitectureEleme
 ---
 
 ### REQ-L2-TE-002: Zyklenprävention für alle transitiven Link-Typen
-
 Die TraceabilityEngine SHALL bei Single-Link-Operationen eine Eager-Zyklenprüfung vor der Persistenz durchführen. Die Prüfung MUSS alle 6 Link-Typen (`parent-child`, `derives-from`, `satisfies`, `implements`, `refines`, `verifies`) auf transitive Zyklen untersuchen. Bei Zyklus-Erkennung SHALL die Operation abgebrochen werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -74,10 +78,6 @@ Die TraceabilityEngine SHALL bei Single-Link-Operationen eine Eager-Zyklenprüfu
 - Incoming: IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-001
 **Rationale:** REQ-L1-001 fordert hierarchische Strukturen „unter der Bedingung, dass Zyklen ausgeschlossen werden". Transitive Zyklen über andere Link-Typen als `parent-child` erzeugen dieselbe semantische Inkonsistenz.
@@ -85,8 +85,12 @@ Die TraceabilityEngine SHALL bei Single-Link-Operationen eine Eager-Zyklenprüfu
 ---
 
 ### REQ-L2-TE-003: Atomare Batch-Operationen für TraceLinks mit globaler Zyklenprüfung
-
 Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atomaren Persistenz-Transaktion unterstützen. Bei Teilfehler SHALL die gesamte Batch-Operation zurückgesetzt werden. Am Ende der Persistenz-Transaktion SHALL eine globale Zyklenprüfung den vollständigen Link-Graphen auf Zyklen über alle 6 Link-Typen prüfen. Bei erkanntem Zyklus SHALL die gesamte Transaktion zurückgesetzt werden und ein Fehlerbericht mit dem Zyklus-Pfad zurückgegeben werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -101,10 +105,6 @@ Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atoma
 - Incoming: IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-003, REQ-L1-025 (mitwirkend)
 **Rationale:** Decompose-Workflow erstellt mehrere parent-child-Links in einer Transaktion. Globale Zyklenprüfung am Transaktionsende ist effizienter als Eager-Prüfung pro Link bei Massenimporten und garantiert globale Zyklenfreiheit.
@@ -112,8 +112,12 @@ Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atoma
 ---
 
 ### REQ-L2-TE-004: Upstream/Downstream-Graph-Query
-
 Die TraceabilityEngine SHALL Upstream- und Downstream-Queries für beliebige Artefakte unterstützen. Das Ergebnis SHALL alle direkt verbundenen Knoten mit Link-Typ-Annotation enthalten. Query SHALL in < 200ms (p95) bei bis zu 10.000 Items antworten.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -130,10 +134,6 @@ Die TraceabilityEngine SHALL Upstream- und Downstream-Queries für beliebige Art
 - Incoming: IF-TE-EXT-IN-001
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-003, REQ-L1-026 (mitwirkend)
 **Rationale:** REQ-L1-003 fordert Upstream/Downstream-Queries in < 200ms.
@@ -141,8 +141,12 @@ Die TraceabilityEngine SHALL Upstream- und Downstream-Queries für beliebige Art
 ---
 
 ### REQ-L2-TE-005: Transitive Hüllen-Query (Impact-Analyse)
-
 Die TraceabilityEngine SHALL transitive Hüllen berechnen — alle indirekt erreichbaren Knoten über mehrere Ebenen. Ergebnis SHALL Link-Typ, Richtung und Pfadtiefe enthalten. ≤ 200ms (p95) bei 10.000 Items.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -155,10 +159,6 @@ Die TraceabilityEngine SHALL transitive Hüllen berechnen — alle indirekt erre
 - Incoming: IF-TE-EXT-IN-001
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-003, REQ-L1-026 (mitwirkend)
 **Rationale:** Impact-Analysen erfordern die vollständige Kette.
@@ -166,8 +166,12 @@ Die TraceabilityEngine SHALL transitive Hüllen berechnen — alle indirekt erre
 ---
 
 ### REQ-L2-TE-006: Coverage-Berechnung (Requirement → Test-Abdeckung)
-
 Die TraceabilityEngine SHALL die Test-Coverage berechnen: Prozentsatz der Requirements mit mindestens einem `verifies`-TraceLink zu einem TestCase. Ergebnis: Gesamtzahl, abgedeckte Anzahl, ungedeckte IDs, Prozent. ≤ 500ms bei 10.000 Requirements.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -180,10 +184,6 @@ Die TraceabilityEngine SHALL die Test-Coverage berechnen: Prozentsatz der Requir
 - Incoming: IF-TE-EXT-IN-002
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-012, REQ-L1-003 (mitwirkend)
 **Rationale:** REQ-L1-012 fordert Coverage-Tracking.
@@ -191,8 +191,12 @@ Die TraceabilityEngine SHALL die Test-Coverage berechnen: Prozentsatz der Requir
 ---
 
 ### REQ-L2-TE-007: Coverage-Filterung nach Artefakttyp und Link-Typ
-
 Die TraceabilityEngine SOLLTE Coverage-Queries optional nach Artefakttyp und Link-Typ filterbar gestalten.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -204,10 +208,6 @@ Die TraceabilityEngine SOLLTE Coverage-Queries optional nach Artefakttyp und Lin
 - Incoming: IF-TE-EXT-IN-002
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-004 (mitwirkend), REQ-L1-012 (mitwirkend)
 **Rationale:** Differenzierte Coverage-Reports für verschiedene Artefakttypen.
@@ -215,8 +215,12 @@ Die TraceabilityEngine SOLLTE Coverage-Queries optional nach Artefakttyp und Lin
 ---
 
 ### REQ-L2-TE-008: Trace-Graph-Sammlung für Baseline-Snapshot
-
 Die TraceabilityEngine SHALL auf Anfrage des BaselineService den vollständigen Trace-Graph eines Workspaces sammeln und serialisierbar zurückgeben. ≤ 500ms bei 10.000 Items.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -231,10 +235,6 @@ Die TraceabilityEngine SHALL auf Anfrage des BaselineService den vollständigen 
 - Incoming: IF-TE-EXT-IN-004
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-008 (mitwirkend)
 **Rationale:** BaselineService benötigt den Trace-Zustand für Snapshots.
@@ -242,8 +242,12 @@ Die TraceabilityEngine SHALL auf Anfrage des BaselineService den vollständigen 
 ---
 
 ### REQ-L2-TE-009: Referentielle Integrität bei Artefakt-Löschung
-
 Die TraceabilityEngine SHALL bei Löschung eines Artefakts automatisch alle zugehörigen TraceLinks löschen (CASCADE). Atomar innerhalb derselben Transaktion.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -256,10 +260,6 @@ Die TraceabilityEngine SHALL bei Löschung eines Artefakts automatisch alle zuge
 - Incoming: IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-003, REQ-L1-025 (mitwirkend)
 **Rationale:** Orphaned TraceLinks würden Reports und Queries verfälschen.
@@ -267,8 +267,12 @@ Die TraceabilityEngine SHALL bei Löschung eines Artefakts automatisch alle zuge
 ---
 
 ### REQ-L2-TE-010: TraceLink-Audit-Metadaten
-
 Jeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `modified_at`) besitzen. Für MCP-Operationen SHALL Agent-Client-Identität und API-Key (gehashed) erfasst werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -281,10 +285,6 @@ Jeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `
 - Incoming: IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-011 (mitwirkend), REQ-L1-003 (mitwirkend)
 **Rationale:** Vollständige Protokollierung aller Änderungen.
@@ -292,8 +292,12 @@ Jeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `
 ---
 
 ### REQ-L2-TE-011: Tenant-Isolation für alle TraceLink-Operationen
-
 Die TraceabilityEngine SHALL für alle Operationen sicherstellen, dass ausschließlich TraceLinks des aktiven Tenants sichtbar und manipulierbar sind.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -309,10 +313,6 @@ Die TraceabilityEngine SHALL für alle Operationen sicherstellen, dass ausschlie
 **Arch-Impact:** true
 **Arch-Trigger:** "strikte logische Mandantenisolation für alle Lese- und Schreibzugriffe"
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-015, REQ-L1-003 (mitwirkend)
 **Rationale:** Mandantenfähigkeit erfordert strikte Isolation aller Daten pro Tenant.
@@ -320,8 +320,12 @@ Die TraceabilityEngine SHALL für alle Operationen sicherstellen, dass ausschlie
 ---
 
 ### REQ-L2-TE-012: TraceLink-Query-Performance-SLA
-
 Die TraceabilityEngine SHALL Performance-SLAs einhalten: ≤ 200ms (p95) für Graph-Queries, ≤ 500ms (p95) für Coverage-Reports und Graph-Sammlungen — bei bis zu 10.000 Items und 50.000 TraceLinks.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -339,10 +343,6 @@ Die TraceabilityEngine SHALL Performance-SLAs einhalten: ≤ 200ms (p95) für Gr
 **Arch-Impact:** true
 **Arch-Trigger:** "Performance-SLA-Garantien bei großem Datenbestand"
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-026, REQ-L1-003 (mitwirkend)
 **Rationale:** Bündelt alle Performance-Aspekte der TraceabilityEngine.
@@ -350,8 +350,12 @@ Die TraceabilityEngine SHALL Performance-SLAs einhalten: ≤ 200ms (p95) für Gr
 ---
 
 ### REQ-L2-TE-013: Verification Cross Reference Matrix (VCRM) Report-Generator
-
 Die TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Generator SHALL eine flache Matrix mit den Spalten `requirement_id`, `component_id`, `test_case_id`, `test_result` (Passed / Failed / Not Run) ausgeben. Die Matrix SHALL nach Baseline (Snapshot-Zeitpunkt) und Workspace filterbar sein. Export als CSV ist Pflicht; Export als PDF ist optional.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -367,10 +371,6 @@ Die TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Gen
 - Incoming: IF-TE-EXT-IN-002
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-003 (primär), REQ-L1-012 (mitwirkend)
 **Rationale:** SE-Reviewer benötigen eine kompakte Übersicht der vollständigen V&V-Abdeckung. Die VCRM ist etabliertes Werkzeug in ISO-15288-Projekten.
@@ -378,8 +378,12 @@ Die TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Gen
 ---
 
 ### REQ-L2-TE-014: Cross-Projekt-Link-CRUD
-
 Die TraceabilityEngine SOLLTE TraceLinks erstellen, lesen, aktualisieren und löschen (CRUD) können, deren Source und Target unterschiedlichen Workspaces (Projekten) innerhalb desselben Tenants angehören.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Domain:** software
 **Priority:** desired
@@ -392,10 +396,6 @@ Die TraceabilityEngine SOLLTE TraceLinks erstellen, lesen, aktualisieren und lö
 - Incoming: IF-TE-EXT-IN-003
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-030
 **Rationale:** Ermöglicht projektübergreifende Verknüpfungen (z.B. Core-Bibliothek-Requirement zu Produkt-Requirement).
@@ -403,8 +403,12 @@ Die TraceabilityEngine SOLLTE TraceLinks erstellen, lesen, aktualisieren und lö
 ---
 
 ### REQ-L2-TE-015: Cross-Projekt-Graph-Query
-
 Die TraceabilityEngine SOLLTE Upstream-, Downstream- und Coverage-Queries über Projektgrenzen hinweg auflösen. Wenn Cross-Projekt-Links existieren, SHALL die Query die Artefakte des verknüpften Workspaces einbeziehen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 
 **Domain:** software
 **Priority:** desired
@@ -418,10 +422,6 @@ Die TraceabilityEngine SOLLTE Upstream-, Downstream- und Coverage-Queries über 
 - Incoming: IF-TE-EXT-IN-001, IF-TE-EXT-IN-002
 - Outgoing: IF-TE-EXT-OUT-001
 
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-030
 **Rationale:** Traceability- und Impact-Analysen müssen Systemgrenzen überschreiten können, wenn Abhängigkeiten existieren.
@@ -466,3 +466,81 @@ Die TraceabilityEngine SOLLTE Upstream-, Downstream- und Coverage-Queries über 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-Trace → REQ-L2-TE, Template-Standardisierung*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+---
+
+## Erweiterung v2 — REQ-L2-TE-016..017 (aus REQ-L1-043 und REQ-L1-047)
+
+> **Datum:** 2026-06-28 | **Quelle:** REQ-L0-030 → REQ-L1-043, REQ-L0-035 → REQ-L1-047
+
+---
+
+### REQ-L2-TE-016: Suspect-Link-Propagation Engine
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent. Die TraceabilityEngine hat aktuell keinen Event-basierten Änderungslistener.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-043 (← REQ-L0-030, SN-30).
+
+Die TraceabilityEngine MUSS beim Empfang eines `requirement.updated`-Events automatisch
+alle direkt und transitiv via `derives-from`- und `parent-child`-Links verbundenen
+Artefakte (Requirements, TestCases, Architecture Elements) mit dem Status `suspect` markieren.
+Die Propagierung MUSS über den gesamten TraceLink-Graphen erfolgen (transitiv, Ebenen-übergreifend).
+Der `suspect`-Status MUSS in der Datenbank persistiert und über die API abfragbar sein.
+Ein separater Endpunkt MUSS die Bestätigung des `suspect`-Status (→ `reviewed`) ermöglichen.
+
+**Schnittstellen:**
+- Input: `requirement.updated`-Event (intern, via Message-Bus)
+- Output: Batch-Update aller abhängigen Artefakte auf `suspect`
+- API: `PATCH /tracelinks/{id}/confirm-review` → Status `reviewed`
+- API: `GET /requirements?suspect=true` → gefilterte Liste
+
+**Akzeptanzkriterien:**
+- AC1: `requirement.updated`-Event löst Propagierung in < 2 s aus (für Graphen bis 1000 Knoten)
+- AC2: Transitiver Graph wird vollständig traversiert (Tiefensuche oder BFS)
+- AC3: Zirkuläre Abhängigkeiten werden erkannt und nicht infinit traversiert
+- AC4: `suspect`-Bestätigung schreibt Audit-Log-Eintrag (Nutzer, Zeitstempel, REQ-ID)
+- AC5: API-Filter `?suspect=true` gibt nur suspect-Artefakte zurück
+
+**Verifikationsmethode:** Integrationstest — Anforderung ändern, Graph-Traversierung prüfen
+**Verifikiert durch:** L2-TE-Test-016
+**Abgeleitet von:** REQ-L1-043
+**Übergeordnete REQ-L0:** REQ-L0-030
+
+---
+
+### REQ-L2-TE-017: Cross-Level-TraceLink-Typ mit Begründungspflicht
+
+**Implementation State:** Not Implemented
+**Review Findings:** TraceLink-Datenmodell kennt aktuell keinen `link_type`-Wert `cross-level`. Erweiterung des Enums erforderlich.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-047 (← REQ-L0-035, SN-35).
+
+Die TraceabilityEngine MUSS einen neuen TraceLink-Typ `cross-level` unterstützen,
+der Artefakte direkt über mehr als eine Kaskaden-Ebene verbindet (z. B. L0 → L2 ohne L1).
+Ein `cross-level`-Link MUSS bei der Erstellung eine Pflichtbegründung (Freitext,
+min. 20 Zeichen) enthalten — andernfalls wird die Anfrage abgelehnt (HTTP 422).
+`cross-level`-Links MÜSSEN in API-Responses mit einem Marker-Feld `is_cross_level: true`
+ausgewiesen sein, damit UI und AI-Agenten sie distinkt darstellen können.
+Ein Report-Endpunkt MUSS alle `cross-level`-Links eines Workspaces ohne Begründung auflisten.
+
+**Schnittstellen:**
+- `POST /tracelinks` — Körper: `{ "link_type": "cross-level", "justification": "..." }`
+- Validierung: `justification` Pflicht wenn `link_type == "cross-level"`, sonst HTTP 422
+- `GET /tracelinks?type=cross-level` — gefilterte Liste
+- `GET /reports/cross-level-links?workspace_id=...` — Report fehlender Begründungen
+
+**Akzeptanzkriterien:**
+- AC1: `cross-level`-Link ohne Begründung → HTTP 422 mit klarem Fehlertext
+- AC2: `cross-level`-Link mit Begründung → HTTP 201, `is_cross_level: true` in Response
+- AC3: Report-Endpunkt listet alle `cross-level`-Links ohne oder mit leerer Begründung
+- AC4: Standard-Links sind unverändert (kein Breaking Change)
+
+**Verifikationsmethode:** API-Test (positiv + negativ) + Report-Test
+**Verifikiert durch:** L2-TE-Test-017
+**Abgeleitet von:** REQ-L1-047
+**Übergeordnete REQ-L0:** REQ-L0-035
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-TE-016..017 aus REQ-L1-043, REQ-L1-047)*

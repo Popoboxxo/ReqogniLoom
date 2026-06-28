@@ -1,0 +1,63 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\IcdManagementSystem\\Components\\COMP-ICD-001_IcdManager\\L3_COMP-ICD-001_IcdManager_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L3-ICD-001-001: ICD CRUD Koordination und Versionierung\n\nDie Komponente IcdManager SHALL alle eingehenden CRUD-Anfragen (IF-L1-037) verarbeiten und f\u00fcr jede \u00c4nderung an einem ICD eine neue, unver\u00e4nderliche Version (`IcdVersion`) generieren sowie an den PersistenceLayer (IF-L1-040) \u00fcbergeben.",
+      "ReplacementContent": "### REQ-L3-ICD-001-001: ICD CRUD Koordination und Versionierung\n\nDie Komponente IcdManager SHALL alle eingehenden CRUD-Anfragen (IF-L1-037) verarbeiten und f\u00fcr jede \u00c4nderung an einem ICD eine neue, unver\u00e4nderliche Version (`IcdVersion`) generieren sowie an den PersistenceLayer (IF-L1-040) \u00fcbergeben.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L3-ICD-001-002: Delegation der Kompatibilit\u00e4tspr\u00fcfung\n\nDie Komponente IcdManager SHALL bei jedem ICD-Update den ContractValidator (IF-ICD-INT-001) aufrufen, um die neue Version gegen die alte Version auf Breaking Changes zu pr\u00fcfen.",
+      "ReplacementContent": "### REQ-L3-ICD-001-002: Delegation der Kompatibilit\u00e4tspr\u00fcfung\n\nDie Komponente IcdManager SHALL bei jedem ICD-Update den ContractValidator (IF-ICD-INT-001) aufrufen, um die neue Version gegen die alte Version auf Breaking Changes zu pr\u00fcfen.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L3-ICD-001-003: Delegation der TraceLink-Erstellung\n\nDie Komponente IcdManager SHALL bei erfolgreicher Erstellung eines ICDs den TraceabilityConnector (IF-ICD-INT-002) aufrufen, um das ICD mit den jeweiligen Architekturelementen zu verkn\u00fcpfen.",
+      "ReplacementContent": "### REQ-L3-ICD-001-003: Delegation der TraceLink-Erstellung\n\nDie Komponente IcdManager SHALL bei erfolgreicher Erstellung eines ICDs den TraceabilityConnector (IF-ICD-INT-002) aufrufen, um das ICD mit den jeweiligen Architekturelementen zu verkn\u00fcpfen.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L3-ICD-001-004: Baseline Snapshot Integration\n\nDie Komponente IcdManager SHALL den Endpunkt `get_icd_versions` (IF-L1-038) bereitstellen und anhand der `workspace_id` die zu diesem Zeitpunkt g\u00fcltigen, unver\u00e4nderlichen ICD-Versionen zur\u00fcckliefern.",
+      "ReplacementContent": "### REQ-L3-ICD-001-004: Baseline Snapshot Integration\n\nDie Komponente IcdManager SHALL den Endpunkt `get_icd_versions` (IF-L1-038) bereitstellen und anhand der `workspace_id` die zu diesem Zeitpunkt g\u00fcltigen, unver\u00e4nderlichen ICD-Versionen zur\u00fcckliefern.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    }
+  ]
+}

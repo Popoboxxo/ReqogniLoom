@@ -1,0 +1,217 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\TraceabilityEngineSystem\\L2_TraceabilityEngineSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-TE-001: TraceLink-Verwaltung mit 6 Link-Typen\n\nDie TraceabilityEngine SHALL TraceLinks zwischen Requirements, ArchitectureElements und TestCases verwalten. Unterst\u00fctzte Link-Typen: `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`. Source und Target M\u00dcSSEN demselben Tenant angeh\u00f6ren.\n",
+      "ReplacementContent": "### REQ-L2-TE-001: TraceLink-Verwaltung mit 6 Link-Typen\n\nDie TraceabilityEngine SHALL TraceLinks zwischen Requirements, ArchitectureElements und TestCases verwalten. Unterst\u00fctzte Link-Typen: `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`. Source und Target M\u00dcSSEN demselben Tenant angeh\u00f6ren.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-002: Zyklenpr\u00e4vention f\u00fcr alle transitiven Link-Typen\n\nDie TraceabilityEngine SHALL bei Single-Link-Operationen eine Eager-Zyklenpr\u00fcfung vor der Persistenz durchf\u00fchren. Die Pr\u00fcfung MUSS alle 6 Link-Typen (`parent-child`, `derives-from`, `satisfies`, `implements`, `refines`, `verifies`) auf transitive Zyklen untersuchen. Bei Zyklus-Erkennung SHALL die Operation abgebrochen werden.\n",
+      "ReplacementContent": "### REQ-L2-TE-002: Zyklenpr\u00e4vention f\u00fcr alle transitiven Link-Typen\n\nDie TraceabilityEngine SHALL bei Single-Link-Operationen eine Eager-Zyklenpr\u00fcfung vor der Persistenz durchf\u00fchren. Die Pr\u00fcfung MUSS alle 6 Link-Typen (`parent-child`, `derives-from`, `satisfies`, `implements`, `refines`, `verifies`) auf transitive Zyklen untersuchen. Bei Zyklus-Erkennung SHALL die Operation abgebrochen werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-003: Atomare Batch-Operationen f\u00fcr TraceLinks mit globaler Zyklenpr\u00fcfung\n\nDie TraceabilityEngine SHALL Batch-Erstellung und Batch-L\u00f6schung in einer atomaren Persistenz-Transaktion unterst\u00fctzen. Bei Teilfehler SHALL die gesamte Batch-Operation zur\u00fcckgesetzt werden. Am Ende der Persistenz-Transaktion SHALL eine globale Zyklenpr\u00fcfung den vollst\u00e4ndigen Link-Graphen auf Zyklen \u00fcber alle 6 Link-Typen pr\u00fcfen. Bei erkanntem Zyklus SHALL die gesamte Transaktion zur\u00fcckgesetzt werden und ein Fehlerbericht mit dem Zyklus-Pfad zur\u00fcckgegeben werden.\n",
+      "ReplacementContent": "### REQ-L2-TE-003: Atomare Batch-Operationen f\u00fcr TraceLinks mit globaler Zyklenpr\u00fcfung\n\nDie TraceabilityEngine SHALL Batch-Erstellung und Batch-L\u00f6schung in einer atomaren Persistenz-Transaktion unterst\u00fctzen. Bei Teilfehler SHALL die gesamte Batch-Operation zur\u00fcckgesetzt werden. Am Ende der Persistenz-Transaktion SHALL eine globale Zyklenpr\u00fcfung den vollst\u00e4ndigen Link-Graphen auf Zyklen \u00fcber alle 6 Link-Typen pr\u00fcfen. Bei erkanntem Zyklus SHALL die gesamte Transaktion zur\u00fcckgesetzt werden und ein Fehlerbericht mit dem Zyklus-Pfad zur\u00fcckgegeben werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-004: Upstream/Downstream-Graph-Query\n\nDie TraceabilityEngine SHALL Upstream- und Downstream-Queries f\u00fcr beliebige Artefakte unterst\u00fctzen. Das Ergebnis SHALL alle direkt verbundenen Knoten mit Link-Typ-Annotation enthalten. Query SHALL in < 200ms (p95) bei bis zu 10.000 Items antworten.\n",
+      "ReplacementContent": "### REQ-L2-TE-004: Upstream/Downstream-Graph-Query\n\nDie TraceabilityEngine SHALL Upstream- und Downstream-Queries f\u00fcr beliebige Artefakte unterst\u00fctzen. Das Ergebnis SHALL alle direkt verbundenen Knoten mit Link-Typ-Annotation enthalten. Query SHALL in < 200ms (p95) bei bis zu 10.000 Items antworten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-005: Transitive H\u00fcllen-Query (Impact-Analyse)\n\nDie TraceabilityEngine SHALL transitive H\u00fcllen berechnen \u2014 alle indirekt erreichbaren Knoten \u00fcber mehrere Ebenen. Ergebnis SHALL Link-Typ, Richtung und Pfadtiefe enthalten. \u2264 200ms (p95) bei 10.000 Items.\n",
+      "ReplacementContent": "### REQ-L2-TE-005: Transitive H\u00fcllen-Query (Impact-Analyse)\n\nDie TraceabilityEngine SHALL transitive H\u00fcllen berechnen \u2014 alle indirekt erreichbaren Knoten \u00fcber mehrere Ebenen. Ergebnis SHALL Link-Typ, Richtung und Pfadtiefe enthalten. \u2264 200ms (p95) bei 10.000 Items.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-006: Coverage-Berechnung (Requirement \u2192 Test-Abdeckung)\n\nDie TraceabilityEngine SHALL die Test-Coverage berechnen: Prozentsatz der Requirements mit mindestens einem `verifies`-TraceLink zu einem TestCase. Ergebnis: Gesamtzahl, abgedeckte Anzahl, ungedeckte IDs, Prozent. \u2264 500ms bei 10.000 Requirements.\n",
+      "ReplacementContent": "### REQ-L2-TE-006: Coverage-Berechnung (Requirement \u2192 Test-Abdeckung)\n\nDie TraceabilityEngine SHALL die Test-Coverage berechnen: Prozentsatz der Requirements mit mindestens einem `verifies`-TraceLink zu einem TestCase. Ergebnis: Gesamtzahl, abgedeckte Anzahl, ungedeckte IDs, Prozent. \u2264 500ms bei 10.000 Requirements.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-007: Coverage-Filterung nach Artefakttyp und Link-Typ\n\nDie TraceabilityEngine SOLLTE Coverage-Queries optional nach Artefakttyp und Link-Typ filterbar gestalten.\n",
+      "ReplacementContent": "### REQ-L2-TE-007: Coverage-Filterung nach Artefakttyp und Link-Typ\n\nDie TraceabilityEngine SOLLTE Coverage-Queries optional nach Artefakttyp und Link-Typ filterbar gestalten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-008: Trace-Graph-Sammlung f\u00fcr Baseline-Snapshot\n\nDie TraceabilityEngine SHALL auf Anfrage des BaselineService den vollst\u00e4ndigen Trace-Graph eines Workspaces sammeln und serialisierbar zur\u00fcckgeben. \u2264 500ms bei 10.000 Items.\n",
+      "ReplacementContent": "### REQ-L2-TE-008: Trace-Graph-Sammlung f\u00fcr Baseline-Snapshot\n\nDie TraceabilityEngine SHALL auf Anfrage des BaselineService den vollst\u00e4ndigen Trace-Graph eines Workspaces sammeln und serialisierbar zur\u00fcckgeben. \u2264 500ms bei 10.000 Items.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-009: Referentielle Integrit\u00e4t bei Artefakt-L\u00f6schung\n\nDie TraceabilityEngine SHALL bei L\u00f6schung eines Artefakts automatisch alle zugeh\u00f6rigen TraceLinks l\u00f6schen (CASCADE). Atomar innerhalb derselben Transaktion.\n",
+      "ReplacementContent": "### REQ-L2-TE-009: Referentielle Integrit\u00e4t bei Artefakt-L\u00f6schung\n\nDie TraceabilityEngine SHALL bei L\u00f6schung eines Artefakts automatisch alle zugeh\u00f6rigen TraceLinks l\u00f6schen (CASCADE). Atomar innerhalb derselben Transaktion.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-010: TraceLink-Audit-Metadaten\n\nJeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `modified_at`) besitzen. F\u00fcr MCP-Operationen SHALL Agent-Client-Identit\u00e4t und API-Key (gehashed) erfasst werden.\n",
+      "ReplacementContent": "### REQ-L2-TE-010: TraceLink-Audit-Metadaten\n\nJeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `modified_at`) besitzen. F\u00fcr MCP-Operationen SHALL Agent-Client-Identit\u00e4t und API-Key (gehashed) erfasst werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-011: Tenant-Isolation f\u00fcr alle TraceLink-Operationen\n\nDie TraceabilityEngine SHALL f\u00fcr alle Operationen sicherstellen, dass ausschlie\u00dflich TraceLinks des aktiven Tenants sichtbar und manipulierbar sind.\n",
+      "ReplacementContent": "### REQ-L2-TE-011: Tenant-Isolation f\u00fcr alle TraceLink-Operationen\n\nDie TraceabilityEngine SHALL f\u00fcr alle Operationen sicherstellen, dass ausschlie\u00dflich TraceLinks des aktiven Tenants sichtbar und manipulierbar sind.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-012: TraceLink-Query-Performance-SLA\n\nDie TraceabilityEngine SHALL Performance-SLAs einhalten: \u2264 200ms (p95) f\u00fcr Graph-Queries, \u2264 500ms (p95) f\u00fcr Coverage-Reports und Graph-Sammlungen \u2014 bei bis zu 10.000 Items und 50.000 TraceLinks.\n",
+      "ReplacementContent": "### REQ-L2-TE-012: TraceLink-Query-Performance-SLA\n\nDie TraceabilityEngine SHALL Performance-SLAs einhalten: \u2264 200ms (p95) f\u00fcr Graph-Queries, \u2264 500ms (p95) f\u00fcr Coverage-Reports und Graph-Sammlungen \u2014 bei bis zu 10.000 Items und 50.000 TraceLinks.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-013: Verification Cross Reference Matrix (VCRM) Report-Generator\n\nDie TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Generator SHALL eine flache Matrix mit den Spalten `requirement_id`, `component_id`, `test_case_id`, `test_result` (Passed / Failed / Not Run) ausgeben. Die Matrix SHALL nach Baseline (Snapshot-Zeitpunkt) und Workspace filterbar sein. Export als CSV ist Pflicht; Export als PDF ist optional.\n",
+      "ReplacementContent": "### REQ-L2-TE-013: Verification Cross Reference Matrix (VCRM) Report-Generator\n\nDie TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Generator SHALL eine flache Matrix mit den Spalten `requirement_id`, `component_id`, `test_case_id`, `test_result` (Passed / Failed / Not Run) ausgeben. Die Matrix SHALL nach Baseline (Snapshot-Zeitpunkt) und Workspace filterbar sein. Export als CSV ist Pflicht; Export als PDF ist optional.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-014: Cross-Projekt-Link-CRUD\n\nDie TraceabilityEngine SOLLTE TraceLinks erstellen, lesen, aktualisieren und l\u00f6schen (CRUD) k\u00f6nnen, deren Source und Target unterschiedlichen Workspaces (Projekten) innerhalb desselben Tenants angeh\u00f6ren.\n",
+      "ReplacementContent": "### REQ-L2-TE-014: Cross-Projekt-Link-CRUD\n\nDie TraceabilityEngine SOLLTE TraceLinks erstellen, lesen, aktualisieren und l\u00f6schen (CRUD) k\u00f6nnen, deren Source und Target unterschiedlichen Workspaces (Projekten) innerhalb desselben Tenants angeh\u00f6ren.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-TE-015: Cross-Projekt-Graph-Query\n\nDie TraceabilityEngine SOLLTE Upstream-, Downstream- und Coverage-Queries \u00fcber Projektgrenzen hinweg aufl\u00f6sen. Wenn Cross-Projekt-Links existieren, SHALL die Query die Artefakte des verkn\u00fcpften Workspaces einbeziehen.\n",
+      "ReplacementContent": "### REQ-L2-TE-015: Cross-Projekt-Graph-Query\n\nDie TraceabilityEngine SOLLTE Upstream-, Downstream- und Coverage-Queries \u00fcber Projektgrenzen hinweg aufl\u00f6sen. Wenn Cross-Projekt-Links existieren, SHALL die Query die Artefakte des verkn\u00fcpften Workspaces einbeziehen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 469,
+      "AllowMultiple": false
+    }
+  ]
+}

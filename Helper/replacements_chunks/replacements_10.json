@@ -1,0 +1,91 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\ResilienceOrchestratorSystem\\L2_ResilienceOrchestratorSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-RO-001: Asynchrone Entkopplung\n\nDas ResilienceOrchestratorSystem SHALL externe Aufrufe asynchron \u00fcber eine Queue (z.B. Celery) ausf\u00fchren, sodass synchrone Request-Threads im ApplicationService nicht blockiert werden.\n",
+      "ReplacementContent": "### REQ-L2-RO-001: Asynchrone Entkopplung\n\nDas ResilienceOrchestratorSystem SHALL externe Aufrufe asynchron \u00fcber eine Queue (z.B. Celery) ausf\u00fchren, sodass synchrone Request-Threads im ApplicationService nicht blockiert werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RO-002: Konfigurierbare Timeouts\n\nDas ResilienceOrchestratorSystem SHALL f\u00fcr jeden externen Aufruf eine konfigurierbare Timeout-Policy anwenden. Wird der Timeout \u00fcberschritten, MUSS der Aufruf abgebrochen werden.\n",
+      "ReplacementContent": "### REQ-L2-RO-002: Konfigurierbare Timeouts\n\nDas ResilienceOrchestratorSystem SHALL f\u00fcr jeden externen Aufruf eine konfigurierbare Timeout-Policy anwenden. Wird der Timeout \u00fcberschritten, MUSS der Aufruf abgebrochen werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RO-003: Retry-Logik mit Exponential Backoff\n\nDas ResilienceOrchestratorSystem SHALL bei transienten Fehlern mindestens einen Retry ausf\u00fchren. Die Retry-Strategie MUSS ein Exponential Backoff verwenden.\n",
+      "ReplacementContent": "### REQ-L2-RO-003: Retry-Logik mit Exponential Backoff\n\nDas ResilienceOrchestratorSystem SHALL bei transienten Fehlern mindestens einen Retry ausf\u00fchren. Die Retry-Strategie MUSS ein Exponential Backoff verwenden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RO-004: Circuit-Breaker-Logik\n\nDas ResilienceOrchestratorSystem SHALL einen Circuit-Breaker implementieren, der bei einer definierbaren Fehlerquote in den Zustand \"Open\" wechselt und nachfolgende Aufrufe direkt blockiert, bis eine \"Half-Open\" Recovery erfolgreich ist.\n",
+      "ReplacementContent": "### REQ-L2-RO-004: Circuit-Breaker-Logik\n\nDas ResilienceOrchestratorSystem SHALL einen Circuit-Breaker implementieren, der bei einer definierbaren Fehlerquote in den Zustand \"Open\" wechselt und nachfolgende Aufrufe direkt blockiert, bis eine \"Half-Open\" Recovery erfolgreich ist.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RO-005: Graceful Degradation und Kernverf\u00fcgbarkeit\n\nDas ResilienceOrchestratorSystem SHALL sicherstellen, dass Fehler in externen Subsystemen isoliert bleiben. Die Kernverf\u00fcgbarkeit des restlichen Systems (CRUD, Baselines) MUSS bei Ausfall > 99,5 % bleiben.\n",
+      "ReplacementContent": "### REQ-L2-RO-005: Graceful Degradation und Kernverf\u00fcgbarkeit\n\nDas ResilienceOrchestratorSystem SHALL sicherstellen, dass Fehler in externen Subsystemen isoliert bleiben. Die Kernverf\u00fcgbarkeit des restlichen Systems (CRUD, Baselines) MUSS bei Ausfall > 99,5 % bleiben.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RO-006: Audit-Logging f\u00fcr Resilienz-Events\n\nDas ResilienceOrchestratorSystem SHALL Degradation-Events, Retry-Logs und Statuswechsel des Circuit-Breakers im AuditLog protokollieren.\n",
+      "ReplacementContent": "### REQ-L2-RO-006: Audit-Logging f\u00fcr Resilienz-Events\n\nDas ResilienceOrchestratorSystem SHALL Degradation-Events, Retry-Logs und Statuswechsel des Circuit-Breakers im AuditLog protokollieren.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    }
+  ]
+}

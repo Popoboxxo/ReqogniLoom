@@ -40,8 +40,12 @@ Das SeMetricsSystem ist ein reines Read-Modell zur Berechnung und Exposition von
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-SM-001: REST-Endpunkt GET /metrics/workspace/{id}
-
 Das SeMetricsSystem SHALL den Endpunkt `GET /metrics/workspace/{id}` bereitstellen, der einen vollständigen strukturierten JSON-Metrikbericht für den angegebenen Workspace zurückgibt. Die Antwort SHALL mindestens die vier Metrik-Kategorien Volatility, TraceabilityCoverage, WorkflowLuecken und OffeneRisiken enthalten. Anfragen ohne gültigen Bearer Token oder API-Key MÜSSEN mit HTTP 401 abgelehnt werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -55,10 +59,6 @@ Das SeMetricsSystem SHALL den Endpunkt `GET /metrics/workspace/{id}` bereitstell
 - Incoming: IF-L1-042, IF-L1-043
 - Outgoing: IF-L1-044, IF-L1-045, IF-L1-046, IF-L1-047
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031
 **Rationale:** Der REST-Endpunkt ist die primäre Schnittstelle für Dashboard und API-Clients.
@@ -66,8 +66,12 @@ Das SeMetricsSystem SHALL den Endpunkt `GET /metrics/workspace/{id}` bereitstell
 ---
 
 ### REQ-L2-SM-002: Zeitraum- und Scope-Filter
-
 Das SeMetricsSystem SHALL optionale Query-Parameter `timeframe` (ISO-8601-Zeitraum, z.B. `P30D`) und `scope_filter` (Artefakttyp-Liste) am Metrik-Endpunkt auswerten. Fehlt `timeframe`, SHALL ein konfigurierter Standardwert (Default: 30 Tage) verwendet werden. Ungültige Parameter-Werte MÜSSEN mit HTTP 400 und beschreibender Fehlermeldung abgelehnt werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -81,10 +85,6 @@ Das SeMetricsSystem SHALL optionale Query-Parameter `timeframe` (ISO-8601-Zeitra
 **Interfaces:**
 - Incoming: IF-L1-042
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031
 **Rationale:** REQ-L1-031 fordert konfigurierbare Zeiträume für die Volatility-Berechnung.
@@ -92,8 +92,12 @@ Das SeMetricsSystem SHALL optionale Query-Parameter `timeframe` (ISO-8601-Zeitra
 ---
 
 ### REQ-L2-SM-003: Requirements-Volatility-Berechnung
-
 Das SeMetricsSystem SHALL Requirements Volatility berechnen als: Anzahl Änderungsereignisse je Requirement im konfigurierbaren Zeitraum, aggregiert als Gesamt-Änderungsrate (Total-Changes / Total-Requirements) und als geordnete Liste der Top-10-volatilsten Requirements mit Änderungszahl. Quelldaten: AuditLog (IF-L1-044) nach Entitäts-Typ `Requirement` und Operation `update`/`workflow_transition`.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -107,10 +111,6 @@ Das SeMetricsSystem SHALL Requirements Volatility berechnen als: Anzahl Änderun
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-044
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-011 (mitwirkend)
 **Rationale:** Volatility ist die erste Kernmetrik aus REQ-L1-031 für Prozesssteuerung und Änderungsmanagement.
@@ -118,8 +118,12 @@ Das SeMetricsSystem SHALL Requirements Volatility berechnen als: Anzahl Änderun
 ---
 
 ### REQ-L2-SM-004: Traceability-Coverage-Berechnung
-
 Das SeMetricsSystem SHALL Traceability Coverage berechnen als: Anteil der Requirements mit mindestens einem ausgehenden TraceLink (beliebiger Typ), ausgedrückt in Prozent. Quelldaten: TraceabilityEngine `coverage(workspace_id)` (IF-L1-045). Die Antwort SHALL Gesamtanzahl, abgedeckte Anzahl, Prozentwert und Liste der unabgedeckten Requirement-IDs enthalten.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -133,10 +137,6 @@ Das SeMetricsSystem SHALL Traceability Coverage berechnen als: Anteil der Requir
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-045
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-003 (mitwirkend)
 **Rationale:** Traceability Coverage ist die zweite Kernmetrik aus REQ-L1-031; misst Vollständigkeit der Anforderungsverknüpfung.
@@ -144,8 +144,12 @@ Das SeMetricsSystem SHALL Traceability Coverage berechnen als: Anteil der Requir
 ---
 
 ### REQ-L2-SM-005: Workflow-Lücken-Erkennung
-
 Das SeMetricsSystem SHALL Workflow-Lücken identifizieren als: Items ohne vollständige Workflow-Historie, d.h. Items, die einen oder mehrere obligatorische Zustände der aktiven WorkflowDefinition nie durchlaufen haben. Quelldaten: WorkflowEngine `find_incomplete_states(workspace_id)` (IF-L1-046). Die Antwort SHALL Gesamtanzahl betroffener Items und eine Liste mit Item-ID, Item-Typ und fehlendem Zustand enthalten.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -159,10 +163,6 @@ Das SeMetricsSystem SHALL Workflow-Lücken identifizieren als: Items ohne vollst
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-046
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-009 (mitwirkend)
 **Rationale:** Workflow-Lücken sind die dritte Kernmetrik aus REQ-L1-031; zeigt prozessuale Compliance-Lücken.
@@ -170,8 +170,12 @@ Das SeMetricsSystem SHALL Workflow-Lücken identifizieren als: Items ohne vollst
 ---
 
 ### REQ-L2-SM-006: Offene Risiken nach Schweregrad
-
 Das SeMetricsSystem SHALL offene Risiken nach Schweregrad aggregieren. Quelldaten: ApplicationService `query_risks_by_severity(workspace_id)` (IF-L1-047), gefiltert auf Risiko-Artefakte mit WorkflowState != geschlossen/mitigation-abgeschlossen. Die Antwort SHALL Gesamtanzahl sowie Aufschlüsselung nach Schweregrad-Kategorie (critical, high, medium, low) enthalten.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -184,10 +188,6 @@ Das SeMetricsSystem SHALL offene Risiken nach Schweregrad aggregieren. Quelldate
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-047
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-029 (mitwirkend)
 **Rationale:** Offene Risiken nach Schweregrad sind die vierte Kernmetrik aus REQ-L1-031 für Risikomanagement.
@@ -195,8 +195,12 @@ Das SeMetricsSystem SHALL offene Risiken nach Schweregrad aggregieren. Quelldate
 ---
 
 ### REQ-L2-SM-007: Konfigurierbare Schwellwert-Warnungen
-
 Das SeMetricsSystem SHALL pro Workspace konfigurierbare Schwellwert-Warnungen für alle vier Metrik-Kategorien unterstützen. Überschreitet ein Metrikwert den konfigurierten Schwellwert, SHALL die Antwort ein `warnings`-Objekt mit Metrik-Name, Ist-Wert, Schwellwert und Beschreibung enthalten. Schwellwerte für Metriken SHALL über eine dedizierte konfigurierbare Schnittstelle verwaltbar sein (CRUD).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -213,10 +217,6 @@ Das SeMetricsSystem SHALL pro Workspace konfigurierbare Schwellwert-Warnungen f�
 
 Die Schwellwert-Konfiguration wird via IF-L1-048 (PersistenceLayer) persistiert; dies ist die einzige Schreiboperation des SeMetricsSystems außer der optionalen Metric-Cache-Persistenz.
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031
 **Rationale:** REQ-L1-031 fordert konfigurierbare Schwellwert-Warnungen explizit.
@@ -224,8 +224,12 @@ Die Schwellwert-Konfiguration wird via IF-L1-048 (PersistenceLayer) persistiert;
 ---
 
 ### REQ-L2-SM-008: Read-Modell ohne Seiteneffekte
-
 Das SeMetricsSystem SHALL ausschließlich lesende Operationen auf allen Quellsystemen durchführen. Es darf keine schreibenden Operationen auf Requirements, ArchitectureElements, TestCases, TraceLinks, WorkflowStates oder AuditLog-Einträgen ausführen. Der einzig erlaubte Schreibzugriff ist die optionale Persistenz von Metric-Cache-Einträgen (IF-L1-048) sowie die Persistenz von Schwellwert-Konfigurationen (IF-L1-048).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -237,10 +241,6 @@ Das SeMetricsSystem SHALL ausschließlich lesende Operationen auf allen Quellsys
 **Interfaces:**
 - Outgoing: IF-L1-044, IF-L1-045, IF-L1-046, IF-L1-047, IF-L1-048
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031
 **Rationale:** Read-Modell-Charakter verhindert zirkuläre Abhängigkeiten und unbeabsichtigte Mutations-Seiteneffekte auf transaktionale Pfade.
@@ -248,8 +248,12 @@ Das SeMetricsSystem SHALL ausschließlich lesende Operationen auf allen Quellsys
 ---
 
 ### REQ-L2-SM-009: Optionale Metric-Cache-Persistenz mit proaktiver Vorberechnung
-
 Das SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer Metric-Cache-Entity (IF-L1-048) materialisieren, um wiederholte Berechnungen für denselben Workspace und Zeitraum zu vermeiden. Cache-Invalidierung SHALL bei Empfang eines Änderungsereignisses aus dem AuditLog für den betroffenen Workspace erfolgen oder nach einer konfigurierbaren TTL. Zusätzlich SHALL ein Celery-Beat-Job Metriken für aktive Workspaces in konfigurierbaren Intervallen (Default: alle 15 Minuten) proaktiv vorberechnen und Ergebnisse in den Cache schreiben, bevor ein Cache-Miss durch einen eingehenden Request ausgelöst wird.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -264,10 +268,6 @@ Das SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer M
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-048
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-026 (mitwirkend)
 **Rationale:** Materialisierter Cache reduziert Last auf Quellsysteme bei häufigen Dashboard-Refreshes. Proaktive Vorberechnung per Celery-Beat verhindert, dass WSGI-Worker bei großen Workspaces durch schwere Aggregationen blockiert werden (Handlungsempfehlung 1.3).
@@ -275,8 +275,12 @@ Das SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer M
 ---
 
 ### REQ-L2-SM-010: Tenant-Isolation für alle Metrik-Abfragen
-
 Das SeMetricsSystem SHALL sicherstellen, dass alle Quelldaten-Abfragen (IF-L1-044 bis IF-L1-047) ausschließlich Daten des aktiven Tenants liefern. Workspace-ID-Validierung gegen den Tenant-Kontext des Aufrufers SHALL vor jeder Berechnung erfolgen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -289,10 +293,6 @@ Das SeMetricsSystem SHALL sicherstellen, dass alle Quelldaten-Abfragen (IF-L1-04
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-044, IF-L1-045, IF-L1-046, IF-L1-047
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-015 (mitwirkend)
 **Rationale:** Row-Level-Isolation muss konsistent durch alle Schichten gelten, auch für Read-Modelle.
@@ -300,8 +300,12 @@ Das SeMetricsSystem SHALL sicherstellen, dass alle Quelldaten-Abfragen (IF-L1-04
 ---
 
 ### REQ-L2-SM-011: Metrik-Antwort-Performance-SLA
-
 Das SeMetricsSystem SHALL die folgenden Performance-SLAs einhalten: ≤ 500ms (p95) für eine vollständige Metrik-Berechnung ohne Cache bei bis zu 10.000 Requirements und 50.000 TraceLinks im Workspace. Überschreitungen von 2.000ms (p99) gelten als Verletzung.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -313,10 +317,6 @@ Das SeMetricsSystem SHALL die folgenden Performance-SLAs einhalten: ≤ 500ms (p
 **Interfaces:**
 - Incoming: IF-L1-042, IF-L1-043
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-026 (mitwirkend)
 **Rationale:** REQ-L1-026 fordert ≤ 200ms für Standard-Queries; Metrik-Aggregation aus vier Subsystemen erhält relaxierten SLA von 500ms.
@@ -324,13 +324,17 @@ Das SeMetricsSystem SHALL die folgenden Performance-SLAs einhalten: ≤ 500ms (p
 ---
 
 ### REQ-L2-SM-012: Strukturiertes JSON-Antwortformat
-
 Das SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat für den Metrik-Endpunkt bereitstellen. Das Format SHALL mindestens die Felder `workspace_id`, `computed_at`, `timeframe`, `volatility`, `traceability_coverage`, `workflow_gaps`, `open_risks` und `warnings` enthalten. Feldnamen und -typen dürfen in v1 nicht ohne API-Versionierung geändert werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] Antwort enthält alle acht Pflicht-Felder
+- [ ] Antwort enthält acht Pflicht-Felder
 - [ ] `computed_at` ist ISO-8601-Zeitstempel
 - [ ] `timeframe` spiegelt den angewendeten Berechnungszeitraum wider (auch wenn Default verwendet)
 - [ ] Fehlende optionale Werte werden als `null` oder leere Objekte serialisiert, nicht weggelassen
@@ -339,10 +343,6 @@ Das SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat für de
 **Interfaces:**
 - Incoming: IF-L1-042, IF-L1-043
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-006 (mitwirkend)
 **Rationale:** Stabiles Format verhindert Breaking Changes im Dashboard und bei API-Clients.
@@ -350,8 +350,12 @@ Das SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat für de
 ---
 
 ### REQ-L2-SM-013: Thundering-Herd-Prevention bei Cache-Miss
-
 Das SeMetricsSystem MUSS sicherstellen, dass bei einem Cache-Miss für einen Workspace/Zeitraum-Schlüssel genau EINE Celery-Task zur Neuberechnung ausgelöst wird. Alle parallel eingehenden Anfragen für denselben Workspace/Zeitraum-Schlüssel MÜSSEN auf das Ergebnis dieser Task warten, anstatt eigenständig weitere Berechnungen anzustoßen. Die Implementierung MUSS einen distributed Lock-Mechanismus (z.B. Redis-Lock) verwenden, der für die Dauer der Berechnung exklusiv gehalten wird.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -366,10 +370,6 @@ Das SeMetricsSystem MUSS sicherstellen, dass bei einem Cache-Miss für einen Wor
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-048
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-026 (primär), REQ-L1-031 (mitwirkend)
 **Rationale:** Ohne Thundering-Herd-Prevention können bei einem Cache-Miss gleichzeitige Requests alle eine schwere Aggregation starten, was WSGI-Worker blockiert und die Quellsysteme unter Last setzt. Ein distributed Lock stellt sicher, dass die teure Berechnung exakt einmal erfolgt (Handlungsempfehlung 1.3).

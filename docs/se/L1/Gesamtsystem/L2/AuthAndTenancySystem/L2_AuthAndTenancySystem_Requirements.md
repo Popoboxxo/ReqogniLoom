@@ -37,6 +37,11 @@
 
 Das AuthAndTenancy-System SHALL eingehende REST-API- und UI-Anfragen durch Bearer Token (JWT) Validierung authentifizieren — Signaturprüfung, Ablaufzeit, Aussteller. Ungültige/abgelaufene Tokens SHALL mit HTTP 401 zurückgewiesen werden.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -63,6 +68,11 @@ Das AuthAndTenancy-System SHALL eingehende REST-API- und UI-Anfragen durch Beare
 
 Das AuthAndTenancy-System SHALL API Keys gegen gehashte Stored Values validieren. Key im Header `X-API-Key` oder `Authorization: Bearer <api_key>`. Ungültige Keys SHALL zurückgewiesen werden. Hash-Vergleich in konstanter Laufzeit.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -99,6 +109,11 @@ Das AuthAndTenancy-System SHALL Berechtigungen pro Operation und Ressource prüf
 
 Unzureichende Berechtigung → HTTP 403.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -126,6 +141,11 @@ Unzureichende Berechtigung → HTTP 403.
 
 Das AuthAndTenancy-System SHALL die Approver-Rolle ausschließlich im Extended-Preset aktivieren. In Minimal/Standard SHALL die Rolle nicht zuweisbar sein.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -152,6 +172,11 @@ Das AuthAndTenancy-System SHALL die Approver-Rolle ausschließlich im Extended-P
 
 Das AuthAndTenancy-System SHALL nach erfolgreicher Authentifizierung einen Auth-Kontext erzeugen: `user_id`, `tenant_id`, `active_roles`, `auth_method` (bearer_token | api_key), `api_key_id` (falls API-Key). Kontext an ApplicationService, WorkflowEngine und AuditLog übergeben. Kontext ist immutable.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -179,6 +204,11 @@ Das AuthAndTenancy-System SHALL nach erfolgreicher Authentifizierung einen Auth-
 
 Das AuthAndTenancy-System SHALL CRUD für Rollenzuweisungen auf Workspace-Ebene bereitstellen. Nur Admins SÜLLEN Rollen zuweisen/entziehen können. Validierung: Rolle im Preset verfügbar, Zielnutzer ist Workspace-Mitglied, Audit-Log-Eintrag.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -206,6 +236,11 @@ Das AuthAndTenancy-System SHALL CRUD für Rollenzuweisungen auf Workspace-Ebene 
 
 Das AuthAndTenancy-System SHALL alle Anfragen an REST/MCP-Endpunkte durch eine Auth-Middleware leiten. Ausnahmen: `/health`, `/api/docs`, `/api/openapi.json`.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -233,6 +268,11 @@ Das AuthAndTenancy-System SHALL alle Anfragen an REST/MCP-Endpunkte durch eine A
 
 Das AuthAndTenancy-System SHALL den aktiven Tenant aus dem Token extrahieren und in den Request-Kontext setzen. Tenant an PersistenceLayer (Custom Manager) weitergeben. Fehlgeschlagene Tenant-Auflösung → HTTP 500 `"Tenant resolution failed"`.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -260,6 +300,11 @@ Das AuthAndTenancy-System SHALL den aktiven Tenant aus dem Token extrahieren und
 
 Das AuthAndTenancy-System SHALL API Key Verwaltung unterstützen: Erstellung, Auflistung, Widerruf. Keys ausschließlich gehasht persistieren. Klartext nur einmalig bei Erstellung. Widerruf sofort wirksam.
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -288,6 +333,11 @@ Das AuthAndTenancy-System SHALL API Key Verwaltung unterstützen: Erstellung, Au
 
 Das AuthAndTenancy-System SHALL standardisierte Fehlerantworten für Auth-Fehler zurückgeben: `{"error": "<code>", "message": "...", "doc_url": "..."}`. Fehlermeldungen übersetzbar (DE/EN).
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** desired
 **Acceptance Criteria:**
@@ -313,6 +363,11 @@ Das AuthAndTenancy-System SHALL standardisierte Fehlerantworten für Auth-Fehler
 
 Das AuthAndTenancy-System SHALL ein Benutzername/Passwort-Paar gegen den gespeicherten Passwort-Hash (PBKDF2 oder gleichwertig) verifizieren und bei Erfolg den aktiven Nutzer auflösen. Die Verifikation SHALL in (nahezu) konstanter Laufzeit erfolgen: existiert der Nutzer nicht, SHALL dennoch ein Dummy-Hash-Vergleich durchgeführt werden, sodass die Timing-Kurve von „Nutzer unbekannt" und „Passwort falsch" vergleichbar bleibt.
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -340,6 +395,11 @@ Das AuthAndTenancy-System SHALL ein Benutzername/Passwort-Paar gegen den gespeic
 
 Das AuthAndTenancy-System SHALL nach erfolgreicher Credential-Verifikation einen signierten HS256-JWT ausstellen, dessen Claim-Set exakt dem entspricht, was `AuthenticationService.validate_bearer_token` (REQ-L2-AT-001) konsumiert — `user_id`, `tenant_id`, `roles`, `iat`, `exp` sowie konfiguriertes `iss`/`aud`. Der Token SHALL round-trip-fähig sein: er wird von `BearerTokenAuthentication` akzeptiert und liefert den korrekten Rollen- und Tenant-Kontext für RBAC-Entscheidungen. Secret/Issuer/Audience/TTL werden aus Django-Settings (`AUTH_JWT_*`) gelesen; kein Secret im Code.
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -367,6 +427,11 @@ Das AuthAndTenancy-System SHALL nach erfolgreicher Credential-Verifikation einen
 
 Das AuthAndTenancy-System SHALL den Login-Endpunkt `POST /api/v1/auth/login/` von der globalen Auth-Middleware-Interception (REQ-L2-AT-007) ausnehmen: der Endpunkt ist öffentlich (kein Bearer-Token, kein Tenant-Kontext erforderlich), da er der Mechanismus ist, über den ein Client überhaupt erst einen Token erhält. Alle übrigen geschützten Endpunkte bleiben hinter der Auth-Middleware.
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -394,6 +459,11 @@ Das AuthAndTenancy-System SHALL den Login-Endpunkt `POST /api/v1/auth/login/` vo
 
 Das AuthAndTenancy-System SHALL voraussetzen und sicherstellen, dass Passwörter im PersistenceLayer ausschließlich als gesalzener Hash (Django-Hasher, PBKDF2 default) im `User.password`-Feld gespeichert werden — niemals im Klartext. Klartext-Passwörter SHALL nie in API-Responses, Logs oder Audit-Einträgen erscheinen. Das System SHALL `set_password`/`check_password` nutzen; ein leeres `password` bedeutet „kein nutzbares Passwort" und matcht nie.
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -420,6 +490,11 @@ Das AuthAndTenancy-System SHALL voraussetzen und sicherstellen, dass Passwörter
 
 Das AuthAndTenancy-System SHALL über `GET /api/v1/auth/me/` mit gültigem Bearer-Token die Identität des aktuell angemeldeten Nutzers `{username, roles, tenant_id}` für den Frontend-Session-Bootstrap zurückgeben. Die Identität SHALL aus dem aufgelösten Auth-Kontext (REQ-L2-AT-005) stammen. Ohne Token oder mit ungültigem Token SHALL HTTP 401 zurückgegeben werden.
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -446,6 +521,11 @@ Das AuthAndTenancy-System SHALL über `GET /api/v1/auth/me/` mit gültigem Beare
 
 Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzername, falsches Passwort, inaktives Konto) denselben generischen Fehlercode `invalid_token` mit HTTP 401 zurückgeben — ohne Unterscheidung zwischen „Nutzer unbekannt", „Passwort falsch" und „Konto inaktiv". Die Response SHALL keine Information über die Existenz eines Kontos preisgeben.
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -474,6 +554,11 @@ Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzer
 
 Das AuthAndTenancySystem SHALL Projekt-Administratoren ermöglichen, Sichtbarkeits- und Bearbeitungsrechte auf Subsystem- oder Artefakt-Ebene zu konfigurieren. Item-Level-Regeln verfeinern die Workspace-RBAC (REQ-L1-010), überschreiben sie jedoch niemals — Admin-Rechte auf Workspace-Ebene haben weiterhin Vorrang. Regeln werden via UI (Berechtigungs-Editor) und API-Endpunkt konfiguriert.
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** optional
 **arch_impact:** false
@@ -502,6 +587,11 @@ Das AuthAndTenancySystem SHALL Projekt-Administratoren ermöglichen, Sichtbarkei
 
 Das AuthAndTenancySystem SHALL Item-Level-Regeln bei allen API-Zugriffen auswerten (keine UI-only-Beschränkung). Die Enforcement erfolgt via PostgreSQL Row-Level Security (RLS) Policies. Der Permission-Cache (TTL: 60s) reduziert die Evaluierungs-Latenz. Performance: max. 10% Overhead auf API-Response-Zeiten für Workspaces mit ≤ 100 Item-Level-Regeln.
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** optional
 **arch_impact:** false
@@ -568,3 +658,187 @@ Das AuthAndTenancySystem SHALL Item-Level-Regeln bei allen API-Zugriffen auswert
 *Complete Rewrite: ID-Migration REQ-L2-Auth → REQ-L2-AT, Template-Standardisierung*
 *Erweiterung 2026-06-25: REQ-L2-AT-011..016 (Credential-Login, REQ-L1-033) durch se-architect-Agent*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+---
+
+## Erweiterung v3 — REQ-L2-AT-017..019 vollständig ausgearbeitet (REQ-L1-039)
+
+> **Datum:** 2026-06-28 | **Quelle:** REQ-L0-027 → REQ-L1-039
+
+Die Anforderungen AT-017 und AT-018 existieren bereits in der Traceability-Matrix,
+sind aber nur minimal beschrieben. Diese Erweiterung liefert die vollständigen
+Beschreibungen inkl. Akzeptanzkriterien, Schnittstellen und Verifikationsmethode.
+Zusätzlich wird AT-019 (UI-Komponente für Item-Level-Verwaltung) neu eingeführt.
+
+---
+
+### REQ-L2-AT-017 (vollständig): Item-Level-RBAC Regelverwaltung
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent. Bestehende RBAC-Implementierung arbeitet nur auf Workspace-Ebene. Neue Entität `ItemPermission` im Datenmodell erforderlich.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-039 (← REQ-L0-027, SN-27). Priority: optional (Enterprise-Feature).
+
+Das AuthAndTenancySystem MUSS Projekt-Admins ermöglichen, Zugriffsbeschränkungen
+auf Subsystem- oder Artefakt-Ebene zu definieren. Eine Item-Level-Regel verbindet
+einen Nutzer oder eine Rolle mit einem Artefakt-Scope (Workspace, Subsystem-ID,
+einzelne Artefakt-ID) und einem Berechtigungstyp (`read`, `write`, `none`).
+
+**Datenmodell — ItemPermission:**
+```
+ItemPermission {
+  id: UUID
+  workspace_id: UUID          -- Pflicht (Mandanten-Scoping)
+  principal_type: enum        -- "user" | "role"
+  principal_id: UUID          -- User-ID oder Role-ID
+  scope_type: enum            -- "workspace" | "subsystem" | "artefact"
+  scope_id: UUID              -- ID des Workspace/Subsystem/Artefakts
+  permission: enum            -- "read" | "write" | "none"
+  created_by: UUID
+  created_at: datetime
+}
+```
+
+**Schnittstellen:**
+- `POST /workspaces/{id}/permissions` → Regel erstellen (Admin only)
+- `GET /workspaces/{id}/permissions` → Regeln auflisten (Admin only)
+- `DELETE /workspaces/{id}/permissions/{perm_id}` → Regel löschen (sofort wirksam)
+- Intern: `PermissionService.create_rule(...)`, `PermissionService.delete_rule(...)`
+
+**Akzeptanzkriterien:**
+- AC1: Admin kann eine `read`-Regel für User X auf Subsystem Y anlegen → persistiert
+- AC2: Admin kann eine `none`-Regel anlegen (explizites Verweigern, höhere Priorität als `read`)
+- AC3: Nicht-Admin versucht Regel anzulegen → HTTP 403
+- AC4: Regel-Löschung → Berechtigungsentscheid sofort aktualisiert (kein Cache-Lag > 1s)
+- AC5: Regeln sind workspace-scoped — keine cross-workspace Regeln möglich
+- AC6: Bis zu 1.000 aktive Regeln pro Workspace ohne Performance-Degradierung
+
+**Verifikationsmethode:** Integrationstest — Regel anlegen, Zugriff prüfen, löschen, Zugriff wieder prüfen
+**Verifikiert durch:** L2-AT-Test-017
+**Abgeleitet von:** REQ-L1-039
+**Übergeordnete REQ-L0:** REQ-L0-027
+
+---
+
+### REQ-L2-AT-018 (vollständig): Item-Level Permission Enforcement (API-seitig)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent. API-Middleware prüft aktuell nur Workspace-Membership und Rollen, nicht Item-Level-Regeln.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-039 (← REQ-L0-027, SN-27). Voraussetzung: REQ-L2-AT-017.
+
+Das AuthAndTenancySystem MUSS Item-Level-Regeln (REQ-L2-AT-017) bei **jedem**
+API-Zugriff auf geschützte Artefakte auswerten — unabhängig vom Aufrufkanal
+(REST-API, MCP-Server). Die Enforcement DARF nicht ausschließlich in der UI erfolgen.
+
+**Enforcement-Logik (Prioritätsreihenfolge):**
+1. `none`-Regel für User/Rolle auf Scope → `deny` (höchste Priorität)
+2. `read`/`write`-Regel für User/Rolle auf Scope → `allow` (falls kein `none` übergeordnet)
+3. Workspace-Membership ohne Item-Regel → Standard-RBAC (bestehend)
+4. Kein Match → `deny` (Fail-Safe)
+
+**Caching-Strategie:**
+- Permission-Entscheide SOLLEN für max. 60 s gecacht werden (TTL-Cache pro User/Artefakt)
+- Cache-Invalidierung MUSS bei Regel-Änderung (AT-017) sofort erfolgen
+- Cache-Miss → Neuberechnung aus DB (max. 10 ms zusätzliche Latenz)
+
+**Schnittstellen:**
+- Intern: `PermissionEnforcer.check(user_id, artefact_id, action)` → `allow | deny`
+- Integriert in API-Middleware (nach Auth-Token-Validierung, vor Request-Handler)
+
+**Akzeptanzkriterien:**
+- AC1: User ohne Item-Regel → Standard-RBAC greift (kein Breaking Change)
+- AC2: User mit `read`-Regel auf Subsystem → `GET /requirements/{id}` → HTTP 200
+- AC3: User mit `read`-Regel → `PATCH /requirements/{id}` → HTTP 403
+- AC4: User mit `none`-Regel auf Artefakt → HTTP 403 (überschreibt `read`-Regel auf übergeordnetem Scope)
+- AC5: Cache-Invalidierung bei Regel-Änderung < 1 s
+- AC6: Performance-Overhead < 10 % auf API-Response-Zeit (Workspace mit ≤ 100 Regeln)
+- AC7: MCP-Server-Zugriff unterliegt denselben Enforcement-Regeln wie REST-API
+
+**Verifikationsmethode:** Integrationstest (AC1-AC5) + Lasttest (AC6)
+**Verifikiert durch:** L2-AT-Test-018
+**Abgeleitet von:** REQ-L1-039
+**Übergeordnete REQ-L0:** REQ-L0-027
+
+---
+
+### REQ-L2-AT-019 (NEU): Item-Level-Berechtigungs-UI (Admin-Oberfläche)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifiziert. Ohne UI ist die Item-Level-RBAC (AT-017/018) für Admins nicht nutzbar.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-039 (← REQ-L0-027, SN-27). Companion zu AT-017. Betrifft ReactFrontend.
+
+Das System MUSS Projekt-Admins eine Oberfläche bereitstellen, über die sie
+Item-Level-Berechtigungsregeln (REQ-L2-AT-017) verwalten können, ohne direkte
+API-Calls zu nutzen. Die Oberfläche MUSS Regeln nach Nutzer, Rolle oder Scope
+filterbar anzeigen und SOLL Konflikte (z. B. `none` überschreibt übergeordnetes `read`)
+visuell kenntlich machen.
+
+> **Hinweis:** Diese Anforderung liegt im Verantwortungsbereich des ReactFrontendSystem
+> (REQ-L2-RF-xxx), wird hier aber im AuthAndTenancySystem dokumentiert, da sie
+> direkt die Funktionalität von AT-017 exponiert.
+
+**Schnittstellen:**
+- Ruft `GET/POST/DELETE /workspaces/{id}/permissions` (REQ-L2-AT-017) auf
+- Nutzer-Autocomplete: `GET /workspaces/{id}/users?q=prefix`
+
+**Akzeptanzkriterien:**
+- AC1: Admin sieht Tabelle aller aktiven Item-Level-Regeln für einen Workspace
+- AC2: Neue Regel anlegen per Formular (Nutzer/Rolle wählen, Scope wählen, Berechtigung setzen)
+- AC3: Regel löschen per Klick mit Bestätigungsdialog
+- AC4: Konflikt-Highlight: `none`-Regel, die eine `read`-Regel überschreibt, wird visuell markiert
+- AC5: Filter nach Nutzer, Rolle und Scope-Typ
+
+**Verifikationsmethode:** UI-E2E-Test (Playwright) — Regel anlegen, Conflict-Highlight prüfen
+**Verifikiert durch:** L2-AT-Test-019
+**Abgeleitet von:** REQ-L1-039
+**Übergeordnete REQ-L0:** REQ-L0-027
+
+---
+
+## Traceability-Matrix: REQ-L2-AT → REQ-L1 (aktualisiert)
+
+| REQ-L2-AT | Primäre REQ-L1 | Mitwirkende REQ-L1 |
+|-----------|----------------|---------------------|
+| REQ-L2-AT-001 | REQ-L1-006, REQ-L1-010 | — |
+| REQ-L2-AT-002 | REQ-L1-005, REQ-L1-010 | — |
+| REQ-L2-AT-003 | REQ-L1-010 | — |
+| REQ-L2-AT-004 | REQ-L1-010 | REQ-L1-007 |
+| REQ-L2-AT-005 | REQ-L1-010 | REQ-L1-002, -009, -011, -012 |
+| REQ-L2-AT-006 | REQ-L1-010 | — |
+| REQ-L2-AT-007 | REQ-L1-006, REQ-L1-005 | REQ-L1-010 |
+| REQ-L2-AT-008 | REQ-L1-015 | — |
+| REQ-L2-AT-009 | REQ-L1-005, REQ-L1-010 | — |
+| REQ-L2-AT-010 | REQ-L1-006 | REQ-L1-016 |
+| REQ-L2-AT-011 | REQ-L1-033 | — |
+| REQ-L2-AT-012 | REQ-L1-033 | REQ-L1-010 |
+| REQ-L2-AT-013 | REQ-L1-033 | REQ-L1-006 |
+| REQ-L2-AT-014 | REQ-L1-033 | — |
+| REQ-L2-AT-015 | REQ-L1-033 | — |
+| REQ-L2-AT-016 | REQ-L1-033 | — |
+| REQ-L2-AT-017 | REQ-L1-039 | REQ-L1-010 |
+| REQ-L2-AT-018 | REQ-L1-039 | REQ-L1-026 |
+| REQ-L2-AT-019 | REQ-L1-039 | — |
+
+---
+
+## Zusammenfassung (aktualisiert)
+
+| Metrik | Wert |
+|--------|------|
+| Anzahl REQ-L2-AT | 19 |
+| Mandatory | 15 |
+| Desired | 1 |
+| Optional | 3 |
+| Abgedeckte REQ-L1 (primär) | REQ-L1-010, REQ-L1-015, REQ-L1-033, REQ-L1-039 |
+| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-002, -005, -006, -007, -009, -011, -012, -016, -026 |
+
+---
+
+*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
+*Complete Rewrite: ID-Migration REQ-L2-Auth → REQ-L2-AT, Template-Standardisierung*
+*Erweiterung 2026-06-25: REQ-L2-AT-011..016 (Credential-Login, REQ-L1-033) durch se-architect-Agent*
+*Erweiterung 2026-06-28: REQ-L2-AT-017..019 vollständig ausgearbeitet (REQ-L1-039, SN-27)*
+*Designation: component (terminal) — decomposition_status: terminal*
+

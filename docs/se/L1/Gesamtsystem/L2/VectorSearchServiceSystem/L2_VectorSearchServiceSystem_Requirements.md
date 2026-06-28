@@ -40,8 +40,12 @@
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-VS-001: Semantische Vektorsuche
-
 Der VectorSearchService SHALL eine semantische, vektorbasierte Suche über alle Artefakttypen bereitstellen. Natürlichsprachliche Queries SHALL in einen Vektor eingebettet und gegen die gespeicherten Artefakt-Vektoren verglichen werden. Ergebnisse SHALL mit Ähnlichkeits-Score gerankt zurückgegeben werden. Query per Artefakt-ID SHALL semantisch ähnliche Artefakte als Duplikat-Vorschläge liefern.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Domain:** software
 **Priority:** optional
@@ -57,10 +61,6 @@ Der VectorSearchService SHALL eine semantische, vektorbasierte Suche über alle 
 - Incoming: IF-VS-EXT-IN-001
 - Outgoing: IF-VS-EXT-OUT-002
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-038
 **Rationale:** Semantische Suche identifiziert inhaltliche Ähnlichkeiten, die Volltextsuche nicht findet.
@@ -68,8 +68,12 @@ Der VectorSearchService SHALL eine semantische, vektorbasierte Suche über alle 
 ---
 
 ### REQ-L2-VS-002: Embedding-Pipeline
-
 Der VectorSearchService SHALL bei jeder Artefakt-Erstellung und -Bearbeitung automatisch die Embeddings aktualisieren. Die Embedding-Generierung SHALL asynchron erfolgen (maximale Verzögerung 5 Minuten). Das Embedding-Modell SHALL über den LlmAdapter abstrahiert werden (Provider-agnostisch).
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Domain:** software
 **Priority:** optional
@@ -85,10 +89,6 @@ Der VectorSearchService SHALL bei jeder Artefakt-Erstellung und -Bearbeitung aut
 - Incoming: IF-VS-EXT-IN-002
 - Outgoing: IF-VS-EXT-OUT-001, IF-VS-EXT-OUT-002
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-038
 **Rationale:** Automatische Embedding-Aktualisierung gewährleistet aktuelle Suchergebnisse.
@@ -96,8 +96,12 @@ Der VectorSearchService SHALL bei jeder Artefakt-Erstellung und -Bearbeitung aut
 ---
 
 ### REQ-L2-VS-003: Hybrid-Suche (Vektor + Volltext)
-
 Der VectorSearchService SHALL eine Hybrid-Suche bereitstellen, die Vektor-Ähnlichkeit und Volltext-Suche kombiniert. Das Ranking SHALL beide Signalquellen fusionieren (Reciprocal Rank Fusion oder gewichtete Summe). Volltext-Treffer SHALL bei exakten Übereinstimmungen höher gewichtet werden.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Domain:** software
 **Priority:** optional
@@ -113,10 +117,6 @@ Der VectorSearchService SHALL eine Hybrid-Suche bereitstellen, die Vektor-Ähnli
 - Incoming: IF-VS-EXT-IN-001
 - Outgoing: IF-VS-EXT-OUT-002
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-038
 **Rationale:** Hybrid-Suche kombiniert die Stärken beider Suchansätze für bessere Trefferqualität.
@@ -135,3 +135,107 @@ Der VectorSearchService SHALL eine Hybrid-Suche bereitstellen, die Vektor-Ähnli
 
 *Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade Phase 3 | 2026-06-27*
 *Designation: system — decomposition_status: L3-Zerlegung erforderlich*
+
+---
+
+## Erweiterung v2 — Vollständige Requirement-Beschreibungen (REQ-L2-VS-001..003)
+
+> **Datum:** 2026-06-28 | **Quelle:** REQ-L0-026 → REQ-L1-038
+
+---
+
+### REQ-L2-VS-001: Semantische Vektorsuche (RAG-Query)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent. VectorSearchService nicht implementiert.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26). Priority: optional.
+
+Der VectorSearchService MUSS eine semantische Suche über alle Anforderungen und
+Artefakte eines Workspace ermöglichen. Suchanfragen werden als Text-Embedding
+(via LlmAdapter) vektorisiert und gegen die Vektordatenbank abgeglichen.
+Die Antwort enthält die Top-N ähnlichsten Artefakte mit Ähnlichkeitsscore.
+AI-Agenten MÜSSEN diesen Endpunkt über die REST-API und den MCP-Server nutzen können.
+
+**Schnittstellen:**
+- `POST /workspaces/{id}/search/semantic` → `{ "query": "...", "top_n": 10, "threshold": 0.7 }`
+- Response: `[ { "artefact_id": "...", "type": "requirement", "score": 0.92, "title": "..." } ]`
+- Intern: `VectorSearchService.query(embedding, workspace_id, top_n)` → List[SearchResult]
+
+**Akzeptanzkriterien:**
+- AC1: Semantisch ähnliche Anforderungen werden trotz unterschiedlicher Wortwahl gefunden
+- AC2: `threshold`-Parameter filtert Ergebnisse unterhalb Ähnlichkeitsschwelle
+- AC3: Suchanfrage-Latenz < 500 ms (p95, Workspace bis 5.000 Artefakte)
+- AC4: MCP-Server stellt `semantic_search`-Tool bereit (für AI-Agenten)
+- AC5: Ergebnisse enthalten Typ-Information (requirement/architecture/testcase)
+
+**Verifikationsmethode:** Integrationstest — bekannte semantisch ähnliche REQs, Recall-Messung
+**Verifikiert durch:** L2-VS-Test-001
+**Abgeleitet von:** REQ-L1-038
+**Übergeordnete REQ-L0:** REQ-L0-026
+
+---
+
+### REQ-L2-VS-002: Embedding-Pipeline (Automatisches Vektorisieren bei Artefakt-Änderungen)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26).
+
+Der VectorSearchService MUSS Artefakt-Änderungen (create/update) automatisch erkennen
+und das Embedding des geänderten Artefakts asynchron aktualisieren.
+Die Embedding-Erzeugung erfolgt über den LlmAdapter (REQ-L2-LLM-xxx).
+Embeddings MÜSSEN in einer dedizierten Vektordatenbank (z. B. pgvector, Weaviate)
+gespeichert werden. Eine initiale Batch-Indexierung MUSS beim Workspace-Import
+oder auf Admin-Anfrage auslösbar sein.
+
+**Schnittstellen:**
+- Event-Consumer: `requirement.created`, `requirement.updated` → async Embedding-Update
+- `POST /workspaces/{id}/vector-index/rebuild` → Admin-Trigger für Batch-Re-Indexierung
+- Intern: `LlmAdapter.embed(text) → Vector[float]`
+
+**Akzeptanzkriterien:**
+- AC1: Neue Anforderung → Embedding in < 10 s aktualisiert (async, nicht blocking)
+- AC2: Geänderte Anforderung → altes Embedding überschrieben
+- AC3: Batch-Rebuild indexiert alle Artefakte eines Workspace ohne Timeout
+- AC4: Embedding-Dimension konsistent mit verwendetem LLM-Modell
+
+**Verifikationsmethode:** Integrationstest — Anforderung anlegen, Embedding-Status prüfen, Suche
+**Verifikiert durch:** L2-VS-Test-002
+**Abgeleitet von:** REQ-L1-038
+**Übergeordnete REQ-L0:** REQ-L0-026
+
+---
+
+### REQ-L2-VS-003: Hybrid-Suche (Semantisch + Volltext kombiniert)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Code-Äquivalent.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26).
+
+Der VectorSearchService SOLL eine Hybrid-Suche anbieten, die semantische
+Ähnlichkeit (Vektor-Cosine) mit klassischer Volltext-Suche (BM25/TF-IDF) kombiniert.
+Der Gewichtungsfaktor (semantisch vs. Volltext) SOLL konfigurierbar sein.
+Hybrid-Suche verbessert die Präzision bei Anfragen mit spezifischen Schlüsselbegriffen
+(REQ-IDs, Abkürzungen), die rein semantisch schlecht gefunden werden.
+
+**Schnittstellen:**
+- `POST /workspaces/{id}/search/hybrid` → `{ "query": "...", "semantic_weight": 0.7, "text_weight": 0.3 }`
+- Intern: Kombination von Vektor-Score und BM25-Score via Reciprocal Rank Fusion (RRF)
+
+**Akzeptanzkriterien:**
+- AC1: REQ-ID-Suche (`REQ-L1-003`) findet exakt die Anforderung (Volltext-Anteil)
+- AC2: Semantische Umschreibung findet inhaltlich ähnliche Anforderung (Vektor-Anteil)
+- AC3: Gewichtungsparameter beeinflusst Ranking nachweislich
+- AC4: Latenz < 800 ms (p95)
+
+**Verifikationsmethode:** Integrationstest — REQ-ID-Suche + semantische Suche, Ranking-Vergleich
+**Verifikiert durch:** L2-VS-Test-003
+**Abgeleitet von:** REQ-L1-038
+**Übergeordnete REQ-L0:** REQ-L0-026
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-VS-001..003 vollständig ausgearbeitet)*

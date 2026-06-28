@@ -1,0 +1,119 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\LlmAdapterSystem\\L2_LlmAdapterSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-LA-001: LLM-Capability-Interface mit Provider-Abstraktion\n\nDer LlmAdapter SHALL ein stabiles internes Interface (`LlmCapabilityInterface`) mit drei Operationen bereitstellen: `validate_artifact`, `decompose_requirement`, `check_consistency`. Provider-Implementierungen S\u00dcLLEN \u00fcber ein Plugin-Interface austauschbar sein. Kein Domain-Modul DARF den konkreten Provider kennen.\n",
+      "ReplacementContent": "### REQ-L2-LA-001: LLM-Capability-Interface mit Provider-Abstraktion\n\nDer LlmAdapter SHALL ein stabiles internes Interface (`LlmCapabilityInterface`) mit drei Operationen bereitstellen: `validate_artifact`, `decompose_requirement`, `check_consistency`. Provider-Implementierungen S\u00dcLLEN \u00fcber ein Plugin-Interface austauschbar sein. Kein Domain-Modul DARF den konkreten Provider kennen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-LA-002: Graceful Degradation bei fehlender LLM-Konfiguration\n\nDer LlmAdapter SHALL bei fehlender LLM-Konfiguration einen strukturierten Fehler `{error: {code: \"LLM_NOT_CONFIGURED\"}}` zur\u00fcckgeben. Das restliche System SHALL vollst\u00e4ndig funktionsf\u00e4hig bleiben.\n",
+      "ReplacementContent": "### REQ-L2-LA-002: Graceful Degradation bei fehlender LLM-Konfiguration\n\nDer LlmAdapter SHALL bei fehlender LLM-Konfiguration einen strukturierten Fehler `{error: {code: \"LLM_NOT_CONFIGURED\"}}` zur\u00fcckgeben. Das restliche System SHALL vollst\u00e4ndig funktionsf\u00e4hig bleiben.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-LA-003: Selektive Capability-Aktivierung\n\nDer LlmAdapter SHALL per-Capability Aktivierung/Deaktivierung \u00fcber Deployment-Konfiguration unterst\u00fctzen. Deaktivierte Capabilities S\u00dcLLEN `LLM_NOT_CONFIGURED` zur\u00fcckgeben, auch wenn ein Provider konfiguriert ist.\n",
+      "ReplacementContent": "### REQ-L2-LA-003: Selektive Capability-Aktivierung\n\nDer LlmAdapter SHALL per-Capability Aktivierung/Deaktivierung \u00fcber Deployment-Konfiguration unterst\u00fctzen. Deaktivierte Capabilities S\u00dcLLEN `LLM_NOT_CONFIGURED` zur\u00fcckgeben, auch wenn ein Provider konfiguriert ist.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-LA-004: Standardisiertes LLM-Ergebnisformat\n\nDer LlmAdapter SHALL standardisierte Ergebnisobjekte zur\u00fcckgeben. `LlmResult`: `score` (0.0\u20131.0), `suggestions`, `provider`, `model`, `token_usage`. `LlmDecompositionResult` erweitert mit `children`. `LlmConsistencyResult` erweitert mit `issues`. Score au\u00dferhalb [0.0, 1.0] SHALL `ValueError` ausl\u00f6sen.\n",
+      "ReplacementContent": "### REQ-L2-LA-004: Standardisiertes LLM-Ergebnisformat\n\nDer LlmAdapter SHALL standardisierte Ergebnisobjekte zur\u00fcckgeben. `LlmResult`: `score` (0.0\u20131.0), `suggestions`, `provider`, `model`, `token_usage`. `LlmDecompositionResult` erweitert mit `children`. `LlmConsistencyResult` erweitert mit `issues`. Score au\u00dferhalb [0.0, 1.0] SHALL `ValueError` ausl\u00f6sen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-LA-005: Provider-Fehlerbehandlung und Timeout\n\nDer LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukturierten Fehler `LLM_PROVIDER_ERROR` zur\u00fcckgeben. Keine unhandled Exceptions. Konfigurierbarer Timeout (Default: 30s). Bei synchron ausgef\u00fchrten Operationen gilt das Timeout als HTTP-Request-Timeout; bei asynchronen Celery-Tasks (siehe REQ-L2-LA-008) wird das Timeout auf Worker-Ebene konfiguriert (`CELERY_TASK_SOFT_TIME_LIMIT`, `CELERY_TASK_TIME_LIMIT`) und greift nicht als HTTP-Request-Timeout.\n",
+      "ReplacementContent": "### REQ-L2-LA-005: Provider-Fehlerbehandlung und Timeout\n\nDer LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukturierten Fehler `LLM_PROVIDER_ERROR` zur\u00fcckgeben. Keine unhandled Exceptions. Konfigurierbarer Timeout (Default: 30s). Bei synchron ausgef\u00fchrten Operationen gilt das Timeout als HTTP-Request-Timeout; bei asynchronen Celery-Tasks (siehe REQ-L2-LA-008) wird das Timeout auf Worker-Ebene konfiguriert (`CELERY_TASK_SOFT_TIME_LIMIT`, `CELERY_TASK_TIME_LIMIT`) und greift nicht als HTTP-Request-Timeout.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-LA-006: LLM-Audit-Logging\n\nDer LlmAdapter SHALL jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen) im AuditLog protokollieren mit: `provider`, `capability`, `artifact_id`, `token_usage`, `success`, `error`.\n",
+      "ReplacementContent": "### REQ-L2-LA-006: LLM-Audit-Logging\n\nDer LlmAdapter SHALL jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen) im AuditLog protokollieren mit: `provider`, `capability`, `artifact_id`, `token_usage`, `success`, `error`.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-LA-007: Azure-OpenAI Provider-Unterst\u00fctzung\n\nDer LlmAdapter SOLLTE Azure-OpenAI als zus\u00e4tzlichen Provider unterst\u00fctzen (`LLM_PROVIDER=azure`). Azure-spezifische Konfiguration: Endpoint-URL, Deployment-Name, API-Version.\n",
+      "ReplacementContent": "### REQ-L2-LA-007: Azure-OpenAI Provider-Unterst\u00fctzung\n\nDer LlmAdapter SOLLTE Azure-OpenAI als zus\u00e4tzlichen Provider unterst\u00fctzen (`LLM_PROVIDER=azure`). Azure-spezifische Konfiguration: Endpoint-URL, Deployment-Name, API-Version.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-LA-008: Asynchrone LLM-Task-Ausf\u00fchrung via Celery\n\nDer LlmAdapter SHALL LLM-Langl\u00e4ufer-Operationen (`decompose_requirement`, `check_consistency`) als Celery-Tasks asynchron ausf\u00fchren. Diese Operationen D\u00dcRFEN den WSGI/ASGI-Worker NICHT blockieren. Der Adapter SHALL bei Aufruf einer async-f\u00e4higen Capability sofort eine `task_id` zur\u00fcckgeben. Der Status des Tasks ist \u00fcber ein separates Interface abfragbar: `task.status(task_id)` \u2192 `{status: \"pending|running|done|failed\", result?, error?}`. Die Capability `validate_artifact` DARF synchron bleiben (typische Laufzeit < 5s).\n",
+      "ReplacementContent": "### REQ-L2-LA-008: Asynchrone LLM-Task-Ausf\u00fchrung via Celery\n\nDer LlmAdapter SHALL LLM-Langl\u00e4ufer-Operationen (`decompose_requirement`, `check_consistency`) als Celery-Tasks asynchron ausf\u00fchren. Diese Operationen D\u00dcRFEN den WSGI/ASGI-Worker NICHT blockieren. Der Adapter SHALL bei Aufruf einer async-f\u00e4higen Capability sofort eine `task_id` zur\u00fcckgeben. Der Status des Tasks ist \u00fcber ein separates Interface abfragbar: `task.status(task_id)` \u2192 `{status: \"pending|running|done|failed\", result?, error?}`. Die Capability `validate_artifact` DARF synchron bleiben (typische Laufzeit < 5s).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 281,
+      "AllowMultiple": false
+    }
+  ]
+}

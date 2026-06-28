@@ -1,0 +1,21 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\IcdManagementSystem\\Components\\COMP-ICD-003_TraceabilityConnector\\L3_COMP-ICD-003_TraceabilityConnector_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L3-ICD-003-001: Erstellung von realizes-TraceLinks\n\nDie Komponente TraceabilityConnector SHALL bei Aufruf von `link_to_architecture` (IF-ICD-INT-002) einen TraceLink vom Typ `realizes` generieren und diesen via IF-L1-039 an die externe TraceabilityEngine senden.",
+      "ReplacementContent": "### REQ-L3-ICD-003-001: Erstellung von realizes-TraceLinks\n\nDie Komponente TraceabilityConnector SHALL bei Aufruf von `link_to_architecture` (IF-ICD-INT-002) einen TraceLink vom Typ `realizes` generieren und diesen via IF-L1-039 an die externe TraceabilityEngine senden.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 54,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 54,
+      "AllowMultiple": false
+    }
+  ]
+}
