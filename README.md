@@ -25,7 +25,7 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — 20 AI-powered tools for Claude, ChatGPT, and other LLM platforms
+- **MCP Server** — 11 AI-powered tool groups (40+ tools) for Claude, ChatGPT, and other LLM platforms
 - **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama, or mock mode
 - **Semantic Linking** — Intelligent requirement matching and suggestions
 
@@ -39,7 +39,7 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 ### Developer Experience
 - **REST API** — Full-featured /api/v1/ with JWT authentication
 - **Type-Safe Frontend** — React 18 + TypeScript + Vite
-- **Comprehensive Tests** — 1,130 backend tests (pytest) + 111 E2E tests (Playwright/Chromium)
+- **Comprehensive Tests** — 1,416 backend tests (pytest) + 111 E2E tests (Playwright/Chromium)
 - **Docker Compose** — Production-ready local development stack
 
 ## Architecture
@@ -49,7 +49,7 @@ Layer 4 (UI)       │  React 18 + TypeScript + Vite
                    │  (CSS Design System, i18n DE/EN, JWT Auth)
 ───────────────────┼─────────────────────────────────────
 Layer 3 (API)      │  REST API (DRF, 16 ViewSets + 2 APIViews)
-                    │  MCP Server (20 AI Tools)
+                    │  MCP Server (11 Tool Groups, 40+ AI Tools)
 ───────────────────┼─────────────────────────────────────
 Layer 2 (App)      │  Single Entry Point
                     │  19 Domain Services (16 Core + 3 v1.1)
@@ -156,7 +156,7 @@ docker-compose exec backend pytest --cov=reqflow_backend --cov-report=html
 docker-compose exec backend pytest tests/test_requirements.py
 ```
 
-**Status:** 1,130 tests, all passing on feat/se-implementation branch.
+**Status:** 1,416 tests, all passing on feat/se-implementation branch.
 
 ### End-to-End Tests (Playwright)
 
@@ -179,32 +179,79 @@ npx playwright test tests/requirements.spec.ts
 
 ## MCP Server
 
-ReqFlow includes a **Model Context Protocol (MCP) server** to integrate with Claude Desktop, ChatGPT, and other LLM platforms.
+ReqFlow ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **11 tool groups** (40+ individual tools) for requirements engineering, test management, traceability, workspace administration, permissions, backups, audit, and user management.
 
-### Configure Claude Desktop
+### Transport Endpoints
 
-Add the following to `~/.claude/claude_desktop_config.json`:
+| Endpoint | Method | Transport | Authentication |
+|----------|--------|-----------|----------------|
+| `/mcp/` | POST | HTTP/JSON-RPC 2.0 | `X-API-Key: rfk_<key>` header OR `params.api_key` in body |
+| `/mcp/sse/` | POST | SSE (single event) | `X-API-Key: rfk_<key>` header |
+| `/mcp/` | GET | — | Server info / health check (no auth required) |
+| (stdio) | — | stdio (local pipe) | `params.api_key` argument |
 
-```json
-{
-  "mcpServers": {
-    "reqflow": {
-      "command": "docker-compose",
-      "args": ["exec", "-T", "backend", "python", "manage.py", "run_mcp_server"],
-      "cwd": "/absolute/path/to/ai-native-reqflow-POC"
-    }
-  }
-}
+### Authentication
+
+MCP tools authenticate via API keys prefixed with `rfk_`. To create one:
+
+```bash
+# 1. Obtain a JWT session token via the REST API
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"•••"}' | jq -r .access)
+
+# 2. Create a new API key
+curl -X POST http://localhost:8000/api/v1/api-keys/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"claude-desktop"}'
+# Response: {"id":7, "key":"rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12", ...}
 ```
 
-Restart Claude Desktop. The MCP server will automatically connect with 20 available AI tools:
-- Requirement CRUD and search
-- Architecture element management
-- Testcase linking
-- Traceability queries
-- Baseline creation and comparison
+The plaintext key is returned **once** at creation. Store it securely.
 
-See `docs/MCP_SERVER.md` for the complete tool reference.
+### Quickstart — Call a Tool
+
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":1,
+    "method":"tools/call",
+    "params":{
+      "name":"requirement.query",
+      "arguments":{"workspace_id":1,"limit":5}
+    }
+  }'
+```
+
+### Tool Groups (11 prefixes, 40+ tools)
+
+| Prefix | Purpose | Example tools | Role required |
+|--------|---------|---------------|---------------|
+| `requirement` | Read, create, update, decompose, validate requirements | `get`, `query`, `create`, `update`, `decompose`, `validate` | Member |
+| `architecture` | Read, create, update, link architecture artifacts | `get`, `query`, `create`, `update`, `link` | Member |
+| `test` | Read, create, link, run tests, report results | `get`, `query`, `create`, `update`, `link`, `run_create`, `run_get`, `run_report_results` | Member |
+| `traceability` | Cross-cutting traceability queries | `query`, `artifact.search`, `artifact.get_tree`, `workspace.get_context` | Member |
+| `artifact` | Artifact tree and comments | `get_tree`, `get_comments` | Member |
+| `workspace` | **Admin** — close, reactivate, delete workspaces | `get_context`, `close`, `reactivate`, `delete` | Admin |
+| `permissions` | **Admin** — RBAC rule management | `set_rule`, `list`, `revoke`, `check` | Admin |
+| `admin` | **Admin** — Backup & restore (Captcha `RESTORE` required) | `backup_create`, `backup_list`, `restore` | Admin |
+| `audit` | Audit log query | `query` (filters: actor, operation, workspace, time) | Member (own scope) / Admin (all) |
+| `events` | Dead-letter-queue inspection & replay | `dlq_list`, `dlq_replay` | Member |
+| `user` | **Admin** — User & role management | `create`, `assign_role`, `list`, `deactivate` | Admin |
+
+### Security Notes
+
+- **Never commit API keys.** The `rfk_` prefix is intentional so secrets-scanners can grep for it.
+- **Keys inherit the creator's roles.** Creating a key as Admin gives it Admin scope; there is no separate key-role system.
+- **All calls are audit-logged** (`actor`, `operation`, `workspace`, `params` summary, `timestamp`).
+- **Workspace lifecycle (close/reactivate/delete)** and **permissions mutations** require Admin role; attempts return `PERMISSION_DENIED`.
+- **Backup restore** requires the literal Captcha header `X-Captcha: RESTORE` in addition to Admin role.
+
+See [`docs/MCP_SERVER.md`](docs/MCP_SERVER.md) for the complete tool reference (one example call per tool, full RBAC matrix, all 10 error codes).
 
 ## REST API
 
@@ -384,11 +431,13 @@ DEBUG=pw:api npx playwright test
 - ✅ History-Endpoint for full audit trail
 - ✅ API-Key Management (list / create / revoke)
 - ✅ Visual Baselines (existing) & Visual Baseline Diff
+- ✅ Workspace-Lifecycle-Management (REQ-L1-042)
+- ✅ Item-Level-RBAC (REQ-L1-039)
+- ✅ Disaster Recovery (REQ-L1-046)
 
 ### v2.0 (Next)
 - ReqIF import/export for tool interoperability
 - Comment threads and collaborative annotations with @Mention
-- Granular access control (role-based permissions per requirement)
 - Semantic search with RAG (requires LLM)
 - WebSocket-based real-time collaboration
 - Embedded diagram editor (SysML, UML blocks)
@@ -400,6 +449,7 @@ Detailed session reports: [`docs/se/reports/`](docs/se/reports/)
 
 | Release | Date | Highlights |
 |---------|------|------------|
+| **v1.1.1 — Session 2026-06-28** | 2026-06-28 | 7 new waves: Workspace-Lifecycle MCP (REQ-L1-042), Item-Level-RBAC (REQ-L1-039), Disaster Recovery (REQ-L1-046), MCP wrappers for Audit/DLQ/User-Management. ~277 new tests. |
 | **v1.1 — Session 2026-06-27** | 2026-06-27 | 1,130 pytest / 111 E2E tests; 9 L1 REQs decomposed (SE-Phases 1-6); 6 leaf REQs in Pipeline B (3 implemented); 3 continue REQs for v2.0 (ReqIF, Comments, RAG) |
 | **v1.0 — Greenfield** | 2026-06-25 | 1,042 pytest tests; 16 L2 subsystems; 12 L2 architectures terminal; full SE-Kaskade L0→L2 |
 
