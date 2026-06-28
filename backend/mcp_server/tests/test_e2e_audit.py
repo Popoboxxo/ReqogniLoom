@@ -74,6 +74,7 @@ from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 from mcp_server.tests.conftest_e2e import (
     admin_client,
     e2e_api_key_admin,
+    e2e_preset,
     e2e_tenant,
     e2e_user_admin,
     e2e_user_member,

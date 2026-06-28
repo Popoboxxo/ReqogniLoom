@@ -32,6 +32,7 @@ from persistence.models import Tenant, User
 # so type checkers and IDEs see them as fixture references.
 from mcp_server.tests.conftest_e2e import (  # noqa: F401
     admin_client,
+    e2e_preset,
     e2e_tenant,
     e2e_user_admin,
     e2e_user_member,

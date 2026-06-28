@@ -31,6 +31,7 @@ from django.test import Client
 from auth_tenancy.models import UserRole
 from mcp_server.tests.conftest_e2e import (
     admin_client,
+    e2e_preset,
     e2e_userrole_admin,
     e2e_userrole_viewer,
     e2e_workspace,
