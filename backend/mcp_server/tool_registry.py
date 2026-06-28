@@ -69,6 +69,7 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "permissions.revoke",
     "admin.backup_create",
     "admin.restore",
+    "events.dlq_replay",
 )
 
 # ---------------------------------------------------------------------------
@@ -194,6 +195,7 @@ class ToolRegistry:
         from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
         from mcp_server.tools.admin import AdminToolGroup
         from mcp_server.tools.permissions import PermissionsToolGroup
+        from mcp_server.tools.audit import AuditToolGroup
         from mcp_server.tools.backup import BackupToolGroup
 
         # ADR-L3-MC007-02: the ``workspace`` prefix is owned by AdminToolGroup,
@@ -205,6 +207,12 @@ class ToolRegistry:
         # (COMP-MC-009, REQ-L1-046) — Disaster Recovery tools. The
         # workspace-lifecycle AdminToolGroup keeps the ``workspace.``
         # namespace; the two groups do not share a prefix.
+        # The ``audit`` and ``events`` prefixes are owned by AuditToolGroup
+        # (COMP-MC-010, REQ-L1-046 admin observability) — audit-log query
+        # and Domain-Event Dead-Letter Queue (list + replay). One
+        # instance is shared so callers see a single AuditToolGroup no
+        # matter which prefix they hit.
+        audit_tool_group = AuditToolGroup()
         self.register_groups({
             "requirement": RequirementsToolGroup(),
             "architecture": ArchitectureToolGroup(),
@@ -214,6 +222,8 @@ class ToolRegistry:
             "workspace": AdminToolGroup(),
             "permissions": PermissionsToolGroup(),
             "admin": BackupToolGroup(),
+            "audit": audit_tool_group,
+            "events": audit_tool_group,
         })
 
     def dispatch_request(
