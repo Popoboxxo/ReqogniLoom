@@ -67,6 +67,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "workspace.delete",
     "permissions.set_rule",
     "permissions.revoke",
+    "admin.backup_create",
+    "admin.restore",
 )
 
 # ---------------------------------------------------------------------------
@@ -192,12 +194,17 @@ class ToolRegistry:
         from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
         from mcp_server.tools.admin import AdminToolGroup
         from mcp_server.tools.permissions import PermissionsToolGroup
+        from mcp_server.tools.backup import BackupToolGroup
 
         # ADR-L3-MC007-02: the ``workspace`` prefix is owned by AdminToolGroup,
         # which falls through non-lifecycle workspace.* tools (e.g.
         # workspace.get_context) to a wrapped CrossCuttingToolGroup.
         # The ``permissions`` prefix is owned by PermissionsToolGroup
         # (COMP-MC-008, REQ-L1-039).
+        # The ``admin`` prefix is owned by BackupToolGroup
+        # (COMP-MC-009, REQ-L1-046) — Disaster Recovery tools. The
+        # workspace-lifecycle AdminToolGroup keeps the ``workspace.``
+        # namespace; the two groups do not share a prefix.
         self.register_groups({
             "requirement": RequirementsToolGroup(),
             "architecture": ArchitectureToolGroup(),
@@ -206,6 +213,7 @@ class ToolRegistry:
             "artifact": CrossCuttingToolGroup(),
             "workspace": AdminToolGroup(),
             "permissions": PermissionsToolGroup(),
+            "admin": BackupToolGroup(),
         })
 
     def dispatch_request(

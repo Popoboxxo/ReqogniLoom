@@ -17,6 +17,8 @@ Registers:
   /api/v1/adrs/               AdrViewSet (REQ-L1-029)
   /api/v1/risks/              RiskViewSet (REQ-L1-029)
   /api/v1/issues/             IssueViewSet (REQ-L1-029)
+  /api/v1/admin/backups/      BackupListCreateView (REQ-L1-046)
+  /api/v1/admin/restore/      AdminRestoreView   (REQ-L1-046)
 
 Schema endpoints (served at project-level via drf-spectacular):
   /api/v1/schema/             SpectacularAPIView
@@ -32,6 +34,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from auth_tenancy.rest_item_permission import ItemPermissionViewSet
+from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.auth_views import LoginView, MeView
 from rest_api.diagram_views import DiagramViewSet
@@ -107,6 +110,19 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/permissions/",
         ItemPermissionViewSet.as_view(),
         name="workspace-item-permissions",
+    ),
+    # Disaster Recovery (REQ-L1-046) — admin-only.
+    # /admin/backups/  -> GET list, POST create
+    # /admin/restore/  -> POST restore (captcha "RESTORE")
+    path(
+        "admin/backups/",
+        BackupListCreateView.as_view(),
+        name="admin-backups",
+    ),
+    path(
+        "admin/restore/",
+        AdminRestoreView.as_view(),
+        name="admin-restore",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),
