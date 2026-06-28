@@ -70,6 +70,9 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "admin.backup_create",
     "admin.restore",
     "events.dlq_replay",
+    "user.create",
+    "user.assign_role",
+    "user.deactivate",
 )
 
 # ---------------------------------------------------------------------------
@@ -197,6 +200,7 @@ class ToolRegistry:
         from mcp_server.tools.permissions import PermissionsToolGroup
         from mcp_server.tools.audit import AuditToolGroup
         from mcp_server.tools.backup import BackupToolGroup
+        from mcp_server.tools.users import UsersToolGroup
 
         # ADR-L3-MC007-02: the ``workspace`` prefix is owned by AdminToolGroup,
         # which falls through non-lifecycle workspace.* tools (e.g.
@@ -212,6 +216,12 @@ class ToolRegistry:
         # and Domain-Event Dead-Letter Queue (list + replay). One
         # instance is shared so callers see a single AuditToolGroup no
         # matter which prefix they hit.
+        # The ``user`` prefix is owned by UsersToolGroup
+        # (COMP-MC-011, REQ-L1-046 admin user-management) — user
+        # create / assign_role / list / deactivate. The wrapper
+        # delegates role assignment to AuthorizationService
+        # (COMP-AT-002) so the RBAC matrix remains the single
+        # source of truth.
         audit_tool_group = AuditToolGroup()
         self.register_groups({
             "requirement": RequirementsToolGroup(),
@@ -224,6 +234,7 @@ class ToolRegistry:
             "admin": BackupToolGroup(),
             "audit": audit_tool_group,
             "events": audit_tool_group,
+            "user": UsersToolGroup(),
         })
 
     def dispatch_request(
