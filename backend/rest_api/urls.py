@@ -31,6 +31,7 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
+from auth_tenancy.rest_item_permission import ItemPermissionViewSet
 from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.auth_views import LoginView, MeView
 from rest_api.diagram_views import DiagramViewSet
@@ -100,6 +101,12 @@ urlpatterns = [
         "workspaces/<uuid:pk>/import/csv/",
         CsvImportView.as_view(),
         name="workspace-csv-import",
+    ),
+    # ItemPermission CRUD (REQ-L1-039, COMP-AT-005) — workspace-scoped, admin-only.
+    path(
+        "workspaces/<uuid:workspace_id>/permissions/",
+        ItemPermissionViewSet.as_view(),
+        name="workspace-item-permissions",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

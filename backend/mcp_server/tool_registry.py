@@ -65,6 +65,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "workspace.close",
     "workspace.reactivate",
     "workspace.delete",
+    "permissions.set_rule",
+    "permissions.revoke",
 )
 
 # ---------------------------------------------------------------------------
@@ -189,10 +191,13 @@ class ToolRegistry:
         from mcp_server.tools.tests import TestToolGroup
         from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
         from mcp_server.tools.admin import AdminToolGroup
+        from mcp_server.tools.permissions import PermissionsToolGroup
 
         # ADR-L3-MC007-02: the ``workspace`` prefix is owned by AdminToolGroup,
         # which falls through non-lifecycle workspace.* tools (e.g.
         # workspace.get_context) to a wrapped CrossCuttingToolGroup.
+        # The ``permissions`` prefix is owned by PermissionsToolGroup
+        # (COMP-MC-008, REQ-L1-039).
         self.register_groups({
             "requirement": RequirementsToolGroup(),
             "architecture": ArchitectureToolGroup(),
@@ -200,6 +205,7 @@ class ToolRegistry:
             "traceability": CrossCuttingToolGroup(),
             "artifact": CrossCuttingToolGroup(),
             "workspace": AdminToolGroup(),
+            "permissions": PermissionsToolGroup(),
         })
 
     def dispatch_request(
