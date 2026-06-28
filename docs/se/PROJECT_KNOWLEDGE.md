@@ -2,7 +2,8 @@
 
 > Fallback-Wissensnotiz bis Honcho vollständig konfiguriert ist.
 > Struktur: Destilliert aus IMPLEMENTATION_STATUS.md, STRATEGY.md, CLAUDE.md
-> Stand: 2026-06-25
+> Letzte Aktualisierung: 2026-06-28
+> Branch: `feat/se-implementation`
 
 ---
 
@@ -150,7 +151,71 @@ Alle drei Artefakttypen vollständig les- und schreibbar.
 
 ---
 
-## 8. Offene Integrations-Aufgaben (Wave 9)
+## 8. Architektur-Invarianten (operativ)
+
+### ReqFlow MCP-Server
+- **Tool-Aufrufe nutzen `method: "tool.name"` direkt** (NICHT `tools/call`). Das JSON-RPC-2.0-`method`-Feld enthält den Tool-Namen in dot-notation. Beispiel: `{"method": "requirement.query", "params": {...}}`.
+- **Authentifizierung:** API-Key via `X-API-Key`-Header ODER JWT via `Authorization: Bearer <token>`.
+- **TenantContext muss in Views explizit via `set_tenant()` aktiviert werden** — sonst schlagen Tenancy-abhängige Queries mit leerem Tenant-Filter fehl (Production-Bug-Fix vom 2026-06-28).
+- **Workspace-Kontext:** MCP-Tools arbeiten innerhalb eines Workspaces. `workspace.get_context` liefert die Liste der verfügbaren Workspaces.
+
+### Auth-Endpoints
+- **Login:** `POST /api/v1/auth/login/` mit `{"username": "...", "password": "..."}`.
+  - Response: `{"token": "<jwt>", "user": {...}, "tenant_id": "...", "roles": [...]}`
+  - LoginView ist PUBLIC (`authentication_classes = []`, `permission_classes = [AllowAny]`).
+- **Token-Validierung:** `GET /api/v1/auth/me/` — gibt authenticated user zurück.
+- **Token-Format:** JWT, `BearerTokenAuthentication`.
+
+### seed_demo — PFLICHT
+- Nach `migrate` ist die DB leer. `python manage.py seed_demo` MUSS vor dem ersten Login laufen.
+- **Default-Passwort:** aus `DEMO_ADMIN_PASSWORD` env var (Default `admin12345`).
+- **Idempotent:** Re-running ist sicher.
+- Erstellt: Tenant "demo", Workspace "Demo Workspace", User "admin" mit admin-Rolle.
+
+### Test-Struktur (verifiziert 2026-06-28)
+- Backend: 1599 Tests (pytest, `feat/se-implementation`)
+- E2E Playwright: 111 Tests
+- MCP E2E Suite: 150+ Tests (40+ Tools, alle 4 Transport-Channel)
+- **Collection-Error:** `traceability/tests/test_vcrm_report_generator.py` benötigt `reportlab` — pip-install behebt es, beeinflusst 1599 nicht.
+
+---
+
+## 9. Workflow-Konventionen
+
+### Commit-Konventionen
+- `feat(REQ-xxx): ...` für Features mit REQ-ID (req-traceability aktiv)
+- `fix(REQ-xxx): ...` für Bugfixes mit REQ-ID
+- `docs: ...` für Dokumentation (KEINE REQ-ID)
+- `chore: ...` für Wartung (KEINE REQ-ID)
+
+### Branch-Policy
+- Feature-Branches: `feat/<thema>`, `fix/<thema>`, `refactor/<thema>`
+- Direkt auf `main`: nur Version-Bump, einzelne Tippfehler (mit User-Bestätigung), Post-Merge-Pflege
+- **Niemals** ohne explizite User-Freigabe pushen oder mergen
+
+---
+
+## 10. Bekannte Stolperfallen
+
+| Problem | Ursache | Lösung |
+|---------|---------|--------|
+| Login schlägt mit 401 fehl | DB leer nach `migrate` | `python manage.py seed_demo` ausführen |
+| `pytest` findet keine Tests oder DB-Fehler | `DB_HOST` nicht gesetzt | `export DB_HOST=localhost` |
+| MCP-Tool schlägt mit leerem Tenant fehl | `set_tenant()` nicht in View | In jeder MCP-View am Anfang `set_tenant(request.user.tenant)` aufrufen |
+| `reportlab` Collection-Error | Modul fehlt im venv | `pip install reportlab` |
+
+---
+
+## 11. Offene Tech-Debt
+
+- `docs/se/traceability-matrix.md` endet bei REQ-L1-033 — REQ-L1-039/042/046 müssen nachgetragen werden
+- Coverage-Commit-Subjects enthalten keine REQ-IDs (akzeptabel für `docs:`, sollte aber konsistent dokumentiert sein)
+- 3 modifizierte Test-Files im Working Tree (`test_e2e_audit.py`, `test_e2e_performance.py`, `test_e2e_sse_transport.py`) — Relikte aus vorherigen Wellen, separate Aufarbeitung nötig
+- Lokale Commits ahead of origin, kein Push durchgeführt
+
+---
+
+## 12. Offene Integrations-Aufgaben (Wave 9)
 
 | Task | Blocker | Status |
 |------|---------|--------|
@@ -162,7 +227,7 @@ Alle drei Artefakttypen vollständig les- und schreibbar.
 
 ---
 
-## 9. Code-Konventionen
+## 13. Code-Konventionen
 
 **Python (PEP 8):**
 - Type Hints überall
@@ -185,7 +250,7 @@ Alle drei Artefakttypen vollständig les- und schreibbar.
 
 ---
 
-## 10. Wichtigste Dateipfade
+## 14. Wichtigste Dateipfade
 
 ```
 backend/
@@ -215,21 +280,21 @@ docs/se/
 
 ---
 
-## 11. Nächste Schritte (Resume nach Neubeginn)
+## 15. Nächste Schritte (Resume nach Neubeginn)
 
-1. **Branch prüfen:** `git branch --show-current` → sollte `feat/se-implementation` sein
-2. **Status checken:** `git log --oneline` gegen Tabelle in §3 abgleichen
-3. **Integrations-Blockers angehen** (§8) in dieser Reihenfolge:
+1. **Open Tech-Debt abarbeiten** (§11) — Traceability-Matrix erweitern, Working-Tree-Relikte klären, reportlab installieren
+2. **Push-Freigabe einholen** — lokale Commits ahead of origin, kein Push ohne Freigabe
+3. **Integrations-Blockers angehen** (§12) in dieser Reihenfolge:
    - AuditEntry-Index-Patch → Migration → pytest Start-Check
    - persistence makemigrations Sync
    - Celery-Wiring settings.py
 4. **Docker-Gesamttestlauf:** `docker-compose up && docker-compose exec backend pytest`
 5. **Diese Datei aktualisieren** nach Checkpoint-Commit
-6. **Orchestrator-Direktive anwenden** (§30 in IMPLEMENTATION_STATUS.md) für Tier-Auswahl bei neuen Features
+6. **Orchestrator-Direktive anwenden** (§18 in IMPLEMENTATION_STATUS.md) für Tier-Auswahl bei neuen Features
 
 ---
 
-## 12. Agenten-Dispatcher (SE-Kaskade)
+## 16. Agenten-Dispatcher (SE-Kaskade)
 
 Beim Dispatch über Orchestrator:
 
