@@ -1,12 +1,14 @@
 """
 ARCH-L1-011 AuthAndTenancy — service layer package.
 
-Re-exports the three component services so consumers import from a single place:
+Re-exports the component services so consumers import from a single place:
 
     from auth_tenancy.services import (
         AuthenticationService,   # COMP-AT-001
         AuthorizationService,    # COMP-AT-002
         TenantContextService,    # COMP-AT-003
+        ItemPermissionService,   # COMP-AT-005
+        PermissionCache,         # COMP-AT-005 (thread-local TTL cache)
     )
 """
 from __future__ import annotations
@@ -23,7 +25,13 @@ from .authorization import (
     Operation,
     PresetPolicyValidator,
 )
+from .item_permission import ItemPermissionService, PermissionDecision
 from .password_authentication import PasswordAuthenticationService
+from .permission_cache import (
+    DEFAULT_TTL_SECONDS,
+    CacheEntry,
+    PermissionCache,
+)
 from .tenant_context import TenantContextService
 
 __all__ = [
@@ -37,4 +45,9 @@ __all__ = [
     "Operation",
     "PresetPolicyValidator",
     "TenantContextService",
+    "ItemPermissionService",
+    "PermissionDecision",
+    "PermissionCache",
+    "DEFAULT_TTL_SECONDS",
+    "CacheEntry",
 ]

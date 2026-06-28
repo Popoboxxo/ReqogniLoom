@@ -1,5 +1,5 @@
 """
-ARCH-L1-011 AuthAndTenancy — Models (COMP-AT-001, COMP-AT-002).
+ARCH-L1-011 AuthAndTenancy — Models (COMP-AT-001, COMP-AT-002, COMP-AT-005).
 
 Defines the auth-specific persistent entities that do NOT live in the
 PersistenceLayer foundation:
@@ -7,16 +7,20 @@ PersistenceLayer foundation:
 * :class:`ApiKey` — hashed API-key record (COMP-AT-001, REQ-L3-AT001-002/003).
 * :class:`UserRole` — workspace-scoped RBAC role assignment (COMP-AT-002,
   REQ-L3-AT002-002/003, REQ-L2-AT-006).
+* :class:`ItemPermission` — item-level RBAC rules as defense-in-depth over the
+  coarse role matrix (COMP-AT-005, REQ-L1-039). Runs AFTER the RBAC check; can
+  only further restrict what RBAC already permits, never broaden it.
 
 Foundation contract (ADR-03): ``User``, ``Role``, ``Tenant``, ``Workspace`` and
 the abstract base classes are owned by ``persistence`` and imported, never
 re-defined here.
 
 Requirements: REQ-L3-AT001-002, REQ-L3-AT001-003, REQ-L3-AT002-002,
-  REQ-L3-AT002-003, REQ-L2-AT-006, REQ-L2-AT-009.
+  REQ-L3-AT002-003, REQ-L2-AT-006, REQ-L2-AT-009, REQ-L1-039.
 Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
   Components/COMP-AT-001_AuthenticationService/...,
-  Components/COMP-AT-002_AuthorizationService/...
+  Components/COMP-AT-002_AuthorizationService/...,
+  Components/COMP-AT-005_ItemPermissionStore/...
 """
 from __future__ import annotations
 
@@ -36,6 +40,17 @@ ROLE_CHOICES = (
     (ROLE_EDITOR, "Editor"),
     (ROLE_VIEWER, "Viewer"),
     (ROLE_APPROVER, "Approver"),
+)
+
+# Item-level permission levels (COMP-AT-005, REQ-L1-039).
+# ``none`` is an explicit-deny override; ``read``/``write`` grant the level.
+ITEM_PERMISSION_READ = "read"
+ITEM_PERMISSION_WRITE = "write"
+ITEM_PERMISSION_NONE = "none"
+ITEM_PERMISSION_LEVEL_CHOICES = (
+    (ITEM_PERMISSION_READ, "Read"),
+    (ITEM_PERMISSION_WRITE, "Write"),
+    (ITEM_PERMISSION_NONE, "None (explicit deny)"),
 )
 
 # Maximum number of simultaneously active API keys per user (REQ-L3-AT001-003).
@@ -135,13 +150,100 @@ class UserRole(TenantScopedModel):
         return self.suspended_at is None
 
 
+class ItemPermission(TenantScopedModel):
+    """Item-level permission rule (COMP-AT-005, REQ-L1-039).
+
+    Defense-in-depth over the coarse RBAC matrix: a rule applies to a single
+    user inside a single workspace, either to a specific artifact (artifact
+    FK set) or workspace-wide (artifact FK NULL). The ``permission_level``
+    choices are ``read``, ``write``, ``none`` — ``none`` is an explicit-deny
+    override that beats the workspace-wide default and the no-rule default.
+
+    ItemPermission runs AFTER the RBAC decision: if ``AuthorizationService``
+    denies an operation, ItemPermission is not consulted. If RBAC allows it,
+    ItemPermission may still deny at the item level (cannot broaden access).
+
+    Inherits ``TenantScopedModel`` so queries are automatically tenant-scoped
+    once a tenant context is active. The ``unscoped`` manager is available
+    for cross-tenant maintenance (e.g. data migration).
+    """
+
+    user = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="item_permissions",
+    )
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        related_name="item_permissions",
+    )
+    # ``artifact`` NULL = workspace-wide default for (user, workspace).
+    artifact = models.ForeignKey(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="item_permissions",
+    )
+    permission_level = models.CharField(
+        max_length=16,
+        choices=ITEM_PERMISSION_LEVEL_CHOICES,
+    )
+    granted_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "at_item_permission"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user", "workspace", "artifact"],
+                name="uq_itempermission_user_ws_artifact",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "workspace"],
+                name="idx_itempermission_user_ws",
+            ),
+            models.Index(
+                fields=["workspace", "artifact"],
+                name="idx_itempermission_ws_artifact",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        target = f"artifact:{self.artifact_id}" if self.artifact_id else "workspace-wide"
+        return f"ItemPermission({self.user_id}, {self.permission_level} @ {target})"
+
+    @property
+    def is_explicit_deny(self) -> bool:
+        """Return whether this rule is an explicit-deny override."""
+        return self.permission_level == ITEM_PERMISSION_NONE
+
+    @property
+    def is_workspace_wide(self) -> bool:
+        """Return whether this rule is a workspace-wide default (no artifact)."""
+        return self.artifact_id is None
+
+
 __all__ = [
     "ApiKey",
     "UserRole",
+    "ItemPermission",
     "ROLE_ADMIN",
     "ROLE_EDITOR",
     "ROLE_VIEWER",
     "ROLE_APPROVER",
     "ROLE_CHOICES",
+    "ITEM_PERMISSION_READ",
+    "ITEM_PERMISSION_WRITE",
+    "ITEM_PERMISSION_NONE",
+    "ITEM_PERMISSION_LEVEL_CHOICES",
     "MAX_ACTIVE_API_KEYS_PER_USER",
 ]
