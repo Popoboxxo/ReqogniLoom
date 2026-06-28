@@ -62,6 +62,9 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "test.link",
     "test.run_create",
     "test.run_report_results",
+    "workspace.close",
+    "workspace.reactivate",
+    "workspace.delete",
 )
 
 # ---------------------------------------------------------------------------
@@ -185,14 +188,18 @@ class ToolRegistry:
         from mcp_server.tools.architecture import ArchitectureToolGroup
         from mcp_server.tools.tests import TestToolGroup
         from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+        from mcp_server.tools.admin import AdminToolGroup
 
+        # ADR-L3-MC007-02: the ``workspace`` prefix is owned by AdminToolGroup,
+        # which falls through non-lifecycle workspace.* tools (e.g.
+        # workspace.get_context) to a wrapped CrossCuttingToolGroup.
         self.register_groups({
             "requirement": RequirementsToolGroup(),
             "architecture": ArchitectureToolGroup(),
             "test": TestToolGroup(),
             "traceability": CrossCuttingToolGroup(),
             "artifact": CrossCuttingToolGroup(),
-            "workspace": CrossCuttingToolGroup(),
+            "workspace": AdminToolGroup(),
         })
 
     def dispatch_request(
