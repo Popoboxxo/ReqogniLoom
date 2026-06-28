@@ -69,6 +69,7 @@ REQFLOW_APPS = [
     "icd",                 # ARCH-L1-014 IcdManagement
     "se_metrics",          # ARCH-L1-015 SeMetrics
     "resilience",          # ARCH-L1-016 ResilienceOrchestrator
+    "admin_ops",           # AdminOps — Disaster Recovery foundation (REQ-L1-046)
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + REQFLOW_APPS
