@@ -19,6 +19,7 @@ Registers:
   /api/v1/issues/             IssueViewSet (REQ-L1-029)
   /api/v1/admin/backups/      BackupListCreateView (REQ-L1-046)
   /api/v1/admin/restore/      AdminRestoreView   (REQ-L1-046)
+  /api/v1/users/me/preferences/ UserPreferenceView (REQ-L1-027)
 
 Schema endpoints (served at project-level via drf-spectacular):
   /api/v1/schema/             SpectacularAPIView
@@ -40,6 +41,7 @@ from rest_api.auth_views import LoginView, MeView
 from rest_api.diagram_views import DiagramViewSet
 from rest_api.icd_views import IcdViewSet
 from rest_api.metrics_views import MetricsViewSet
+from rest_api.preference_views import UserPreferenceView
 from rest_api.views import (
     AdrViewSet,
     ArtifactViewSet,
@@ -123,6 +125,12 @@ urlpatterns = [
         "admin/restore/",
         AdminRestoreView.as_view(),
         name="admin-restore",
+    ),
+    # User workspace preferences (REQ-L1-027) — per-user visibility overrides.
+    path(
+        "users/me/preferences/",
+        UserPreferenceView.as_view(),
+        name="user-preferences",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

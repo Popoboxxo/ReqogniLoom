@@ -232,10 +232,54 @@ class ItemPermission(TenantScopedModel):
         return self.artifact_id is None
 
 
+class UserWorkspacePreference(TenantScopedModel):
+    """Per-user visibility overrides for optional workspace artifacts (REQ-L1-027).
+
+    Stores a JSON dict of feature-key → bool overrides that are merged on top of
+    the workspace preset defaults (PRESET_VISIBILITY).  When no row exists for a
+    (user, workspace) pair the preset defaults apply unchanged (backward-compatible).
+
+    Inherits ``TenantScopedModel`` so queries are automatically tenant-scoped.
+    """
+
+    user = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="workspace_preferences",
+    )
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        related_name="user_preferences",
+    )
+    optional_artifact_visibility = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "at_user_workspace_preference"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user", "workspace"],
+                name="uq_userpref_tenant_user_ws",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "workspace"],
+                name="idx_userpref_user_ws",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"UserWorkspacePreference({self.user_id}, ws={self.workspace_id})"
+        )
+
+
 __all__ = [
     "ApiKey",
     "UserRole",
     "ItemPermission",
+    "UserWorkspacePreference",
     "ROLE_ADMIN",
     "ROLE_EDITOR",
     "ROLE_VIEWER",

@@ -1,0 +1,129 @@
+"""
+REQ-L1-027 — UserWorkspacePreference service tests.
+
+Covers:
+* PreferenceService.get_preference — returns None when no row exists.
+* PreferenceService.get_or_create_preference — idempotent creation.
+* PreferenceService.update_visibility — merge semantics.
+* PreferenceService.get_effective_visibility — preset + override merge.
+* UserWorkspacePreference model — unique constraint.
+"""
+from __future__ import annotations
+
+import pytest
+
+from auth_tenancy.models import UserWorkspacePreference
+from auth_tenancy.services import PreferenceService
+
+from .conftest import active_tenant
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestPreferenceService:
+    """Integration tests for PreferenceService (REQ-L1-027)."""
+
+    def test_get_preference_returns_none_when_missing(
+        self, tenant_a, user_a, workspace_a
+    ):
+        svc = PreferenceService()
+        with active_tenant(tenant_a):
+            result = svc.get_preference(user_a.id, workspace_a.id)
+        assert result is None
+
+    def test_get_or_create_preference_creates_blank(
+        self, tenant_a, user_a, workspace_a
+    ):
+        svc = PreferenceService()
+        with active_tenant(tenant_a):
+            pref = svc.get_or_create_preference(user_a.id, workspace_a.id)
+            assert pref.optional_artifact_visibility == {}
+            assert pref.user_id == user_a.id
+            assert pref.workspace_id == workspace_a.id
+
+    def test_get_or_create_preference_is_idempotent(
+        self, tenant_a, user_a, workspace_a
+    ):
+        svc = PreferenceService()
+        with active_tenant(tenant_a):
+            pref1 = svc.get_or_create_preference(user_a.id, workspace_a.id)
+            pref2 = svc.get_or_create_preference(user_a.id, workspace_a.id)
+            assert pref1.pk == pref2.pk
+
+    def test_update_visibility_merges_overrides(
+        self, tenant_a, user_a, workspace_a
+    ):
+        svc = PreferenceService()
+        with active_tenant(tenant_a):
+            # First update: creates row with initial overrides
+            pref = svc.update_visibility(
+                user_a.id, workspace_a.id, {"adr": False, "risk": True}
+            )
+            assert pref.optional_artifact_visibility == {"adr": False, "risk": True}
+
+            # Second update: merges, does not replace
+            pref = svc.update_visibility(
+                user_a.id, workspace_a.id, {"issue": False}
+            )
+            assert pref.optional_artifact_visibility == {
+                "adr": False,
+                "risk": True,
+                "issue": False,
+            }
+
+    def test_update_visibility_overwrites_existing_key(
+        self, tenant_a, user_a, workspace_a
+    ):
+        svc = PreferenceService()
+        with active_tenant(tenant_a):
+            svc.update_visibility(user_a.id, workspace_a.id, {"adr": False})
+            pref = svc.update_visibility(user_a.id, workspace_a.id, {"adr": True})
+            assert pref.optional_artifact_visibility["adr"] is True
+
+    def test_get_effective_visibility_no_preference(
+        self, tenant_a, user_a, workspace_a
+    ):
+        svc = PreferenceService()
+        preset_map = {"adr": True, "risk": True, "issue": True}
+        with active_tenant(tenant_a):
+            result = svc.get_effective_visibility(
+                user_a.id, workspace_a.id, preset_map
+            )
+        assert result == preset_map
+
+    def test_get_effective_visibility_with_overrides(
+        self, tenant_a, user_a, workspace_a
+    ):
+        svc = PreferenceService()
+        preset_map = {"adr": True, "risk": True, "issue": True}
+        with active_tenant(tenant_a):
+            svc.update_visibility(user_a.id, workspace_a.id, {"adr": False})
+            result = svc.get_effective_visibility(
+                user_a.id, workspace_a.id, preset_map
+            )
+        assert result == {"adr": False, "risk": True, "issue": True}
+
+    def test_unique_constraint_per_tenant_user_workspace(
+        self, tenant_a, user_a, workspace_a
+    ):
+        """Creating two preferences for (tenant, user, workspace) raises."""
+        from django.db import IntegrityError
+
+        with active_tenant(tenant_a):
+            UserWorkspacePreference.objects.create(
+                tenant=tenant_a,
+                user=user_a,
+                workspace=workspace_a,
+                optional_artifact_visibility={"adr": False},
+            )
+            with pytest.raises(IntegrityError):
+                UserWorkspacePreference.objects.create(
+                    tenant=tenant_a,
+                    user=user_a,
+                    workspace=workspace_a,
+                    optional_artifact_visibility={"risk": False},
+                )

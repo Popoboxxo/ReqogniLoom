@@ -32,6 +32,7 @@ from .permission_cache import (
     CacheEntry,
     PermissionCache,
 )
+from .preference_service import PreferenceService
 from .tenant_context import TenantContextService
 
 __all__ = [
@@ -50,4 +51,5 @@ __all__ = [
     "PermissionCache",
     "DEFAULT_TTL_SECONDS",
     "CacheEntry",
+    "PreferenceService",
 ]
