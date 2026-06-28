@@ -37,22 +37,9 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from traceability.types import VALID_LINK_TYPES  # REQ-L1-030: single source of truth
 
 logger = logging.getLogger(__name__)
-
-# Valid TraceLink types (mirrors traceability.types.VALID_LINK_TYPES)
-VALID_LINK_TYPES = frozenset(
-    {
-        "parent-child",
-        "derives-from",
-        "satisfies",
-        "verifies",
-        "implements",
-        "refines",
-        "traces",
-        "copy-of",
-    }
-)
 
 
 class TraceLinkService(ServiceBase):

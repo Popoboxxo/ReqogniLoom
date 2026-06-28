@@ -17,8 +17,9 @@ from typing import Optional
 
 
 # ---------------------------------------------------------------------------
-# Link-Type Enum (8 types per L1-Arch §3.4 extension)
+# Link-Type Enum (10 types — harmonized union from COMP-TE-001 / COMP-AS-005)
 # REQ-L2-TE-001: 6 base types + 2 new (documents, realizes)
+# REQ-L1-030:    + traces, copy-of (harmonized with COMP-AS-005)
 # ---------------------------------------------------------------------------
 
 class LinkType(str, Enum):
@@ -38,6 +39,9 @@ class LinkType(str, Enum):
     # L1-Arch §3.4 extensions:
     DOCUMENTS = "documents"
     REALIZES = "realizes"
+    # REQ-L1-030 harmonization (from COMP-AS-005):
+    TRACES = "traces"
+    COPY_OF = "copy-of"
 
     @classmethod
     def values(cls) -> frozenset[str]:

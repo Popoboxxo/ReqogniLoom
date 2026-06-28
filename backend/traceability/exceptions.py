@@ -15,10 +15,11 @@ class TraceLinkError(Exception):
 
 
 class InvalidLinkTypeError(TraceLinkError):
-    """Raised when a link_type value is not in the 8 valid types.
+    """Raised when a link_type value is not in the 10 valid types.
 
-    REQ-L2-TE-001: validates 8 link types (parent-child, derives-from,
-    satisfies, verifies, implements, refines, documents, realizes).
+    REQ-L2-TE-001 + REQ-L1-030: validates 10 link types (parent-child,
+    derives-from, satisfies, verifies, implements, refines, documents,
+    realizes, traces, copy-of).
     """
 
     def __init__(self, link_type: str) -> None:
