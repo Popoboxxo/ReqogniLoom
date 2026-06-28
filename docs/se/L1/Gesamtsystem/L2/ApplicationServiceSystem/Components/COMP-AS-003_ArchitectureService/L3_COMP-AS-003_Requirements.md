@@ -36,6 +36,13 @@ ArchitectureElement-CRUD, automatische Versions-Inkrementierung (Optimistic Lock
 
 ### REQ-L3-AS003-001: ArchitectureElement CRUD mit Typ-Validierung
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der ArchitectureService SHALL vollstaendiges CRUD fuer ArchitectureElements bereitstellen. Unterstuetzte `element_type`-Werte: `Component`, `Interface`, `Subsystem`, `Layer`, `Module`. Bei Create: Version auf 1 setzen und initialen WorkflowState anlegen. Ungueltige element_type-Werte werden vor Persistierung abgelehnt.
 
 **Priority:** mandatory
@@ -50,6 +57,13 @@ Der ArchitectureService SHALL vollstaendiges CRUD fuer ArchitectureElements bere
 
 ### REQ-L3-AS003-002: Optimistic Locking bei Update
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der ArchitectureService SHALL bei jeder Update-Operation die uebergebene `expected_version` mit der gespeicherten Version vergleichen. Bei Uebereinstimmung: Datensatz aktualisieren und Version automatisch inkrementieren. Bei Abweichung: Operation abbrechen mit `OptimisticLockError`.
 
 **Priority:** mandatory
@@ -63,6 +77,13 @@ Der ArchitectureService SHALL bei jeder Update-Operation die uebergebene `expect
 ---
 
 ### REQ-L3-AS003-003: Domain-Event-Publikation nach Mutation
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der ArchitectureService SHALL nach jeder erfolgreichen Create-, Update- oder Delete-Operation ein typisiertes Domain-Event im selben Transaktionskontext (Outbox) an den DomainEventBus publizieren. Bei Rollback der Mutation darf kein Event publiziert werden.
 

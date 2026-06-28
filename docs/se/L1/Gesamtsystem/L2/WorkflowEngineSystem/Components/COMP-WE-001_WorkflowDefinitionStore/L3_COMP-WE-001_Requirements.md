@@ -43,6 +43,13 @@ CRUD fuer WorkflowDefinitions pro Item-Typ und Workspace, Default-Templates pro 
 
 ### REQ-L3-WE001-001: Preset-Default-Workflow-Bereitstellung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der WorkflowDefinitionStore SHALL fuer jeden neuen Workspace automatisch einen vordefinierten Default-Workflow gemaess dem Workspace-Preset bereitstellen: Minimal (`[draft, done]`, alle Transitionen fuer `editor`), Standard (`[draft, approved, deprecated]`, rollenbasiert), Extended (`[draft, in_review, approved, deprecated]`, `in_review → approved` nur fuer `approver`, `change_reason` Pflicht). Im Minimal-Preset SHALL der Default-Workflow unveraenderbar sein.
 
 **Priority:** mandatory
@@ -55,6 +62,13 @@ Der WorkflowDefinitionStore SHALL fuer jeden neuen Workspace automatisch einen v
 ---
 
 ### REQ-L3-WE001-002: Custom-WorkflowDefinition-Validierung und -Persistenz
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der WorkflowDefinitionStore SHALL Custom-WorkflowDefinitions ausschliesslich im Extended-Preset akzeptieren, auf Vollstaendigkeit pruefen (mindestens 2 States, mindestens 1 Transition, jede Transition referenziert vorhandene States) und persistieren. Jede Transition-Definition KANN optional ein `signature_gate: true`-Attribut tragen; dieses SHALL unveraendert gespeichert und ueber IF-WE-INT-001 an den TransitionValidator uebergeben werden.
 
@@ -69,6 +83,13 @@ Der WorkflowDefinitionStore SHALL Custom-WorkflowDefinitions ausschliesslich im 
 
 ### REQ-L3-WE001-003: Orphaned-State-Pruefung bei Definitionsaenderung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der WorkflowDefinitionStore SHALL vor jeder Aenderung einer aktiven WorkflowDefinition pruefen, ob Items in States existieren, die nach der Aenderung nicht mehr in der Definition vorhanden waeren (verwaiste States). Existieren solche Items, SHALL die Aenderung blockiert werden mit einer Fehlermeldung, die State-Name, Anzahl betroffener Items und bis zu 100 Item-IDs enthaelt.
 
 **Priority:** desired
@@ -81,6 +102,13 @@ Der WorkflowDefinitionStore SHALL vor jeder Aenderung einer aktiven WorkflowDefi
 ---
 
 ### REQ-L3-WE001-004: Preset-Downgrade-Blockade
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der WorkflowDefinitionStore SHALL bei einem Preset-Downgrade (z.B. Extended → Standard, Standard → Minimal) pruefen, ob Items in States existieren, die im Zielpreset nicht vorhanden sind. Existieren solche Items, SHALL der Downgrade blockiert werden.
 

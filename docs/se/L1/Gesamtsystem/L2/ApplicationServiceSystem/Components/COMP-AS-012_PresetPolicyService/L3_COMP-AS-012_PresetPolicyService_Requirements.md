@@ -59,6 +59,11 @@ Der PresetPolicyService SHALL vor Baseline-Erstellung verifizieren, ob der angef
 - [ ] Error-Nachricht erklärt Blockierungsgrund
 
 **Interfaces:** IF-AS-INT-006, IF-AS-EXT-OUT-004
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-020
 **Rationale:** Preset-Scopes begrenzen Baseline-Erstellung auf konzeptuell erlaubte Ebenen.
 
@@ -80,6 +85,11 @@ Returns `true` wenn Preset Enhanced oder Extended ist und change_reason Pflichtf
 - [ ] Workspace-spezifisches Preset wird konsultiert (nicht Global)
 
 **Interfaces:** IF-AS-INT-008, IF-AS-EXT-OUT-004
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-020
 **Rationale:** Configurable Rigor auf Requirement-Mutation-Ebene.
 
@@ -102,6 +112,11 @@ Basierend auf dem WorkflowDefinition des Items und den Rollen im auth_context.
 - [ ] `false` + Error-Nachricht wenn Rollen fehlen
 
 **Interfaces:** IF-AS-INT-007, IF-AS-EXT-OUT-004
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-020
 **Rationale:** Zugriffskontrolle auf Workflow-State-Transitions.
 
@@ -123,6 +138,11 @@ Beispiel: Extended-Preset erlaubt Enumerationen, Basic nicht → Downgrade block
 - [ ] Item-ID und Inkompatibilitäts-Grund werden gemeldet
 
 **Interfaces:** IF-AS-INT-008, IF-AS-EXT-OUT-004, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-020
 **Rationale:** Datenintegrität bei Preset-Änderungen (OP-02 Handling).
 
@@ -141,6 +161,11 @@ Der PresetPolicyService SHALL Preset-Definitionen für bis zu 5 Minuten im In-Me
 - [ ] Cache-Fehler triggert Fallback zu Live-Query
 
 **Interfaces:** IF-AS-EXT-OUT-004
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-023
 **Rationale:** Performance-Optimierung für häufige Policy-Abfragen.
 
@@ -159,6 +184,11 @@ Der PresetPolicyService SHALL immer das Preset der angeforderten Workspace konsu
 - [ ] Keine Cross-Workspace-Policy-Anwendung
 
 **Interfaces:** IF-AS-INT-006, IF-AS-INT-007, IF-AS-INT-008
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-020
 **Rationale:** Granulare Konfigurierbarkeit auf Workspace-Ebene.
 
@@ -180,6 +210,11 @@ Dies ermöglicht zukünftige Policy-Erweiterungen ohne Schnittstellen-Änderunge
 - [ ] Default-Wert wird zurückgegeben wenn Key nicht im Preset definiert
 
 **Interfaces:** IF-AS-EXT-OUT-004
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-020
 **Rationale:** Extensibilität für zukünftige Policy-Typen.
 
@@ -198,6 +233,11 @@ Der PresetPolicyService SHALL bei Policy-Violations Fehler mit strukturierter Na
 - [ ] AuditLog optional per config aktivierbar
 
 **Interfaces:** IF-AS-INT-006, IF-AS-INT-007, IF-AS-INT-008
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-020
 **Rationale:** Transparenz und Debugging.
 

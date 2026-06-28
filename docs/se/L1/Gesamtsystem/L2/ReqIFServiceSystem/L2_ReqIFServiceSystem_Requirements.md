@@ -46,6 +46,11 @@ Der ReqIFService SHALL ReqIF-Dateien (.reqif) importieren und SpecObjects, SpecR
 - Incoming: IF-RQ-EXT-IN-001
 - Outgoing: IF-RQ-EXT-OUT-001, IF-RQ-EXT-OUT-002
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-034
 **Rationale:** ReqIF-Import ermöglicht Migration aus DOORS/Polarion in regulierten Industrien.
 
@@ -68,6 +73,11 @@ Der ReqIFService SHALL interne Artefakte (Requirements, ArchitectureElements, Tr
 **Interfaces:**
 - Incoming: IF-RQ-EXT-IN-001
 - Outgoing: IF-RQ-EXT-OUT-001, IF-RQ-EXT-OUT-002
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-034
 **Rationale:** ReqIF-Export ermöglicht Austausch mit externen Tools in regulierten Projekten.

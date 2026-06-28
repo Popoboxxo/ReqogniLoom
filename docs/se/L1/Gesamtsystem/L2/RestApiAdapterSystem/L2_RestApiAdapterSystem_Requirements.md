@@ -51,6 +51,11 @@ Der RestApiAdapter SHALL vollständige CRUD-Endpunkte (GET list, GET detail, POS
 - Outgoing: IF-RA-EXT-OUT-001
 - Internal: IF-RA-EXT-OUT-005
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-006
 **Rationale:** Programmatischer Zugriff auf alle Artefakttypen via REST ist die Grundlage für CI/CD-Integration.
 
@@ -69,6 +74,11 @@ Der RestApiAdapter SHALL eine vollständige, auto-generierte OpenAPI 3.0 Spezifi
 
 **Interfaces:**
 - Outgoing: IF-RA-EXT-OUT-002, IF-RA-EXT-OUT-003
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-006
 **Rationale:** Maschinenlesbarer Kontext und Typ-sichere Client-Generierung.
@@ -89,6 +99,11 @@ Der RestApiAdapter SHALL auf Standard-Queries (GET list, GET detail) innerhalb v
 **Interfaces:**
 - Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
 - Outgoing: IF-RA-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-026, REQ-L1-006 (mitwirkend)
 **Rationale:** Performance ist entscheidend für die Akzeptanz der Zielgruppe. N+1-Vermeidung ist strukturelle Voraussetzung für das Latenz-Ziel bei verschachtelten Responses.
@@ -111,6 +126,11 @@ Der RestApiAdapter SHALL alle API-Fehlermeldungen in Deutsch und Englisch bereit
 - Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002 (Accept-Language Header)
 - Outgoing: IF-RA-EXT-OUT-001 (Lokalisierte Fehlermeldung)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-016
 **Rationale:** REQ-L1-016 fordert zweiseitige Fehlermeldungen.
 
@@ -132,6 +152,11 @@ Der RestApiAdapter SHALL Bearer-Token-Authentifizierung auf allen API-Endpunkten
 - Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
 - Outgoing: IF-RA-EXT-OUT-001
 - Internal: IF-RA-EXT-OUT-004
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-006, REQ-L1-010 (mitwirkend)
 **Rationale:** Token-basierte Auth ist Voraussetzung für sichere API-Nutzung und RBAC.
@@ -156,6 +181,11 @@ Der RestApiAdapter SHALL rollenbasierte Zugriffskontrolle für jede API-Operatio
 - Outgoing: IF-RA-EXT-OUT-001
 - Internal: IF-RA-EXT-OUT-004
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-010
 **Rationale:** Rollenbasierte Zugriffskontrolle ist Voraussetzung für Approval-Workflows.
 
@@ -177,6 +207,11 @@ Der RestApiAdapter SHALL sicherstellen, dass jede Schreiboperation (POST, PATCH,
 - Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
 - Outgoing: IF-RA-EXT-OUT-001
 - Internal: IF-RA-EXT-OUT-005
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-011 (mitwirkend)
 **Rationale:** Vollständige Auditierbarkeit aller Änderungen.
@@ -200,6 +235,11 @@ Der RestApiAdapter SHALL zur Laufzeit die PresetConfigEngine konsultieren, um zu
 - Outgoing: IF-RA-EXT-OUT-001
 - Internal: IF-RA-EXT-OUT-006
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007 (mitwirkend)
 **Rationale:** Configurable Rigor — Preset-Konfiguration steuert den Funktionsumfang.
 
@@ -218,6 +258,11 @@ Der RestApiAdapter SHALL standardisierte HTTP-Statuscodes und ein konsistentes J
 
 **Interfaces:**
 - Outgoing: IF-RA-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-006
 **Rationale:** Vorhersehbare, typ-sichere API-Responses für Client-Integration.
@@ -241,6 +286,11 @@ Der RestApiAdapter SOLLTE Pagination, Filtering und Sorting auf allen Listen-End
 - Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
 - Outgoing: IF-RA-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-006
 **Rationale:** Effiziente Navigation großer Datenmengen.
 
@@ -262,6 +312,11 @@ Der RestApiAdapter SHALL den aktiven Tenant aus dem authentifizierten Token extr
 - Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
 - Outgoing: IF-RA-EXT-OUT-001
 - Internal: IF-RA-EXT-OUT-004, IF-RA-EXT-OUT-005
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-015 (mitwirkend)
 **Rationale:** Multi-Tenancy-Vorbereitung mit Row-Level-Isolation.
@@ -285,6 +340,11 @@ Der RestApiAdapter DARF KEINE Geschäftslogik implementieren. Der Adapter SHALL 
 - Outgoing: IF-RA-EXT-OUT-001
 - Internal: IF-RA-EXT-OUT-005
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-006
 **Rationale:** Klare Schichtentrennung verhindert Duplizierung zwischen REST und MCP.
 
@@ -307,6 +367,11 @@ Der RestApiAdapter SHALL für alle List- und Detail-Endpunkte, die verschachtelt
 - Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
 - Outgoing: IF-RA-EXT-OUT-001
 - Internal: IF-RA-EXT-OUT-005
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-026 (primär), REQ-L1-006 (mitwirkend)
 **Rationale:** DRF erzeugt bei verschachtelten Serialisierungen ohne explizite Queryset-Optimierung N+1-Queries. Bei 10.000 Requirements mit TraceLinks überschreitet dies das 200ms-Latenz-Ziel von REQ-L2-RA-003 um ein Vielfaches. Redis-Caching für Baumstrukturen reduziert die DB-Last bei häufig wiederholten Read-Zugriffen.

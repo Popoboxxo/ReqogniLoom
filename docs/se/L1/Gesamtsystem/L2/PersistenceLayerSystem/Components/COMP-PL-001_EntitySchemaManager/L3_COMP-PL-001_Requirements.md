@@ -46,6 +46,13 @@ Django ORM-Modelle fuer alle 13 Domain-Entitaeten, Audit-Felder, Foreign-Key-Con
 
 ### REQ-L3-PL001-001: Vollstaendige Entity-Modell-Definition
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der EntitySchemaManager MUSS fuer alle 13 Domain-Entitaeten (Tenant, Workspace, Artifact, Requirement, ArchitectureElement, TraceLink, TestCase, Baseline, WorkflowDefinition, WorkflowState, AuditLogEntry, User, Role) je eine Django-Model-Klasse in `requirements_app/models.py` bereitstellen. Jede Modell-Klasse MUSS eine explizite `Meta.db_table`-Benennung und alle semantisch notwendigen Felder enthalten.
 
 **Priority:** mandatory
@@ -58,6 +65,13 @@ Der EntitySchemaManager MUSS fuer alle 13 Domain-Entitaeten (Tenant, Workspace, 
 ---
 
 ### REQ-L3-PL001-002: Audit-Basisklasse mit automatischer Befuellung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der EntitySchemaManager MUSS eine abstrakte Django-Basisklasse `AuditableModel` bereitstellen, die die Felder `created_at`, `created_by`, `modified_at`, `modified_by` und `version` (Integer, Startwert 1) definiert. `created_at` und `modified_at` MUESSEN als `DateTimeField(auto_now_add)` bzw. `DateTimeField(auto_now)` implementiert sein. Alle schreibbaren Domain-Entitaeten MUESSEN von `AuditableModel` erben. `version` MUSS bei jedem Update via `F('version') + 1` atomar inkrementiert werden.
 
@@ -73,6 +87,13 @@ Der EntitySchemaManager MUSS eine abstrakte Django-Basisklasse `AuditableModel` 
 
 ### REQ-L3-PL001-003: Semantisch korrekte FK-Constraints und Kaskadenregeln
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der EntitySchemaManager MUSS alle Foreign-Key-Beziehungen zwischen den 13 Entitaeten mit expliziten `on_delete`-Regeln deklarieren: CASCADE fuer Kinder-Entitaeten (z.B. Requirement loescht TraceLinks), PROTECT fuer uebergeordnete Stammdaten (z.B. Tenant), SET_NULL fuer optionale Verknuepfungen auf Audit-Felder (`created_by`, `modified_by`). Keine FK-Beziehung DARF ohne explizites `on_delete` deklariert werden.
 
 **Priority:** mandatory
@@ -85,6 +106,13 @@ Der EntitySchemaManager MUSS alle Foreign-Key-Beziehungen zwischen den 13 Entita
 ---
 
 ### REQ-L3-PL001-004: Tenant-ID-Pflichtfeld auf mandantenspezifischen Entitaeten
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der EntitySchemaManager MUSS auf allen mandantenspezifischen Entitaeten (alle ausser Tenant selbst) ein `tenant` ForeignKey-Feld zu `Tenant` mit `on_delete=PROTECT` und `db_index=True` bereitstellen. Das Feld DARF nicht nullable sein. Tenant- und User-Modell sind von dieser Pflicht ausgenommen.
 

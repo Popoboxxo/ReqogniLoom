@@ -38,6 +38,13 @@ Implementierung der fuenf Test-Tools: `test.get`, `test.query`, `test.create`, `
 
 ### REQ-L3-MC005-001: Implementierung der fuenf Test-Tools
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Die TestToolGroup SHALL die fuenf Tools `test.get`, `test.query`, `test.create`, `test.update` und `test.link` implementieren. `test.create` SHALL als Pflichtparameter `title`, `type` und optional `linked_req_id` unterstuetzen; bei Angabe von `linked_req_id` SHALL automatisch ein TraceLink vom Typ `verifies` erzeugt werden.
 
 **Priority:** mandatory
@@ -54,6 +61,13 @@ Die TestToolGroup SHALL die fuenf Tools `test.get`, `test.query`, `test.create`,
 
 ### REQ-L3-MC005-002: Test-Status-Aktualisierung via test.update
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Das Tool `test.update` SHALL das Schreiben des Test-Status (Passed, Failed, Not Run) fuer einen bestehenden TestCase ermgoelichen. Der Status SHALL gegen die erlaubten Werte validiert werden. Nach erfolgreicher Aktualisierung SHALL der neue Status im zurueckgegebenen TestCase-Objekt enthalten sein.
 
 **Priority:** mandatory
@@ -68,6 +82,13 @@ Das Tool `test.update` SHALL das Schreiben des Test-Status (Passed, Failed, Not 
 ---
 
 ### REQ-L3-MC005-003: TraceLink-Erzeugung via test.link und AuditLog
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Das Tool `test.link` SHALL einen nachtraeglichen TraceLink vom Typ `verifies` zwischen einem TestCase und einem Requirement erzeugen. Fuer alle schreibenden Operationen (create, update, link) SHALL die TestToolGroup einen AuditLog-Eintrag ueber den ApplicationService erzeugen, der Agent-Identitaet, API-Key-Hash, Tool-Name, betroffene Entitaets-IDs und Zeitstempel enthaelt.
 

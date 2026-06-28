@@ -34,6 +34,11 @@ sowohl Software-Teams (Epic → Story → Task) als auch Systems Engineers
 **Externe Interfaces:**
 - Eingang: Nutzer- oder Agenten-Anfrage (synchrone Web-API / MCP) mit Artefakt-Daten
 - Ausgang: Erstelltes / geändertes / gelöschtes Artefakt mit UUID und Hierarchiepfad
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-002, REQ-L0-003
 
 ---
@@ -52,6 +57,11 @@ Grundlage für Configurable Rigor und ersetzt den hartcodierten status-Enum.
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage mit Requirement-Daten, Workflow-State-Übergang, optionalem change_reason
 - Ausgang: Requirement mit aktuellem WorkflowState und Audit-History
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-002, REQ-L0-005
 
 ---
@@ -70,6 +80,11 @@ Coverage-Reports und AI-gestützte Konsistenz-Prüfungen.
 **Externe Interfaces:**
 - Eingang: TraceLink-Erstellungs- oder Query-Anfrage mit Source/Target-IDs und Link-Type
 - Ausgang: TraceLink-Liste oder Upstream/Downstream-Graph mit Typ-Annotation
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-003
 
 ---
@@ -88,6 +103,11 @@ Architektur-Verwaltung und vollständigen MCP-Zugriff für Architektur-Agenten.
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage mit ArchitectureElement-Daten (element_type, title, description)
 - Ausgang: ArchitectureElement mit UUID, WorkflowState, verknüpften TraceLinks
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-003
 
 ---
@@ -106,6 +126,11 @@ Read/Write-Zugriff ist Voraussetzung für alle primären AI-Workflows.
 **Externe Interfaces:**
 - Eingang: MCP-Tool-Aufruf mit Tool-Name, Parametern und API-Key
 - Ausgang: Strukturierte Tool-Response (JSON); Audit-Log-Eintrag bei Schreiboperationen
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-001, REQ-L0-012
 
 ---
@@ -127,6 +152,11 @@ ermöglicht Typ-sichere Client-Generierung und Integration-Tests.
 **Externe Interfaces:**
 - Eingang: API-Anfrage (synchrones Netzwerkprotokoll) mit Token, strukturiertem Payload
 - Ausgang: Strukturierte Response, Status-Indikator, Metadaten-Endpunkt für API-Spezifikation
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-001, REQ-L0-012
 
 ---
@@ -145,6 +175,11 @@ Zielgruppen-spezifische Code-Pfade.
 **Externe Interfaces:**
 - Eingang: Preset-Konfiguration (JSON) auf Workspace-Ebene via API oder UI
 - Ausgang: Workspace mit aktiven Preset-Regeln; UI blendet Funktionen ein/aus
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-002
 
 ---
@@ -163,6 +198,11 @@ für Compliance-Nachweise; drei Ebenen decken alle Übergabe-Szenarien ab.
 **Externe Interfaces:**
 - Eingang: Baseline-Erstellungsanfrage mit Scope, Name und optionaler Beschreibung
 - Ausgang: Unveränderliche Baseline mit JSON-Snapshot und Erstellungszeitpunkt
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-004
 
 ---
@@ -182,6 +222,11 @@ nicht-verhandelbar für regulierte Umgebungen.
 **Externe Interfaces:**
 - Eingang: Workflow-Transition-Anfrage mit Item-ID, Ziel-State, optionalem change_reason, Nutzer-Kontext
 - Ausgang: Aktualisierter WorkflowState mit History-Eintrag; Fehler bei unerlaubter Transition
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-005
 
 ---
@@ -199,6 +244,11 @@ und sichere MCP-Schreibzugriffe.
 **Externe Interfaces:**
 - Eingang: Authentifizierungstoken (Bearer / API Key) mit Nutzer-Kontext
 - Ausgang: Berechtigungsentscheid (allow/deny) pro Operation und Ressource
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-005
 
 ---
@@ -220,6 +270,11 @@ MCP-Audit-Log ist Voraussetzung für sicheren Agenten-Schreibzugriff.
 **Externe Interfaces:**
 - Eingang: Jede schreibende Operation (synchrone Web-API / MCP) mit Nutzer- oder Agenten-Kontext
 - Ausgang: Audit-Log-Eintrag; Entität mit aktualisierten Audit-Feldern
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-011
 
 ---
@@ -238,6 +293,11 @@ ist Grundlage für AI-gestützte Test-Lücken-Analyse.
 **Externe Interfaces:**
 - Eingang: TestCase-CRUD-Anfrage; TraceLink-Anfrage (verifies) zwischen TestCase und Requirement
 - Ausgang: TestCase mit WorkflowState; Coverage-Report (Requirement → Test-Abdeckung)
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-003
 
 ---
@@ -256,6 +316,11 @@ LLM-Zugang darf keine Kernfunktionalität verlieren (Self-Hosted-Zielgruppe).
 **Externe Interfaces:**
 - Eingang: LLM-Capability-Aufruf (requirement.validate, requirement.decompose) mit Artefakt-ID
 - Ausgang: Strukturiertes LLM-Ergebnis (Score + Vorschläge) oder Fehler "LLM nicht konfiguriert"
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-007
 
 ---
@@ -273,6 +338,11 @@ Dual-Zielgruppen-Strategie; API und MCP nutzen immer generische Entitätsnamen.
 **Externe Interfaces:**
 - Eingang: Profil-Wechsel-Anfrage mit Bestätigung
 - Ausgang: Workspace mit neuem aktiven Profil; UI-Labels aktualisiert; API-Response unverändert
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-010
 
 ---
@@ -294,6 +364,11 @@ technische Umsetzung der Datenisolation ist eine Architektur-Entscheidung.
 **Externe Interfaces:**
 - Eingang: Jede Anfrage mit Authentifizierungskontext, aus dem der Tenant ableitbar ist
 - Ausgang: Gefilterte Ergebnisse exklusiv für den aktiven Tenant
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-008
 
 ---
@@ -311,6 +386,11 @@ i18n-Integration ist teurer als proaktive Translation-Key-Nutzung.
 **Externe Interfaces:**
 - Eingang: Nutzer-Sprachpräferenz (Accept-Language Header oder Profil-Setting)
 - Ausgang: UI und API-Fehlermeldungen in der gewählten Sprache
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-009
 
 ---
@@ -332,6 +412,11 @@ zur MCP-Agenten-Schnittstelle. Die Wahl der Frontend-Technologie ist eine Archit
 **Externe Interfaces:**
 - Eingang: Nutzerinteraktion im Browser
 - Ausgang: Visuelle Darstellung von Systemzuständen und Artefakten
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-012
 
 ---
@@ -354,6 +439,11 @@ der Laufzeitumgebung und Bereitstellungstechnologie ist Teil der Architektur.
 **Externe Interfaces:**
 - Eingang: Konfigurationsdateien, Umgebungsvariablen (LLM-Zugang, DB-Credentials)
 - Ausgang: Lauffähige Gesamtsystem-Instanz auf dem Host-System
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-006
 
 ---
@@ -371,6 +461,11 @@ externen Tools und ist Voraussetzung für spätere ReqIF-Unterstützung.
 **Externe Interfaces:**
 - Eingang: Export-Anfrage mit Scope (Workspace / Artefakt), Format (JSON / CSV)
 - Ausgang: Datei-Download (JSON oder CSV) mit allen Entitäten und Metadaten
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-012
 
 ---
@@ -388,6 +483,11 @@ deckt den häufigen Agenten-Anwendungsfall ab, wenn der Artefakttyp unbekannt is
 **Externe Interfaces:**
 - Eingang: Suchanfrage (Query-String, optionaler Typ-Filter, Workspace-Filter)
 - Ausgang: Gemischte Ergebnisliste mit Artefakttyp-Annotation, sortiert nach Relevanz
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-001
 
 ---
@@ -406,6 +506,11 @@ die Migration bestehender Anforderungsdaten ohne manuelle Neueingabe.
 **Externe Interfaces:**
 - Eingang: CSV-Datei mit Anforderungen/Artefakten gemäß dokumentiertem Schema
 - Ausgang: Import-Ergebnisbericht (erfolgreich importierte Items, Fehler mit Zeilennummer)
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-013
 
 ---
@@ -423,6 +528,11 @@ dass ein GitHub-Token konfiguriert ist und die Ziel-Repositories zugreifbar sind
 **Externe Interfaces:**
 - Eingang: GitHub-Token-Konfiguration; Verknüpfungsanfrage mit Requirement-ID und GitHub-Issue/PR-URL
 - Ausgang: Verknüpfte GitHub-Issues/PRs in der Requirement-Detailansicht; ReqFlow-Referenz in GitHub (via Webhook oder API)
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L0-014
 
 ---
@@ -440,6 +550,11 @@ benötigt dokumentierbare Übergaben für Reviews und Compliance-Nachweise (§8.
 **Externe Interfaces:**
 - Eingang: Report-Anfrage mit Scope (Workspace/Artefakt/Baseline), Report-Typ (Anforderungsdokument/Traceability-Matrix), Format (PDF)
 - Ausgang: PDF-Datei mit formatiertem Bericht, Metadaten und Traceability-Matrix
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-015
 
 ---
@@ -458,6 +573,11 @@ Systemen (CI/CD, Slack, Notification-Services) auf Anforderungsänderungen zu re
 **Externe Interfaces:**
 - Eingang: Webhook-Konfiguration (URL, Ereignis-Typ, Secret); auslösendes Systemereignis
 - Ausgang: HTTP-POST-Request an konfigurierte URL mit JSON-Payload (Ereignis-Typ, betroffene Entity-ID, Timestamp)
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-012, REQ-L0-014
 
 ---
@@ -466,6 +586,11 @@ Systemen (CI/CD, Slack, Notification-Services) auf Anforderungsänderungen zu re
 
 Das System MUSS Datenänderungen atomar und konsistent persistieren; bei Fehlern dürfen
 keine partiellen Schreibvorgänge zurückbleiben (ACID).
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Rationale:** Datenkonsistenz ist eine fundamentale Non-Functional-Anforderung;
 partielle Schreibvorgänge können zu inkonsistenten Artefakt-Hierarchien,
@@ -486,6 +611,11 @@ TraceLinks und Workflow-States führen.
 Das System MUSS unter normaler Last (bis zu 50 gleichzeitige Nutzer, 10.000 Requirements)
 für 95 % der API-Standard-Requests eine Antwortzeit von < 200 ms und für Volltextsuchen
 < 500 ms garantieren.
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Rationale:** Performance ist eine übergreifende Non-Functional-Anforderung, die
 alle Schnittstellen betrifft und für die Zielgruppe
@@ -695,6 +825,11 @@ und stellen Traceability zwischen grafischen Modellen und textuellen Anforderung
 **Externe Interfaces:**
 - Eingang: Diagramm-CRUD-Anfrage mit Typ, Inhalt (strukturierter Payload), optionaler Verknüpfung zu Artefakt-ID
 - Ausgang: Versioniertes Diagramm mit UUID, TraceLinks zu verknüpften Artefakten; renderbare Darstellung in UI
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-016
 
 ---
@@ -715,6 +850,11 @@ Integration und formale Übergaben.
 **Externe Interfaces:**
 - Eingang: ICD-CRUD-Anfrage mit Schnittstellenparametern, source-ArchitectureElement-ID, target-ArchitectureElement-ID
 - Ausgang: Versionierter ICD-Eintrag; Breaking-Change-Warnung bei inkompatiblen Änderungen; Baseline-fähig
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-017
 
 ---
@@ -737,6 +877,11 @@ die Grundlage für Safety-Cases und Compliance-Audits.
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage für ADR (Kontext, Entscheidung, Konsequenzen, Status) / Risiko (Wahrscheinlichkeit, Auswirkung, Mitigation) / Issue (Typ, Priorität)
 - Ausgang: Artefakt mit UUID, WorkflowState, TraceLinks zu verknüpften Anforderungen/Architekturelementen
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-018
 
 ---
@@ -756,6 +901,11 @@ systemische Kontinuität von SN bis Test ist nicht nachweisbar.
 **Externe Interfaces:**
 - Eingang: TraceLink-Erstellungsanfrage mit Source-Artefakt-ID (Projekt A) und Target-Artefakt-ID (Projekt B), Link-Typ
 - Ausgang: Cross-Projekt-TraceLink; erweiterte Upstream/Downstream-Graph-Antwort mit Cross-Projekt-Annotation
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L0-019
 
 ---
@@ -778,6 +928,11 @@ fehlt die Datengrundlage für Prozesssteuerung und Qualitätsnachweise.
 **Externe Interfaces:**
 - Eingang: Metrikanfrage mit Workspace-Kontext, Zeitraum und Scope-Filter
 - Ausgang: Strukturierte Metrikdaten; konfigurierbare Schwellwert-Warnungen
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-020
 
 ---
@@ -801,6 +956,11 @@ Wie diese Entkopplung architektonisch umgesetzt wird, ist eine Design-Entscheidu
 **Externe Interfaces:**
 - Eingang: Anfragen, die optionale Subsysteme involvieren
 - Ausgang: Erfolgreiche Antwort der Kernfunktionen trotz Ausfall der optionalen Erweiterungen (inkl. Fehlerprotokoll)
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-021
 
 ---
@@ -839,6 +999,11 @@ Lücke für v1. SSO (SAML/OIDC) bleibt explizit v2 (STRATEGY.md §6 Out-of-Scope
 **Abgrenzung:**
 - SSO (SAML/OIDC) ist explizit NOT in Scope für v1 (STRATEGY.md §6 Out-of-Scope; v2-Roadmap).
 - Passwort-Reset-Flow und E-Mail-Verifikation sind nicht Teil dieser Anforderung.
+**Implementation State:** Not Implemented
+**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
+**Test Status:** Covered
+**Remarks:** Implementierung prüfen.
+
 **Traceability:** REQ-L0-022
 
 ---
@@ -889,6 +1054,11 @@ erforderlich für den Austausch mit DOORS, Polarion und ähnlichen Werkzeugen.
 **Externe Interfaces:**
 - Eingang: ReqIF-Datei-Upload (.reqif) oder Export-Anfrage mit Scope (Workspace/Projekt)
 - Ausgang: Importierte Artefakte mit UUID und Hierarchie; .reqif-Datei-Download mit vollständiger Struktur
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L0-023
 
 ---
@@ -909,6 +1079,11 @@ fehlt der Ausführungsnachweis auf der rechten Seite des V-Modells (Verification
 **Externe Interfaces:**
 - Eingang: Test-Run-Erstellungsanfrage mit TestCase-IDs und optionalem Zeitplan; Status-Update-Anfrage pro TestCase
 - Ausgang: Test-Run-Entität mit aggregiertem Ergebnis (Passed/Failed/Partial), Coverage-Delta, Zeitstempel
+**Implementation State:** Not Implemented
+**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
+**Test Status:** Covered
+**Remarks:** Implementierung prüfen.
+
 **Traceability:** REQ-L0-024
 
 ---
@@ -930,6 +1105,11 @@ manuelle Intervention.
 **Externe Interfaces:**
 - Eingang: API-Key-authentifizierter POST-Aufruf (API oder MCP test.record_result) mit TestCase-ID, Ergebnisstatus, Ausgabe-Payload
 - Ausgang: Audit-Log-Eintrag mit Agent-Identität; aktualisierter Test-Run-Status; HTTP 200 bei Erfolg
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L0-024
 
 ---
@@ -951,6 +1131,11 @@ am betroffenen Artefakt.
 **Externe Interfaces:**
 - Eingang: Kommentar-Erstellungsanfrage mit Artefakt-ID, Text (inkl. @Mention-Syntax), Autor-Kontext
 - Ausgang: Kommentar-Thread mit UUID, Zeitstempel, Autor; In-App-Benachrichtigung an erwähnte Nutzer
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L0-025
 
 ---
@@ -972,6 +1157,11 @@ Infrastrukturaufwand (Embedding-Modell, Vektordatenbank) macht dies zu einem v2-
 **Externe Interfaces:**
 - Eingang: Semantische Suchanfrage (natürlichsprachlicher Query oder Artefakt-ID für Ähnlichkeitssuche)
 - Ausgang: Gerankte Trefferliste mit Ähnlichkeits-Score; Duplikat-Warnungen; vorgeschlagene TraceLinks
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L0-026
 
 ---
@@ -994,6 +1184,11 @@ feingranulare Zugriffslisten erfordert.
 **Externe Interfaces:**
 - Eingang: Zugriffsregel-Konfiguration mit Artefakt-ID oder Subsystem-ID, Nutzer/Gruppe, Berechtigungstyp (read/write)
 - Ausgang: Gefilterte API-Antworten gemäß Item-Level-Regeln; HTTP 403 bei Regelverstoß
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L0-027
 
 ---
@@ -1014,6 +1209,11 @@ und Freigabe-Entscheidungen unerlässlich.
 **Externe Interfaces:**
 - Eingang: Diff-Anfrage mit Artefakt-ID und zwei Versions-Referenzen (version_a, version_b)
 - Ausgang: Strukturiertes Diff-Objekt mit Feld-Level-Änderungen; UI-Darstellung mit Syntaxhervorhebung
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-028
 
 ---
@@ -1034,6 +1234,11 @@ in regulierten Umgebungen zwingend erforderlich ist.
 **Externe Interfaces:**
 - Eingang: Baseline-Diff-Anfrage mit baseline_id_a und baseline_id_b
 - Ausgang: Diff-Report mit kategorisierten Artefakt-Änderungslisten (added/modified/deleted); GUI-Darstellung und maschinenlesbarer JSON-Response
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L0-028
 
 ---
@@ -1078,6 +1283,11 @@ DB-Zugriff entfernt werden.
 - Kein neues Subsystem erforderlich — Lifecycle-Methoden erweitern bestehenden WorkspaceService
 - WorkspacePresetConfig wird im selben CASCADE gelöscht (gehört zum Workspace)
 - Tenant-Isolation (REQ-L1-015) bleibt gewahrt: Lifecycle-Operationen sind tenant-scoped
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L0-029, REQ-L1-010 (RBAC), REQ-L1-015 (Mandantenfähigkeit), REQ-L1-011 (Audit)
 
 ---

@@ -36,6 +36,13 @@ Artifact-Hierarchie-CRUD, Zyklus-Pruefung bei Parent-Child-Beziehungen, Tree-Que
 
 ### REQ-L3-AS001-001: Zyklus-Erkennung bei Parent-Child-Zuweisung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der ArtifactService SHALL vor jeder Erstellung oder Aenderung einer Parent-Child-Beziehung eine Pfad-Traversierung durchfuehren und die Operation abbrechen, wenn das neue Kind bereits Vorfahre des neuen Elternknotens ist.
 
 **Priority:** mandatory
@@ -50,6 +57,13 @@ Der ArtifactService SHALL vor jeder Erstellung oder Aenderung einer Parent-Child
 
 ### REQ-L3-AS001-002: Rekursive Tree-Query via PostgreSQL CTE
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der ArtifactService SHALL eine `get_tree(root_id, workspace_id)`-Methode bereitstellen, die mittels PostgreSQL Recursive CTE die vollstaendige Nachkommenschaft als verschachtelte Baumstruktur zurueckgibt und dabei Tenant-Isolation sicherstellt.
 
 **Priority:** mandatory
@@ -63,6 +77,13 @@ Der ArtifactService SHALL eine `get_tree(root_id, workspace_id)`-Methode bereits
 ---
 
 ### REQ-L3-AS001-003: Cascade-Loesung von TraceLinks bei Artifact-Delete
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der ArtifactService SHALL bei Loeschung eines Artifacts vor dem eigentlichen Delete-Aufruf `cascade_delete_trace_links(artifact_id)` am TraceLinkService aufrufen, sodass keine verwaisten TraceLinks im System verbleiben.
 

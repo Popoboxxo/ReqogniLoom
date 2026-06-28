@@ -37,6 +37,13 @@ CRUD-Operationen fuer ArchitectureElements, Element-Typ-Auswahl, Markdown-Descri
 
 ### REQ-L3-RF004-001: CRUD-Operationen fuer ArchitectureElements
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die ArchitectureEditors-Komponente MUSS das Anlegen, Lesen, Bearbeiten und Loeschen von ArchitectureElements ermöglichen. Das Anlegen MUSS die Auswahl eines Element-Typs (Component, Interface, Subsystem, Layer, Module) ueber ein Dropdown erfordern. Eine Loeschoperation MUSS eine Bestaetigung vom Nutzer verlangen, bevor der DELETE-Request ausgeloest wird.
 
 **Priority:** mandatory
@@ -50,6 +57,13 @@ Die ArchitectureEditors-Komponente MUSS das Anlegen, Lesen, Bearbeiten und Loesc
 
 ### REQ-L3-RF004-002: Markdown-Description-Editing
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die ArchitectureEditors-Komponente MUSS das Description-Feld eines ArchitectureElements als Markdown-faehiges Textfeld bereitstellen. Das Feld MUSS zwischen Edit-Modus und gerenderter Markdown-Vorschau umschaltbar sein. Aenderungen MÜSSEN per PATCH-Request an das Backend gespeichert werden.
 
 **Priority:** mandatory
@@ -62,6 +76,13 @@ Die ArchitectureEditors-Komponente MUSS das Description-Feld eines ArchitectureE
 ---
 
 ### REQ-L3-RF004-003: Verknuepfte Requirements in Seitenleiste
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die ArchitectureEditors-Komponente MUSS in einer Seitenleiste alle mit dem aktiven ArchitectureElement verknuepften Requirements (via TraceLinks) anzeigen. Ein Klick auf ein verlinktes Requirement MUSS die NavigationShell veranlassen, zur Detailansicht des betreffenden Requirements zu navigieren.
 

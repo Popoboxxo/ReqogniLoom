@@ -42,6 +42,13 @@ Upstream/Downstream-Queries (direkte Nachbarn), transitive Hüllenberechnung (Im
 
 ### REQ-L3-TE002-001: Upstream/Downstream-Query für direkte Nachbarn
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Die QueryEngine SHALL für ein beliebiges Artefakt alle direkt verbundenen Knoten in Upstream- und Downstream-Richtung zurückgeben. Das Ergebnis SHALL für jeden Knoten Entity-ID, Entity-Typ, Link-Typ und Richtung enthalten. Die Antwortzeit SHALL ≤ 200ms (p95) bei bis zu 10.000 Items im Workspace betragen.
 
 **Priority:** mandatory
@@ -57,6 +64,13 @@ Die QueryEngine SHALL für ein beliebiges Artefakt alle direkt verbundenen Knote
 
 ### REQ-L3-TE002-002: Transitive Hüllen-Query (Impact-Analyse) via PostgreSQL Recursive CTE
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Die QueryEngine SHALL transitive Hüllen über mehrere Ebenen berechnen und alle indirekt erreichbaren Knoten zurückgeben. Das Ergebnis SHALL Link-Typ, Richtung und Pfadtiefe (depth) pro Knoten enthalten. Die Berechnung SHALL via PostgreSQL Recursive CTE mit GIST/GIN-Indizes implementiert werden und ≤ 200ms (p95) bei 10.000 Items einhalten.
 
 **Priority:** mandatory
@@ -70,6 +84,13 @@ Die QueryEngine SHALL transitive Hüllen über mehrere Ebenen berechnen und alle
 ---
 
 ### REQ-L3-TE002-003: Trace-Graph-Sammlung für Baseline-Snapshot
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Die QueryEngine SHALL auf Anfrage des BaselineService den vollständigen Trace-Graph eines Workspaces als JSON-serialisierbare Datenstruktur zurückgeben. Das Ergebnis SHALL alle TraceLinks des Workspaces enthalten. Die Laufzeit SHALL ≤ 500ms (p95) bei 10.000 Items betragen.
 

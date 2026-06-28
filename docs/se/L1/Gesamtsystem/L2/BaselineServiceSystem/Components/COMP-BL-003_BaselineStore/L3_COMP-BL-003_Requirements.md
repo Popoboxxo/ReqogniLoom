@@ -39,6 +39,13 @@ Baseline-Persistenz (INSERT/SELECT), Retrieval und Listing der Delta-Index-Tabel
 
 ### REQ-L3-BL003-001: Unveraenderlichkeit durch Enforcement auf Persistenzebene
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der BaselineStore SHALL Modifikationen und Loeschungen persistierter Baselines auf Ebene der Datenbankschicht verhindern. UPDATE- und DELETE-Operationen auf Baseline-Eintraegen SOLLEN einen klar formulierten Fehler ausloesen. Duplikate der Baseline-ID SOLLEN mit einem eindeutigen Fehler abgelehnt werden.
 
 **Priority:** mandatory
@@ -52,6 +59,13 @@ Der BaselineStore SHALL Modifikationen und Loeschungen persistierter Baselines a
 
 ### REQ-L3-BL003-002: Atomare Persistenz mit vollstaendigem Rollback
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der BaselineStore SHALL Baseline-Erstellungen atomar durchfuehren: entweder der vollstaendige Delta-Index (alle `(item_id, version)`-Tupel) wird persistiert oder es werden bei Fehler keinerlei Daten geschrieben (vollstaendiges Rollback).
 
 **Priority:** mandatory
@@ -63,6 +77,13 @@ Der BaselineStore SHALL Baseline-Erstellungen atomar durchfuehren: entweder der 
 ---
 
 ### REQ-L3-BL003-003: Retrieval, Listing und Tenant-Isolation
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der BaselineStore SHALL Einzelabruf (vollstaendiger Snapshot inkl. Delta-Index) und Listing (Metadaten ohne Snapshot, optional nach Scope gefiltert, sortiert nach `created_at` DESC) unterstuetzen. Alle Lesezugriffe SOLLEN auf den jeweiligen Workspace/Tenant isoliert sein.
 
@@ -77,6 +98,13 @@ Der BaselineStore SHALL Einzelabruf (vollstaendiger Snapshot inkl. Delta-Index) 
 ---
 
 ### REQ-L3-BL003-004: Versions-Lookup fuer VersionReconstructor
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der BaselineStore SHALL fuer einen gegebenen `(baseline_id, item_id)`-Schluessel die gespeicherte Versions-Nummer aus dem Delta-Index zurueckliefern. Wenn das Item nicht in der Baseline enthalten ist, SHALL ein Fehler ausgeloest werden.
 

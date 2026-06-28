@@ -45,6 +45,11 @@ Das AuditLog-System SHALL für jede schreibende Operation (Create, Update, Delet
 - Incoming: IF-AL-EXT-IN-001
 - Outgoing: IF-AL-EXT-OUT-001, IF-AL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-011, REQ-L1-002 (mitwirkend), REQ-L1-009 (mitwirkend)
 **Rationale:** Vollständige Auditierbarkeit ist explizite Non-Functional-Anforderung.
 
@@ -64,6 +69,11 @@ Das AuditLog-System SHALL bei MCP-Schreiboperationen zusätzlich `client_name` u
 **Interfaces:**
 - Incoming: IF-AL-EXT-IN-001 (erweiterter Kontext)
 - Outgoing: IF-AL-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-011, REQ-L1-005 (mitwirkend)
 **Rationale:** Unterscheidung manueller/agentengesteuerter Änderungen ist Voraussetzung für sicheren Agenten-Schreibzugriff.
@@ -86,6 +96,11 @@ Das AuditLog-System SHALL Audit-Einträge ausschließlich append-only persistier
 - Incoming: IF-AL-EXT-IN-001 (INSERT akzeptiert, UPDATE/DELETE rejected)
 - Outgoing: IF-AL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-011
 **Rationale:** Unveränderlichkeit ist fundamentale Vertrauensgrundlage eines Audit-Logs.
 
@@ -106,6 +121,11 @@ Das AuditLog-System SHALL die Persistierung in dieselbe Datenbank-Transaktion wi
 **Interfaces:**
 - Incoming: IF-AL-EXT-IN-001 (im Transaktionskontext)
 - Outgoing: IF-AL-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-025 (mitwirkend)
 **Rationale:** Partiell persistierte Audit-Einträge erzeugen inkonsistente Zustände.
@@ -129,6 +149,11 @@ Das AuditLog-System SOLLTE eine Query-Schnittstelle bereitstellen mit Filtern: `
 - Incoming: IF-AL-EXT-IN-002
 - Outgoing: IF-AL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-011
 **Rationale:** Audit-Logs sind nur wertvoll, wenn sie effizient abfragbar sind.
 
@@ -149,6 +174,11 @@ Das AuditLog-System SHALL jeden Audit-Eintrag mit `tenant_id` versehen. Queries 
 **Interfaces:**
 - Incoming: IF-AL-EXT-IN-001, IF-AL-EXT-IN-002
 - Outgoing: IF-AL-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-015 (mitwirkend)
 **Rationale:** Tenant-Leak über Audit-Einträge wäre kritischer Sicherheitsvorfall.
@@ -176,6 +206,11 @@ Indizes mindestens auf: `entity_id`, `(tenant_id, timestamp)`, `(actor, operatio
 - Incoming: IF-AL-EXT-IN-001, IF-AL-EXT-IN-002
 - Outgoing: IF-AL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-026 (mitwirkend)
 **Rationale:** Audit-Schreiboperationen liegen im kritischen Pfad.
 
@@ -196,6 +231,11 @@ Die `AuditLogEntry`-Tabelle MUSS per PostgreSQL-RANGE-Partitionierung auf dem Fe
 **Interfaces:**
 - Incoming: IF-AL-EXT-IN-001, IF-AL-EXT-IN-002
 - Outgoing: IF-AL-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-026 (primär), REQ-L1-011 (mitwirkend)
 **Rationale:** Partition-Pruning reduziert den Scan-Aufwand bei Timestamp-gefilterten Queries erheblich und sichert die Performance-Ziele aus REQ-L2-AL-007 auch bei wachsendem Datenvolumen.
@@ -218,6 +258,11 @@ Ein konfigurierbarer Data-Lifecycle-Job SOLL Audit-Einträge, die älter als 2 J
 **Interfaces:**
 - Incoming: IF-AL-EXT-IN-001 (Primär-DB als Quelle)
 - Outgoing: IF-AL-EXT-OUT-001 (Löschen aus Primär-DB nach Export), IF-AL-EXT-OUT-002 (Export-Ziel Cold Storage)
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-011 (primär)
 **Rationale:** Langfristiger Datenzuwachs ohne Archivierungsstrategie beeinträchtigt Performance und widerspricht Compliance-Anforderungen (IEC 61508 v2). REQ-L2-AL-003 (Append-Only) gilt für den laufenden Betrieb; der Cold-Storage-Export ist kein Modifikationsvorgang, sondern ein kontrollierter Archivierungs- und Bereinigungsschritt.

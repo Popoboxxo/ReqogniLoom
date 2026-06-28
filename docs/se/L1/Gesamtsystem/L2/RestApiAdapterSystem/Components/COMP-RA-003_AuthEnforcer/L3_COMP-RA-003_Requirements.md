@@ -35,6 +35,13 @@ Bearer-Token-Extraktion aus eingehenden HTTP-Requests, Delegation der Token-Vali
 
 ### REQ-L3-RA003-001: Bearer-Token-Extraktion und Validierungsdelegation
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der AuthEnforcer SHALL den Bearer Token aus dem `Authorization`-Header jedes eingehenden Requests extrahieren und dessen Validierung an AuthAndTenancy (IF-RA-EXT-OUT-004) delegieren. Fehlendes, ungültiges oder abgelaufenes Token SHALL mit `AuthError` beantwortet werden, der vom Controller in HTTP 401 übersetzt wird. Der AuthEnforcer DARF keine eigene Token-Validierungslogik implementieren.
 
 **Priority:** mandatory
@@ -48,6 +55,13 @@ Der AuthEnforcer SHALL den Bearer Token aus dem `Authorization`-Header jedes ein
 ---
 
 ### REQ-L3-RA003-002: RBAC-Enforcement vor Delegation an ApplicationService
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der AuthEnforcer SHALL anhand des `AuthContext` (Rollen des Nutzers) und der angefragten Operation (HTTP-Methode + Ressourcentyp) prüfen, ob die Operation erlaubt ist, bevor der Controller an den ApplicationService delegiert. Nicht erlaubte Operationen SHALL mit `AuthError` (Typ: forbidden) beantwortet werden, der in HTTP 403 übersetzt wird.
 
@@ -63,6 +77,13 @@ Der AuthEnforcer SHALL anhand des `AuthContext` (Rollen des Nutzers) und der ang
 ---
 
 ### REQ-L3-RA003-003: Tenant-Kontext-Extraktion und Propagation
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der AuthEnforcer SHALL die Tenant-ID aus dem validierten `AuthContext` extrahieren und als unveränderliche Eigenschaft des Request-Kontexts setzen. Er DARF die Tenant-ID nicht verändern, überschreiben oder umgehen. Der nachgelagerte ApplicationService-Aufruf MUSS die propagierte Tenant-ID enthalten.
 

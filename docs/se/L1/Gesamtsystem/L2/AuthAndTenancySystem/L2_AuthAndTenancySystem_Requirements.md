@@ -49,6 +49,11 @@ Das AuthAndTenancy-System SHALL eingehende REST-API- und UI-Anfragen durch Beare
 - Incoming: IF-AT-EXT-IN-001
 - Outgoing: IF-AT-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-006, REQ-L1-010
 **Rationale:** Token-Auth ist Grundlage für REST-API-Sicherheit.
 
@@ -70,6 +75,11 @@ Das AuthAndTenancy-System SHALL API Keys gegen gehashte Stored Values validieren
 **Interfaces:**
 - Incoming: IF-AT-EXT-IN-002
 - Outgoing: IF-AT-EXT-OUT-003
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-005, REQ-L1-010
 **Rationale:** API Key Auth für AI-Agenten und API-Clients.
@@ -102,6 +112,11 @@ Unzureichende Berechtigung → HTTP 403.
 - Incoming: IF-AT-EXT-OUT-001 (Auth-Kontext mit Rollen)
 - Outgoing: IF-AT-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-010
 **Rationale:** Permission Enforcement ist die operative Umsetzung von RBAC.
 
@@ -122,6 +137,11 @@ Das AuthAndTenancy-System SHALL die Approver-Rolle ausschließlich im Extended-P
 **Interfaces:**
 - Incoming: Preset-Info von PresetConfigEngine
 - Outgoing: IF-AT-EXT-OUT-003
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-010, REQ-L1-007 (mitwirkend)
 **Rationale:** Approver-Rolle ist Teil des Configurable-Rigor-Konzepts.
@@ -145,6 +165,11 @@ Das AuthAndTenancy-System SHALL nach erfolgreicher Authentifizierung einen Auth-
 **Interfaces:**
 - Outgoing: IF-AT-EXT-OUT-001, IF-AT-EXT-OUT-002
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-010, REQ-L1-002 (mitwirkend), REQ-L1-009 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-012 (mitwirkend)
 **Rationale:** Auth-Kontext-Propagation ist die zentrale interne Schnittstelle.
 
@@ -166,6 +191,11 @@ Das AuthAndTenancy-System SHALL CRUD für Rollenzuweisungen auf Workspace-Ebene 
 **Interfaces:**
 - Incoming: Admin-Anfrage
 - Outgoing: IF-AT-EXT-OUT-004
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-010
 **Rationale:** Rollenzuweisungen sind operative Grundlage für RBAC.
@@ -189,6 +219,11 @@ Das AuthAndTenancy-System SHALL alle Anfragen an REST/MCP-Endpunkte durch eine A
 - Incoming: IF-AT-EXT-IN-001, IF-AT-EXT-IN-002
 - Outgoing: IF-AT-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-006, REQ-L1-005, REQ-L1-010
 **Rationale:** Lückenlose Auth-Durchsetzung ist architektonische Pflicht.
 
@@ -210,6 +245,11 @@ Das AuthAndTenancy-System SHALL den aktiven Tenant aus dem Token extrahieren und
 **Interfaces:**
 - Incoming: IF-AT-EXT-IN-001, IF-AT-EXT-IN-002
 - Outgoing: IF-AT-EXT-OUT-001, IF-AT-EXT-OUT-004
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-015
 **Rationale:** Tenant-Extraktion ist operative Umsetzung von Row-Level-Isolation.
@@ -234,6 +274,11 @@ Das AuthAndTenancy-System SHALL API Key Verwaltung unterstützen: Erstellung, Au
 - Incoming: Admin/User-Anfrage
 - Outgoing: IF-AT-EXT-OUT-004
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-005, REQ-L1-010
 **Rationale:** Sichere API-Key-Verwaltung ist Voraussetzung für MCP-Zugriff.
 
@@ -253,6 +298,11 @@ Das AuthAndTenancy-System SHALL standardisierte Fehlerantworten für Auth-Fehler
 
 **Interfaces:**
 - Outgoing: IF-AT-EXT-OUT-003
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-006, REQ-L1-016 (mitwirkend)
 **Rationale:** Konsistente Fehlerbehandlung in Clients.
@@ -276,6 +326,11 @@ Das AuthAndTenancy-System SHALL ein Benutzername/Passwort-Paar gegen den gespeic
 - Incoming: IF-AT-EXT-IN-003
 - Outgoing: IF-AT-EXT-OUT-004 (User-Lookup), IF-AT-EXT-OUT-005
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-033 (AC1, AC3)
 **Rationale:** Sichere, enumeration-resistente Credential-Verifikation ist der Kern des Login-Flows. Bildet `PasswordAuthenticationService.authenticate_credentials` ab.
 
@@ -297,6 +352,11 @@ Das AuthAndTenancy-System SHALL nach erfolgreicher Credential-Verifikation einen
 **Interfaces:**
 - Incoming: IF-AT-EXT-IN-003 (nach Verifikation)
 - Outgoing: IF-AT-EXT-OUT-005
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-033 (AC1, AC5), REQ-L1-010 (mitwirkend)
 **Rationale:** Format-Kompatibilität mit der bestehenden Token-Schicht ist die zentrale Architektur-Bedingung des arch_trigger. Bildet `PasswordAuthenticationService.issue_token` + `resolve_roles` ab.
@@ -320,6 +380,11 @@ Das AuthAndTenancy-System SHALL den Login-Endpunkt `POST /api/v1/auth/login/` vo
 - Incoming: IF-AT-EXT-IN-003
 - Outgoing: IF-AT-EXT-OUT-003
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-033 (AC1), REQ-L1-006 (mitwirkend)
 **Rationale:** Ohne unauthentifizierten Einstiegspunkt gibt es keinen Bootstrap für interaktive Nutzer/Agenten. Siehe ADR-AT-03.
 
@@ -340,6 +405,11 @@ Das AuthAndTenancy-System SHALL voraussetzen und sicherstellen, dass Passwörter
 **Interfaces:**
 - Incoming: IF-AT-EXT-IN-003
 - Outgoing: IF-AT-EXT-OUT-004
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-033 (AC4)
 **Rationale:** Passwort-Hash-Storage ist ein Vertrag zwischen AuthAndTenancy und PersistenceLayer (Entity `User`). Bildet `User.set_password`/`check_password` ab.
@@ -362,6 +432,11 @@ Das AuthAndTenancy-System SHALL über `GET /api/v1/auth/me/` mit gültigem Beare
 - Incoming: IF-AT-EXT-IN-001 (Bearer-Token)
 - Outgoing: IF-AT-EXT-OUT-001
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-033 (AC6)
 **Rationale:** Frontend benötigt einen Identitäts-Bootstrap nach Login. Bildet `MeView` ab.
 
@@ -382,6 +457,11 @@ Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzer
 **Interfaces:**
 - Incoming: IF-AT-EXT-IN-003
 - Outgoing: IF-AT-EXT-OUT-005
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-033 (AC2, AC3)
 **Rationale:** Enumeration-Schutz ist Sicherheitsanforderung des Login-Flows; ergänzt den Timing-Schutz aus REQ-L2-AT-011 um Response-Uniformität.
@@ -408,6 +488,11 @@ Das AuthAndTenancySystem SHALL Projekt-Administratoren ermöglichen, Sichtbarkei
 - Incoming: IF-AT-EXT-IN-001 (Admin-Request via REST-API)
 - Outgoing: IF-AT-EXT-OUT-003, IF-AT-EXT-OUT-004
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-039, REQ-L1-010 (mitwirkend)
 **Rationale:** Feingranulare Zugriffsregeln ermöglichen externe Partner/Zulieferer ohne vollständigen Systemkontext.
 
@@ -430,6 +515,11 @@ Das AuthAndTenancySystem SHALL Item-Level-Regeln bei allen API-Zugriffen auswert
 **Interfaces:**
 - Incoming: IF-AT-EXT-IN-001 (Auth-Context von REST-API/MCP)
 - Outgoing: IF-AT-EXT-OUT-003 (Berechtigungsentscheid allow/deny)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-039, REQ-L1-026 (mitwirkend — Performance)
 **Rationale:** RLS-basierte Enforcement verhindert, dass neue API-Endpunkte versehentlich Item-Level-Regeln umgehen.

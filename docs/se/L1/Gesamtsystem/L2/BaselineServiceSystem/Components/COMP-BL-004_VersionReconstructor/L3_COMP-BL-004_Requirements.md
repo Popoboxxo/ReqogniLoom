@@ -34,6 +34,13 @@ Laedt fuer ein `(item_id, version)`-Paar den historischen Payload aus AuditLog /
 
 ### REQ-L3-BL004-001: Historische Item-Payload-Rekonstruktion
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der VersionReconstructor SHALL fuer einen gegebenen `(baseline_id, item_id)`-Schluessel den vollstaendigen historischen Item-Payload (title, description, content) zum in der Baseline gespeicherten Versionszeitpunkt zurueckliefern. Dazu SHALL er zunaechst die Versions-Nummer ueber den BaselineStore ermitteln und anschliessend den Payload aus dem AuditLog bzw. der `RequirementVersion`-Tabelle laden.
 
 **Priority:** mandatory
@@ -46,6 +53,13 @@ Der VersionReconstructor SHALL fuer einen gegebenen `(baseline_id, item_id)`-Sch
 
 ### REQ-L3-BL004-002: Fehlerbehandlung fuer fehlende Eintraege
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der VersionReconstructor SHALL fuer Fehlerszenarien klar definierte Fehler ausloesen: wenn das Item nicht in der Baseline enthalten ist oder wenn die gespeicherte Version nicht in der Versionshistorie vorhanden ist.
 
 **Priority:** mandatory
@@ -57,6 +71,13 @@ Der VersionReconstructor SHALL fuer Fehlerszenarien klar definierte Fehler auslo
 ---
 
 ### REQ-L3-BL004-003: Payload-Caching fuer wiederholte Rekonstruktionen
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der VersionReconstructor SOLLTE haeufig abgerufene `(item_id, version)`-Paare im Arbeitsspeicher zwischenspeichern (LRU-Cache), um wiederholte AuditLog-Abfragen fuer identische Versionen zu vermeiden.
 

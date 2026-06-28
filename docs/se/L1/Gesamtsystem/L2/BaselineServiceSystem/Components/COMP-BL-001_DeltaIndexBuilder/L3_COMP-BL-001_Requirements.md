@@ -39,6 +39,13 @@ Scope-Aufloesung, Item-ID/Version-Ermittlung, Immutability-Enforcement, Naming/M
 
 ### REQ-L3-BL001-001: Scope-Aufloesung und Delta-Index-Erstellung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der DeltaIndexBuilder SHALL fuer jeden eingehenden `build`-Aufruf den angeforderten Scope (`document`, `project`, `global`) auflösen, alle betroffenen Item-IDs mit exakter Versions-Nummer ermitteln (via TraceabilityEngine) und einen Delta-Index als Menge von `(item_id, version)`-Tupeln erstellen. Der vollstaendige Item-Payload (title, description, content) DARF NICHT im Delta-Index enthalten sein.
 
 **Priority:** mandatory
@@ -51,6 +58,13 @@ Der DeltaIndexBuilder SHALL fuer jeden eingehenden `build`-Aufruf den angeforder
 ---
 
 ### REQ-L3-BL001-002: Preset-Gate-Pruefung vor Scope-Aufloesung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der DeltaIndexBuilder SHALL vor jeder Scope-Aufloesung die PresetConfigEngine konsultieren und den Aufruf mit einem Fehler abbrechen, wenn der angeforderte Scope gemaess der aktuellen Preset-Konfiguration nicht verfuegbar ist.
 
@@ -65,6 +79,13 @@ Der DeltaIndexBuilder SHALL vor jeder Scope-Aufloesung die PresetConfigEngine ko
 
 ### REQ-L3-BL001-003: Baseline-Naming- und Metadata-Validierung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der DeltaIndexBuilder SHALL vor der Persistierung sicherstellen, dass der Baseline-Name nicht leer ist und im selben Workspace eindeutig ist. Die Metadata-Struktur SHALL `name`, `scope`, `workspace_id`, `created_by`, `created_at` (UTC) enthalten; `description` ist optional.
 
 **Priority:** mandatory
@@ -77,6 +98,13 @@ Der DeltaIndexBuilder SHALL vor der Persistierung sicherstellen, dass der Baseli
 ---
 
 ### REQ-L3-BL001-004: Performance-Anforderung fuer die Delta-Index-Erstellung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der DeltaIndexBuilder SHALL die Delta-Index-Erstellung (Scope-Aufloesung + Tupel-Zusammenstellung) fuer bis zu 10.000 Items innerhalb von 4 Sekunden abschliessen, sodass die Gesamtlatenz des BaselineService (inkl. Persistenz) das 5-Sekunden-Ziel aus REQ-L2-BL-008 einhalten kann.
 

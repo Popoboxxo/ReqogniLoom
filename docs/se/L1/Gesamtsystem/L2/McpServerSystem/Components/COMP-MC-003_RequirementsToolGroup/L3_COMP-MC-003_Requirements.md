@@ -38,6 +38,13 @@ Implementierung der sechs Requirements-Tools: `requirement.get`, `requirement.qu
 
 ### REQ-L3-MC003-001: Implementierung der sechs Requirements-Tools
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Die RequirementsToolGroup SHALL die sechs Tools `requirement.get`, `requirement.query`, `requirement.create`, `requirement.update`, `requirement.decompose` und `requirement.validate` implementieren. Jedes Tool SHALL seine Eingabeparameter gegen ein dediziertes JSON-Schema validieren, bevor der ApplicationService aufgerufen wird. Bei Parameterverstoss SHALL ein `VALIDATION_ERROR` zurueckgegeben werden.
 
 **Priority:** mandatory
@@ -54,6 +61,13 @@ Die RequirementsToolGroup SHALL die sechs Tools `requirement.get`, `requirement.
 
 ### REQ-L3-MC003-002: LLM-abhaengige Tool-Absicherung
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Die Tools `requirement.decompose` und `requirement.validate` SHALL vor dem ApplicationService-Aufruf pruefen, ob ein LLM-Provider konfiguriert ist. Ist kein LLM-Provider konfiguriert, SHALL das Tool unmittelbar mit dem Fehler `LLM_NOT_CONFIGURED` zurueckgeben, ohne den ApplicationService aufzurufen.
 
 **Priority:** mandatory
@@ -67,6 +81,13 @@ Die Tools `requirement.decompose` und `requirement.validate` SHALL vor dem Appli
 ---
 
 ### REQ-L3-MC003-003: AuditLog-Erzeugung bei schreibenden Operationen
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Die RequirementsToolGroup SHALL fuer jede schreibende Operation (create, update, decompose) einen AuditLog-Eintrag ueber den ApplicationService (IF-MC-EXT-OUT-003) erzeugen. Der Eintrag SHALL Agent-Client-Identitaet, API-Key-Hash, Tool-Name, betroffene Entitaets-ID und Zeitstempel enthalten. Der AuditLog-Eintrag SHALL synchron persistiert sein, bevor das `ToolResult` zurueckgegeben wird.
 

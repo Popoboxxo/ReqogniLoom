@@ -44,6 +44,13 @@ Atomare State-Initialisierung, State-Mutation mit Optimistic Locking, append-onl
 
 ### REQ-L3-WE003-001: Atomare State-Initialisierung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der StateLifecycleManager SHALL fuer eine `initialize`-Operation alle uebergebenen Items in einer einzigen atomaren Datenbanktransaktion mit dem initialen WorkflowState (Wert gemaess `initial_state`-Abfrage via IF-WE-INT-003 an COMP-WE-001) versehen. Scheitert die Transaktion fuer ein einzelnes Item, SHALL die gesamte Operation zurueckgerollt werden. Ein leeres `item_ids`-Array SHALL ohne Fehler und ohne Datenbankschreiboperation behandelt werden.
 
 **Priority:** mandatory
@@ -57,6 +64,13 @@ Der StateLifecycleManager SHALL fuer eine `initialize`-Operation alle uebergeben
 ---
 
 ### REQ-L3-WE003-002: State-Mutation mit Optimistic Locking und Append-only History
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der StateLifecycleManager SHALL nach positivem `ValidationResult` den `current_state` eines Items aktualisieren und einen append-only History-Eintrag mit den Feldern `from_state`, `to_state`, `transitioned_by`, `transitioned_at` (UTC, Millisekunden-Praezision), `change_reason` (optional) und `signature_seal` (non-null wenn SignatureGate durchlaufen, sonst null) schreiben. Beide Operationen MUESSEN in einer atomaren Transaktion erfolgen. Schlaegt der History-Write fehl, SHALL die State-Mutation zurueckgerollt werden. Bestehende History-Eintraege DUERFEN NICHT modifiziert oder geloescht werden.
 
@@ -73,6 +87,13 @@ Der StateLifecycleManager SHALL nach positivem `ValidationResult` den `current_s
 ---
 
 ### REQ-L3-WE003-003: Tenant-Isolation aller Datenbankoperationen
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der StateLifecycleManager SHALL bei jeder Lese- und Schreiboperation auf WorkflowState und History-Eintraegen den `tenant_id` aus dem Auth-Kontext als obligatorischen Filter anwenden. Eine Operation ohne gueltigen `tenant_id` im Kontext SHALL abgebrochen werden.
 

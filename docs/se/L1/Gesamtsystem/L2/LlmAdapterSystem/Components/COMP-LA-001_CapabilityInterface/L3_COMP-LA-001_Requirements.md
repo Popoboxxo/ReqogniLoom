@@ -35,6 +35,13 @@ Keine direkten externen Schnittstellen; Systemgrenze wird vom CapabilityRouter g
 
 ### REQ-L3-LA001-001: Abstrakte LLM-Capability-Schnittstelle
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die CapabilityInterface-Komponente SHALL eine abstrakte Basisklasse `LlmCapabilityInterface` bereitstellen mit den drei Operationen `validate_artifact(artifact_id: str) -> LlmResult`, `decompose_requirement(requirement_id: str) -> LlmDecompositionResult` und `check_consistency(workspace_id: str) -> LlmConsistencyResult`. Konkrete Provider-Klassen MÜSSEN alle drei Operationen implementieren.
 
 **Priority:** mandatory
@@ -47,6 +54,13 @@ Die CapabilityInterface-Komponente SHALL eine abstrakte Basisklasse `LlmCapabili
 ---
 
 ### REQ-L3-LA001-002: Standardisierte Ergebnisdatenklassen
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die CapabilityInterface-Komponente SHALL die Datenklassen `LlmResult`, `LlmDecompositionResult` und `LlmConsistencyResult` definieren. `LlmResult` enthält: `score` (float, 0.0–1.0), `suggestions` (list[str]), `provider` (str), `model` (str), `token_usage` (int | None). `LlmDecompositionResult` erweitert `LlmResult` um `children` (list[dict]). `LlmConsistencyResult` erweitert `LlmResult` um `issues` (list[dict]). Ein `score`-Wert ausserhalb [0.0, 1.0] SHALL `ValueError` auslösen.
 
@@ -62,6 +76,13 @@ Die CapabilityInterface-Komponente SHALL die Datenklassen `LlmResult`, `LlmDecom
 ---
 
 ### REQ-L3-LA001-003: Provider-Isolation durch Interface-Vertrag
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Die CapabilityInterface-Komponente SHALL ausschliesslich abstrakte Typen und Datenklassen enthalten. Kein Import von Provider-Bibliotheken (anthropic, openai, ollama, azure) DARF direkt oder transitiv in diesem Modul vorkommen.
 

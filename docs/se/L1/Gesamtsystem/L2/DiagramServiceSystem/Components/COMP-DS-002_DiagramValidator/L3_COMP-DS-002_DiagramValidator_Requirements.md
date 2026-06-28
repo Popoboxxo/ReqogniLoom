@@ -55,6 +55,11 @@ Der DiagramValidator SHALL den Payload anhand typspezifischer Syntaxregeln über
 **Interfaces:**
 - Incoming: IF-DS-INT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-DS-002
 **Rationale:** Verhindert das Speichern und Rendern defekter Diagramme.
 
@@ -71,6 +76,11 @@ Der DiagramValidator SHALL Diagramme abweisen, deren Typ nicht durch das System 
 
 **Interfaces:**
 - Incoming: IF-DS-INT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L2-DS-002
 **Rationale:** Das System darf keine Payloads annehmen, die später nicht gerendert werden können.

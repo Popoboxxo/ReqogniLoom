@@ -46,6 +46,13 @@ Kern-Orchestrator: ruft die vier Quell-Interfaces (IF-L1-044..047) parallel ab, 
 
 ### REQ-L3-SM002-001: Parallele Abfrage aller vier Quell-Interfaces
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der MetricsAggregator SHALL die vier Quell-Abfragen (IF-L1-044, IF-L1-045, IF-L1-046, IF-L1-047) parallel und nicht sequenziell ausführen. Erst nach Vorliegen aller vier Ergebnisse SHALL die Delegation an die Calculator-Schicht (COMP-SM-003..006) erfolgen. Ein Fehler einer einzelnen Quell-Abfrage SHALL mit einer partiellen Antwort behandelt werden, nicht mit einem HTTP 5xx, sofern mindestens drei der vier Quellen erfolgreich antworten.
 
 **Priority:** mandatory
@@ -59,6 +66,13 @@ Der MetricsAggregator SHALL die vier Quell-Abfragen (IF-L1-044, IF-L1-045, IF-L1
 
 ### REQ-L3-SM002-002: Zusammenstellung des MetricsResult-Objekts
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der MetricsAggregator SHALL nach Vorliegen aller Calculator-Ergebnisse (von COMP-SM-003..006) und der Warnings-Liste (von COMP-SM-007) ein vollständiges `MetricsResult`-Objekt zusammenstellen, das alle vier Metrik-Kategorien sowie die `warnings`-Liste enthält. Das Objekt SHALL den Zeitstempel `computed_at` (UTC) und den angewendeten `timeframe` enthalten.
 
 **Priority:** mandatory
@@ -71,6 +85,13 @@ Der MetricsAggregator SHALL nach Vorliegen aller Calculator-Ergebnisse (von COMP
 ---
 
 ### REQ-L3-SM002-003: Strikte Read-Only-Nutzung aller Quell-Interfaces
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der MetricsAggregator SHALL ausschließlich lesende Operationen auf den vier Quell-Interfaces (IF-L1-044..047) ausführen. Er darf keine schreibenden Operationen auf Requirements, TraceLinks, WorkflowStates oder AuditLog-Einträgen der Quellsysteme auslösen. Dies ist strukturell durch die Signatur der Quell-Interfaces erzwungen; eine Verletzung gilt als kritischer Architekturverstoß.
 

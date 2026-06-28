@@ -44,6 +44,11 @@ Das ReactFrontend MUSS alle UI-Texte über react-i18next in Deutsch und Englisch
 - Incoming: IF-RF-EXT-IN-001 (Nutzer-Sprachpräferenz)
 - Outgoing: IF-RF-EXT-OUT-002 (Gerenderte UI in gewählter Sprache)
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-016
 **Rationale:** REQ-L1-016 fordert zweiseitige Benutzeroberfläche; ReactFrontend ist primär verantwortlich.
 
@@ -64,6 +69,11 @@ Das ReactFrontend MUSS ein Dashboard bereitstellen, das eine Übersicht über al
 **Interfaces:**
 - Incoming: IF-RF-EXT-OUT-001 (REST-API-Antwort mit Workspace-Daten)
 - Outgoing: IF-RF-EXT-OUT-001 (GET /api/v1/workspaces/)
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-017
 **Rationale:** REQ-L1-017 fordert Dashboard als Kernkomponente der React-UI.
@@ -86,6 +96,11 @@ Das ReactFrontend MUSS einen Requirements-Editor bereitstellen, der Inline-Editi
 - Incoming: IF-RF-EXT-OUT-001 (Requirement-Daten vom Backend)
 - Outgoing: IF-RF-EXT-OUT-001 (PATCH /api/v1/requirements/{id})
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-017, REQ-L1-002 (mitwirkend)
 **Rationale:** REQ-L1-017 fordert Requirements-Editor; REQ-L1-002 erfordert Workflow-State-Verwaltung.
 
@@ -107,6 +122,11 @@ Das ReactFrontend MUSS einen Architecture-Editor bereitstellen, der CRUD-Operati
 - Incoming: IF-RF-EXT-OUT-001 (ArchitectureElement-Daten vom Backend)
 - Outgoing: IF-RF-EXT-OUT-001 (CRUD-Operationen auf /api/v1/architecture-elements/)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-017, REQ-L1-004 (mitwirkend)
 **Rationale:** REQ-L1-017 fordert Architecture-Editor; REQ-L1-004 erfordert ArchitectureElement-Verwaltung.
 
@@ -126,6 +146,11 @@ Das ReactFrontend MUSS eine Artefakt-Navigation in Baumstruktur (Tree-View) bere
 **Interfaces:**
 - Incoming: IF-RF-EXT-OUT-001 (GET /api/v1/artifacts/tree?parent_id=X)
 - Outgoing: IF-RF-EXT-OUT-001 (Tree-Query-Request)
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-017, REQ-L1-001 (mitwirkend)
 **Rationale:** REQ-L1-017 fordert Artefakt-Navigation; REQ-L1-001 erfordert hierarchische Darstellung.
@@ -148,6 +173,11 @@ Das ReactFrontend MUSS eine Traceability-Anzeige bereitstellen, die bidirektiona
 - Incoming: IF-RF-EXT-OUT-001 (TraceLink-Daten vom Backend)
 - Outgoing: IF-RF-EXT-OUT-001 (GET /api/v1/tracelinks/?artifact_id=X)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-017, REQ-L1-003 (mitwirkend)
 **Rationale:** ARCH-L1-001 Verantwortung umfasst „Traceability-Anzeige"; REQ-L1-003 erfordert bidirektionale Trace-Queries.
 
@@ -169,6 +199,11 @@ Das ReactFrontend MUSS UI-Elemente, Felder und Funktionen basierend auf dem akti
 - Incoming: IF-RF-EXT-OUT-001 (Preset-Regeln via REST)
 - Outgoing: IF-RF-EXT-OUT-001 (GET /api/v1/workspaces/{id}/preset/)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007 (mitwirkend)
 **Rationale:** REQ-L1-007 erfordert, dass die UI Preset-Regeln respektiert.
 
@@ -189,6 +224,11 @@ Das ReactFrontend MUSS das aktive Terminologie-Profil (Dev-Modus / SE-Modus) aus
 **Interfaces:**
 - Incoming: IF-RF-EXT-OUT-001 (Terminologie-Profil-Konfiguration)
 - Outgoing: IF-RF-EXT-OUT-001 (GET /api/v1/workspaces/{id}/settings/)
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-014 (mitwirkend)
 **Rationale:** REQ-L1-014 erfordert UI-seitige Label-Anpassung; API und MCP nutzen generische Namen.
@@ -212,6 +252,11 @@ Das ReactFrontend MUSS initiale Seitenansichten innerhalb von 2 Sekunden rendern
 - Incoming: IF-RF-EXT-OUT-001 (API-Antworten)
 - Outgoing: IF-RF-EXT-OUT-002 (Gerenderte UI)
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-026 (mitwirkend)
 **Rationale:** REQ-L1-026 betrifft alle Schnittstellen; ARCH-L1-001 ist explizit mitwirkend.
 
@@ -232,6 +277,11 @@ Das ReactFrontend MUSS ausschließlich über die REST API (ARCH-L1-002) mit dem 
 **Interfaces:**
 - Outgoing: IF-RF-EXT-OUT-001 (REST-API-Aufrufe mit Bearer Token)
 - Incoming: IF-RF-EXT-OUT-001 (REST-API-Antworten)
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-017, REQ-L1-006 (mitwirkend)
 **Rationale:** ARCH-L1-001 spezifiziert: „Kommuniziert ausschließlich über die REST API mit dem Backend."
@@ -254,6 +304,11 @@ Das ReactFrontend MUSS Backend-Fehlermeldungen (übersetzt via Accept-Language i
 - Incoming: IF-RF-EXT-OUT-001 (Fehler-Responses vom Backend)
 - Outgoing: IF-RF-EXT-OUT-002 (Fehler-UI gerendert)
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-016 (mitwirkend), REQ-L1-017
 **Rationale:** REQ-L1-016 fordert übersetzte Backend-Fehlermeldungen; ReactFrontend muss sie rendern.
 
@@ -274,6 +329,11 @@ Das ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der
 **Interfaces:**
 - Outgoing: IF-RF-EXT-OUT-001 (PATCH /api/v1/workspaces/{id}/settings/)
 - Incoming: IF-RF-EXT-OUT-001 (Aktualisierte Workspace-Settings)
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-017, REQ-L1-007 (mitwirkend), REQ-L1-014 (mitwirkend)
 **Rationale:** ARCH-L1-001 Verantwortung umfasst „Workspace-Profil-Konfiguration".
@@ -300,6 +360,11 @@ Das ReactFrontend MUSS Änderungen an einem einzelnen Artefakt zwischen zwei bel
 - Incoming: IF-RF-EXT-OUT-001 (GET /artifacts/{id}/diff?from=v1&to=v2)
 - Outgoing: IF-RF-EXT-OUT-002 (Gerenderte Diff-Ansicht)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-040
 **Rationale:** Visueller Diff ist für formale Reviews und Freigabe-Entscheidungen unerlässlich.
 
@@ -322,6 +387,11 @@ Das ReactFrontend MUSS den Vergleich zweier benannter Baselines als visuellen Di
 **Interfaces:**
 - Incoming: IF-RF-EXT-OUT-001 (GET /baselines/{id_a}/diff/{id_b})
 - Outgoing: IF-RF-EXT-OUT-002 (Gerenderte Baseline-Diff-Ansicht)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-041
 **Rationale:** Baseline-Diff ist für formale Reviews und Compliance-Nachweise in regulierten Umgebungen zwingend.

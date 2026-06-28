@@ -39,6 +39,13 @@ TraceLink-CRUD, Quell/Ziel-Validierung, Link-Typ-Validierung, AuditLog-Ausloesun
 
 ### REQ-L3-AS005-001: TraceLink-Erstellung mit Existenz- und Typ-Validierung
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der TraceLinkService SHALL vor Erstellung eines TraceLink pruefen, dass Source und Target existieren, zum selben Workspace gehoeren und der `link_type` gueltig ist. Unterstuetzte Typen: `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`.
 
 **Priority:** mandatory
@@ -54,6 +61,13 @@ Der TraceLinkService SHALL vor Erstellung eines TraceLink pruefen, dass Source u
 
 ### REQ-L3-AS005-002: Cascade-Delete aller TraceLinks einer Entitaet
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der TraceLinkService SHALL eine `cascade_delete_trace_links(entity_id)`-Methode bereitstellen, die alle TraceLinks loescht, bei denen `entity_id` als Source oder Target vorkommt. Die Operation muss im Transaktionskontext des Aufrufers ausgefuehrt werden.
 
 **Priority:** mandatory
@@ -67,6 +81,13 @@ Der TraceLinkService SHALL eine `cascade_delete_trace_links(entity_id)`-Methode 
 ---
 
 ### REQ-L3-AS005-003: TraceLink-Query per Entitaet und Richtung
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der TraceLinkService SHALL eine Query-Methode bereitstellen, die alle TraceLinks einer Entitaet nach Richtung (eingehend / ausgehend / beide) und optional nach Link-Typ gefiltert zurueckgibt. Die Query delegiert an die TraceabilityEngine.
 

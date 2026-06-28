@@ -45,6 +45,11 @@ Credential-Verifikation (Benutzername/Passwort, constant-time, enumeration-resis
 Der CredentialAuthenticationService SHALL ein Benutzername/Passwort-Paar gegen den gespeicherten Passwort-Hash verifizieren und den aktiven Nutzer auflösen. Existiert der Nutzer nicht, SHALL dennoch ein Dummy-Hash-Vergleich erfolgen, sodass die Timing-Kurve von „Nutzer unbekannt" und „Passwort falsch" vergleichbar bleibt.
 
 **Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AT-011, REQ-L2-AT-016
 **Acceptance Criteria:**
 - [ ] Gültige Credentials eines aktiven Nutzers → `User` zurückgegeben
@@ -60,6 +65,11 @@ Der CredentialAuthenticationService SHALL ein Benutzername/Passwort-Paar gegen d
 Der CredentialAuthenticationService SHALL nach erfolgreicher Verifikation einen HS256-JWT ausstellen, dessen Claim-Set exakt dem von COMP-AT-001 konsumierten entspricht (`user_id`, `tenant_id`, `roles`, `iat`, `exp`, optional `iss`/`aud`), gelesen aus `AUTH_JWT_*`-Settings. Der Token SHALL durch `BearerTokenAuthentication` (REQ-L2-AT-001) akzeptiert werden.
 
 **Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AT-012
 **Acceptance Criteria:**
 - [ ] Token-Claims enthalten `{user_id, tenant_id, roles, iat, exp}` (+ `iss`/`aud` falls konfiguriert)
@@ -75,6 +85,11 @@ Der CredentialAuthenticationService SHALL nach erfolgreicher Verifikation einen 
 Der CredentialAuthenticationService SHALL ausschließlich über `User.set_password`/`check_password` auf das Passwort zugreifen; der gespeicherte Wert SHALL ein gesalzener Hash (PBKDF2, Django-Hasher) sein. Klartext-Passwörter SHALL nie in API-Responses, Logs oder Audit-Einträgen erscheinen.
 
 **Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AT-014
 **Acceptance Criteria:**
 - [ ] `User.password` enthält ausschließlich Hash-Werte (`pbkdf2_sha256$...`)

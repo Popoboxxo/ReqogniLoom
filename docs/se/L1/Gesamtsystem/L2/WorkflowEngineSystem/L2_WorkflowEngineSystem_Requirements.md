@@ -54,6 +54,11 @@ Bei Regelverletzung SHALL die Transition mit spezifischer Fehlermeldung abgelehn
 - Incoming: IF-WE-EXT-IN-001, IF-WE-EXT-IN-003, IF-WE-EXT-IN-004, IF-WE-EXT-IN-005
 - Outgoing: IF-WE-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-010 (mitwirkend), REQ-L1-012 (mitwirkend)
 **Rationale:** Transition-Validierung ist der Kern-Sicherheitsmechanismus der WorkflowEngine.
 
@@ -81,6 +86,11 @@ Custom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-P
 - Incoming: IF-WE-EXT-IN-003
 - Outgoing: IF-WE-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-009, REQ-L1-007 (mitwirkend)
 **Rationale:** WorkflowDefinitions sind das strukturelle Fundament von Configurable Rigor auf Item-Ebene.
 
@@ -102,6 +112,11 @@ Die WorkflowEngine SHALL für jede erfolgreiche Transition einen append-only His
 **Interfaces:**
 - Outgoing: IF-WE-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-009, REQ-L1-011 (mitwirkend), REQ-L1-025 (mitwirkend)
 **Rationale:** Append-only History ist die Grundlage des Audit-Trails für Workflow-Transitionen.
 
@@ -120,6 +135,11 @@ Die WorkflowEngine SHALL bei WorkflowDefinition-Änderungen prüfen, ob Items in
 
 **Interfaces:**
 - Outgoing: IF-WE-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-009, REQ-L1-007 (mitwirkend)
 **Rationale:** Verhindert stille Datenkorruption durch unkontrollierte Definitionsänderungen. Adressiert OP-03.
@@ -142,6 +162,11 @@ Die WorkflowEngine SHALL die Operation `initialize_workflow_state(item_ids[], it
 - Incoming: IF-WE-EXT-IN-002
 - Outgoing: IF-WE-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-012 (mitwirkend), REQ-L1-025 (mitwirkend)
 **Rationale:** Initialisierung ist erforderlich bei jeder Item-Erstellung (REST, MCP, CSV-Import).
 
@@ -160,6 +185,11 @@ Die WorkflowEngine SHALL alle WorkflowDefinition- und WorkflowState-Queries auf 
 
 **Interfaces:**
 - Outgoing: IF-WE-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-015, REQ-L1-009 (mitwirkend)
 **Rationale:** Tenant-Isolation ist Querschnittsanforderung für alle Subsysteme.
@@ -181,6 +211,11 @@ Die WorkflowEngine SHALL bei Preset-Downgrades prüfen, ob Items in States exist
 - Incoming: IF-WE-EXT-IN-003
 - Outgoing: IF-WE-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007, REQ-L1-009 (mitwirkend)
 **Rationale:** Verhindert Items in States ohne gültige Transitionen. Adressiert OP-02.
 
@@ -199,6 +234,11 @@ Die WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + 
 **Interfaces:**
 - Incoming: IF-WE-EXT-IN-001
 - Outgoing: IF-WE-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-026, REQ-L1-009 (mitwirkend)
 **Rationale:** 50ms-Budget stellt sicher, dass die WorkflowEngine nicht zum Flaschenhals wird.
@@ -221,6 +261,11 @@ Die WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das überge
 **Interfaces:**
 - Incoming: IF-WE-EXT-IN-001 (erweiterter Payload), IF-WE-EXT-IN-004, IF-WE-EXT-IN-005
 - Outgoing: IF-WE-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-009, REQ-L1-010 (mitwirkend)
 **Rationale:** SignatureGate ermöglicht QES-konforme Workflow-Transitionen für IEC 61508 v2 (Safety-Critical Systems). Ohne kryptografisches Prüfsiegel im AuditLog sind Safety-Nachweise nicht auditierbar.

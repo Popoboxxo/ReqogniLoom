@@ -42,6 +42,13 @@ Preset-Definitionen und -Defaults (Minimal / Standard / Extended), Feature-Flags
 
 ### REQ-L3-PC001-001: Vollständige Preset-Konfigurationsdaten pro Tier
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die PresetRegistry SHALL für jeden der drei Tier-Werte (Minimal, Standard, Extended) eine vollständige, atomar lesbare Konfigurationsstruktur bereitstellen, die Pflichtfelder, Feature-Flags, erlaubte Baseline-Scopes, Workflow-Konfigurierbarkeit und Change-Reason-Policy beinhaltet.
 
 **Priority:** mandatory
@@ -55,6 +62,13 @@ Die PresetRegistry SHALL für jeden der drei Tier-Werte (Minimal, Standard, Exte
 ---
 
 ### REQ-L3-PC001-002: Baseline-Scope-Verfügbarkeit konfigurierbar pro Tier
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die PresetRegistry SHALL für jeden Tier die Liste erlaubter Baseline-Scopes definieren: Minimal → leer, Standard → `["document", "project"]`, Extended → `["document", "project", "global"]`.
 
@@ -70,6 +84,13 @@ Die PresetRegistry SHALL für jeden Tier die Liste erlaubter Baseline-Scopes def
 
 ### REQ-L3-PC001-003: Default-Preset-Immutabilität
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die PresetRegistry SHALL sicherstellen, dass die drei Default-Presets (Minimal, Standard, Extended) weder modifiziert noch gelöscht werden können. Jeder Versuch gibt einen expliziten Fehler zurück.
 
 **Priority:** desired
@@ -82,6 +103,13 @@ Die PresetRegistry SHALL sicherstellen, dass die drei Default-Presets (Minimal, 
 ---
 
 ### REQ-L3-PC001-004: Benutzerdefinierte Presets als Ableitung von Default-Presets
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die PresetRegistry KANN im Extended-Modus die Erstellung benutzerdefinierter Presets erlauben, die auf einem der drei Default-Presets basieren und einzelne Felder überschreiben. Im Minimal- und Standard-Modus ist die Erstellung benutzerdefinierter Presets abzulehnen.
 

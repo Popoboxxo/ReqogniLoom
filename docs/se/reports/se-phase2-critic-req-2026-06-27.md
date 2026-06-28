@@ -37,6 +37,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 
 ### REQ-L1-023 — PDF-Report-Export
 
+**Implementation State:** Implemented
+**Reviewbefunde:** Code-Referenz in 4 Datei(en) gefunden (u.a. export_service.py).
+**Test Status:** Covered
+**Remarks:** Test-Referenz in test_export_service.py vorhanden.
+
 | Check | Ergebnis | Details |
 |-------|----------|---------|
 | Role Boundary | **PASS** | `arch_impact: true` korrekt. `arch_trigger` beschreibt WHAT (cross-cutting concern zwischen zwei bestehenden Komponenten), nicht HOW. |
@@ -51,6 +56,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 ---
 
 ### REQ-L1-034 — ReqIF-Import/-Export
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 | Check | Ergebnis | Details |
 |-------|----------|---------|
@@ -67,6 +77,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 
 ### REQ-L1-035 — Test-Run-Protokollierung
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 | Check | Ergebnis | Details |
 |-------|----------|---------|
 | Role Boundary | **PASS** | `arch_impact: false` korrekt — Erweiterung bestehender Testmanagement-Infrastruktur. |
@@ -81,6 +96,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 ---
 
 ### REQ-L1-036 — Test-Ergebnis-Einspeisung
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 | Check | Ergebnis | Details |
 |-------|----------|---------|
@@ -97,6 +117,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 
 ### REQ-L1-037 — Kommentar-Threads mit @Mention
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 | Check | Ergebnis | Details |
 |-------|----------|---------|
 | Role Boundary | **PASS** | `arch_impact: true` korrekt. Trigger beschreibt WHAT (Datenmodell, Thread-Struktur, Notification-System). |
@@ -111,6 +136,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 ---
 
 ### REQ-L1-038 — Semantische Vektorsuche / RAG
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 | Check | Ergebnis | Details |
 |-------|----------|---------|
@@ -127,6 +157,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 
 ### REQ-L1-039 — Item-Level-RBAC
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 | Check | Ergebnis | Details |
 |-------|----------|---------|
 | Role Boundary | **PASS** | `arch_impact: true` korrekt. Trigger beschreibt WHAT (Erweiterung Autorisierungsmodell, Datenzugriffsschicht). |
@@ -142,6 +177,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 
 ### REQ-L1-040 — Visuelles Artefakt-Diff
 
+**Implementation State:** Implemented
+**Reviewbefunde:** Code-Referenz in 4 Datei(en) gefunden (u.a. views.py).
+**Test Status:** Covered
+**Remarks:** Test-Referenz in test_artifact_diff_service.py vorhanden.
+
 | Check | Ergebnis | Details |
 |-------|----------|---------|
 | Role Boundary | **PASS** | `arch_impact: false` korrekt — baut auf bestehender Versionierung auf. |
@@ -156,6 +196,11 @@ Alle 9 Anforderungen bestehen den Role-Boundary-Check. Keine verbotenen Architek
 ---
 
 ### REQ-L1-041 — Visuelles Baseline-Diff
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 | Check | Ergebnis | Details |
 |-------|----------|---------|

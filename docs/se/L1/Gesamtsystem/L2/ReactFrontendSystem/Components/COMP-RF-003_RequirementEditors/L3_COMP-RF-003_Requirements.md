@@ -38,6 +38,13 @@ Inline-Editing fuer Requirements, Markdown-Rendering, Workflow-State-Anzeige und
 
 ### REQ-L3-RF003-001: Inline-Editing fuer Requirements-Felder
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die RequirementEditors-Komponente MUSS das Inline-Editing der Felder Title, Description und Category eines Requirements direkt in der Detailansicht ermöglichen, ohne einen separaten Bearbeitungsdialog zu öffnen. Aenderungen MÜSSEN per PATCH-Request an das Backend gespeichert werden. Das Description-Feld MUSS zwischen Edit-Modus und Markdown-Vorschau umschaltbar sein.
 
 **Priority:** mandatory
@@ -50,6 +57,13 @@ Die RequirementEditors-Komponente MUSS das Inline-Editing der Felder Title, Desc
 ---
 
 ### REQ-L3-RF003-002: Workflow-State-Anzeige und Transition
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die RequirementEditors-Komponente MUSS den aktuellen WorkflowState des Requirements prominent anzeigen und State-Übergänge über ein Dropdown ermöglichen. Nur valide Transitionen (gemaess Backend-WorkflowEngine) DÜRFEN im Dropdown angeboten werden. Nach einer Transition MUSS der angezeigte State sofort aktualisiert werden.
 
@@ -64,6 +78,13 @@ Die RequirementEditors-Komponente MUSS den aktuellen WorkflowState des Requireme
 
 ### REQ-L3-RF003-003: Bidirektionale Traceability-Seitenleiste
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die RequirementEditors-Komponente MUSS eine Seitenleiste bereitstellen, die alle verknuepften TraceLinks (Upstream und Downstream) des aktiven Requirements anzeigt, gruppiert nach Link-Typ. Ein Klick auf ein verknuepftes Artefakt MUSS die NavigationShell veranlassen, zur Detailansicht des verlinkten Artefakts zu navigieren.
 
 **Priority:** mandatory
@@ -76,6 +97,13 @@ Die RequirementEditors-Komponente MUSS eine Seitenleiste bereitstellen, die alle
 ---
 
 ### REQ-L3-RF003-004: Editor-Performance bei grossem Requirement-Bestand
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Die RequirementEditors-Komponente MUSS einen Editor-Wechsel zwischen zwei Requirements innerhalb von 500 ms abschliessen — unter der Bedingung eines Workspaces mit bis zu 10.000 Requirements und einer stabilen Netzwerkverbindung.
 

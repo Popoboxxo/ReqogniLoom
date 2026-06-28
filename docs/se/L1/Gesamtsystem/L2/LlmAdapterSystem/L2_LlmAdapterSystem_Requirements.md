@@ -46,8 +46,14 @@ Der LlmAdapter SHALL ein stabiles internes Interface (`LlmCapabilityInterface`) 
 - Incoming: IF-LA-EXT-IN-001
 - Outgoing: IF-LA-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-013, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend)
 **Rationale:** Provider-Abstraktion verhindert Vendor-Lock-in (ADR-02).
+
 
 ---
 
@@ -68,8 +74,14 @@ Der LlmAdapter SHALL bei fehlender LLM-Konfiguration einen strukturierten Fehler
 - Incoming: IF-LA-EXT-IN-001
 - Outgoing: IF-LA-EXT-OUT-001 (strukturierter Fehler)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-013
 **Rationale:** Self-Hosted-First bedeutet, dass Deployments ohne LLM der Normalfall sein können.
+
 
 ---
 
@@ -88,8 +100,14 @@ Der LlmAdapter SHALL per-Capability Aktivierung/Deaktivierung über Deployment-K
 **Interfaces:**
 - Incoming: IF-LA-EXT-IN-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-013
 **Rationale:** Adressiert OP-01 (LLM-Capability-Scope).
+
 
 ---
 
@@ -108,8 +126,14 @@ Der LlmAdapter SHALL standardisierte Ergebnisobjekte zurückgeben. `LlmResult`: 
 **Interfaces:**
 - Outgoing: IF-LA-EXT-IN-001 (Rückgabewerte)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-013
 **Rationale:** Standardisierte Formate ermöglichen provider-unabhängige Verarbeitung.
+
 
 ---
 
@@ -130,8 +154,14 @@ Der LlmAdapter SHALL Provider-Fehler (Timeout, API-Error, Rate-Limit) als strukt
 **Interfaces:**
 - Outgoing: IF-LA-EXT-OUT-001, IF-LA-EXT-IN-001 (Fehler)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-013, REQ-L1-026 (mitwirkend)
 **Rationale:** LLM-Ausfälle dürfen das Gesamtsystem nicht beeinträchtigen. Async-Tasks lösen das HTTP-Timeout-Problem für Langläufer (REQ-L2-LA-008).
+
 
 ---
 
@@ -150,8 +180,14 @@ Der LlmAdapter SHALL jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen) im Audit
 **Interfaces:**
 - Outgoing: IF-LA-EXT-OUT-002
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-011, REQ-L1-013 (mitwirkend)
 **Rationale:** Vollständige Auditierbarkeit umfasst LLM-Aufrufe.
+
 
 ---
 
@@ -169,8 +205,14 @@ Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LL
 **Interfaces:**
 - Outgoing: IF-LA-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-013
 **Rationale:** Azure-OpenAI ist für Enterprise-Deployments relevant.
+
 
 ---
 
@@ -194,8 +236,14 @@ Der LlmAdapter SHALL LLM-Langläufer-Operationen (`decompose_requirement`, `chec
 - Incoming: IF-LA-EXT-IN-001
 - Outgoing: IF-LA-EXT-OUT-001 (LLM-Provider-Aufruf durch Celery-Worker), IF-LA-EXT-OUT-003 (Task-Dispatch an Celery-Queue)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-013 (primär), REQ-L1-026 (mitwirkend)
 **Rationale:** Massenzerlegungen und Konsistenzprüfungen können mehrere Minuten dauern. Blockierende Synchronaufrufe erschöpfen den WSGI/ASGI-Worker-Pool und machen das System für andere Nutzer unresponsiv. Celery entkoppelt Aufruf und Ausführung.
+
 
 ---
 

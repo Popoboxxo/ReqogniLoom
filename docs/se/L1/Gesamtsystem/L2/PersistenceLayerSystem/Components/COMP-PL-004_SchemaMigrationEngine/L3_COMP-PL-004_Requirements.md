@@ -35,6 +35,13 @@ Django-Migrationen (Vorwaerts/Rueckwaerts), idempotentes Schema-Management, Depl
 
 ### REQ-L3-PL004-001: Vollstaendige und Squash-freie Migrationshistorie
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die SchemaMigrationEngine MUSS eine lueckenlose Migrationshistorie in `requirements_app/migrations/` bereitstellen, die auf einer leeren Datenbank das vollstaendige Schema aller 13 Entitaeten erzeugt. `python manage.py makemigrations --check` MUSS ohne Fehler und ohne neue Migrationen enden (Schema und Migrationen sind synchron). Keine Migration DARF durch Squash-Migrationen ersetzt werden, solange die Originalmigrationen noch in produktiven Deployments aktiv sind.
 
 **Priority:** mandatory
@@ -48,6 +55,13 @@ Die SchemaMigrationEngine MUSS eine lueckenlose Migrationshistorie in `requireme
 
 ### REQ-L3-PL004-002: Rueckwaertspfad fuer jede Migration
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Die SchemaMigrationEngine MUSS fuer jede Migration eine `reverse_migration`-Methode bereitstellen, die den Vorwaertspfad vollstaendig umkehrt. Automatisch generierte Rueckwaertspfade von Django DUERFEN nur dann verwendet werden, wenn sie von Django garantiert sind (AddField, CreateModel); fuer komplexe Operationen (RawSQL, RunPython) MUSS ein expliziter Rueckwaertspfad implementiert werden. `python manage.py migrate <app> zero` MUSS auf einer vollstaendig migrierten Datenbank fehlerfrei ausfuehren.
 
 **Priority:** mandatory
@@ -60,6 +74,13 @@ Die SchemaMigrationEngine MUSS fuer jede Migration eine `reverse_migration`-Meth
 ---
 
 ### REQ-L3-PL004-003: Migrations-CI-Gate im Deployment-Pipeline
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Die SchemaMigrationEngine MUSS in der CI-Pipeline einen automatisierten Gate-Check ausfuehren, der (1) `makemigrations --check` prueft, (2) `migrate` auf einer leeren Test-DB ausfuehrt und (3) `migrate <app> zero` zur Verifikation des Rueckwaertspfads ausfuehrt. Der Gate-Check MUSS fehlschlagen und den Build blockieren, wenn einer der drei Schritte einen Nicht-Null-Exit-Code zurueckgibt.
 

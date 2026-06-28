@@ -50,6 +50,11 @@ Der AuthorizationService SHALL für jede eingehende Operation anhand der `Identi
 | Approver | alle | Workspace-Artefakte | alle inkl. Approval | keine |
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-003
 **Acceptance Criteria:**
 - [ ] Viewer attempts POST on requirement → HTTP 403
@@ -66,6 +71,11 @@ Der AuthorizationService SHALL für jede eingehende Operation anhand der `Identi
 Der AuthorizationService SHALL die Approver-Rolle ausschließlich im Extended-Preset akzeptieren. Zuweisung oder Ausübung der Approver-Rolle in Minimal- oder Standard-Preset SHALL abgewiesen werden. Bei einem Preset-Wechsel von Extended zu Standard oder Minimal SHALL bestehende Approver-Zuweisungen suspendiert werden, ohne gelöscht zu werden.
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-004
 **Acceptance Criteria:**
 - [ ] Standard preset: `assign_role(user, "approver")` → error response
@@ -81,6 +91,11 @@ Der AuthorizationService SHALL die Approver-Rolle ausschließlich im Extended-Pr
 Der AuthorizationService SHALL CRUD-Operationen für Rollenzuweisungen auf Workspace-Ebene bereitstellen. Nur Nutzer mit Admin-Rolle im betreffenden Workspace SHALL Rollen zuweisen oder entziehen dürfen. Jede Zuweisung und jeder Entzug SHALL einen Audit-Log-Eintrag erzeugen. Zielnutzer SHALL Workspace-Mitglied sein.
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-006
 **Acceptance Criteria:**
 - [ ] Admin assigns Editor role to workspace member → saved in DB + audit log entry created

@@ -57,6 +57,11 @@ Der WebhookDispatcher SHALL als Subscriber des DomainEventBus registriert sein u
 - [ ] Subscriber kann dynamisch an-/abgemeldet werden
 
 **Interfaces:** IF-AS-INT-013
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-017
 **Rationale:** Asynchrone Event-Verarbeitung ohne Blockierung des Domain-Services.
 
@@ -75,6 +80,11 @@ Der WebhookDispatcher SHALL bei Eintritt eines relevanten Events die konfigurier
 - [ ] Keine Webhooks für Workspace → keine Dispatch-Versuche
 
 **Interfaces:** IF-AS-EXT-OUT-007, IF-AS-INT-013
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-017
 **Rationale:** Konfigurierbare Webhook-Verwaltung.
 
@@ -102,6 +112,11 @@ Der WebhookDispatcher SHALL für jeden konfigurierten Webhook einen JSON-Payload
 - [ ] Keine sensiblen Felder (Passwords, API-Keys) in Payload
 
 **Interfaces:** IF-AS-INT-013
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-017
 **Rationale:** Standardisierte Webhook-Payload für externe Systeme.
 
@@ -123,6 +138,11 @@ Der WebhookDispatcher SHALL für Webhooks mit konfiguriertem Secret einen HMAC-S
 - [ ] Webhooks ohne Secret haben keinen Signature-Header
 
 **Interfaces:** IF-AS-INT-013, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-017
 **Rationale:** Sicherheit durch Webhook-Authentifizierung.
 
@@ -146,6 +166,11 @@ Der WebhookDispatcher SHALL für jeden Webhook-Dispatch:
 - [ ] Alarmierung bei wiederholten Fehlern (Log oder Metrics)
 
 **Interfaces:** IF-AS-INT-013
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-017
 **Rationale:** Zuverlässige Delivery mit Retry bei transienten Fehlern.
 
@@ -168,6 +193,11 @@ Der WebhookDispatcher SHALL folgende HTTP-Status-Codes interpretieren:
 - [ ] Timeout wird wie 5xx behandelt
 
 **Interfaces:** IF-AS-INT-013
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-017
 **Rationale:** Intelligent Retry basierend auf HTTP-Semantik.
 
@@ -189,6 +219,11 @@ Der WebhookDispatcher SHALL als asynchroner Worker laufen (z.B. Django-Q, Celery
 - [ ] Worker-Timeout ist konfigurierbar (default 30s pro Webhook)
 
 **Interfaces:** IF-AS-INT-013
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-017
 **Rationale:** Schnelle API-Antworten trotz langsamer webhooks.
 
@@ -210,6 +245,11 @@ Der WebhookDispatcher SHALL gescheiterte Webhooks in einer Dead-Letter-Queue (DL
 - [ ] Alert bei hoher Fehlerquote (konfigurierbar)
 
 **Interfaces:** IF-AS-EXT-OUT-007, (metrics/monitoring)
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-017
 **Rationale:** Operationale Überwachung und Debugging.
 
@@ -227,6 +267,11 @@ Der WebhookDispatcher SHALL garantieren, dass Webhooks nur innerhalb der gleiche
 - [ ] Event workspace_id wird mit Webhook workspace_id abgeglichen
 
 **Interfaces:** IF-AS-INT-013, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-022
 **Rationale:** Sicherheit und Datenisolation.
 

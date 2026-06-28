@@ -55,6 +55,11 @@ Das SeMetricsSystem SHALL den Endpunkt `GET /metrics/workspace/{id}` bereitstell
 - Incoming: IF-L1-042, IF-L1-043
 - Outgoing: IF-L1-044, IF-L1-045, IF-L1-046, IF-L1-047
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-031
 **Rationale:** Der REST-Endpunkt ist die primäre Schnittstelle für Dashboard und API-Clients.
 
@@ -75,6 +80,11 @@ Das SeMetricsSystem SHALL optionale Query-Parameter `timeframe` (ISO-8601-Zeitra
 
 **Interfaces:**
 - Incoming: IF-L1-042
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031
 **Rationale:** REQ-L1-031 fordert konfigurierbare Zeiträume für die Volatility-Berechnung.
@@ -97,6 +107,11 @@ Das SeMetricsSystem SHALL Requirements Volatility berechnen als: Anzahl Änderun
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-044
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-031, REQ-L1-011 (mitwirkend)
 **Rationale:** Volatility ist die erste Kernmetrik aus REQ-L1-031 für Prozesssteuerung und Änderungsmanagement.
 
@@ -117,6 +132,11 @@ Das SeMetricsSystem SHALL Traceability Coverage berechnen als: Anteil der Requir
 **Interfaces:**
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-045
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-003 (mitwirkend)
 **Rationale:** Traceability Coverage ist die zweite Kernmetrik aus REQ-L1-031; misst Vollständigkeit der Anforderungsverknüpfung.
@@ -139,6 +159,11 @@ Das SeMetricsSystem SHALL Workflow-Lücken identifizieren als: Items ohne vollst
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-046
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-031, REQ-L1-009 (mitwirkend)
 **Rationale:** Workflow-Lücken sind die dritte Kernmetrik aus REQ-L1-031; zeigt prozessuale Compliance-Lücken.
 
@@ -158,6 +183,11 @@ Das SeMetricsSystem SHALL offene Risiken nach Schweregrad aggregieren. Quelldate
 **Interfaces:**
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-047
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-029 (mitwirkend)
 **Rationale:** Offene Risiken nach Schweregrad sind die vierte Kernmetrik aus REQ-L1-031 für Risikomanagement.
@@ -183,6 +213,11 @@ Das SeMetricsSystem SHALL pro Workspace konfigurierbare Schwellwert-Warnungen f�
 
 Die Schwellwert-Konfiguration wird via IF-L1-048 (PersistenceLayer) persistiert; dies ist die einzige Schreiboperation des SeMetricsSystems außer der optionalen Metric-Cache-Persistenz.
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-031
 **Rationale:** REQ-L1-031 fordert konfigurierbare Schwellwert-Warnungen explizit.
 
@@ -201,6 +236,11 @@ Das SeMetricsSystem SHALL ausschließlich lesende Operationen auf allen Quellsys
 
 **Interfaces:**
 - Outgoing: IF-L1-044, IF-L1-045, IF-L1-046, IF-L1-047, IF-L1-048
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031
 **Rationale:** Read-Modell-Charakter verhindert zirkuläre Abhängigkeiten und unbeabsichtigte Mutations-Seiteneffekte auf transaktionale Pfade.
@@ -224,6 +264,11 @@ Das SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer M
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-048
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-031, REQ-L1-026 (mitwirkend)
 **Rationale:** Materialisierter Cache reduziert Last auf Quellsysteme bei häufigen Dashboard-Refreshes. Proaktive Vorberechnung per Celery-Beat verhindert, dass WSGI-Worker bei großen Workspaces durch schwere Aggregationen blockiert werden (Handlungsempfehlung 1.3).
 
@@ -244,6 +289,11 @@ Das SeMetricsSystem SHALL sicherstellen, dass alle Quelldaten-Abfragen (IF-L1-04
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-044, IF-L1-045, IF-L1-046, IF-L1-047
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-031, REQ-L1-015 (mitwirkend)
 **Rationale:** Row-Level-Isolation muss konsistent durch alle Schichten gelten, auch für Read-Modelle.
 
@@ -262,6 +312,11 @@ Das SeMetricsSystem SHALL die folgenden Performance-SLAs einhalten: ≤ 500ms (p
 
 **Interfaces:**
 - Incoming: IF-L1-042, IF-L1-043
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-031, REQ-L1-026 (mitwirkend)
 **Rationale:** REQ-L1-026 fordert ≤ 200ms für Standard-Queries; Metrik-Aggregation aus vier Subsystemen erhält relaxierten SLA von 500ms.
@@ -284,6 +339,11 @@ Das SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat für de
 **Interfaces:**
 - Incoming: IF-L1-042, IF-L1-043
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-031, REQ-L1-006 (mitwirkend)
 **Rationale:** Stabiles Format verhindert Breaking Changes im Dashboard und bei API-Clients.
 
@@ -305,6 +365,11 @@ Das SeMetricsSystem MUSS sicherstellen, dass bei einem Cache-Miss für einen Wor
 **Interfaces:**
 - Incoming: IF-L1-042
 - Outgoing: IF-L1-048
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-026 (primär), REQ-L1-031 (mitwirkend)
 **Rationale:** Ohne Thundering-Herd-Prevention können bei einem Cache-Miss gleichzeitige Requests alle eine schwere Aggregation starten, was WSGI-Worker blockiert und die Quellsysteme unter Last setzt. Ein distributed Lock stellt sicher, dass die teure Berechnung exakt einmal erfolgt (Handlungsempfehlung 1.3).

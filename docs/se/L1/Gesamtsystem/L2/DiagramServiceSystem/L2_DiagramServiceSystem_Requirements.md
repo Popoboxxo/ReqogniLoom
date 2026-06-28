@@ -52,6 +52,11 @@ Das DiagramServiceSystem SHALL vollständiges CRUD für Diagramm-Artefakte berei
 - Incoming: IF-L1-032, IF-L1-033
 - Outgoing: IF-L1-035, IF-L1-036
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-027
 **Rationale:** Unveränderliche Versionen sind notwendig für Auditierbarkeit und Nachverfolgbarkeit von Architekturänderungen.
 
@@ -70,6 +75,11 @@ Das DiagramServiceSystem SHALL den Payload der Diagramme gegen typspezifische Re
 **Interfaces:**
 - Incoming: IF-L1-032
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-027
 **Rationale:** Nur validierter Payload stellt sicher, dass Diagramme fehlerfrei im Frontend gerendert werden können.
 
@@ -86,6 +96,11 @@ Das DiagramServiceSystem SHALL renderbare Repräsentationen (oder den rohen, val
 
 **Interfaces:**
 - Incoming: IF-L1-032
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-027
 **Rationale:** Die primäre Nutzung der Diagramme erfolgt visuell in der UI.
@@ -106,6 +121,11 @@ Das DiagramServiceSystem SHALL bei der Erstellung oder Aktualisierung von Diagra
 - Incoming: IF-L1-032
 - Outgoing: IF-L1-034
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-027
 **Rationale:** Traceability schließt die Lücke zwischen grafischem Modell und textueller Anforderung.
 
@@ -122,6 +142,11 @@ Das DiagramServiceSystem SHALL den Diagramm-Abruf über das MCP-Tool `artifact.g
 
 **Interfaces:**
 - Incoming: IF-L1-033
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-027
 **Rationale:** KI-Agenten müssen architektonischen Kontext aus Diagrammen extrahieren können.

@@ -45,6 +45,11 @@ Die PolicyEngine SHALL bei allen über IF-RO-INT-002 eingehenden Aufrufen ein Ti
 - [ ] Überschreitet ein Request via IF-L1-051 das Timeout, wird der Aufruf abgebrochen.
 - [ ] Timeout-Ausnahmen werden als Fehlschlag registriert.
 **Interfaces:** IF-RO-INT-002, IF-L1-051
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-002
 
 ### REQ-L3-RO-002-02: Exponential Backoff Retries
@@ -57,6 +62,11 @@ Die PolicyEngine SHALL Aufrufe, die aufgrund von transienten Fehlern (Netzwerkfe
 - [ ] Bei non-retryable Errors (z. B. 400 Bad Request) findet kein Retry statt.
 - [ ] Die Wartezeit vergrößert sich exponentiell zwischen den Versuchen.
 **Interfaces:** IF-L1-051
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-003
 
 ### REQ-L3-RO-002-03: Erfolg und Misserfolg melden
@@ -68,6 +78,11 @@ Die PolicyEngine SHALL den finalen Status (Erfolg oder Misserfolg nach Retries) 
 - [ ] Bei Erfolg wird `report_success(target)` aufgerufen.
 - [ ] Bei finalem Misserfolg wird `report_failure(target)` aufgerufen.
 **Interfaces:** IF-RO-INT-004
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-002, REQ-L2-RO-003
 
 ### REQ-L3-RO-002-04: Degradation bei finalem Fehlschlag auslösen
@@ -79,4 +94,9 @@ Die PolicyEngine SHALL bei Ausschöpfung aller Retries oder bei fatalen Fehlern 
 - [ ] `handle_failure(exception, target)` wird bei finalem Misserfolg aufgerufen.
 - [ ] Rückgabe-Fallback wird verarbeitet.
 **Interfaces:** IF-RO-INT-003
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-002, REQ-L2-RO-003

@@ -47,6 +47,11 @@ Der CommentService SHALL CRUD-Operationen für Kommentare an Artefakten (Require
 - Incoming: IF-CM-EXT-IN-001
 - Outgoing: IF-CM-EXT-OUT-001, IF-CM-EXT-OUT-003
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-037
 **Rationale:** Kommentar-Threads ermöglichen kontextgebundene Kommunikation am Artefakt.
 
@@ -70,6 +75,11 @@ Der CommentService SHALL @Mention-Syntax in Kommentar-Texten auflösen. Ein @Men
 - Incoming: IF-CM-EXT-IN-001
 - Outgoing: IF-CM-EXT-OUT-002, IF-CM-EXT-OUT-003
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-037
 **Rationale:** @Mentions ermöglichen gezielte Benachrichtigungen ohne externe Tools.
 
@@ -92,6 +102,11 @@ Der CommentService SHALL bei jedem @Mention eines registrierten Nutzers eine In-
 **Interfaces:**
 - Incoming: IF-CM-EXT-IN-001 (Mention-Event von COMP-CM-002)
 - Outgoing: IF-CM-EXT-OUT-001, IF-CM-EXT-OUT-003
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-037
 **Rationale:** In-App-Notifications schließen den Kommunikationskreis ohne externe Tools.

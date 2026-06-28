@@ -34,6 +34,13 @@ Keine — der VolatilityCalculator operiert ausschließlich auf bereits abgerufe
 
 ### REQ-L3-SM003-001: Berechnung von Gesamt-Änderungsrate und Durchschnitt
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der VolatilityCalculator SHALL aus der übergebenen Liste von `AuditEntry`-Objekten ausschließlich Einträge mit `entity_type = "Requirement"` und `operation IN ("update", "workflow_transition")` berücksichtigen. Er SHALL `total_changes` (Anzahl gefilterte Einträge), `total_requirements` (Anzahl distinkte `entity_id`-Werte) und `avg_changes_per_req` (total_changes / total_requirements, auf zwei Nachkommastellen gerundet) berechnen. Bei `total_requirements = 0` SHALL `avg_changes_per_req` als `0.0` zurückgegeben werden (keine Division durch Null).
 
 **Priority:** mandatory
@@ -46,6 +53,13 @@ Der VolatilityCalculator SHALL aus der übergebenen Liste von `AuditEntry`-Objek
 ---
 
 ### REQ-L3-SM003-002: Top-10-Volatile-Liste
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der VolatilityCalculator SHALL eine geordnete Liste der bis zu 10 Requirements mit der höchsten Änderungszahl im Berechnungszeitraum erstellen. Die Liste SHALL absteigend nach Änderungszahl sortiert sein. Jeder Eintrag SHALL `requirement_id` und `change_count` enthalten. Bei weniger als 10 Requirements mit Änderungen SHALL die Liste entsprechend kürzer sein.
 

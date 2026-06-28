@@ -58,6 +58,11 @@ Der SearchService SHALL PostgreSQL Full-Text Search (tsvector, tsquery) einsetze
 - [ ] tsvector wird bei INSERT/UPDATE automatisch aktualisiert (Trigger)
 
 **Interfaces:** IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-008
 **Rationale:** PostgreSQL FTS ist native, effizient und benötigt keine externen Abhängigkeiten.
 
@@ -79,6 +84,11 @@ Der SearchService SHALL SQL-Injection-resistente tsquery-Parsing durchführen:
 - [ ] Query wird validiert und ungültige Eingaben abgewiesen
 
 **Interfaces:** IF-AS-EXT-IN-001
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-008
 **Rationale:** Benutzerfreundliche Suche mit erweiterten Operatoren.
 
@@ -100,6 +110,11 @@ Der SearchService SHALL Suchergebnisse nach Relevanz-Score (ts_rank) sortieren. 
 - [ ] Sortierung ist deterministisch (Tiebreaker: creation_date DESC)
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-008
 **Rationale:** Qualitätserlebnis durch intelligente Ranking.
 
@@ -121,6 +136,11 @@ Der SearchService SHALL Suchergebnisse optional nach Artefakttyp filtern:
 - [ ] Filter reduziert Ergebnismenge sichtbar
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-009
 **Rationale:** Gezielte Suche für Agenten mit spezifischen Artefakt-Anforderungen.
 
@@ -142,6 +162,11 @@ Der SearchService SHALL Suchergebnisse auf eine einzelne Workspace (optional) be
 - [ ] Non-existent workspace_id wird mit Empty-Results gemeldet
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-009, REQ-L2-AppSvc-022
 **Rationale:** Sicherheit und Datenisolation.
 
@@ -163,6 +188,11 @@ Der SearchService SHALL Suchergebnisse paginiert zurückgeben:
 - [ ] Limit-Beschränkung (max 100) wird enforced
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-008
 **Rationale:** Skalierbarkeit bei großen Ergebnismengen.
 
@@ -183,6 +213,11 @@ Dies ermöglicht dem Client (UI oder MCP-Tool) die Ergebnisse korrekt zu kategor
 - [ ] Alle Ergebnisse annotiert (keine Auslassungen)
 
 **Interfaces:** IF-AS-EXT-IN-001
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-008
 **Rationale:** Usability für Multi-Type-Suche.
 
@@ -201,6 +236,11 @@ Der SearchService SHALL Suchen über bis zu 10.000 Entitäten in ≤500ms abschl
 - [ ] Keine N+1 Queries (single SELECT mit JOIN)
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-008
 **Rationale:** Interaktive Suche in der UI und MCP-Tools.
 
@@ -222,6 +262,11 @@ Bei Suche-Fehlern (z.B. ungültige tsquery, Datenbank-Timeout) SHALL der SearchS
 - [ ] Fallback: leere Ergebnisliste (nicht Error) für zu breite Queries
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-008
 **Rationale:** Robustheit und Benutzerfreundlichkeit.
 

@@ -34,6 +34,13 @@ Laufzeit-Abfrage der PresetConfigEngine zur Bestimmung, welche API-Endpunkte und
 
 ### REQ-L3-RA004-001: Endpunkt-Sichtbarkeitsprüfung per Workspace-Preset
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der PresetGuard SHALL für jeden eingehenden Request die PresetConfigEngine via `is_feature_enabled(endpoint_id, workspace_id)` konsultieren und eine `PresetDecision` (sichtbar / nicht sichtbar) zurückliefern. Nicht erlaubte Endpunkte SHALL mit einer `PresetDecision(visible=false)` beantwortet werden, die der Controller in HTTP 404 oder HTTP 403 übersetzt.
 
 **Priority:** mandatory
@@ -47,6 +54,13 @@ Der PresetGuard SHALL für jeden eingehenden Request die PresetConfigEngine via 
 
 ### REQ-L3-RA004-002: Feld-Filteranweisung an DataSerializer
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der PresetGuard SHALL nach einer positiven Endpunkt-Sichtbarkeitsprüfung eine `FieldFilter`-Anweisung erzeugen und über IF-RA-INT-004 an den DataSerializer liefern. Die `FieldFilter`-Anweisung SHALL `permitted_fields` (Liste aller im aktiven Preset erlaubten Felder) und `required_fields` (Liste der im aktiven Preset Pflichtfelder) enthalten.
 
 **Priority:** mandatory
@@ -59,6 +73,13 @@ Der PresetGuard SHALL nach einer positiven Endpunkt-Sichtbarkeitsprüfung eine `
 ---
 
 ### REQ-L3-RA004-003: Preset-Abfrage ohne Geschäftslogik-Eigenimplementierung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der PresetGuard DARF keine eigenständige Preset-Konfigurationslogik implementieren. Alle Preset-Entscheidungen MÜSSEN ausschließlich durch Aufruf von `is_feature_enabled(key, workspace_id)` auf der PresetConfigEngine getroffen werden. Hartcodierte Feature-Flags oder lokale Preset-Definitionen sind unzulässig.
 

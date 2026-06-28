@@ -50,6 +50,11 @@ Der BaselineService SHALL den angeforderten Scope (`document`, `project`, `globa
 - Incoming: IF-BL-EXT-IN-001, IF-BL-EXT-IN-003
 - Outgoing: IF-BL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-008, REQ-L1-003 (mitwirkend)
 **Rationale:** Delta-Storage (nur item_id + version statt vollständiger Payload) verhindert massives DB-Wachstum und OOM-Risiko bei großen Projekten. Atomare, unveränderliche Referenzen bleiben Voraussetzung für reproduzierbare Anforderungsstände.
 
@@ -69,6 +74,11 @@ Der BaselineService SHALL strenge Unveränderlichkeit nach der Erstellung erzwin
 **Interfaces:**
 - Outgoing: IF-BL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-008
 **Rationale:** Unveränderliche Baselines sind Voraussetzung für Compliance-Nachweise.
 
@@ -87,6 +97,11 @@ Der BaselineService SHALL den Vergleich zweier Baselines desselben Scopes unters
 **Interfaces:**
 - Incoming: IF-BL-EXT-IN-001
 - Outgoing: IF-BL-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-008
 **Rationale:** Baseline-Vergleiche sind das operative Werkzeug für Reviews und Change-Management.
@@ -110,6 +125,11 @@ Der BaselineService SHALL die PresetConfigEngine konsultieren, um die Scope-Verf
 **Interfaces:**
 - Incoming: IF-BL-EXT-IN-002
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-008, REQ-L1-007 (mitwirkend)
 **Rationale:** Baseline-Scope-Staffelung ist ein zentrales Differenzierungsmerkmal.
 
@@ -129,6 +149,11 @@ Der BaselineService SHALL einen eindeutigen, nicht-leeren Namen pro Workspace ve
 
 **Interfaces:**
 - Outgoing: IF-BL-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-008
 **Rationale:** REQ-L1-008 spezifiziert „benannte Baselines".
@@ -151,6 +176,11 @@ Der BaselineService SHALL Einzelabruf (mit vollständigem Snapshot) und Listen (
 - Incoming: IF-BL-EXT-IN-001
 - Outgoing: IF-BL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-008
 **Rationale:** Baselines müssen identifizierbar und nachschlagbar sein.
 
@@ -168,6 +198,11 @@ Der BaselineService SHALL Baselines atomar erstellen: entweder der komplette Sna
 
 **Interfaces:**
 - Outgoing: IF-BL-EXT-OUT-001
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-008, REQ-L1-025 (mitwirkend)
 **Rationale:** ACID-Konsistenz verhindert inkonsistente Anforderungsstände.
@@ -190,6 +225,11 @@ Der BaselineService SHALL in der Lage sein, den Zustand eines Items zum Baseline
 - Incoming: IF-BL-EXT-IN-001
 - Outgoing: IF-BL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-008, REQ-L1-011 (mitwirkend, AuditLog als Versionsquelle)
 **Rationale:** Da der Payload nicht mehr in der Baseline direkt gespeichert wird (Delta-Storage, REQ-L2-BL-001), muss der BaselineService die Rekonstruktion aus der Versionshistorie übernehmen, um Baseline-Inhalte weiterhin lesbar zu machen.
 
@@ -208,6 +248,11 @@ Der BaselineService SHALL Baseline-Erstellung für bis zu 10.000 Items innerhalb
 **Interfaces:**
 - Incoming: IF-BL-EXT-IN-001, IF-BL-EXT-IN-001
 - Outgoing: IF-BL-EXT-OUT-001, IF-BL-EXT-OUT-001
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-026, REQ-L1-008 (mitwirkend)
 **Rationale:** Baseline-Erstellung ist komplex, muss aber benutzerakzeptabel bleiben.

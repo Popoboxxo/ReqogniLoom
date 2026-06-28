@@ -63,6 +63,11 @@ Der DiagramManager SHALL ein neues Diagramm initialisieren, es via DiagramValida
 - Incoming: IF-L1-032
 - Outgoing: IF-DS-INT-001, IF-L1-035, IF-L1-036
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-DS-001
 **Rationale:** Kernfunktion des Systems.
 
@@ -83,6 +88,11 @@ Der DiagramManager SHALL bei einer inhaltlichen Aktualisierung eine neue Version
 - Incoming: IF-L1-032
 - Outgoing: IF-DS-INT-001, IF-L1-035, IF-L1-036
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-DS-001
 **Rationale:** Unveränderlichkeit ist für Auditierbarkeit essenziell.
 
@@ -102,6 +112,11 @@ Der DiagramManager SHALL ein spezifisches Diagramm anhand der UUID und Version a
 - Incoming: IF-L1-032, (internal vom McpProvider)
 - Outgoing: IF-DS-INT-002, IF-L1-035
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-DS-001
 **Rationale:** Vorbereitung der Daten zur Anzeige im Frontend oder MCP.
 
@@ -119,6 +134,11 @@ Der DiagramManager SHALL eine chronologische Liste aller Versionen eines gegeben
 **Interfaces:**
 - Incoming: IF-L1-032
 - Outgoing: IF-L1-035
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L2-DS-001
 **Rationale:** Notwendig für Traceability und Nachvollziehbarkeit.

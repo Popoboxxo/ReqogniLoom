@@ -53,8 +53,14 @@ Der McpServer SHALL die sechs Tools `requirement.get`, `requirement.query`, `req
 - Outgoing: IF-MC-EXT-OUT-001 (JSON-Response)
 - Internal: IF-MC-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-005, REQ-L1-002 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-013 (mitwirkend)
 **Rationale:** Die sechs Requirements-Tools decken den primären AI-Workflow ab.
+
 
 ---
 
@@ -75,8 +81,14 @@ Der McpServer SHALL die fünf Tools `architecture.get`, `architecture.query`, `a
 - Outgoing: IF-MC-EXT-OUT-001
 - Internal: IF-MC-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-005, REQ-L1-004 (mitwirkend), REQ-L1-003 (mitwirkend), REQ-L1-011 (mitwirkend)
 **Rationale:** Architektur-Tools ermöglichen AI-Agenten strukturierte Architektur-Verwaltung.
+
 
 ---
 
@@ -98,8 +110,14 @@ Der McpServer SHALL die fünf Tools `test.get`, `test.query`, `test.create`, `te
 - Outgoing: IF-MC-EXT-OUT-001
 - Internal: IF-MC-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-005, REQ-L1-012 (mitwirkend), REQ-L1-003 (mitwirkend), REQ-L1-011 (mitwirkend)
 **Rationale:** Test-Tools ermöglichen automatisierte Coverage-Analyse als AI-Workflow.
+
 
 ---
 
@@ -121,8 +139,14 @@ Der McpServer SHALL die vier Tools `traceability.query`, `artifact.search`, `art
 - Outgoing: IF-MC-EXT-OUT-001
 - Internal: IF-MC-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-005, REQ-L1-020 (mitwirkend), REQ-L1-003 (mitwirkend), REQ-L1-007 (mitwirkend)
 **Rationale:** Übergreifende Tools vermeiden redundante Einzel-Calls.
+
 
 ---
 
@@ -142,8 +166,14 @@ Der McpServer SHALL mindestens drei Transportprotokolle unterstützen: stdio, Se
 - Incoming: IF-MC-EXT-IN-001
 - Outgoing: IF-MC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-005
 **Rationale:** Verschiedene AI-Agent-Clients verwenden unterschiedliche Transportmechanismen.
+
 
 ---
 
@@ -164,8 +194,14 @@ Der McpServer SHALL vor jeder Tool-Ausführung den API-Key an AuthAndTenancy (AR
 - Outgoing: IF-MC-EXT-OUT-001 (Fehler bei Auth-Fehler)
 - Internal: IF-MC-EXT-OUT-002
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-005, REQ-L1-010 (mitwirkend), REQ-L1-011 (mitwirkend)
 **Rationale:** API-Key-Auth ist Voraussetzung für sicheren MCP-Schreibzugriff.
+
 
 ---
 
@@ -184,8 +220,14 @@ Der McpServer SHALL vor jeder schreibenden Operation prüfen, ob die Rolle des a
 - Incoming: IF-MC-EXT-OUT-002 (Auth-Kontext mit Rollen)
 - Outgoing: IF-MC-EXT-OUT-001 (Fehler bei Berechtigungsverletzung)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-010, REQ-L1-005 (mitwirkend)
 **Rationale:** RBAC-Enforcement verhindert unautorisierte Operationen durch AI-Agenten.
+
 
 ---
 
@@ -204,8 +246,14 @@ Der McpServer SHALL das Preset des aktiven Workspaces über PresetConfigEngine (
 - Incoming: IF-MC-EXT-OUT-004 (Preset-Regeln)
 - Outgoing: IF-MC-EXT-OUT-001 (Fehler bei deaktiviertem Feature)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007, REQ-L1-005 (mitwirkend)
 **Rationale:** Configurable Rigor erfordert werkzeugseitige SE-Tiefe-Abbildung.
+
 
 ---
 
@@ -223,8 +271,14 @@ Der McpServer SHALL alle Domain-Operationen direkt über den ApplicationService 
 **Interfaces:**
 - Internal: IF-MC-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-005, REQ-L1-006 (mitwirkend)
 **Rationale:** ADR-01: Vermeidet HTTP-Roundtrip-Overhead und garantiert semantische Konsistenz.
+
 
 ---
 
@@ -243,8 +297,14 @@ Der McpServer SHALL für 95% aller MCP-Standard-Requests eine Gesamtantwortzeit 
 - Incoming: IF-MC-EXT-IN-001 (unter Last)
 - Outgoing: IF-MC-EXT-OUT-001 (innerhalb SLA)
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-026, REQ-L1-005 (mitwirkend)
 **Rationale:** Hohe Latenz beeinträchtigt alle AI-gestützten Workflows.
+
 
 ---
 
@@ -263,8 +323,14 @@ Der McpServer SHALL bei Fehlern eine strukturierte JSON-Fehlerantwort zurückgeb
 **Interfaces:**
 - Outgoing: IF-MC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-005
 **Rationale:** AI-Agenten benötigen maschinenlesbare Fehlercodes für robuste Workflows.
+
 
 ---
 
@@ -283,8 +349,14 @@ Der McpServer SHALL bei jeder schreibenden Operation über den ApplicationServic
 **Interfaces:**
 - Internal: IF-MC-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-011, REQ-L1-005 (mitwirkend)
 **Rationale:** Vollständige Rückverfolgbarkeit von AI-Agent-Änderungen. AuditLog wird ausschließlich durch ApplicationService geschrieben (L1-Architektur ADR-01).
+
 
 ---
 
@@ -308,8 +380,14 @@ Der McpServer SHALL das MCP-Tool `test.record_result` implementieren, das TestCa
 - Incoming: IF-MC-EXT-IN-001
 - Outgoing: IF-MC-EXT-OUT-001, IF-MC-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-036, REQ-L1-011 (mitwirkend)
 **Rationale:** MCP-Tool ermöglicht AI-Agenten und CI/CD-Systemen direkte Test-Ergebnis-Einspeisung.
+
 
 ---
 

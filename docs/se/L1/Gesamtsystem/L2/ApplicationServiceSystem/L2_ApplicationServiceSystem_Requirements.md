@@ -57,6 +57,11 @@ Der ApplicationService SHALL bei Erstellung oder Änderung einer Parent-Child-Be
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-001
 **Rationale:** Zyklische Hierarchien korrodieren Datenintegrität und machen Tree-Queries nicht-terminierend.
 
@@ -79,6 +84,11 @@ Der ApplicationService SHALL eine Tree-Query-Operation bereitstellen, die die vo
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-001
 **Rationale:** Tree-Query ist Basis für UI-Baumdarstellung, MCP-Tool `artifact.get_tree` und Export.
 
@@ -99,6 +109,11 @@ Der ApplicationService SHALL vollständiges CRUD für Requirements bereitstellen
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-002
 **Rationale:** Requirements sind die Kernentität; Workflow-Integration ersetzt hartcodierten Status-Enum.
@@ -121,6 +136,11 @@ Der ApplicationService SHALL vollständiges CRUD für ArchitectureElements berei
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-004
 **Rationale:** ArchitectureElements als eigenständiger, versionierter Typ.
 
@@ -142,6 +162,11 @@ Der ApplicationService SHALL vollständiges CRUD für TestCases bereitstellen mi
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Not Implemented
+**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
+**Test Status:** Covered
+**Remarks:** Implementierung prüfen.
+
 **Traceability:** REQ-L1-012
 **Rationale:** Testmanagement ist Teil des v1-Funktionsumfangs.
 
@@ -161,6 +186,11 @@ Der ApplicationService SHALL Export-Operationen für Requirements, ArchitectureE
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-007
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-019
 **Rationale:** Export ist Must-Have für v1.
@@ -182,6 +212,11 @@ Der ApplicationService SHALL das aktive Terminologie-Profil als Metadatum in jed
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-02
 - Outgoing: IF-AS-EXT-OUT-004, IF-AS-EXT-OUT-07
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-019, REQ-L1-014 (mitwirkend)
 **Rationale:** Korrekte Interpretation des Exports in der jeweiligen Zielgruppe.
 
@@ -200,6 +235,11 @@ Der ApplicationService SHALL artefakttyp-übergreifende Volltextsuche über Requ
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-007
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-020
 **Rationale:** Volltextsuche ist expliziter v1-Bestandteil.
@@ -220,6 +260,11 @@ Der ApplicationService SHALL optionale Filter für Artefakttyp und Workspace in 
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-007
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-020
 **Rationale:** Filter notwendig für gezielte Suche in großen Workspaces.
@@ -242,6 +287,11 @@ Der ApplicationService SHALL TraceLink-Erstellung, -Query und -Löschung als Orc
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-003, IF-AS-EXT-OUT-006
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-003
 **Rationale:** Orchestriert TraceLink-Operationen als Teil von Use-Cases.
 
@@ -262,6 +312,11 @@ Der ApplicationService SHALL Baseline-Erstellung, -Abruf und -Diff als Facade ü
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-002, IF-AS-EXT-OUT-004, IF-AS-EXT-OUT-006
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-008
 **Rationale:** Facade bündelt Cross-Service-Orchestrierung.
@@ -284,6 +339,11 @@ Der ApplicationService SHALL Workflow-Transitionen als Facade über die Workflow
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-009
 **Rationale:** Kapselt Delegationslogik, trennt Verantwortlichkeiten.
 
@@ -304,6 +364,11 @@ Der ApplicationService SHALL LLM-gestützte Capabilities (validate, decompose, c
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-005
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-013
 **Rationale:** LLM als pluggable Capability; System bleibt ohne LLM funktionsfähig.
@@ -326,6 +391,11 @@ Der ApplicationService SHALL CSV-Import für Requirements, ArchitectureElements 
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-021
 **Rationale:** Migration bestehender Anforderungsdaten ohne manuelle Neueingabe.
 
@@ -347,6 +417,11 @@ Der ApplicationService SOLLTE die Verknüpfung von Requirements mit GitHub Issue
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-022
 **Rationale:** GitHub-Integration ist Should-Have für die Zielgruppe.
 
@@ -366,6 +441,11 @@ Der ApplicationService SOLLTE PDF-Report-Export für Anforderungsdokumente und T
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-007
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-023
 **Rationale:** SE-Zielgruppe benötigt dokumentierbare Übergaben für Reviews.
@@ -390,6 +470,11 @@ Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requ
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Incoming (intern): IF-AS-EXT-OUT-006 (Domain Events via asynchronen Entkopplungsmechanismus)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-024
 **Rationale:** Ermöglicht externen Systemen auf Änderungen zu reagieren. Entkopplung vom ApplicationService via asynchronen Entkopplungsmechanismus reduziert synchrone Abhängigkeiten.
 
@@ -408,6 +493,11 @@ Der ApplicationService SHALL alle Datenänderungen atomar und konsistent persist
 
 **Interfaces:**
 - Outgoing: IF-AS-EXT-OUT-007
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-025
 **Rationale:** Datenkonsistenz ist fundamentale Non-Functional-Anforderung.
@@ -432,6 +522,11 @@ Der ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag 
 **Interfaces:**
 - Outgoing: IF-AS-EXT-OUT-006
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-011
 **Rationale:** Entkopplung von synchroner Schreiboperation und AuditLog-Schreibung via asynchronen Entkopplungsmechanismus. Dies sichert Eventual-Write-Garantie ohne starre In-Transaction-Kopplung.
 
@@ -451,6 +546,11 @@ Der ApplicationService SHALL PresetConfigEngine konsultieren vor preset-abhängi
 
 **Interfaces:**
 - Outgoing: IF-AS-EXT-OUT-004
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-007
 **Rationale:** Configurable Rigor als Querschnitts-Konzept.
@@ -473,6 +573,11 @@ Der ApplicationService SHALL Auth-Kontext (User, Tenant, Rollen) von AuthAndTena
 - Incoming: IF-AS-EXT-IN-003
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-002, IF-AS-EXT-OUT-003
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-010
 **Rationale:** Trennung von Auth (ARCH-L1-011) und Geschäftslogik.
 
@@ -494,6 +599,11 @@ Der ApplicationService SHALL sicherstellen, dass jede DB-Query auf den aktiven T
 - Incoming: IF-AS-EXT-IN-003
 - Outgoing: IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-015
 **Rationale:** Row-Level-Isolation ist Voraussetzung für v2-SaaS.
 
@@ -513,6 +623,11 @@ Der ApplicationService SHALL maximal 50ms Orchestrierungs-Overhead pro Use-Case 
 
 **Interfaces:**
 - Outgoing: IF-AS-EXT-OUT-001..07
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-026
 **Rationale:** 50ms-Obergrenze stellt sicher, dass das System die API-SLAs erreicht.
@@ -535,6 +650,11 @@ Der ApplicationService SHALL die Decomposition eines Requirements in Kind-Requir
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-003, IF-AS-EXT-OUT-005, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-002, REQ-L1-013 (mitwirkend)
 **Rationale:** Zentraler AI-nativer Workflow erfordert Multi-Subsystem-Orchestrierung.
 
@@ -554,6 +674,11 @@ Der ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requireme
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-003
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-012
 **Rationale:** Coverage-Tracking ist Grundlage für AI-gestützte Test-Lücken-Analyse.
@@ -576,6 +701,11 @@ Der ApplicationService SOLLTE vollständiges CRUD für Architecture Decision Rec
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Dokumentation von Architektur-Entscheidungen im Kontext der betroffenen Elemente.
 
@@ -597,6 +727,11 @@ Der ApplicationService SOLLTE vollständiges CRUD für Risiken (Risks) bereitste
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Risikomanagement als integrierter Bestandteil des SE-Lifecycles.
 
@@ -617,6 +752,11 @@ Der ApplicationService SOLLTE vollständiges CRUD für System-Issues bereitstell
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-029
 **Rationale:** Integriertes Issue-Tracking für das laufende System-Engineering.
@@ -645,6 +785,11 @@ Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes D
 - Outgoing: IF-AS-EXT-OUT-006 (AuditLog via Event)
 - Outgoing: IF-AS-EXT-OUT-007 (Ereignis-Persistierung via PersistenceLayer)
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-026 (Performance), REQ-L1-011 (Audit)
 **Rationale:** Synchrone Direktaufrufe von AuditLog, SeMetrics und WebhookDispatcher nach jeder Mutation verlängern Antwortzeiten und erzeugen starre strukturelle Kopplung. Der asynchrone Entkopplungsmechanismus entkoppelt Publisher und Subscriber, reduziert Orchestrierungs-Overhead und ermöglicht unabhängige Skalierung der Subscriber.
 
@@ -670,6 +815,11 @@ Der ApplicationService SHALL Testläufe (Test Runs) als eigenständige Entitäte
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-035, REQ-L1-012 (mitwirkend)
 **Rationale:** Test-Run-Protokollierung schließt den V-Modell-Kreislauf (Verification & Validation).
 
@@ -693,6 +843,11 @@ Der ApplicationService SHALL automatisierten Pipelines und CI/CD-Systemen ermög
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-036, REQ-L1-011 (mitwirkend)
 **Rationale:** Automatisierte Einspeisung schließt den V-Modell-Kreislauf ohne manuelle Intervention.
 
@@ -715,6 +870,11 @@ Der ApplicationService SHALL ein strukturiertes JSON-Diff zwischen zwei beliebig
 **Interfaces:**
 - Incoming: IF-AS-EXT-IN-001
 - Outgoing: IF-AS-EXT-OUT-007
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-040, REQ-L1-011 (mitwirkend)
 **Rationale:** Visueller Diff pro Artefakt ist für formale Reviews und Freigabe-Entscheidungen unerlässlich.

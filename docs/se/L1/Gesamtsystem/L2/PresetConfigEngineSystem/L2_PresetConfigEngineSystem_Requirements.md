@@ -45,8 +45,14 @@ Die PresetConfigEngine SHALL drei vordefinierte Workspace-Presets verwalten — 
 - Incoming: IF-PC-EXT-IN-001
 - Outgoing: IF-PC-EXT-OUT-001, IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007
 **Rationale:** Configurable Rigor ist das zentrale Differenzierungsmerkmal.
+
 
 ---
 
@@ -69,8 +75,14 @@ Die PresetConfigEngine SHALL das Interface `is_feature_enabled(feature_key, work
 - Incoming: IF-PC-EXT-IN-001
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007, REQ-L1-002 (mitwirkend), REQ-L1-008 (mitwirkend)
 **Rationale:** Zentralisiertes Feature-Gating verhindert Duplizierung (ADR-04).
+
 
 ---
 
@@ -89,8 +101,14 @@ Die PresetConfigEngine SHALL `get_preset(workspace_id)` die vollständige Preset
 - Incoming: IF-PC-EXT-IN-001
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007
 **Rationale:** Vollständige Konfiguration reduziert Interface-Aufrufe.
+
 
 ---
 
@@ -108,8 +126,14 @@ Die PresetConfigEngine SHALL Pflichtfeld-Regeln pro Preset definieren. Minimal: 
 **Interfaces:**
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007, REQ-L1-002 (mitwirkend)
 **Rationale:** Pflichtfeld-Steuerung ist der Kernmechanismus von Configurable Rigor.
+
 
 ---
 
@@ -128,8 +152,14 @@ Die PresetConfigEngine SHALL Baseline-Scope-Verfügbarkeit bestimmen: Minimal �
 **Interfaces:**
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007, REQ-L1-008 (mitwirkend)
 **Rationale:** Scope-Staffelung differenziert Presets.
+
 
 ---
 
@@ -148,8 +178,14 @@ Die PresetConfigEngine SHALL Workflow-Konfigurierbarkeit bestimmen: Minimal → 
 **Interfaces:**
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007, REQ-L1-009 (mitwirkend)
 **Rationale:** Einfache Teams werden nicht überfordert, SE-Teams erhalten volle Kontrolle.
+
 
 ---
 
@@ -167,8 +203,14 @@ Die PresetConfigEngine SHALL `change_reason`-Pflicht bestimmen: Minimal/Standard
 **Interfaces:**
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007, REQ-L1-009 (mitwirkend), REQ-L1-011 (mitwirkend)
 **Rationale:** Change-Reason-Pflicht ist essentiell für Audit-Trail in regulierten Umgebungen.
+
 
 ---
 
@@ -188,8 +230,14 @@ Die PresetConfigEngine SHALL aufsteigende Preset-Wechsel (Minimal → Standard �
 - Incoming: IF-PC-EXT-IN-003
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007
 **Rationale:** Aufsteigender Wechsel ist die primäre Wachstumsstrategie.
+
 
 ---
 
@@ -209,8 +257,14 @@ Die PresetConfigEngine SHALL mindestens zwei Terminologie-Profile verwalten. Jed
 - Incoming: IF-PC-EXT-IN-002
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-014
 **Rationale:** Terminologie-Flexibilität ohne Datenverlust ist das Fundament der Dual-Zielgruppen-Strategie (ADR-05).
+
 
 ---
 
@@ -230,8 +284,14 @@ Die PresetConfigEngine SHALL Profilwechsel ohne Datenmigration, Schema-Änderung
 - Incoming: IF-PC-EXT-IN-003
 - Outgoing: IF-PC-EXT-OUT-001, IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-014
 **Rationale:** Profilwechsel muss sofort und ohne Risiko sein.
+
 
 ---
 
@@ -252,8 +312,14 @@ Die PresetConfigEngine SOLLTE Preset-Downgrades validieren, indem sie inkompatib
 - Incoming: IF-PC-EXT-IN-003
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007
 **Rationale:** Adressiert OP-02 aus L1 Requirements.
+
 
 ---
 
@@ -270,8 +336,14 @@ Die drei Default-Presets (Minimal, Standard, Extended) SOLLTEN unveränderlich s
 **Interfaces:**
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-007
 **Rationale:** Garantiert konsistentes Verhalten über alle Deployments.
+
 
 ---
 
@@ -289,8 +361,14 @@ Preset-Queries SOLLTEN innerhalb von 10ms (p95) antworten. Caching MAY verwendet
 - Incoming: IF-PC-EXT-IN-001, IF-PC-EXT-IN-001, IF-PC-EXT-IN-002
 - Outgoing: IF-PC-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-026 (mitwirkend)
 **Rationale:** PresetConfigEngine wird von fast jedem Request konsultiert.
+
 
 ---
 
@@ -311,8 +389,14 @@ Im Extended-Preset KANN die PresetConfigEngine benutzerdefinierte Presets erlaub
 - Incoming: IF-PC-EXT-IN-003
 - Outgoing: IF-PC-EXT-OUT-001, IF-PC-EXT-OUT-001
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-007
 **Rationale:** Feingranulare Rigor-Konfiguration für spezialisierte Compliance-Szenarien. v2-Enhancement.
+
 
 ---
 

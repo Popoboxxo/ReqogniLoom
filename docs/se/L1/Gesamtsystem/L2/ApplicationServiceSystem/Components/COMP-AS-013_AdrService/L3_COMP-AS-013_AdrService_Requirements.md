@@ -62,6 +62,11 @@ Der AdrService SHALL ein neues ADR-Artefakt erstellen und folgende Schritte durc
 - [ ] Rückgabe der erstellten ADR-UUID
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-INT-003, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-029
 **Rationale:** ADRs sind versionierte Entscheidungsaufzeichnungen mit State-Management.
 
@@ -83,6 +88,11 @@ Der AdrService SHALL ADR-Updates mit Versionshistorie verwalten. Bei Änderungen
 - [ ] Optimistic Locking verhindert Race-Conditions
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Unveränderlichkeit und Nachvollziehbarkeit.
 
@@ -105,6 +115,11 @@ Bei Löschung eines ADRs SHALL der AdrService:
 - [ ] Rollback bei Fehler
 
 **Interfaces:** IF-AS-INT-002, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Referenzielle Integrität und Datenhygiene.
 
@@ -128,6 +143,11 @@ Der AdrService SHALL Workflow-State-Transitions für ADRs delegieren an die Work
 - [ ] Audit-Log-Eintrag wird geschrieben
 
 **Interfaces:** IF-AS-INT-003, IF-AS-EXT-IN-001
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Konfigurierbare Workflow-Kontrolle.
 
@@ -149,6 +169,11 @@ Der AdrService SHALL TraceLinks zwischen ADRs und anderen Artefakten (Requiremen
 - [ ] Link-Erstellung ist optional (keine Pflicht)
 
 **Interfaces:** IF-AS-INT-002, IF-AS-EXT-IN-001
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Relationsmanagement und Impact-Analyse.
 
@@ -170,6 +195,11 @@ Der AdrService SHALL garantieren, dass:
 - [ ] Keine Cross-Tenant-TraceLinks
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-022
 **Rationale:** Sicherheit und Datenisolation.
 
@@ -193,6 +223,11 @@ Diese Events werden via DomainEventBus publiziert und triggern Subscriber (Audit
 - [ ] Event-Publishing ist Fire-and-Forget (nicht-blockierend)
 
 **Interfaces:** IF-AS-INT-015
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-026 (DomainEventBus)
 **Rationale:** Asynchrone Publikation für Audit und externe Systeme.
 
@@ -215,6 +250,11 @@ Der AdrService SHALL folgende Query-Operationen unterstützen:
 - [ ] Queries sind performant (≤500ms für 1000 ADRs)
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Abfrageunterstützung für UI und Agenten.
 
@@ -238,6 +278,11 @@ Der AdrService SHALL alle ADR-Payloads gegen ein formales Schema validieren:
 - [ ] Rückgabefehler mit Feldname und Grund
 
 **Interfaces:** IF-AS-EXT-IN-001
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Datenqualität und API-Konsistenz.
 

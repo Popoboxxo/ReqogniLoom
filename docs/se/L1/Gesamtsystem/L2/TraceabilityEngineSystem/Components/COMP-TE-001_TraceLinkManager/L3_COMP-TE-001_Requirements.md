@@ -44,6 +44,13 @@ TraceLink-CRUD, Link-Typ-Validierung, Zyklenprüfung via Tarjan-Algorithmus für
 
 ### REQ-L3-TE001-001: TraceLink-CRUD mit Link-Typ-Validierung und Tenant-Isolation
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der TraceLinkManager SHALL TraceLinks für die 6 Link-Typen (`parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`) erstellen, lesen, aktualisieren und löschen. Vor der Persistenz SHALL der Link-Typ gegen die zulässige Menge validiert werden. Alle Operationen SHALL ausschließlich TraceLinks des aktiven Tenants betreffen; Cross-Tenant-Zugriffe SHALL abgewiesen werden.
 
 **Priority:** mandatory
@@ -60,6 +67,13 @@ Der TraceLinkManager SHALL TraceLinks für die 6 Link-Typen (`parent-child`, `de
 
 ### REQ-L3-TE001-002: Eager-Zyklenprüfung vor Single-Link-Persistenz
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der TraceLinkManager SHALL vor der Persistenz jedes einzelnen TraceLinks eine transitive Zyklenprüfung über alle 6 Link-Typen durchführen. Wird ein Zyklus erkannt, SHALL die Operation abgebrochen werden, bevor der Link in die Datenbank geschrieben wird.
 
 **Priority:** mandatory
@@ -73,6 +87,13 @@ Der TraceLinkManager SHALL vor der Persistenz jedes einzelnen TraceLinks eine tr
 ---
 
 ### REQ-L3-TE001-003: Atomare Batch-Operation mit Tarjan-Zyklenprüfung am Transaktionsende
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der TraceLinkManager SHALL Batch-Erstellung und Batch-Löschung von TraceLinks in einer einzigen atomaren Datenbanktransaktion ausführen. Am Ende der Transaktion SHALL ein Tarjan-Algorithmus (O(V+E)) den vollständigen Link-Graphen auf Zyklen über alle 6 Link-Typen prüfen. Bei erkanntem Zyklus oder Teilfehler SHALL die gesamte Transaktion zurückgesetzt werden; der Fehlerbericht SHALL den vollständigen Zyklus-Pfad enthalten.
 
@@ -88,6 +109,13 @@ Der TraceLinkManager SHALL Batch-Erstellung und Batch-Löschung von TraceLinks i
 ---
 
 ### REQ-L3-TE001-004: Referentielle Integrität (CASCADE) und Audit-Metadaten
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der TraceLinkManager SHALL bei Löschung eines referenzierten Artefakts automatisch alle zugehörigen TraceLinks in derselben atomaren Transaktion entfernen (CASCADE). Jeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `modified_at`) tragen; bei MCP-Operationen SHALL zusätzlich die Agent-Client-Identität und der gehashte API-Key erfasst werden.
 

@@ -58,6 +58,11 @@ Der ExportService SHALL Requirements, ArchitectureElements und TestCases im JSON
 - [ ] Gültiges JSON ohne Encoding-Fehler
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007, IF-AS-EXT-OUT-004
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-006, REQ-L2-AppSvc-007
 **Rationale:** JSON ist Standard für maschinelle Integration und Agenten-Anbindung.
 
@@ -77,6 +82,11 @@ Der ExportService SHALL Requirements, ArchitectureElements und TestCases im CSV-
 - [ ] CSV-Datei ist mit Excel/LibreOffice öffnbar
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007, IF-AS-EXT-OUT-004
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-006, REQ-L2-AppSvc-007
 **Rationale:** CSV ist Standard für Tabellenkalkulation und Massenimporte.
 
@@ -97,6 +107,11 @@ Der ExportService SHALL exports auf Basis des scope-Parameters filtern:
 - [ ] Ungültiger Artifact-ID wird mit Error abgewiesen
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-006
 **Rationale:** Granulare Kontrolle über Export-Umfang.
 
@@ -119,6 +134,11 @@ Der ExportService SHALL PDF-Reports für folgende Scopes erzeugen:
 - [ ] PDF ist maschinenlesbar (Text, nicht Bild)
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007, IF-AS-EXT-OUT-003
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-016
 **Rationale:** PDF-Reports sind Standard für SE-Übergaben und Compliance.
 
@@ -137,6 +157,11 @@ Der ExportService SHALL TraceLinks im JSON- und CSV-Export einbeziehen und im PD
 - [ ] TraceLinks werden von TraceabilityEngine abgefragt
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007, IF-AS-EXT-OUT-003
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-006
 **Rationale:** Traceability ist kernaler Bestandteil von Requirements-Management-Exports.
 
@@ -155,6 +180,11 @@ Falls der Export über eine Baseline-ID referenziert wird, SHALL der ExportServi
 - [ ] Non-existent-Baseline wird mit Error abgewiesen
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-011
 **Rationale:** Versionsvergleich und Compliance-Nachweise.
 
@@ -176,6 +206,11 @@ Der ExportService SHALL Exports mit großen Mengen (>10.000 Entitäten) handhabe
 - [ ] Oversized-Export wird mit Error abgewiesen
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-023
 **Rationale:** Skalierbarkeit und Zuverlässigkeit.
 
@@ -197,6 +232,11 @@ Bei Export-Fehlern (z.B. Datenbank-Timeout, ungültiger Scope) SHALL der ExportS
 - [ ] Error-Details enthalten keine internen Stack-Traces
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-006
 **Rationale:** Benutzerfreundlichkeit und Debugging-Unterstützung.
 

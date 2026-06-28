@@ -40,6 +40,13 @@ Keine direkten externen Schnittstellen; Kommunikation ausschließlich über COMP
 
 ### REQ-L3-RA002-001: JSON-Deserialisierung, Input-Validierung und DTO-Konvertierung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der DataSerializer SHALL eingehende JSON-Request-Bodies für alle sieben Domain-Entitäten deserialisieren, gegen das jeweilige Feldschema (Typen, Pflichtfelder, Format-Constraints) validieren und in typisierte DTOs für den ApplicationService konvertieren. Validierungsfehler SHALL er als strukturierten `ValidationError` mit feldspezifischen Details zurückgeben.
 
 **Priority:** mandatory
@@ -52,6 +59,13 @@ Der DataSerializer SHALL eingehende JSON-Request-Bodies für alle sieben Domain-
 ---
 
 ### REQ-L3-RA002-002: Lokalisierte Fehlermeldungen (DE/EN) via Accept-Language
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der DataSerializer SHALL alle Validierungs- und Fehlerausgaben in der durch den `Accept-Language`-Header angeforderten Sprache (Deutsch oder Englisch) zurückgeben. Fehlender oder unbekannter Header SHALL auf Englisch zurückfallen. Jeder neue Fehler-Key MUSS eine deutsche Übersetzung besitzen; fehlende Keys MÜSSEN als Build-Fehler behandelt werden.
 
@@ -66,6 +80,13 @@ Der DataSerializer SHALL alle Validierungs- und Fehlerausgaben in der durch den 
 
 ### REQ-L3-RA002-003: Pagination, Filtering und Sorting auf Listen-Responses
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der DataSerializer SHALL für alle Listen-Endpunkte Pagination (offset-basiert, konfigurierbare Page-Size, Default 25, Maximum 100), Filtering nach mindestens `workspace_id` und `workflow_state` sowie Sorting über `ordering`-Query-Parameter unterstützen. Die Response SHALL Pagination-Metadaten (`count`, `next`, `previous`, `results`) enthalten.
 
 **Priority:** desired
@@ -79,6 +100,13 @@ Der DataSerializer SHALL für alle Listen-Endpunkte Pagination (offset-basiert, 
 ---
 
 ### REQ-L3-RA002-004: Preset-gesteuerte Feld-Filterung in der Serialisierung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der DataSerializer SHALL die von COMP-RA-004 (PresetGuard) über IF-RA-INT-004 gelieferte `FieldFilter`-Entscheidung auswerten und Felder, die nicht im aktiven Workspace-Preset erlaubt sind, aus der Serialisierungsausgabe ausschließen. Pflichtfelder des aktiven Presets, die im Request fehlen, SHALL als Validierungsfehler behandelt werden.
 

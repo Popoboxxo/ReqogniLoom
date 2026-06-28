@@ -34,6 +34,13 @@ Keine — der CoverageCalculator operiert auf den von COMP-SM-002 via IF-L1-045 
 
 ### REQ-L3-SM004-001: Coverage-Prozent und Mengenfelder berechnen
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der CoverageCalculator SHALL aus dem `CoverageData`-Eingabeobjekt (bereitgestellt von TraceabilityEngine via IF-L1-045) `total` (Gesamtanzahl Requirements im Workspace), `covered` (Anzahl Requirements mit mindestens einem ausgehenden TraceLink beliebigen Typs) und `coverage_percent` (covered / total * 100, auf eine Nachkommastelle gerundet) berechnen. Bei `total = 0` SHALL `coverage_percent` als `0.0` zurückgegeben werden.
 
 **Priority:** mandatory
@@ -46,6 +53,13 @@ Der CoverageCalculator SHALL aus dem `CoverageData`-Eingabeobjekt (bereitgestell
 ---
 
 ### REQ-L3-SM004-002: Liste unabgedeckter Requirement-IDs
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der CoverageCalculator SHALL eine Liste `uncovered_ids` aller Requirements erstellen, die keinen ausgehenden TraceLink beliebigen Typs besitzen. Die Liste SHALL ausschließlich `requirement_id`-Werte enthalten. Die Reihenfolge der Einträge ist nicht spezifiziert, muss aber deterministisch sein. Bei vollständiger Coverage (alle Requirements haben TraceLinks) SHALL `uncovered_ids` eine leere Liste sein.
 

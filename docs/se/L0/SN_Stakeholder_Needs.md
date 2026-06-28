@@ -22,6 +22,11 @@ Die abgeleiteten L1-System-Anforderungen befinden sich in:
 
 ### REQ-L0-001 — SN-01: Maschinenlesbarer Anforderungskontext für AI-Agenten
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 AI-Agenten (Coding-Agenten, Orchestratoren, CI/CD-Pipelines) benötigen strukturierten,
 maschinenlesbaren Zugriff auf Anforderungen, Architektur und Tests — ohne Text-Parsing
 oder Webhook-Wrapper — damit Code-Generierung und -Review mit vollständigem fachlichem
@@ -33,6 +38,11 @@ Kontext vorbei, weil das "Warum" hinter dem Code nicht maschinenlesbar vorliegt 
 ---
 
 ### REQ-L0-002 — SN-02: Skalierbare SE-Tiefe ohne Produktwechsel
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Teams unterschiedlicher Reife (von Startups bis zu Automotive-Zulieferern) müssen
 dieselbe Plattform mit unterschiedlicher Prozessstrenge nutzen können — von einfachem
@@ -47,6 +57,11 @@ und zu schweren Enterprise-Systemen (KONZEPT.md, Abschnitt 1, 2).
 
 ### REQ-L0-003 — SN-03: Vollständige Traceability zwischen Requirements, Architektur und Tests
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 Systems Engineers und AI-first Teams benötigen bidirektionale Verknüpfungen zwischen
 Anforderungen, Architektur-Elementen und Testfällen, um Impact-Analysen, Coverage-Reports
 und Konsistenz-Prüfungen durchzuführen — sowohl manuell als auch durch Agenten automatisiert.
@@ -57,6 +72,11 @@ nicht möglich; dies ist ein Kernbedarf beider Zielgruppen (KONZEPT.md, Abschnit
 ---
 
 ### REQ-L0-004 — SN-04: Unveränderliche, benannte Anforderungs-Baselines auf mehreren Ebenen
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Teams in regulierten oder sicherheitskritischen Umgebungen müssen zu jedem Zeitpunkt
 auf einen exakten, unveränderlichen Stand aller Anforderungen zurückgreifen können —
@@ -70,6 +90,11 @@ ReqFlow für Systems Engineers nicht ernsthaft nutzbar (KONZEPT.md, Abschnitt 4.
 
 ### REQ-L0-005 — SN-05: Konfigurierbarer Item-Lifecycle mit Rollen und Approval-Gates
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 Projektteams müssen den Lifecycle-Workflow für Requirements, Architektur-Elemente und
 Testfälle an ihre Domäne und Compliance-Anforderungen anpassen können — inklusive
 rollengebundener Approval-Gates — ohne Code-Änderungen am System.
@@ -82,6 +107,11 @@ für domänenspezifische Prozesse und formale Compliance-Anforderungen
 
 ### REQ-L0-006 — SN-06: Self-Hosted Deployment ohne Vendor-Lock-in
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 Datenschutz-sensible Organisationen und Teams mit eigener Infrastruktur müssen
 ReqFlow vollständig on-premise betreiben können — ohne Cloud-Zwang, ohne Lizenzkosten,
 mit voller Datenkontrolle.
@@ -92,6 +122,11 @@ gegen Vendor-Lock-in; SaaS erst ab v2 (KONZEPT.md, Abschnitt 1, 9.1, Anhang A).
 ---
 
 ### REQ-L0-007 — SN-07: LLM-gestützte Qualitätssicherung als optionale Capability
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Teams, die LLM-Zugang haben, müssen AI-gestützte Funktionen (Validierung,
 Zerlegungsvorschläge, Konsistenz-Checks) nutzen können — ohne dass das System bei
@@ -105,6 +140,11 @@ Self-Hosted-Nutzer ohne LLM-Zugang dürfen keine Kernfunktionalität verlieren
 
 ### REQ-L0-008 — SN-08: Mandantenfähige Isolation für spätere SaaS-Erweiterung
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 Das Datenmodell muss bereits in v1 so angelegt sein, dass eine spätere Aktivierung
 echter Multi-Tenancy (mehrere Kunden auf einer Instanz) keine Datenmigration erfordert.
 
@@ -114,6 +154,11 @@ ohne Schema-Umbau (KONZEPT.md, Abschnitt 5.4, Anhang A).
 ---
 
 ### REQ-L0-009 — SN-09: Zweisprachige Benutzeroberfläche (Deutsch und Englisch)
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Teams in deutschsprachigen Märkten und international gemischte Teams müssen die
 Oberfläche in ihrer Arbeitssprache nutzen können, ohne Funktionseinschränkungen.
@@ -125,6 +170,11 @@ String-Extraktion ist aufwändiger als proaktive i18n-Integration
 ---
 
 ### REQ-L0-010 — SN-10: Terminologie-Flexibilität für zwei Zielgruppen ohne Datenverlust
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Software-Teams (Epics, Stories, Acceptance Criteria) und Systems Engineers
 (System Requirements, Functions, Verification Criteria) müssen auf demselben
@@ -138,6 +188,11 @@ Terminologie-Layern ist das Fundament der Dual-Zielgruppen-Strategie
 
 ### REQ-L0-011 — SN-11: Vollständiger Audit-Trail für agentengesteuerte und manuelle Änderungen
 
+**Implementation State:** Implemented
+**Reviewbefunde:** Code-Referenz in 2 Datei(en) gefunden (u.a. views.py).
+**Test Status:** Covered
+**Remarks:** Test-Referenz in test_views.py vorhanden.
+
 Compliance-orientierte Teams müssen zu jeder Anforderung, jedem Architektur-Element
 und jedem Testfall nachvollziehen können: wer hat was wann geändert — einschließlich
 AI-Agenten, die via MCP schreiben.
@@ -150,6 +205,11 @@ Non-Functional-Anforderung; MCP-Schreibzugriff ohne Audit-Log wäre ein Sicherhe
 
 ### REQ-L0-012 — SN-12: REST API und MCP Server als gleichrangige, vollständige Schnittstellen
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 Entwickler und AI-Agenten müssen alle CRUD-Operationen auf allen Artefakttypen
 sowohl über REST als auch über MCP vollständig durchführen können — keine
 Zweit-Klassen-Schnittstelle.
@@ -161,6 +221,11 @@ Django-Service-Schicht zu; REST ist für direkte Integration, MCP für AI-Agente
 ---
 
 ### REQ-L0-013 — SN-13: Effiziente Übernahme bestehender Anforderungsdaten
+
+**Implementation State:** Implemented
+**Reviewbefunde:** Code-Referenz in 5 Datei(en) gefunden (u.a. import.ts).
+**Test Status:** Covered
+**Remarks:** Test-Referenz in test_csv_import.py vorhanden.
 
 Organisationen, die auf ReqFlow migrieren, müssen Anforderungsdaten aus bestehenden Quellen
 (CSV-Dateien, andere Tools) via Bulk-Import übernehmen können — ohne manuelle Neueingabe
@@ -179,6 +244,11 @@ Capability ist die Migrationshürde für bestehende Teams zu hoch.
 
 ### REQ-L0-014 — SN-14: Integration mit Entwicklungstools und Issue-Trackern
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 Teams müssen Anforderungen mit ihren Entwicklungswerkzeugen verknüpfen können — insbesondere
 GitHub Issues und Pull Requests — damit die Rückverfolgbarkeit von der Anforderung bis zum
 Code-Change ohne Medienbrüche möglich ist.
@@ -194,6 +264,11 @@ Zielgruppe (Developer-affine Teams) erwartet native Integration in ihren bestehe
 ---
 
 ### REQ-L0-015 — SN-15: Audit-dokumentierbare Anforderungsberichte und Traceability-Matrizen
+
+**Implementation State:** Implemented
+**Reviewbefunde:** Code-Referenz in 1 Datei(en) gefunden (u.a. pdf_report_generator.py).
+**Test Status:** Missing
+**Remarks:** Fehlende Traceability in den Tests.
 
 Teams in regulierten Umgebungen müssen Anforderungsdokumente und Traceability-Matrizen als
 formalisierte, exportierbare Berichte (PDF) erzeugen können — für interne Audits, Reviews
@@ -224,6 +299,11 @@ benötigt dokumentierbare Übergaben für Reviews und Compliance (KONZEPT.md §8
 
 ### REQ-L0-016 — SN-16: Interaktive Diagramme und Grafiken direkt im Tool
 
+**Implementation State:** Implemented
+**Reviewbefunde:** Code-Referenz in 3 Datei(en) gefunden (u.a. diagrams.ts).
+**Test Status:** Missing
+**Remarks:** Fehlende Traceability in den Tests.
+
 Teams müssen Diagramme und grafische Darstellungen (z.B. Systemkontextdiagramme,
 Blockdiagramme, Flussdiagramme) direkt innerhalb von ReqFlow erstellen, bearbeiten
 und mit Anforderungen oder Architekturelementen verknüpfen können — ohne Medienbruch
@@ -246,6 +326,11 @@ die Traceability unterbrechen und Diagramme von Requirements entkoppeln.
 ---
 
 ### REQ-L0-017 — SN-17: Verwaltung einer rekursiven Architektur-Hierarchie mit versionierten ICDs
+
+**Implementation State:** Implemented
+**Reviewbefunde:** Code-Referenz in 2 Datei(en) gefunden (u.a. icds.ts).
+**Test Status:** Missing
+**Remarks:** Fehlende Traceability in den Tests.
 
 Systems Engineers müssen die Systemarchitektur als mehrstufige Hierarchie
 (Gesamtsystem → Subsysteme → Komponenten) strukturieren, Schnittstellen zwischen
@@ -271,6 +356,11 @@ Design-by-Contract und inkrementelle Integration. (SE-Manifest Punkt 4, 5)
 
 ### REQ-L0-018 — SN-18: Verwaltung von Architekturentscheidungen (ADRs), Risiken und Issues
 
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
+
 Teams müssen Architekturentscheidungen (ADRs — Architecture Decision Records), Risiken und
 Probleme/Issues als eigenständige, strukturierte Artefakte erfassen und mit Anforderungen,
 Architekturelementen und Testfällen verknüpfen können. Status-Workflows (z.B.
@@ -293,6 +383,11 @@ für spätere Entscheidungsrevisionen und Compliance-Nachweise. (SE-Manifest Pun
 ---
 
 ### REQ-L0-019 — SN-19: Projektübergreifende Traceability für rekursive SE-Zerlegung
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Teams, die mehrere ReqFlow-Projekte für unterschiedliche Systemebenen führen
 (z.B. L1-Gesamtsystem in Projekt A, L2-Subsystem in Projekt B), müssen
@@ -318,6 +413,11 @@ wird unvollständig — kritisch für Safety-Cases und Compliance-Audits.
 
 ### REQ-L0-020 — SN-20: Metrikbasiertes Steuern des SE-Prozesses
 
+**Implementation State:** Implemented
+**Reviewbefunde:** Code-Referenz in 2 Datei(en) gefunden (u.a. MetricsDashboard.tsx).
+**Test Status:** Missing
+**Remarks:** Fehlende Traceability in den Tests.
+
 SE-Verantwortliche müssen den Zustand des SE-Prozesses anhand messbarer Metriken
 überwachen können — mindestens: Requirements Volatility (Änderungsrate pro Zeitraum),
 Traceability Coverage (Anteil verknüpfter Items), Workflow-Lücken (Items ohne
@@ -340,6 +440,11 @@ statt proaktiv. (SE-Manifest Punkt 6)
 ---
 
 ### REQ-L0-021 — SN-21: Asynchrone, resiliente Systemkommunikation zwischen Komponenten
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Das System muss intern so aufgebaut sein, dass Kommunikation zwischen entkoppelten
 Subsystemen bevorzugt asynchron und stateless erfolgt — mit definierten Timeout-,
@@ -375,6 +480,11 @@ vollständig ihre Verfügbarkeit. (SE-Manifest Punkt 3)
 ---
 
 ### REQ-L0-022 — SN-22: Credential-basierter User-Login (Benutzername/Passwort)
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Engineers und Admins müssen sich mit einem Benutzernamen und Passwort am System
 authentifizieren können, um einen Zugriffstoken zu erhalten — ohne ein Token
@@ -417,6 +527,11 @@ Lücke für v1 mit dem einfachsten vollständigen Credential-Flow.
 ---
 
 ### REQ-L0-029 — SN-29: Workspace-Lifecycle-Management für Administratoren
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
+**Test Status:** Missing
+**Remarks:** REQ-ID taucht im Codebase nicht auf.
 
 Administratoren müssen Workspaces explizit schließen, archivieren, reaktivieren oder
 (nach Bestätigung) endgültig löschen können. Ein geschlossener Workspace bleibt für

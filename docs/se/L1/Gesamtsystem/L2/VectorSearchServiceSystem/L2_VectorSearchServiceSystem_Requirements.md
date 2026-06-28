@@ -57,6 +57,11 @@ Der VectorSearchService SHALL eine semantische, vektorbasierte Suche über alle 
 - Incoming: IF-VS-EXT-IN-001
 - Outgoing: IF-VS-EXT-OUT-002
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-038
 **Rationale:** Semantische Suche identifiziert inhaltliche Ähnlichkeiten, die Volltextsuche nicht findet.
 
@@ -80,6 +85,11 @@ Der VectorSearchService SHALL bei jeder Artefakt-Erstellung und -Bearbeitung aut
 - Incoming: IF-VS-EXT-IN-002
 - Outgoing: IF-VS-EXT-OUT-001, IF-VS-EXT-OUT-002
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L1-038
 **Rationale:** Automatische Embedding-Aktualisierung gewährleistet aktuelle Suchergebnisse.
 
@@ -102,6 +112,11 @@ Der VectorSearchService SHALL eine Hybrid-Suche bereitstellen, die Vektor-Ähnli
 **Interfaces:**
 - Incoming: IF-VS-EXT-IN-001
 - Outgoing: IF-VS-EXT-OUT-002
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-038
 **Rationale:** Hybrid-Suche kombiniert die Stärken beider Suchansätze für bessere Trefferqualität.
