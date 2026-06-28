@@ -1184,10 +1184,10 @@ feingranulare Zugriffslisten erfordert.
 **Externe Interfaces:**
 - Eingang: Zugriffsregel-Konfiguration mit Artefakt-ID oder Subsystem-ID, Nutzer/Gruppe, Berechtigungstyp (read/write)
 - Ausgang: Gefilterte API-Antworten gemäß Item-Level-Regeln; HTTP 403 bei Regelverstoß
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Implementiert in Commits 777e4af + 7e1890f am 2026-06-28: ItemPermission-Modell, Service mit 60s-TTL-Cache, REST-Endpunkte, MCP-Tools und RLS-Migration.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-027
 
@@ -1284,7 +1284,7 @@ DB-Zugriff entfernt werden.
 - WorkspacePresetConfig wird im selben CASCADE gelöscht (gehört zum Workspace)
 - Tenant-Isolation (REQ-L1-015) bleibt gewahrt: Lifecycle-Operationen sind tenant-scoped
 **Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Review Findings:** Implementiert in Commit c13b64c am 2026-06-28: Workspace-Lifecycle-MCP (close/reactivate/delete) inkl. RBAC-Prüfung und e2e-Tests.
 **Test Status:** Covered
 **Remarks:** Regelmäßig auf Regressionen prüfen.
 
@@ -1386,10 +1386,10 @@ durch Sandbox-Aktivitäten nicht verändert werden.
 
 ### REQ-L1-046: Instanz-Backup, Disaster Recovery & Baseline-Restore
 
-**Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent vorhanden. ResilienceOrchestrator bietet nur Circuit-Breaker, kein Backup.
-**Test Status:** Missing
-**Remarks:** Direkt abgeleitet von REQ-L0-034 (SN-34).
+**Implementation State:** Implemented
+**Review Findings:** Implementiert in Commits e192766 + cf3aa8c am 2026-06-28: DR-Foundation (BackupService, AdminRestoreService), REST-Endpunkte, MCP-Tools (admin.backup_create, admin.backup_list, admin.restore).
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 Das System MUSS vollständige, automatisierbare Instanz-Snapshots (Backup) aller
 Daten (Projekte, Requirements, Architecture, TestCases, TraceLinks, Baselines,

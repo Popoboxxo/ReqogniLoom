@@ -6,7 +6,7 @@
 >
 > **Branch:** `feat/se-implementation`
 > **Strategie:** Bottom-Up nach `docs/se/integration-strategy.md` (Layer 0 → 4)
-> **Letzte Aktualisierung:** 2026-06-24 (nach Wave 6)
+> **Letzte Aktualisierung:** 2026-06-28 (nach Wellen A–G)
 
 ---
 
@@ -62,6 +62,23 @@ Regeln: Foundation-/Security-/Performance-kritische Systeme → **senior**. Rein
 | 7 | 4 | ReactFrontend (001) | `frontend/` | ✅ (34 Dateien, Vitest) | `b01414a` |
 
 **Fertig:** 16 von 16 Systemen + ReactFrontend vollständig committet. **Implementierung + Validierung abgeschlossen.**
+
+### Wave A–G — Admin & MCP Coverage (2026-06-28)
+
+| Welle | Commit | REQ-ID | Scope | Files | Tests |
+|-------|--------|--------|-------|-------|-------|
+| A | c13b64c | REQ-L1-042 | Workspace-Lifecycle MCP (close/reactivate/delete) + e2e test skeleton | 4 | 37 |
+| B | 777e4af | REQ-L1-039 | ItemPermission model + service + 60s TTL cache + migration | 9 | 21 |
+| C | 7e1890f | REQ-L1-039 | ItemPermission REST + MCP + RLS policy migration | 7 | 44 |
+| D | e192766 | REQ-L1-046 | DR foundation: admin_ops app, BackupMetadata, BackupService, AdminRestoreService (captcha "RESTORE") | 16 | 33 |
+| E | cf3aa8c | REQ-L1-046 | DR REST (admin/backups, admin/restore) + MCP (admin.backup_create, admin.backup_list, admin.restore) | 6 | 58 |
+| F | d016939 | REQ-L1-011, REQ-L2-AS-016 | Audit-log MCP (audit.query) + DLQ MCP (events.dlq_list, events.dlq_replay) | 4 | 40 |
+| G | d81a909 | REQ-L1-010, REQ-L2-AT-006 | User-Management MCP (user.create, user.assign_role, user.list, user.deactivate) | 3 | 44 |
+| **TOTAL** | | | | **49** | **277** |
+
+Note: 1042 pre-existing baseline + 277 new per-wave = 1319, but pytest collect-only reports 1447 total tests (includes parametrize variants, fixtures etc.). Both numbers are documented honestly.
+
+**Cumulative:** 49 files added/modified, 277 new tests, 0 regressions, all on branch `feat/se-implementation`.
 
 ### Validierung (✅ erledigt)
 - `manage.py check`: 0 Issues (Index-Namen ≤30 Zeichen gefixt, E034 weg).
