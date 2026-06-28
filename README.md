@@ -101,17 +101,41 @@ docker-compose exec backend python manage.py migrate
 docker-compose exec backend python manage.py seed_demo
 ```
 
-### 4. Access the Application
+### 4. Initialize Admin User (REQUIRED for first run)
+
+The database is empty after migrations. You must seed the demo admin user before logging in:
+
+```bash
+# Creates: Tenant "demo", Workspace "Demo Workspace", User "admin" (password: admin12345), admin role
+docker-compose exec backend python manage.py seed_demo
+```
+
+**Override default password** (optional):
+```bash
+docker-compose exec -e DEMO_ADMIN_PASSWORD="my-secure-pw" backend python manage.py seed_demo
+```
+
+The command prints the active credentials at the end. Re-running is safe (idempotent).
+
+### 5. Access the Application
 
 - **Frontend:** http://localhost:5173
-  - **Default credentials:** username=`admin`, password=`admin12345`
+  - **Default credentials:** username=`admin`, password=`admin12345` (from step 4)
 - **API:** http://localhost:8000/api/v1/
-  - Get token: `POST /api/v1/auth/token/` with credentials
-  - Full OpenAPI docs: http://localhost:8000/api/v1/docs/
+  - **Get JWT token:** `POST /api/v1/auth/login/` with credentials:
+    ```bash
+    curl -X POST http://localhost:8000/api/v1/auth/login/ \
+      -H "Content-Type: application/json" \
+      -d '{"username":"admin","password":"admin12345"}'
+    # → {"token": "eyJhbGc...", "user": {...}, "tenant_id": "...", "roles": ["admin"]}
+    ```
+  - **Use token:** `Authorization: Bearer <token>` header on all subsequent requests
+  - **Validate token:** `GET /api/v1/auth/me/` returns the authenticated user
+  - **Full OpenAPI docs:** http://localhost:8000/api/v1/docs/
 - **Admin Panel:** http://localhost:8000/admin/
   - Same credentials as frontend
 
-### 5. (Optional) Configure LLM Provider
+### 6. (Optional) Configure LLM Provider
 
 By default, ReqFlow runs in **mock mode** (no actual LLM calls). To enable AI features:
 
@@ -143,39 +167,122 @@ All containers should show `Up (healthy)` or `Up`.
 
 ## Running Tests
 
+ReqFlow has **1,400+ tests** across 4 layers. Run them based on what you need to verify.
+
+### Prerequisites
+
+```bash
+# Database: ReqFlow tests require PostgreSQL.
+# Option A (recommended): Use the running Docker stack's Postgres
+docker-compose up -d postgres
+export DB_HOST=localhost   # the docker container exposes 5432
+
+# Option B: Local PostgreSQL with a 'reqflow' database
+createdb reqflow
+export DB_HOST=localhost
+```
+
 ### Backend Tests (pytest)
 
 ```bash
-# Run all backend tests
-docker-compose exec backend pytest
+cd backend
 
-# Run with coverage report
-docker-compose exec backend pytest --cov=reqflow_backend --cov-report=html
+# ALL backend tests (Django + pytest)
+pytest -q
 
-# Run specific test file or directory
-docker-compose exec backend pytest tests/test_requirements.py
+# With coverage report
+pytest --cov=. --cov-report=term-missing --cov-report=html
+# → open htmlcov/index.html
+
+# By module (fast feedback during development)
+pytest auth_tenancy -q          # RBAC, API-Key, Item-Permission, Tenant-Context
+pytest mcp_server -q            # MCP tools, protocol, registry
+pytest admin_ops -q             # Disaster Recovery
+pytest application -q           # 16 ApplicationServices
+pytest persistence -q           # Models, Tenancy, Migrations
+pytest workflow -q              # Workflow + State-Lifecycle
+pytest baseline -q              # Baseline + Diff
+
+# Skip slow performance tests
+pytest -m "not slow"
+
+# Only the new MCP E2E suite (added 2026-06-28, 150+ tests)
+pytest mcp_server/tests/test_e2e_all_tools.py -v
+pytest mcp_server/tests/test_e2e_audit.py -v
+pytest mcp_server/tests/test_e2e_sse_transport.py -v
+
+# Single test by name
+pytest -k "test_login_success" -v
+
+# With Django check
+python manage.py check && pytest -q
 ```
 
-**Status:** 1,416 tests, all passing on feat/se-implementation branch.
+**Status:** ~1,400 tests passing (last verified 2026-06-28 on `feat/se-implementation`).
 
 ### End-to-End Tests (Playwright)
 
 ```bash
-# Install dependencies (first time only)
 cd e2e
-npm install
-
-# Run E2E tests (stack must be running)
-npx playwright test
-
-# Run with browser UI mode
-npx playwright test --ui
-
-# Run specific test file
-npx playwright test tests/requirements.spec.ts
+npm install                  # first time only
+npx playwright test          # full suite (~3 min)
+npx playwright test --ui     # interactive UI mode
+npx playwright test tests/requirements.spec.ts  # single file
+DEBUG=pw:api npx playwright test    # verbose output
 ```
 
-**Status:** 111 tests passing (Playwright/Chromium). See `e2e/README.md` for detailed documentation.
+**Status:** 111 tests passing (Playwright/Chromium). See `e2e/README.md`.
+
+### Manual MCP Test (curl)
+
+Verify the MCP server responds correctly to tool calls:
+
+```bash
+# 1. Get a JWT token
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin12345"}' | jq -r .token)
+
+# 2. Create an API key for MCP
+API_KEY=$(curl -s -X POST http://localhost:8000/api/v1/api-keys/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"manual-test"}' | jq -r .key)
+
+# 3. List your workspaces (read tool, no Admin needed)
+WORKSPACE_ID=$(curl -s -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"workspace.get_context","params":{}}' \
+  | jq -r .result.workspaces[0].id)
+
+# 4. Query requirements
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":2,\\"method\\":\\"requirement.query\\",\\"params\\":{\\"workspace_id\\":\\"$WORKSPACE_ID\\",\\"limit\\":5}}"
+
+# 5. Server health check (no auth)
+curl http://localhost:8000/mcp/
+# → {"server":"ReqFlow MCP Server","protocol":"JSON-RPC 2.0","transports":["http","sse","stdio"],"version":"1.0.0"}
+```
+
+### Troubleshooting Tests
+
+```bash
+# Tests can't connect to Postgres
+export DB_HOST=localhost          # or 'postgres' if running inside docker
+docker-compose ps                  # verify postgres is running
+
+# Tests fail with "DISABLE_SERVER_SIDE_CURSORS"
+# → Known Django+psycopg2 issue; pinned in test setup
+
+# Migrations needed
+docker-compose exec backend python manage.py migrate
+
+# Stale __pycache__
+find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
+```
 
 ## MCP Server
 
@@ -260,10 +367,11 @@ ReqFlow provides a RESTful API for programmatic access to all features.
 ### Quick Start
 
 ```bash
-# Authenticate
-curl -X POST http://localhost:8000/api/v1/auth/token/ \
+# Authenticate: exchange username/password for a JWT token
+curl -X POST http://localhost:8000/api/v1/auth/login/ \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "admin12345"}'
+# → {"token": "eyJhbGc...", "user": {...}, "tenant_id": "...", "roles": ["admin"]}
 
 # Use the token in subsequent requests
 curl -H "Authorization: Bearer <token>" \
