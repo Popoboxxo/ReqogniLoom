@@ -103,7 +103,7 @@ class UserPreferenceView(APIView):
 
         ctx = get_auth_context(request)
         pref = self._svc.get_preference(
-            user_id=ctx.user_id, workspace_id=workspace_id
+            user_id=ctx.user_id, workspace_id=workspace_id, ctx=ctx
         )
         if pref is None:
             return Response(
@@ -133,6 +133,7 @@ class UserPreferenceView(APIView):
             user_id=ctx.user_id,
             workspace_id=data["workspace_id"],
             overrides=data["optional_artifact_visibility"],
+            ctx=ctx,
         )
         return Response(UserWorkspacePreferenceSerializer(pref).data)
 
