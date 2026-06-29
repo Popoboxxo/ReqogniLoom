@@ -29,6 +29,7 @@ vi.mock("../api/architecture", () => ({
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    get: vi.fn(),
   },
 }));
 
@@ -103,6 +104,8 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       results: [MOCK_ELEMENT],
     });
 
+    vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT);
+
     vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
       count: 0,
       next: null,
@@ -126,7 +129,7 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       // Title field
       expect(screen.getByTestId("arch-title")).toBeInTheDocument();
       // Element-type dropdown
-      expect(screen.getByTestId("arch-element-type")).toBeInTheDocument();
+      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
       // Save button
       expect(screen.getByTestId("arch-save-btn")).toBeInTheDocument();
       // Delete button
@@ -138,7 +141,7 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     expect(titleInput.value).toBe("AuthService");
 
     // Element type should be set to "component"
-    const typeSelect = screen.getByTestId("arch-element-type") as HTMLSelectElement;
+    const typeSelect = screen.getByTestId("arch-element-type-select") as HTMLSelectElement;
     expect(typeSelect.value).toBe("component");
   });
 
@@ -147,10 +150,10 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      expect(screen.getByTestId("arch-element-type")).toBeInTheDocument();
+      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
     });
 
-    const typeSelect = screen.getByTestId("arch-element-type");
+    const typeSelect = screen.getByTestId("arch-element-type-select");
     await user.selectOptions(typeSelect, "subsystem");
     expect((typeSelect as HTMLSelectElement).value).toBe("subsystem");
   });

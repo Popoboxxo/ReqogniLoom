@@ -10,8 +10,9 @@
  */
 
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
+import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
 import type { Workspace } from "../types";
 
@@ -57,12 +58,20 @@ function ControlledWorkspace({
 // Tests
 // ---------------------------------------------------------------------------
 
+beforeEach(() => {
+  sessionStorage.clear();
+  sessionStorage.setItem("reqflow_token", "test-token");
+  vi.clearAllMocks();
+});
+
 describe("WorkspaceContext / Terminology Profile (REQ-L2-RF-008)", () => {
   it("SE-Modus: requirement label is 'Requirement'", () => {
     render(
-      <WorkspaceProvider>
-        <ControlledWorkspace preset="standard" profile="se_mode" />
-      </WorkspaceProvider>
+      <AuthProvider>
+        <WorkspaceProvider>
+          <ControlledWorkspace preset="standard" profile="se_mode" />
+        </WorkspaceProvider>
+      </AuthProvider>
     );
 
     expect(screen.getByTestId("req-label").textContent).toBe("Requirement");
@@ -71,9 +80,11 @@ describe("WorkspaceContext / Terminology Profile (REQ-L2-RF-008)", () => {
 
   it("Dev-Modus: requirement label is 'Story'", () => {
     render(
-      <WorkspaceProvider>
-        <ControlledWorkspace preset="standard" profile="dev_mode" />
-      </WorkspaceProvider>
+      <AuthProvider>
+        <WorkspaceProvider>
+          <ControlledWorkspace preset="standard" profile="dev_mode" />
+        </WorkspaceProvider>
+      </AuthProvider>
     );
 
     expect(screen.getByTestId("req-label").textContent).toBe("Story");
@@ -121,27 +132,33 @@ function ControlledPreset({
 describe("WorkspaceContext / Preset visibility (REQ-L2-RF-007)", () => {
   it("Minimal preset: baselines are hidden", () => {
     render(
-      <WorkspaceProvider>
-        <ControlledPreset preset="minimal" feature="baselines" />
-      </WorkspaceProvider>
+      <AuthProvider>
+        <WorkspaceProvider>
+          <ControlledPreset preset="minimal" feature="baselines" />
+        </WorkspaceProvider>
+      </AuthProvider>
     );
     expect(screen.getByTestId("visible").textContent).toBe("hidden");
   });
 
   it("Extended preset: baselines are visible", () => {
     render(
-      <WorkspaceProvider>
-        <ControlledPreset preset="extended" feature="baselines" />
-      </WorkspaceProvider>
+      <AuthProvider>
+        <WorkspaceProvider>
+          <ControlledPreset preset="extended" feature="baselines" />
+        </WorkspaceProvider>
+      </AuthProvider>
     );
     expect(screen.getByTestId("visible").textContent).toBe("visible");
   });
 
   it("Standard preset: requirements are visible", () => {
     render(
-      <WorkspaceProvider>
-        <ControlledPreset preset="standard" feature="requirements" />
-      </WorkspaceProvider>
+      <AuthProvider>
+        <WorkspaceProvider>
+          <ControlledPreset preset="standard" feature="requirements" />
+        </WorkspaceProvider>
+      </AuthProvider>
     );
     expect(screen.getByTestId("visible").textContent).toBe("visible");
   });
