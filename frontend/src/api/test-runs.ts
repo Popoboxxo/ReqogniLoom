@@ -46,6 +46,16 @@ export const testRunsApi = {
     return apiClient.post<TestRunResult>(`/test-runs/${id}/results/`, data);
   },
 
+  /**
+   * GET /api/v1/test-runs/{id}/results/ — list all per-TestCase execution
+   * results for the run (A.6, REQ-L1-035). Each item carries the spec'd
+   * `testcase` (nested id+title), `result`, `notes`, `executed_at` and
+   * `executed_by` fields alongside the legacy flat fields.
+   */
+  listResults(id: UUID): Promise<TestRunResult[]> {
+    return apiClient.get<TestRunResult[]>(`/test-runs/${id}/results/`);
+  },
+
   addResultsBulk(
     id: UUID,
     results: Array<{

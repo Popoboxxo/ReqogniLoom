@@ -21,6 +21,7 @@ import { tracelinksApi } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
 import { artifactsApi } from "../../api/artifacts";
+import { testcasesApi } from "../../api/testcases";
 import { workspacesApi } from "../../api/workspaces";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
@@ -132,14 +133,18 @@ export default function TraceabilityView(): JSX.Element {
     async function load(): Promise<void> {
       if (!activeWorkspace) return;
       try {
-        // Load links, requirements, architecture elements and artifacts in parallel.
-        // - requirements + architecture provide titles for endpoint rendering
+        // Load links, requirements, architecture elements, test cases and
+        // artifacts in parallel.
+        // - requirements + architecture + testcases provide titles for
+        //   endpoint rendering (REQ-L1-035, A.6: TestCase endpoints must
+        //   resolve to titles the same way Requirement/Architecture do).
         // - artifacts populate the create-form selects (artifact UUIDs are
         //   the actual TraceLink endpoint identifiers).
-        const [linksResp, reqResp, archResp, artifactsResp] = await Promise.all([
+        const [linksResp, reqResp, archResp, tcResp, artifactsResp] = await Promise.all([
           tracelinksApi.list(activeWorkspace.id),
           requirementsApi.list(activeWorkspace.id),
           architectureApi.list(activeWorkspace.id),
+          testcasesApi.list(activeWorkspace.id),
           artifactsApi.list(activeWorkspace.id),
         ]);
         if (cancelled) return;
@@ -150,6 +155,9 @@ export default function TraceabilityView(): JSX.Element {
         }
         for (const el of archResp.results as ArchitectureElement[]) {
           titles[el.id] = el.title || t("editor.untitled");
+        }
+        for (const tc of tcResp.results) {
+          titles[tc.id] = tc.title || t("editor.untitled");
         }
 
         setState({

@@ -25,8 +25,10 @@ import { ArtifactDiff } from "../ArtifactDiff/ArtifactDiff";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
 import { workspacesApi } from "../../api/workspaces";
+import { testcasesApi } from "../../api/testcases";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { Requirement, TraceLink, LinkType, UUID } from "../../types";
+import type { TestCase } from "../../api/testcases";
 import { REQ_CATEGORIES } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -399,6 +401,7 @@ function ReqTraceLinkPanel({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState<number>(0);
+  const [testCases, setTestCases] = useState<TestCase[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -426,6 +429,31 @@ function ReqTraceLinkPanel({
       cancelled = true;
     };
   }, [workspaceId, requirementId, reloadKey]);
+
+  // Load TestCases so the trace-link target dropdown can offer them in
+  // an optgroup alongside Requirements (A.6, REQ-L1-035).
+  useEffect(() => {
+    let cancelled = false;
+    testcasesApi
+      .list(workspaceId)
+      .then((resp) => {
+        if (!cancelled) setTestCases(resp.results);
+      })
+      .catch((err: unknown) => {
+        // Soft-fail: dropdown just shows the Requirements group only.
+        if (cancelled) return;
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          String(err);
+        // Keep the panel alive even if TestCases loading fails (e.g. preset
+        // doesn't expose them); log for diagnostics.
+        // eslint-disable-next-line no-console
+        console.warn("Failed to load TestCases for trace-link target list:", msg);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   const requirementsById: Record<UUID, Requirement> = React.useMemo(() => {
     const m: Record<UUID, Requirement> = {};
@@ -567,15 +595,28 @@ function ReqTraceLinkPanel({
             style={reqPanelInputStyle}
           >
             <option value="">
-              {otherRequirements.length === 0
+              {otherRequirements.length === 0 && testCases.length === 0
                 ? t("traceability.noArtifacts")
                 : "—"}
             </option>
-            {otherRequirements.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.title || t("editor.untitled")}
-              </option>
-            ))}
+            {otherRequirements.length > 0 && (
+              <optgroup label={t("traceability.requirementsGroup", "Requirements")}>
+                {otherRequirements.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title || t("editor.untitled")}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {testCases.length > 0 && (
+              <optgroup label={t("traceability.testCasesGroup", "Test Cases")}>
+                {testCases.map((tc) => (
+                  <option key={tc.id} value={tc.id}>
+                    {tc.title || t("editor.untitled")}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
 
           <label style={reqPanelLabelStyle}>

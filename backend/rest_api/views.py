@@ -1076,16 +1076,52 @@ def _test_run_to_dict(tr: Any) -> dict[str, Any]:
 
 
 def _test_run_result_to_dict(r: Any) -> dict[str, Any]:
-    """Convert TestRunResult ORM object to serializer-compatible dict."""
+    """Convert TestRunResult ORM object to serializer-compatible dict.
+
+    REQ-L1-035 (A.6): The ``testcase`` (nested id+title), ``result``,
+    ``notes`` and ``executed_by`` keys carry the spec'd GET-endpoint shape
+    so the frontend UI-chain can render them directly. The legacy flat
+    fields (``test_case_id``, ``test_case_title``, ``status``, ``message``)
+    are kept on the wire for backwards compatibility with the existing
+    addResult / addResultsBulk POST callers.
+    """
+    # ``test_case`` FK can be null (ON DELETE SET NULL when a TestCase is
+    # removed); fall back to the historical ``test_case_title`` string so
+    # the UI still has a human-readable label.
+    test_case = getattr(r, "test_case", None)
+    testcase_payload: dict[str, Any] = {
+        "id": str(test_case.id) if test_case and test_case.id else None,
+        "title": (
+            test_case.title
+            if test_case and getattr(test_case, "title", "")
+            else getattr(r, "test_case_title", "")
+        ),
+    }
+    # ``created_by`` is the AuditableModel FK; it doubles as the
+    # ``executed_by`` proxy because the result has no dedicated executor
+    # column. Returns the username string (frontend renders it as a label).
+    created_by = getattr(r, "created_by", None)
+    executed_by = (
+        getattr(created_by, "username", None)
+        if created_by is not None
+        else None
+    )
     return {
         "id": str(r.id),
         "test_run_id": str(r.test_run_id),
+        # Legacy flat fields (kept for backwards compat with existing callers)
         "test_case_id": str(r.test_case_id) if r.test_case_id else None,
         "test_case_title": getattr(r, "test_case_title", ""),
         "status": r.status,
         "message": getattr(r, "message", ""),
+        # Spec'd nested fields (A.6)
+        "testcase": testcase_payload,
+        "result": r.status,
+        "notes": getattr(r, "message", ""),
+        # Shared timestamps / metadata
         "duration_ms": getattr(r, "duration_ms", None),
         "executed_at": r.executed_at,
+        "executed_by": executed_by,
         "version": r.version,
         "created_at": r.created_at,
     }
@@ -2040,6 +2076,7 @@ class TestRunViewSet(BaseEntityViewSet):
       GET    /api/v1/test-runs/{id}/
       PATCH  /api/v1/test-runs/{id}/
       POST   /api/v1/test-runs/{id}/close/
+      GET    /api/v1/test-runs/{id}/results/             (A.6, REQ-L1-035)
       POST   /api/v1/test-runs/{id}/results/
       POST   /api/v1/test-runs/{id}/results/bulk/
     """
@@ -2138,9 +2175,36 @@ class TestRunViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(_test_run_to_dict(item))
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["get", "post"])
     def results(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """POST /api/v1/test-runs/{id}/results/ — add single result."""
+        """List or append per-TestCase execution results for a TestRun.
+
+        REQ-L1-035 (A.6):
+          GET  /api/v1/test-runs/{id}/results/ — list all results.
+          POST /api/v1/test-runs/{id}/results/ — add a single result.
+
+        GET response uses the spec'd shape: ``id``, ``testcase`` (nested
+        id+title), ``result``, ``notes``, ``executed_at``, ``executed_by``,
+        plus the legacy flat fields for backwards compatibility.
+        """
+        # GET — list results for this run
+        if request.method == "GET":
+            lang = detect_lang(request)
+            try:
+                ctx = get_auth_context(request)
+                run = self._svc().get_test_run(UUID(pk), ctx)
+            except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+                return _service_error_response(exc, lang)
+            except ValueError:
+                return Response(
+                    build_error_response("NOT_FOUND", lang),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            except Exception as exc:
+                return _service_error_response(exc, lang)
+            return Response([_test_run_result_to_dict(r) for r in run.results.all()])
+
+        # POST — add a single result (existing behaviour)
         lang = detect_lang(request)
         test_case_id = request.data.get("test_case_id")
         status_val = request.data.get("status", "not_run")
