@@ -66,6 +66,8 @@ export function SidebarNavigation(): JSX.Element {
     setActiveWorkspace,
     terminologyLabel,
     reloadWorkspaces,
+    hideAllOptional,
+    setHideAllOptional,
   } = useWorkspace();
   const { logout } = useAuth();
   const location = useLocation();
@@ -266,6 +268,11 @@ export function SidebarNavigation(): JSX.Element {
   const visibleItems = NAV_ITEMS.filter((item) =>
     isFeatureVisible(item.feature)
   );
+
+  // ---- Optional-artifacts master toggle (REQ-L1-027) -------------------
+  const handleHideAllToggle = (): void => {
+    void setHideAllOptional(!hideAllOptional);
+  };
 
   const isItemActive = (path: string): boolean => {
     if (path === "/") {
@@ -485,6 +492,72 @@ export function SidebarNavigation(): JSX.Element {
           );
         })}
       </ul>
+
+      {/* Optional-artifacts master toggle (REQ-L1-027) — sits above the
+          workspace switcher so it acts as a navigation filter. */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={!hideAllOptional}
+        onClick={handleHideAllToggle}
+        onMouseEnter={() => setHoveredButton("optional-toggle")}
+        onMouseLeave={() => setHoveredButton(null)}
+        data-testid="optional-toggle"
+        title={
+          hideAllOptional
+            ? t("nav.showOptionalArtifacts", "Optionale Artefakte einblenden")
+            : t("nav.hideOptionalArtifacts", "Optionale Artefakte ausblenden")
+        }
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "var(--space-2)",
+          width: "100%",
+          padding: "var(--space-2) var(--space-3)",
+          marginTop: "var(--space-3)",
+          borderRadius: "var(--radius-md)",
+          border: `1px solid ${SIDEBAR_BORDER}`,
+          background: hoveredButton === "optional-toggle" ? HOVER_BG : "transparent",
+          color: SIDEBAR_TEXT,
+          fontSize: "var(--font-size-sm)",
+          fontWeight: 500,
+          fontFamily: "inherit",
+          cursor: "pointer",
+          transition: "var(--transition-fast)",
+          textAlign: "left",
+        }}
+      >
+        <span>{t("nav.optionalArtifacts", "Optional-Artefakte")}</span>
+        <span
+          aria-hidden="true"
+          style={{
+            display: "inline-block",
+            width: "28px",
+            height: "16px",
+            borderRadius: "999px",
+            background: hideAllOptional
+              ? "rgba(255,255,255,0.15)"
+              : "var(--color-primary)",
+            position: "relative",
+            transition: "var(--transition-fast)",
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: "2px",
+              left: hideAllOptional ? "2px" : "14px",
+              width: "12px",
+              height: "12px",
+              borderRadius: "999px",
+              background: "white",
+              transition: "var(--transition-fast)",
+            }}
+          />
+        </span>
+      </button>
 
       {/* Workspace switcher (REQ-L2-RF-012) */}
       {activeWorkspace && (

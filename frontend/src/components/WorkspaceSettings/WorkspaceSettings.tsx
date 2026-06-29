@@ -5,7 +5,8 @@
  * req_id:  REQ-L2-RF-012 (Workspace-Konfigurations-UI),
  *          REQ-L2-RF-007 (Preset-Wechsel),
  *          REQ-L2-RF-008 (Terminologie-Profil),
- *          REQ-L1-042 (Workspace Lifecycle Management)
+ *          REQ-L1-042 (Workspace Lifecycle Management),
+ *          REQ-L1-027 (Per-user visibility overrides — Sichtbarkeit section)
  */
 
 import React, { useState, useCallback } from "react";
@@ -16,6 +17,7 @@ import { useAuth } from "../../context/AuthContext";
 import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
+import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -23,9 +25,25 @@ const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReaso
   extended: { baselines: true,  changeReason: "required", workflow: "Full + Approval workflow" },
 };
 
+const VISIBILITY_LABELS: Record<OptionalArtifactFeature, string> = {
+  adr: "ADR (Architecture Decision Records)",
+  risk: "Risks",
+  issue: "Issues",
+  diagrams: "Diagrams",
+  icds: "ICDs (Interface Control Documents)",
+  metrics: "Metrics",
+};
+
 export default function WorkspaceSettings(): JSX.Element {
   const { t } = useTranslation();
-  const { activeWorkspace, reloadWorkspaces, isFeatureVisible } = useWorkspace();
+  const {
+    activeWorkspace,
+    reloadWorkspaces,
+    isFeatureVisible,
+    setFeatureVisible,
+    resetFeatureOverride,
+    isFeatureOverridden,
+  } = useWorkspace();
   const { roles } = useAuth();
   const navigate = useNavigate();
 
@@ -33,6 +51,9 @@ export default function WorkspaceSettings(): JSX.Element {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+
+  // Per-feature saving state for the Sichtbarkeit section (REQ-L1-027).
+  const [pendingFeature, setPendingFeature] = useState<OptionalArtifactFeature | null>(null);
 
   // Lifecycle state (REQ-L1-042)
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -151,6 +172,42 @@ export default function WorkspaceSettings(): JSX.Element {
       setIsDeleting(false);
     }
   }, [activeWorkspace, deleteConfirmation, navigate, t]);
+
+  // ---- Per-feature visibility handlers (REQ-L1-027) ----
+
+  const handleFeatureToggle = useCallback(
+    async (feature: OptionalArtifactFeature, value: boolean): Promise<void> => {
+      setSaveError(null);
+      setSavedOk(false);
+      setPendingFeature(feature);
+      try {
+        await setFeatureVisible(feature, value);
+        setSavedOk(true);
+      } catch (err: unknown) {
+        setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+      } finally {
+        setPendingFeature(null);
+      }
+    },
+    [setFeatureVisible]
+  );
+
+  const handleResetFeature = useCallback(
+    async (feature: OptionalArtifactFeature): Promise<void> => {
+      setSaveError(null);
+      setSavedOk(false);
+      setPendingFeature(feature);
+      try {
+        await resetFeatureOverride(feature);
+        setSavedOk(true);
+      } catch (err: unknown) {
+        setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+      } finally {
+        setPendingFeature(null);
+      }
+    },
+    [resetFeatureOverride]
+  );
 
   const sectionStyle: React.CSSProperties = {
     background: "var(--color-surface)",
@@ -304,6 +361,91 @@ export default function WorkspaceSettings(): JSX.Element {
             {lang === "de" ? "Deutsch" : "English"}
           </label>
         ))}
+      </section>
+
+      {/* Sichtbarkeit — per-user visibility overrides (REQ-L1-027) */}
+      <section style={sectionStyle} data-testid="visibility-section">
+        <h3 style={headingStyle}>{t("settings.visibility", "Sichtbarkeit")}</h3>
+        <p
+          style={{
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          {t(
+            "settings.visibilityHint",
+            "Blendet einzelne optionale Artefakttypen in der Navigation und den Editoren ein oder aus. Overrides wirken nur für dich in diesem Workspace und überschreiben die Preset-Vorgabe."
+          )}
+        </p>
+        {OPTIONAL_FEATURES.map((feature) => {
+          const effective = isFeatureVisible(feature);
+          const overridden = isFeatureOverridden(feature);
+          const isPending = pendingFeature === feature;
+          return (
+            <div
+              key={feature}
+              style={{
+                ...labelStyle,
+                justifyContent: "space-between",
+                padding: "var(--space-2) 0",
+                borderTop: "1px solid var(--color-border)",
+              }}
+              data-testid={`visibility-row-${feature}`}
+            >
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-3)",
+                  cursor: isPending ? "wait" : "pointer",
+                  flex: 1,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={effective}
+                  disabled={isPending}
+                  onChange={(e) => void handleFeatureToggle(feature, e.target.checked)}
+                  data-testid={`visibility-checkbox-${feature}`}
+                />
+                <span>
+                  <span style={{ fontWeight: 500 }}>{VISIBILITY_LABELS[feature]}</span>
+                  <span
+                    style={{
+                      fontSize: "var(--font-size-sm)",
+                      color: "var(--color-text-muted)",
+                      marginLeft: "var(--space-2)",
+                    }}
+                  >
+                    {overridden
+                      ? t("settings.visibilityOverridden", "(überschrieben)")
+                      : t("settings.visibilityFromPreset", "(aus Preset)")}
+                  </span>
+                </span>
+              </label>
+              {overridden && (
+                <button
+                  type="button"
+                  data-testid={`visibility-reset-${feature}`}
+                  onClick={() => void handleResetFeature(feature)}
+                  disabled={isPending}
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-text-muted)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "var(--space-1) var(--space-3)",
+                    fontSize: "var(--font-size-sm)",
+                    cursor: isPending ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {t("settings.visibilityReset", "Auf Preset zurücksetzen")}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </section>
 
       {/* Data Management (REQ-L0-013, REQ-L2-RF-016) */}
