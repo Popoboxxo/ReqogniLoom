@@ -17,6 +17,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.db.utils import InternalError
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.workspace_service import WorkspaceService
@@ -229,8 +230,16 @@ class TestDeleteWorkspace:
 
         assert not Requirement.unscoped.filter(pk=req.pk).exists()
 
-    def test_delete_workspace_cascades_to_baselines(self):
-        """Delete cascades to BaselineSnapshots through workspace."""
+    def test_delete_workspace_with_baselines_fails(self):
+        """REQ-L1-009 / REQ-L2-BL-002: Workspace-delete must FAIL when immutable BaselineSnapshots exist.
+
+        Baselines are append-only audit artifacts enforced by the DB-level
+        ``bl_raise_immutable`` trigger (see baseline/migrations/0001_initial.py).
+        The ``delete_workspace`` service does not pre-check; it calls the
+        cascade delete which trips the trigger and aborts the whole
+        ``@atomic_transaction``. As a result, the workspace AND the baseline
+        MUST remain intact (atomic rollback).
+        """
         tenant, user = _create_tenant_and_user()
         workspace = _create_workspace(tenant, name="Baseline Test")
 
@@ -247,9 +256,12 @@ class TestDeleteWorkspace:
         svc = WorkspaceService()
 
         with patch("application.workspace_service.ServiceBase._audit"):
-            svc.delete_workspace(workspace.id, "Baseline Test", ctx)
+            with pytest.raises(InternalError, match=r"(?i)immutable"):
+                svc.delete_workspace(workspace.id, "Baseline Test", ctx)
 
-        assert not BaselineSnapshot.unscoped.filter(pk=snapshot.pk).exists()
+        # Atomic rollback: workspace and baseline both still exist
+        assert Workspace.unscoped.filter(pk=workspace.pk).exists()
+        assert BaselineSnapshot.unscoped.filter(pk=snapshot.pk).exists()
 
     def test_delete_workspace_cascades_to_tracelinks(self):
         """Delete cascades to TraceLinks through Artifacts."""
