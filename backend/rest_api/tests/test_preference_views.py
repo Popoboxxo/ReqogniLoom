@@ -44,9 +44,9 @@ def pref_user(db):
         UserRole.objects.create(
             tenant=tenant, user=user, workspace=workspace, role=ROLE_ADMIN
         )
+        yield user
     finally:
         clear_request_tenant()
-    return user
 
 
 def _login(client: APIClient) -> str:
