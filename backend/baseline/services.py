@@ -55,6 +55,8 @@ from baseline.types import (  # noqa: F401  (re-exported)
     DeltaIndexTuple,
     DiffResult,
     ItemPayload,
+    ScopePreview,
+    ScopePreviewItem,
 )
 from baseline.version_reconstructor import get_reconstructor
 
@@ -230,6 +232,173 @@ def get_item_at_baseline(
 
 
 # ---------------------------------------------------------------------------
+# IF-BL-EXT-IN-001: preview_scope_items
+# ---------------------------------------------------------------------------
+
+
+def preview_scope_items(
+    scope: str,
+    workspace_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    artifact_id: Optional[uuid.UUID] = None,
+    sample_limit: int = 10,
+) -> ScopePreview:
+    """Read-only count + sample of items that would be included in a Baseline.
+
+    COMP-BL-005, REQ-L1-049. This is a pure preview — no Baseline is created
+    and nothing is persisted. The same filter logic that the builder uses to
+    compute the delta index is reused here, but we read the matching artifact
+    rows directly to also surface a human-readable sample.
+
+    Scope semantics (REQ-L2-BL-001):
+      document — a single Artifact + all descendants + TraceLinks
+                 (artifact_id is required)
+      project  — all Artifacts in the Workspace
+      global   — all Artifacts in the Tenant (workspace_id is ignored for the
+                 filter, but is still required for permission checks upstream)
+
+    Args:
+        scope: One of "document" | "project" | "global".
+        workspace_id: Target workspace UUID (used for project/document scopes,
+            and for permission checks at the view layer).
+        tenant_id: Active tenant UUID (required for row-level isolation).
+        artifact_id: Required when ``scope == "document"``; the root artifact
+            whose subtree is being previewed.
+        sample_limit: Maximum number of items to include in the returned
+            ``sample`` list (capped to 10 by default per REQ-L1-049).
+
+    Returns:
+        :class:`ScopePreview` with the total ``count`` and a ``sample`` of up
+        to ``sample_limit`` items. Each item exposes ``id``, ``title`` and
+        ``type`` so the UI can render a human-readable preview.
+
+    Raises:
+        ValueError: If ``scope`` is unknown, or if ``scope == "document"``
+            without an ``artifact_id``.
+    """
+    if scope not in ("document", "project", "global"):
+        raise ValueError(f"Unknown scope: {scope!r}")
+
+    if scope == "document" and artifact_id is None:
+        raise ValueError("artifact_id is required for scope='document'")
+
+    # Reuse the scope resolver's logic to obtain the matching (item_id, ...)
+    # tuples, then join with Requirement/ArchitectureElement tables to surface a
+    # human-readable title for the sample. We do NOT load payload data — the
+    # preview is a lightweight count + sample.
+    from django.db import connection
+
+    # If no tenant is supplied (e.g. a non-DRF call site such as a CLI tool
+    # or a unit test that has not bootstrapped the tenant context), we cannot
+    # issue a tenant-scoped query. Return an empty preview rather than
+    # failing — the caller has already authorised the request, and "no data
+    # visible" is a safe default for a read-only preview.
+    if tenant_id is None:
+        return ScopePreview(scope=scope, count=0, sample=[])
+
+    if scope == "project":
+        sql_ids = """
+            SELECT a.id::text
+            FROM pl_artifact a
+            WHERE a.workspace_id = %s
+              AND a.tenant_id = %s
+            ORDER BY a.id
+        """
+        id_params: list = [str(workspace_id), str(tenant_id)]
+    elif scope == "global":
+        sql_ids = """
+            SELECT a.id::text
+            FROM pl_artifact a
+            WHERE a.tenant_id = %s
+            ORDER BY a.id
+        """
+        id_params = [str(tenant_id)]
+    else:  # document
+        sql_ids = """
+            WITH RECURSIVE descendants AS (
+                SELECT a.id
+                FROM pl_artifact a
+                WHERE a.id = %s
+                  AND a.workspace_id = %s
+                  AND a.tenant_id = %s
+                UNION ALL
+                SELECT a.id
+                FROM pl_artifact a
+                INNER JOIN descendants d ON a.parent_id = d.id
+                WHERE a.tenant_id = %s
+            )
+            SELECT id::text FROM descendants ORDER BY id
+        """
+        id_params = [
+            str(artifact_id),
+            str(workspace_id),
+            str(tenant_id),
+            str(tenant_id),
+        ]
+
+    with connection.cursor() as cur:
+        cur.execute(sql_ids, id_params)
+        all_ids = [row[0] for row in cur.fetchall()]
+
+    count = len(all_ids)
+    sample_ids = all_ids[: max(0, int(sample_limit))]
+
+    # Fetch titles (left-joined from Requirement and ArchitectureElement)
+    sample = _load_sample_items(sample_ids, tenant_id)
+
+    return ScopePreview(scope=scope, count=count, sample=sample)
+
+
+def _load_sample_items(
+    item_ids: list[str], tenant_id: uuid.UUID
+) -> list[ScopePreviewItem]:
+    """Load id+title+type for the given artifact ids.
+
+    Title is resolved by joining Requirement.title (preferred) and
+    ArchitectureElement.title (fallback). The ``type`` is the artifact_type
+    for the artifact itself; when no title is found, a synthetic title is
+    constructed from the id.
+    """
+    if not item_ids:
+        return []
+
+    from django.db import connection
+
+    placeholders = ",".join(["%s"] * len(item_ids))
+    sql = f"""
+        SELECT
+            a.id::text        AS id,
+            a.artifact_type   AS type,
+            COALESCE(r.title, ae.title, '') AS title
+        FROM pl_artifact a
+        LEFT JOIN pl_requirement r
+            ON r.artifact_id = a.id AND r.tenant_id = a.tenant_id
+        LEFT JOIN pl_architecture_element ae
+            ON ae.artifact_id = a.id AND ae.tenant_id = a.tenant_id
+        WHERE a.id::text IN ({placeholders})
+          AND a.tenant_id = %s
+        ORDER BY a.id
+    """
+    params: list = [*item_ids, str(tenant_id)]
+
+    sample: list[ScopePreviewItem] = []
+    with connection.cursor() as cur:
+        cur.execute(sql, params)
+        for row in cur.fetchall():
+            raw_id, raw_type, raw_title = row
+            title = raw_title or f"({raw_type}) {str(raw_id)[:8]}"
+            sample.append(
+                ScopePreviewItem(
+                    id=str(raw_id),
+                    title=str(title),
+                    type=str(raw_type),
+                    entity_type="item",
+                )
+            )
+    return sample
+
+
+# ---------------------------------------------------------------------------
 # Public surface declaration
 # ---------------------------------------------------------------------------
 
@@ -240,6 +409,7 @@ __all__ = [
     "get",
     "list_baselines",
     "get_item_at_baseline",
+    "preview_scope_items",
     # Exceptions (re-exported for callers)
     "BaselineError",
     "BaselineImmutableError",
@@ -259,4 +429,6 @@ __all__ = [
     "DiffResult",
     "ChangedItem",
     "ItemPayload",
+    "ScopePreview",
+    "ScopePreviewItem",
 ]

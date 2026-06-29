@@ -45,11 +45,29 @@ class BaselineSnapshot(TenantScopedModel):
         id, tenant, created_at, created_by, modified_at, modified_by, version
     """
 
+    # Baseline scope (REQ-L2-BL-001, REQ-L1-049):
+    #   document — a single Artifact + all descendants + TraceLinks
+    #   project  — all Artifacts of a Workspace
+    #   global   — all Artifacts of the Tenant (Extended preset only)
+    SCOPE_DOCUMENT = "document"
+    SCOPE_PROJECT = "project"
+    SCOPE_GLOBAL = "global"
+    SCOPE_CHOICES = (
+        (SCOPE_DOCUMENT, "Document"),
+        (SCOPE_PROJECT, "Project"),
+        (SCOPE_GLOBAL, "Global"),
+    )
+
     # Workspace scope for tenant-internal partitioning.
     workspace_id = models.UUIDField(db_index=True)
 
-    # Baseline scope: document | project | global (REQ-L2-BL-001)
-    scope = models.CharField(max_length=32)
+    # Baseline scope with restricted choices (REQ-L1-049). Default is
+    # ``project`` because that is the most common workspace-wide baseline.
+    scope = models.CharField(
+        max_length=32,
+        choices=SCOPE_CHOICES,
+        default=SCOPE_PROJECT,
+    )
 
     # Human-readable name — unique within a workspace (REQ-L2-BL-005)
     name = models.CharField(max_length=500)

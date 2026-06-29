@@ -15,7 +15,12 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { baselinesApi, type Baseline } from "../../api/baselines";
+import {
+  baselinesApi,
+  type Baseline,
+  type BaselineScope,
+  type ScopePreview,
+} from "../../api/baselines";
 import { artifactsApi } from "../../api/artifacts";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { Artifact } from "../../types";
@@ -34,6 +39,14 @@ const INITIAL_STATE: BaselinesState = {
   error: null,
 };
 
+// REQ-L1-049: only these three scopes are valid. The order is intentional
+// (most common first) and matches the i18n key ordering in the locales.
+const SCOPE_OPTIONS: { value: BaselineScope; labelKey: string }[] = [
+  { value: "document", labelKey: "baselines.scopeDocument" },
+  { value: "project", labelKey: "baselines.scopeProject" },
+  { value: "global", labelKey: "baselines.scopeGlobal" },
+];
+
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
@@ -49,9 +62,18 @@ export default function BaselinesView(): JSX.Element {
   const [state, setState] = useState<BaselinesState>(INITIAL_STATE);
   const [showForm, setShowForm] = useState(false);
   const [formArtifactId, setFormArtifactId] = useState<string>("");
-  const [formScope, setFormScope] = useState<string>("workspace");
+  // REQ-L1-049: scope is now one of {document, project, global}; default
+  // is "project" to match the backend model default.
+  const [formScope, setFormScope] = useState<BaselineScope>("project");
   const [isSaving, setIsSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // REQ-L1-049: live count of items that would be included for the chosen
+  // scope. ``null`` means "not yet loaded" (or "not applicable").
+  const [scopePreview, setScopePreview] = useState<ScopePreview | null>(null);
+  const [scopePreviewLoading, setScopePreviewLoading] = useState(false);
+  const [scopePreviewError, setScopePreviewError] = useState<string | null>(
+    null
+  );
 
   const load = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) {
@@ -96,9 +118,56 @@ export default function BaselinesView(): JSX.Element {
     }
   }, [showForm, formArtifactId, state.artifacts]);
 
+  // REQ-L1-049: refetch the scope preview whenever the user picks a
+  // different scope, switches the artifact, or the active workspace
+  // changes. For ``document`` scope we require an artifact; for the other
+  // scopes we issue a single GET with the workspace_id.
+  useEffect(() => {
+    if (!showForm || !activeWorkspace) {
+      setScopePreview(null);
+      return;
+    }
+    if (formScope === "document" && !formArtifactId) {
+      setScopePreview(null);
+      setScopePreviewError(null);
+      return;
+    }
+    let cancelled = false;
+    setScopePreviewLoading(true);
+    setScopePreviewError(null);
+    void (async () => {
+      try {
+        const result = await baselinesApi.previewScope({
+          scope: formScope,
+          workspaceId: activeWorkspace.id,
+          artifactId: formScope === "document" ? formArtifactId : null,
+        });
+        if (!cancelled) {
+          setScopePreview(result);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const msg =
+            (err as { error?: { message?: string } })?.error?.message ??
+            String(err);
+          setScopePreviewError(msg);
+          setScopePreview(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setScopePreviewLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showForm, activeWorkspace, formScope, formArtifactId]);
+
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
-    if (!formArtifactId) {
+    // REQ-L1-049: ``document`` scope requires an artifact.
+    if (formScope === "document" && !formArtifactId) {
       setCreateError(t("baselines.artifactRequired"));
       return;
     }
@@ -107,12 +176,15 @@ export default function BaselinesView(): JSX.Element {
     try {
       await baselinesApi.create({
         workspace_id: activeWorkspace.id,
-        artifact_id: formArtifactId,
-        scope: formScope || "workspace",
+        // ``project`` / ``global`` scopes send ``artifact_id: null``; the
+        // backend now requires the value only for ``document``.
+        artifact_id: formScope === "document" ? formArtifactId : null,
+        scope: formScope,
       });
       setShowForm(false);
       setFormArtifactId("");
-      setFormScope("workspace");
+      setFormScope("project");
+      setScopePreview(null);
       await load();
     } catch (err: unknown) {
       const msg =
@@ -230,45 +302,6 @@ export default function BaselinesView(): JSX.Element {
           }}
         >
           <label
-            htmlFor="baseline-artifact"
-            style={{
-              display: "block",
-              fontWeight: 500,
-              color: "var(--color-text)",
-              marginBottom: "var(--space-1)",
-            }}
-          >
-            {t("baselines.artifact")}
-          </label>
-          <select
-            id="baseline-artifact"
-            data-testid="baseline-artifact-select"
-            value={formArtifactId}
-            onChange={(e) => setFormArtifactId(e.target.value)}
-            disabled={state.artifacts.length === 0}
-            style={{
-              width: "100%",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-3)",
-              fontSize: "var(--font-size-base)",
-              marginBottom: "var(--space-4)",
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-            }}
-          >
-            {state.artifacts.length === 0 ? (
-              <option value="">{t("baselines.noArtifacts")}</option>
-            ) : (
-              state.artifacts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.artifact_type} — {a.id.slice(0, 8)}…
-                </option>
-              ))
-            )}
-          </select>
-
-          <label
             htmlFor="baseline-scope"
             style={{
               display: "block",
@@ -279,25 +312,112 @@ export default function BaselinesView(): JSX.Element {
           >
             {t("baselines.scope")}
           </label>
-          <input
-            id="baseline-scope"
-            data-testid="baseline-scope-input"
-            type="text"
-            value={formScope}
-            onChange={(e) => setFormScope(e.target.value)}
-            placeholder="workspace"
+          {/* REQ-L1-049: radio group with the three valid scopes. */}
+          <div
+            data-testid="baseline-scope-group"
             style={{
-              width: "100%",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-3)",
-              fontSize: "var(--font-size-base)",
-              marginBottom: "var(--space-4)",
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-              boxSizing: "border-box",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-2)",
+              marginBottom: "var(--space-3)",
             }}
-          />
+          >
+            {SCOPE_OPTIONS.map((opt) => (
+              <label
+                key={opt.value}
+                htmlFor={`baseline-scope-${opt.value}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
+                  cursor: "pointer",
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text)",
+                }}
+              >
+                <input
+                  id={`baseline-scope-${opt.value}`}
+                  data-testid={`baseline-scope-${opt.value}`}
+                  type="radio"
+                  name="baseline-scope"
+                  value={opt.value}
+                  checked={formScope === opt.value}
+                  onChange={() => setFormScope(opt.value)}
+                />
+                <span>{t(opt.labelKey)}</span>
+              </label>
+            ))}
+          </div>
+
+          {/* REQ-L1-049: live count of items that would be included for
+              the chosen scope. Re-fetches on scope/artifact change. */}
+          <p
+            data-testid="baseline-scope-count"
+            aria-live="polite"
+            style={{
+              fontSize: "var(--font-size-sm)",
+              color: scopePreviewError
+                ? "var(--color-danger)"
+                : "var(--color-text-muted)",
+              margin: "0 0 var(--space-4) 0",
+            }}
+          >
+            {scopePreviewError
+              ? scopePreviewError
+              : scopePreviewLoading
+                ? t("baselines.scopeCountLoading")
+                : scopePreview
+                  ? t("baselines.scopeCountReady", {
+                      count: scopePreview.count,
+                    })
+                  : formScope === "document" && !formArtifactId
+                    ? t("baselines.scopeCountNeedsArtifact")
+                    : t("baselines.scopeCountIdle")}
+          </p>
+
+          {/* REQ-L1-049: artifact picker is shown only for document scope. */}
+          {formScope === "document" && (
+            <>
+              <label
+                htmlFor="baseline-artifact"
+                style={{
+                  display: "block",
+                  fontWeight: 500,
+                  color: "var(--color-text)",
+                  marginBottom: "var(--space-1)",
+                }}
+              >
+                {t("baselines.artifact")}
+              </label>
+              <select
+                id="baseline-artifact"
+                data-testid="baseline-artifact-select"
+                value={formArtifactId}
+                onChange={(e) => setFormArtifactId(e.target.value)}
+                disabled={state.artifacts.length === 0}
+                style={{
+                  width: "100%",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-3)",
+                  fontSize: "var(--font-size-base)",
+                  marginBottom: "var(--space-4)",
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                }}
+              >
+                {state.artifacts.length === 0 ? (
+                  <option value="">{t("baselines.noArtifacts")}</option>
+                ) : (
+                  state.artifacts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.artifact_type} — {a.id.slice(0, 8)}…
+                    </option>
+                  ))
+                )}
+              </select>
+            </>
+          )}
 
           {createError && (
             <p
@@ -316,7 +436,10 @@ export default function BaselinesView(): JSX.Element {
             <button
               data-testid="baseline-submit-btn"
               onClick={() => void handleCreate()}
-              disabled={isSaving || state.artifacts.length === 0}
+              disabled={
+                isSaving ||
+                (formScope === "document" && !formArtifactId)
+              }
               style={{
                 background: "var(--color-primary)",
                 color: "white",
@@ -325,10 +448,13 @@ export default function BaselinesView(): JSX.Element {
                 padding: "var(--space-2) var(--space-6)",
                 fontSize: "var(--font-size-sm)",
                 cursor:
-                  isSaving || state.artifacts.length === 0
+                  isSaving || (formScope === "document" && !formArtifactId)
                     ? "not-allowed"
                     : "pointer",
-                opacity: isSaving || state.artifacts.length === 0 ? 0.7 : 1,
+                opacity:
+                  isSaving || (formScope === "document" && !formArtifactId)
+                    ? 0.7
+                    : 1,
               }}
             >
               {isSaving ? t("actions.saving") : t("actions.save")}

@@ -137,6 +137,59 @@ class BaselineSummary:
 
 
 # ---------------------------------------------------------------------------
+# COMP-BL-005: ScopePreview types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ScopePreviewItem:
+    """A single item in the read-only scope preview.
+
+    COMP-BL-005, REQ-L1-049. Used by ``preview_scope_items`` to communicate
+    which items WOULD be included in a Baseline with a given scope, without
+    actually creating the Baseline.
+    """
+
+    id: str
+    title: str
+    type: str  # "artifact" | "requirement" | "architecture_element" | "trace_link"
+    entity_type: str = "item"
+
+
+@dataclass
+class ScopePreview:
+    """Result of :func:`baseline.services.preview_scope_items`.
+
+    COMP-BL-005, REQ-L1-049.
+
+    Attributes:
+        scope: The scope that was previewed (echoed back for the client).
+        count: Total number of items that would be included.
+        sample: Up to 10 sample items, each with id+title+type.
+    """
+
+    scope: str
+    count: int
+    sample: list[ScopePreviewItem] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Return JSON-serializable representation."""
+        return {
+            "scope": self.scope,
+            "count": self.count,
+            "sample": [
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "type": item.type,
+                    "entity_type": item.entity_type,
+                }
+                for item in self.sample
+            ],
+        }
+
+
+# ---------------------------------------------------------------------------
 # COMP-BL-004: VersionReconstructor types
 # ---------------------------------------------------------------------------
 
@@ -178,4 +231,6 @@ __all__ = [
     "BaselineDetail",
     "BaselineSummary",
     "ItemPayload",
+    "ScopePreview",
+    "ScopePreviewItem",
 ]
