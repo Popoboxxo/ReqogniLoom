@@ -11,6 +11,7 @@ import uuid
 import pytest
 from django.db.models import ProtectedError
 
+from baseline.models import BaselineSnapshot
 from persistence import models as m
 from persistence.tests.conftest import active_tenant
 
@@ -27,7 +28,7 @@ EXPECTED_ENTITIES = [
     m.ArchitectureElement,
     m.TraceLink,
     m.TestCase,
-    m.Baseline,
+    BaselineSnapshot,
     m.WorkflowDefinition,
     m.WorkflowState,
     m.AuditLogEntry,
