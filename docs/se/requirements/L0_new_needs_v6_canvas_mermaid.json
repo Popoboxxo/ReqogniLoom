@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "doc_id": "REQ-L0-v6-20260630",
+    "version": "1.0.0",
+    "created": "2026-06-30",
+    "agent": "se-requirements",
+    "phase": "L0-Stakeholder-Needs-Elicitation",
+    "description": "Formalisierte L0-Stakeholder-Needs für zwei neue Diagramm-Capabilities: Free-Hand Canvas Drawing und Mermaid Live Preview",
+    "extends": "REQ-L0-016 (Interaktive Diagramme)"
+  },
+  "requirements": [
+    {
+      "req_id": "REQ-L0-036",
+      "title": "Free-Hand Canvas Drawing",
+      "statement": "Das System muss eine freie Zeichenfläche (Canvas) bereitstellen, auf der Nutzer Diagramme mit Stift, geometrischen Grundformen, Textnotizen, Pfeilen und Verbindern frei zeichnen können. Gezeichnete Diagramme werden als versionierte Artefakte persistiert (SVG/JSON-Stroke-Daten) und sind via TraceLinks mit Requirements, ArchitectureElements und TestCases verknüpfbar.",
+      "implementation_state": "Not Implemented",
+      "domain": "system",
+      "priority": "desired",
+      "rationale": "Strukturierte Diagramm-Typen (REQ-L0-016) decken formale Modellierung ab, aber nicht das schnelle, informelle Skizzieren von Ideen. Free-Hand Canvas-Zeichnen schließt die Lücke zwischen Whiteboard-Skizze und formalem Diagramm ohne Medienbruch.",
+      "acceptance_criteria": [
+        "AC1: Canvas unterstützt Pen/Stift, Rechteck, Kreis, Linie, Text-Notiz, Pfeil/Verbinder",
+        "AC2: Gezeichnete Elemente sind nachträglich auswählbar, verschiebbar, skalierbar und löschbar",
+        "AC3: Verbinder bleiben assoziiert (folgen verbundenen Formen bei Bewegung)",
+        "AC4: Das gezeichnete Diagramm wird als Artefakt mit Struktur-Payload persistiert: JSON-Stroke-Daten als Primärformat (versioniert, diff-bar) + SVG als abgeleitetes Export-Format.",
+        "AC5: TraceLink (Typ documents) mit Requirements, ArchitectureElements, TestCases",
+        "AC6: Canvas-Diagramme via MCP (artifact.get) abrufbar",
+        "AC7: Export als SVG/PNG möglich",
+        "AC8: Bei Browser-Crash oder Verbindungsabbruch während der Zeichnung gehen höchstens die letzten 5 Sekunden an Eingaben verloren (Auto-Save mit konfigurierbarem Intervall, max. 5s). Das System persistiert Stroke-Daten transaktional bei jeder Save-Operation; partielle Zeichnungen werden nicht korrupt.",
+        "AC9: Das Canvas rendert flüssig (≥30fps) bei bis zu 500 Stroke-Elementen und 100 Formen. Bei Überschreitung wird die Framerate dokumentiert degradiert, der Editor bleibt bedienbar."
+      ],
+      "derived_from": ["REQ-L0-016", "User-Request Need-1"],
+      "derives_l1": "Erweiterung REQ-L1-027 erforderlich / NEU REQ-L1-056 empfohlen",
+      "arch_impact": true,
+      "arch_trigger": "Canvas-basierte Zeichen-Engine benötigt neues Payload-Format (Stroke-Daten) und Frontend-Komponente, die außerhalb des bestehenden strukturierten Diagramm-Schemas liegt",
+      "scope": "system",
+      "external_interfaces": [
+        {"direction": "input", "type": "user", "description": "Canvas-Zeichenoperationen (Pen, Shapes, Text, Connectors) via Maus/Touch"},
+        {"direction": "output", "type": "data", "description": "Persistierte Canvas-Diagramm-Artefakte (SVG/JSON-Stroke) an System-Persistenz (Speicher-Subsystem)"},
+        {"direction": "output", "type": "data", "description": "TraceLink-Einträge (Typ documents) an TraceabilityEngine"},
+        {"direction": "output", "type": "data", "description": "Export-Datei (SVG/PNG) an Nutzer-Download"},
+        {"direction": "output", "type": "data", "description": "MCP artifact.get Response mit strukturiertem Canvas-Payload"}
+      ]
+    },
+    {
+      "req_id": "REQ-L0-037",
+      "title": "Mermaid Code Live Preview",
+      "statement": "Das System muss es Nutzern ermöglichen, Mermaid-Diagrammcode in einen Editor einzugeben und das gerenderte Diagramm grafisch im Browser als Live-Preview zu sehen. Unterstützt werden MÜSSEN: flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram. Das gerenderte Diagramm muss interaktiv (zoombar) und exportierbar (PNG, SVG) sein. Der Quellcode wird als versioniertes Artefakt gespeichert.",
+      "implementation_state": "Not Implemented",
+      "domain": "system",
+      "priority": "desired",
+      "rationale": "Mermaid ist ein De-facto-Standard für Code-basierte Diagramme (GitHub, GitLab, Markdown). Der Kern-Need ist die Live-Preview-UX — nicht die Mermaid-Unterstützung an sich (die bereits in REQ-L0-016/REQ-L1-027 als Payload-Option angelegt ist). Entscheidend ist die Echtzeit-Rückkopplung zwischen Code-Eingabe und grafischer Darstellung im selben Werkzeug. Nutzer, die bereits in Mermaid modellieren, müssen ihren Code direkt in ReqFlow nutzen können, ohne manuelle Übersetzung in strukturierte Formate. Die Live-Preview senkt die kognitive Last beim Editieren erheblich.",
+      "acceptance_criteria": [
+        "AC1: Mermaid-Editor mit Live-Preview (500ms Debounce) im selben Bildschirmbereich",
+        "AC2: Mermaid-Quellcode als versioniertes Artefakt persistiert",
+        "AC3: Unterstützung für flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram",
+        "AC4: Gerendertes Diagramm ist zoombar (Mausrad, Pinch, Buttons)",
+        "AC5: Export als PNG und SVG möglich",
+        "AC6: TraceLink (Typ documents) mit Requirements, ArchitectureElements, TestCases",
+        "AC7: Bei Syntaxfehlern im Mermaid-Code wird eine aussagekräftige Fehlermeldung im UI angezeigt (mit Zeilennummer und Fehlerkategorie). Die zuletzt erfolgreich gerenderte grafische Darstellung bleibt als Fossil sichtbar, bis der Code wieder syntaktisch valide ist.",
+        "AC8: Abrufbar via MCP (artifact.get) als strukturierter Payload (Quellcode + Render-Hinweise)",
+        "AC9: Fällt der Mermaid-Renderer aus (Library-Ladefehler, Timeout, CORS-Problem), zeigt das System eine Fehlermeldung und den rohen Quellcode lesbar als Fallback an. Der Quellcode bleibt editierbar und speicherbar — unabhängig vom Rendering-Status.",
+        "AC10: Das Live-Rendering schließt in <2s für Diagramme mit bis zu 100 Knoten/Kanten ab. Bei Überschreitung wird eine Ladeanzeige gezeigt, der Editor bleibt responsiv."
+      ],
+      "derived_from": ["REQ-L0-016", "User-Request Need-2"],
+      "derives_l1": "Erweiterung REQ-L1-027 erforderlich / NEU REQ-L1-057 empfohlen",
+      "arch_impact": true,
+      "arch_trigger": "Mermaid-Live-Rendering erfordert entweder serverseitiges Rendering (Backend SVG-Generierung) oder clientseitiges Rendering (mermaid.js) — beides hat Architektur-Impact auf DiagramServiceSystem und Frontend-Komponenten; neues Payload-Format (Mermaid-Source-Code) nötig",
+      "scope": "system",
+      "external_interfaces": [
+        {"direction": "input", "type": "user", "description": "Mermaid-Quellcode-Eingabe via Texteditor"},
+        {"direction": "input", "type": "validation", "description": "Mermaid-Syntax-Validierung des eingegebenen Quellcodes vor/nach Persistierung"},
+        {"direction": "output", "type": "user", "description": "Gerendertes Diagramm (SVG/Canvas) im Browser als Live-Preview"},
+        {"direction": "output", "type": "data", "description": "Persistierte Mermaid-Quellcode-Artefakte (versioniert) an System-Persistenz (Speicher-Subsystem)"},
+        {"direction": "output", "type": "data", "description": "TraceLink-Einträge (Typ documents) an TraceabilityEngine"},
+        {"direction": "output", "type": "data", "description": "Export-Datei (PNG/SVG) an Nutzer-Download"},
+        {"direction": "output", "type": "data", "description": "MCP artifact.get Response mit Mermaid-Quellcode + Render-Hinweisen"}
+      ]
+    }
+  ],
+  "conflicts": [],
+  "remarks": [
+    "Beide Needs sind Erweiterungen von REQ-L0-016 (Interaktive Diagramme), aber als eigenständige REQ-L0-IDs geführt, da REQ-L0-016 bereits 'Implemented' ist.",
+    "Beide Needs haben arch_impact=true, da sie das bestehende DiagramServiceSystem (COMP-DS-001..005) erweitern müssen.",
+    "Die Mermaid-Live-Preview kann entweder clientseitig (mermaid.js) oder serverseitig (Mermaid-Konverter) realisiert werden — Architekturentscheidung steht aus.",
+    "Das Canvas-Drawing erfordert ein neues Stroke-Daten-Payload-Format, das außerhalb der bestehenden DiagramType/PayloadFormat-Enumeration liegt."
+  ]
+}

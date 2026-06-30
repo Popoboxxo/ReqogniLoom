@@ -112,6 +112,13 @@ export const apiClient = {
     });
   },
 
+  put<T>(path: string, body: unknown): Promise<T> {
+    return apiFetch<T>(path, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  },
+
   patch<T>(path: string, body: unknown): Promise<T> {
     return apiFetch<T>(path, {
       method: "PATCH",

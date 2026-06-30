@@ -4,14 +4,16 @@ COMP-DS-003 DiagramRenderer — Unit tests.
 Covers:
   REQ-L2-DS-003: Renderable representation returned for each diagram type
   REQ-L3-DR-001: RenderableDiagram contains type, content and render_hint
+  REQ-L2-DS-007: RenderHints for Mermaid diagram types
 
 IF-DS-INT-002: prepare_renderable(diagram_type, payload_format, content)
+IF-DS-INT-008: get_render_hints(diagram_type, payload_format) -> RenderHints
 """
 from __future__ import annotations
 
 import pytest
 
-from diagram.renderer import DiagramRenderer, RenderableDiagram
+from diagram.renderer import DiagramRenderer, RenderableDiagram, RenderHints
 
 
 @pytest.fixture
@@ -73,3 +75,34 @@ class TestExportStubs:
         r = renderer.prepare_renderable("flow", "mermaid", "flowchart TD\n  A-->B")
         with pytest.raises(NotImplementedError):
             renderer.export_svg(r)
+
+
+# ---------------------------------------------------------------------------
+# REQ-L2-DS-007: RenderHints for Mermaid diagram types
+# IF-DS-INT-008: get_render_hints
+# ---------------------------------------------------------------------------
+
+class TestGetRenderHints:
+    """REQ-L2-DS-007: get_render_hints returns correct metadata for Mermaid types."""
+
+    def test_mermaid_type_returns_hints(self, renderer: DiagramRenderer) -> None:
+        hints = renderer.get_render_hints("mermaid", "mermaid")
+        assert isinstance(hints, RenderHints)
+        assert hints.render_hint == "mermaid.js"
+        assert hints.client_side is True
+        assert len(hints.supported_types) == 5
+
+    def test_mermaid_supported_types(self, renderer: DiagramRenderer) -> None:
+        hints = renderer.get_render_hints("mermaid", "mermaid")
+        expected_types = ["flowchart", "sequenceDiagram", "classDiagram", "stateDiagram", "erDiagram"]
+        assert hints.supported_types == expected_types
+
+    def test_non_mermaid_type_empty_supported(self, renderer: DiagramRenderer) -> None:
+        hints = renderer.get_render_hints("block", "mermaid")
+        assert hints.supported_types == []
+        assert hints.render_hint == "mermaid.js"
+
+    def test_unknown_type_returns_unknown_hint(self, renderer: DiagramRenderer) -> None:
+        hints = renderer.get_render_hints("unknown", "unknown")
+        assert hints.render_hint == "unknown"
+        assert hints.supported_types == []

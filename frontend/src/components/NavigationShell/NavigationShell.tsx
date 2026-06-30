@@ -22,7 +22,7 @@
  */
 
 import React, { Suspense, lazy, useCallback } from "react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { AuthGate } from "./AuthGate";
@@ -56,6 +56,8 @@ const TestRunsComponent = lazy(() => import("../TestRuns/TestRuns"));
 const CsvImport = lazy(() => import("../CsvImport/CsvImport"));
 const IcdView = lazy(() => import("../IcdView/IcdView"));
 const DiagramView = lazy(() => import("../DiagramView/DiagramView"));
+const CanvasEditor = lazy(() => import("../canvas/CanvasEditor"));
+const MermaidEditor = lazy(() => import("../mermaid/MermaidEditor"));
 const MetricsDashboard = lazy(
   () => import("../MetricsDashboard/MetricsDashboard")
 );
@@ -105,6 +107,8 @@ function AppShell(): JSX.Element {
               <Route path="/icds/:id" element={<IcdView />} />
               <Route path="/diagrams" element={<DiagramView />} />
               <Route path="/diagrams/:id" element={<DiagramView />} />
+              <Route path="/diagrams/:id/canvas" element={<CanvasEditorWrapper />} />
+              <Route path="/diagrams/:id/mermaid" element={<MermaidEditorWrapper />} />
               <Route path="/metrics" element={<MetricsDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
               <Route path="/workspace-settings" element={<WorkspaceSettings />} />
@@ -115,6 +119,22 @@ function AppShell(): JSX.Element {
       </main>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Route wrappers — extract :id param and pass to editor components
+// ---------------------------------------------------------------------------
+
+function CanvasEditorWrapper(): JSX.Element {
+  const { id } = useParams<{ id: string }>();
+  if (!id) return <Navigate to="/diagrams" replace />;
+  return <CanvasEditor diagramId={id} />;
+}
+
+function MermaidEditorWrapper(): JSX.Element {
+  const { id } = useParams<{ id: string }>();
+  if (!id) return <Navigate to="/diagrams" replace />;
+  return <MermaidEditor diagramId={id} />;
 }
 
 // ---------------------------------------------------------------------------

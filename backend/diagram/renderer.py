@@ -1,11 +1,12 @@
 """
 ARCH-L1-013 DiagramService — Diagram renderer.
 
-leaf_id: COMP-DS-003_DiagramRenderer
-req_id: REQ-L1-027, REQ-L2-DS-003, REQ-L3-DR-001
+leaf_id: COMP-DS-003_DiagramRenderer, COMP-DS-007_MermaidLiveRenderer
+req_id: REQ-L1-027, REQ-L2-DS-003, REQ-L3-DR-001, REQ-L1-057, REQ-L2-DS-007
 
 Internal interface:
   IF-DS-INT-002: prepare_renderable(diagram_type, payload_format, content) -> RenderableDiagram
+  IF-DS-INT-008: get_render_hints(diagram_type, payload_format) -> RenderHints
 
 Transforms a validated, persisted diagram payload into a RenderableDiagram
 dataclass that the frontend (or MCP response) can consume directly.
@@ -13,6 +14,10 @@ dataclass that the frontend (or MCP response) can consume directly.
 PNG/SVG binary export is NOT implemented in this version (stub documented
 below).  The frontend is expected to render Mermaid/PlantUML payloads
 client-side using mermaid.js or PlantUML JavaScript SDKs.
+
+COMP-DS-007 MermaidLiveRenderer uses get_render_hints() to retrieve rendering
+metadata for the 5 Mermaid diagram types (flowchart, sequenceDiagram,
+classDiagram, stateDiagram, erDiagram).
 
 Design notes (ADR-DS-01):
   Renderer is called on READ path only — validation happens on WRITE path.
@@ -45,7 +50,7 @@ class RenderableDiagram:
     rendering library to invoke.
 
     Attributes:
-        diagram_type:    One of DiagramType values (block/flow/context).
+        diagram_type:    One of DiagramType values (block/flow/context/mermaid).
         payload_format:  One of PayloadFormat values (mermaid/plantuml/json).
         content:         The raw, validated payload string.
         render_hint:     Free-form hint for the frontend (e.g. 'mermaid.js',
@@ -58,6 +63,26 @@ class RenderableDiagram:
     content: str
     render_hint: str
     metadata: Optional[dict[str, Any]] = None
+
+
+@dataclass(frozen=True)
+class RenderHints:
+    """Output contract for IF-DS-INT-008 — COMP-DS-007.
+
+    REQ-L2-DS-007: Contains rendering metadata for Mermaid diagram types.
+    Used by MermaidLiveRenderer to provide live-preview configuration.
+
+    Attributes:
+        render_hint:     Library hint for the frontend (e.g. 'mermaid.js').
+        diagram_type:    The Mermaid diagram type (e.g. 'flowchart', 'sequenceDiagram').
+        supported_types: List of all supported Mermaid diagram types.
+        client_side:     True if rendering happens client-side (ADR-DS-03).
+    """
+
+    render_hint: str
+    diagram_type: str
+    supported_types: list[str]
+    client_side: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +99,17 @@ _RENDER_HINTS: dict[tuple[str, str], str] = {
     (DiagramType.CONTEXT, PayloadFormat.MERMAID): "mermaid.js",
     (DiagramType.CONTEXT, PayloadFormat.PLANTUML): "plantuml-js",
     (DiagramType.CONTEXT, PayloadFormat.JSON): "custom-json",
+    (DiagramType.MERMAID, PayloadFormat.MERMAID): "mermaid.js",
 }
+
+# Supported Mermaid diagram types for COMP-DS-007 — REQ-L2-DS-007
+_MERMAID_SUPPORTED_TYPES: list[str] = [
+    "flowchart",
+    "sequenceDiagram",
+    "classDiagram",
+    "stateDiagram",
+    "erDiagram",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -156,8 +191,50 @@ class DiagramRenderer:
             "Use the content field of RenderableDiagram for client-side rendering."
         )
 
+    # ------------------------------------------------------------------
+    # IF-DS-INT-008: get_render_hints — COMP-DS-007
+    # REQ-L2-DS-007
+    # ------------------------------------------------------------------
+
+    def get_render_hints(
+        self,
+        diagram_type: str,
+        payload_format: str,
+    ) -> RenderHints:
+        """Retrieve rendering metadata for a diagram type/format combination.
+
+        IF-DS-INT-008 contract: get_render_hints(diagram_type, payload_format) -> RenderHints
+
+        Used by COMP-DS-007 MermaidLiveRenderer to provide live-preview
+        configuration for the 5 Mermaid diagram types.
+
+        Args:
+            diagram_type:   One of DiagramType values (block/flow/context/mermaid).
+            payload_format: One of PayloadFormat values (mermaid/plantuml/json).
+
+        Returns:
+            RenderHints with render_hint, diagram_type, supported_types, client_side.
+
+        REQ-L2-DS-007, REQ-L1-057
+        """
+        render_hint = _RENDER_HINTS.get(
+            (diagram_type, payload_format),
+            "unknown",
+        )
+
+        # For Mermaid diagrams, provide the list of supported types
+        supported = _MERMAID_SUPPORTED_TYPES if diagram_type == DiagramType.MERMAID else []
+
+        return RenderHints(
+            render_hint=render_hint,
+            diagram_type=diagram_type,
+            supported_types=supported,
+            client_side=True,  # ADR-DS-03: client-side rendering
+        )
+
 
 __all__ = [
     "DiagramRenderer",
     "RenderableDiagram",
+    "RenderHints",
 ]

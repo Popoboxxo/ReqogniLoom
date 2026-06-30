@@ -4,6 +4,7 @@
 > **System:** DiagramServiceSystem (ARCH-L1-013)
 > **Parent:** L1_Gesamtsystem_Requirements.md
 > **Datum:** 2026-06-21
+> **Erweitert:** 2026-06-30 (REQ-L2-DS-006, REQ-L2-DS-007)
 > **Status:** formalisiert
 > **Designation:** component (terminal — keine L3-Zerlegung)
 > **decomposition_status:** terminal
@@ -12,7 +13,7 @@
 
 ## Traceability
 
-- Abgeleitet von: REQ-L1-027 (primär)
+- Abgeleitet von: REQ-L1-027 (primär), REQ-L1-056 (Canvas), REQ-L1-057 (Mermaid)
 - Ziel: terminal (keine L3-Zerlegung)
 
 ---
@@ -32,6 +33,10 @@ Das DiagramServiceSystem ist für die Verwaltung von Diagrammen als eigenständi
 | IF-L1-034 | output | data | TraceLink `documents` zwischen Diagramm und Requirement/ArchitectureElement an TraceabilityEngine (ARCH-L1-007) |
 | IF-L1-035 | output | data | Diagram-Entity, DiagramVersion-Entity an PersistenceLayer (ARCH-L1-010) |
 | IF-L1-036 | output | data | Schreib-Operationen an AuditLog (ARCH-L1-012, via ApplicationService delegiert) |
+| IF-L1-058 | input | control | Canvas-Auto-Save-Push (JSON-Stroke-Daten, intervallgesteuert max. 5s) vom ReactFrontend (ARCH-L1-001) |
+| IF-L1-059 | input | control | Mermaid-Source-Update (Quellcode mit 500ms Debounce) vom ReactFrontend (ARCH-L1-001) |
+| IF-L1-060 | output | data | Canvas-Stroke-Daten (JSON) + SVG-Export + PNG-Export (clientseitig via Canvas.toDataURL) an ReactFrontend (ARCH-L1-001) |
+| IF-L1-061 | output | data | Mermaid-Source + Render-Hinweise + PNG/SVG-Export (clientseitig via mermaid.js + canvas.toDataURL) an ReactFrontend (ARCH-L1-001) |
 
 ---
 
@@ -153,6 +158,81 @@ Das DiagramServiceSystem SHALL den Diagramm-Abruf über das MCP-Tool `artifact.g
 
 ---
 
+### REQ-L2-DS-006: Free-Hand Canvas Drawing
+
+Das DiagramServiceSystem SHALL Free-Hand Canvas-Diagramme verwalten, wobei JSON-Stroke-Daten
+als Primärformat (versioniert, diff-bar) und SVG als abgeleitetes Export-Format dient.
+Ein Auto-Save-Mechanismus mit konfigurierbarem Intervall (max. 5s) muss Datenverlust bei
+Browser-Crash begrenzen. Das Canvas muss flüssig (≥30fps) bei bis zu 500 Stroke-Elementen
+und 100 Formen rendern. Canvas-Diagramme müssen via TraceLink (Typ `documents`) verknüpfbar
+und via MCP (artifact.get) abrufbar sein.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Canvas-Diagramm wird als JSON-Stroke-Daten persistiert (Primärformat).
+- [ ] SVG-Export aus Stroke-Daten generiert.
+- [ ] Auto-Save mit max. 5s Intervall implementiert.
+- [ ] ≥30fps bei 500 Stroke-Elementen und 100 Formen.
+- [ ] TraceLink (Typ `documents`) erstellbar.
+- [ ] MCP artifact.get liefert Canvas-Payload.
+- [ ] Verbinder (Pfeile, Linien) bleiben mit verbundenen Formen assoziiert — wird eine Form verschoben, folgt der Verbinder.
+
+**Interfaces:**
+- Incoming: IF-L1-058 (Canvas Auto-Save Push)
+- Outgoing: IF-L1-060 (Canvas Stroke-Daten + SVG-Export)
+- Outgoing: IF-L1-034 (TraceLink), IF-L1-035 (Persistenz)
+
+
+**Traceability:** REQ-L1-056
+**Rationale:** Free-Hand Canvas schließt die Lücke zwischen Whiteboard-Skizze und formalem Diagramm ohne Medienbruch.
+
+---
+
+### REQ-L2-DS-007: Mermaid Live Preview
+
+Das DiagramServiceSystem SHALL Mermaid-Code-Diagramme verwalten, wobei der Mermaid-Quellcode
+als versioniertes Artefakt persistiert wird. Das System muss Validierung für mindestens 5
+Mermaid-Typen bereitstellen (flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram).
+Render-Hinweise für clientseitiges Rendering (mermaid.js) müssen bereitgestellt werden.
+Bei Syntaxfehlern muss eine aussagekräftige Fehlermeldung (mit Zeilennummer) generiert werden.
+Bei Renderer-Ausfall muss der Quellcode lesbar als Fallback angezeigt werden. Das Live-Rendering
+muss in <2s für Diagramme mit bis zu 100 Knoten/Kanten abschließen.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+**Domain:** software
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Mermaid-Quellcode als versioniertes Artefakt persistiert.
+- [ ] Validierung für 5 Mermaid-Typen (flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram).
+- [ ] Render-Hinweise für clientseitiges Rendering (mermaid.js) bereitgestellt.
+- [ ] Fehlermeldung mit Zeilennummer bei Syntaxfehlern.
+- [ ] Fallback bei Renderer-Ausfall: Quellcode lesbar angezeigt.
+- [ ] Live-Rendering <2s für 100 Knoten/Kanten.
+- [ ] TraceLink (Typ `documents`) erstellbar.
+- [ ] MCP artifact.get liefert Mermaid-Source + Render-Hinweise.
+- [ ] Das gerenderte Diagramm ist interaktiv zoombar (Mausrad, Pinch-Geste, Zoom-Buttons).
+
+**Interfaces:**
+- Incoming: IF-L1-059 (Mermaid Source Update)
+- Outgoing: IF-L1-061 (Mermaid Source + Render-Hinweise)
+- Outgoing: IF-L1-034 (TraceLink), IF-L1-035 (Persistenz)
+
+
+**Traceability:** REQ-L1-057
+**Rationale:** Mermaid-Live-Preview senkt die kognitive Last beim Editieren und ermöglicht Wiederverwendung bestehenden Mermaid-Codes.
+
+---
+
 ## Traceability-Matrix: REQ-L2-DS → REQ-L1
 
 | REQ-L2-DS | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -162,6 +242,8 @@ Das DiagramServiceSystem SHALL den Diagramm-Abruf über das MCP-Tool `artifact.g
 | REQ-L2-DS-003 | REQ-L1-027 | — |
 | REQ-L2-DS-004 | REQ-L1-027 | — |
 | REQ-L2-DS-005 | REQ-L1-027 | — |
+| REQ-L2-DS-006 | REQ-L1-056 | — |
+| REQ-L2-DS-007 | REQ-L1-057 | — |
 
 ---
 
@@ -169,16 +251,17 @@ Das DiagramServiceSystem SHALL den Diagramm-Abruf über das MCP-Tool `artifact.g
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-DS | 5 |
+| Anzahl REQ-L2-DS | 7 |
 | Mandatory | 0 |
-| Desired | 5 |
+| Desired | 7 |
 | Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | 1 (REQ-L1-027) |
+| Abgedeckte REQ-L1 (primär) | 3 (REQ-L1-027, REQ-L1-056, REQ-L1-057) |
 | Abgedeckte REQ-L1 (mitwirkend) | 0 |
-| Referenzierte Interfaces | IF-L1-032..IF-L1-036 (alle 5) |
+| Referenzierte Interfaces | IF-L1-032..IF-L1-036, IF-L1-058..IF-L1-061 (alle 9) |
 
 ---
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
+*Erweitert durch se-architect-Agent | 2026-06-30 (REQ-L2-DS-006 Canvas, REQ-L2-DS-007 Mermaid)*
 *Handoff: HOFF-20260621-002 | Parent: REQ-L1-027 | Architektur-Referenz: ARCH-L1-013*
 *Designation: component (terminal) — decomposition_status: terminal*

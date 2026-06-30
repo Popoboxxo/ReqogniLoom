@@ -1,7 +1,7 @@
 # ReqFlow — Codebase-Übersicht (IST-Zustand)
 
-> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6)  
-> **Letzte Aktualisierung:** 2026-06-27  
+> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057)  
+> **Letzte Aktualisierung:** 2026-07-01  
 > **Branch:** `feat/se-implementation`  
 > **Validierung:** 1130/1130 pytest Tests grün; 111/112 E2E Tests (Playwright) grün; `manage.py check` 0 Issues
 
@@ -278,7 +278,7 @@ from baseline.services import (
 ---
 
 #### `diagram/` (ARCH-L1-013)
-**Modell:** Diagramm-Rendering (SysML, UML, Architektur-Visualisierung).
+**Modell:** Diagramm-Rendering (SysML, UML, Architektur-Visualisierung), Free-Hand Canvas (COMP-DS-006), Mermaid Live Preview (COMP-DS-007).
 
 **Exportierte API:**
 ```python
@@ -286,6 +286,13 @@ from diagram.services import (
     render_architecture_diagram,  # render(element_id, format="svg") → SVG-String
     render_requirement_tree,      # render(requirement_id) → Tree-Visualisierung
     get_supported_formats,        # ["svg", "png", "puml"]
+    # Canvas (COMP-DS-006, REQ-L1-056)
+    canvas_auto_save,             # Auto-Save canvas stroke data (IF-L1-058)
+    get_canvas_diagram,           # Retrieve canvas + SVG export (IF-L1-060)
+    # Mermaid (COMP-DS-007, REQ-L1-057)
+    update_mermaid_source,        # Update Mermaid source (IF-L1-059)
+    get_mermaid_preview,          # Live preview data (IF-L1-061)
+    validate_mermaid_source,      # Validate Mermaid syntax
 )
 ```
 
@@ -293,8 +300,11 @@ from diagram.services import (
 - `DiagramRenderer` (ABC) → SVG, PNG, PlantUML-Impls
 - `ArchitectureVisualizer` — L1/L2 Element-Layouts
 - `TraceGraphVisualizer` — Network-Graph-Rendering
+- `CanvasEditor` (COMP-DS-006) — Free-Hand Canvas, JSON stroke data primary format, SVG derived
+- `MermaidLiveRenderer` (COMP-DS-007) — Mermaid source validation, persistence, render hints for 5 types (flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram)
+- `DiagramValidator` (COMP-DS-002) — Type-specific payload validation including canvas strokes and Mermaid source
 
-**Test-Coverage:** 42 Tests grün
+**Test-Coverage:** 73 Tests grün (42 existing + 31 canvas/mermaid)
 
 ---
 
@@ -414,7 +424,7 @@ class RiskService:
 #### `rest_api/` (ARCH-L1-002)
 **Modell:** Django REST Framework ViewSets + Serializers gegen ApplicationService. OpenAPI über `drf-spectacular`.
 
-**Exportierte API (16 ViewSets + 2 APIViews):**
+**Exportierte API (16 ViewSets + 5 APIViews):**
 ```python
 # In rest_api/views/
 class ArtifactViewSet(viewsets.ModelViewSet):
@@ -483,6 +493,19 @@ class CsvImportView(APIView):
 
 class RequirementHistoryView(APIView):
     # GET /api/v1/requirements/{pk}/history/
+
+# Canvas/Mermaid sub-resource views (IF-L1-058..061, REQ-L1-056/057)
+class CanvasStrokeView(APIView):
+    # GET  /api/v1/diagrams/{id}/canvas-strokes/ — retrieve stroke data + SVG
+    # POST /api/v1/diagrams/{id}/canvas-strokes/ — append strokes (auto-save)
+    # PUT  /api/v1/diagrams/{id}/canvas-strokes/ — replace all strokes
+
+class MermaidSourceView(APIView):
+    # GET /api/v1/diagrams/{id}/mermaid-source/ — get Mermaid source code
+    # PUT /api/v1/diagrams/{id}/mermaid-source/ — update Mermaid source
+
+class MermaidPreviewView(APIView):
+    # GET /api/v1/diagrams/{id}/mermaid-preview/ — rendered preview data
 ```
 
 **Auth-Endpoints:**
@@ -497,6 +520,8 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 - `api_key_views.py` — ApiKeyViewSet (Key-Lifecycle: list/create/revoke)
 - `auth_views.py` — LoginView, MeView
 - `diagram_views.py` — DiagramViewSet
+- `diagram_canvas_views.py` — CanvasStrokeView, MermaidSourceView, MermaidPreviewView (IF-L1-058..061)
+- `serializers_diagram.py` — Canvas/Mermaid DRF Serializers
 - `icd_views.py` — IcdViewSet
 - `metrics_views.py` — MetricsViewSet
 - `serializers/` — DRF Serializers mit Validation
@@ -622,13 +647,14 @@ frontend/
   src/
     index.tsx                     # React Entry-Point (ReactDOM.render)
     App.tsx                       # Root Component
-    api/
+      api/
       client.ts                   # Axios-Client mit auto-Bearer-Token-Injection
       requirements.ts             # API-Wrapper für Requirements
       architecture.ts             # API-Wrapper für Architecture
       artifacts.ts                # API-Wrapper für Artifacts
       tracelinks.ts               # API-Wrapper für Traceability
       workspaces.ts               # API-Wrapper für Workspace-CRUD
+      diagrams.ts                 # API-Wrapper für Diagramme + Canvas-Strokes + Mermaid-Source/Preview
       index.ts                    # Re-exports
     components/
       DashboardViews/             # Dashboard-Container
@@ -643,6 +669,13 @@ frontend/
         CsvImport.tsx
       TestRuns/                   # Test-Run-Ansicht mit Ergebnisliste
         TestRuns.tsx
+      DiagramView/                  # Diagram-CRUD + Traceability-Sidebar
+      canvas/                       # Free-Hand Canvas Editor (Fabric.js v6)
+        CanvasEditor.tsx
+        CanvasEditor.test.tsx
+      mermaid/                      # Mermaid Code-Editor + Live-Preview
+        MermaidEditor.tsx
+        MermaidEditor.test.tsx
       AdrList/                    # ADR-Liste (Architecture Decision Records)
         AdrList.tsx
       RiskList/                   # Risiko-Liste
@@ -663,11 +696,17 @@ frontend/
       locales/en.json             # Englische Übersetzungen
     test/
       setup.ts                    # Vitest Setup
-  package.json                    # Dependencies (React, Vite, react-i18next, etc.)
+    styles/
+      tokens.css                  # CSS Custom Properties (Design Tokens)
+      global.css                  # Global Styles
+      components/
+        CanvasEditor.module.css   # Canvas Editor Styles
+        MermaidEditor.module.css  # Mermaid Editor Styles
+  package.json                    # Dependencies (React, Vite, react-i18next, Fabric.js, mermaid.js, CodeMirror 6, etc.)
   vitest.config.ts                # Vitest Config
 ```
 
-**Key Components (13 hauptsächliche):**
+**Key Components (15 hauptsächliche):**
 1. `DashboardViews` — Übersichts-Dashboards (Requirements, Architecture, Tests)
 2. `RequirementEditors` — Requirement-Create/Edit/Delete Forms
 3. `ArchitectureEditors` — Architecture-Element-Editor
@@ -681,6 +720,8 @@ frontend/
 11. `AdrList` — ADR-Liste (Architecture Decision Records)
 12. `RiskList` — Risiko-Liste
 13. `IssueList` — Issue-Liste
+14. `canvas/CanvasEditor` — Free-Hand Canvas Editor (Fabric.js v6, REQ-L1-056)
+15. `mermaid/MermaidEditor` — Mermaid Code-Editor mit Live-Preview (CodeMirror 6 + mermaid.js, REQ-L1-057)
 
 **Hooks:**
 - `useDashboardData()` — Fetch via `api/requirements`, caching
@@ -884,4 +925,4 @@ Alle höheren Schichten (REST, MCP) greifen auf `ApplicationService` zu. Es gibt
 
 ---
 
-**Zuletzt aktualisiert:** 2026-06-27 (Branch `feat/se-implementation`)
+**Zuletzt aktualisiert:** 2026-07-01 (Branch `feat/se-implementation`)

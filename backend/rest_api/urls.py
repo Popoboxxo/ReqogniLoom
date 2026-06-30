@@ -38,6 +38,11 @@ from auth_tenancy.rest_item_permission import ItemPermissionViewSet
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.auth_views import LoginView, MeView
+from rest_api.diagram_canvas_views import (
+    CanvasStrokeView,
+    MermaidPreviewView,
+    MermaidSourceView,
+)
 from rest_api.diagram_views import DiagramViewSet
 from rest_api.icd_views import IcdViewSet
 from rest_api.metrics_views import MetricsViewSet
@@ -131,6 +136,24 @@ urlpatterns = [
         "users/me/preferences/",
         UserPreferenceView.as_view(),
         name="user-preferences",
+    ),
+    # Canvas strokes (REQ-L1-056, IF-L1-058/060) — diagram sub-resource.
+    path(
+        "diagrams/<uuid:pk>/canvas-strokes/",
+        CanvasStrokeView.as_view(),
+        name="diagram-canvas-strokes",
+    ),
+    # Mermaid source (REQ-L1-057, IF-L1-059) — diagram sub-resource.
+    path(
+        "diagrams/<uuid:pk>/mermaid-source/",
+        MermaidSourceView.as_view(),
+        name="diagram-mermaid-source",
+    ),
+    # Mermaid preview (REQ-L1-057, IF-L1-061) — diagram sub-resource.
+    path(
+        "diagrams/<uuid:pk>/mermaid-preview/",
+        MermaidPreviewView.as_view(),
+        name="diagram-mermaid-preview",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

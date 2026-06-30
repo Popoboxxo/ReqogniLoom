@@ -1,8 +1,10 @@
 """
 ARCH-L1-013 DiagramService — Public service facade.
 
-leaf_id: COMP-DS-001 (DiagramManager)
-req_id: REQ-L1-027, REQ-L2-DS-001 through REQ-L2-DS-005
+leaf_id: COMP-DS-001 (DiagramManager), COMP-DS-006 (CanvasEditor),
+         COMP-DS-007 (MermaidLiveRenderer)
+req_id: REQ-L1-027, REQ-L2-DS-001 through REQ-L2-DS-007,
+        REQ-L1-056, REQ-L1-057
 
 This module is the single public import surface for downstream consumers
 (ApplicationService IF-L1-032, McpServer IF-L1-033).  All DiagramService
@@ -15,6 +17,10 @@ Public import paths:
         get_diagram,
         list_versions,
         get_mcp_artifact,
+        canvas_auto_save,
+        get_canvas_diagram,
+        update_mermaid_source,
+        get_mermaid_preview,
     )
 
 Architecture:
@@ -26,7 +32,9 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
+from diagram.canvas_editor import CanvasEditor, CanvasExportResult  # noqa: F401
 from diagram.manager import DiagramManager, DiagramResult, DiagramValidationError  # noqa: F401
+from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData  # noqa: F401
 from diagram.models import Diagram, DiagramVersion  # noqa: F401
 from diagram.mcp_artifact_provider import McpArtifactProvider
 
@@ -36,6 +44,8 @@ from diagram.mcp_artifact_provider import McpArtifactProvider
 
 _manager = DiagramManager()
 _mcp_provider = McpArtifactProvider(diagram_manager=_manager)
+_mermaid_renderer = MermaidLiveRenderer(manager=_manager)
+_canvas_editor = CanvasEditor(manager=_manager)
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +180,75 @@ def list_versions(diagram_id: uuid.UUID) -> list[DiagramVersion]:
 
 
 # ---------------------------------------------------------------------------
+# IF-L1-058 / IF-L1-060: CanvasEditor → Canvas Auto-Save + Export
+# REQ-L1-056, REQ-L2-DS-006
+# ---------------------------------------------------------------------------
+
+def canvas_auto_save(
+    *,
+    stroke_data: dict,
+    tenant: object,
+    diagram_id: Optional[uuid.UUID] = None,
+    name: str = "Canvas Drawing",
+    user: Optional[object] = None,
+    target_id: Optional[uuid.UUID] = None,
+) -> Diagram:
+    """Auto-Save canvas stroke data (IF-L1-058 entry point).
+
+    Validates stroke data via IF-DS-INT-004, then persists via IF-DS-INT-005.
+    Creates a new canvas diagram or updates an existing one (new version).
+
+    Args:
+        stroke_data: Canvas stroke data dict with 'strokes' key.
+        tenant:      Active Tenant ORM object.
+        diagram_id:  Optional UUID of existing diagram (update). None = create.
+        name:        Diagram name (used only on create).
+        user:        Optional User ORM object for audit.
+        target_id:   Optional target Artifact UUID for TraceLink creation.
+
+    Returns:
+        The created or updated Diagram ORM object.
+
+    Raises:
+        DiagramValidationError: If stroke data fails validation.
+
+    REQ-L2-DS-006, REQ-L1-056
+    """
+    return _canvas_editor.handle_stroke_update(
+        diagram_id=diagram_id,
+        stroke_data=stroke_data,
+        tenant=tenant,
+        user=user,
+        name=name,
+        target_id=target_id,
+    )
+
+
+def get_canvas_diagram(
+    diagram_id: uuid.UUID,
+    version_number: Optional[int] = None,
+) -> CanvasExportResult:
+    """Retrieve a canvas diagram with stroke data and SVG export (IF-L1-060).
+
+    Args:
+        diagram_id:     UUID of the canvas diagram.
+        version_number: Optional specific version. Defaults to current.
+
+    Returns:
+        CanvasExportResult with stroke_data, svg, and version info.
+
+    Raises:
+        Diagram.DoesNotExist: If diagram_id not found.
+
+    REQ-L2-DS-006, REQ-L1-056
+    """
+    return _canvas_editor.get_canvas(
+        diagram_id=diagram_id,
+        version_number=version_number,
+    )
+
+
+# ---------------------------------------------------------------------------
 # IF-L1-033: McpServer → McpArtifactProvider
 # ---------------------------------------------------------------------------
 
@@ -190,18 +269,114 @@ def get_mcp_artifact(diagram_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# IF-L1-059, IF-L1-061: MermaidLiveRenderer — COMP-DS-007
+# REQ-L1-057, REQ-L2-DS-007
+# ---------------------------------------------------------------------------
+
+def update_mermaid_source(
+    *,
+    diagram_id: uuid.UUID,
+    source: str,
+    tenant: object,
+    user: Optional[object] = None,
+) -> Diagram:
+    """Update Mermaid source code for an existing diagram.
+
+    IF-L1-059 entry point: PUT /api/v1/diagrams/{id}/mermaid-source
+
+    Validates the Mermaid source and persists via DiagramManager.
+
+    Args:
+        diagram_id: UUID of the diagram to update.
+        source:     New Mermaid source code.
+        tenant:     Active Tenant ORM object.
+        user:       Optional User ORM object for audit.
+
+    Returns:
+        The updated Diagram ORM object.
+
+    Raises:
+        DiagramValidationError: If source validation fails.
+        Diagram.DoesNotExist:   If diagram_id not found.
+
+    REQ-L2-DS-007, REQ-L1-057
+    """
+    return _mermaid_renderer.handle_source_update(
+        diagram_id=diagram_id,
+        source=source,
+        tenant=tenant,
+        user=user,
+    )
+
+
+def get_mermaid_preview(
+    diagram_id: uuid.UUID,
+) -> LivePreviewData:
+    """Retrieve all data needed for Mermaid live preview.
+
+    IF-L1-061 output: Source code + Render-Hints + Export data.
+
+    Fallback behavior (REQ-L2-DS-007 AC5/AC9):
+      If rendering fails, the source code is still returned in fallback_mode=True.
+
+    Args:
+        diagram_id: UUID of the diagram.
+
+    Returns:
+        LivePreviewData with source, render_hints, and fallback info.
+
+    Raises:
+        Diagram.DoesNotExist: If diagram_id not found (only in non-fallback cases).
+
+    REQ-L2-DS-007, REQ-L1-057
+    """
+    return _mermaid_renderer.get_live_preview_data(diagram_id=diagram_id)
+
+
+def validate_mermaid_source(
+    source: str,
+    diagram_type: str = "",
+) -> "ValidationResult":
+    """Validate Mermaid source code for the 5 supported types.
+
+    Convenience wrapper around MermaidLiveRenderer.validate_mermaid_source().
+
+    Args:
+        source:       Raw Mermaid source code string.
+        diagram_type: Optional declared diagram type for cross-check.
+
+    Returns:
+        ValidationResult with is_valid, error_msg, line_number, diagram_type.
+
+    REQ-L2-DS-007, REQ-L1-057
+    """
+    from diagram.validator import ValidationResult
+    return _mermaid_renderer.validate_mermaid_source(source, diagram_type)
+
+
+# ---------------------------------------------------------------------------
 # Re-exports for downstream consumers
 # ---------------------------------------------------------------------------
 
 __all__ = [
+    # CRUD operations
     "create_diagram",
     "update_diagram",
     "get_diagram",
     "list_versions",
     "get_mcp_artifact",
+    # Canvas editor — COMP-DS-006
+    "canvas_auto_save",
+    "get_canvas_diagram",
+    # Mermaid live renderer — COMP-DS-007
+    "update_mermaid_source",
+    "get_mermaid_preview",
+    "validate_mermaid_source",
     # DTOs
+    "CanvasExportResult",
     "DiagramResult",
     "DiagramValidationError",
+    "LivePreviewData",
     # ORM types
     "Diagram",
     "DiagramVersion",
