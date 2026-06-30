@@ -112,6 +112,19 @@ class IcdManager:
         self._connector = get_connector()
         self._audit_logger = get_audit_logger()
 
+    def _resolve_arch_artifact_id(self, element_id: uuid.UUID) -> uuid.UUID:
+        """Resolve an ArchitectureElement ID to its backing Artifact ID.
+
+        The TraceabilityEngine stores links between Artifact rows. Caller must
+        ensure the tenant context is set before querying.
+        """
+        from persistence.models import ArchitectureElement
+
+        arch = ArchitectureElement.objects.filter(id=element_id).first()
+        if arch is None:
+            raise ValueError(f"ArchitectureElement {element_id} not found")
+        return uuid.UUID(str(arch.artifact_id))
+
     # ------------------------------------------------------------------
     # create_icd — IF-L1-037 (create path)
     # ------------------------------------------------------------------
@@ -138,7 +151,8 @@ class IcdManager:
         req_id: REQ-L2-ICD-001, REQ-L2-ICD-002, REQ-L2-ICD-004
         IF:     IF-L1-037, IF-ICD-INT-002, IF-L1-040
         """
-        from persistence.models import Tenant
+        from persistence.models import Tenant, ArchitectureElement
+        from auth_tenancy.context import TenantContext
 
         syntax_check = self._validator.validate_syntax(
             {
@@ -189,11 +203,19 @@ class IcdManager:
             icd.current_version = version
             icd.save(update_fields=["current_version", "modified_at", "version"])
 
-            # IF-ICD-INT-002: create realizes TraceLink
+            # IF-ICD-INT-002: create realizes TraceLink. The engine stores
+            # Artifact IDs, so resolve the ArchitectureElement IDs first.
+            TenantContext.set_tenant(str(tenant.id))
+            source_artifact = self._resolve_arch_artifact_id(
+                payload.source_element_id
+            )
+            target_artifact = self._resolve_arch_artifact_id(
+                payload.target_element_id
+            )
             self._connector.link_to_architecture(
                 icd_id=icd.id,
-                source_element_id=payload.source_element_id,
-                target_element_id=payload.target_element_id,
+                source_element_id=source_artifact,
+                target_element_id=target_artifact,
                 created_by_id=payload.created_by_id,
             )
 

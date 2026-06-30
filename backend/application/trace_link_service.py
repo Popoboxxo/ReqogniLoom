@@ -51,6 +51,41 @@ class TraceLinkService(ServiceBase):
 
     # ---------- IF-AS-INT-002 ----------
 
+    def _resolve_artifact_id(self, entity_id: UUID) -> UUID:
+        """Resolve a Requirement/ArchitectureElement/Artifact ID to an Artifact ID.
+
+        The TraceabilityEngine stores links between Artifact IDs.  Callers may
+        pass the more user-facing Requirement or ArchitectureElement IDs; this
+        helper transparently maps those to their backing Artifact.
+
+        Resolution order:
+          1. If *entity_id* is already an Artifact ID, return it unchanged.
+          2. If it matches a Requirement, return Requirement.artifact_id.
+          3. If it matches an ArchitectureElement, return its artifact_id.
+          4. Otherwise raise NotFoundError.
+        """
+        from persistence.models import (
+            ArchitectureElement,
+            Artifact,
+            Requirement,
+        )
+
+        # 1. Already an Artifact ID?
+        if Artifact.objects.filter(id=entity_id).first() is not None:
+            return entity_id
+
+        # 2. Requirement -> Artifact
+        req = Requirement.objects.filter(id=entity_id).first()
+        if req is not None:
+            return UUID(str(req.artifact_id))
+
+        # 3. ArchitectureElement -> Artifact
+        arch = ArchitectureElement.objects.filter(id=entity_id).first()
+        if arch is not None:
+            return UUID(str(arch.artifact_id))
+
+        raise NotFoundError(f"Entity {entity_id} not found")
+
     def create_trace_link(
         self,
         source_id: UUID,
@@ -61,10 +96,13 @@ class TraceLinkService(ServiceBase):
         """Create a single TraceLink after validation.
 
         REQ-L2-AS-010: validates existence, workspace membership, link type.
+        Accepts Artifact, Requirement or ArchitectureElement IDs for
+        *source_id* and *target_id* and resolves them to Artifact IDs before
+        delegating to the TraceabilityEngine.
 
         Args:
-            source_id: UUID of the source artifact.
-            target_id: UUID of the target artifact.
+            source_id: UUID of the source artifact or derived entity.
+            target_id: UUID of the target artifact or derived entity.
             link_type: One of VALID_LINK_TYPES.
             ctx: Resolved AuthContext.
 
@@ -83,6 +121,10 @@ class TraceLinkService(ServiceBase):
                 f"Valid types: {sorted(VALID_LINK_TYPES)}"
             )
 
+        # Resolve Requirement/ArchitectureElement IDs to Artifact IDs
+        resolved_source = self._resolve_artifact_id(source_id)
+        resolved_target = self._resolve_artifact_id(target_id)
+
         from traceability.services import (
             SourceNotFoundError,
             TargetNotFoundError,
@@ -91,8 +133,8 @@ class TraceLinkService(ServiceBase):
 
         try:
             result = te_create(
-                source_id=source_id,
-                target_id=target_id,
+                source_id=resolved_source,
+                target_id=resolved_target,
                 link_type=link_type,
                 created_by_id=ctx.user_id,
             )
@@ -174,7 +216,7 @@ class TraceLinkService(ServiceBase):
         REQ-L2-AS-010.
 
         Args:
-            entity_id: Starting artifact UUID.
+            entity_id: Starting artifact, Requirement or ArchitectureElement UUID.
             direction: "upstream" | "downstream".
             link_type: Optional filter; ignored if None.
             ctx: AuthContext (required for tenant scoping).
@@ -184,7 +226,10 @@ class TraceLinkService(ServiceBase):
 
         from traceability.services import query
 
-        results = query(artifact_id=entity_id, direction=direction)
+        # Resolve Requirement/ArchitectureElement IDs to Artifact IDs so the
+        # TraceabilityEngine can look them up (B-TR-002).
+        resolved_id = self._resolve_artifact_id(entity_id)
+        results = query(artifact_id=resolved_id, direction=direction)
         if link_type is not None:
             results = [
                 r
