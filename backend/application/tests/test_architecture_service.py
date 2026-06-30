@@ -306,6 +306,47 @@ class TestUpdateArchitectureElement:
         mock_filter_qs.update.assert_called_once()
         assert mock_el.title == "Updated Title"
 
+    def test_update_without_expected_version_skips_lock_check(self):
+        """Omitting expected_version skips optimistic lock but still bumps version."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=3)
+
+        mock_filter_qs = MagicMock()
+        mock_filter_qs.update = MagicMock()
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_el)
+                        )
+                    )
+                ),
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=mock_filter_qs,
+            ),
+            patch.object(svc, "_audit"),
+            patch.object(svc, "_emit_event"),
+        ):
+            result = svc.update_architecture_element(
+                arch_el_id=ARCH_EL_ID,
+                ctx=ctx,
+                title="Updated without lock",
+            )
+
+        # Lock check skipped; update still happens guarded by current version
+        mock_filter_qs.update.assert_called_once()
+        assert mock_el.title == "Updated without lock"
+
     def test_viewer_cannot_update(self):
         """PermissionDeniedError for viewer-only context."""
         svc = ArchitectureService()
