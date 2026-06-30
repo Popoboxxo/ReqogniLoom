@@ -33,4 +33,20 @@ export const testcasesApi = {
   get(id: UUID): Promise<TestCase> {
     return apiClient.get<TestCase>(`/testcases/${id}/`);
   },
+
+  create(data: {
+    workspace_id: UUID;
+    title: string;
+    description?: string;
+    status?: string;
+  }): Promise<TestCase> {
+    return apiClient.post<TestCase>("/testcases/", data);
+  },
+
+  update(
+    id: UUID,
+    data: Partial<Pick<TestCase, "title" | "description" | "status">>
+  ): Promise<TestCase> {
+    return apiClient.patch<TestCase>(`/testcases/${id}/`, data);
+  },
 };

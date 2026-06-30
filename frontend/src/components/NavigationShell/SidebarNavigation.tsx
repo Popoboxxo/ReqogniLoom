@@ -38,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/adrs", labelKey: "nav.adrs", feature: "adr" },
   { path: "/risks", labelKey: "nav.risks", feature: "risk" },
   { path: "/issues", labelKey: "nav.issues", feature: "issue" },
+  { path: "/testcases", labelKey: "nav.testCases", feature: "testCases" },
   { path: "/test-runs", labelKey: "nav.testRuns", feature: "testRuns" },
   { path: "/traceability", labelKey: "nav.traceability", feature: "traceability" },
   { path: "/baselines", labelKey: "nav.baselines", feature: "baselines" },
