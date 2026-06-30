@@ -114,11 +114,13 @@ class AuditEntry(TenantScopedModel):
     OP_UPDATE = "update"
     OP_DELETE = "delete"
     OP_TRANSITION = "transition"
+    OP_BASELINE_CREATE = "baseline.create"
     OP_CHOICES = [
         (OP_CREATE, "Create"),
         (OP_UPDATE, "Update"),
         (OP_DELETE, "Delete"),
         (OP_TRANSITION, "Transition"),
+        (OP_BASELINE_CREATE, "Baseline Create"),
     ]
 
     SOURCE_REST = "rest"
