@@ -808,25 +808,45 @@ export default function RequirementEditors(): JSX.Element {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [newBtnHovered, setNewBtnHovered] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  // Inline-create form state (Fix B-UI-001 — local title before submission).
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
   const reqLabel = terminologyLabel("requirements");
 
+  const openCreateForm = (): void => {
+    setNewTitle("");
+    setShowCreateForm(true);
+  };
+
+  const cancelCreateForm = (): void => {
+    setShowCreateForm(false);
+    setNewTitle("");
+  };
+
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
+    const title = newTitle.trim() || t("editor.newRequirementTitle");
+    setIsCreating(true);
     try {
       const created = await requirementsApi.create({
         workspace_id: activeWorkspace.id,
-        title: t("editor.newRequirementTitle"),
+        title,
       });
       // Navigate first — the hook re-fetches automatically when selectedId changes.
       // Calling refresh() here would cause a double-fetch race where the first
       // fetch runs with the old selectedId and may overwrite state set by the
       // second fetch that already has the correct ID.
+      setShowCreateForm(false);
+      setNewTitle("");
       navigate(`/requirements/${created.id}`);
     } catch (err: unknown) {
       console.error("Create failed:", err);
+    } finally {
+      setIsCreating(false);
     }
-  }, [activeWorkspace, t, refresh, navigate]);
+  }, [activeWorkspace, t, refresh, navigate, newTitle]);
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
@@ -945,7 +965,7 @@ export default function RequirementEditors(): JSX.Element {
             </button>
             <button
               data-testid="create-req-btn"
-              onClick={() => void handleCreate()}
+              onClick={showCreateForm ? cancelCreateForm : openCreateForm}
               onMouseEnter={() => setNewBtnHovered(true)}
               onMouseLeave={() => setNewBtnHovered(false)}
               style={{
@@ -959,10 +979,99 @@ export default function RequirementEditors(): JSX.Element {
                 transition: "var(--transition-fast)",
               }}
             >
-              + {t("actions.new")}
+              {showCreateForm ? t("actions.cancel") : `+ ${t("actions.new")}`}
             </button>
           </div>
         </div>
+
+        {showCreateForm && (
+          <form
+            data-testid="create-req-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleCreate();
+            }}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-2)",
+              padding: "var(--space-3)",
+              marginBottom: "var(--space-3)",
+              background: "var(--color-surface-raised)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
+            }}
+          >
+            <label
+              htmlFor="new-req-title"
+              style={{
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                color: "var(--color-text)",
+              }}
+            >
+              {t("editor.title")}
+            </label>
+            <input
+              id="new-req-title"
+              data-testid="req-new-title-input"
+              type="text"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              autoFocus
+              disabled={isCreating}
+              placeholder={t("editor.newRequirementTitle")}
+              style={{
+                padding: "var(--space-2) var(--space-3)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-sm)",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                fontFamily: "var(--font-sans)",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                data-testid="req-new-cancel-btn"
+                onClick={cancelCreateForm}
+                disabled={isCreating}
+                style={{
+                  background: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-3)",
+                  fontSize: "var(--font-size-sm)",
+                  cursor: isCreating ? "not-allowed" : "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                {t("actions.cancel")}
+              </button>
+              <button
+                type="submit"
+                data-testid="req-new-save-btn"
+                disabled={isCreating}
+                style={{
+                  background: "var(--color-primary)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-3)",
+                  fontSize: "var(--font-size-sm)",
+                  cursor: isCreating ? "not-allowed" : "pointer",
+                  opacity: isCreating ? 0.6 : 1,
+                  fontWeight: 600,
+                }}
+              >
+                {isCreating ? t("actions.saving") : t("actions.save")}
+              </button>
+            </div>
+          </form>
+        )}
 
         {requirements.length === 0 ? (
           <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
@@ -990,6 +1099,9 @@ export default function RequirementEditors(): JSX.Element {
                 alignItems: "center",
                 borderLeft: isActive ? "3px solid var(--color-primary)" : "3px solid transparent",
                 transition: "var(--transition-fast)",
+                overflowWrap: "break-word",
+                wordBreak: "break-word",
+                minWidth: 0,
               };
 
               return (

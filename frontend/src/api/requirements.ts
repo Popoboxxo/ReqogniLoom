@@ -17,6 +17,46 @@ export const requirementsApi = {
     });
   },
 
+  /**
+   * Fetch all requirements for a workspace, following pagination links until
+   * exhaustion. Use this when the full list is needed (e.g. dropdowns).
+   */
+  async listAll(workspaceId: UUID): Promise<Requirement[]> {
+    const seen = new Set<UUID>();
+    const all: Requirement[] = [];
+    let resp = await getList<Requirement>("/requirements/", {
+      workspace_id: workspaceId,
+    });
+    for (const r of resp.results) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        all.push(r);
+      }
+    }
+    let nextUrl: string | null = resp.next;
+    let pageCount = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (nextUrl && pageCount < 100) {
+      pageCount += 1;
+      // The backend may return `next` as an absolute URL, a path starting
+      // with /api/v1, or a path relative to /api/v1. apiClient.get prepends
+      // /api/v1, so we always need the path relative to that prefix.
+      const m = nextUrl.match(/^(https?:\/\/[^/]+)?(\/api\/v1)?(\/.*)$/);
+      const pathWithQuery = m ? m[3] : nextUrl;
+      const nextResp = await apiClient.get<PaginatedResponse<Requirement>>(
+        pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`
+      );
+      for (const r of nextResp.results) {
+        if (!seen.has(r.id)) {
+          seen.add(r.id);
+          all.push(r);
+        }
+      }
+      nextUrl = nextResp.next;
+    }
+    return all;
+  },
+
   get(id: UUID): Promise<Requirement> {
     return apiClient.get<Requirement>(`/requirements/${id}/`);
   },

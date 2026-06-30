@@ -42,9 +42,9 @@ export function useRequirementData(selectedId?: string): RequirementData {
     async function loadList(): Promise<void> {
       if (!activeWorkspace) return;
       try {
-        const resp = await requirementsApi.list(activeWorkspace.id);
+        const all = await requirementsApi.listAll(activeWorkspace.id);
         if (cancelled) return;
-        setRequirements(resp.results);
+        setRequirements(all);
       } catch {
         // list errors are non-fatal — detail effect handles its own errors
       } finally {
@@ -55,7 +55,7 @@ export function useRequirementData(selectedId?: string): RequirementData {
     setIsLoading(true);
     void loadList();
     return () => { cancelled = true; };
-  }, [activeWorkspace, tick]);
+  }, [activeWorkspace, selectedId, tick]);
 
   // Effect 2: Load the selected requirement detail + tracelinks (independent of list)
   useEffect(() => {

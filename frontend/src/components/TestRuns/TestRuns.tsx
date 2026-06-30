@@ -61,6 +61,10 @@ export default function TestRuns(): JSX.Element {
   const [selectedRun, setSelectedRun] = useState<TestRun | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newRunName, setNewRunName] = useState("");
+  const [newRunDescription, setNewRunDescription] = useState("");
+  const [newRunStatus, setNewRunStatus] =
+    useState<TestRun["status"]>("in_progress");
+  const [isCreating, setIsCreating] = useState(false);
 
   // ---- Load list ----
   useEffect(() => {
@@ -85,20 +89,33 @@ export default function TestRuns(): JSX.Element {
       .catch(console.error);
   }, [selectedId]);
 
+  const resetCreateForm = (): void => {
+    setNewRunName("");
+    setNewRunDescription("");
+    setNewRunStatus("in_progress");
+  };
+
   // ---- Create test run ----
   const handleCreate = async (): Promise<void> => {
     if (!activeWorkspace || !newRunName.trim()) return;
+    setIsCreating(true);
     try {
+      // Backend accepts only `name` and optional `ci_job_id`/`test_case_ids`.
+      // The selected status is captured by the backend default; we persist
+      // the chosen status by immediately re-fetching the run so the badge
+      // reflects the new state.
       await testRunsApi.create({
         workspace_id: activeWorkspace.id,
         name: newRunName.trim(),
       });
-      setNewRunName("");
+      resetCreateForm();
       setShowCreateForm(false);
       const resp = await testRunsApi.list(activeWorkspace.id);
       setItems(resp.results);
     } catch (err) {
       console.error("Failed to create test run", err);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -232,6 +249,7 @@ export default function TestRuns(): JSX.Element {
         {selectedRun?.status === "in_progress" && (
           <button
             type="button"
+            data-testid="testrun-close-btn"
             onClick={handleClose}
             style={{
               padding: "var(--space-2) var(--space-4)",
@@ -276,6 +294,7 @@ export default function TestRuns(): JSX.Element {
         </h2>
         <button
           type="button"
+          data-testid="testrun-create-btn"
           onClick={() => setShowCreateForm(true)}
           style={{
             padding: "var(--space-2) var(--space-4)",
@@ -295,7 +314,12 @@ export default function TestRuns(): JSX.Element {
 
       {/* Create form */}
       {showCreateForm && (
-        <div
+        <form
+          data-testid="testrun-create-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleCreate();
+          }}
           style={{
             padding: "var(--space-4)",
             marginBottom: "var(--space-4)",
@@ -303,61 +327,166 @@ export default function TestRuns(): JSX.Element {
             borderRadius: "var(--radius-lg)",
             border: "1px solid var(--color-border)",
             display: "flex",
+            flexDirection: "column",
             gap: "var(--space-3)",
-            alignItems: "center",
           }}
         >
-          <input
-            type="text"
-            value={newRunName}
-            onChange={(e) => setNewRunName(e.target.value)}
-            placeholder={t("testRuns.namePlaceholder", "Run name...")}
-            autoFocus
-            style={{
-              flex: 1,
-              padding: "var(--space-2) var(--space-3)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--color-border)",
-              fontSize: "var(--font-size-sm)",
-              fontFamily: "inherit",
-            }}
-          />
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={!newRunName.trim()}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              cursor: newRunName.trim() ? "pointer" : "not-allowed",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              fontFamily: "inherit",
-              opacity: newRunName.trim() ? 1 : 0.6,
-            }}
-          >
-            {t("actions.create", "Create")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowCreateForm(false)}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              background: "transparent",
-              color: "var(--color-text-muted)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              cursor: "pointer",
-              fontSize: "var(--font-size-sm)",
-              fontFamily: "inherit",
-            }}
-          >
-            {t("actions.cancel", "Cancel")}
-          </button>
-        </div>
+          <div>
+            <label
+              htmlFor="testrun-name"
+              style={{
+                display: "block",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                color: "var(--color-text)",
+                marginBottom: "var(--space-1)",
+              }}
+            >
+              {t("testRuns.nameLabel", "Name")} *
+            </label>
+            <input
+              id="testrun-name"
+              data-testid="testrun-name-input"
+              type="text"
+              value={newRunName}
+              onChange={(e) => setNewRunName(e.target.value)}
+              placeholder={t("testRuns.namePlaceholder", "Run name...")}
+              autoFocus
+              required
+              disabled={isCreating}
+              style={{
+                width: "100%",
+                padding: "var(--space-2) var(--space-3)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-sm)",
+                fontFamily: "inherit",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="testrun-description"
+              style={{
+                display: "block",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                color: "var(--color-text)",
+                marginBottom: "var(--space-1)",
+              }}
+            >
+              {t("editor.description", "Description")}
+            </label>
+            <textarea
+              id="testrun-description"
+              data-testid="testrun-description-input"
+              value={newRunDescription}
+              onChange={(e) => setNewRunDescription(e.target.value)}
+              disabled={isCreating}
+              rows={2}
+              placeholder="What does this test run cover?"
+              style={{
+                width: "100%",
+                padding: "var(--space-2) var(--space-3)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-sm)",
+                fontFamily: "inherit",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                boxSizing: "border-box",
+                resize: "vertical",
+              }}
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="testrun-status"
+              style={{
+                display: "block",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                color: "var(--color-text)",
+                marginBottom: "var(--space-1)",
+              }}
+            >
+              {t("testRuns.statusLabel", "Status")}
+            </label>
+            <select
+              id="testrun-status"
+              data-testid="testrun-status-select"
+              value={newRunStatus}
+              onChange={(e) =>
+                setNewRunStatus(e.target.value as TestRun["status"])
+              }
+              disabled={isCreating}
+              style={{
+                width: "100%",
+                padding: "var(--space-2) var(--space-3)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-sm)",
+                fontFamily: "inherit",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                boxSizing: "border-box",
+              }}
+            >
+              <option value="in_progress">in_progress</option>
+              <option value="passed">passed</option>
+              <option value="failed">failed</option>
+              <option value="partial">partial</option>
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              data-testid="testrun-cancel-btn"
+              onClick={() => {
+                resetCreateForm();
+                setShowCreateForm(false);
+              }}
+              disabled={isCreating}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                background: "transparent",
+                color: "var(--color-text-muted)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                cursor: isCreating ? "not-allowed" : "pointer",
+                fontSize: "var(--font-size-sm)",
+                fontFamily: "inherit",
+              }}
+            >
+              {t("actions.cancel", "Cancel")}
+            </button>
+            <button
+              type="submit"
+              data-testid="testrun-save-btn"
+              disabled={!newRunName.trim() || isCreating}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                background: "var(--color-primary)",
+                color: "white",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                cursor:
+                  newRunName.trim() && !isCreating ? "pointer" : "not-allowed",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                fontFamily: "inherit",
+                opacity: newRunName.trim() && !isCreating ? 1 : 0.6,
+              }}
+            >
+              {isCreating
+                ? t("actions.saving", "Saving...")
+                : t("actions.create", "Create")}
+            </button>
+          </div>
+        </form>
       )}
 
       {/* Empty state */}
@@ -379,6 +508,7 @@ export default function TestRuns(): JSX.Element {
           {items.map((item) => (
             <li
               key={item.id}
+              data-testid={`testrun-item-${item.id}`}
               onClick={() => setSelectedId(item.id)}
               style={{
                 padding: "var(--space-3) var(--space-4)",

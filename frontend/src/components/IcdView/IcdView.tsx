@@ -133,12 +133,17 @@ export default function IcdView(): JSX.Element {
     setIsLoading(true);
     setError(null);
     try {
-      const [icdResp, archResp] = await Promise.all([
+      // Bug fix B-ICD-004: the ICD source/target dropdowns used to show
+      // only the first page of architecture elements. We now fetch the
+      // full list via architectureApi.listAll (which follows pagination
+      // links) so every element is selectable in the source/target
+      // dropdowns.
+      const [icdResp, archAll] = await Promise.all([
         icdsApi.list(activeWorkspace.id),
-        architectureApi.list(activeWorkspace.id),
+        architectureApi.listAll(activeWorkspace.id),
       ]);
       setIcds(icdResp.results);
-      setArchitectureElements(archResp.results);
+      setArchitectureElements(archAll);
     } catch (err) {
       setError(extractErrorMessage(err, t("icds.loadFailed")));
     } finally {
