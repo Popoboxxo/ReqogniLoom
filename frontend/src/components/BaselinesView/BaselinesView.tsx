@@ -591,7 +591,7 @@ export default function BaselinesView(): JSX.Element {
                     borderBottom: "1px solid var(--color-border)",
                   }}
                 >
-                  {bl.artifact_id.slice(0, 8)}…
+                  {bl.artifact_id ? `${bl.artifact_id.slice(0, 8)}…` : '—'}
                 </td>
                 <td
                   style={{

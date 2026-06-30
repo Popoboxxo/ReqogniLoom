@@ -249,6 +249,9 @@ class ArchitectureElementSerializer(
     element_type = serializers.ChoiceField(
         choices=ElementType.choices, allow_blank=True, default=ElementType.COMPONENT
     )
+    expected_version = serializers.IntegerField(
+        required=False, write_only=True
+    )
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
@@ -282,11 +285,17 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
 
 class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for Baseline entity (REQ-L2-RA-001)."""
+    """Serializer for Baseline entity (REQ-L2-RA-001).
+
+    ``name`` is optional on create; the view generates a timestamp-based
+    default when the UI does not supply one.
+    """
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
-    name = serializers.CharField(max_length=500)
+    name = serializers.CharField(
+        max_length=500, required=False, allow_blank=True, default=""
+    )
     scope = serializers.CharField(max_length=32)
     description = serializers.CharField(allow_blank=True, required=False, default="")
     artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)

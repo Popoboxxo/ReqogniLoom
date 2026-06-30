@@ -142,7 +142,7 @@ class ArchitectureService(ServiceBase):
         self,
         arch_el_id: UUID,
         ctx: AuthContext,
-        expected_version: int,
+        expected_version: int | None = None,
         title: Optional[str] = None,
         description: Optional[str] = None,
         element_type: Optional[str] = None,
@@ -150,7 +150,9 @@ class ArchitectureService(ServiceBase):
         """Update an ArchitectureElement with optimistic locking.
 
         REQ-L2-AS-004: version incremented on every update; stale
-        expected_version → OptimisticLockError.
+        expected_version → OptimisticLockError.  When *expected_version* is
+        omitted, no optimistic lock check is performed (backwards-compatible
+        path for callers that do not track versions).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -162,7 +164,7 @@ class ArchitectureService(ServiceBase):
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
 
         # Optimistic lock check (REQ-L2-AS-004)
-        if arch_el.version != expected_version:
+        if expected_version is not None and arch_el.version != expected_version:
             raise OptimisticLockError(
                 f"Stale version: expected {expected_version}, "
                 f"current is {arch_el.version}"
@@ -175,8 +177,9 @@ class ArchitectureService(ServiceBase):
         if element_type is not None:
             arch_el.element_type = self._validate_element_type(element_type)
 
-        # Atomic version increment
-        ArchitectureElement.objects.filter(id=arch_el_id, version=expected_version).update(
+        # Atomic version increment — guard by expected_version when provided
+        current_version = expected_version if expected_version is not None else arch_el.version
+        ArchitectureElement.objects.filter(id=arch_el_id, version=current_version).update(
             version=F("version") + 1
         )
         arch_el.refresh_from_db(fields=["version"])

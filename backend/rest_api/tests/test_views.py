@@ -232,6 +232,46 @@ class TestRequirementViewSetRouting:
 
 
 # ---------------------------------------------------------------------------
+# ArchitectureElementViewSet — PATCH wires expected_version
+# ---------------------------------------------------------------------------
+
+
+class TestArchitectureElementViewSetRouting:
+    """PATCH /api/v1/architecture/{pk}/ passes expected_version to service."""
+
+    def _svc_mock(self) -> MagicMock:
+        svc = MagicMock()
+        el = MagicMock()
+        el.id = uuid.uuid4()
+        el.artifact.workspace_id = uuid.uuid4()
+        el.title = "Arch"
+        el.description = ""
+        el.element_type = "component"
+        el.version = 2
+        el.created_at = None
+        el.modified_at = None
+        svc.update_architecture_element.return_value = el
+        return svc
+
+    def test_partial_update_passes_expected_version(self) -> None:
+        pk = uuid.uuid4()
+        data = {"title": "Updated", "expected_version": 1}
+        factory = APIRequestFactory()
+        req = factory.patch(f"/api/v1/architecture/{pk}/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = ArchitectureElementViewSet.as_view({"patch": "partial_update"})
+        svc_mock = self._svc_mock()
+        with patch(
+            "rest_api.views.ArchitectureElementViewSet._svc",
+            return_value=svc_mock,
+        ):
+            response = view(req, pk=str(pk))
+        assert response.status_code == 200
+        call_kwargs = svc_mock.update_architecture_element.call_args.kwargs
+        assert call_kwargs["expected_version"] == 1
+
+
+# ---------------------------------------------------------------------------
 # RequirementHistoryView — audit-trail endpoint (REQ-L0-011)
 # ---------------------------------------------------------------------------
 
@@ -423,6 +463,89 @@ class TestBaselinePresetGate:
             from django.http import Http404
             with pytest.raises(Http404):
                 view(req)
+
+
+class TestBaselineViewSetCreate:
+    """POST /api/v1/baselines/ creates baselines from the UI payload."""
+
+    def _svc_mock(self) -> MagicMock:
+        svc = MagicMock()
+        bl_id = uuid.uuid4()
+        svc.create_baseline.return_value = bl_id
+        detail = MagicMock()
+        detail.baseline_id = bl_id
+        detail.workspace_id = uuid.uuid4()
+        detail.scope = "project"
+        detail.name = "Baseline test"
+        detail.description = ""
+        detail.created_at = None
+        svc.get_baseline.return_value = detail
+        return svc
+
+    def test_create_without_name_generates_name(self) -> None:
+        """UI does not send a name; backend auto-generates one."""
+        ws_id = uuid.uuid4()
+        data = {"workspace_id": str(ws_id), "scope": "project"}
+        factory = APIRequestFactory()
+        req = factory.post("/api/v1/baselines/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = BaselineViewSet.as_view({"post": "create"})
+        svc_mock = self._svc_mock()
+        with (
+            patch.object(BaselineViewSet, "_check_preset"),
+            patch(
+                "rest_api.views.BaselineViewSet._svc",
+                return_value=svc_mock,
+            ),
+        ):
+            response = view(req)
+        assert response.status_code == 201
+        call_kwargs = svc_mock.create_baseline.call_args.kwargs
+        assert call_kwargs["scope"] == "project"
+        assert call_kwargs["workspace_id"] == str(ws_id)
+        assert call_kwargs["name"].startswith("Baseline ")
+        assert "document_id" not in call_kwargs
+
+    def test_create_document_scope_passes_document_id(self) -> None:
+        """document scope forwards artifact_id as document_id."""
+        ws_id = uuid.uuid4()
+        artifact_id = uuid.uuid4()
+        data = {
+            "workspace_id": str(ws_id),
+            "scope": "document",
+            "artifact_id": str(artifact_id),
+            "name": "doc baseline",
+        }
+        factory = APIRequestFactory()
+        req = factory.post("/api/v1/baselines/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = BaselineViewSet.as_view({"post": "create"})
+        svc_mock = self._svc_mock()
+        with (
+            patch.object(BaselineViewSet, "_check_preset"),
+            patch(
+                "rest_api.views.BaselineViewSet._svc",
+                return_value=svc_mock,
+            ),
+        ):
+            response = view(req)
+        assert response.status_code == 201
+        call_kwargs = svc_mock.create_baseline.call_args.kwargs
+        assert call_kwargs["scope"] == "document"
+        assert call_kwargs["document_id"] == str(artifact_id)
+
+    def test_create_document_scope_missing_artifact_id_returns_400(self) -> None:
+        """document scope without artifact_id returns a validation error."""
+        ws_id = uuid.uuid4()
+        data = {"workspace_id": str(ws_id), "scope": "document"}
+        factory = APIRequestFactory()
+        req = factory.post("/api/v1/baselines/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = BaselineViewSet.as_view({"post": "create"})
+        with patch.object(BaselineViewSet, "_check_preset"):
+            response = view(req)
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
 
 
 # ---------------------------------------------------------------------------

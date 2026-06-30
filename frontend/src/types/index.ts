@@ -280,6 +280,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     icds: false,
     diagrams: false,
     metrics: false,
+    testCases: false,
   },
   standard: {
     baselines: true,
@@ -297,6 +298,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     icds: true,
     diagrams: true,
     metrics: true,
+    testCases: true,
   },
   extended: {
     baselines: true,
@@ -314,6 +316,7 @@ export const PRESET_VISIBILITY: Record<WorkspacePreset, Record<string, boolean>>
     icds: true,
     diagrams: true,
     metrics: true,
+    testCases: true,
   },
 };
 

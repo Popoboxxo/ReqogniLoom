@@ -31,9 +31,11 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+import uuid
 from uuid import UUID
 
 from django.http import Http404, HttpResponse
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -665,7 +667,14 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            item = self._svc().update_architecture_element(arch_el_id=UUID(pk), ctx=ctx, title=data.get("title"), description=data.get("description"), element_type=data.get("element_type"))
+            item = self._svc().update_architecture_element(
+                arch_el_id=UUID(pk),
+                ctx=ctx,
+                expected_version=data.get("expected_version"),
+                title=data.get("title"),
+                description=data.get("description"),
+                element_type=data.get("element_type"),
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -812,14 +821,15 @@ class TraceLinkViewSet(BaseEntityViewSet):
                         direction=direction,
                         ctx=ctx,
                     )
-                    items.extend(results)
+                    for r in results:
+                        items.append(_neighbor_to_dict(r, artifact_id, direction))
                 except Exception:
                     pass  # no links in this direction — safe to ignore
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [TraceLinkSerializer(_tracelink_to_dict(item)).data for item in items]
+        serialized = [TraceLinkSerializer(item).data for item in items]
         return self._paginate(request, serialized)
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -938,13 +948,34 @@ class BaselineViewSet(BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            baseline_id = self._svc().create_baseline(
-                scope=data.get("scope", "document"),
-                workspace_id=str(data["workspace_id"]),
-                name=data["name"],
-                description=data.get("description"),
-                ctx=ctx,
-            )
+            scope = data.get("scope", "document")
+            name = data.get("name", "")
+            # The UI create form does not supply a name; generate one so the
+            # unique-per-workspace constraint is satisfied.
+            if not name or not str(name).strip():
+                name = f"Baseline {timezone.now().isoformat()}"
+            create_kwargs = {
+                "scope": scope,
+                "workspace_id": str(data["workspace_id"]),
+                "name": name,
+                "description": data.get("description"),
+                "ctx": ctx,
+            }
+            # document scope requires a root artifact; artifact_id is the
+            # view-facing name, the facade/service expect document_id.
+            artifact_id = data.get("artifact_id")
+            if scope == "document" and artifact_id is None:
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message="artifact_id is required for document scope",
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if artifact_id is not None:
+                create_kwargs["document_id"] = str(artifact_id)
+            baseline_id = self._svc().create_baseline(**create_kwargs)
             # Fetch the newly created baseline detail for the response
             item = self._svc().get_baseline(baseline_id, ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
@@ -1204,6 +1235,40 @@ def _tracelink_to_dict(tl: Any) -> dict[str, Any]:
         "link_type": tl.link_type,
         "version": tl.version,
         "created_at": tl.created_at,
+    }
+
+
+def _neighbor_to_dict(
+    neighbor: Any, artifact_id: UUID, direction: str
+) -> dict[str, Any]:
+    """Convert a TraceabilityEngine NeighborResult to a TraceLink-like dict.
+
+    The engine returns neighbors as (entity_id, link_type, direction). For
+    upstream links the queried artifact is the target, for downstream links it
+    is the source. A synthetic id is generated from the endpoint pair so the
+    frontend can key list items.
+    """
+    from datetime import datetime, timezone
+
+    if direction == "upstream":
+        source_id = neighbor.entity_id
+        target_id = artifact_id
+    else:
+        source_id = artifact_id
+        target_id = neighbor.entity_id
+    # Generate a deterministic UUID from the endpoint pair so the frontend
+    # can key list items without exposing the raw composite id.
+    link_id = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"tracelink/{source_id}/{target_id}/{neighbor.link_type}",
+    )
+    return {
+        "id": link_id,
+        "source_id": str(source_id),
+        "target_id": str(target_id),
+        "link_type": neighbor.link_type,
+        "version": 1,
+        "created_at": datetime.now(timezone.utc),
     }
 
 

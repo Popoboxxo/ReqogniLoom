@@ -203,8 +203,14 @@ class PresetGateMixin:
 
         guard = PresetGuard()
         auth_ctx = getattr(self.request, "auth_context", None)
+        # For write endpoints the workspace_id lives in the request body;
+        # for list/retrieve endpoints it is in query_params.
+        body_workspace_id = None
+        if self.request.method in ("POST", "PUT", "PATCH"):
+            body_workspace_id = self.request.data.get("workspace_id") if hasattr(self.request, "data") else None
         workspace_id = (
-            self.request.query_params.get("workspace_id")
+            body_workspace_id
+            or self.request.query_params.get("workspace_id")
             or (
                 str(auth_ctx.tenant_id)
                 if auth_ctx is not None

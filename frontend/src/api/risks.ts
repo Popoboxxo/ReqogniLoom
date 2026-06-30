@@ -26,6 +26,7 @@ export const risksApi = {
     title: string;
     probability?: string;
     impact?: string;
+    severity?: string;
     description?: string;
     category?: string;
     owner?: string;

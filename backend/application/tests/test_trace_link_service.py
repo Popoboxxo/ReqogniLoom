@@ -57,12 +57,14 @@ class TestValidLinkTypes:
         "verifies",
         "implements",
         "refines",
+        "documents",
+        "realizes",
         "traces",
         "copy-of",
     }
 
-    def test_all_eight_types_present(self):
-        """VALID_LINK_TYPES contains all 8 expected link types."""
+    def test_all_ten_types_present(self):
+        """VALID_LINK_TYPES contains all 10 harmonized link types."""
         assert self.EXPECTED_TYPES == VALID_LINK_TYPES
 
     def test_types_is_frozenset(self):
@@ -102,6 +104,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
             patch(
                 "application.trace_link_service.TraceLinkService._audit"
             ),
@@ -134,6 +137,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
             patch(
                 "traceability.services.create_trace_link",
                 side_effect=SourceNotFoundError("not found"),
@@ -154,6 +158,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
         ):
             from traceability.services import TargetNotFoundError
 
@@ -176,6 +181,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
             patch(
                 "traceability.services.create_trace_link",
                 side_effect=Exception("cross-workspace link not permitted"),
@@ -198,6 +204,7 @@ class TestCreateTraceLink:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
             patch(
                 "traceability.services.create_trace_link", return_value=mock_result
             ),
@@ -224,6 +231,7 @@ class TestCreateTraceLink:
             patch(
                 "application.trace_link_service.ServiceBase._set_tenant_context"
             ) as mock_stc,
+            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
         ):
             with pytest.raises(ValidationError):
                 svc.create_trace_link(
@@ -306,13 +314,17 @@ class TestQueryTraceLinks:
     """REQ-L2-AS-010."""
 
     def test_query_delegates_to_traceability_engine(self):
-        """query_trace_links calls traceability.services.query."""
+        """query_trace_links resolves entity_id and calls traceability.services.query."""
         svc = TraceLinkService()
         ctx = _make_ctx()
         mock_results = [MagicMock(), MagicMock()]
+        resolved_id = uuid.uuid4()
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(
+                svc, "_resolve_artifact_id", return_value=resolved_id
+            ) as mock_resolve,
             patch(
                 "traceability.services.query", return_value=mock_results
             ) as mock_query,
@@ -321,8 +333,9 @@ class TestQueryTraceLinks:
                 entity_id=SOURCE_ID, direction="downstream", ctx=ctx
             )
 
+        mock_resolve.assert_called_once_with(SOURCE_ID)
         mock_query.assert_called_once_with(
-            artifact_id=SOURCE_ID, direction="downstream"
+            artifact_id=resolved_id, direction="downstream"
         )
         assert result == mock_results
 
@@ -330,6 +343,7 @@ class TestQueryTraceLinks:
         """query_trace_links filters results by link_type when provided."""
         svc = TraceLinkService()
         ctx = _make_ctx()
+        resolved_id = uuid.uuid4()
 
         item_verifies = MagicMock()
         item_verifies.link_type = "verifies"
@@ -338,10 +352,13 @@ class TestQueryTraceLinks:
 
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(
+                svc, "_resolve_artifact_id", return_value=resolved_id
+            ) as mock_resolve,
             patch(
                 "traceability.services.query",
                 return_value=[item_verifies, item_implements],
-            ),
+            ) as mock_query,
         ):
             result = svc.query_trace_links(
                 entity_id=SOURCE_ID,
@@ -350,18 +367,172 @@ class TestQueryTraceLinks:
                 ctx=ctx,
             )
 
+        mock_resolve.assert_called_once_with(SOURCE_ID)
+        mock_query.assert_called_once_with(
+            artifact_id=resolved_id, direction="downstream"
+        )
         assert result == [item_verifies]
 
     def test_query_without_ctx_skips_tenant_context(self):
         """query_trace_links can be called with ctx=None (no tenant propagation)."""
         svc = TraceLinkService()
         mock_results: list = []
+        resolved_id = uuid.uuid4()
 
-        with patch(
-            "traceability.services.query", return_value=mock_results
+        with (
+            patch.object(
+                svc, "_resolve_artifact_id", return_value=resolved_id
+            ) as mock_resolve,
+            patch(
+                "traceability.services.query", return_value=mock_results
+            ) as mock_query,
         ):
             result = svc.query_trace_links(
                 entity_id=SOURCE_ID, direction="upstream", ctx=None
             )
 
+        mock_resolve.assert_called_once_with(SOURCE_ID)
+        mock_query.assert_called_once_with(
+            artifact_id=resolved_id, direction="upstream"
+        )
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _resolve_artifact_id (B-TR-002)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveArtifactId:
+    """B-TR-002: Requirement/ArchitectureElement IDs resolve to Artifact IDs."""
+
+    def test_artifact_id_returned_unchanged(self):
+        """An existing Artifact ID is returned as-is."""
+        svc = TraceLinkService()
+        artifact_id = uuid.uuid4()
+        mock_artifact = MagicMock()
+
+        with patch(
+            "persistence.models.Artifact.objects.filter",
+            return_value=MagicMock(first=MagicMock(return_value=mock_artifact)),
+        ) as artifact_filter:
+            result = svc._resolve_artifact_id(artifact_id)
+
+        artifact_filter.assert_called_once_with(id=artifact_id)
+        assert result == artifact_id
+
+    def test_requirement_id_resolves_to_artifact_id(self):
+        """A Requirement ID resolves to its backing Artifact ID."""
+        svc = TraceLinkService()
+        requirement_id = uuid.uuid4()
+        artifact_id = uuid.uuid4()
+        mock_req = MagicMock()
+        mock_req.artifact_id = artifact_id
+
+        with (
+            patch(
+                "persistence.models.Artifact.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.Requirement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_req)),
+            ) as req_filter,
+        ):
+            result = svc._resolve_artifact_id(requirement_id)
+
+        req_filter.assert_called_once_with(id=requirement_id)
+        assert result == artifact_id
+
+    def test_architecture_element_id_resolves_to_artifact_id(self):
+        """An ArchitectureElement ID resolves to its backing Artifact ID."""
+        svc = TraceLinkService()
+        arch_id = uuid.uuid4()
+        artifact_id = uuid.uuid4()
+        mock_arch = MagicMock()
+        mock_arch.artifact_id = artifact_id
+
+        with (
+            patch(
+                "persistence.models.Artifact.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.Requirement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_arch)),
+            ) as arch_filter,
+        ):
+            result = svc._resolve_artifact_id(arch_id)
+
+        arch_filter.assert_called_once_with(id=arch_id)
+        assert result == artifact_id
+
+    def test_unknown_id_raises_not_found_error(self):
+        """An ID matching none of the three tables raises NotFoundError."""
+        svc = TraceLinkService()
+        unknown_id = uuid.uuid4()
+
+        with (
+            patch(
+                "persistence.models.Artifact.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.Requirement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+        ):
+            with pytest.raises(NotFoundError, match="Entity"):
+                svc._resolve_artifact_id(unknown_id)
+
+    def test_create_trace_link_resolves_source_and_target(self):
+        """create_trace_link passes resolved Artifact IDs to the engine."""
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+        source_artifact_id = uuid.uuid4()
+        target_artifact_id = uuid.uuid4()
+        mock_result = MagicMock()
+        mock_result.id = uuid.uuid4()
+
+        def _resolve_side_effect(entity_id):
+            if entity_id == SOURCE_ID:
+                return source_artifact_id
+            if entity_id == TARGET_ID:
+                return target_artifact_id
+            return entity_id
+
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(
+                svc, "_resolve_artifact_id", side_effect=_resolve_side_effect
+            ) as mock_resolve,
+            patch(
+                "application.trace_link_service.TraceLinkService._audit"
+            ),
+            patch(
+                "traceability.services.create_trace_link",
+                return_value=mock_result,
+            ) as mock_te_create,
+        ):
+            svc.create_trace_link(
+                source_id=SOURCE_ID,
+                target_id=TARGET_ID,
+                link_type="verifies",
+                ctx=ctx,
+            )
+
+        assert mock_resolve.call_count == 2
+        mock_te_create.assert_called_once_with(
+            source_id=source_artifact_id,
+            target_id=target_artifact_id,
+            link_type="verifies",
+            created_by_id=ctx.user_id,
+        )
