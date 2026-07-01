@@ -41,6 +41,18 @@
 | REQ-L0-020 | Metrikbasiertes Steuern des SE-Prozesses | REQ-L1-031 |
 | REQ-L0-021 | Asynchrone, resiliente Systemkommunikation | REQ-L1-032 |
 | REQ-L0-022 | Credential-basierter User-Login | REQ-L1-033 |
+| REQ-L0-023 | ReqIF-Support für MBSE-Datenaustausch | — |
+| REQ-L0-024 | Test-Ausführungs-Management (Test Runs) | — |
+| REQ-L0-025 | Kollaboration und In-App-Diskussion | — |
+| REQ-L0-026 | Semantische Suche (RAG) und KI-Assistenz | — |
+| REQ-L0-027 | Granulare Zugriffssteuerung (Item-Level Access) | — |
+| REQ-L0-028 | Visuelles Diffing von Artefakten und Baselines | — |
+| REQ-L0-029 | Workspace-Lifecycle-Management für Administratoren | REQ-L1-042 |
+| REQ-L0-030 | Suspect-Link-Propagierung bei Anforderungsänderungen | REQ-L1-043 |
+| REQ-L0-032 | Semantisches Projekt-Glossar (Data Dictionary) | REQ-L1-044 |
+| REQ-L0-033 | Isolierte Requirement-Sandboxes (Branch & Merge) | REQ-L1-045 |
+| REQ-L0-034 | Instanz-Backup, Disaster Recovery & Baseline-Vergleich | REQ-L1-046 |
+| REQ-L0-035 | Direkte Traceability-Verknüpfungen über mehrere Ebenen | REQ-L1-047 |
 
 ---
 
@@ -211,7 +223,7 @@
 
 | Level | Total | Covered | Coverage |
 |-------|-------|---------|----------|
-| REQ-L0 | 22 | 22 | 100% |
+| REQ-L0 | 34 | 22 | 64% (023-035 ausstehend L1-Zerlegung) |
 | REQ-L1 | 33 | 33 | 100% (REQ-L1-027..032 ausstehend L2-Zerlegung; REQ-L1-033 zerlegt) |
 | REQ-L2 | 142 | 142 | 100% (Legacy REQ-L1-001..026 + REQ-L1-033; REQ-L1-027..032 noch nicht zerlegt) |
 | Components | 56 | 56 | 100% (+ COMP-AT-004 für REQ-L1-033; ausstehend für REQ-L1-027..032) |

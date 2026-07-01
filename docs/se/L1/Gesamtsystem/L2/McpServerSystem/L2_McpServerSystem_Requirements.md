@@ -213,10 +213,10 @@ mit Artefakt-ID, Typ, Titel und Ähnlichkeitsscore zurück.
 
 ### REQ-L2-MC-015: MCP-Tool `record_test_result` (Testergebnis-Einspeisung)
 
-**Implementation State:** Not Implemented
-**Review Findings:** Das Tool `test.record_result` existiert in der Spezifikation, ist aber nicht implementiert.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-036 (← REQ-L0-024, SN-24). Kritisch für CI/CD-Integration.
+**Implementation State:** Partially Implemented
+**Review Findings:** Tool ist als `test.run_report_results` für Bulk-Verarbeitung und `test.run_create` implementiert. Name und Input-Schema weichen von der Spezifikation ab (record_test_result vs run_report_results).
+**Test Status:** Covered
+**Remarks:** Tool API muss an die Spezifikation angepasst werden oder Spezifikation an die bestehende Bulk-Schnittstelle. Abgeleitet von REQ-L1-036.
 
 Der MCP-Server MUSS ein Tool `record_test_result` bereitstellen, über das
 CI/CD-Pipelines und AI-Agenten Testergebnisse direkt in ReqFlow einspeisen können.

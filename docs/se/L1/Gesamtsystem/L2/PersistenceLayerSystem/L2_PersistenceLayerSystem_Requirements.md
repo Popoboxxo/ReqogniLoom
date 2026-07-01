@@ -38,11 +38,6 @@
 ### REQ-L2-PL-001: Tenant-Isolation via Custom Django Manager
 Das PersistenceLayer MUSS einen Custom Django Manager (`TenantQuerySet`) auf allen Entitäten implementieren, der jede Abfrage automatisch mit `tenant_id` filtert. Kein Query DARF den Filter umgehen. Fehlt der Tenant-Kontext, MUSS die Query mit Exception abgebrochen werden. Als zweite Sicherheitsschicht ergänzt REQ-L2-PL-010 (PostgreSQL Row-Level Security) die applikationsseitige Isolation auf Datenbankebene.
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -55,20 +50,18 @@ Das PersistenceLayer MUSS einen Custom Django Manager (`TenantQuerySet`) auf all
 - Incoming: IF-PL-EXT-IN-008
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-015
 **Rationale:** Row-Level-Isolation ist Voraussetzung für v2-SaaS (ADR-03). RLS (REQ-L2-PL-010) sichert die Isolation zusätzlich auf DB-Ebene.
-
 
 ---
 
 ### REQ-L2-PL-002: Transaktionale Konsistenz (ACID)
 Das PersistenceLayer MUSS alle schreibenden Operationen innerhalb von Datenbank-Transaktionen ausführen. Multi-Entity-Operationen MÜSSEN in einer einzigen Transaktion gekapselt werden. Bei Fehlern: vollständiges Rollback.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -81,10 +74,13 @@ Das PersistenceLayer MUSS alle schreibenden Operationen innerhalb von Datenbank-
 - Incoming: IF-PL-EXT-IN-001..007
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-025
 **Rationale:** Datenkonsistenz ist fundamentale Non-Functional-Anforderung.
-
 
 ---
 
@@ -93,11 +89,6 @@ Das PersistenceLayer MUSS PostgreSQL-Indizes für drei Query-Pfade bereitstellen
 1. Hierarchie: BTree auf `Artifact.parent_id`
 2. TraceLink-Graph: GIST/GIN auf `source_id`, `target_id`
 3. Full-Text-Search: `tsvector` auf `title` + `description` für Requirement, ArchitectureElement, TestCase
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -111,20 +102,18 @@ Das PersistenceLayer MUSS PostgreSQL-Indizes für drei Query-Pfade bereitstellen
 - Incoming: IF-PL-EXT-IN-001, IF-PL-EXT-IN-004
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-026, REQ-L1-001 (mitwirkend), REQ-L1-003 (mitwirkend), REQ-L1-020 (mitwirkend)
 **Rationale:** Indizes notwendig für < 200ms / < 500ms Performance-Ziele (ADR-09).
-
 
 ---
 
 ### REQ-L2-PL-004: Vollständigkeit des Entity-Schemas
 Das PersistenceLayer MUSS Django ORM-Modelle für alle 13 Domain-Entitäten bereitstellen: Tenant, Workspace, Artifact, Requirement, ArchitectureElement, TraceLink, TestCase, Baseline, WorkflowDefinition, WorkflowState, AuditLogEntry, User, Role.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -138,20 +127,18 @@ Das PersistenceLayer MUSS Django ORM-Modelle für alle 13 Domain-Entitäten bere
 - Incoming: IF-PL-EXT-IN-001..007
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-001..015 (alle mit Persistenzbedarf)
 **Rationale:** Vollständige Schemata sind Voraussetzung für alle Subsysteme.
-
 
 ---
 
 ### REQ-L2-PL-005: Audit-Felder auf allen schreibbaren Entitäten
 Das PersistenceLayer MUSS auf allen schreibbaren Entitäten die Felder `created_by`, `created_at`, `modified_by`, `modified_at` und `version` bereitstellen. Automatische Befüllung bei Create/Update.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -165,20 +152,18 @@ Das PersistenceLayer MUSS auf allen schreibbaren Entitäten die Felder `created_
 - Incoming: IF-PL-EXT-IN-001..007
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-011, REQ-L1-002 (mitwirkend), REQ-L1-009 (mitwirkend)
 **Rationale:** Audit-Felder sind Voraussetzung für vollständigen Audit-Trail.
-
 
 ---
 
 ### REQ-L2-PL-006: Idempotente Datenbank-Migrationen
 Das PersistenceLayer MUSS vollständige, idempotente Django-Migrationen bereitstellen. Jede Migration MUSS einen Vorwärts- und Rückwärtspfad haben.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -192,20 +177,18 @@ Das PersistenceLayer MUSS vollständige, idempotente Django-Migrationen bereitst
 - Incoming: IF-PL-EXT-IN-009
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-018 (mitwirkend)
 **Rationale:** Reproduzierbare Deployment-Pipeline für Docker-Compose.
-
 
 ---
 
 ### REQ-L2-PL-007: Datenbankverbindungs-Pooling
 Das PersistenceLayer SOLLTE PostgreSQL-Verbindungen über einen Connection-Pool verwalten. Pool-Konfiguration über Umgebungsvariablen steuerbar.
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Domain:** software
 **Priority:** desired
@@ -218,10 +201,13 @@ Das PersistenceLayer SOLLTE PostgreSQL-Verbindungen über einen Connection-Pool 
 - Incoming: IF-PL-EXT-IN-009
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L1-026 (mitwirkend)
 **Rationale:** Connection-Pooling notwendig für Performance unter Last.
-
 
 ---
 
@@ -231,11 +217,6 @@ Das PersistenceLayer MUSS folgende Latenzziele garantieren (10.000 Items, 50 gle
 2. TraceLink-Graph-Queries: < 200ms (p95)
 3. Recursive CTE (500 Knoten): < 200ms (p95)
 4. Volltextsuche (10.000 Items): < 500ms (p95)
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -250,20 +231,18 @@ Das PersistenceLayer MUSS folgende Latenzziele garantieren (10.000 Items, 50 gle
 - Incoming: IF-PL-EXT-IN-001..007
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L1-026, REQ-L1-003 (mitwirkend), REQ-L1-020 (mitwirkend)
 **Rationale:** DB-Latenz bestimmt die Gesamt-API-Latenz.
-
 
 ---
 
 ### REQ-L2-PL-009: Referentielle Integrität
 Das PersistenceLayer MUSS referentielle Integrität über PostgreSQL FOREIGN-KEY-Constraints erzwingen. ON-DELETE-Regeln: CASCADE für Kinder, PROTECT für Eltern, SET NULL für optionale Verknüpfungen.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -277,20 +256,18 @@ Das PersistenceLayer MUSS referentielle Integrität über PostgreSQL FOREIGN-KEY
 - Incoming: IF-PL-EXT-IN-001..007
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-025, REQ-L1-001 (mitwirkend)
 **Rationale:** Letzte Verteidigungslinie gegen orphaned records.
-
 
 ---
 
 ### REQ-L2-PL-010: PostgreSQL Row-Level Security (RLS)
 Das PersistenceLayer MUSS PostgreSQL Row-Level Security auf allen mandantenspezifischen Tabellen aktivieren. Eine Django-Middleware MUSS bei jedem HTTP- und MCP-Request die Session-Variable `app.current_tenant` via `SET LOCAL app.current_tenant = '<uuid>'` setzen. PostgreSQL-Policies MÜSSEN sicherstellen, dass Zeilen nur zurückgeliefert werden, wenn `tenant_id = current_setting('app.current_tenant')` gilt. Die DB-seitige Isolation DARF durch die Applikationsschicht nicht umgehbar sein.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -305,10 +282,13 @@ Das PersistenceLayer MUSS PostgreSQL Row-Level Security auf allen mandantenspezi
 - Incoming: IF-PL-EXT-IN-008, IF-PL-EXT-IN-009
 - Outgoing: IF-PL-EXT-OUT-001
 
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-015
 **Rationale:** DB-seitige Isolation als zweite Sicherheitsschicht zu REQ-L2-PL-001 (Custom Django Manager). Verhindert Datenlecks auch bei Applikationsfehlern oder direktem DB-Zugriff (Handlungsempfehlung 1.1).
-
 
 ---
 
@@ -356,10 +336,6 @@ Das PersistenceLayer MUSS PostgreSQL Row-Level Security auf allen mandantenspezi
 
 ### REQ-L2-PL-011: Datenbankverbindungs-Pooling (Connection-Pool-Konfiguration)
 
-**Implementation State:** Not Implemented
-**Review Findings:** System-Check hat Connection-Pooling als fehlend identifiziert. Django läuft mit Standard-Verbindungsverhalten ohne expliziten Pool.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-025 (Performance). Befund aus Systemprüfung 2026-06-28.
 
 Die Persistenzschicht MUSS Datenbankverbindungen über einen konfigurierbaren
 Connection-Pool verwalten. Die maximale Poolgröße, minimale Poolgröße und
@@ -391,4 +367,9 @@ Empfohlene Implementierung: `django-db-geventpool` oder `pgbouncer` (technologie
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-PL-011 aus System-Check-Befund, REQ-L1-025)*
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 

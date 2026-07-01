@@ -36,7 +36,7 @@ Die TraceabilityEngine SHALL TraceLinks zwischen Requirements, ArchitectureEleme
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -63,7 +63,7 @@ Die TraceabilityEngine SHALL bei Single-Link-Operationen eine Eager-Zyklenprüfu
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -90,7 +90,7 @@ Die TraceabilityEngine SHALL Batch-Erstellung und Batch-Löschung in einer atoma
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -117,7 +117,7 @@ Die TraceabilityEngine SHALL Upstream- und Downstream-Queries für beliebige Art
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -146,7 +146,7 @@ Die TraceabilityEngine SHALL transitive Hüllen berechnen — alle indirekt erre
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -171,7 +171,7 @@ Die TraceabilityEngine SHALL die Test-Coverage berechnen: Prozentsatz der Requir
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -196,7 +196,7 @@ Die TraceabilityEngine SOLLTE Coverage-Queries optional nach Artefakttyp und Lin
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -220,7 +220,7 @@ Die TraceabilityEngine SHALL auf Anfrage des BaselineService den vollständigen 
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -247,7 +247,7 @@ Die TraceabilityEngine SHALL bei Löschung eines Artefakts automatisch alle zuge
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -272,7 +272,7 @@ Jeder TraceLink SHALL Audit-Felder (`created_by`, `created_at`, `modified_by`, `
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -297,7 +297,7 @@ Die TraceabilityEngine SHALL für alle Operationen sicherstellen, dass ausschlie
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -325,7 +325,7 @@ Die TraceabilityEngine SHALL Performance-SLAs einhalten: ≤ 200ms (p95) für Gr
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -355,7 +355,7 @@ Die TraceabilityEngine SOLLTE einen VCRM-Report-Generator bereitstellen. Der Gen
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier. Traceability Tests (ohne PDF) erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -383,7 +383,7 @@ Die TraceabilityEngine SOLLTE TraceLinks erstellen, lesen, aktualisieren und lö
 **Implementation State:** Not Implemented
 **Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Remarks:** Geprüft von se-verifier. Bestätigt als nicht implementiert.
 
 **Domain:** software
 **Priority:** desired
@@ -408,7 +408,7 @@ Die TraceabilityEngine SOLLTE Upstream-, Downstream- und Coverage-Queries über 
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
 **Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
+**Remarks:** Geprüft von se-verifier. Code vorhanden, aber keine Tests gefunden.
 
 **Domain:** software
 **Priority:** desired
@@ -480,7 +480,7 @@ Die TraceabilityEngine SOLLTE Upstream-, Downstream- und Coverage-Queries über 
 **Implementation State:** Not Implemented
 **Review Findings:** Kein Code-Äquivalent. Die TraceabilityEngine hat aktuell keinen Event-basierten Änderungslistener.
 **Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-043 (← REQ-L0-030, SN-30).
+**Remarks:** Geprüft von se-verifier. Bestätigt als nicht implementiert.
 
 Die TraceabilityEngine MUSS beim Empfang eines `requirement.updated`-Events automatisch
 alle direkt und transitiv via `derives-from`- und `parent-child`-Links verbundenen
@@ -514,7 +514,7 @@ Ein separater Endpunkt MUSS die Bestätigung des `suspect`-Status (→ `reviewed
 **Implementation State:** Not Implemented
 **Review Findings:** TraceLink-Datenmodell kennt aktuell keinen `link_type`-Wert `cross-level`. Erweiterung des Enums erforderlich.
 **Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-047 (← REQ-L0-035, SN-35).
+**Remarks:** Geprüft von se-verifier. Bestätigt als nicht implementiert.
 
 Die TraceabilityEngine MUSS einen neuen TraceLink-Typ `cross-level` unterstützen,
 der Artefakte direkt über mehr als eine Kaskaden-Ebene verbindet (z. B. L0 → L2 ohne L1).

@@ -26,6 +26,11 @@ mit vollständigem CRUD — unter der Bedingung, dass Zyklen ausgeschlossen werd
 **Rationale:** Hierarchische Artefaktstruktur ist das strukturelle Fundament für
 sowohl Software-Teams (Epic → Story → Task) als auch Systems Engineers
 (System → Subsystem → Component).
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -34,10 +39,6 @@ sowohl Software-Teams (Epic → Story → Task) als auch Systems Engineers
 **Externe Interfaces:**
 - Eingang: Nutzer- oder Agenten-Anfrage (synchrone Web-API / MCP) mit Artefakt-Daten
 - Ausgang: Erstelltes / geändertes / gelöschtes Artefakt mit UUID und Hierarchiepfad
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-002, REQ-L0-003
 
@@ -52,15 +53,16 @@ unter der Bedingung, dass die Rollen des anfragenden Nutzers geprüft werden.
 
 **Rationale:** Requirements sind die Kernentität; konfigurierbarer Workflow ist die
 Grundlage für Configurable Rigor und ersetzt den hartcodierten status-Enum.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage mit Requirement-Daten, Workflow-State-Übergang, optionalem change_reason
 - Ausgang: Requirement mit aktuellem WorkflowState und Audit-History
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-002, REQ-L0-005
 
@@ -75,15 +77,16 @@ beantworten.
 
 **Rationale:** Bidirektionale Traceability ist Kernfunktion für Impact-Analysen,
 Coverage-Reports und AI-gestützte Konsistenz-Prüfungen.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: TraceLink-Erstellungs- oder Query-Anfrage mit Source/Target-IDs und Link-Type
 - Ausgang: TraceLink-Liste oder Upstream/Downstream-Graph mit Typ-Annotation
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-003
 
@@ -98,15 +101,16 @@ vom Artifact-Typ.
 
 **Rationale:** Architektur-Elemente als eigenständiger Typ ermöglicht strukturierte
 Architektur-Verwaltung und vollständigen MCP-Zugriff für Architektur-Agenten.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage mit ArchitectureElement-Daten (element_type, title, description)
 - Ausgang: ArchitectureElement mit UUID, WorkflowState, verknüpften TraceLinks
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-003
 
@@ -121,15 +125,16 @@ dass jede schreibende Operation im Audit-Log erfasst wird.
 
 **Rationale:** MCP ist die primäre Schnittstelle für AI-Agenten; vollständiger
 Read/Write-Zugriff ist Voraussetzung für alle primären AI-Workflows.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: MCP-Tool-Aufruf mit Tool-Name, Parametern und API-Key
 - Ausgang: Strukturierte Tool-Response (JSON); Audit-Log-Eintrag bei Schreiboperationen
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-001, REQ-L0-012
 
@@ -144,6 +149,11 @@ Standard-Queries bei bis zu 10.000 Requirements.
 
 **Rationale:** Die synchrone Web-API ist die gleichrangige zweite Schnittstelle neben MCP; eine Spezifikation
 ermöglicht Typ-sichere Client-Generierung und Integration-Tests.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -152,10 +162,6 @@ ermöglicht Typ-sichere Client-Generierung und Integration-Tests.
 **Externe Interfaces:**
 - Eingang: API-Anfrage (synchrones Netzwerkprotokoll) mit Token, strukturiertem Payload
 - Ausgang: Strukturierte Response, Status-Indikator, Metadaten-Endpunkt für API-Spezifikation
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-001, REQ-L0-012
 
@@ -170,15 +176,16 @@ steuern — ohne Datenmigration beim Wechsel zwischen Presets in aufsteigender R
 **Rationale:** Configurable Rigor ist das zentrale Differenzierungsmerkmal;
 ein gemeinsames Datenmodell mit konfigurierter Sichtbarkeit vermeidet
 Zielgruppen-spezifische Code-Pfade.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: Preset-Konfiguration (JSON) auf Workspace-Ebene via API oder UI
 - Ausgang: Workspace mit aktiven Preset-Regeln; UI blendet Funktionen ein/aus
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-002
 
@@ -193,15 +200,16 @@ aller betroffenen Item-IDs und Versionen enthält.
 
 **Rationale:** Baselines sind Must-Have für die SE-Zielgruppe und die Grundlage
 für Compliance-Nachweise; drei Ebenen decken alle Übergabe-Szenarien ab.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: Baseline-Erstellungsanfrage mit Scope, Name und optionaler Beschreibung
 - Ausgang: Unveränderliche Baseline mit JSON-Snapshot und Erstellungszeitpunkt
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-004
 
@@ -217,15 +225,16 @@ WorkflowState.history protokollieren.
 **Rationale:** Konfigurierbarer Workflow ist die Grundlage für Approval-Gates
 im Extended-Preset und für spätere Compliance-Nachweise; Audit-Trail ist
 nicht-verhandelbar für regulierte Umgebungen.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: Workflow-Transition-Anfrage mit Item-ID, Ziel-State, optionalem change_reason, Nutzer-Kontext
 - Ausgang: Aktualisierter WorkflowState mit History-Eintrag; Fehler bei unerlaubter Transition
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-005
 
@@ -239,15 +248,16 @@ Workflow-Transitions gegen die Rollen des anfragenden Nutzers geprüft werden.
 
 **Rationale:** RBAC ist Voraussetzung für Approval-Workflows, Compliance-Szenarien
 und sichere MCP-Schreibzugriffe.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: Authentifizierungstoken (Bearer / API Key) mit Nutzer-Kontext
 - Ausgang: Berechtigungsentscheid (allow/deny) pro Operation und Ressource
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-005
 
@@ -262,6 +272,11 @@ mit Agent-Client-Identität und API-Key.
 
 **Rationale:** Vollständige Auditierbarkeit ist explizite Non-Functional-Anforderung;
 MCP-Audit-Log ist Voraussetzung für sicheren Agenten-Schreibzugriff.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -270,10 +285,6 @@ MCP-Audit-Log ist Voraussetzung für sicheren Agenten-Schreibzugriff.
 **Externe Interfaces:**
 - Eingang: Jede schreibende Operation (synchrone Web-API / MCP) mit Nutzer- oder Agenten-Kontext
 - Ausgang: Audit-Log-Eintrag; Entität mit aktualisierten Audit-Feldern
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-011
 
@@ -288,15 +299,16 @@ mindestens einen verknüpften Testfall haben.
 
 **Rationale:** Testmanagement ist Teil des v1-Funktionsumfangs; Coverage-Tracking
 ist Grundlage für AI-gestützte Test-Lücken-Analyse.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: TestCase-CRUD-Anfrage; TraceLink-Anfrage (verifies) zwischen TestCase und Requirement
 - Ausgang: TestCase mit WorkflowState; Coverage-Report (Requirement → Test-Abdeckung)
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-003
 
@@ -311,15 +323,16 @@ und das System ohne LLM-Zugang vollständig funktionsfähig bleibt.
 
 **Rationale:** LLM als pluggable Capability ist AI-native Dimension 1; Deployment ohne
 LLM-Zugang darf keine Kernfunktionalität verlieren (Self-Hosted-Zielgruppe).
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: LLM-Capability-Aufruf (requirement.validate, requirement.decompose) mit Artefakt-ID
 - Ausgang: Strukturiertes LLM-Ergebnis (Score + Vorschläge) oder Fehler "LLM nicht konfiguriert"
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-007
 
@@ -333,15 +346,16 @@ UI-Texte ändert und keine Datenbank-Schema-Änderung oder Datenmigration erford
 
 **Rationale:** Terminologie-Flexibilität ohne Datenverlust ist das Fundament der
 Dual-Zielgruppen-Strategie; API und MCP nutzen immer generische Entitätsnamen.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: Profil-Wechsel-Anfrage mit Bestätigung
 - Ausgang: Workspace mit neuem aktiven Profil; UI-Labels aktualisiert; API-Response unverändert
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-010
 
@@ -356,6 +370,11 @@ Datenmigration der Bestandsdaten erfordern.
 
 **Rationale:** Isolation ist Voraussetzung für den v2-SaaS-Betrieb; die konkrete
 technische Umsetzung der Datenisolation ist eine Architektur-Entscheidung.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** system
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -364,10 +383,6 @@ technische Umsetzung der Datenisolation ist eine Architektur-Entscheidung.
 **Externe Interfaces:**
 - Eingang: Jede Anfrage mit Authentifizierungskontext, aus dem der Tenant ableitbar ist
 - Ausgang: Gefilterte Ergebnisse exklusiv für den aktiven Tenant
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-008
 
@@ -381,15 +396,16 @@ bereitstellen, wobei fehlende Translation-Keys als Build-Fehler behandelt werden
 
 **Rationale:** Duale Marktausrichtung DE/EN ist eine v1-Entscheidung; nachträgliche
 i18n-Integration ist teurer als proaktive Translation-Key-Nutzung.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: Nutzer-Sprachpräferenz (Accept-Language Header oder Profil-Setting)
 - Ausgang: UI und API-Fehlermeldungen in der gewählten Sprache
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-009
 
@@ -404,6 +420,11 @@ und Workspace-Profil-Konfiguration.
 
 **Rationale:** GUI ist Kernbestandteil von v1; manuelle Benutzer sind gleichwertig
 zur MCP-Agenten-Schnittstelle. Die Wahl der Frontend-Technologie ist eine Architektur-Entscheidung.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -412,10 +433,6 @@ zur MCP-Agenten-Schnittstelle. Die Wahl der Frontend-Technologie ist eine Archit
 **Externe Interfaces:**
 - Eingang: Nutzerinteraktion im Browser
 - Ausgang: Visuelle Darstellung von Systemzuständen und Artefakten
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-012
 
@@ -431,6 +448,11 @@ hochgefahren werden kann.
 **Rationale:** Self-Hosted-only ist die v1-Deployment-Entscheidung; das Deployment
 muss für die Zielgruppe (Developer-affine Teams) niederschwellig sein. Die Auswahl 
 der Laufzeitumgebung und Bereitstellungstechnologie ist Teil der Architektur.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** system
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -439,10 +461,6 @@ der Laufzeitumgebung und Bereitstellungstechnologie ist Teil der Architektur.
 **Externe Interfaces:**
 - Eingang: Konfigurationsdateien, Umgebungsvariablen (LLM-Zugang, DB-Credentials)
 - Ausgang: Lauffähige Gesamtsystem-Instanz auf dem Host-System
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-006
 
@@ -456,15 +474,16 @@ als Metadatum im Export.
 
 **Rationale:** Export ist explizites Must-Have für v1; ermöglicht Integration mit
 externen Tools und ist Voraussetzung für spätere ReqIF-Unterstützung.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: Export-Anfrage mit Scope (Workspace / Artefakt), Format (JSON / CSV)
 - Ausgang: Datei-Download (JSON oder CSV) mit allen Entitäten und Metadaten
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-012
 
@@ -478,15 +497,16 @@ ArchitectureElements und TestCases bereitstellen — via UI und via MCP-Tool
 
 **Rationale:** Volltextsuche ist expliziter v1-Bestandteil; artifact.search als MCP-Tool
 deckt den häufigen Agenten-Anwendungsfall ab, wenn der Artefakttyp unbekannt ist.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: Suchanfrage (Query-String, optionaler Typ-Filter, Workspace-Filter)
 - Ausgang: Gemischte Ergebnisliste mit Artefakttyp-Annotation, sortiert nach Relevanz
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-001
 
@@ -501,15 +521,16 @@ Bedingung, dass das CSV-Format dem dokumentierten Schema entspricht.
 
 **Rationale:** CSV-Bulk-Import ist ein explizites Must-Have in KONZEPT.md §4.6; ermöglicht
 die Migration bestehender Anforderungsdaten ohne manuelle Neueingabe.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Externe Interfaces:**
 - Eingang: CSV-Datei mit Anforderungen/Artefakten gemäß dokumentiertem Schema
 - Ausgang: Import-Ergebnisbericht (erfolgreich importierte Items, Fehler mit Zeilennummer)
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-013
 
@@ -523,15 +544,16 @@ dass ein GitHub-Token konfiguriert ist und die Ziel-Repositories zugreifbar sind
 
 **Rationale:** GitHub-Integration ist ein Should-Have in KONZEPT.md §4.6; die Zielgruppe
 (Developer-affine Teams) erwartet native Integration in ihren Entwicklungs-Workflow.
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priorität:** desired
 **Externe Interfaces:**
 - Eingang: GitHub-Token-Konfiguration; Verknüpfungsanfrage mit Requirement-ID und GitHub-Issue/PR-URL
 - Ausgang: Verknüpfte GitHub-Issues/PRs in der Requirement-Detailansicht; ReqFlow-Referenz in GitHub (via Webhook oder API)
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L0-014
 
@@ -545,15 +567,16 @@ sodass Teams in regulierten Umgebungen audit-dokumentierbare Übergaben erzeugen
 
 **Rationale:** PDF-Reports sind ein Should-Have in KONZEPT.md §4.6; die SE-Zielgruppe
 benötigt dokumentierbare Übergaben für Reviews und Compliance-Nachweise (§8.1).
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** desired
 **Externe Interfaces:**
 - Eingang: Report-Anfrage mit Scope (Workspace/Artefakt/Baseline), Report-Typ (Anforderungsdokument/Traceability-Matrix), Format (PDF)
 - Ausgang: PDF-Datei mit formatiertem Bericht, Metadaten und Traceability-Matrix
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-015
 
@@ -568,15 +591,16 @@ dass die Ziel-URL erreichbar ist und der Webhook aktiviert ist.
 
 **Rationale:** Webhook-Support ist ein Should-Have in KONZEPT.md §4.3; ermöglicht externe
 Systemen (CI/CD, Slack, Notification-Services) auf Anforderungsänderungen zu reagieren.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** desired
 **Externe Interfaces:**
 - Eingang: Webhook-Konfiguration (URL, Ereignis-Typ, Secret); auslösendes Systemereignis
 - Ausgang: HTTP-POST-Request an konfigurierte URL mit JSON-Payload (Ereignis-Typ, betroffene Entity-ID, Timestamp)
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-012, REQ-L0-014
 
@@ -587,14 +611,14 @@ Systemen (CI/CD, Slack, Notification-Services) auf Anforderungsänderungen zu re
 Das System MUSS Datenänderungen atomar und konsistent persistieren; bei Fehlern dürfen
 keine partiellen Schreibvorgänge zurückbleiben (ACID).
 
+**Rationale:** Datenkonsistenz ist eine fundamentale Non-Functional-Anforderung;
+partielle Schreibvorgänge können zu inkonsistenten Artefakt-Hierarchien,
+TraceLinks und Workflow-States führen.
 **Implementation State:** Implemented
 **Review Findings:** Implementierung gefunden, aber keine Tests.
 **Test Status:** Missing
 **Remarks:** Testabdeckung fehlt.
 
-**Rationale:** Datenkonsistenz ist eine fundamentale Non-Functional-Anforderung;
-partielle Schreibvorgänge können zu inkonsistenten Artefakt-Hierarchien,
-TraceLinks und Workflow-States führen.
 **Domain:** software
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -612,14 +636,14 @@ Das System MUSS unter normaler Last (bis zu 50 gleichzeitige Nutzer, 10.000 Requ
 für 95 % der API-Standard-Requests eine Antwortzeit von < 200 ms und für Volltextsuchen
 < 500 ms garantieren.
 
+**Rationale:** Performance ist eine übergreifende Non-Functional-Anforderung, die
+alle Schnittstellen betrifft und für die Zielgruppe
+(Developer-affine Teams, SE-Teams) entscheidend für die Akzeptanz ist.
 **Implementation State:** Implemented
 **Review Findings:** Implementierung gefunden, aber keine Tests.
 **Test Status:** Missing
 **Remarks:** Testabdeckung fehlt.
 
-**Rationale:** Performance ist eine übergreifende Non-Functional-Anforderung, die
-alle Schnittstellen betrifft und für die Zielgruppe
-(Developer-affine Teams, SE-Teams) entscheidend für die Akzeptanz ist.
 **Domain:** system
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -820,15 +844,16 @@ UI und MCP (artifact.get) — wobei jede Diagramm-Änderung eine neue Version er
 
 **Rationale:** Integrierte Diagramme eliminieren Medienbrüche zu externen Zeichenprogrammen
 und stellen Traceability zwischen grafischen Modellen und textuellen Anforderungen her.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** desired
 **Externe Interfaces:**
 - Eingang: Diagramm-CRUD-Anfrage mit Typ, Inhalt (strukturierter Payload), optionaler Verknüpfung zu Artefakt-ID
 - Ausgang: Versioniertes Diagramm mit UUID, TraceLinks zu verknüpften Artefakten; renderbare Darstellung in UI
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-016
 
@@ -845,15 +870,16 @@ und als Breaking-Change-Warnung gemeldet werden.
 **Rationale:** ICDs sind in der SE-Praxis bindende Verträge zwischen Subsystemen.
 Versionierung und Kompatibilitätsprüfung sind Voraussetzung für inkrementelle
 Integration und formale Übergaben.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** desired
 **Externe Interfaces:**
 - Eingang: ICD-CRUD-Anfrage mit Schnittstellenparametern, source-ArchitectureElement-ID, target-ArchitectureElement-ID
 - Ausgang: Versionierter ICD-Eintrag; Breaking-Change-Warnung bei inkompatiblen Änderungen; Baseline-fähig
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-017
 
@@ -869,6 +895,11 @@ und MCP mit vollständigem CRUD.
 **Rationale:** ADRs, Risiken und Issues sind integrale SE-Artefakte. Ohne Verknüpfung
 mit Anforderungen und Architektur fehlen Kontext, Rückverfolgbarkeit und
 die Grundlage für Safety-Cases und Compliance-Audits.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** desired
 **Architektur-Impact:**
@@ -877,10 +908,6 @@ die Grundlage für Safety-Cases und Compliance-Audits.
 **Externe Interfaces:**
 - Eingang: CRUD-Anfrage für ADR (Kontext, Entscheidung, Konsequenzen, Status) / Risiko (Wahrscheinlichkeit, Auswirkung, Mitigation) / Issue (Typ, Priorität)
 - Ausgang: Artefakt mit UUID, WorkflowState, TraceLinks zu verknüpften Anforderungen/Architekturelementen
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-018
 
@@ -896,15 +923,16 @@ Cross-Tenant-Links ausgeschlossen bleiben.
 **Rationale:** Rekursive SE-Zerlegung über mehrere Projekte erfordert projektübergreifende
 Traceability. Ohne sie endet die Zerlegungskette an der Projektgrenze und die
 systemische Kontinuität von SN bis Test ist nicht nachweisbar.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Domain:** software
 **Priorität:** desired
 **Externe Interfaces:**
 - Eingang: TraceLink-Erstellungsanfrage mit Source-Artefakt-ID (Projekt A) und Target-Artefakt-ID (Projekt B), Link-Typ
 - Ausgang: Cross-Projekt-TraceLink; erweiterte Upstream/Downstream-Graph-Antwort mit Cross-Projekt-Annotation
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
 
 **Traceability:** REQ-L0-019
 
@@ -920,6 +948,11 @@ maschinenlesbar abrufbar und visuell aufbereitet im Dashboard.
 
 **Rationale:** Metrikenbasiertes Steuern ist ein explizites SE-Prinzip. Ohne Metriken
 fehlt die Datengrundlage für Prozesssteuerung und Qualitätsnachweise.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** desired
 **Architektur-Impact:**
@@ -928,10 +961,6 @@ fehlt die Datengrundlage für Prozesssteuerung und Qualitätsnachweise.
 **Externe Interfaces:**
 - Eingang: Metrikanfrage mit Workspace-Kontext, Zeitraum und Scope-Filter
 - Ausgang: Strukturierte Metrikdaten; konfigurierbare Schwellwert-Warnungen
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-020
 
@@ -948,6 +977,11 @@ nicht kaskadieren.
 **Rationale:** Fehlertoleranz ist ein übergreifendes Systemprinzip.
 Ausfälle externer Abhängigkeiten dürfen nicht zum Gesamtausfall führen.
 Wie diese Entkopplung architektonisch umgesetzt wird, ist eine Design-Entscheidung.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** system
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -956,10 +990,6 @@ Wie diese Entkopplung architektonisch umgesetzt wird, ist eine Design-Entscheidu
 **Externe Interfaces:**
 - Eingang: Anfragen, die optionale Subsysteme involvieren
 - Ausgang: Erfolgreiche Antwort der Kernfunktionen trotz Ausfall der optionalen Erweiterungen (inkl. Fehlerprotokoll)
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-021
 
@@ -979,6 +1009,11 @@ Identität des aktuell angemeldeten Nutzers zurückgeben (Session-Bootstrap).
 Token existiert. Ohne Credential-basierten Login gibt es keinen niedrigschwelligen
 Einstiegspunkt für interaktive Nutzer (Frontend) und Agenten. SN-22 schließt diese
 Lücke für v1. SSO (SAML/OIDC) bleibt explizit v2 (STRATEGY.md §6 Out-of-Scope).
+**Implementation State:** Not Implemented
+**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
+**Test Status:** Covered
+**Remarks:** Implementierung prüfen.
+
 **Domain:** software
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -999,10 +1034,6 @@ Lücke für v1. SSO (SAML/OIDC) bleibt explizit v2 (STRATEGY.md §6 Out-of-Scope
 **Abgrenzung:**
 - SSO (SAML/OIDC) ist explizit NOT in Scope für v1 (STRATEGY.md §6 Out-of-Scope; v2-Roadmap).
 - Passwort-Reset-Flow und E-Mail-Verifikation sind nicht Teil dieser Anforderung.
-**Implementation State:** Not Implemented
-**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
-**Test Status:** Covered
-**Remarks:** Implementierung prüfen.
 
 **Traceability:** REQ-L0-022
 
@@ -1048,16 +1079,17 @@ abbildet und Validierungsfehler mit Elementreferenz zurückgemeldet werden.
 **Rationale:** CSV-Export (REQ-L1-019) reicht für hierarchische MBSE-Strukturen mit
 Trace-Links nicht aus. ReqIF ist in regulierten Industrien (Automotive, Avionik) zwingend
 erforderlich für den Austausch mit DOORS, Polarion und ähnlichen Werkzeugen.
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priorität:** desired
 **Version:** v2.0
 **Externe Interfaces:**
 - Eingang: ReqIF-Datei-Upload (.reqif) oder Export-Anfrage mit Scope (Workspace/Projekt)
 - Ausgang: Importierte Artefakte mit UUID und Hierarchie; .reqif-Datei-Download mit vollständiger Struktur
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L0-023
 
@@ -1073,16 +1105,17 @@ mit vollständigem CRUD via synchroner Web-API und MCP.
 
 **Rationale:** REQ-L1-012 definiert Testfälle und deren Coverage. Ohne Test-Run-Protokollierung
 fehlt der Ausführungsnachweis auf der rechten Seite des V-Modells (Verification & Validation).
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** desired
 **Version:** v1.1
 **Externe Interfaces:**
 - Eingang: Test-Run-Erstellungsanfrage mit TestCase-IDs und optionalem Zeitplan; Status-Update-Anfrage pro TestCase
 - Ausgang: Test-Run-Entität mit aggregiertem Ergebnis (Passed/Failed/Partial), Coverage-Delta, Zeitstempel
-**Implementation State:** Not Implemented
-**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
-**Test Status:** Covered
-**Remarks:** Implementierung prüfen.
 
 **Traceability:** REQ-L0-024
 
@@ -1099,16 +1132,17 @@ mit Agent-Client-Identität erfasst wird.
 **Rationale:** Manuelle Einspeisung von CI/CD-Ergebnissen erzeugt Medienbrüche und unterbricht
 die Traceability-Kette. Automatisierte Einspeisung schließt den V-Modell-Kreislauf ohne
 manuelle Intervention.
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priorität:** desired
 **Version:** v1.1
 **Externe Interfaces:**
 - Eingang: API-Key-authentifizierter POST-Aufruf (API oder MCP test.record_result) mit TestCase-ID, Ergebnisstatus, Ausgabe-Payload
 - Ausgang: Audit-Log-Eintrag mit Agent-Identität; aktualisierter Test-Run-Status; HTTP 200 bei Erfolg
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L0-024
 
@@ -1125,16 +1159,17 @@ eine In-App-Benachrichtigung erhalten und alle Kommentare im Audit-Trail erfasst
 wodurch der Entscheidungskontext für AI-Agenten und zukünftige Reviews verloren geht.
 Kommentar-Threads ermöglichen die kontextgebundene Dokumentation von Klärungen direkt
 am betroffenen Artefakt.
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priorität:** optional
 **Version:** v2.0
 **Externe Interfaces:**
 - Eingang: Kommentar-Erstellungsanfrage mit Artefakt-ID, Text (inkl. @Mention-Syntax), Autor-Kontext
 - Ausgang: Kommentar-Thread mit UUID, Zeitstempel, Autor; In-App-Benachrichtigung an erwähnte Nutzer
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L0-025
 
@@ -1151,16 +1186,17 @@ und im selben Deployment persistiert werden.
 **Rationale:** Volltextsuche (REQ-L1-020) skaliert bei tausenden Anforderungen semantisch nicht.
 Vektorbasierte Suche ist Grundlage für AI-gestützte Konsistenz- und Lückenanalysen.
 Infrastrukturaufwand (Embedding-Modell, Vektordatenbank) macht dies zu einem v2-Feature.
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priorität:** optional
 **Version:** v2.0
 **Externe Interfaces:**
 - Eingang: Semantische Suchanfrage (natürlichsprachlicher Query oder Artefakt-ID für Ähnlichkeitssuche)
 - Ausgang: Gerankte Trefferliste mit Ähnlichkeits-Score; Duplikat-Warnungen; vorgeschlagene TraceLinks
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L0-026
 
@@ -1178,16 +1214,17 @@ die Workspace-RBAC (REQ-L1-010) verfeinern und niemals überschreiben.
 Kunden vollständig. In großen Projekten müssen externe Partner am selben Projekt
 mitarbeiten, ohne den gesamten Systemkontext zu sehen — eine Anforderung, die
 feingranulare Zugriffslisten erfordert.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** optional
 **Version:** v2.0
 **Externe Interfaces:**
 - Eingang: Zugriffsregel-Konfiguration mit Artefakt-ID oder Subsystem-ID, Nutzer/Gruppe, Berechtigungstyp (read/write)
 - Ausgang: Gefilterte API-Antworten gemäß Item-Level-Regeln; HTTP 403 bei Regelverstoß
-**Implementation State:** Implemented
-**Review Findings:** Implementiert in Commits 777e4af + 7e1890f am 2026-06-28: ItemPermission-Modell, Service mit 60s-TTL-Cache, REST-Endpunkte, MCP-Tools und RLS-Migration.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-027
 
@@ -1203,16 +1240,17 @@ abrufbar in der Artefakt-Detailansicht der GUI und via synchroner Web-API.
 **Rationale:** Das Audit-Log (REQ-L1-011) speichert alle Änderungen, ist aber für
 Menschen schwer lesbar. Ein visueller Diff pro Artefakt ist für formale Reviews
 und Freigabe-Entscheidungen unerlässlich.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** software
 **Priorität:** desired
 **Version:** v1.1
 **Externe Interfaces:**
 - Eingang: Diff-Anfrage mit Artefakt-ID und zwei Versions-Referenzen (version_a, version_b)
 - Ausgang: Strukturiertes Diff-Objekt mit Feld-Level-Änderungen; UI-Darstellung mit Syntaxhervorhebung
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-028
 
@@ -1228,16 +1266,17 @@ in der GUI und als maschinenlesbarer API-Response.
 **Rationale:** L2-BL-02 definiert den Baseline-Vergleich auf Datenebene. Diese Anforderung
 ergänzt die menschlesbare Darstellung, die für formale Reviews und Freigabe-Entscheidungen
 in regulierten Umgebungen zwingend erforderlich ist.
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priorität:** desired
 **Version:** v1.1
 **Externe Interfaces:**
 - Eingang: Baseline-Diff-Anfrage mit baseline_id_a und baseline_id_b
 - Ausgang: Diff-Report mit kategorisierten Artefakt-Änderungslisten (added/modified/deleted); GUI-Darstellung und maschinenlesbarer JSON-Response
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 
 **Traceability:** REQ-L0-028
 
@@ -1260,6 +1299,11 @@ Operationstyp, Actor, Workspace-ID und Zeitstempel.
 Multi-Tenancy (REQ-L1-015) — ohne expliziten Lifecycle gibt es keine saubere
 Trennung zwischen "aktiv" und "historisch". Workspaces könnten nur über direkten
 DB-Zugriff entfernt werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Domain:** system
 **Priorität:** mandatory
 **Architektur-Impact:**
@@ -1283,10 +1327,6 @@ DB-Zugriff entfernt werden.
 - Kein neues Subsystem erforderlich — Lifecycle-Methoden erweitern bestehenden WorkspaceService
 - WorkspacePresetConfig wird im selben CASCADE gelöscht (gehört zum Workspace)
 - Tenant-Isolation (REQ-L1-015) bleibt gewahrt: Lifecycle-Operationen sind tenant-scoped
-**Implementation State:** Implemented
-**Review Findings:** Implementiert in Commit c13b64c am 2026-06-28: Workspace-Lifecycle-MCP (close/reactivate/delete) inkl. RBAC-Prüfung und e2e-Tests.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L0-029, REQ-L1-010 (RBAC), REQ-L1-015 (Mandantenfähigkeit), REQ-L1-011 (Audit)
 
@@ -1323,9 +1363,9 @@ DB-Zugriff entfernt werden.
 ### REQ-L1-043: Suspect-Link-Engine (Automatische Änderungsmarkierung)
 
 **Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent vorhanden. Voraussetzung: TraceabilityEngine muss Event-Listener-Mechanismus besitzen.
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Direkt abgeleitet von REQ-L0-030 (SN-30).
+**Remarks:** Sollte implementiert werden.
 
 Das System MUSS bei jeder inhaltlichen Änderung an einem Requirement automatisch
 alle direkt und transitiv davon abhängigen Artefakte (Requirements, TestCases,
@@ -1342,9 +1382,9 @@ ein autorisierter Nutzer die Konsistenz explizit bestätigt.
 ### REQ-L1-044: Semantisches Projekt-Glossar (Data Dictionary)
 
 **Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent vorhanden. Neue Entität `GlossaryTerm` im Datenmodell erforderlich.
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Direkt abgeleitet von REQ-L0-032 (SN-32).
+**Remarks:** Sollte implementiert werden.
 
 Das System MUSS pro Projekt ein maschinenlesbares Glossar mit Begriffsdefinitionen,
 Synonymen und Abkürzungen bereitstellen. AI-Agenten MÜSSEN das Glossar über die API
@@ -1362,9 +1402,9 @@ Glossar-Einträge MÜSSEN versioniert und in Baselines enthalten sein.
 ### REQ-L1-045: Artefakt-Branching & Merging (Isolierte Sandboxes)
 
 **Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent vorhanden. Baseline-Service bietet nur Snapshots, kein Branching. ADR erforderlich.
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Direkt abgeleitet von REQ-L0-033 (SN-33). Lösungsneutral formuliert — Implementation Hints im L0-Dokument.
+**Remarks:** Sollte implementiert werden.
 
 Das System MUSS es ermöglichen, einen isolierten Arbeitszweig (Sandbox) aus dem
 aktuellen Zustand eines definierten Scopes (Workspace, Subsystem, Artefakt-Unterbaum)
@@ -1387,7 +1427,7 @@ durch Sandbox-Aktivitäten nicht verändert werden.
 ### REQ-L1-046: Instanz-Backup, Disaster Recovery & Baseline-Restore
 
 **Implementation State:** Implemented
-**Review Findings:** Implementiert in Commits e192766 + cf3aa8c am 2026-06-28: DR-Foundation (BackupService, AdminRestoreService), REST-Endpunkte, MCP-Tools (admin.backup_create, admin.backup_list, admin.restore).
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
 **Remarks:** Regelmäßig auf Regressionen prüfen.
 
@@ -1410,9 +1450,9 @@ Captcha-Bestätigung erfordern.
 ### REQ-L1-047: Cross-Level-TraceLink-Konzept (Kontrollierte Ebenensprünge)
 
 **Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent vorhanden. TraceabilityEngine kennt aktuell keine Link-Typen mit Ebenenvalidierung.
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Direkt abgeleitet von REQ-L0-035 (SN-35). Gegenpart zur Kaskadennorm.
+**Remarks:** Sollte implementiert werden.
 
 Das System MUSS TraceLinks mit dem Typ `cross-level` unterstützen, die Artefakte
 über mehr als eine Kaskaden-Ebene direkt verbinden. Cross-Level-Links MÜSSEN eine
@@ -1431,9 +1471,9 @@ MUSS die empfohlene Route bleiben; Cross-Level-Links sind eine dokumentierte Aus
 ### REQ-L1-048: Flache und Ebenenbasierte Artefaktansicht (Multi-View)
 
 **Implementation State:** Not Implemented
-**Review Findings:** UI zeigt aktuell nur Flat-View ohne Ebenen-Navigation. User-Feedback: „In der aktuellen Umsetzung kann ich diese Verschachtelung kaum erkennen."
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Abgeleitet aus User-Feedback zu REQ-L1-001 (reqflow_ontology_analysis.md Abschnitt 2). Betrifft alle Artefakttypen.
+**Remarks:** Sollte implementiert werden.
 
 Das System MUSS für alle Artefakttypen (Requirements, Architecture, TestCases,
 TraceLinks) zwei Ansichtsmodi bereitstellen:

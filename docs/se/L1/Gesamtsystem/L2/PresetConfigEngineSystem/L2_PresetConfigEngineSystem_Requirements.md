@@ -377,10 +377,10 @@ Preset-Queries SOLLTEN innerhalb von 10ms (p95) antworten. Caching MAY verwendet
 ### REQ-L2-PC-014: Benutzerdefinierte Presets (Extended-Modus)
 Im Extended-Preset KANN die PresetConfigEngine benutzerdefinierte Presets erlauben (Clone eines Default-Presets mit Modifikationen).
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist in `registry.py` implementiert (`create_custom_preset`) und durch `test_preset_registry.py` verifiziert.
+**Test Status:** Covered
+**Remarks:** Feature ist voll funktional.
 
 **Domain:** software
 **Priority:** optional

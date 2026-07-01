@@ -45,7 +45,7 @@ Das SeMetricsSystem SHALL den Endpunkt `GET /metrics/workspace/{id}` bereitstell
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -71,7 +71,7 @@ Das SeMetricsSystem SHALL optionale Query-Parameter `timeframe` (ISO-8601-Zeitra
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -97,7 +97,7 @@ Das SeMetricsSystem SHALL Requirements Volatility berechnen als: Anzahl Änderun
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -123,7 +123,7 @@ Das SeMetricsSystem SHALL Traceability Coverage berechnen als: Anteil der Requir
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -149,7 +149,7 @@ Das SeMetricsSystem SHALL Workflow-Lücken identifizieren als: Items ohne vollst
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -175,7 +175,7 @@ Das SeMetricsSystem SHALL offene Risiken nach Schweregrad aggregieren. Quelldate
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -200,7 +200,7 @@ Das SeMetricsSystem SHALL pro Workspace konfigurierbare Schwellwert-Warnungen f�
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -229,7 +229,7 @@ Das SeMetricsSystem SHALL ausschließlich lesende Operationen auf allen Quellsys
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -253,7 +253,7 @@ Das SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer M
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -280,7 +280,7 @@ Das SeMetricsSystem SHALL sicherstellen, dass alle Quelldaten-Abfragen (IF-L1-04
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -305,7 +305,7 @@ Das SeMetricsSystem SHALL die folgenden Performance-SLAs einhalten: ≤ 500ms (p
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -329,7 +329,7 @@ Das SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat für de
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -355,7 +355,7 @@ Das SeMetricsSystem MUSS sicherstellen, dass bei einem Cache-Miss für einen Wor
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). Alle Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory

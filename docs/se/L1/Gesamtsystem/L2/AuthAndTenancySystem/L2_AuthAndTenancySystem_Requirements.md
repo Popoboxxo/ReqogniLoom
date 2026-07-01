@@ -364,10 +364,10 @@ Das AuthAndTenancy-System SHALL standardisierte Fehlerantworten für Auth-Fehler
 Das AuthAndTenancy-System SHALL ein Benutzername/Passwort-Paar gegen den gespeicherten Passwort-Hash (PBKDF2 oder gleichwertig) verifizieren und bei Erfolg den aktiven Nutzer auflösen. Die Verifikation SHALL in (nahezu) konstanter Laufzeit erfolgen: existiert der Nutzer nicht, SHALL dennoch ein Dummy-Hash-Vergleich durchgeführt werden, sodass die Timing-Kurve von „Nutzer unbekannt" und „Passwort falsch" vergleichbar bleibt.
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -381,10 +381,10 @@ Das AuthAndTenancy-System SHALL ein Benutzername/Passwort-Paar gegen den gespeic
 - Incoming: IF-AT-EXT-IN-003
 - Outgoing: IF-AT-EXT-OUT-004 (User-Lookup), IF-AT-EXT-OUT-005
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-033 (AC1, AC3)
 **Rationale:** Sichere, enumeration-resistente Credential-Verifikation ist der Kern des Login-Flows. Bildet `PasswordAuthenticationService.authenticate_credentials` ab.
@@ -396,10 +396,10 @@ Das AuthAndTenancy-System SHALL ein Benutzername/Passwort-Paar gegen den gespeic
 Das AuthAndTenancy-System SHALL nach erfolgreicher Credential-Verifikation einen signierten HS256-JWT ausstellen, dessen Claim-Set exakt dem entspricht, was `AuthenticationService.validate_bearer_token` (REQ-L2-AT-001) konsumiert — `user_id`, `tenant_id`, `roles`, `iat`, `exp` sowie konfiguriertes `iss`/`aud`. Der Token SHALL round-trip-fähig sein: er wird von `BearerTokenAuthentication` akzeptiert und liefert den korrekten Rollen- und Tenant-Kontext für RBAC-Entscheidungen. Secret/Issuer/Audience/TTL werden aus Django-Settings (`AUTH_JWT_*`) gelesen; kein Secret im Code.
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -413,10 +413,10 @@ Das AuthAndTenancy-System SHALL nach erfolgreicher Credential-Verifikation einen
 - Incoming: IF-AT-EXT-IN-003 (nach Verifikation)
 - Outgoing: IF-AT-EXT-OUT-005
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-033 (AC1, AC5), REQ-L1-010 (mitwirkend)
 **Rationale:** Format-Kompatibilität mit der bestehenden Token-Schicht ist die zentrale Architektur-Bedingung des arch_trigger. Bildet `PasswordAuthenticationService.issue_token` + `resolve_roles` ab.
@@ -428,10 +428,10 @@ Das AuthAndTenancy-System SHALL nach erfolgreicher Credential-Verifikation einen
 Das AuthAndTenancy-System SHALL den Login-Endpunkt `POST /api/v1/auth/login/` von der globalen Auth-Middleware-Interception (REQ-L2-AT-007) ausnehmen: der Endpunkt ist öffentlich (kein Bearer-Token, kein Tenant-Kontext erforderlich), da er der Mechanismus ist, über den ein Client überhaupt erst einen Token erhält. Alle übrigen geschützten Endpunkte bleiben hinter der Auth-Middleware.
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -445,10 +445,10 @@ Das AuthAndTenancy-System SHALL den Login-Endpunkt `POST /api/v1/auth/login/` vo
 - Incoming: IF-AT-EXT-IN-003
 - Outgoing: IF-AT-EXT-OUT-003
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-033 (AC1), REQ-L1-006 (mitwirkend)
 **Rationale:** Ohne unauthentifizierten Einstiegspunkt gibt es keinen Bootstrap für interaktive Nutzer/Agenten. Siehe ADR-AT-03.
@@ -460,10 +460,10 @@ Das AuthAndTenancy-System SHALL den Login-Endpunkt `POST /api/v1/auth/login/` vo
 Das AuthAndTenancy-System SHALL voraussetzen und sicherstellen, dass Passwörter im PersistenceLayer ausschließlich als gesalzener Hash (Django-Hasher, PBKDF2 default) im `User.password`-Feld gespeichert werden — niemals im Klartext. Klartext-Passwörter SHALL nie in API-Responses, Logs oder Audit-Einträgen erscheinen. Das System SHALL `set_password`/`check_password` nutzen; ein leeres `password` bedeutet „kein nutzbares Passwort" und matcht nie.
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -476,10 +476,10 @@ Das AuthAndTenancy-System SHALL voraussetzen und sicherstellen, dass Passwörter
 - Incoming: IF-AT-EXT-IN-003
 - Outgoing: IF-AT-EXT-OUT-004
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-033 (AC4)
 **Rationale:** Passwort-Hash-Storage ist ein Vertrag zwischen AuthAndTenancy und PersistenceLayer (Entity `User`). Bildet `User.set_password`/`check_password` ab.
@@ -491,10 +491,10 @@ Das AuthAndTenancy-System SHALL voraussetzen und sicherstellen, dass Passwörter
 Das AuthAndTenancy-System SHALL über `GET /api/v1/auth/me/` mit gültigem Bearer-Token die Identität des aktuell angemeldeten Nutzers `{username, roles, tenant_id}` für den Frontend-Session-Bootstrap zurückgeben. Die Identität SHALL aus dem aufgelösten Auth-Kontext (REQ-L2-AT-005) stammen. Ohne Token oder mit ungültigem Token SHALL HTTP 401 zurückgegeben werden.
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -507,10 +507,10 @@ Das AuthAndTenancy-System SHALL über `GET /api/v1/auth/me/` mit gültigem Beare
 - Incoming: IF-AT-EXT-IN-001 (Bearer-Token)
 - Outgoing: IF-AT-EXT-OUT-001
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-033 (AC6)
 **Rationale:** Frontend benötigt einen Identitäts-Bootstrap nach Login. Bildet `MeView` ab.
@@ -522,10 +522,10 @@ Das AuthAndTenancy-System SHALL über `GET /api/v1/auth/me/` mit gültigem Beare
 Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzername, falsches Passwort, inaktives Konto) denselben generischen Fehlercode `invalid_token` mit HTTP 401 zurückgeben — ohne Unterscheidung zwischen „Nutzer unbekannt", „Passwort falsch" und „Konto inaktiv". Die Response SHALL keine Information über die Existenz eines Kontos preisgeben.
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -538,10 +538,10 @@ Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzer
 - Incoming: IF-AT-EXT-IN-003
 - Outgoing: IF-AT-EXT-OUT-005
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-033 (AC2, AC3)
 **Rationale:** Enumeration-Schutz ist Sicherheitsanforderung des Login-Flows; ergänzt den Timing-Schutz aus REQ-L2-AT-011 um Response-Uniformität.
@@ -555,10 +555,10 @@ Das AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzer
 Das AuthAndTenancySystem SHALL Projekt-Administratoren ermöglichen, Sichtbarkeits- und Bearbeitungsrechte auf Subsystem- oder Artefakt-Ebene zu konfigurieren. Item-Level-Regeln verfeinern die Workspace-RBAC (REQ-L1-010), überschreiben sie jedoch niemals — Admin-Rechte auf Workspace-Ebene haben weiterhin Vorrang. Regeln werden via UI (Berechtigungs-Editor) und API-Endpunkt konfiguriert.
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** optional
 **arch_impact:** false
@@ -573,10 +573,10 @@ Das AuthAndTenancySystem SHALL Projekt-Administratoren ermöglichen, Sichtbarkei
 - Incoming: IF-AT-EXT-IN-001 (Admin-Request via REST-API)
 - Outgoing: IF-AT-EXT-OUT-003, IF-AT-EXT-OUT-004
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L1-039, REQ-L1-010 (mitwirkend)
 **Rationale:** Feingranulare Zugriffsregeln ermöglichen externe Partner/Zulieferer ohne vollständigen Systemkontext.
@@ -674,9 +674,9 @@ Zusätzlich wird AT-019 (UI-Komponente für Item-Level-Verwaltung) neu eingefüh
 
 ### REQ-L2-AT-017 (vollständig): Item-Level-RBAC Regelverwaltung
 
-**Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent. Bestehende RBAC-Implementierung arbeitet nur auf Workspace-Ebene. Neue Entität `ItemPermission` im Datenmodell erforderlich.
-**Test Status:** Missing
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code (ItemPermissionViewSet) auffindbar.
+**Test Status:** Covered
 **Remarks:** Abgeleitet von REQ-L1-039 (← REQ-L0-027, SN-27). Priority: optional (Enterprise-Feature).
 
 Das AuthAndTenancySystem MUSS Projekt-Admins ermöglichen, Zugriffsbeschränkungen

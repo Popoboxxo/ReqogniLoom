@@ -46,11 +46,6 @@
 
 Der ApplicationService SHALL bei Erstellung oder Änderung einer Parent-Child-Beziehung validieren, dass keine zyklischen Abhängigkeiten eingeführt werden. Validierung VOR Persistenz. Bei Zyklus-Erkennung: Operation abbrechen mit Fehlermeldung.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -76,11 +71,6 @@ Der ApplicationService SHALL bei Erstellung oder Änderung einer Parent-Child-Be
 
 Der ApplicationService SHALL eine Tree-Query-Operation bereitstellen, die die vollständige Artefakt-Hierarchie als verschachtelte Struktur bis zu einer variablen Tiefe (N) zurückgibt. ≤ 200ms bei 500 Artefakten.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Arch Impact:** true
@@ -108,11 +98,6 @@ Der ApplicationService SHALL eine Tree-Query-Operation bereitstellen, die die vo
 
 Der ApplicationService SHALL vollständiges CRUD für Requirements bereitstellen. Bei Erstellung: automatischer initialer WorkflowState. Bei Update: `change_reason` validieren (Pflicht im Extended-Preset). Bei Delete: Cascade-Löschung aller TraceLinks. Jede Schreiboperation delegiert Workflow-Validierung an WorkflowEngine und schreibt AuditLog.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -139,11 +124,6 @@ Der ApplicationService SHALL vollständiges CRUD für Requirements bereitstellen
 
 Der ApplicationService SHALL vollständiges CRUD für ArchitectureElements bereitstellen mit: element_type (Component, Interface, Subsystem, Layer, Module), automatischem Version-Inkrement, Optimistic Locking. Bei Delete: Cascade TraceLinks.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -170,11 +150,6 @@ Der ApplicationService SHALL vollständiges CRUD für ArchitectureElements berei
 
 Der ApplicationService SHALL vollständiges CRUD für TestCases bereitstellen mit: test_type (Unit, Integration, System, Acceptance), WorkflowState, execution_status (Passed, Failed, Not Run). Bei Delete: Cascade TraceLinks.
 
-
-**Implementation State:** Not Implemented
-**Review Findings:** Anforderung ist in Tests abgedeckt, aber Implementierung fehlt.
-**Test Status:** Covered
-**Remarks:** Implementierung abschließen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -187,6 +162,10 @@ Der ApplicationService SHALL vollständiges CRUD für TestCases bereitstellen mi
 - Incoming: IF-AS-EXT-IN-001, IF-AS-EXT-IN-002
 - Outgoing: IF-AS-EXT-OUT-001, IF-AS-EXT-OUT-006, IF-AS-EXT-OUT-007
 
+**Implementation State:** Not Implemented
+**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
+**Test Status:** Covered
+**Remarks:** Implementierung prüfen.
 
 **Traceability:** REQ-L1-012
 **Rationale:** Testmanagement ist Teil des v1-Funktionsumfangs.
@@ -197,11 +176,6 @@ Der ApplicationService SHALL vollständiges CRUD für TestCases bereitstellen mi
 
 Der ApplicationService SHALL Export-Operationen für Requirements, ArchitectureElements, TestCases und TraceLinks in JSON und CSV bereitstellen. Scope: Workspace oder einzelnes Artefakt. Export von 1.000 Requirements ≤ 5 Sekunden.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -227,11 +201,6 @@ Der ApplicationService SHALL Export-Operationen für Requirements, ArchitectureE
 
 Der ApplicationService SHALL das aktive Terminologie-Profil als Metadatum in jeden Export einbetten. JSON: `metadata.terminology_profile`. CSV: Kommentarzeile am Dateianfang.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -257,11 +226,6 @@ Der ApplicationService SHALL das aktive Terminologie-Profil als Metadatum in jed
 
 Der ApplicationService SHALL artefakttyp-übergreifende Volltextsuche über Requirements, ArchitectureElements und TestCases bereitstellen. Suche berücksichtigt Wortstämme und Tippfehler (Fuzzy Search/Stemming). Ergebnisse nach Relevanz sortiert mit Artefakttyp-Annotation. ≤ 500ms bei 10.000 Items.
 
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -286,11 +250,6 @@ Der ApplicationService SHALL artefakttyp-übergreifende Volltextsuche über Requ
 
 Der ApplicationService SHALL optionale Filter für Artefakttyp und Workspace in Suchoperationen unterstützen. Beide Filter KÖNNEN kombiniert werden.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -316,11 +275,6 @@ Der ApplicationService SHALL optionale Filter für Artefakttyp und Workspace in 
 
 Der ApplicationService SHALL TraceLink-Erstellung, -Query und -Löschung als Orchestrierung über die TraceabilityEngine bereitstellen. Validierung: Source und Target existieren und gehören zum selben Workspace. Unterstützte Link-Typen: `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`. AuditLog für Schreiboperationen.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -347,11 +301,6 @@ Der ApplicationService SHALL TraceLink-Erstellung, -Query und -Löschung als Orc
 
 Der ApplicationService SHALL Baseline-Erstellung, -Abruf und -Diff als Facade über den BaselineService orchestrieren. VOR Erstellung: PresetConfigEngine konsultieren (Scope-Verfügbarkeit). Nach Erstellung: AuditLog.
 
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -378,11 +327,6 @@ Der ApplicationService SHALL Baseline-Erstellung, -Abruf und -Diff als Facade ü
 
 Der ApplicationService SHALL Workflow-Transitionen als Facade über die WorkflowEngine orchestrieren. Delegiert Validierung (Rollen, change_reason) an WorkflowEngine. Nach Transition: AuditLog. DARF WorkflowState nicht direkt modifizieren.
 
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -409,11 +353,6 @@ Der ApplicationService SHALL Workflow-Transitionen als Facade über die Workflow
 
 Der ApplicationService SHALL LLM-gestützte Capabilities (validate, decompose, check_consistency) durch Delegierung an den LlmAdapter orchestrieren. Ohne LLM-Konfiguration: graceful Fehler. LLM-Ergebnisse strukturell validieren VOR Persistierung.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -440,11 +379,6 @@ Der ApplicationService SHALL LLM-gestützte Capabilities (validate, decompose, c
 
 Der ApplicationService SHALL CSV-Import für Requirements, ArchitectureElements und TestCases bereitstellen. Validierung gegen Datenmodell. Fehler mit Zeilennummer. Importiert Items mit UUIDs. Atomar: entweder alle gültigen Zeilen oder keine.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -471,11 +405,6 @@ Der ApplicationService SHALL CSV-Import für Requirements, ArchitectureElements 
 
 Der ApplicationService SOLLTE die Verknüpfung von Requirements mit GitHub Issues und PRs unterstützen. Bidirektional abrufbar. GitHub-Token und zugreifbare Repositories erforderlich.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** desired
 **Acceptance Criteria:**
@@ -502,11 +431,6 @@ Der ApplicationService SOLLTE die Verknüpfung von Requirements mit GitHub Issue
 
 Der ApplicationService SOLLTE PDF-Report-Export für Anforderungsdokumente und Traceability-Matrizen bereitstellen. Inklusive Metadaten (Version, Baseline-Referenz, Workflow-State, Audit-History). Scope: Workspace, Artefakt oder Baseline.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** desired
 **Acceptance Criteria:**
@@ -532,11 +456,6 @@ Der ApplicationService SOLLTE PDF-Report-Export für Anforderungsdokumente und T
 
 Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requirement erstellt, geändert, Status-Übergang, Baseline erstellt) dispatchen. HTTP POST an konfigurierte URL mit JSON-Payload. Der Dispatch der Webhooks MUSS asynchron erfolgen und DARF die auslösende Operation nicht blockieren. Entkopplung über asynchronen Messaging-Mechanismus (REQ-L2-AS-029).
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** desired
 **Arch Impact:** true
@@ -565,11 +484,6 @@ Der ApplicationService SOLLTE konfigurierbare Webhooks für Ereignis-Typen (Requ
 
 Der ApplicationService SHALL alle Datenänderungen atomar und konsistent persistieren. Bei Fehlern: vollständiges Rollback. Die Atomizität MUSS über das gesamte System sichergestellt sein (ACID-Garantien).
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -594,11 +508,6 @@ Der ApplicationService SHALL alle Datenänderungen atomar und konsistent persist
 
 Der ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag schreiben: actor, operation, entity_id, timestamp, optionale Details. Der AuditLog-Eintrag MUSS durch einen entkoppelten, asynchronen Mechanismus (REQ-L2-AS-029) geschrieben werden. Die Persistierung des Events für das Audit-Log MUSS im selben Transaktionskontext erfolgen wie die Mutation (Eventual-Write-Garantie, kein Fire-and-Forget), ohne den AuditLogWriter direkt synchron aufzurufen.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Arch Impact:** true
@@ -627,11 +536,6 @@ Der ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag 
 
 Der ApplicationService SHALL PresetConfigEngine konsultieren vor preset-abhängigen Operationen: (a) Baseline-Scope-Verfügbarkeit, (b) change_reason-Pflicht, (c) Preset-Downgrade-Validierung.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -657,11 +561,6 @@ Der ApplicationService SHALL PresetConfigEngine konsultieren vor preset-abhängi
 
 Der ApplicationService SHALL Auth-Kontext (User, Tenant, Rollen) von AuthAndTenancy für jede Operation empfangen und an Downstream-Calls weiterreichen. DARF keine Auth-Primitiven direkt aufrufen.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -688,11 +587,6 @@ Der ApplicationService SHALL Auth-Kontext (User, Tenant, Rollen) von AuthAndTena
 
 Der ApplicationService SHALL sicherstellen, dass jede DB-Query auf den aktiven Tenant beschränkt ist. Tenant aus Auth-Kontext extrahiert und an PersistenceLayer propagiert. DARF Tenant-Filter nicht umgehen.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -719,11 +613,6 @@ Der ApplicationService SHALL sicherstellen, dass jede DB-Query auf den aktiven T
 
 Der ApplicationService SHALL maximal 50ms Orchestrierungs-Overhead pro Use-Case hinzufügen (exklusive Downstream-Latenz). Batch-Operationen wo möglich. Keine N+1-Queries.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -749,11 +638,6 @@ Der ApplicationService SHALL maximal 50ms Orchestrierungs-Overhead pro Use-Case 
 
 Der ApplicationService SHALL die Decomposition eines Requirements in Kind-Requirements orchestrieren. Mit übergebenen Children: direkt validieren und persistieren. Ohne Children: an LlmAdapter delegieren. Nach Erstellung: parent-child-TraceLinks, WorkflowState-Initialisierung, AuditLog.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -780,11 +664,6 @@ Der ApplicationService SHALL die Decomposition eines Requirements in Kind-Requir
 
 Der ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requirements haben mindestens einen `verifies`-TraceLink zu einem TestCase. Ergebnis: total, covered, percentage. Delegiert TraceLink-Query an TraceabilityEngine.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Acceptance Criteria:**
@@ -810,11 +689,6 @@ Der ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requireme
 
 Der ApplicationService SOLLTE vollständiges CRUD für Architecture Decision Records (ADRs) bereitstellen. Mit Status-Übergängen, Verlinkung zu betroffenen ArchitectureElements und Requirements.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
 **Domain:** software
 **Priority:** desired
 **Acceptance Criteria:**
@@ -841,11 +715,6 @@ Der ApplicationService SOLLTE vollständiges CRUD für Architecture Decision Rec
 
 Der ApplicationService SOLLTE vollständiges CRUD für Risiken (Risks) bereitstellen. Mit Severity, Probability, Mitigation-Strategien und TraceLinks zu Requirements/ArchitectureElements.
 
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** desired
 **Acceptance Criteria:**
@@ -872,11 +741,6 @@ Der ApplicationService SOLLTE vollständiges CRUD für Risiken (Risks) bereitste
 
 Der ApplicationService SOLLTE vollständiges CRUD für System-Issues bereitstellen. Mit Status, Assignee, und TraceLinks zu betroffenen Artefakten.
 
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
 **Domain:** software
 **Priority:** desired
 **Acceptance Criteria:**
@@ -903,11 +767,6 @@ Der ApplicationService SOLLTE vollständiges CRUD für System-Issues bereitstell
 
 Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes Domain-Event publizieren. Unterstützte Event-Typen: `RequirementCreated`, `RequirementUpdated`, `RequirementDeleted`, `BaselineCreated`, `WorkflowTransitioned`. Das Event-Publishing MUSS atomar an die auslösende Transaktion gebunden sein (Garantie: kein Event verloren, kein Event für zurückgerollte Mutation). AuditLogWriter, SeMetricsCollector und WebhookDispatcher empfangen Events asynchron. Der ApplicationService kennt keine Subscriber — die Kopplung erfolgt ausschließlich über den Event-Typ.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** mandatory
 **Arch Impact:** true
@@ -942,11 +801,6 @@ Der ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes D
 
 Der ApplicationService SHALL Testläufe (Test Runs) als eigenständige Entitäten verwalten. Ein TestRun wird mit 1..n TestCase-IDs erstellt. Jeder TestCase im Run kann individuell den Status Passed/Failed/Blocked/Not Run erhalten. Das aggregierte Lauf-Ergebnis wird automatisch berechnet (Passed = alle Passed, Failed = mindestens ein Failed, Partial = mindestens ein Blocked/Not Run). Der TestRun enthält Zeitstempel (Start, Ende) und die ausführende Instanz (z.B. CI-Job-ID). Vollständiges CRUD via REST-API und MCP.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** desired
 **arch_impact:** false
@@ -975,11 +829,6 @@ Der ApplicationService SHALL Testläufe (Test Runs) als eigenständige Entitäte
 
 Der ApplicationService SHALL automatisierten Pipelines und CI/CD-Systemen ermöglichen, Testergebnisse direkt als Test-Run-Ergebniseinträge über die REST-API und den MCP-Server (test.record_result) einzuspeisen. Die aufrufende Instanz MUSS mit einem gültigen API-Key authentifiziert sein. Jede Einspeisung SHALL im Audit-Log mit Agent-Client-Identität erfasst werden. Gleichzeitige Einspeisungen verschiedener Pipelines in denselben TestRun WERDEN serialisiert verarbeitet.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** desired
 **arch_impact:** false
@@ -1008,11 +857,6 @@ Der ApplicationService SHALL automatisierten Pipelines und CI/CD-Systemen ermög
 
 Der ApplicationService SHALL ein strukturiertes JSON-Diff zwischen zwei beliebigen Versionen eines Artefakts berechnen. Das Diff enthält hinzugefügte Felder, geänderte Felder (alt→neu) und gelöschte Felder. Markdown-Felder werden als Text-Diff dargestellt (kein strukturelles AST-Diff). Der Diff ist via REST-API (GET /artifacts/{id}/diff?from=v1&to=v2) abrufbar.
 
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
 **Domain:** software
 **Priority:** desired
 **arch_impact:** false
@@ -1103,10 +947,6 @@ Der ApplicationService SHALL ein strukturiertes JSON-Diff zwischen zwei beliebig
 
 ### REQ-L2-AS-033: Semantisches Projekt-Glossar (GlossaryTerm CRUD)
 
-**Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent. Neue Entität `GlossaryTerm` im Django-Datenmodell erforderlich.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-044 (← REQ-L0-032, SN-32). API-Endpunkt in RestApiAdapterSystem REQ-L2-API-xxx.
 
 Der ApplicationService MUSS eine neue Domänen-Entität `GlossaryTerm` verwalten,
 die pro Projekt ein maschinenlesbares Glossar bereitstellt. Jeder Eintrag enthält:
@@ -1139,4 +979,9 @@ Begriffe im Glossar bekannt sind, und ggf. eine Warnung zurückgeben (nicht bloc
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-AS-033 aus REQ-L1-044)*
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
 

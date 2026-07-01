@@ -43,7 +43,7 @@ Bei Regelverletzung SHALL die Transition mit spezifischer Fehlermeldung abgelehn
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -75,7 +75,7 @@ Custom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-P
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -102,7 +102,7 @@ Die WorkflowEngine SHALL für jede erfolgreiche Transition einen append-only His
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -128,7 +128,7 @@ Die WorkflowEngine SHALL bei WorkflowDefinition-Änderungen prüfen, ob Items in
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -152,7 +152,7 @@ Die WorkflowEngine SHALL die Operation `initialize_workflow_state(item_ids[], it
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -178,7 +178,7 @@ Die WorkflowEngine SHALL alle WorkflowDefinition- und WorkflowState-Queries auf 
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -202,7 +202,7 @@ Die WorkflowEngine SHALL bei Preset-Downgrades prüfen, ob Items in States exist
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -227,7 +227,7 @@ Die WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + 
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -251,7 +251,7 @@ Die WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das überge
 **Implementation State:** Implemented
 **Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
 **Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired

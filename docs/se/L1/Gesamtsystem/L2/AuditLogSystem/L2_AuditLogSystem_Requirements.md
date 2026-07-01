@@ -33,9 +33,9 @@
 Das AuditLog-System SHALL für jede schreibende Operation (Create, Update, Delete) auf Requirement, ArchitectureElement, TestCase und TraceLink einen Audit-Eintrag persistieren mit: `actor`, `actor_type` (user | agent), `operation`, `entity_type`, `entity_id`, `timestamp` (ISO-8601 UTC), `version`, `change_reason` (optional).
 
 **Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -59,9 +59,9 @@ Das AuditLog-System SHALL für jede schreibende Operation (Create, Update, Delet
 Das AuditLog-System SHALL bei MCP-Schreiboperationen zusätzlich `client_name` und `api_key_hash` (SHA-256, Prefix `sha256:`) erfassen. `source`-Feld: `mcp` oder `rest`. API-Key NIEMALS im Klartext.
 
 **Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -84,9 +84,9 @@ Das AuditLog-System SHALL bei MCP-Schreiboperationen zusätzlich `client_name` u
 Das AuditLog-System SHALL Audit-Einträge ausschließlich append-only persistieren. Nach dem Schreiben DARF ein Eintrag NICHT verändert oder gelöscht werden. Erzwingung auf Datenbankebene.
 
 **Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -110,9 +110,9 @@ Das AuditLog-System SHALL Audit-Einträge ausschließlich append-only persistier
 Das AuditLog-System SHALL die Persistierung in dieselbe Datenbank-Transaktion wie die auslösende Operation integrieren. Geschäftstransaktion fehlschlägt → Audit-Eintrag zurückgerollt. Audit-Persistierung fehlschlägt → gesamte Transaktion zurückgerollt.
 
 **Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -163,9 +163,9 @@ Das AuditLog-System SOLLTE eine Query-Schnittstelle bereitstellen mit Filtern: `
 Das AuditLog-System SHALL jeden Audit-Eintrag mit `tenant_id` versehen. Queries SOLLTEN ausschließlich Einträge des aktiven Tenants zurückliefern. Tenant-Isolation über Custom Django Manager.
 
 **Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory

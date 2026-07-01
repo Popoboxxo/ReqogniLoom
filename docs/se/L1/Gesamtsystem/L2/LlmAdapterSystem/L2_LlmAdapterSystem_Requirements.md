@@ -195,9 +195,9 @@ Der LlmAdapter SHALL jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen) im Audit
 Der LlmAdapter SOLLTE Azure-OpenAI als zusätzlichen Provider unterstützen (`LLM_PROVIDER=azure`). Azure-spezifische Konfiguration: Endpoint-URL, Deployment-Name, API-Version.
 
 **Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
+**Review Findings:** Anforderung ist im Code implementiert (AzureOpenAiProvider in providers.py), aber entsprechende Tests fehlen in test_llm_adapter.py.
+**Test Status:** Missing
+**Remarks:** Testabdeckung in test_llm_adapter.py ergänzen.
 
 **Domain:** software
 **Priority:** desired

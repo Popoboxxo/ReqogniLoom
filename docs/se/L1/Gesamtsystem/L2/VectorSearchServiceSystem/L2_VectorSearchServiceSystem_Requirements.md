@@ -45,7 +45,7 @@ Der VectorSearchService SHALL eine semantische, vektorbasierte Suche über alle 
 **Implementation State:** Not Implemented
 **Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Remarks:** Geprüft von se-verifier. System ist noch nicht implementiert.
 
 **Domain:** software
 **Priority:** optional
@@ -73,7 +73,7 @@ Der VectorSearchService SHALL bei jeder Artefakt-Erstellung und -Bearbeitung aut
 **Implementation State:** Not Implemented
 **Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Remarks:** Geprüft von se-verifier. System ist noch nicht implementiert.
 
 **Domain:** software
 **Priority:** optional
@@ -101,7 +101,7 @@ Der VectorSearchService SHALL eine Hybrid-Suche bereitstellen, die Vektor-Ähnli
 **Implementation State:** Not Implemented
 **Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Remarks:** Geprüft von se-verifier. System ist noch nicht implementiert.
 
 **Domain:** software
 **Priority:** optional
@@ -147,9 +147,9 @@ Der VectorSearchService SHALL eine Hybrid-Suche bereitstellen, die Vektor-Ähnli
 ### REQ-L2-VS-001: Semantische Vektorsuche (RAG-Query)
 
 **Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent. VectorSearchService nicht implementiert.
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26). Priority: optional.
+**Remarks:** Geprüft von se-verifier. System ist noch nicht implementiert.
 
 Der VectorSearchService MUSS eine semantische Suche über alle Anforderungen und
 Artefakte eines Workspace ermöglichen. Suchanfragen werden als Text-Embedding
@@ -179,9 +179,9 @@ AI-Agenten MÜSSEN diesen Endpunkt über die REST-API und den MCP-Server nutzen 
 ### REQ-L2-VS-002: Embedding-Pipeline (Automatisches Vektorisieren bei Artefakt-Änderungen)
 
 **Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent.
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26).
+**Remarks:** Geprüft von se-verifier. System ist noch nicht implementiert.
 
 Der VectorSearchService MUSS Artefakt-Änderungen (create/update) automatisch erkennen
 und das Embedding des geänderten Artefakts asynchron aktualisieren.
@@ -211,9 +211,9 @@ oder auf Admin-Anfrage auslösbar sein.
 ### REQ-L2-VS-003: Hybrid-Suche (Semantisch + Volltext kombiniert)
 
 **Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent.
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
 **Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26).
+**Remarks:** Geprüft von se-verifier. System ist noch nicht implementiert.
 
 Der VectorSearchService SOLL eine Hybrid-Suche anbieten, die semantische
 Ähnlichkeit (Vektor-Cosine) mit klassischer Volltext-Suche (BM25/TF-IDF) kombiniert.
