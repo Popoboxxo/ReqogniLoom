@@ -1,5 +1,5 @@
 # Hinweis: Submodul aktuell auf v0.64.1 — Upgrade empfohlen nach Sync
-agent-meta-version: 0.65.1
+agent-meta-version: 0.65.2
 test-repo:
   enabled: false
   path: ''
