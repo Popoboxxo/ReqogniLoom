@@ -14,7 +14,7 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
@@ -429,6 +429,12 @@ export default function ArchitectureEditors(): JSX.Element {
   const { elements, element, linkedTraceLinks, isLoading, error, refresh } =
     useArchitectureData(selectedId);
 
+  // Split-pane resize state (REQ-L3-RF-***: enable split-pane resizing).
+  const [leftPanelWidth, setLeftPanelWidth] = useState(280);
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(0);
+
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
     try {
@@ -457,6 +463,41 @@ export default function ArchitectureEditors(): JSX.Element {
     },
     [refresh, navigate]
   );
+
+  // Split-pane resize handlers
+  const handleDividerMouseDown = (e: React.MouseEvent): void => {
+    isDraggingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = leftPanelWidth;
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!isDraggingRef.current) return;
+      const delta = e.clientX - dragStartXRef.current;
+      const newWidth = Math.max(280, dragStartWidthRef.current + delta);
+      setLeftPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = (): void => {
+      isDraggingRef.current = false;
+    };
+
+    if (isDraggingRef.current) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    }
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, [leftPanelWidth]);
 
   if (isLoading) {
     return (
@@ -497,13 +538,21 @@ export default function ArchitectureEditors(): JSX.Element {
     <div
       style={{
         display: "flex",
-        gap: "var(--space-6)",
+        height: "100%",
+        overflow: "hidden",
         fontFamily: "var(--font-sans)",
         color: "var(--color-text)",
       }}
     >
       {/* Elements list (left panel) */}
-      <div style={{ minWidth: "280px" }}>
+      <div
+        style={{
+          width: `${leftPanelWidth}px`,
+          minWidth: "280px",
+          maxWidth: "70%",
+          overflow: "auto",
+        }}
+      >
         <div
           style={{
             display: "flex",
@@ -620,8 +669,30 @@ export default function ArchitectureEditors(): JSX.Element {
         )}
       </div>
 
+      {/* Divider for split-pane resize */}
+      <div
+        onMouseDown={handleDividerMouseDown}
+        data-testid="architecture-editor-divider"
+        style={{
+          width: "4px",
+          backgroundColor: "var(--color-border)",
+          cursor: "col-resize",
+          userSelect: "none",
+          transition: isDraggingRef.current ? "none" : "background-color var(--transition-fast)",
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLDivElement).style.backgroundColor = "var(--color-border-hover)";
+        }}
+        onMouseLeave={(e) => {
+          if (!isDraggingRef.current) {
+            (e.currentTarget as HTMLDivElement).style.backgroundColor = "var(--color-border)";
+          }
+        }}
+      />
+
       {/* Detail editor (right panel) */}
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, overflow: "auto" }}>
         {element ? (
           <div
             style={{

@@ -173,4 +173,109 @@ Das Frontend MUSS die zentralen Shared-Types in `frontend/src/types/index.ts` um
 
 ---
 
-*Erweiterung durch requirements-Agent | 2026-06-30 (REQ-L2-RF-018..023 aus wk-bug-fixes)*
+---
+
+### REQ-L2-RF-024: Split-Pane Resize für Editor-Masken
+
+**Implementation State:** Implemented
+**Test Status:** Complete
+**Domain:** software
+**Priority:** should
+**Category:** UI/UX
+
+RequirementEditors und ArchitectureEditors MÜSSEN ein interaktives Split-Pane-Resize-Interface bereitstellen, das es dem Nutzer ermöglicht, die Breite der linken Listenpanel dynamisch anzupassen. Dies verbessert die Usability für Bildschirme mit unterschiedlichen Auflösungen.
+
+**Lösung:**
+1. **Divider-Element:** Ein 4px breites, horizontal-draggbares Divider-Element zwischen der linken Listenpanel und der rechten Detail-Panel.
+2. **Mouse-Listener:** `onMouseDown` auf dem Divider startet das Drag-Tracking; `mousemove` auf `document` passt die Panel-Breite an.
+3. **Minimum/Maximum-Constraints:** Linke Panel min: 260px (RequirementEditors) / 280px (ArchitectureEditors), max: 70% der Container-Breite.
+4. **Visual Feedback:** Divider zeigt `cursor: col-resize` on hover, `cursor: col-resize` während Drag, Hintergrund wechselt zu `var(--color-border-hover)`.
+5. **State Management:** Breite wird in lokaler React-State gespeichert (keine Persistierung erforderlich).
+
+**Acceptance Criteria:**
+- [ ] AC1: Divider ist in RequirementEditors und ArchitectureEditors sichtbar und interaktiv
+- [ ] AC2: Mouse-Down auf Divider startet Drag-Tracking
+- [ ] AC3: Mouse-Move passt linke Panel-Breite an (min 260px / 280px, max 70%)
+- [ ] AC4: Mouse-Up beendet Drag-Tracking
+- [ ] AC5: Cursor-Feedback zeigt `col-resize` während Drag
+- [ ] AC6: Panel-Größe bleibt während Drag erhalten (keine Flicker)
+- [ ] AC7: Beide Komponenten sind TypeScript-type-safe, keine Console-Fehler
+
+**Verifikationsmethode:** Unit-Tests (Vitest) + UI-E2E-Tests (Playwright)
+**Verifikiert durch:** L2-RF-Test-024
+**Abgeleitet von:** REQ-L1-040 (SE-Entity-Masken Vereinheitlichung)
+
+---
+
+*Erweiterung durch developer-Agent | 2026-07-01 (REQ-L2-RF-024 Split-Pane Resize)*
+
+---
+
+## UI/UX — SE-Masken Vereinheitlichung
+
+### REQ-L1-040: SE-Entity-Masken Vereinheitlichung
+
+**Implementation State:** Not Implemented  
+**Test Status:** Missing  
+**Domain:** software  
+**Priority:** should  
+**Category:** UI/UX
+
+Die SE-Masken-UI ist derzeit **nicht intuitiv**: Requirements- und Architektur-Masken folgen einer anderen Logik als Hilfs-Entities (ADR, Risk, Problem, TestCase, TestRun). Alle Entity-Masken MÜSSEN ein kohärentes Interaktionsmuster verwenden.
+
+### Problem
+- **Status Quo:** Strukturelle Inkonsistenzen in den Masken:
+  - Requirements/Architecture: Hierarchische Ansicht, TraceLink-Verwaltung an mehreren Stellen
+  - ADR/Risk/Problem/TestCase/TestRun: Flache Listen, unterschiedliche Status-Badge-Rendering, duplizierte Formular-Logik
+- **Impact:** Nutzer müssen unterschiedliche Mental Models für verschiedene Entity-Typen lernen; UI-Code ist nicht wartbar (siehe REQ-L2-RF-019..022 für Code-Duplication).
+
+### Lösung
+Alle Entity-Masken (13 Entitätstypen: Requirement, ArchitectureElement, Interface_ICD, TestCase, ADR, Risk, Issue, Diagram, Baseline, TestRun, Problem, Milestone, Artifact) MÜSSEN ein **einheitliches CRUD-Pattern** implementieren:
+
+1. **Listenansicht:**
+   - Einheitlicher Aufbau: Entity-Typ → Status-Badge → Metadaten (Owner, Datum) → Aktions-Icons (Edit/Delete)
+   - Filterbar/Sortierbar nach Status, Priority, Owner
+   - Flach-Ansicht (alle Entities in einer Ebene) und Hierarchie-Ansicht (mit Parent/Child-Nesting) für alle Typen
+
+2. **Erstellungsformular:**
+   - Einheitliche Feldanordnung: Titel → Description → Status → Priority → LinkedRequirements (Multi-Select) → Speichern
+   - Automatische TraceLink-Erstellung nach dem Create
+
+3. **Detailansicht:**
+   - Inline-Editing für alle editierbaren Felder
+   - Konsistente Status-Badge-Rendering
+   - TraceLink-Verwaltung (Add/Remove Related Entities)
+
+4. **Shared-Styles & Komponenten:**
+   - CSS-Module oder Theme-Constants für Buttons, Input-Felder, Status-Badges (statt Inline-Styles)
+   - Wiederverwendbare Komponenten: `<StatusBadge/>`, `<EntityForm/>`, `<EntityList/>`, `<TraceLinksPanel/>`
+
+### Acceptance Criteria
+- [ ] AC1: Alle 13 Entity-Masken haben konsistente Struktur (List/Create/Detail-View)
+- [ ] AC2: Flache und Hierarchie-Ansicht sind für alle Entity-Typen verfügbar
+- [ ] AC3: Status-Badges sind einheitlich über alle Entity-Typen (CSS-Klasse, nicht Inline-Style)
+- [ ] AC4: Keine duplizierten Inline-Styles in React-Komponenten
+- [ ] AC5: TraceLink-Verwaltung ist in allen Detailansichten analog
+- [ ] AC6: Formular-Logik (Validierung, Submit, Error-Handling) ist in wiederverwendbarem Hook/Component
+
+### Verifikationsmethode
+UI-E2E-Tests (Playwright) für repräsentative Entity-Typen (Requirement, ADR, TestCase):
+- Create → List anzeigen → Detail öffnen → Edit → Save → Delete
+- Flach- und Hierarchie-Ansicht rendern
+- Status-Badge-Rendering in allen Views
+
+**Verifikationstest:** `integration/ui/se-entity-mask-unification.spec.ts`
+
+### Abhängigkeiten
+- `REQ-L1-001` (Artefakt-Hierarchie mit beliebiger Tiefe)
+- `REQ-L1-004` (ArchitectureElement Workflow)
+- `REQ-L1-029` (ADR/Risk/Issue Management)
+- `REQ-L1-012` (TestCase/TestRun Management)
+- `REQ-L2-RF-019..022` (RiskList/AdrList/IssueList/TestRuns Refactoring)
+
+### Notizen
+Diese Anforderung entstand aus dem User-Feedback zur SE-Ontologie-Analyse (`docs/se/reqflow_ontology_analysis.md`). Sie ist nicht komponentenspezifisch (L3), sondern System-Level (L1), da sie alle SE-Entities betrifft.
+
+---
+
+*Erweiterung durch requirements-Agent | 2026-07-01 (REQ-L1-040 — SE-Masken-UI-Vereinheitlichung)*

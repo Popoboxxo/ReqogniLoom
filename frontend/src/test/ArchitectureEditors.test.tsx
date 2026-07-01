@@ -201,4 +201,14 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByTestId("confirm-delete-btn")).toBeInTheDocument();
   });
+
+  it("renders split-pane divider for resizing (REQ-L3-RF-***: enable split-pane resizing)", async () => {
+    renderEditor(MOCK_ELEMENT.id);
+
+    await waitFor(() => {
+      const divider = screen.getByTestId("architecture-editor-divider");
+      expect(divider).toBeInTheDocument();
+      expect(divider).toHaveStyle("cursor: col-resize");
+    });
+  });
 });
