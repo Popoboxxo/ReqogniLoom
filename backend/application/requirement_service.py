@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.db.models import F
 from persistence.models import Artifact, Requirement, Tenant, Workspace
 from persistence.transactions import TransactionContextManager, atomic_transaction
 
@@ -217,6 +218,12 @@ class RequirementService(ServiceBase):
             requirement.status = status
 
         requirement.save()
+        # Atomic version increment (REQ-L3-PL001-002): requirement_service was
+        # missing any version bump at all — the baseline diff engine compares
+        # stored version numbers, so without this increment every update appears
+        # as version=1 forever, producing incorrect/empty diffs.
+        Requirement.objects.filter(id=requirement.id).update(version=F("version") + 1)
+        requirement.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,

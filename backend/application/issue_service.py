@@ -27,6 +27,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.db.models import F
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -284,8 +285,12 @@ class IssueService(ServiceBase):
         if tags is not None:
             issue.tags = tags
 
-        issue.version += 1
+        # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
+        # then issue a single SQL UPDATE that increments version at the database
+        # level — avoids the read-modify-write race condition of `version += 1`.
         issue.save()
+        Issue.objects.filter(id=issue.id).update(version=F("version") + 1)
+        issue.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,
@@ -485,8 +490,10 @@ class IssueService(ServiceBase):
         old_assignee = issue.assignee_id
         issue.assignee_id = assignee_id
         issue.assignee_changed_date = timezone.now()
-        issue.version += 1
+        # Atomic version increment (REQ-L3-PL001-002)
         issue.save()
+        Issue.objects.filter(id=issue.id).update(version=F("version") + 1)
+        issue.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,
@@ -553,8 +560,10 @@ class IssueService(ServiceBase):
             )
 
         issue.status = target_status
-        issue.version += 1
+        # Atomic version increment (REQ-L3-PL001-002)
         issue.save()
+        Issue.objects.filter(id=issue.id).update(version=F("version") + 1)
+        issue.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,

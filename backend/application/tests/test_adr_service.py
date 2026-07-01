@@ -211,11 +211,15 @@ class TestCreateAdr:
 
 class TestUpdateAdr:
     def test_updates_fields_and_increments_version(self):
-        """update_adr patches changed fields and increments version."""
+        """update_adr patches changed fields and increments version atomically (REQ-L3-PL001-002)."""
         svc = AdrService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         existing_adr = _make_adr(version=1)
         existing_adr.save = MagicMock()
+        # Simulate the DB-level F("version") + 1 that refresh_from_db would return.
+        existing_adr.refresh_from_db = MagicMock(
+            side_effect=lambda fields=None: setattr(existing_adr, "version", existing_adr.version + 1)
+        )
 
         with (
             patch("application.adr_service.Adr.objects") as mock_mgr,
@@ -236,6 +240,9 @@ class TestUpdateAdr:
         assert result.title == "Updated Title"
         assert result.version == 2
         existing_adr.save.assert_called_once()
+        # Verify the atomic update was issued and version was refreshed.
+        mock_mgr.filter.return_value.update.assert_called_once()
+        existing_adr.refresh_from_db.assert_called_once_with(fields=["version"])
 
     def test_not_found_raises(self):
         """update_adr raises NotFoundError when ADR does not exist."""

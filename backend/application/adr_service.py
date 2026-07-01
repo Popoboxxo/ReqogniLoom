@@ -27,6 +27,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.db.models import F
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -239,8 +240,12 @@ class AdrService(ServiceBase):
         if consequences is not None:
             adr.consequences = consequences
 
-        adr.version += 1
+        # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
+        # then issue a single SQL UPDATE that increments version at the database
+        # level — avoids the read-modify-write race condition of `version += 1`.
         adr.save()
+        Adr.objects.filter(id=adr.id).update(version=F("version") + 1)
+        adr.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,
@@ -410,8 +415,10 @@ class AdrService(ServiceBase):
             )
 
         adr.status = target_status
-        adr.version += 1
+        # Atomic version increment (REQ-L3-PL001-002)
         adr.save()
+        Adr.objects.filter(id=adr.id).update(version=F("version") + 1)
+        adr.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,

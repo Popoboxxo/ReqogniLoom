@@ -426,6 +426,58 @@ class TestUpdateRequirement:
 
         assert mock_req.status == "review"
 
+    def test_update_increments_version_atomically(self):
+        """update_requirement atomically increments version via F() expression (REQ-L3-PL001-002).
+
+        Prior to this fix the method called requirement.save() without any version
+        increment, so version remained at 1 forever, breaking the baseline diff engine.
+        """
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_req = _make_requirement(version=1)
+
+        mock_policy = MagicMock()
+        mock_policy.is_change_reason_required.return_value = False
+        svc._preset_policy = mock_policy
+
+        # Simulate the DB-level F("version") + 1 that refresh_from_db would return.
+        mock_req.refresh_from_db = MagicMock(
+            side_effect=lambda fields=None: setattr(mock_req, "version", mock_req.version + 1)
+        )
+
+        mock_filter_qs = MagicMock()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch("application.requirement_service.ServiceBase._assert_write_permission"),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_req)
+                        )
+                    )
+                ),
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=mock_filter_qs,
+            ),
+            patch.object(svc, "_audit"),
+            patch.object(svc, "_emit_event"),
+        ):
+            result = svc.update_requirement(
+                requirement_id=REQ_ID, ctx=ctx, title="Updated"
+            )
+
+        # Atomic update must have been issued.
+        mock_filter_qs.update.assert_called_once()
+        # refresh_from_db must have been called to sync the new version.
+        mock_req.refresh_from_db.assert_called_once_with(fields=["version"])
+        # Version must reflect the incremented value.
+        assert result.version == 2
+
 
 # ---------------------------------------------------------------------------
 # delete_requirement

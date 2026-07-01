@@ -211,10 +211,15 @@ class TestCreateIssue:
 
 class TestUpdateIssue:
     def test_updates_fields_and_increments_version(self):
+        """update_issue patches fields and increments version atomically (REQ-L3-PL001-002)."""
         svc = IssueService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         existing = _make_issue(version=1)
         existing.save = MagicMock()
+        # Simulate the DB-level F("version") + 1 that refresh_from_db would return.
+        existing.refresh_from_db = MagicMock(
+            side_effect=lambda fields=None: setattr(existing, "version", existing.version + 1)
+        )
 
         with (
             patch("application.issue_service.Issue.objects") as mock_mgr,
@@ -238,6 +243,9 @@ class TestUpdateIssue:
         assert result.tags == ["ui"]
         assert result.version == 2
         existing.save.assert_called_once()
+        # Verify the atomic update was issued and version was refreshed.
+        mock_mgr.filter.return_value.update.assert_called_once()
+        existing.refresh_from_db.assert_called_once_with(fields=["version"])
 
     def test_not_found_raises(self):
         svc = IssueService()
@@ -421,11 +429,15 @@ class TestListIssuesMultiFilter:
 
 class TestAssignIssue:
     def test_assign_updates_assignee_and_date(self):
-        """assign_issue sets assignee_id and assignee_changed_date."""
+        """assign_issue sets assignee_id, date, and increments version atomically (REQ-L3-PL001-002)."""
         svc = IssueService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         existing = _make_issue(assignee_id=None)
         existing.save = MagicMock()
+        # Simulate the DB-level F("version") + 1 that refresh_from_db would return.
+        existing.refresh_from_db = MagicMock(
+            side_effect=lambda fields=None: setattr(existing, "version", existing.version + 1)
+        )
         new_assignee = uuid.uuid4()
 
         with (

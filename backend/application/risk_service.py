@@ -27,6 +27,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.db.models import F
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -307,8 +308,12 @@ class RiskService(ServiceBase):
         score = risk.compute_score()
         risk.risk_score = score
         risk.severity = Risk.score_to_severity(score)
-        risk.version += 1
+        # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
+        # then issue a single SQL UPDATE that increments version at the database
+        # level — avoids the read-modify-write race condition of `version += 1`.
         risk.save()
+        Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
+        risk.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,
@@ -516,8 +521,10 @@ class RiskService(ServiceBase):
             )
 
         risk.status = target_status
-        risk.version += 1
+        # Atomic version increment (REQ-L3-PL001-002)
         risk.save()
+        Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
+        risk.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,
