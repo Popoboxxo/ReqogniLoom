@@ -77,7 +77,7 @@ function AppShell(): JSX.Element {
     >
       <SidebarNavigation />
       <main
-        style={{ flex: 1, padding: "1.5rem", overflow: "auto" }}
+        style={{ flex: 1, height: "100%", padding: "1.5rem", overflow: "auto" }}
         role="main"
       >
         <ErrorBoundary
