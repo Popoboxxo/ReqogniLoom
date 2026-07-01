@@ -18,6 +18,10 @@
 - [ ] **Phase 8-9 (se-validator + se-verifier)** für alle 3 Bugs nach grünem Test-Gate
 - [ ] **Push auf Remote** `feat/se-implementation` (Push-Gate: erst nach SE-Implementation + Tests grün)
 
+## UI/UX — SE-Masken
+
+- [ ] **REQ-L1-040**: SE-Entity-Masken Vereinheitlichung (Konsistenz über 13 Entitätstypen hinweg)
+
 ## Optional / Non-urgent
 
 - Optionale Korrektur `af149c8`: refactor-Bundle in 4 separate `feat(REQ-L2-RF-019..022)` Commits aufsplitten — User hat akzeptiert, nicht akut

@@ -14,9 +14,15 @@ import type { TraceLink } from "../../types";
 interface TraceabilityPanelProps {
   upstreamLinks: TraceLink[];
   downstreamLinks: TraceLink[];
+  linkedTitles: Record<string, string>;
 }
 
-function LinkItem({ link }: { link: TraceLink }): JSX.Element {
+interface LinkItemProps {
+  link: TraceLink;
+  title: string;
+}
+
+function LinkItem({ link, title }: LinkItemProps): JSX.Element {
   const navigate = useNavigate();
 
   const handleClick = (): void => {
@@ -32,10 +38,20 @@ function LinkItem({ link }: { link: TraceLink }): JSX.Element {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
+        gap: "0.5rem",
       }}
     >
-      <span style={{ fontFamily: "monospace", fontSize: "0.8rem" }}>
-        {link.source_id.slice(0, 8)}…
+      <span
+        style={{
+          fontSize: "0.8rem",
+          flex: 1,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={`${title} (${link.source_id.slice(0, 8)}…)`}
+      >
+        {title}
       </span>
       <span
         style={{
@@ -43,13 +59,14 @@ function LinkItem({ link }: { link: TraceLink }): JSX.Element {
           background: "#eef",
           padding: "0.1rem 0.4rem",
           borderRadius: "4px",
+          flexShrink: 0,
         }}
       >
         {link.link_type}
       </span>
       <button
         onClick={handleClick}
-        style={{ fontSize: "0.75rem", cursor: "pointer" }}
+        style={{ fontSize: "0.75rem", cursor: "pointer", flexShrink: 0 }}
       >
         →
       </button>
@@ -60,6 +77,7 @@ function LinkItem({ link }: { link: TraceLink }): JSX.Element {
 export function TraceabilityPanel({
   upstreamLinks,
   downstreamLinks,
+  linkedTitles,
 }: TraceabilityPanelProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -80,7 +98,11 @@ export function TraceabilityPanel({
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {upstreamLinks.map((l) => (
-            <LinkItem key={l.id} link={l} />
+            <LinkItem
+              key={l.id}
+              link={l}
+              title={linkedTitles[l.source_id] || `(${l.source_id.slice(0, 8)}…)`}
+            />
           ))}
         </ul>
       )}
@@ -93,7 +115,11 @@ export function TraceabilityPanel({
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {downstreamLinks.map((l) => (
-            <LinkItem key={l.id} link={l} />
+            <LinkItem
+              key={l.id}
+              link={l}
+              title={linkedTitles[l.target_id] || `(${l.target_id.slice(0, 8)}…)`}
+            />
           ))}
         </ul>
       )}

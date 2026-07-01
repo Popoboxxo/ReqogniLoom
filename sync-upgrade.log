@@ -1,0 +1,731 @@
+  !  Config validation warnings (1) — fix or install jsonschema to suppress this check:
+       variables.GIT_PLATFORM: 'Codeberg' is not one of ['GitHub', 'GitLab', 'Gitea']
+  !  agent-meta version mismatch: config says v0.65.1, but submodule git tag is v0.65.2 — run: git submodule update --init .agent-meta
+  !  Unknown rules-preset '' — falling back to 'default'
+  !  Unknown rules-preset '' — falling back to 'default'
+  !  Unknown rules-preset '' — falling back to 'default'
+  !  Unknown rules-preset '' — falling back to 'default'
+  !  repo 'neat-little-package': submodule is at 9fa3d3d, expected pinned_commit be411f31 — run: git -C external/neat-little-package checkout be411f31
+  !  repo 'awesome-claude-code': submodule is at 9fa3d3d, expected pinned_commit 3d8bde25 — run: git -C external/awesome-claude-code checkout 3d8bde25
+  i  CLAUDE.md already exists — skipped (use --only-variables)
+
+============================================================
+agent-meta sync — 2026-07-01 23:03:33
+============================================================
+Config:    .meta-config/project.yaml
+Source:    .agent-meta/ (v0.65.1)
+Mode:      sync
+Platforms: (none)
+Providers: Claude, Opencode, Gemini
+Speech:    short
+
+ACTIONS
+-------
+[UPDATE  ]  CLAUDE.md                                           (managed block (AGENT_TABLE + version))
+[WRITE   ]  .claude\agents\orchestrator.md                      (1-generic\orchestrator.md)
+[DELETE  ]  .claude\rules\speech-mode.md                        (rule removed from agent-meta sources)
+[COPY    ]  .claude\rules\speech-mode.md                        (speech/short.md)
+[COPY    ]  .claude\hooks\dod-push-check.sh                     (hooks/1-generic/dod-push-check.sh)
+[COPY    ]  .claude\hooks\lifecycle-check.sh                    (hooks/1-generic/lifecycle-check.sh)
+[COPY    ]  .claude\hooks\orchestrator-guard.sh                 (hooks/1-generic/orchestrator-guard.sh)
+[UPDATE  ]  .claude/settings.json                               (registered hooks: lifecycle-check, orchestrator-guard)
+[COPY    ]  .claude\commands\add-mcp-server.md                  (commands/1-generic/add-mcp-server.md)
+[COPY    ]  .claude\commands\add-project-role.md                (commands/1-generic/add-project-role.md)
+[COPY    ]  .claude\commands\add-provider.md                    (commands/1-generic/add-provider.md)
+[COPY    ]  .claude\commands\admin.md                           (commands/1-generic/admin.md)
+[COPY    ]  .claude\commands\analysis.md                        (commands/1-generic/analysis.md)
+[COPY    ]  .claude\commands\analyze-logs.md                    (commands/1-generic/analyze-logs.md)
+[COPY    ]  .claude\commands\checkpoint.md                      (commands/1-generic/checkpoint.md)
+[COPY    ]  .claude\commands\commit.md                          (commands/1-generic/commit.md)
+[COPY    ]  .claude\commands\consistency-check.md               (commands/1-generic/consistency-check.md)
+[COPY    ]  .claude\commands\diagnose.md                        (commands/1-generic/diagnose.md)
+[COPY    ]  .claude\commands\doc-now.md                         (commands/1-generic/doc-now.md)
+[COPY    ]  .claude\commands\feedback.md                        (commands/1-generic/feedback.md)
+[COPY    ]  .claude\commands\merge.md                           (commands/1-generic/merge.md)
+[COPY    ]  .claude\commands\open-docs.md                       (commands/1-generic/open-docs.md)
+[COPY    ]  .claude\commands\pipelines.md                       (commands/1-generic/pipelines.md)
+[COPY    ]  .claude\commands\report-bug.md                      (commands/1-generic/report-bug.md)
+[COPY    ]  .claude\commands\set-preset.md                      (commands/1-generic/set-preset.md)
+[COPY    ]  .claude\commands\test-orchestration.md              (commands/1-generic/test-orchestration.md)
+[COPY    ]  .claude\commands\update-extensions.md               (commands/1-generic/update-extensions.md)
+[COPY    ]  .claude\commands\update-meta.md                     (commands/1-generic/update-meta.md)
+[COPY    ]  .claude\commands\upgrade-meta.md                    (commands/1-generic/upgrade-meta.md)
+[COPY    ]  .claude\commands\what-is.md                         (commands/1-generic/what-is.md)
+[UPDATE  ]  AGENTS.md                                           (managed block (agent hints + rules))
+[WRITE   ]  .opencode\agents\orchestrator.md                    (1-generic\orchestrator.md)
+[COPY    ]  .opencode\commands\add-mcp-server.md                (commands/1-generic/add-mcp-server.md)
+[COPY    ]  .opencode\commands\add-project-role.md              (commands/1-generic/add-project-role.md)
+[COPY    ]  .opencode\commands\add-provider.md                  (commands/1-generic/add-provider.md)
+[COPY    ]  .opencode\commands\admin.md                         (commands/1-generic/admin.md)
+[COPY    ]  .opencode\commands\analysis.md                      (commands/1-generic/analysis.md)
+[COPY    ]  .opencode\commands\analyze-logs.md                  (commands/1-generic/analyze-logs.md)
+[COPY    ]  .opencode\commands\checkpoint.md                    (commands/1-generic/checkpoint.md)
+[COPY    ]  .opencode\commands\commit.md                        (commands/1-generic/commit.md)
+[COPY    ]  .opencode\commands\consistency-check.md             (commands/1-generic/consistency-check.md)
+[COPY    ]  .opencode\commands\diagnose.md                      (commands/1-generic/diagnose.md)
+[COPY    ]  .opencode\commands\doc-now.md                       (commands/1-generic/doc-now.md)
+[COPY    ]  .opencode\commands\feedback.md                      (commands/1-generic/feedback.md)
+[COPY    ]  .opencode\commands\merge.md                         (commands/1-generic/merge.md)
+[COPY    ]  .opencode\commands\open-docs.md                     (commands/1-generic/open-docs.md)
+[COPY    ]  .opencode\commands\pipelines.md                     (commands/1-generic/pipelines.md)
+[COPY    ]  .opencode\commands\report-bug.md                    (commands/1-generic/report-bug.md)
+[COPY    ]  .opencode\commands\set-preset.md                    (commands/1-generic/set-preset.md)
+[COPY    ]  .opencode\commands\test-orchestration.md            (commands/1-generic/test-orchestration.md)
+[COPY    ]  .opencode\commands\update-extensions.md             (commands/1-generic/update-extensions.md)
+[COPY    ]  .opencode\commands\update-meta.md                   (commands/1-generic/update-meta.md)
+[COPY    ]  .opencode\commands\upgrade-meta.md                  (commands/1-generic/upgrade-meta.md)
+[COPY    ]  .opencode\commands\what-is.md                       (commands/1-generic/what-is.md)
+[UPDATE  ]  .gemini\GEMINI.md                                   (managed block)
+[WRITE   ]  .gemini\agents\orchestrator.md                      (1-generic\orchestrator.md)
+[DELETE  ]  .gemini\rules\speech-mode.md                        (rule removed from agent-meta sources)
+[COPY    ]  .gemini\rules\speech-mode.md                        (speech/short.md)
+[COPY    ]  .gemini\commands\add-mcp-server.toml                (commands/1-generic/add-mcp-server.md)
+[COPY    ]  .gemini\commands\add-project-role.toml              (commands/1-generic/add-project-role.md)
+[COPY    ]  .gemini\commands\add-provider.toml                  (commands/1-generic/add-provider.md)
+[COPY    ]  .gemini\commands\admin.toml                         (commands/1-generic/admin.md)
+[COPY    ]  .gemini\commands\analysis.toml                      (commands/1-generic/analysis.md)
+[COPY    ]  .gemini\commands\analyze-logs.toml                  (commands/1-generic/analyze-logs.md)
+[COPY    ]  .gemini\commands\checkpoint.toml                    (commands/1-generic/checkpoint.md)
+[COPY    ]  .gemini\commands\commit.toml                        (commands/1-generic/commit.md)
+[COPY    ]  .gemini\commands\consistency-check.toml             (commands/1-generic/consistency-check.md)
+[COPY    ]  .gemini\commands\diagnose.toml                      (commands/1-generic/diagnose.md)
+[COPY    ]  .gemini\commands\doc-now.toml                       (commands/1-generic/doc-now.md)
+[COPY    ]  .gemini\commands\feedback.toml                      (commands/1-generic/feedback.md)
+[COPY    ]  .gemini\commands\merge.toml                         (commands/1-generic/merge.md)
+[COPY    ]  .gemini\commands\open-docs.toml                     (commands/1-generic/open-docs.md)
+[COPY    ]  .gemini\commands\pipelines.toml                     (commands/1-generic/pipelines.md)
+[COPY    ]  .gemini\commands\report-bug.toml                    (commands/1-generic/report-bug.md)
+[COPY    ]  .gemini\commands\set-preset.toml                    (commands/1-generic/set-preset.md)
+[COPY    ]  .gemini\commands\test-orchestration.toml            (commands/1-generic/test-orchestration.md)
+[COPY    ]  .gemini\commands\update-extensions.toml             (commands/1-generic/update-extensions.md)
+[COPY    ]  .gemini\commands\update-meta.toml                   (commands/1-generic/update-meta.md)
+[COPY    ]  .gemini\commands\upgrade-meta.toml                  (commands/1-generic/upgrade-meta.md)
+[COPY    ]  .gemini\commands\what-is.toml                       (commands/1-generic/what-is.md)
+[WRITE   ]  .claude/settings.json                               (provider-isolation deny: .opencode/**, opencode.json, AGENTS.md, .gemini/**)
+
+SKIPPED
+-------
+[SKIP]   config/project-config.schema.json                   (roles enum already up to date (50 roles))
+[SKIP]   CLAUDE.md                                           (already exists)
+[SKIP]   CLAUDE.personal.md                                  (already exists)
+[SKIP]   .claude/settings.json                               (already exists)
+[SKIP]   .claude/settings.local.json                         (already exists)
+[SKIP]   .claude\agents\agent-meta-manager.md                (unchanged)
+[SKIP]   .claude\agents\agent-meta-scout.md                  (unchanged)
+[SKIP]   .claude\agents\api-specialist.md                    (unchanged)
+[SKIP]   .claude\agents\bug-feature-analyzer.md              (unchanged)
+[SKIP]   .claude\agents\code-reviewer.md                     (unchanged)
+[SKIP]   .claude\agents\concept-reviewer.md                  (unchanged)
+[SKIP]   .claude\agents\developer.md                         (unchanged)
+[SKIP]   .claude\agents\devops-engineer.md                   (unchanged)
+[SKIP]   .claude\agents\docker.md                            (unchanged)
+[SKIP]   .claude\agents\documenter.md                        (unchanged)
+[SKIP]   .claude\agents\effort-estimator.md                  (unchanged)
+[SKIP]   .claude\agents\explorer.md                          (unchanged)
+[SKIP]   .claude\agents\export-manager.md                    (unchanged)
+[SKIP]   .claude\agents\feature.md                           (unchanged)
+[SKIP]   .claude\agents\feedback.md                          (unchanged)
+[SKIP]   .claude\agents\git.md                               (unchanged)
+[SKIP]   .claude\agents\ideation.md                          (unchanged)
+[SKIP]   .claude\agents\junior-developer.md                  (unchanged)
+[SKIP]   .claude\agents\log-analyzer.md                      (unchanged)
+[SKIP]   .claude\agents\meta-feedback.md                     (unchanged)
+[SKIP]   .claude\agents\openscad-developer.md                (role 'openscad-developer' not in config['roles'])
+[SKIP]   .claude\agents\performance-optimizer.md             (unchanged)
+[SKIP]   .claude\agents\prompt-engineer.md                   (role 'prompt-engineer' not in config['roles'])
+[SKIP]   provider-expert.md                                  (role not in ROLE_MAP)
+[SKIP]   .claude\agents\release.md                           (unchanged)
+[SKIP]   .claude\agents\requirements.md                      (unchanged)
+[SKIP]   .claude\agents\se-architect.md                      (unchanged)
+[SKIP]   .claude\agents\se-critic.md                         (unchanged)
+[SKIP]   .claude\agents\se-developer.md                      (unchanged)
+[SKIP]   .claude\agents\se-integration-and-test-manager.md   (unchanged)
+[SKIP]   .claude\agents\se-interface-mgr.md                  (unchanged)
+[SKIP]   .claude\agents\se-junior-developer.md               (unchanged)
+[SKIP]   .claude\agents\se-requirements.md                   (unchanged)
+[SKIP]   .claude\agents\se-senior-developer.md               (unchanged)
+[SKIP]   .claude\agents\se-termination.md                    (unchanged)
+[SKIP]   .claude\agents\se-test-engineer.md                  (unchanged)
+[SKIP]   .claude\agents\se-testreviewer.md                   (unchanged)
+[SKIP]   .claude\agents\se-validator.md                      (unchanged)
+[SKIP]   .claude\agents\se-verifier.md                       (unchanged)
+[SKIP]   .claude\agents\security-auditor.md                  (role 'security-auditor' not in config['roles'])
+[SKIP]   .claude\agents\senior-developer.md                  (unchanged)
+[SKIP]   .claude\agents\tester.md                            (unchanged)
+[SKIP]   .claude\agents\ui-ux-designer.md                    (unchanged)
+[SKIP]   .claude\agents\validator.md                         (unchanged)
+[SKIP]   .claude\rules\a2a-delegation-gates.md               (unchanged)
+[SKIP]   .claude\rules\branch-guard.md                       (unchanged)
+[SKIP]   .claude\rules\commit-conventions.md                 (unchanged)
+[SKIP]   .claude\rules\dod-criteria.md                       (unchanged)
+[SKIP]   .claude\rules\issue-lifecycle.md                    (unchanged)
+[SKIP]   .claude\rules\language.md                           (unchanged)
+[SKIP]   .claude\rules\lifecycle-tasks.md                    (unchanged)
+[SKIP]   .claude\rules\provider-agnostic.md                  (unchanged)
+[SKIP]   .claude\rules\python-conventions.md                 (unchanged)
+[SKIP]   .claude\rules\session-conclusion.md                 (unchanged)
+[SKIP]   .claude\rules\use-orchestrator.md                   (unchanged)
+[SKIP]   AGENTS.personal.md                                  (already exists)
+[SKIP]   opencode.json                                       (already exists — not overwritten)
+[SKIP]   .opencode\agents\agent-meta-manager.md              (unchanged)
+[SKIP]   .opencode\agents\agent-meta-scout.md                (unchanged)
+[SKIP]   .opencode\agents\api-specialist.md                  (unchanged)
+[SKIP]   .opencode\agents\bug-feature-analyzer.md            (unchanged)
+[SKIP]   .opencode\agents\code-reviewer.md                   (unchanged)
+[SKIP]   .opencode\agents\concept-reviewer.md                (unchanged)
+[SKIP]   .opencode\agents\developer.md                       (unchanged)
+[SKIP]   .opencode\agents\devops-engineer.md                 (unchanged)
+[SKIP]   .opencode\agents\docker.md                          (unchanged)
+[SKIP]   .opencode\agents\documenter.md                      (unchanged)
+[SKIP]   .opencode\agents\effort-estimator.md                (unchanged)
+[SKIP]   .opencode\agents\explorer.md                        (unchanged)
+[SKIP]   .opencode\agents\export-manager.md                  (unchanged)
+[SKIP]   .opencode\agents\feature.md                         (unchanged)
+[SKIP]   .opencode\agents\feedback.md                        (unchanged)
+[SKIP]   .opencode\agents\git.md                             (unchanged)
+[SKIP]   .opencode\agents\ideation.md                        (unchanged)
+[SKIP]   .opencode\agents\junior-developer.md                (unchanged)
+[SKIP]   .opencode\agents\log-analyzer.md                    (unchanged)
+[SKIP]   .opencode\agents\meta-feedback.md                   (unchanged)
+[SKIP]   .opencode\agents\performance-optimizer.md           (unchanged)
+[SKIP]   .opencode\agents\release.md                         (unchanged)
+[SKIP]   .opencode\agents\requirements.md                    (unchanged)
+[SKIP]   .opencode\agents\se-architect.md                    (unchanged)
+[SKIP]   .opencode\agents\se-critic.md                       (unchanged)
+[SKIP]   .opencode\agents\se-developer.md                    (unchanged)
+[SKIP]   .opencode\agents\se-integration-and-test-manager.md  (unchanged)
+[SKIP]   .opencode\agents\se-interface-mgr.md                (unchanged)
+[SKIP]   .opencode\agents\se-junior-developer.md             (unchanged)
+[SKIP]   .opencode\agents\se-requirements.md                 (unchanged)
+[SKIP]   .opencode\agents\se-senior-developer.md             (unchanged)
+[SKIP]   .opencode\agents\se-termination.md                  (unchanged)
+[SKIP]   .opencode\agents\se-test-engineer.md                (unchanged)
+[SKIP]   .opencode\agents\se-testreviewer.md                 (unchanged)
+[SKIP]   .opencode\agents\se-validator.md                    (unchanged)
+[SKIP]   .opencode\agents\se-verifier.md                     (unchanged)
+[SKIP]   .opencode\agents\senior-developer.md                (unchanged)
+[SKIP]   .opencode\agents\tester.md                          (unchanged)
+[SKIP]   .opencode\agents\ui-ux-designer.md                  (unchanged)
+[SKIP]   .opencode\agents\validator.md                       (unchanged)
+[SKIP]   .gemini\settings.json                               (already exists — not overwritten)
+[SKIP]   .gemini\agents\agent-meta-manager.md                (unchanged)
+[SKIP]   .gemini\agents\agent-meta-scout.md                  (unchanged)
+[SKIP]   .gemini\agents\api-specialist.md                    (unchanged)
+[SKIP]   .gemini\agents\bug-feature-analyzer.md              (unchanged)
+[SKIP]   .gemini\agents\code-reviewer.md                     (unchanged)
+[SKIP]   .gemini\agents\concept-reviewer.md                  (unchanged)
+[SKIP]   .gemini\agents\developer.md                         (unchanged)
+[SKIP]   .gemini\agents\devops-engineer.md                   (unchanged)
+[SKIP]   .gemini\agents\docker.md                            (unchanged)
+[SKIP]   .gemini\agents\documenter.md                        (unchanged)
+[SKIP]   .gemini\agents\effort-estimator.md                  (unchanged)
+[SKIP]   .gemini\agents\explorer.md                          (unchanged)
+[SKIP]   .gemini\agents\export-manager.md                    (unchanged)
+[SKIP]   .gemini\agents\feature.md                           (unchanged)
+[SKIP]   .gemini\agents\feedback.md                          (unchanged)
+[SKIP]   .gemini\agents\git.md                               (unchanged)
+[SKIP]   .gemini\agents\ideation.md                          (unchanged)
+[SKIP]   .gemini\agents\junior-developer.md                  (unchanged)
+[SKIP]   .gemini\agents\log-analyzer.md                      (unchanged)
+[SKIP]   .gemini\agents\meta-feedback.md                     (unchanged)
+[SKIP]   .gemini\agents\performance-optimizer.md             (unchanged)
+[SKIP]   .gemini\agents\release.md                           (unchanged)
+[SKIP]   .gemini\agents\requirements.md                      (unchanged)
+[SKIP]   .gemini\agents\se-architect.md                      (unchanged)
+[SKIP]   .gemini\agents\se-critic.md                         (unchanged)
+[SKIP]   .gemini\agents\se-developer.md                      (unchanged)
+[SKIP]   .gemini\agents\se-integration-and-test-manager.md   (unchanged)
+[SKIP]   .gemini\agents\se-interface-mgr.md                  (unchanged)
+[SKIP]   .gemini\agents\se-junior-developer.md               (unchanged)
+[SKIP]   .gemini\agents\se-requirements.md                   (unchanged)
+[SKIP]   .gemini\agents\se-senior-developer.md               (unchanged)
+[SKIP]   .gemini\agents\se-termination.md                    (unchanged)
+[SKIP]   .gemini\agents\se-test-engineer.md                  (unchanged)
+[SKIP]   .gemini\agents\se-testreviewer.md                   (unchanged)
+[SKIP]   .gemini\agents\se-validator.md                      (unchanged)
+[SKIP]   .gemini\agents\se-verifier.md                       (unchanged)
+[SKIP]   .gemini\agents\senior-developer.md                  (unchanged)
+[SKIP]   .gemini\agents\tester.md                            (unchanged)
+[SKIP]   .gemini\agents\ui-ux-designer.md                    (unchanged)
+[SKIP]   .gemini\agents\validator.md                         (unchanged)
+[SKIP]   .gemini\GEMINI.md                                   (bootstrap instructions unchanged)
+[SKIP]   .gemini\rules\a2a-delegation-gates.md               (unchanged)
+[SKIP]   .gemini\rules\branch-guard.md                       (unchanged)
+[SKIP]   .gemini\rules\commit-conventions.md                 (unchanged)
+[SKIP]   .gemini\rules\dod-criteria.md                       (unchanged)
+[SKIP]   .gemini\rules\issue-lifecycle.md                    (unchanged)
+[SKIP]   .gemini\rules\language.md                           (unchanged)
+[SKIP]   .gemini\rules\lifecycle-tasks.md                    (unchanged)
+[SKIP]   .gemini\rules\provider-agnostic.md                  (unchanged)
+[SKIP]   .gemini\rules\python-conventions.md                 (unchanged)
+[SKIP]   .gemini\rules\session-conclusion.md                 (unchanged)
+[SKIP]   .gemini\rules\use-orchestrator.md                   (unchanged)
+[SKIP]   opencode.json                                       (provider-isolation unchanged)
+[SKIP]   .gemini/policies/provider-isolation.toml            (provider-isolation unchanged)
+[SKIP]   .gitignore                                          (all required entries already present)
+
+INFO
+----
+[INFO]   providers                                           (active: Claude, Opencode, Gemini)
+[INFO]   DoD                                                 (preset 'spec-driven' -> req-traceability: True, tests-required: True, codebase-overview: False, security-audit: False, se-required: recommended)
+[INFO]   rules                                               (preset '' -> all alwaysApply (default))
+[INFO]   platform-config                                     (loaded 0 platform variable(s) for: )
+
+[PROVIDER] Claude
+~~~~~~~~~~~~~~~~~
+[INFO]   .claude\agents\agent-meta-manager.md                (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\agent-meta-scout.md                  (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\agent-meta-scout.md                  (memory: local (from meta default))
+[INFO]   .claude\agents\api-specialist.md                    (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\api-specialist.md                    (memory: project (from meta default))
+[INFO]   .claude\agents\bug-feature-analyzer.md              (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\code-reviewer.md                     (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\code-reviewer.md                     (memory: project (from meta default))
+[INFO]   .claude\agents\code-reviewer.md                     (permissionMode: plan (from meta default))
+[INFO]   .claude\agents\concept-reviewer.md                  (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\concept-reviewer.md                  (permissionMode: plan (from meta default))
+[INFO]   .claude\agents\developer.md                         (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\devops-engineer.md                   (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\docker.md                            (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\documenter.md                        (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\documenter.md                        (memory: project (from meta default))
+[INFO]   .claude\agents\effort-estimator.md                  (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\explorer.md                          (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\export-manager.md                    (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\feedback.md                          (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\git.md                               (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\junior-developer.md                  (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\log-analyzer.md                      (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\meta-feedback.md                     (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\orchestrator.md                      (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\performance-optimizer.md             (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\release.md                           (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\requirements.md                      (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\requirements.md                      (memory: project (from meta default))
+[INFO]   .claude\agents\se-architect.md                      (model: claude-sonnet-4-6 (from meta default))
+[INFO]   .claude\agents\se-architect.md                      (memory: project (from meta default))
+[INFO]   .claude\agents\se-critic.md                         (model: claude-sonnet-4-6 (from meta default))
+[INFO]   .claude\agents\se-developer.md                      (model: claude-sonnet-4-6 (from project override))
+[INFO]   .claude\agents\se-integration-and-test-manager.md   (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\se-interface-mgr.md                  (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\se-interface-mgr.md                  (memory: project (from meta default))
+[INFO]   .claude\agents\se-junior-developer.md               (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\se-requirements.md                   (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\se-requirements.md                   (memory: project (from meta default))
+[INFO]   .claude\agents\se-senior-developer.md               (model: claude-opus-4-8 (from project override))
+[INFO]   .claude\agents\se-senior-developer.md               (memory: project (from meta default))
+[INFO]   .claude\agents\se-termination.md                    (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\se-test-engineer.md                  (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\se-testreviewer.md                   (model: claude-sonnet-4-6 (from meta default))
+[INFO]   .claude\agents\se-testreviewer.md                   (permissionMode: plan (from meta default))
+[INFO]   .claude\agents\se-validator.md                      (model: claude-sonnet-4-6 (from meta default))
+[INFO]   .claude\agents\se-validator.md                      (memory: project (from meta default))
+[INFO]   .claude\agents\se-verifier.md                       (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\se-verifier.md                       (memory: project (from meta default))
+[INFO]   .claude\agents\senior-developer.md                  (model: claude-sonnet-4-6 (from meta default))
+[INFO]   .claude\agents\senior-developer.md                  (memory: project (from meta default))
+[INFO]   .claude\agents\tester.md                            (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\ui-ux-designer.md                    (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\ui-ux-designer.md                    (memory: project (from meta default))
+[INFO]   .claude\agents\validator.md                         (model: claude-haiku-4-5-20251001 (from meta default))
+[INFO]   .claude\agents\validator.md                         (memory: project (from meta default))
+[INFO]   .claude\agents\validator.md                         (permissionMode: plan (from meta default))
+[INFO]   .claude\hooks\dod-push-check.sh                     (copied (not enabled) — add "hooks": {"dod-push-check": {"enabled": true}} to activate)
+[INFO]   .claude\hooks\lifecycle-check.sh                    (registered in settings.json (event: PostToolUse))
+[INFO]   .claude\hooks\orchestrator-guard.sh                 (registered in settings.json (event: PreToolUse))
+[INFO]   .claude/agents/.md                                  (skill 'mermaid-renderer' not approved — skipping)
+[INFO]   .claude/agents/.md                                  (skill 'figma-reader' not approved — skipping)
+[INFO]   .claude/agents/.md                                  (skill 'postman-collection-generator' not approved — skipping)
+[INFO]   .claude/agents/home-organization-specialist.md      (skill 'home-organization' not enabled in .meta-config/project.yaml — skipping)
+[INFO]   .claude/agents/opengrid-designer.md                 (skill 'opengrid-openscad' not enabled in .meta-config/project.yaml — skipping)
+
+[PROVIDER] Opencode
+~~~~~~~~~~~~~~~~~~~
+[INFO]   .opencode\agents\agent-meta-manager.md              (model: opencode-go/minimax-m3 (from project override))
+[INFO]   .opencode\agents\agent-meta-scout.md                (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\api-specialist.md                  (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\bug-feature-analyzer.md            (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\code-reviewer.md                   (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\concept-reviewer.md                (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\developer.md                       (model: opencode-go/minimax-m3 (from project override))
+[INFO]   .opencode\agents\devops-engineer.md                 (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\docker.md                          (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\documenter.md                      (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\effort-estimator.md                (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\explorer.md                        (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\export-manager.md                  (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\feedback.md                        (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\git.md                             (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\junior-developer.md                (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\log-analyzer.md                    (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\meta-feedback.md                   (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\orchestrator.md                    (model: opencode-go/minimax-m3 (from project override))
+[INFO]   .opencode\agents\performance-optimizer.md           (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\release.md                         (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\requirements.md                    (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\se-architect.md                    (model: opencode-go/qwen3.7-plus (from meta default))
+[INFO]   .opencode\agents\se-critic.md                       (model: opencode-go/qwen3.7-plus (from meta default))
+[INFO]   .opencode\agents\se-developer.md                    (model: opencode-go/qwen3.7-plus (from meta default))
+[INFO]   .opencode\agents\se-integration-and-test-manager.md  (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\se-interface-mgr.md                (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\se-junior-developer.md             (model: opencode-go/minimax-m3 (from project override))
+[INFO]   .opencode\agents\se-requirements.md                 (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\se-termination.md                  (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\se-test-engineer.md                (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\se-testreviewer.md                 (model: opencode-go/qwen3.7-plus (from meta default))
+[INFO]   .opencode\agents\se-validator.md                    (model: opencode-go/qwen3.7-plus (from meta default))
+[INFO]   .opencode\agents\se-verifier.md                     (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\senior-developer.md                (model: opencode-go/kimi-k2.7-code (from project override))
+[INFO]   .opencode\agents\tester.md                          (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\ui-ux-designer.md                  (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   .opencode\agents\validator.md                       (model: opencode-go/deepseek-v4-flash (from meta default))
+[INFO]   hooks                                               (skipped for Opencode — not supported)
+[INFO]   .opencode/agents/.md                                (skill 'mermaid-renderer' not approved — skipping)
+[INFO]   .opencode/agents/.md                                (skill 'figma-reader' not approved — skipping)
+[INFO]   .opencode/agents/.md                                (skill 'postman-collection-generator' not approved — skipping)
+[INFO]   .opencode/agents/home-organization-specialist.md    (skill 'home-organization' not enabled in .meta-config/project.yaml — skipping)
+[INFO]   .opencode/agents/opengrid-designer.md               (skill 'opengrid-openscad' not enabled in .meta-config/project.yaml — skipping)
+
+[PROVIDER] Gemini
+~~~~~~~~~~~~~~~~~
+[INFO]   .gemini\agents\agent-meta-manager.md                (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   Gemini/agent-meta-manager                           (tool 'Agent' not supported by Gemini — dropped by design)
+[INFO]   .gemini\agents\agent-meta-scout.md                  (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\api-specialist.md                    (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\bug-feature-analyzer.md              (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\code-reviewer.md                     (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\concept-reviewer.md                  (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\developer.md                         (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   Gemini/developer                                    (tool 'Agent' not supported by Gemini — dropped by design)
+[INFO]   .gemini\agents\devops-engineer.md                   (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\docker.md                            (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\documenter.md                        (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\effort-estimator.md                  (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\explorer.md                          (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\export-manager.md                    (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   Gemini/feature                                      (tool 'Agent' not supported by Gemini — dropped by design)
+[INFO]   .gemini\agents\feedback.md                          (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\git.md                               (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\junior-developer.md                  (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\log-analyzer.md                      (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\meta-feedback.md                     (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\orchestrator.md                      (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   Gemini/orchestrator                                 (tool 'Agent' not supported by Gemini — dropped by design)
+[INFO]   .gemini\agents\performance-optimizer.md             (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\release.md                           (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\requirements.md                      (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\se-architect.md                      (model: gemini-3.5-flash-high (from meta default))
+[INFO]   .gemini\agents\se-critic.md                         (model: gemini-3.5-flash-high (from meta default))
+[INFO]   .gemini\agents\se-developer.md                      (model: gemini-3.5-flash-high (from meta default))
+[INFO]   .gemini\agents\se-integration-and-test-manager.md   (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\se-interface-mgr.md                  (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\se-junior-developer.md               (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\se-requirements.md                   (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\se-termination.md                    (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\se-test-engineer.md                  (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\se-testreviewer.md                   (model: gemini-3.5-flash-high (from meta default))
+[INFO]   .gemini\agents\se-validator.md                      (model: gemini-3.5-flash-high (from meta default))
+[INFO]   .gemini\agents\se-verifier.md                       (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\senior-developer.md                  (model: gemini-3.5-flash-high (from meta default))
+[INFO]   .gemini\agents\tester.md                            (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\ui-ux-designer.md                    (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   .gemini\agents\validator.md                         (model: gemini-3.5-flash-medium (from meta default))
+[INFO]   hooks                                               (skipped for Gemini — not supported)
+[INFO]   .gemini/agents/.md                                  (skill 'mermaid-renderer' not approved — skipping)
+[INFO]   .gemini/agents/.md                                  (skill 'figma-reader' not approved — skipping)
+[INFO]   .gemini/agents/.md                                  (skill 'postman-collection-generator' not approved — skipping)
+[INFO]   .gemini/agents/home-organization-specialist.md      (skill 'home-organization' not enabled in .meta-config/project.yaml — skipping)
+[INFO]   .gemini/agents/opengrid-designer.md                 (skill 'opengrid-openscad' not enabled in .meta-config/project.yaml — skipping)
+[INFO]   provider-isolation                                  (generating isolation for: Claude, Opencode, Gemini)
+[INFO]   config-audit                                        (1 template(s) without role-defaults entry: provider-expert.)
+
+DEBUG
+-----
+[DEBUG]  Claude/agent-meta-manager                           Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/agent-meta-manager                           Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/agent-meta-scout                             Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/agent-meta-scout                             Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/api-specialist                               Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/api-specialist                               Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/bug-feature-analyzer                         Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/bug-feature-analyzer                         Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/code-reviewer                                Model/Tier from role-defaults: powerful
+[DEBUG]  Claude/code-reviewer                                Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/concept-reviewer                             Model/Tier from role-defaults: powerful
+[DEBUG]  Claude/concept-reviewer                             Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/developer                                    Model/Tier from role-defaults: powerful
+[DEBUG]  Claude/developer                                    Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/devops-engineer                              Model/Tier from role-defaults: fast
+[DEBUG]  Claude/devops-engineer                              Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/docker                                       Model/Tier from role-defaults: fast
+[DEBUG]  Claude/docker                                       Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/documenter                                   Model/Tier from role-defaults: fast
+[DEBUG]  Claude/documenter                                   Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/effort-estimator                             Model/Tier from role-defaults: fast
+[DEBUG]  Claude/effort-estimator                             Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/explorer                                     Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/explorer                                     Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/export-manager                               Model/Tier from role-defaults: fast
+[DEBUG]  Claude/export-manager                               Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/feature                                      Tier '' resolved to: 
+[DEBUG]  Claude/feedback                                     Model/Tier from role-defaults: fast
+[DEBUG]  Claude/feedback                                     Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/git                                          Model/Tier from role-defaults: fast
+[DEBUG]  Claude/git                                          Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/ideation                                     Tier '' resolved to: 
+[DEBUG]  Claude/junior-developer                             Model/Tier from role-defaults: fast
+[DEBUG]  Claude/junior-developer                             Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/log-analyzer                                 Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/log-analyzer                                 Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/meta-feedback                                Model/Tier from role-defaults: fast
+[DEBUG]  Claude/meta-feedback                                Tier 'fast' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/orchestrator                                 Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/orchestrator                                 Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/performance-optimizer                        Model/Tier from role-defaults: powerful
+[DEBUG]  Claude/performance-optimizer                        Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/release                                      Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/release                                      Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/requirements                                 Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/requirements                                 Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/se-architect                                 Model/Tier from role-defaults: powerful
+[DEBUG]  Claude/se-architect                                 SE Focus applied, tier upgraded to: max
+[DEBUG]  Claude/se-architect                                 Tier 'max' resolved from preset 'Cheap' (provider 'Claude'): claude-sonnet-4-6
+[DEBUG]  Claude/se-critic                                    Model/Tier from role-defaults: powerful
+[DEBUG]  Claude/se-critic                                    SE Focus applied, tier upgraded to: max
+[DEBUG]  Claude/se-critic                                    Tier 'max' resolved from preset 'Cheap' (provider 'Claude'): claude-sonnet-4-6
+[DEBUG]  Claude/se-developer                                 Model explicitly overriden for provider 'Claude': claude-sonnet-4-6
+[DEBUG]  Claude/se-developer                                 Tier 'claude-sonnet-4-6' resolved directly to: claude-sonnet-4-6
+[DEBUG]  Claude/se-integration-and-test-manager              Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/se-integration-and-test-manager              SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Claude/se-integration-and-test-manager              Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/se-interface-mgr                             Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/se-interface-mgr                             SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Claude/se-interface-mgr                             Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/se-junior-developer                          Model/Tier from role-defaults: fast
+[DEBUG]  Claude/se-junior-developer                          SE Focus applied, tier upgraded to: balanced
+[DEBUG]  Claude/se-junior-developer                          Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/se-requirements                              Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/se-requirements                              SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Claude/se-requirements                              Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/se-senior-developer                          Model explicitly overriden for provider 'Claude': claude-opus-4-8
+[DEBUG]  Claude/se-senior-developer                          Tier 'claude-opus-4-8' resolved directly to: claude-opus-4-8
+[DEBUG]  Claude/se-termination                               Model/Tier from role-defaults: fast
+[DEBUG]  Claude/se-termination                               SE Focus applied, tier upgraded to: balanced
+[DEBUG]  Claude/se-termination                               Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/se-test-engineer                             Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/se-test-engineer                             SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Claude/se-test-engineer                             Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/se-testreviewer                              Model/Tier from role-defaults: powerful
+[DEBUG]  Claude/se-testreviewer                              SE Focus applied, tier upgraded to: max
+[DEBUG]  Claude/se-testreviewer                              Tier 'max' resolved from preset 'Cheap' (provider 'Claude'): claude-sonnet-4-6
+[DEBUG]  Claude/se-validator                                 Model/Tier from role-defaults: powerful
+[DEBUG]  Claude/se-validator                                 SE Focus applied, tier upgraded to: max
+[DEBUG]  Claude/se-validator                                 Tier 'max' resolved from preset 'Cheap' (provider 'Claude'): claude-sonnet-4-6
+[DEBUG]  Claude/se-verifier                                  Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/se-verifier                                  SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Claude/se-verifier                                  Tier 'powerful' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/senior-developer                             Model/Tier from role-defaults: max
+[DEBUG]  Claude/senior-developer                             Tier 'max' resolved from preset 'Cheap' (provider 'Claude'): claude-sonnet-4-6
+[DEBUG]  Claude/tester                                       Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/tester                                       Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/ui-ux-designer                               Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/ui-ux-designer                               Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Claude/validator                                    Model/Tier from role-defaults: balanced
+[DEBUG]  Claude/validator                                    Tier 'balanced' resolved from preset 'Cheap' (provider 'Claude'): claude-haiku-4-5-20251001
+[DEBUG]  Opencode/agent-meta-manager                         Model explicitly overriden for provider 'Opencode': opencode-go/minimax-m3
+[DEBUG]  Opencode/agent-meta-manager                         Tier 'opencode-go/minimax-m3' resolved directly to: opencode-go/minimax-m3
+[DEBUG]  Opencode/agent-meta-scout                           Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/agent-meta-scout                           Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/api-specialist                             Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/api-specialist                             Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/bug-feature-analyzer                       Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/bug-feature-analyzer                       Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/code-reviewer                              Model/Tier from role-defaults: powerful
+[DEBUG]  Opencode/code-reviewer                              Tier 'powerful' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/concept-reviewer                           Model/Tier from role-defaults: powerful
+[DEBUG]  Opencode/concept-reviewer                           Tier 'powerful' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/developer                                  Model explicitly overriden for provider 'Opencode': opencode-go/minimax-m3
+[DEBUG]  Opencode/developer                                  Tier 'opencode-go/minimax-m3' resolved directly to: opencode-go/minimax-m3
+[DEBUG]  Opencode/devops-engineer                            Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/devops-engineer                            Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/docker                                     Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/docker                                     Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/documenter                                 Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/documenter                                 Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/effort-estimator                           Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/effort-estimator                           Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/explorer                                   Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/explorer                                   Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/export-manager                             Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/export-manager                             Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/feature                                    Tier '' resolved to: 
+[DEBUG]  Opencode/feedback                                   Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/feedback                                   Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/git                                        Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/git                                        Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/ideation                                   Tier '' resolved to: 
+[DEBUG]  Opencode/junior-developer                           Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/junior-developer                           Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/log-analyzer                               Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/log-analyzer                               Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/meta-feedback                              Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/meta-feedback                              Tier 'fast' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/orchestrator                               Model explicitly overriden for provider 'Opencode': opencode-go/minimax-m3
+[DEBUG]  Opencode/orchestrator                               Tier 'opencode-go/minimax-m3' resolved directly to: opencode-go/minimax-m3
+[DEBUG]  Opencode/performance-optimizer                      Model/Tier from role-defaults: powerful
+[DEBUG]  Opencode/performance-optimizer                      Tier 'powerful' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/release                                    Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/release                                    Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/requirements                               Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/requirements                               Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/se-architect                               Model/Tier from role-defaults: powerful
+[DEBUG]  Opencode/se-architect                               SE Focus applied, tier upgraded to: max
+[DEBUG]  Opencode/se-architect                               Tier 'max' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/qwen3.7-plus
+[DEBUG]  Opencode/se-critic                                  Model/Tier from role-defaults: powerful
+[DEBUG]  Opencode/se-critic                                  SE Focus applied, tier upgraded to: max
+[DEBUG]  Opencode/se-critic                                  Tier 'max' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/qwen3.7-plus
+[DEBUG]  Opencode/se-developer                               Model/Tier from role-defaults: powerful
+[DEBUG]  Opencode/se-developer                               SE Focus applied, tier upgraded to: max
+[DEBUG]  Opencode/se-developer                               Tier 'max' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/qwen3.7-plus
+[DEBUG]  Opencode/se-integration-and-test-manager            Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/se-integration-and-test-manager            SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Opencode/se-integration-and-test-manager            Tier 'powerful' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/se-interface-mgr                           Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/se-interface-mgr                           SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Opencode/se-interface-mgr                           Tier 'powerful' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/se-junior-developer                        Model explicitly overriden for provider 'Opencode': opencode-go/minimax-m3
+[DEBUG]  Opencode/se-junior-developer                        Tier 'opencode-go/minimax-m3' resolved directly to: opencode-go/minimax-m3
+[DEBUG]  Opencode/se-requirements                            Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/se-requirements                            SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Opencode/se-requirements                            Tier 'powerful' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/se-senior-developer                        Model/Tier from role-defaults: max
+[DEBUG]  Opencode/se-senior-developer                        SE Focus applied, tier upgraded to: ultra
+[DEBUG]  Opencode/se-senior-developer                        Tier 'ultra' resolved to: 
+[DEBUG]  Opencode/se-termination                             Model/Tier from role-defaults: fast
+[DEBUG]  Opencode/se-termination                             SE Focus applied, tier upgraded to: balanced
+[DEBUG]  Opencode/se-termination                             Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/se-test-engineer                           Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/se-test-engineer                           SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Opencode/se-test-engineer                           Tier 'powerful' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/se-testreviewer                            Model/Tier from role-defaults: powerful
+[DEBUG]  Opencode/se-testreviewer                            SE Focus applied, tier upgraded to: max
+[DEBUG]  Opencode/se-testreviewer                            Tier 'max' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/qwen3.7-plus
+[DEBUG]  Opencode/se-validator                               Model/Tier from role-defaults: powerful
+[DEBUG]  Opencode/se-validator                               SE Focus applied, tier upgraded to: max
+[DEBUG]  Opencode/se-validator                               Tier 'max' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/qwen3.7-plus
+[DEBUG]  Opencode/se-verifier                                Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/se-verifier                                SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Opencode/se-verifier                                Tier 'powerful' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/senior-developer                           Model explicitly overriden for provider 'Opencode': opencode-go/kimi-k2.7-code
+[DEBUG]  Opencode/senior-developer                           Tier 'opencode-go/kimi-k2.7-code' resolved directly to: opencode-go/kimi-k2.7-code
+[DEBUG]  Opencode/tester                                     Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/tester                                     Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/ui-ux-designer                             Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/ui-ux-designer                             Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Opencode/validator                                  Model/Tier from role-defaults: balanced
+[DEBUG]  Opencode/validator                                  Tier 'balanced' resolved from preset 'Cheap' (provider 'Opencode'): opencode-go/deepseek-v4-flash
+[DEBUG]  Gemini/agent-meta-manager                           Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/agent-meta-manager                           Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/agent-meta-scout                             Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/agent-meta-scout                             Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/api-specialist                               Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/api-specialist                               Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/bug-feature-analyzer                         Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/bug-feature-analyzer                         Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/code-reviewer                                Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/code-reviewer                                Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/concept-reviewer                             Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/concept-reviewer                             Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/developer                                    Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/developer                                    Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/devops-engineer                              Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/devops-engineer                              Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/docker                                       Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/docker                                       Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/documenter                                   Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/documenter                                   Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/effort-estimator                             Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/effort-estimator                             Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/explorer                                     Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/explorer                                     Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/export-manager                               Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/export-manager                               Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/feature                                      Tier '' resolved to: 
+[DEBUG]  Gemini/feedback                                     Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/feedback                                     Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/git                                          Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/git                                          Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/ideation                                     Tier '' resolved to: 
+[DEBUG]  Gemini/junior-developer                             Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/junior-developer                             Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/log-analyzer                                 Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/log-analyzer                                 Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/meta-feedback                                Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/meta-feedback                                Tier 'fast' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/orchestrator                                 Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/orchestrator                                 Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/performance-optimizer                        Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/performance-optimizer                        Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/release                                      Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/release                                      Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/requirements                                 Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/requirements                                 Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/se-architect                                 Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/se-architect                                 SE Focus applied, tier upgraded to: max
+[DEBUG]  Gemini/se-architect                                 Tier 'max' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-high
+[DEBUG]  Gemini/se-critic                                    Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/se-critic                                    SE Focus applied, tier upgraded to: max
+[DEBUG]  Gemini/se-critic                                    Tier 'max' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-high
+[DEBUG]  Gemini/se-developer                                 Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/se-developer                                 SE Focus applied, tier upgraded to: max
+[DEBUG]  Gemini/se-developer                                 Tier 'max' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-high
+[DEBUG]  Gemini/se-integration-and-test-manager              Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/se-integration-and-test-manager              SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Gemini/se-integration-and-test-manager              Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/se-interface-mgr                             Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/se-interface-mgr                             SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Gemini/se-interface-mgr                             Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/se-junior-developer                          Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/se-junior-developer                          SE Focus applied, tier upgraded to: balanced
+[DEBUG]  Gemini/se-junior-developer                          Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/se-requirements                              Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/se-requirements                              SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Gemini/se-requirements                              Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/se-senior-developer                          Model/Tier from role-defaults: max
+[DEBUG]  Gemini/se-senior-developer                          SE Focus applied, tier upgraded to: ultra
+[DEBUG]  Gemini/se-senior-developer                          Tier 'ultra' resolved to: 
+[DEBUG]  Gemini/se-termination                               Model/Tier from role-defaults: fast
+[DEBUG]  Gemini/se-termination                               SE Focus applied, tier upgraded to: balanced
+[DEBUG]  Gemini/se-termination                               Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/se-test-engineer                             Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/se-test-engineer                             SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Gemini/se-test-engineer                             Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/se-testreviewer                              Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/se-testreviewer                              SE Focus applied, tier upgraded to: max
+[DEBUG]  Gemini/se-testreviewer                              Tier 'max' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-high
+[DEBUG]  Gemini/se-validator                                 Model/Tier from role-defaults: powerful
+[DEBUG]  Gemini/se-validator                                 SE Focus applied, tier upgraded to: max
+[DEBUG]  Gemini/se-validator                                 Tier 'max' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-high
+[DEBUG]  Gemini/se-verifier                                  Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/se-verifier                                  SE Focus applied, tier upgraded to: powerful
+[DEBUG]  Gemini/se-verifier                                  Tier 'powerful' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/senior-developer                             Model/Tier from role-defaults: max
+[DEBUG]  Gemini/senior-developer                             Tier 'max' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-high
+[DEBUG]  Gemini/tester                                       Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/tester                                       Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/ui-ux-designer                               Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/ui-ux-designer                               Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+[DEBUG]  Gemini/validator                                    Model/Tier from role-defaults: balanced
+[DEBUG]  Gemini/validator                                    Tier 'balanced' resolved from preset 'Cheap' (provider 'Gemini'): gemini-3.5-flash-medium
+
+WARNINGS
+--------
+[WARN]   agent-meta version mismatch: config says v0.65.1, but submodule git tag is v0.65.2 — run: git submodule update --init .agent-meta
+[WARN]   repo 'neat-little-package': submodule is at 9fa3d3d, expected pinned_commit be411f31 — run: git -C external/neat-little-package checkout be411f31
+[WARN]   repo 'awesome-claude-code': submodule is at 9fa3d3d, expected pinned_commit 3d8bde25 — run: git -C external/awesome-claude-code checkout 3d8bde25
+
+SUMMARY
+-------
+81 action(s)  |  158 skipped  |  3 warning(s)
+Logfile: C:\Repositories\ai-native-reqflow-POC\sync.log
+

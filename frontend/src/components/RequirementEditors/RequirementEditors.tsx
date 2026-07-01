@@ -70,6 +70,7 @@ interface RequirementDetailEditorProps {
   requirement: Requirement;
   upstreamLinks: TraceLink[];
   downstreamLinks: TraceLink[];
+  linkedTitles: Record<string, string>;
   requirements: Requirement[];
   workspaceId: UUID;
   onSaved: () => void;
@@ -79,6 +80,7 @@ function RequirementDetailEditor({
   requirement,
   upstreamLinks,
   downstreamLinks,
+  linkedTitles,
   requirements,
   workspaceId,
   onSaved,
@@ -291,6 +293,7 @@ function RequirementDetailEditor({
       <TraceabilityPanel
         upstreamLinks={upstreamLinks}
         downstreamLinks={downstreamLinks}
+        linkedTitles={linkedTitles}
       />
     </div>
   );
@@ -802,7 +805,7 @@ export default function RequirementEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace, terminologyLabel } = useWorkspace();
-  const { requirements, requirement, upstreamLinks, downstreamLinks, isLoading, error, refresh } =
+  const { requirements, requirement, upstreamLinks, downstreamLinks, linkedTitles, isLoading, error, refresh } =
     useRequirementData(selectedId);
 
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -1214,6 +1217,7 @@ export default function RequirementEditors(): JSX.Element {
             requirement={requirement}
             upstreamLinks={upstreamLinks}
             downstreamLinks={downstreamLinks}
+            linkedTitles={linkedTitles}
             requirements={requirements}
             workspaceId={activeWorkspace!.id}
             onSaved={refresh}
