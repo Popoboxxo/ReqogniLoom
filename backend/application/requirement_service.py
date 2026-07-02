@@ -302,13 +302,33 @@ class RequirementService(ServiceBase):
         requirement_id: UUID,
         ctx: AuthContext,
         children: Optional[List[Dict[str, Any]]] = None,
+        target_architecture_elements: Optional[List[UUID]] = None,
     ) -> DecompositionResultDTO:
         """Decompose a Requirement into child Requirements.
 
         If *children* are provided: validate + persist directly.
         Otherwise: delegate to LlmAdapter for AI decomposition.
 
-        REQ-L2-AS-024, ADR-L3-AS002-01 (single atomic TX).
+        REQ-L2-AS-024: decomposition logic
+        REQ-L1-043: optional allocation of children to ArchitectureElements
+        ADR-L3-AS002-01 (single atomic TX).
+
+        Args:
+            requirement_id: UUID of parent requirement to decompose.
+            ctx: AuthContext for tenant scoping and audit.
+            children: Optional list of child requirement data dicts.
+                     If None, LLM will generate decomposition.
+            target_architecture_elements: Optional list of ArchitectureElement UUIDs
+                                         to allocate children to (in order).
+                                         If provided, must match children count.
+
+        Returns:
+            DecompositionResultDTO containing created children and trace links.
+
+        Raises:
+            NotFoundError: Parent requirement or ArchitectureElement not found.
+            ValidationError: Mismatch between children and target elements count,
+                            or empty target_architecture_elements list.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -324,10 +344,33 @@ class RequirementService(ServiceBase):
         if children is None:
             children = self._decompose_via_llm(str(requirement_id))
 
+        # REQ-L1-043: Validate target_architecture_elements if provided
+        if target_architecture_elements is not None:
+            if len(target_architecture_elements) == 0:
+                raise ValidationError(
+                    "target_architecture_elements cannot be empty when provided"
+                )
+            if len(target_architecture_elements) != len(children):
+                raise ValidationError(
+                    f"Number of target_architecture_elements ({len(target_architecture_elements)}) "
+                    f"must match number of children ({len(children)})"
+                )
+
+            # Validate existence and workspace membership of all ArchitectureElements
+            from persistence.models import ArchitectureElement
+            for arch_el_id in target_architecture_elements:
+                arch_el = ArchitectureElement.objects.filter(id=arch_el_id).first()
+                if arch_el is None:
+                    raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
+                if arch_el.artifact.workspace_id != workspace_id:
+                    raise ValidationError(
+                        f"ArchitectureElement {arch_el_id} is not in workspace {workspace_id}"
+                    )
+
         result = DecompositionResultDTO(parent_id=requirement_id)
 
         with TransactionContextManager():
-            for child_data in children:
+            for idx, child_data in enumerate(children):
                 child_req = self.create_requirement(
                     workspace_id=workspace_id,
                     title=child_data.get("title", ""),
@@ -352,6 +395,25 @@ class RequirementService(ServiceBase):
                         "RequirementService.decompose: TraceLink creation failed "
                         "(may not exist in traceability engine yet)"
                     )
+
+                # REQ-L1-043: Optional allocation to ArchitectureElements
+                if target_architecture_elements is not None:
+                    target_arch_id = target_architecture_elements[idx]
+                    try:
+                        alloc_link = self._trace_link_service.allocate(
+                            requirement_id=child_req.id,
+                            architecture_element_id=target_arch_id,
+                            ctx=ctx,
+                        )
+                        if hasattr(alloc_link, "id"):
+                            result.trace_link_ids.append(alloc_link.id)
+                    except Exception as e:
+                        logger.debug(
+                            "RequirementService.decompose: allocation failed for child %s to arch_el %s: %s",
+                            child_req.id,
+                            target_arch_id,
+                            str(e),
+                        )
 
         return result
 

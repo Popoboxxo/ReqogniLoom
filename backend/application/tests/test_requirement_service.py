@@ -743,6 +743,165 @@ class TestDecompose:
                     requirement_id=REQ_ID, ctx=ctx, children=[{"title": "X"}]
                 )
 
+    def test_decompose_with_target_architecture_elements(self):
+        """decompose with target_architecture_elements allocates children (REQ-L1-043)."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_artifact = MagicMock()
+        mock_child_req.artifact = mock_child_artifact
+        mock_child_req.artifact_id = uuid.uuid4()
+
+        arch_el_id = uuid.uuid4()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req),
+            patch(
+                "application.requirement_service.ArchitectureElement.objects.filter",
+                return_value=MagicMock(
+                    first=MagicMock(
+                        return_value=MagicMock(
+                            artifact=MagicMock(workspace_id=WS_ID)
+                        )
+                    )
+                ),
+            ),
+            patch.object(
+                svc._trace_link_service, "create_trace_link", side_effect=Exception("no-op")
+            ),
+            patch.object(
+                svc._trace_link_service, "allocate", return_value=MagicMock(id=uuid.uuid4())
+            ) as mock_allocate,
+        ):
+            result = svc.decompose(
+                requirement_id=REQ_ID,
+                ctx=ctx,
+                children=[{"title": "Child", "description": "desc"}],
+                target_architecture_elements=[arch_el_id],
+            )
+
+        assert isinstance(result, DecompositionResultDTO)
+        assert len(result.children) == 1
+        assert result.children[0].title == "Child"
+        # Verify allocation was called
+        mock_allocate.assert_called_once()
+        call_kwargs = mock_allocate.call_args.kwargs
+        assert call_kwargs["requirement_id"] == mock_child_req.id
+        assert call_kwargs["architecture_element_id"] == arch_el_id
+
+    def test_decompose_target_elements_count_mismatch_raises(self):
+        """ValidationError when target_architecture_elements count != children count (REQ-L1-043)."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+
+        arch_el_id = uuid.uuid4()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+        ):
+            with pytest.raises(ValidationError, match="must match number of children"):
+                svc.decompose(
+                    requirement_id=REQ_ID,
+                    ctx=ctx,
+                    children=[{"title": "Child1"}, {"title": "Child2"}],
+                    target_architecture_elements=[arch_el_id],  # Only 1, but 2 children
+                )
+
+    def test_decompose_target_element_not_found_raises(self):
+        """NotFoundError when target ArchitectureElement does not exist (REQ-L1-043)."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+
+        arch_el_id = uuid.uuid4()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+            patch(
+                "application.requirement_service.ArchitectureElement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+        ):
+            with pytest.raises(NotFoundError, match="ArchitectureElement"):
+                svc.decompose(
+                    requirement_id=REQ_ID,
+                    ctx=ctx,
+                    children=[{"title": "Child"}],
+                    target_architecture_elements=[arch_el_id],
+                )
+
+    def test_decompose_empty_target_elements_raises(self):
+        """ValidationError when target_architecture_elements is empty list (REQ-L1-043)."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+        ):
+            with pytest.raises(ValidationError, match="cannot be empty"):
+                svc.decompose(
+                    requirement_id=REQ_ID,
+                    ctx=ctx,
+                    children=[{"title": "Child"}],
+                    target_architecture_elements=[],  # Empty
+                )
+
 
 # ---------------------------------------------------------------------------
 # RequirementDTO
