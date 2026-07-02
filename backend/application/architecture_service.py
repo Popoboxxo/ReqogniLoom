@@ -76,6 +76,7 @@ class ArchitectureService(ServiceBase):
         ctx: AuthContext,
         description: str = "",
         element_type: str = ElementType.COMPONENT,
+        parent_id: Optional[UUID] = None,
     ) -> ArchitectureElement:
         """Create an ArchitectureElement with initial version=1.
 
@@ -102,12 +103,19 @@ class ArchitectureService(ServiceBase):
             artifact_type="ArchitectureElement",
         )
 
+        # Validate parent_id if provided (REQ-L1-041 hierarchy)
+        if parent_id is not None:
+            parent = ArchitectureElement.objects.filter(id=parent_id).first()
+            if parent is None:
+                raise NotFoundError(f"Parent ArchitectureElement {parent_id} not found")
+
         arch_el = ArchitectureElement.objects.create(
             tenant=tenant,
             artifact=artifact,
             title=title,
             description=description,
             element_type=element_type,
+            parent_id=parent_id,
             version=1,
         )
 

@@ -385,7 +385,11 @@ class Requirement(TenantScopedModel):
 
 
 class ArchitectureElement(TenantScopedModel):
-    """Architecture element derived from an artifact (REQ-L1-002)."""
+    """Architecture element derived from an artifact (REQ-L1-002).
+
+    REQ-L1-041: Supports hierarchical parent-child relationships via parent_id.
+    Level is derived from tree depth (0=root, 1=child of root, etc.).
+    """
 
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="architecture_element"
@@ -398,12 +402,36 @@ class ArchitectureElement(TenantScopedModel):
         choices=ElementType.choices,
         default=ElementType.COMPONENT,
     )
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+    )
 
     class Meta:
         db_table = "pl_architecture_element"
 
     def __str__(self) -> str:
         return self.title
+
+    def get_level(self) -> int:
+        """Return tree depth of this element.
+
+        Root (parent=None) → level=0
+        Direct child → level=1
+        Nested → level=2, etc.
+
+        Recursively traverses parent chain.
+        """
+        if self.parent_id is None:
+            return 0
+        # Fetch parent and recurse
+        parent = ArchitectureElement.objects.filter(id=self.parent_id).first()
+        if parent is None:
+            return 0  # Orphaned child fallback
+        return 1 + parent.get_level()
 
 
 class TraceLink(TenantScopedModel):
