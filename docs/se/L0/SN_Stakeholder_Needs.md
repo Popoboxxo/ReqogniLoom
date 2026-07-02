@@ -825,3 +825,106 @@ begründungspflichtiges Cross-Level-Link-Konzept.
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 | User-Feedback Gap-Analyse reqflow_ontology_analysis.md*
+
+---
+
+## Stakeholder-Needs (Erweiterung v6 — REQ-L0-036 und REQ-L0-037)
+
+> **Quelle:** User-Request: Canvas-Freehand-Drawing + Mermaid-Live-Preview
+> **Datum:** 2026-06-30
+> **Erstellt durch:** se-requirements-Agent | 2026-06-30
+> **Status:** formalisiert
+
+---
+
+### REQ-L0-036 — SN-36: Diagramme als freies Canvas-Zeichnen (Free-Hand Drawing)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need; kein Code-Äquivalent vorhanden.
+**Test Status:** Missing
+**Remarks:** Neues Interaktionsparadigma — ergänzt die bestehenden strukturierten Diagramm-Typen aus REQ-L0-016 um freies Zeichnen.
+
+Teams müssen Diagramme innerhalb von ReqFlow **frei auf einer Zeichenfläche (Canvas)** erstellen können, ohne auf externe Zeichenprogramme ausweichen zu müssen. Die Zeichenfläche muss folgende Werkzeuge bereitstellen:
+- Pen/Stift-Tool für Freihandzeichnungen
+- Geometrische Grundformen (Rechteck, Kreis, Linie, Polygon)
+- Text-Notizen und Beschriftungen
+- Pfeile und Verbinder zwischen Formen (auch nachträglich verschiebbar)
+- Auswahl-, Verschiebe- und Löschfunktion für gezeichnete Elemente
+
+Gezeichnete Diagramme werden als Artefakte persistiert (z. B. SVG oder JSON-Stroke-Daten) und sind versioniert, über TraceLinks mit Requirements und Tests verknüpfbar und via MCP abrufbar.
+
+**Rationale:** Strukturierte Diagramm-Typen (Block, Flow, Context — REQ-L0-016) decken formale Modellierung ab, aber nicht das schnelle, informelle Skizzieren von Ideen. Free-Hand Canvas-Zeichnen ist der niedrigschwelligste Einstieg für visuelle Kommunikation und schließt die Lücke zwischen „Whiteboard-Skizze" und „formalem Diagramm". Ohne diese Capability müssen Teams weiterhin zu externen Tools (Excalidraw, Draw.io) greifen, was Medienbrüche verursacht.
+
+**Akzeptanzkriterien:**
+- AC1: Eine leere Zeichenfläche (Canvas) kann innerhalb eines Workspace geöffnet werden und unterstützt mindestens: Pen/Stift, Rechteck, Kreis/Kreisbogen, Linie, Text-Notiz, Pfeil/Verbinder.
+- AC2: Gezeichnete Elemente können nachträglich ausgewählt, verschoben, skaliert und gelöscht werden.
+- AC3: Verbinder bleiben mit verbundenen Formen assoziiert (bewegt sich die Form, folgt der Verbinder).
+- AC4: Das gezeichnete Diagramm wird als Artefakt mit Struktur-Payload persistiert: JSON-Stroke-Daten als Primärformat (versioniert, diff-bar) + SVG als abgeleitetes Export-Format.
+- AC5: Das gezeichnete Diagramm kann mit Requirements, ArchitectureElements und TestCases via TraceLink (Typ `documents`) verknüpft werden.
+- AC6: Canvas-Diagramme sind via MCP (artifact.get) als strukturierter Payload abrufbar.
+- AC7: Die Canvas-Zeichnung kann als SVG/PNG exportiert werden.
+- AC8: Bei Browser-Crash oder Verbindungsabbruch während der Zeichnung gehen höchstens die letzten 5 Sekunden an Eingaben verloren (Auto-Save mit konfigurierbarem Intervall, max. 5s). Das System persistiert Stroke-Daten transaktional bei jeder Save-Operation; partielle Zeichnungen werden nicht korrupt.
+- AC9: Das Canvas rendert flüssig (≥30fps) bei bis zu 500 Stroke-Elementen und 100 Formen. Bei Überschreitung wird die Framerate dokumentiert degradiert, der Editor bleibt bedienbar.
+
+**Abgrenzung:**
+- Ersetzt nicht REQ-L0-016 (strukturierte Diagramm-Typen) — Canvas ist eine **neue, ergänzende** Interaktionsform.
+- Kein Vektor-Editing auf Illustrator-Niveau; Fokus auf schnelles Skizzieren.
+- SVG-Export dient der Weiternutzung und Einbettung; das Primärformat sind die Stroke-Daten für Versionierung und Differenz-Anzeige.
+
+**Abgeleitet von:** REQ-L0-016 (Erweiterung um freies Zeichnen) | User-Request Need-1
+**Ableitet L1:** Erweiterung von REQ-L1-027 erforderlich (neue Canvas-Diagramm-Typen, Stroke-Payload-Format) — neue L1-Anforderung REQ-L1-056 empfohlen
+
+---
+
+### REQ-L0-037 — SN-37: Mermaid-Code mit Live-Rendering (Live Preview)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need; kein Code-Äquivalent vorhanden.
+**Test Status:** Missing
+**Remarks:** Neues Interaktionsparadigma — Code-basierte Diagrammeingabe mit Echtzeit-Vorschau. Ergänzt die bestehenden Diagramm-Typen aus REQ-L0-016 um den Mermaid-Ökosystem-Zugang.
+
+Teams müssen **Mermaid-Diagrammcode** direkt in ReqFlow eingeben und das gerenderte Diagramm grafisch im Browser sehen können — mit Live-Preview während der Eingabe. Unterstützt werden MÜSSEN mindestens die folgenden Mermaid-Syntax-Typen:
+- flowchart (Flussdiagramm)
+- sequenceDiagram (Sequenzdiagramm)
+- classDiagram (Klassendiagramm)
+- stateDiagram (Zustandsdiagramm)
+- erDiagram (Entity-Relationship-Diagramm)
+
+Der eingegebene Mermaid-Code wird als Quelle gespeichert; die gerenderte grafische Darstellung wird als abgeleitetes Artefakt (Bitmap/SVG-Vorschaubild) bereitgestellt. Das gerenderte Diagramm muss interaktiv sein: zoombar (Mausrad/Pinch) und exportierbar als PNG oder SVG.
+
+**Rationale:** Mermaid ist ein De-facto-Standard für Code-basierte Diagramme in der Software-Entwicklung und wird von GitHub, GitLab und vielen Markdown-Prozessoren nativ unterstützt. Der Kern-Need ist die Live-Preview-UX — nicht die Mermaid-Unterstützung an sich (die bereits in REQ-L0-016/REQ-L1-027 als Payload-Option angelegt ist). Entscheidend ist die Echtzeit-Rückkopplung zwischen Code-Eingabe und grafischer Darstellung im selben Werkzeug. Teams, die bereits in Mermaid modellieren, müssen diesen Code in ReqFlow wiederverwenden können — statt ihn manuell in ein strukturiertes Diagramm-Format zu übersetzen. Die Live-Preview senkt die kognitive Last beim Editieren erheblich.
+
+**Akzeptanzkriterien:**
+- AC1: Der Nutzer kann Mermaid-Code in einen Texteditor eingeben; während der Eingabe wird das gerenderte Diagramm im selben Bildschirmbereich als Vorschau angezeigt (Live-Preview, Aktualisierung bei Tastatur-Eingabe mit 500ms Debounce).
+- AC2: Der Mermaid-Quellcode wird als Diagramm-Quelltext-Payload persistiert (immutable Versionen bei Änderung).
+- AC3: Mindestens 5 Mermaid-Typen werden unterstützt: flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram.
+- AC4: Das gerenderte Diagramm ist zoombar (Mausrad, Pinch-Geste, Zoom-Buttons).
+- AC5: Das gerenderte Diagramm kann als PNG und als SVG exportiert werden.
+- AC6: Der Mermaid-Quellcode ist via TraceLink mit Requirements, ArchitectureElements und TestCases verknüpfbar (Typ `documents`).
+- AC7: Bei Syntaxfehlern im Mermaid-Code wird eine aussagekräftige Fehlermeldung im UI angezeigt (mit Zeilennummer und Fehlerkategorie). Die zuletzt erfolgreich gerenderte grafische Darstellung bleibt als Fossil sichtbar, bis der Code wieder syntaktisch valide ist.
+- AC8: Das Mermaid-Diagramm ist via MCP (artifact.get) als strukturierter Payload (Quellcode + Render-Hinweise) abrufbar.
+- AC9: Fällt der Mermaid-Renderer aus (Library-Ladefehler, Timeout, CORS-Problem), zeigt das System eine Fehlermeldung und den rohen Quellcode lesbar als Fallback an. Der Quellcode bleibt editierbar und speicherbar — unabhängig vom Rendering-Status.
+- AC10: Das Live-Rendering schließt in <2s für Diagramme mit bis zu 100 Knoten/Kanten ab. Bei Überschreitung wird eine Ladeanzeige gezeigt, der Editor bleibt responsiv.
+
+**Abgrenzung:**
+- Ersetzt nicht REQ-L0-016 (strukturierte Diagramm-Typen) — Mermaid ist eine **neue, code-basierte** Eingabeform für dieselben und zusätzliche Diagramm-Typen.
+- Mermaid-Rendering kann serverseitig (Backend wandelt Mermaid in SVG/PNG um) oder clientseitig (mermaid.js im Browser) erfolgen — die Entscheidung obliegt der Architekturphase.
+- Versionierung erfolgt auf dem Quellcode (diff-bar), nicht auf dem gerenderten Bild.
+
+**Abgeleitet von:** REQ-L0-016 (Erweiterung um Mermaid-Unterstützung) | User-Request Need-2
+**Ableitet L1:** Erweiterung von REQ-L1-027 erforderlich (Mermaid-Code-Payload, Live-Rendering) — neue L1-Anforderung REQ-L1-057 empfohlen
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-30 | User-Request Need-1 (Canvas Free-Hand Drawing) + Need-2 (Mermaid Live Preview)*
+
+---
+
+## Zusammenfassung: Neue Stakeholder-Needs
+
+| REQ-ID | Titel | Priorität | Abgeleitet von | L1-Ableitung |
+|--------|-------|-----------|----------------|--------------|
+| REQ-L0-036 | Free-Hand Canvas Drawing | desired | REQ-L0-016, User Need-1 | Erweiterung REQ-L1-027 / NEU REQ-L1-056 |
+| REQ-L0-037 | Mermaid Live Preview | desired | REQ-L0-016, User Need-2 | Erweiterung REQ-L1-027 / NEU REQ-L1-057 |
+
+**Nächster Schritt:** L1-System-Anforderungen in `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` erweitern (neue REQ-L1-056 und REQ-L1-057 oder Erweiterung von REQ-L1-027).

@@ -3,19 +3,24 @@
  *
  * leaf_id: COMP-RF-005 (DiagramView)
  * req_id:  REQ-L0-016 (Interaktive Diagramme und Grafiken),
- *          REQ-L2-DS-001 (DiagramService REST API)
+ *          REQ-L2-DS-001 (DiagramService REST API),
+ *          REQ-L1-056 (Canvas), REQ-L1-057 (Mermaid)
  *
- * Wraps /api/v1/diagrams/ endpoints and the cross-tenant
- * /api/v1/trace-links/ lookup used by the traceability sidebar.
+ * Wraps /api/v1/diagrams/ endpoints including Canvas strokes (IF-L1-058/060)
+ * and Mermaid source/preview (IF-L1-059/061).
  */
 
 import { apiClient, getList } from "./client";
 import { tracelinksApi } from "./tracelinks";
 import type {
+  CanvasStrokeData,
+  CanvasStrokeResponse,
   Diagram,
   DiagramDetail,
   DiagramTraceLink,
   DiagramType,
+  MermaidPreviewResponse,
+  MermaidSourceResponse,
   PaginatedResponse,
   PayloadFormat,
   TraceLink,
@@ -61,6 +66,68 @@ export const diagramsApi = {
 
   delete(id: UUID): Promise<void> {
     return apiClient.delete(`/diagrams/${id}/`);
+  },
+
+  // -----------------------------------------------------------------------
+  // Canvas Strokes — IF-L1-058 / IF-L1-060 (REQ-L1-056)
+  // -----------------------------------------------------------------------
+
+  /** GET /api/v1/diagrams/{id}/canvas-strokes/ — retrieve stroke data + SVG */
+  fetchCanvasStrokes(id: UUID): Promise<CanvasStrokeResponse> {
+    return apiClient.get<CanvasStrokeResponse>(
+      `/diagrams/${id}/canvas-strokes/`
+    );
+  },
+
+  /** POST /api/v1/diagrams/{id}/canvas-strokes/ — append strokes (auto-save) */
+  appendCanvasStrokes(
+    id: UUID,
+    data: CanvasStrokeData
+  ): Promise<CanvasStrokeResponse> {
+    return apiClient.post<CanvasStrokeResponse>(
+      `/diagrams/${id}/canvas-strokes/`,
+      data
+    );
+  },
+
+  /** PUT /api/v1/diagrams/{id}/canvas-strokes/ — replace all strokes */
+  saveCanvasStrokes(
+    id: UUID,
+    data: CanvasStrokeData
+  ): Promise<CanvasStrokeResponse> {
+    return apiClient.put<CanvasStrokeResponse>(
+      `/diagrams/${id}/canvas-strokes/`,
+      data
+    );
+  },
+
+  // -----------------------------------------------------------------------
+  // Mermaid Source/Preview — IF-L1-059 / IF-L1-061 (REQ-L1-057)
+  // -----------------------------------------------------------------------
+
+  /** GET /api/v1/diagrams/{id}/mermaid-source/ — get Mermaid source code */
+  fetchMermaidSource(id: UUID): Promise<MermaidSourceResponse> {
+    return apiClient.get<MermaidSourceResponse>(
+      `/diagrams/${id}/mermaid-source/`
+    );
+  },
+
+  /** PUT /api/v1/diagrams/{id}/mermaid-source/ — update Mermaid source */
+  saveMermaidSource(
+    id: UUID,
+    source: string
+  ): Promise<MermaidSourceResponse> {
+    return apiClient.put<MermaidSourceResponse>(
+      `/diagrams/${id}/mermaid-source/`,
+      { source }
+    );
+  },
+
+  /** GET /api/v1/diagrams/{id}/mermaid-preview/ — rendered preview data */
+  fetchMermaidPreview(id: UUID): Promise<MermaidPreviewResponse> {
+    return apiClient.get<MermaidPreviewResponse>(
+      `/diagrams/${id}/mermaid-preview/`
+    );
   },
 
   /**

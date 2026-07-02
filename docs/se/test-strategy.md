@@ -388,6 +388,196 @@ Tests werden nach Risiko priorisiert. Höchste Priorität haben Sicherheit und D
 
 ---
 
+### 2.11 DiagramServiceSystem (ARCH-L1-013) — 7 REQ-L2, 7 Komponenten (5 legacy + 2 neu)
+
+**Integrationsstrategie:** Bottom-Up (neue Komponenten CANVAS + MERMAID)
+**Risiko:** MITTEL — Canvas-Performance (≥30fps) und Mermaid-Syntax-Validierung (5 Typen) sind kritisch
+**Status:** COMP-DS-001..005 bestehen (v2.1+); COMP-DS-006 (CanvasEditor) + COMP-DS-007 (MermaidLiveRenderer) sind NEU (Phase 5)
+
+#### Komponententests — COMP-DS-006 CanvasEditor
+
+| TC-ID | Komponente | Szenario | Vorbedingung | Stimulus | Erwartete Reaktion | Traces To |
+|-------|------------|----------|--------------|----------|-------------------|-----------|
+| TC-CNV-001 | COMP-DS-006 CanvasEditor | **Stroke-Daten-Validierung — gültiges JSON** | CanvasEditor instanziiert | `validate_strokes(stroke_data=valid_stroke_json)` | ValidationResult: valid=true | REQ-L2-DS-006 |
+| TC-CNV-002 | COMP-DS-006 CanvasEditor | **Stroke-Daten-Validierung — invalides JSON** | CanvasEditor instanziiert | `validate_strokes(stroke_data="{broken json}")` | ValidationResult: valid=false; Fehlerdetails | REQ-L2-DS-006 |
+| TC-CNV-003 | COMP-DS-006 CanvasEditor | **Stroke-Daten-Validierung — fehlende Pflichtfelder** | CanvasEditor instanziiert | `validate_strokes(strokes=[{x:0,y:0}])` ohne type | ValidationError: "missing required field 'type'" | REQ-L2-DS-006 |
+| TC-CNV-004 | COMP-DS-006 CanvasEditor | **SVG-Export aus Stroke-Daten** | CanvasEditor mit 5 Stroke-Elementen | `export_svg(stroke_data)` | SVG-String mit korrespondierenden path/rect/circle-Elementen | REQ-L2-DS-006 |
+| TC-CNV-005 | COMP-DS-006 CanvasEditor | **SVG-Export — leerer Canvas** | CanvasEditor, keine Strokos | `export_svg(stroke_data=[])` | Leeres SVG (width/height gesetzt, kein content) | REQ-L2-DS-006 |
+| TC-CNV-006 | COMP-DS-006 CanvasEditor | **Auto-Save — maximales Intervall ≤5s** | CanvasEditor, Timer konfigurierbar | `configure_auto_save(interval_ms=5000)`; Timer abwarten | `save_callback` aufgerufen; stroke_data persistiert | REQ-L2-DS-006 |
+| TC-CNV-007 | COMP-DS-006 CanvasEditor | **Auto-Save — kein Datenverlust bei Browser-Crash** | CanvasEditor, letzter Auto-Save vor 3s | Browser-Crash simulieren; Recovery | Letzter persistierter State wiederherstellbar | REQ-L2-DS-006 |
+| TC-CNV-008 | COMP-DS-006 CanvasEditor | **Canvas-Performance — ≥30fps bei 500 Strokes + 100 Shapes** | 500 Stroke-Elemente + 100 Formen geladen | Framerate messen über 5s | Durchschnittliche Framerate ≥30fps | REQ-L2-DS-006 |
+| TC-CNV-009 | COMP-DS-006 CanvasEditor | **Canvas-Performance — Leerer Canvas** | 0 Elemente | Framerate messen | Framerate ≥60fps | REQ-L2-DS-006 |
+| TC-CNV-010 | COMP-DS-006 CanvasEditor | **Verbinder folgt verschobener Form** | Verbinder (Pfeil) zwischen Form A und B | Form A von (10,10) nach (100,50) verschieben | Verbinder-Endpunkt folgt auf neue Position von A | REQ-L2-DS-006 |
+| TC-CNV-011 | COMP-DS-006 CanvasEditor | **TraceLink-Erstellung (documents)** | Gültige Target-Artifact-ID | `create_trace_link(diagram_id, target_id)` | TraceLink vom Typ 'documents' erstellt | REQ-L2-DS-006 |
+| TC-CNV-012 | COMP-DS-006 CanvasEditor | **MCP artifact.get — Canvas-Payload** | Existierendes Canvas-Diagramm | `get_mcp_artifact(diagram_id)` | MCP-Response mit stroke_data + metadata | REQ-L2-DS-006 |
+| TC-CNV-013 | COMP-DS-006 CanvasEditor | **Persistenz — Stroke-Daten versioniert** | CanvasEditor → DiagramManager | `persist_canvas(name, stroke_data, tenant, user)` | Diagram mit type='canvas' + Version 1 persistiert | REQ-L2-DS-006 |
+| TC-CNV-014 | COMP-DS-006 CanvasEditor | **Versionierung — Update erzeugt N+1** | Canvas-Diagramm v1 existiert | `update_canvas(diagram_id, new_stroke_data)` | Version 2 erstellt; Version 1 unverändert | REQ-L2-DS-006 |
+| TC-CNV-015 | COMP-DS-006 CanvasEditor | **TraceLink aus Canvas-Kontextmenü** | Canvas mit ausgewählter Form | Kontextmenü → "Link to Requirement" | TraceLink (documents) erstellt; Form-Metadaten aktualisiert | REQ-L2-DS-006 |
+
+#### Komponententests — COMP-DS-007 MermaidLiveRenderer
+
+| TC-ID | Komponente | Szenario | Vorbedingung | Stimulus | Erwartete Reaktion | Traces To |
+|-------|------------|----------|--------------|----------|-------------------|-----------|
+| TC-MRM-001 | COMP-DS-007 MermaidLiveRenderer | **5 Mermaid-Typen — flowchart valid** | MermaidLiveRenderer instanziiert | `validate_mermaid("flowchart", "flowchart TD\\n  A-->B")` | valid=true | REQ-L2-DS-007 |
+| TC-MRM-002 | COMP-DS-007 MermaidLiveRenderer | **5 Mermaid-Typen — sequenceDiagram valid** | MermaidLiveRenderer instanziiert | `validate_mermaid("sequenceDiagram", "Alice->>Bob: Hi")` | valid=true | REQ-L2-DS-007 |
+| TC-MRM-003 | COMP-DS-007 MermaidLiveRenderer | **5 Mermaid-Typen — classDiagram valid** | MermaidLiveRenderer instanziiert | `validate_mermaid("classDiagram", "class Animal\\n  Animal : +int age")` | valid=true | REQ-L2-DS-007 |
+| TC-MRM-004 | COMP-DS-007 MermaidLiveRenderer | **5 Mermaid-Typen — stateDiagram valid** | MermaidLiveRenderer instanziiert | `validate_mermaid("stateDiagram", "stateIdle --> Active")` | valid=true | REQ-L2-DS-007 |
+| TC-MRM-005 | COMP-DS-007 MermaidLiveRenderer | **5 Mermaid-Typen — erDiagram valid** | MermaidLiveRenderer instanziiert | `validate_mermaid("erDiagram", "CUSTOMER ||--o{ ORDER : places")` | valid=true | REQ-L2-DS-007 |
+| TC-MRM-006 | COMP-DS-007 MermaidLiveRenderer | **Syntax-Fehler mit Zeilennummer** | MermaidLiveRenderer instanziiert | `validate_mermaid("flowchart", "graph TD\\n  A ->> B")` (ungültiger Syntax) | valid=false; error enthält Zeilennummer (2) + Beschreibung | REQ-L2-DS-007 |
+| TC-MRM-007 | COMP-DS-007 MermaidLiveRenderer | **Syntax-Fehler — leere Eingabe** | MermaidLiveRenderer instanziiert | `validate_mermaid("flowchart", "")` | valid=false; "source must not be empty" | REQ-L2-DS-007 |
+| TC-MRM-008 | COMP-DS-007 MermaidLiveRenderer | **Render-Hints für clientseitiges Rendering** | MermaidLiveRenderer | `get_render_hints("flowchart")` | RenderHint mit theme='default', engine='mermaid.js', zoomable=true | REQ-L2-DS-007 |
+| TC-MRM-009 | COMP-DS-007 MermaidLiveRenderer | **Fallback bei Renderer-Ausfall** | mermaid.js lädt nicht (simuliert) | Diagram laden; Render-Fehler | Quellcode als lesbarer Text angezeigt; Fallback-Message sichtbar | REQ-L2-DS-007 |
+| TC-MRM-010 | COMP-DS-007 MermaidLiveRenderer | **Render-Performance — <2s bei 100 Knoten/Kanten** | Diagramm mit 100 Knoten + 100 Kanten | Render-Zeit messen | Vollständig gerendert <2000ms | REQ-L2-DS-007 |
+| TC-MRM-011 | COMP-DS-007 MermaidLiveRenderer | **Render-Performance — Minimal (1 Knoten)** | Diagramm mit 1 Knoten | Render-Zeit messen | Gerendert <500ms | REQ-L2-DS-007 |
+| TC-MRM-012 | COMP-DS-007 MermaidLiveRenderer | **Zoom-Interaktion — Mausrad** | Gerendertes Diagramm | Mausrad nach oben/unten | Zoom-Faktor ändert sich; Diagramm bleibt within Viewport | REQ-L2-DS-007 |
+| TC-MRM-013 | COMP-DS-007 MermaidLiveRenderer | **Zoom-Interaktion — Zoom-Buttons** | Gerendertes Diagramm | Zoom-Buttons (+/-) klicken | Zoom 100% → 150% → 200% → 100% zyklisch oder stufenlos | REQ-L2-DS-007 |
+| TC-MRM-014 | COMP-DS-007 MermaidLiveRenderer | **TraceLink (documents) erstellbar** | Mermaid-Live-Preview mit Diagramm | TraceLink-Create | TraceLink 'documents' erstellt | REQ-L2-DS-007 |
+| TC-MRM-015 | COMP-DS-007 MermaidLiveRenderer | **MCP artifact.get — Source + Hints** | Existierendes Mermaid-Diagramm | `get_mcp_artifact(diagram_id)` | Response mit source_code + render_hints | REQ-L2-DS-007 |
+| TC-MRM-016 | COMP-DS-007 MermaidLiveRenderer | **Persistenz — Mermaid-Source versioniert** | MermaidLiveRenderer → DiagramManager | `persist_mermaid_source(name, source, tenant, user)` | Diagram mit type='mermaid' + Version 1 persistiert | REQ-L2-DS-007 |
+| TC-MRM-017 | COMP-DS-007 MermaidLiveRenderer | **Versionierung — Update erzeugt N+1** | Mermaid-Diagramm v1 existiert | `update_mermaid(diagram_id, new_source)` | Version 2; alte Version 1 unverändert | REQ-L2-DS-007 |
+
+#### Integrationstests — CanvasEditor (COMP-DS-006) + MermaidLiveRenderer (COMP-DS-007)
+
+| IT-ID | Komponenten | Schnittstelle | Stubs/Drivers | Pass-Kriterium |
+|-------|-------------|---------------|---------------|----------------|
+| IT-CNV-01 | COMP-DS-006 → COMP-DS-002 | IF-DS-INT-004 | Driver: Stroke-Data-Generator | CanvasEditor validiert Stroke-Struktur via DiagramValidator; ungültige Daten rejected |
+| IT-CNV-02 | COMP-DS-006 → COMP-DS-001 | IF-DS-INT-005 | Stub: PersistenceLayer | Canvas-Stroke-Daten persistiert; Version 1 erstellt |
+| IT-CNV-03 | COMP-DS-006 → COMP-DS-004 | IF-DS-INT-006 | Stub: TraceabilityEngine | TraceLink 'documents' nach canvas persist → link erstellt |
+| IT-MRM-01 | COMP-DS-007 → COMP-DS-002 | IF-DS-INT-004 | Driver: Mermaid-Source-Generator | Mermaid-Source via DiagramValidator; 5 Typen valide |
+| IT-MRM-02 | COMP-DS-007 → COMP-DS-001 | IF-DS-INT-007 | Stub: PersistenceLayer | Mermaid-Source persistiert; Version 1 erstellt |
+| IT-MRM-03 | COMP-DS-007 → COMP-DS-003 | IF-DS-INT-008 | Stub: DiagramRenderer | Render-Hints korrekt für mermaid.js erzeugt |
+| IT-MRM-04 | COMP-DS-007 → COMP-DS-005 | IF-DS-INT-009 | Stub: McpArtifactProvider | Mermaid-Typ in MCP registriert; artifact.get liefert Source+Hints |
+
+#### Frontend-Tests (Canvas + Mermaid UI)
+
+| TC-ID | Komponente | Szenario | Stimulus | Erwartete Reaktion | Traces To |
+|-------|------------|----------|----------|-------------------|-----------|
+| TC-FE-CNV-001 | Canvas-Zeichenfläche | **Pen-Zeichnung** | Maus-Drag auf Canvas | Stroke wird in Echtzeit gerendert ≥30fps | REQ-L2-DS-006 |
+| TC-FE-CNV-002 | Canvas-Zeichenfläche | **Shape-Einfügen (Rechteck)** | Toolbar → Rectangle klicken → auf Canvas klicken | Rechteck an Klickposition; selektierbar | REQ-L2-DS-006 |
+| TC-FE-CNV-003 | Canvas-Zeichenfläche | **Text-Einfügen** | Toolbar → Text → auf Canvas klicken → Text eingeben | Text-Element mit Eingabe; editierbar per Doppelklick | REQ-L2-DS-006 |
+| TC-FE-CNV-004 | Canvas-Zeichenfläche | **Connector (Pfeil) zwischen Shapes** | Zwei Shapes; Connector-Tool → Shape A → Shape B | Pfeil von A nach B; B verschieben → Pfeil folgt | REQ-L2-DS-006 |
+| TC-FE-CNV-005 | Canvas-Zeichenfläche | **Auto-Save visuelles Feedback** | Canvas-Änderung | Auto-Save-Indikator (z.B. "Gespeichert" / Uhr) | REQ-L2-DS-006 |
+| TC-FE-CNV-006 | Canvas-Zeichenfläche | **Export → SVG** | Export-Button → SVG | SVG-Datei-Download mit korrektem Inhalt | REQ-L2-DS-006 |
+| TC-FE-MRM-001 | Mermaid-Editor | **Code-Eingabe — gültig** | Mermaid-Code in Editor tippen (500ms Debounce) | Live-Preview updated automatisch nach ≤600ms | REQ-L2-DS-007 |
+| TC-FE-MRM-002 | Mermaid-Editor | **Code-Eingabe — Syntax-Fehler** | Invaliden Mermaid-Code eingeben | Fehlermeldung mit Zeilennummer unter Editor | REQ-L2-DS-007 |
+| TC-FE-MRM-003 | Mermaid-Editor | **Fallback bei Render-Fehler** | mermaid.js Error auslösen | Quellcode lesbar; "Renderer nicht verfügbar"-Hinweis | REQ-L2-DS-007 |
+| TC-FE-MRM-004 | Mermaid-Editor | **Zoom im Preview** | Gerendertes Diagramm | Mausrad → Zoom ändert sich; Pinch-Geste (Touch) → Zoom | REQ-L2-DS-007 |
+| TC-FE-MRM-005 | Mermaid-Editor | **Export → PNG** | Gerendertes Diagramm | PNG-Download via canvas.toDataURL | REQ-L2-DS-007 |
+
+#### E2E-Tests (User Journeys)
+
+| E2E-ID | Journey | Schritte | Systeme | Erwartetes Ergebnis | Priorität |
+|--------|---------|----------|---------|---------------------|-----------|
+| E2E-CNV-01 | **Canvas zeichnen → speichern → verknüpfen → MCP abrufen** | (1) Zeichne 3 Shapes + 2 Connectors auf Canvas; (2) Auto-Save triggert Persistierung; (3) Öffne Kontextmenü auf Shape → "Link to Requirement" → wähle Requirement; (4) Rufe via MCP artifact.get Diagramm ab | Frontend → REST → DiagramService → PersistenceLayer → TraceabilityEngine → MCP | Canvas-Diagramm persistiert (Version 1); TraceLink 'documents' erstellt; MCP liefert stroke_data | P1 |
+| E2E-CNV-02 | **Canvas export SVG** | (1) Canvas mit Inhalt; (2) Export → SVG | Frontend → DiagramService | SVG-Datei mit allen Shapes + Connectors | P2 |
+| E2E-MRM-01 | **Mermaid-Code eingeben → Preview → korrigieren → exportieren** | (1) Mermaid-Code `flowchart TD\n  A-->B` in Editor; (2) Live-Preview aktualisiert; (3) Code auf `A-->C` ändern; (4) Syntaxfehler `A ->> B` → Fehler mit Zeile 2; (5) Korrigieren → Preview wieder grün; (6) Export PNG | Frontend → DiagramService | Live-Preview reagiert auf Änderungen; Fehler zeigt Zeilennummer; Export liefert PNG | P1 |
+| E2E-MRM-02 | **Mermaid: 5 Typen durchtesten** | Nacheinander: flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram in Editor | Frontend → DiagramService | Alle 5 Typen rendern korrekt in der Preview | P2 |
+| E2E-MRM-03 | **Mermaid TraceLink → MCP** | (1) Mermaid-Diagramm persistieren; (2) TraceLink zu Requirement; (3) MCP artifact.get liefert Source+Hints | Frontend → DiagramService → TraceabilityEngine → MCP | Vollständiger Kreislauf: Source+Hints via MCP abrufbar | P1 |
+
+#### Test-Interface-Spezifikationen — Neue Interfaces (COMP-DS-006, COMP-DS-007)
+
+| Interface-ID | Quelle | Ziel | Testmethode | Beobachtbare Effekte | Fault-Injection-Punkte |
+|-------------|--------|------|-------------|---------------------|----------------------|
+| IF-DS-INT-004 | CanvasEditor (006) | DiagramValidator (002) | Python direct call `validate_canvas_strokes(stroke_data)` | ValidationResult valid/invalid mit Fehlerdetails | Malformed JSON; fehlende Pflichtfelder; Null-Werte; leeres Strokes-Array; Stroke ohne Koordinaten |
+| IF-DS-INT-005 | CanvasEditor (006) | DiagramManager (001) | Python direct call `persist_canvas(name, stroke_data, tenant, user)` | Diagram created; Version 1; Audit-Entry | Stroke-Daten >10MB; ungültiger Tenant; Null-Name |
+| IF-DS-INT-006 | CanvasEditor (006) | TraceabilityConnector (004) | Python direct call `link_canvas_to_artifact(diagram_id, target_id)` | TraceLink vom Typ 'documents' | Nicht-existente target_id; doppelter Link (idempotent?); Cross-Tenant-Link |
+| IF-DS-INT-007 | MermaidLiveRenderer (007) | DiagramManager (001) | Python direct call `persist_mermaid_source(name, source, tenant, user)` | Diagram created; Version 1; RenderHints generiert | Mermaid-Code >1MB; Null-Source; Cross-Tenant |
+| IF-DS-INT-008 | MermaidLiveRenderer (007) | DiagramRenderer (003) | Python direct call `get_render_hints(diagram_type, payload_format)` | RenderHint mit theme='default', engine='mermaid.js', zoomable=true, supported_types | Nicht-unterstützter diagram_type; ungültiger payload_format |
+| IF-DS-INT-009 | MermaidLiveRenderer (007) | McpArtifactProvider (005) | Python direct call `register_mcp_type(diagram_type, payload_format)` | Mermaid-Typ in MCP-Tool-Gruppen registriert; artifact.get erreichbar | Doppelte Registrierung (idempotent?); falscher mcp_type |
+
+#### Testdaten — Beispiel-Stroke-Daten (Canvas)
+
+```json
+{
+  "version": "1.0",
+  "width": 1920,
+  "height": 1080,
+  "strokes": [
+    {
+      "id": "stroke-001",
+      "type": "pen",
+      "points": [
+        {"x": 100, "y": 200, "pressure": 0.5, "t": 0},
+        {"x": 150, "y": 250, "pressure": 0.7, "t": 10}
+      ],
+      "color": "#000000",
+      "width": 2
+    },
+    {
+      "id": "shape-001",
+      "type": "rectangle",
+      "x": 300, "y": 400, "width": 200, "height": 100,
+      "fill": "#4A90D9",
+      "stroke": "#333333",
+      "strokeWidth": 1,
+      "rotation": 0,
+      "opacity": 1.0
+    },
+    {
+      "id": "text-001",
+      "type": "text",
+      "x": 350, "y": 450,
+      "content": "Hello Canvas",
+      "fontSize": 16,
+      "fontFamily": "Arial",
+      "color": "#000000"
+    },
+    {
+      "id": "conn-001",
+      "type": "connector",
+      "sourceId": "shape-001",
+      "targetId": "shape-002",
+      "sourceAnchor": "right",
+      "targetAnchor": "left",
+      "connectorType": "arrow",
+      "color": "#666666",
+      "width": 2
+    }
+  ],
+  "shapes": [
+    {"id": "shape-001", "label": "System A"},
+    {"id": "shape-002", "label": "System B"}
+  ]
+}
+```
+
+#### Testdaten — Beispiel-Mermaid-Code (5 Typen)
+
+```json
+{
+  "flowchart": "flowchart TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[End]\n  B -->|No| D[Retry]",
+  "sequenceDiagram": "sequenceDiagram\n  Alice->>John: Hello John\n  John-->>Alice: Hi Alice\n  Alice->>John: How are you?",
+  "classDiagram": "classDiagram\n  Animal <|-- Duck\n  Animal <|-- Fish\n  Animal : +int age\n  Animal : +isMammal()\n  class Duck{\n    +String beakColor\n    +swim()\n  }",
+  "stateDiagram": "stateDiagram-v2\n  [*] --> Idle\n  Idle --> Processing : start\n  Processing --> Done : complete\n  Done --> [*]",
+  "erDiagram": "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER ||--|{ LINE-ITEM : contains\n  CUSTOMER }|..|{ DELIVERY-ADDRESS : uses"
+}
+```
+
+#### Mocking-Strategie für neue Komponenten
+
+| Mock/Stub | Ersetzt | Verwendung | Verhalten |
+|-----------|---------|------------|-----------|
+| `MockMermaidJs` | Client-seitiges mermaid.js | Frontend-Tests | Simuliert erfolgreiches/scheiterndes Rendering; konfigurierbare Render-Zeit |
+| `StubCanvas2D` | HTML5 Canvas API | Frontend-Performance-Tests | Zeichnet keine Pixel; zählt draw-calls; misst framerate via requestAnimationFrame-Mock |
+| `StubPersistenceLayer` | PostgreSQL (Canvas/Mermaid-Daten) | Integrationstests | In-Memory-Speicher für stroke_data/source_code; Versionierung simuliert |
+| `StubTraceEngine` | TraceabilityEngine (IF-L1-034) | Integrationstests | HTTP-Stub; zeichnet TraceLink-Calls auf; konfigurierbare Fehler |
+| `MockAutoSaveTimer` | Browser setInterval | Canvas-Auto-Save-Tests | Kontrollierter Timer; manuelles Ticken für deterministische Tests |
+
+#### Performance-Tests — Canvas & Mermaid
+
+| TC-ID | Szenario | Last | Ziel | Messgröße |
+|-------|----------|------|------|-----------|
+| TC-PERF-CNV-001 | Canvas-Zeichnen — minimale Last | 1 Stroke, 1 Shape | ≥60fps | Framerate (fps) |
+| TC-PERF-CNV-002 | Canvas-Zeichnen — garantierte Last | 500 Strokes, 100 Shapes | ≥30fps | Framerate (fps) |
+| TC-PERF-CNV-003 | Canvas-Zeichnen — Spitzenlast | 1000 Strokes, 200 Shapes | ≥20fps (Graceful Degradation) | Framerate (fps) |
+| TC-PERF-CNV-004 | Auto-Save — Serialisierungs-Zeit | 500 Strokes | <100ms Serialisierung | JSON.stringify + POST roundtrip |
+| TC-PERF-MRM-001 | Mermaid-Rendering — minimal | 1 Knoten, 1 Kante | <500ms | Render-Zeit |
+| TC-PERF-MRM-002 | Mermaid-Rendering — Normallast | 50 Knoten, 50 Kanten | <1000ms | Render-Zeit |
+| TC-PERF-MRM-003 | Mermaid-Rendering — garantierte Last | 100 Knoten, 100 Kanten | <2000ms | Render-Zeit |
+| TC-PERF-MRM-004 | Mermaid-Code-Validierung — Backend | 5 Typen, 100 Zeilen | <100ms | Validierungs-Zeit (Backend) |
+
+---
+
 ## 3. Testmodelle — Continue-Systeme (L3-Ebene)
 
 ### 3.1 ApplicationServiceSystem (ARCH-L1-004) — 25 REQ-L2, 12 L2-Komponenten, 13 L3-Units
@@ -740,20 +930,23 @@ Zeitbasierte Tests erfordern deterministische Clock-Steuerung um Flakiness zu ve
 | BaselineServiceSystem | 8 | 14 Komp. + 3 Int. | 8/8 (100%) |
 | ReactFrontendSystem | 12 | 12 Komp. + 5 Int. | 12/12 (100%) |
 | RestApiAdapterSystem | 12 | 12 Komp. + 6 Int. | 12/12 (100%) |
+| DiagramServiceSystem (Legacy) | 5 | 14 Komp. + 4 Int. | 5/5 (100%) |
+| DiagramServiceSystem (Canvas) | 1 (REQ-L2-DS-006) | 15 Komp. (CNV) | 1/1 (100%) |
+| DiagramServiceSystem (Mermaid) | 1 (REQ-L2-DS-007) | 17 Komp. (MRM) + 4 Int. + 5 FE + 5 E2E | 1/1 (100%) |
 | ApplicationServiceSystem | 25 | 30 L3-Unit + 5 L3-Int + 8 L2-Int | 25/25 (100%) |
 | McpServerSystem | 12 | 35 L3-Unit + 2 L3-Int + 9 L2-Int | 12/12 (100%) |
-| **Cross-Cutting** | — | 19 BVA + 12 Edge/Resilience + 17 Security + 15 Performance | — |
-| **GESAMT** | **136** | **214 Komp./Unit + 61 Int. + 63 Cross-Cutting** | **136/136 (100%)** |
+| **Cross-Cutting** | — | 19 BVA + 12 Edge/Resilience + 17 Security + 23 Performance (+8 Canvas/Mermaid) | — |
+| **GESAMT** | **138** | **214 Komp./Unit + 61 Int. + 63 Cross-Cutting + 36 Canvas/Mermaid** | **138/138 (100%)** |
 
 ### 8.2 Interface-Coverage-Matrix
 
 | Interface-Klasse | Gesamt | Getestet | Coverage |
 |-----------------|--------|----------|----------|
 | IF-EXT (External) | 6 | 6 (via E2E) | 6/6 (100%) |
-| IF-L1 (Inter-System) | 31 | 31 (via System-Integration) | 31/31 (100%) |
-| IF-L2-internal (Intra-System) | 60 | 60 | 60/60 (100%) |
+| IF-L1 (Inter-System) | 35 | 35 (via System-Integration; +4 neue: IF-L1-058..061) | 35/35 (100%) |
+| IF-L2-internal (Intra-System) | 66 | 66 (inkl. IF-DS-INT-004..009) | 66/66 (100%) |
 | IF-L3 (Unit ↔ Unit) | 7 | 7 | 7/7 (100%) |
-| **GESAMT** | **104** | **104** | **104/104 (100%)** |
+| **GESAMT** | **108** | **108** | **108/108 (100%)** |
 
 ### 8.3 Integrationsschritte-Summary
 
@@ -771,7 +964,8 @@ Zeitbasierte Tests erfordern deterministische Clock-Steuerung um Flakiness zu ve
 | 10 | + RestApiAdapter | 18 | ApplicationService, AuthAndTenancy, PresetConfigEngine |
 | 11 | + McpServer | 46 | ApplicationService, AuthAndTenancy, PresetConfigEngine, AuditLog |
 | 12 | + ReactFrontend | 17 | RestApiAdapter |
-| — | Cross-Cutting | 63 | Alle Systeme |
+| 13 | + DiagramService (Canvas+Mermaid) | 36 | PersistenceLayer, ReactFrontend, TraceabilityEngine |
+| — | Cross-Cutting | 71 (+8 Perf) | Alle Systeme |
 
 ---
 
@@ -814,7 +1008,7 @@ Phase 5 (E2E): Vollständige User-Journeys (REST + MCP + UI)
 |-----------|------|
 | Anforderungs-Coverage | 100% (jedes REQ-L2 hat ≥ 1 Testszenario) |
 | Interface-Coverage | 100% (jede interne Schnittstelle ≥ 1x getestet) |
-| Integrationsschritte | Alle 12 Schritte ausgeführt und bestanden |
+| Integrationsschritte | Alle 13 Schritte ausgeführt und bestanden |
 | Performance-SLAs | Alle Latenz/Throughput-Anforderungen verifiziert |
 | Security-Tests | Alle Tenant-Isolation-, RBAC-, Audit-Tests bestanden |
 | Fault-Injection | Alle Fault-Injection-Punkte getestet |

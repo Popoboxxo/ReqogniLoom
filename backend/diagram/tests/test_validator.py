@@ -5,14 +5,16 @@ Covers:
   REQ-L2-DS-002: Payload validation per type (min. 3 types)
   REQ-L3-DV-001: Type-specific syntax validation with error detail
   REQ-L3-DV-002: Rejection of unsupported diagram types
+  REQ-L2-DS-007: Mermaid source validation for 5 types
 
 IF-DS-INT-001: validate_payload(diagram_type, payload_format, content)
+IF-DS-INT-010: validate_mermaid_source(source, diagram_type) -> ValidationResult
 """
 from __future__ import annotations
 
 import pytest
 
-from diagram.validator import DiagramValidator, DiagramValidationError
+from diagram.validator import DiagramValidator, DiagramValidationError, ValidationResult
 
 
 @pytest.fixture
@@ -136,3 +138,81 @@ class TestJSONValidation:
     def test_empty_json_raises(self, validator: DiagramValidator) -> None:
         with pytest.raises(DiagramValidationError, match="must not be empty"):
             validator.validate_payload("context", "json", "")
+
+
+# ---------------------------------------------------------------------------
+# REQ-L2-DS-007: Mermaid source validation for 5 types
+# IF-DS-INT-010: validate_mermaid_source
+# ---------------------------------------------------------------------------
+
+class TestMermaidSourceValidation:
+    """REQ-L2-DS-007: validate_mermaid_source for 5 Mermaid diagram types."""
+
+    def test_valid_flowchart(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("flowchart TD\n  A --> B")
+        assert result.is_valid
+        assert result.diagram_type == "flowchart"
+
+    def test_valid_graph_alias(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("graph LR\n  A --> B")
+        assert result.is_valid
+        assert result.diagram_type == "flowchart"
+
+    def test_valid_sequence_diagram(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("sequenceDiagram\n  Alice->>Bob: Hello")
+        assert result.is_valid
+        assert result.diagram_type == "sequenceDiagram"
+
+    def test_valid_class_diagram(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("classDiagram\n  class Animal")
+        assert result.is_valid
+        assert result.diagram_type == "classDiagram"
+
+    def test_valid_state_diagram(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("stateDiagram\n  [*] --> Active")
+        assert result.is_valid
+        assert result.diagram_type == "stateDiagram"
+
+    def test_valid_er_diagram(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("erDiagram\n  CUSTOMER ||--o{ ORDER")
+        assert result.is_valid
+        assert result.diagram_type == "erDiagram"
+
+    def test_empty_source_invalid(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("")
+        assert not result.is_valid
+        assert "empty" in result.error_msg.lower()
+
+    def test_whitespace_only_invalid(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("   \n  ")
+        assert not result.is_valid
+        assert "empty" in result.error_msg.lower()
+
+    def test_invalid_keyword(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source("invalid\n  A --> B")
+        assert not result.is_valid
+        assert result.line_number == 1
+        assert "must start with" in result.error_msg
+
+    def test_oversized_source(self, validator: DiagramValidator) -> None:
+        # Create a source > 1 MB
+        large_source = "flowchart TD\n" + "A --> B\n" * 200000
+        result = validator.validate_mermaid_source(large_source)
+        assert not result.is_valid
+        assert "size" in result.error_msg.lower()
+
+    def test_type_mismatch(self, validator: DiagramValidator) -> None:
+        # Declare flowchart but source is sequenceDiagram
+        result = validator.validate_mermaid_source(
+            "sequenceDiagram\n  A->>B",
+            diagram_type="flowchart",
+        )
+        assert not result.is_valid
+        assert "does not match" in result.error_msg
+
+    def test_type_match_succeeds(self, validator: DiagramValidator) -> None:
+        result = validator.validate_mermaid_source(
+            "flowchart TD\n  A --> B",
+            diagram_type="flowchart",
+        )
+        assert result.is_valid

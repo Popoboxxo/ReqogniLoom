@@ -204,9 +204,9 @@ export interface Issue {
 // Diagram (mirrors DiagramSerializer, REQ-L0-016 / REQ-L2-DS-001)
 // ---------------------------------------------------------------------------
 
-export type DiagramType = "block" | "flow" | "context";
+export type DiagramType = "block" | "flow" | "context" | "canvas" | "mermaid";
 
-export type PayloadFormat = "mermaid" | "plantuml" | "json";
+export type PayloadFormat = "mermaid" | "plantuml" | "json" | "canvas_stroke";
 
 export interface Diagram {
   id: UUID;
@@ -439,4 +439,94 @@ export interface ArtifactVersion {
   version: number;
   label: string;
   modified_at?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Canvas Stroke types (REQ-L1-056, IF-L1-058/060, COMP-DS-006)
+// ---------------------------------------------------------------------------
+
+export type CanvasElementType =
+  | "pen"
+  | "rect"
+  | "circle"
+  | "line"
+  | "text"
+  | "arrow"
+  | "connector";
+
+export type CanvasTool = "pen" | "select" | "eraser";
+
+export interface CanvasPoint {
+  x: number;
+  y: number;
+}
+
+export interface CanvasStroke {
+  id?: string;
+  type: CanvasElementType;
+  color?: string;
+  width?: number;
+  fill?: string;
+  opacity?: number;
+  // Pen-specific
+  points?: CanvasPoint[];
+  // Shape-specific
+  x?: number;
+  y?: number;
+  height?: number;
+  cx?: number;
+  cy?: number;
+  r?: number;
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+  // Text-specific
+  content?: string;
+  font_size?: number;
+  // Connector-specific
+  source_id?: string;
+  target_id?: string;
+}
+
+export interface CanvasStrokeData {
+  strokes: CanvasStroke[];
+  width?: number;
+  height?: number;
+}
+
+export interface CanvasStrokeResponse {
+  diagram_id: UUID;
+  strokes: CanvasStroke[];
+  width: number;
+  height: number;
+  svg: string;
+  version_number: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Mermaid types (REQ-L1-057, IF-L1-059/061, COMP-DS-007)
+// ---------------------------------------------------------------------------
+
+export interface MermaidSourceResponse {
+  diagram_id: UUID;
+  source: string;
+  diagram_type: string;
+  is_valid: boolean;
+  error_message: string;
+}
+
+export interface MermaidRenderHints {
+  supported_formats: string[];
+  renderer: string;
+  notes: string;
+}
+
+export interface MermaidPreviewResponse {
+  diagram_id: UUID;
+  source: string;
+  diagram_type: string;
+  render_hints: MermaidRenderHints | null;
+  fallback_mode: boolean;
+  error_message: string;
 }

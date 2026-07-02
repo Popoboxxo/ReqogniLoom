@@ -99,3 +99,72 @@ VALID_PLANTUML_CONTEXT = "@startuml\nrectangle System\n@enduml"
 VALID_JSON_BLOCK = '{"nodes": [{"id": "A", "label": "Block A"}]}'
 VALID_JSON_FLOW = '{"nodes": [{"id": "A"}], "edges": [{"from": "A", "to": "B"}]}'
 VALID_JSON_CONTEXT = '{"nodes": [{"id": "System"}]}'
+
+# ---------------------------------------------------------------------------
+# Valid canvas stroke data — COMP-DS-006, REQ-L2-DS-006
+# ---------------------------------------------------------------------------
+
+VALID_CANVAS_STROKES = {
+    "strokes": [
+        {
+            "id": "stroke-1",
+            "type": "pen",
+            "points": [{"x": 10, "y": 20}, {"x": 30, "y": 40}, {"x": 50, "y": 60}],
+            "color": "#000000",
+            "width": 2,
+        },
+        {
+            "id": "rect-1",
+            "type": "rect",
+            "x": 100,
+            "y": 100,
+            "width": 200,
+            "height": 150,
+            "color": "#333333",
+            "fill": "#eeeeee",
+        },
+        {
+            "id": "text-1",
+            "type": "text",
+            "x": 150,
+            "y": 175,
+            "content": "Hello Canvas",
+            "font_size": 16,
+        },
+    ],
+    "width": 800,
+    "height": 600,
+}
+
+VALID_CANVAS_CONNECTORS = {
+    "strokes": [
+        {
+            "id": "shape-a",
+            "type": "rect",
+            "x": 10,
+            "y": 10,
+            "width": 100,
+            "height": 50,
+        },
+        {
+            "id": "shape-b",
+            "type": "rect",
+            "x": 200,
+            "y": 10,
+            "width": 100,
+            "height": 50,
+        },
+        {
+            "id": "conn-1",
+            "type": "connector",
+            "source_id": "shape-a",
+            "target_id": "shape-b",
+            "x1": 110,
+            "y1": 35,
+            "x2": 200,
+            "y2": 35,
+        },
+    ],
+    "width": 800,
+    "height": 600,
+}

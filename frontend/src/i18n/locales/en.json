@@ -254,7 +254,45 @@
     "noTraceLinks": "No artifacts are linked to this diagram yet.",
     "type.block": "Block Diagram",
     "type.flow": "Flow Diagram",
-    "type.context": "Context Diagram"
+    "type.context": "Context Diagram",
+    "type.canvas": "Canvas Drawing",
+    "type.mermaid": "Mermaid Diagram"
+  },
+  "canvas": {
+    "toolbar": {
+      "pen": "Pen",
+      "select": "Select",
+      "eraser": "Eraser",
+      "color": "Color",
+      "width": "Stroke Width",
+      "undo": "Undo (Ctrl+Z)",
+      "redo": "Redo (Ctrl+Y)",
+      "save": "Save"
+    },
+    "status": {
+      "tool": "Tool",
+      "saving": "Saving...",
+      "saved": "Saved",
+      "error": "Save failed",
+      "unsaved": "Unsaved changes",
+      "idle": "Ready"
+    },
+    "loading": "Loading canvas..."
+  },
+  "mermaid": {
+    "editor": {
+      "title": "Mermaid Source"
+    },
+    "preview": {
+      "title": "Live Preview",
+      "loading": "Rendering...",
+      "error": "Render error",
+      "empty": "No source code"
+    },
+    "status": {
+      "type": "Type",
+      "noPreview": "No preview"
+    }
   },
   "metrics": {
     "title": "SE Process Metrics",

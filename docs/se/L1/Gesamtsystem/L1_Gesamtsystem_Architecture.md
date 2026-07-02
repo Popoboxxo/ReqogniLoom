@@ -89,9 +89,15 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 
 **Interne Interfaces (ausgehend):**
 - ARCH-L1-001 → ARCH-L1-002: REST + Bearer Token (JSON)
+- ARCH-L1-001 → ARCH-L1-013: IF-L1-058 (Canvas Auto-Save Push, JSON-Stroke-Daten, intervallgesteuert max. 5s)
+- ARCH-L1-001 → ARCH-L1-013: IF-L1-059 (Mermaid Source Update, Quellcode mit 500ms Debounce)
+
+**Interne Interfaces (eingehend):**
+- ARCH-L1-013 → ARCH-L1-001: IF-L1-060 (Canvas-Stroke-Daten (JSON) + SVG/PNG-Export)
+- ARCH-L1-013 → ARCH-L1-001: IF-L1-061 (Mermaid Source + Render-Hinweise + PNG/SVG-Export)
 
 **Zugeordnete REQ-L1:** REQ-L1-016 (i18n), REQ-L1-017 (React-UI)
-**Mitwirkend bei:** REQ-L1-007 (Preset-Sichtbarkeit), REQ-L1-014 (Terminologie-Profile), REQ-L1-026 (UI-Performance)
+**Mitwirkend bei:** REQ-L1-007 (Preset-Sichtbarkeit), REQ-L1-014 (Terminologie-Profile), REQ-L1-026 (UI-Performance), REQ-L1-056 (Free-Hand Canvas), REQ-L1-057 (Mermaid Live Preview)
 
 → Siehe `docs/se/L1/Gesamtsystem/L2/ReactFrontendSystem/L2_ReactFrontendSystem_Architecture.md`
 
@@ -337,17 +343,20 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | neu |
-| **Verantwortlichkeit** | Verwaltet Diagramme (Blockdiagramm, Flussdiagramm, Kontextdiagramm — mindestens 3 Typen) als eigenständige, versionierte Artefakte mit strukturiertem Payload (z.B. Mermaid-Source, PlantUML-Source, oder strukturiertes JSON-Modell). Stellt Payload-Validierung, Versionierungs-Logik und renderbare Repräsentationen bereit. Verknüpft Diagramme via TraceabilityEngine mit Requirements/ArchitectureElements. |
-| **Ableitet von** | REQ-L1-027 |
+| **Verantwortlichkeit** | Verwaltet Diagramme (Blockdiagramm, Flussdiagramm, Kontextdiagramm — mindestens 3 Typen) als eigenständige, versionierte Artefakte mit strukturiertem Payload (z.B. Mermaid-Source, PlantUML-Source, oder strukturiertes JSON-Modell). Stellt Payload-Validierung, Versionierungs-Logik und renderbare Repräsentationen bereit. Verknüpft Diagramme via TraceabilityEngine mit Requirements/ArchitectureElements. **Erweiterung 2026-06-30:** Enthält zwei neue Komponenten für Free-Hand Canvas Drawing (COMP-DS-006) und Mermaid Live Preview (COMP-DS-007), die das bestehende Diagramm-Management um freie Zeichnung und Code-basierte Live-Preview erweitern. |
+| **Ableitet von** | REQ-L1-027, REQ-L1-056, REQ-L1-057 |
 | **Domain** | software |
 | **Tier** | L2 |
-| **Schnittstellen (eingehend)** | IF-L1-032 (ApplicationService → DiagramService): `create_diagram`, `update_diagram`, `get_diagram`, `list_versions` <br> IF-L1-033 (McpServer → DiagramService): `artifact.get` für Diagramm-Artefakttyp |
-| **Schnittstellen (ausgehend)** | IF-L1-034 (DiagramService → TraceabilityEngine): TraceLink `documents` zwischen Diagramm und Requirement/ArchitectureElement <br> IF-L1-035 (DiagramService → PersistenceLayer): Diagram-Entity, DiagramVersion-Entity (Django ORM) <br> IF-L1-036 (DiagramService → AuditLog): Schreib-Operationen (via ApplicationService delegiert) |
+| **Schnittstellen (eingehend)** | IF-L1-032 (ApplicationService → DiagramService): `create_diagram`, `update_diagram`, `get_diagram`, `list_versions` <br> IF-L1-033 (McpServer → DiagramService): `artifact.get` für Diagramm-Artefakttyp <br> IF-L1-058 (ReactFrontend → DiagramService): Canvas-Auto-Save-Push (JSON-Stroke-Daten, intervallgesteuert max. 5s) <br> IF-L1-059 (ReactFrontend → DiagramService): Mermaid-Source-Update (Quellcode mit 500ms Debounce) |
+| **Schnittstellen (ausgehend)** | IF-L1-034 (DiagramService → TraceabilityEngine): TraceLink `documents` zwischen Diagramm und Requirement/ArchitectureElement <br> IF-L1-035 (DiagramService → PersistenceLayer): Diagram-Entity, DiagramVersion-Entity (Django ORM) <br> IF-L1-036 (DiagramService → AuditLog): Schreib-Operationen (via ApplicationService delegiert) <br> IF-L1-060 (DiagramService → ReactFrontend): Canvas-Stroke-Daten (JSON) + SVG-Export + PNG-Export (clientseitig via Canvas.toDataURL) <br> IF-L1-061 (DiagramService → ReactFrontend): Mermaid-Source + Render-Hinweise + PNG/SVG-Export (clientseitig via mermaid.js + canvas.toDataURL) |
 
 **Begründung (Separation of Concerns):**
 Diagramme haben einen distinkten Verantwortungsbereich: Payload-Validierung pro Diagramm-Typ, immutable Versionierung pro Änderung, optionale Server-side Render-Pipeline. Die Validierung von Mermaid-/PlantUML-Source oder strukturiertem JSON ist disjunkt von der CRUD-Logik für textuelle Anforderungen in ApplicationService. Ein eigenes System bewahrt die Kohäsion von A004 und ermöglicht spätere Render-Erweiterungen (PNG/SVG-Export) ohne A004 zu kontaminieren.
 
-→ Siehe `docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/L2_DiagramServiceSystem_Architecture.md` (anzulegen)
+**Erweiterung 2026-06-30 (Canvas + Mermaid):**
+Die beiden neuen Komponenten COMP-DS-006 (CanvasEditor) und COMP-DS-007 (MermaidLiveRenderer) werden IN das bestehende DiagramServiceSystem integriert, nicht als neue L2-Subsysteme. Begründung: (1) Beide Capabilities teilen die bestehende Infrastruktur (Versionierung, Traceability, MCP-Integration). (2) Ein neues L2-Subsystem würde Duplikation der Versionierungs- und Traceability-Logik erzeugen. (3) Alle Diagramm-bezogenen Capabilities bleiben in einem System (hohe Kohäsion). (4) Die bestehenden Komponenten DiagramManager, DiagramValidator und DiagramRenderer werden um neue Payload-Typen erweitert (Canvas-Stroke-Daten, Mermaid-Source-Code).
+
+→ Siehe `docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/L2_DiagramServiceSystem_Architecture.md`
 
 ---
 
@@ -704,6 +713,10 @@ Die konsolidierte Schnittstellen-Registry liegt in `docs/se/interface-registry.m
 | IF-L1-051 | A016 ResilienceOrchestrator → A009 / Webhook / GitHub | In-Process / HTTPS | Delegierter Aufruf nach Policy-Anwendung | REQ-L1-032 |
 | IF-L1-052 | A016 ResilienceOrchestrator → A012 AuditLog | In-Process Python | Degradation-Events, Retry-Logs, Circuit-State-Changes | REQ-L1-032 |
 | IF-L1-056 | A007 TraceabilityEngine → A011 AuthAndTenancy | In-Process Python | `validate_cross_tenant_boundary(source, target)` | REQ-L1-030 |
+| IF-L1-058 | A001 ReactFrontend → A013 DiagramService | REST + Bearer Token | Canvas-Auto-Save-Push (JSON-Stroke-Daten, intervallgesteuert max. 5s) | REQ-L1-056 |
+| IF-L1-059 | A001 ReactFrontend → A013 DiagramService | REST + Bearer Token | Mermaid-Source-Update (Quellcode mit 500ms Debounce) | REQ-L1-057 |
+| IF-L1-060 | A013 DiagramService → A001 ReactFrontend | REST + Bearer Token | Canvas-Stroke-Daten (JSON) + SVG-Export + PNG-Export (clientseitig via Canvas.toDataURL) | REQ-L1-056 |
+| IF-L1-061 | A013 DiagramService → A001 ReactFrontend | REST + Bearer Token | Mermaid-Source + Render-Hinweise + PNG/SVG-Export (clientseitig via mermaid.js + canvas.toDataURL) | REQ-L1-057 |
 
 ---
 
@@ -781,7 +794,7 @@ Die folgende Matrix ordnet jedem Architekturelement (Subsystem) die REQ-L1 zu, f
 | ARCH-L1-010 | PersistenceLayer | REQ-L1-015, REQ-L1-025, REQ-L1-026 | REQ-L1-001–REQ-L1-024 (alle mit Persistenzbedarf) |
 | ARCH-L1-011 | AuthAndTenancy | REQ-L1-010, REQ-L1-015 | REQ-L1-002, REQ-L1-005, REQ-L1-006, REQ-L1-009, REQ-L1-011, REQ-L1-012 |
 | ARCH-L1-012 | AuditLog | REQ-L1-011 | REQ-L1-002, REQ-L1-005, REQ-L1-009, REQ-L1-025, REQ-L1-032 (Degradation-Events) |
-| ARCH-L1-013 | DiagramService (neu) | REQ-L1-027 | — |
+| ARCH-L1-013 | DiagramService (neu) | REQ-L1-027, REQ-L1-056, REQ-L1-057 | — |
 | ARCH-L1-014 | IcdManagement (neu) | REQ-L1-028 | — |
 | ARCH-L1-015 | SeMetrics (neu) | REQ-L1-031 | — |
 | ARCH-L1-016 | ResilienceOrchestrator (neu) | REQ-L1-032 | — |
@@ -822,12 +835,16 @@ Die folgende Matrix ordnet jedem Architekturelement (Subsystem) die REQ-L1 zu, f
 | REQ-L1-030 | Projektübergreifende Traceability | A007 (erweitert) | A004, A010, A011 (Cross-Tenant-Guard) |
 | REQ-L1-031 | SE-Prozess-Metrikmodul | A015 (neu) | A002 (REST-Endpunkt), A001 (Dashboard), A004, A005, A007, A010, A012 |
 | REQ-L1-032 | Resilienz / Graceful Degradation | A016 (neu) | A004 (Webhook/GitHub-Wrapping), A009 (LLM-Routing), A012 (Degradation-Events) |
+| REQ-L1-056 | Free-Hand Canvas Drawing | A013 (erweitert) | A004 (Fassade), A007 (TraceLinks `documents`), A010, A012 |
+| REQ-L1-057 | Mermaid Live Preview | A013 (erweitert) | A004 (Fassade), A007 (TraceLinks `documents`), A010, A012 |
 
 ### 7.3 Decomposition-Completeness — Begründung
 
 Die zwölf ursprünglichen L1-Subsysteme decken alle 26 ursprünglichen REQ-L1 vollständig ab. Jede REQ-L1 hat eine primär verantwortliche Architektureinheit und identifizierte Mitwirkende. Keine REQ-L1 ist ohne Owner. Keine Architektureinheit existiert ohne REQ-L1-Begründung. Die Querschnitts-Subsysteme (`AuthAndTenancy`, `PresetConfigEngine`, `AuditLog`, `PersistenceLayer`) sind durch mehrere REQ-L1 motiviert — das ist gewollt und reflektiert die tatsächliche Cross-Cutting-Natur dieser Anliegen.
 
 **Erweiterung 2026-06-21:** Die sechs neuen REQ-L1-027..032 sind vollständig abgedeckt: 4 durch neue L2-Systeme (A013 DiagramService für REQ-L1-027, A014 IcdManagement für REQ-L1-028, A015 SeMetrics für REQ-L1-031, A016 ResilienceOrchestrator für REQ-L1-032) und 2 durch Erweiterung bestehender Systeme (REQ-L1-029 durch A004 ApplicationService, REQ-L1-030 durch A007 TraceabilityEngine). Die Entscheidung "neu vs. erweitert" folgt dem Separation-of-Concerns-Prinzip: Anforderungen mit distinkter Domänenlogik (Diagramm-Payload-Validierung, DbC-Semantik, Cross-System-Aggregation, Cross-Cutting-Resilienz-Policies) bekommen eigene Systeme; Anforderungen mit identischem Lifecycle-Muster bestehender Verantwortlichkeiten (Artefakt-CRUD für ADR/Risk/Issue, TraceLink-Erweiterung für Cross-Projekt) werden in bestehende Systeme integriert.
+
+**Erweiterung 2026-06-30:** REQ-L1-056 (Free-Hand Canvas Drawing) und REQ-L1-057 (Mermaid Live Preview) werden durch Erweiterung von A013 DiagramService abgedeckt. Entscheidung: Neue Komponenten IN DiagramService (COMP-DS-006 CanvasEditor, COMP-DS-007 MermaidLiveRenderer) statt neue L2-Subsysteme. Begründung: (1) Beide Capabilities teilen bestehende Infrastruktur (Versionierung, Traceability, MCP). (2) Ein neues L2-Subsystem würde Duplikation erzeugen. (3) Alle Diagramm-bezogenen Capabilities bleiben in einem System (Kohäsion). Architektonische Entscheidungen: Clientseitiges Mermaid-Rendering (mermaid.js im Browser) für Performance und Self-Hosted-First; JSON-Stroke-Daten als Primärformat für Canvas (diff-bar, versionierbar).
 
 Offene Punkte aus L1_Gesamtsystem_Requirements.md (OP-01 LLM-Capability-Scope, OP-02 Preset-Downgrade-Semantik, OP-03 Workflow-Wechsel-Semantik) sind in der Architektur durch dedizierte Subsysteme/Sub-Komponenten adressierbar:
 
@@ -861,7 +878,7 @@ Offene Punkte aus L1_Gesamtsystem_Requirements.md (OP-01 LLM-Capability-Scope, O
 | PresetConfigEngineSystem | 3 | 14 | LEAF |
 | AuditLogSystem | 2 | 7 | LEAF |
 | PersistenceLayerSystem | 5 | 9 | LEAF |
-| **DiagramServiceSystem** | TBD | TBD | **PENDING (neu)** |
+| **DiagramServiceSystem** | 7 | 7 | **EXTENDED (2026-06-30)** |
 | **IcdManagementSystem** | TBD | TBD | **PENDING (neu)** |
 | **SeMetricsSystem** | TBD | TBD | **PENDING (neu)** |
 | **ResilienceOrchestratorSystem** | TBD | TBD | **PENDING (neu)** |
@@ -887,4 +904,5 @@ Nächster Schritt: Implementierung durch developer-Agenten.
 *Aktualisiert: ARCH-L1-001..012 zugewiesen, REQ-L1-001..026 vollständig abgedeckt*
 *Aktualisiert 2026-06-20: L2-Cascade abgeschlossen, alle 12 Systeme LEAF*
 *Aktualisiert 2026-06-21 (HOFF-20260621-004): L1-Whitebox erweitert um ARCH-L1-013..016 für REQ-L1-027..032. A004, A007, A009 erhalten Erweiterungen.*
+*Aktualisiert 2026-06-30: A013 DiagramService erweitert um COMP-DS-006 (CanvasEditor) und COMP-DS-007 (MermaidLiveRenderer) für REQ-L1-056/057. Neue Interfaces IF-L1-058..061.*
 *Nächste Ebene: Siehe `docs/se/L1/Gesamtsystem/L2/<SystemName>System/L2_<SystemName>System_Architecture.md` (16 Systeme ARCH-L1-001 … ARCH-L1-016; 4 davon PENDING)*

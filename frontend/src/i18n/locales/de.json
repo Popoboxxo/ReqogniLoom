@@ -254,7 +254,45 @@
     "noTraceLinks": "Keine Artefakte mit diesem Diagramm verknüpft.",
     "type.block": "Block-Diagramm",
     "type.flow": "Fluss-Diagramm",
-    "type.context": "Kontext-Diagramm"
+    "type.context": "Kontext-Diagramm",
+    "type.canvas": "Canvas-Zeichnung",
+    "type.mermaid": "Mermaid-Diagramm"
+  },
+  "canvas": {
+    "toolbar": {
+      "pen": "Stift",
+      "select": "Auswahl",
+      "eraser": "Radierer",
+      "color": "Farbe",
+      "width": "Strichstärke",
+      "undo": "Rückgängig (Strg+Z)",
+      "redo": "Wiederholen (Strg+Y)",
+      "save": "Speichern"
+    },
+    "status": {
+      "tool": "Werkzeug",
+      "saving": "Speichert...",
+      "saved": "Gespeichert",
+      "error": "Speichern fehlgeschlagen",
+      "unsaved": "Ungespeicherte Änderungen",
+      "idle": "Bereit"
+    },
+    "loading": "Canvas wird geladen..."
+  },
+  "mermaid": {
+    "editor": {
+      "title": "Mermaid-Quellcode"
+    },
+    "preview": {
+      "title": "Live-Vorschau",
+      "loading": "Rendern...",
+      "error": "Render-Fehler",
+      "empty": "Kein Quellcode"
+    },
+    "status": {
+      "type": "Typ",
+      "noPreview": "Keine Vorschau"
+    }
   },
   "metrics": {
     "title": "SE-Prozess-Metriken",

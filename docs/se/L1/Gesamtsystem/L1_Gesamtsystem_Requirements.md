@@ -1514,3 +1514,121 @@ Beide Ansichten MÜSSEN in einem Workspace verfügbar und umschaltbar sein.
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L1-043..048 aus SN-30, SN-32..35 & User-Feedback)*
+
+---
+
+## Erweiterung v7 — REQ-L1-056 und REQ-L1-057 (aus SN-36, SN-37)
+
+> **Quelle:** REQ-L0-036, REQ-L0-037 (formalisiert 2026-06-30)
+> **Datum:** 2026-06-30
+> **Entscheidung:** Neue REQ-L1-IDs statt Erweiterung REQ-L1-027, da REQ-L1-027 bereits "Implemented" ist und Canvas/Mermaid-Live-Preview distinkte Paradigmen mit eigenen Payload-Formaten sind.
+
+---
+
+### REQ-L1-056: Free-Hand Canvas Drawing
+
+Das System muss eine freie Zeichenfläche (Canvas) bereitstellen, auf der Nutzer Diagramme
+mit Pen/Stift, geometrischen Grundformen (Rechteck, Kreis, Linie, Polygon), Text-Notizen
+und Pfeilen/Verbindern frei zeichnen können. Gezeichnete Elemente müssen nachträglich
+auswählbar, verschiebbar, skalierbar und löschbar sein. Verbinder müssen mit verbundenen
+Formen assoziiert bleiben (folgen bei Bewegung). Das gezeichnete Diagramm muss als
+Artefakt mit JSON-Stroke-Daten als Primärformat (versioniert, diff-bar) und SVG als
+abgeleitetes Export-Format persistiert werden. Canvas-Diagramme müssen via TraceLink
+(Typ `documents`) mit Requirements, ArchitectureElements und TestCases verknüpfbar und
+via MCP (artifact.get) abrufbar sein. Auto-Save mit konfigurierbarem Intervall (max. 5s)
+muss Datenverlust bei Browser-Crash begrenzen. Das Canvas muss flüssig (≥30fps) bei bis
+zu 500 Stroke-Elementen und 100 Formen rendern.
+
+**Rationale:** Strukturierte Diagramm-Typen (REQ-L1-027) decken formale Modellierung ab,
+aber nicht das schnelle, informelle Skizzieren. Free-Hand Canvas schließt die Lücke
+zwischen Whiteboard-Skizze und formalem Diagramm ohne Medienbruch zu externen Tools.
+**Domain:** software
+**Priorität:** desired
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Canvas-basierte Zeichen-Engine benötigt neues Payload-Format (JSON-Stroke-Daten) und Frontend-Komponente außerhalb des bestehenden strukturierten Diagramm-Schemas; Auto-Save-Mechanismus und Performance-Budget (≥30fps bei 500 Elementen) erforderlich"
+**Externe Interfaces:**
+- Eingang: Canvas-Zeichenoperationen (Pen, Shapes, Text, Connectors) via Maus/Touch im Browser
+- Ausgang: Persistierte Canvas-Diagramm-Artefakte (JSON-Stroke-Daten + SVG-Export) als versionierte Artefakte
+- Ausgang: TraceLink-Einträge (Typ `documents`) an TraceabilityEngine
+- Ausgang: Export-Datei (SVG/PNG) an Nutzer-Download
+- Ausgang: MCP artifact.get Response mit strukturiertem Canvas-Payload (JSON-Stroke-Daten)
+**Akzeptanzkriterien:**
+- AC1: Canvas unterstützt Pen/Stift, Rechteck, Kreis, Linie, Text-Notiz, Pfeil/Verbinder
+- AC2: Gezeichnete Elemente sind nachträglich auswählbar, verschiebbar, skalierbar und löschbar
+- AC3: Verbinder bleiben assoziiert (folgen verbundenen Formen bei Bewegung)
+- AC4: Persistierung als JSON-Stroke-Daten (Primärformat, versioniert, diff-bar) + SVG (Export)
+- AC5: TraceLink (Typ `documents`) mit Requirements, ArchitectureElements, TestCases
+- AC6: Canvas-Diagramme via MCP (artifact.get) abrufbar
+- AC7: Export als SVG/PNG möglich
+- AC8: Auto-Save (max. 5s Intervall) — bei Browser-Crash gehen höchstens 5s an Eingaben verloren
+- AC9: ≥30fps bei 500 Stroke-Elementen und 100 Formen
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+**Traceability:** REQ-L0-036
+
+---
+
+### REQ-L1-057: Mermaid Live Preview
+
+Das System muss einen Mermaid-Code-Editor mit Live-Preview bereitstellen, bei dem der
+Nutzer Mermaid-Diagrammcode eingibt und das gerenderte Diagramm grafisch im Browser
+als Live-Preview sieht (500ms Debounce). Unterstützt werden MÜSSEN mindestens 5
+Mermaid-Typen: flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram.
+Der Mermaid-Quellcode muss als versioniertes Artefakt persistiert werden. Das gerenderte
+Diagramm muss zoombar (Mausrad, Pinch, Buttons) und exportierbar als PNG und SVG sein.
+Bei Syntaxfehlern muss eine aussagekräftige Fehlermeldung (mit Zeilennummer) angezeigt
+werden; die zuletzt erfolgreich gerenderte Darstellung bleibt als Fossil sichtbar.
+Fällt der Renderer aus, muss der Quellcode lesbar als Fallback angezeigt werden.
+Das Live-Rendering muss in <2s für Diagramme mit bis zu 100 Knoten/Kanten abschließen.
+Der Mermaid-Quellcode muss via TraceLink (Typ `documents`) verknüpfbar und via MCP
+(artifact.get) abrufbar sein.
+
+**Rationale:** Mermaid ist De-facto-Standard für Code-basierte Diagramme. Die Live-Preview
+senkt die kognitive Last beim Editieren erheblich und ermöglicht die Wiederverwendung
+bestehenden Mermaid-Codes ohne manuelle Übersetzung in strukturierte Formate.
+**Domain:** software
+**Priorität:** desired
+**Architektur-Impact:**
+- `arch_impact`: true
+- `arch_trigger`: "Mermaid-Live-Rendering erfordert clientseitiges Rendering (mermaid.js im Browser) für Performance (keine Roundtrips bei 500ms Debounce) und Self-Hosted-First (kein zusätzlicher Server-Prozess); Fallback-Strategie bei Renderer-Ausfall erforderlich"
+**Externe Interfaces:**
+- Eingang: Mermaid-Quellcode-Eingabe via Texteditor im Browser
+- Ausgang: Gerendertes Diagramm (SVG/Canvas) im Browser als Live-Preview
+- Ausgang: Persistierte Mermaid-Quellcode-Artefakte (versioniert)
+- Ausgang: TraceLink-Einträge (Typ `documents`) an TraceabilityEngine
+- Ausgang: Export-Datei (PNG/SVG) an Nutzer-Download
+- Ausgang: MCP artifact.get Response mit Mermaid-Quellcode + Render-Hinweisen
+**Akzeptanzkriterien:**
+- AC1: Mermaid-Editor mit Live-Preview (500ms Debounce) im selben Bildschirmbereich
+- AC2: Mermaid-Quellcode als versioniertes Artefakt persistiert
+- AC3: Unterstützung für flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram
+- AC4: Gerendertes Diagramm ist zoombar (Mausrad, Pinch, Buttons)
+- AC5: Export als PNG und SVG möglich
+- AC6: TraceLink (Typ `documents`) mit Requirements, ArchitectureElements, TestCases
+- AC7: Bei Syntaxfehlern: Fehlermeldung mit Zeilennummer; Fossil der letzten erfolgreichen Darstellung
+- AC8: Abrufbar via MCP (artifact.get) als strukturierter Payload
+- AC9: Fallback bei Renderer-Ausfall: Quellcode lesbar angezeigt, editierbar und speicherbar
+- AC10: Live-Rendering <2s für Diagramme mit bis zu 100 Knoten/Kanten
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+**Traceability:** REQ-L0-037
+
+---
+
+## Erweiterter Traceability-Abschnitt: REQ-L1-056..057 → REQ-L0
+
+| REQ-L1 | Abgeleitet von REQ-L0 |
+|---------|----------------------|
+| REQ-L1-056 | REQ-L0-036 |
+| REQ-L1-057 | REQ-L0-037 |
+
+---
+
+*Erweiterung durch se-architect-Agent | 2026-06-30 (REQ-L1-056..057 aus SN-36, SN-37 — Canvas Free-Hand Drawing + Mermaid Live Preview)*

@@ -1,8 +1,8 @@
 # ReqFlow — Interface Registry
 
-> **Status:** KONSOLIDIERT | **Datum:** 2026-06-20
-> **Scope:** L1 (12 Subsysteme) + L2 (55 Komponenten)
-> **Total aktive Schnittstellen:** 95
+> **Status:** KONSOLIDIERT | **Datum:** 2026-07-01
+> **Scope:** L1 (13 Subsysteme) + L2 (62 Komponenten)
+> **Total aktive Schnittstellen:** 108
 >
 > **Quellen (autoritativ):**
 > - L1-Architektur: `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Architecture.md`
@@ -132,11 +132,23 @@
 | TraceabilityEngine §7 | IF-L1-11 | ApplicationService → TraceabilityEngine | IF-L1-11 = ApplicationService → BaselineService | **Kein Konflikt:** IF-L1-012 ist kanonisch |
 | PresetConfigEngine §3 | IF-L1-02 | ReactFrontend → PresetConfigEngine | IF-L1-02 = ReactFrontend → PresetConfigEngine | **Konform** (entfernt) |
 
+### 2.4 DiagramServiceSystem Interfaces (IF-L1-058..061)
+
+> ReactFrontend ↔ DiagramService (ARCH-L1-013). Hinzugefügt 2026-06-30 für REQ-L1-056 (Free-Hand Canvas) und REQ-L1-057 (Mermaid Live Preview).
+> Diese Interfaces verbinden ReactFrontend (001) direkt mit DiagramService (013) — ohne Umweg über ApplicationService (architekturentscheidung L1 §3.3.2).
+
+| ID | Richtung | Quelle (L1-System) | Ziel (L1-System) | Typ | Vertrag (Kurzform) | L2-Quelle | Verantwortlich |
+|----|----------|--------------------|--------------------|-----|---------------------|-----------|----------------|
+| IF-L1-058 | input | ReactFrontend (001) | DiagramService (013) | REST/JSON | `POST /api/v1/diagrams/{id}/canvas-strokes` — Push der aktuellen Stroke-Daten (Burst alle 5s bei Aktivität) | DiagramService §3.2 | COMP-DS-006 |
+| IF-L1-059 | input | ReactFrontend (001) | DiagramService (013) | REST/JSON | `PUT /api/v1/diagrams/{id}/mermaid-source` — Update des Mermaid-Quellcodes (Debounced 500ms) | DiagramService §3.2 | COMP-DS-007 |
+| IF-L1-060 | output | DiagramService (013) | ReactFrontend (001) | REST/JSON | Response: JSON-Stroke-Daten + SVG + PNG (PNG clientseitig via Canvas.toDataURL) | DiagramService §3.2 | COMP-DS-006 |
+| IF-L1-061 | output | DiagramService (013) | ReactFrontend (001) | REST/JSON | Response: Quellcode, Render-Hinweise, SVG/PNG-Export-Daten (clientseitig via mermaid.js + canvas.toDataURL) | DiagramService §3.2 | COMP-DS-007 |
+
 ---
 
 ## 3. L2-Interne Schnittstellen (Komponente ↔ Komponente)
 
-> **60 Schnittstellen** innerhalb der 12 L2-Subsysteme. Alle Systeme sind LEAF (terminal).
+> **69 Schnittstellen** innerhalb der 13 L2-Subsysteme. Alle Systeme sind LEAF (terminal).
 > Quellen: jeweilige `L2_<System>_Architecture.md` §3 (White-Box).
 
 ### 3.1 ApplicationServiceSystem (ARCH-L1-004) — 12 Komponenten, 12 Schnittstellen
@@ -274,6 +286,28 @@
 |----|-------------------|-----------------|-----|---------|
 | IF-AL-INT-001 | 001 AuditLogWriter | 002 AuditLogQuery | In-Process Python | Gemeinsames AuditLogEntry-Modell (Read-Only für Query) |
 
+### 3.13 DiagramServiceSystem (ARCH-L1-013) — 7 Komponenten, 9 Schnittstellen
+
+> Quelle: `L2_DiagramServiceSystem_Architecture.md` §3
+> **Erweitert:** 2026-06-30 (COMP-DS-006 CanvasEditor, COMP-DS-007 MermaidLiveRenderer)
+> **Hinweis:** IF-DS-INT-001..003 stammen aus der bestehenden L2-Architektur. IF-DS-INT-004..009 wurden gemäß aktualisierter L1-Architektur-Spezifikation definiert (abweichend von der initialen L2-Architektur — siehe Kollisionsvermerk §3.13.1).
+
+| ID | Quelle (COMP-DS) | Ziel (COMP-DS) | Typ | Vertrag |
+|----|-------------------|-----------------|-----|---------|
+| IF-DS-INT-001 | 001 DiagramManager | 002 DiagramValidator | In-Process Python | `validate_payload(type, content) -> bool` |
+| IF-DS-INT-002 | 001 DiagramManager | 003 DiagramRenderer | In-Process Python | `prepare_renderable(type, content) -> RenderableDiagram` |
+| IF-DS-INT-003 | 001 DiagramManager | 004 TraceabilityConnector | In-Process Python | `create_document_link(diagram_id, target_id)` |
+| IF-DS-INT-004 | 006 CanvasEditor | 002 DiagramValidator | In-Process Python | `validate_canvas_strokes(stroke_data: dict) -> ValidationResult` — Stroke-Daten auf syntaktische Korrektheit prüfen |
+| IF-DS-INT-005 | 006 CanvasEditor | 001 DiagramManager | In-Process Python | `persist_canvas(name, stroke_data, tenant, user) -> Diagram` — Persistierung der Canvas-Stroke-Daten als neuen Diagram-Typ |
+| IF-DS-INT-006 | 006 CanvasEditor | 004 TraceabilityConnector | In-Process Python | `link_canvas_to_artifact(diagram_id, target_id) -> TraceLink` — TraceLink vom Canvas-Diagramm zum verknüpften Artefakt |
+| IF-DS-INT-007 | 007 MermaidLiveRenderer | 001 DiagramManager | In-Process Python | `persist_mermaid_source(name, source, tenant, user) -> Diagram` — Persistierung des Mermaid-Quellcodes als neuen Diagram-Typ |
+| IF-DS-INT-008 | 007 MermaidLiveRenderer | 003 DiagramRenderer | In-Process Python | `get_render_hints(diagram_type, payload_format) -> RenderHint` — Abruf der Rendering-Hinweise für die UI |
+| IF-DS-INT-009 | 007 MermaidLiveRenderer | 005 McpArtifactProvider | In-Process Python | `register_mcp_type(diagram_type, payload_format) -> None` — Registrierung des Mermaid-Typs für MCP-Abruf |
+
+#### 3.13.1 Kollisionsvermerk — Abweichung von initialer L2-Architektur
+
+> Die initiale `L2_DiagramServiceSystem_Architecture.md` definierte IF-DS-INT-004..009 mit abweichenden Source/Target-Paarungen und Verträgen (IF-DS-INT-004: C006→C001, IF-DS-INT-005: C006→C002, IF-DS-INT-006: C006→C003, IF-DS-INT-008: C007→C002, IF-DS-INT-009: C007→C003). Die vorliegende Registry verwendet die aktualisierten Definitionen aus der L1-Gesamtarchitektur. Die L2-Architektur muss bei nächster Gelegenheit konsolidiert werden.
+
 ---
 
 ## 4. Konnektivitätsmatrix (L1)
@@ -281,20 +315,21 @@
 > Zeile = Caller (Quelle), Spalte = Callee (Ziel). ✓ = direkte Schnittstelle vorhanden.
 > **Hinweis:** IF-L1-022 (alle → PersistenceLayer) ist in der Matrix nicht separat ausgewiesen, da er von fast allen Systemen genutzt wird. Siehe separate Liste unten.
 
-| Caller ↓ / Callee → | 001 RF | 002 RA | 003 MC | 004 AS | 005 WE | 006 BL | 007 TE | 008 PC | 009 LA | 010 PL | 011 AT | 012 AL |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **001 ReactFrontend** | — | ✓ | | | | | | | | | | |
-| **002 RestApiAdapter** | ✓ | — | | ✓ | | | | ✓ | | | ✓ | |
-| **003 McpServer** | | | — | ✓ | ✓ | | ✓ | ✓ | | | ✓ | |
-| **004 ApplicationService** | | | | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **005 WorkflowEngine** | | | | | — | | | ✓ | | ✓ | ✓ | |
-| **006 BaselineService** | | | | | | — | ✓ | ✓ | | ✓ | | |
-| **007 TraceabilityEngine** | | | | | | | — | | | ✓ | | |
-| **008 PresetConfigEngine** | | | | | | | | — | | ✓ | | |
-| **009 LlmAdapter** | | | | | | | | | — | | | ✓ |
-| **010 PersistenceLayer** | | | | | | | | | | — | | |
-| **011 AuthAndTenancy** | | | | ✓ | ✓ | | | | | | — | |
-| **012 AuditLog** | | | | | | | | | | ✓ | | — |
+| Caller ↓ / Callee → | 001 RF | 002 RA | 003 MC | 004 AS | 005 WE | 006 BL | 007 TE | 008 PC | 009 LA | 010 PL | 011 AT | 012 AL | 013 DS |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **001 ReactFrontend** | — | ✓ | | | | | | | | | | | ✓ |
+| **002 RestApiAdapter** | ✓ | — | | ✓ | | | | ✓ | | | ✓ | | |
+| **003 McpServer** | | | — | ✓ | ✓ | | ✓ | ✓ | | | ✓ | | ✓ |
+| **004 ApplicationService** | | | | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **005 WorkflowEngine** | | | | | — | | | ✓ | | ✓ | ✓ | | |
+| **006 BaselineService** | | | | | | — | ✓ | ✓ | | ✓ | | | |
+| **007 TraceabilityEngine** | | | | | | | — | | | ✓ | | | |
+| **008 PresetConfigEngine** | | | | | | | | — | | ✓ | | | |
+| **009 LlmAdapter** | | | | | | | | | — | | | ✓ | |
+| **010 PersistenceLayer** | | | | | | | | | | — | | | |
+| **011 AuthAndTenancy** | | | | ✓ | ✓ | | | | | | — | | |
+| **012 AuditLog** | | | | | | | | | | ✓ | | — | |
+| **013 DiagramService** | ✓ | | | | | | ✓ | | | ✓ | | ✓ | — |
 
 ### PersistenceLayer-Caller (IF-L1-022)
 
@@ -309,6 +344,7 @@
 | PresetConfigEngine (008) | Workspace, WorkspaceSettings, PresetConfig, TerminologyProfile |
 | AuthAndTenancy (011) | User, Role, Tenant |
 | AuditLog (012) | AuditLogEntry |
+| DiagramService (013) | Diagram, DiagramVersion |
 
 ---
 
@@ -513,9 +549,9 @@ sequenceDiagram
 | Klasse | Anzahl | Quellen |
 |--------|--------|---------|
 | `IF-EXT` Externe Schnittstellen (Akteur ↔ System) | **6** | §1 |
-| `IF-L1` L1-Inter-System-Schnittstellen (aktiv) | **29** | §2 (23 kanonische + 6 erweiterte, 2 entfernt) |
-| `IF-L2-intern` L2-Interne Schnittstellen (Komponente ↔ Komponente) | **60** | §3 |
-| **Gesamt aktiv** | **95** | 6 + 29 + 60 |
+| `IF-L1` L1-Inter-System-Schnittstellen (aktiv) | **33** | §2 (23 kanonische + 6 erweiterte + 4 DiagramService, 2 entfernt) |
+| `IF-L2-intern` L2-Interne Schnittstellen (Komponente ↔ Komponente) | **69** | §3 (13 Systeme) |
+| **Gesamt aktiv** | **108** | 6 + 33 + 69 |
 
 ### 7.2 L2-Systeme im Detail
 
@@ -533,7 +569,8 @@ sequenceDiagram
 | ARCH-L1-010 PersistenceLayer | 5 | 5 | 9 (IF-L1-022 + 7 L1-Caller + IF-PL-EXT-OUT-001) | 9 | terminal |
 | ARCH-L1-011 AuthAndTenancy | 3 | 3 | 7 (IF-L1-004, 007, 015, 018, 024, 027, 028) | 10 | terminal |
 | ARCH-L1-012 AuditLog | 2 | 1 | 4 (IF-L1-016, 021, 022, IF-EXT-004†) | 7 | terminal |
-| **Summe** | **55** | **60** | — | **136** | **alle terminal** |
+| ARCH-L1-013 DiagramService | 7 | 9 | 10 (IF-L1-032..036, 058..061, IF-L1-022) | 7 | terminal |
+| **Summe** | **62** | **69** | — | **143** | **alle terminal** |
 
 † IF-EXT-004 (Operator) und IF-EXT-005/006 (LLM-Provider, GitHub) sind systemübergreifend und nicht einem einzelnen L2-System zugeordnet.
 
@@ -562,13 +599,14 @@ sequenceDiagram
 | 2026-06-20 | Entfernt: ReactFrontend→PresetConfigEngine (direkt) | IF-L1-02 (entfernt) | ReactFrontend kommuniziert ausschließlich via REST |
 | 2026-06-20 | Entfernt: McpServer→AuditLog (direkt) | IF-L1-09 (entfernt) | Audit-Trail wird zentral durch ApplicationService geschrieben |
 | 2026-06-20 | Vollständige Konsolidierung mit Signal-Flüssen und Sync-Punkten | Alle | HOFF-20260620-005, se-interface-mgr |
+| 2026-07-01 | **Phase 4:** Canvas/Mermaid-Interfaces registriert — IF-L1-058..061 (L1) + IF-DS-INT-001..009 (L2-intern) | IF-L1-058..061, IF-DS-INT-001..009 | REQ-L1-056/057 — neue Komponenten COMP-DS-006/007 im DiagramServiceSystem |
 
 ---
 
 *Konsolidiert durch se-interface-mgr-Agent | ReqFlow SE-Kaskade*
-*Quellen: L1_Gesamtsystem_Architecture.md, 12 L2-Architekturen, L2_architectural_decomposition_iter-1.md*
-*Datum: 2026-06-27 | Branch: feat/se-implementation*
-*Handoff: HOFF-20260627-001*
+*Quellen: L1_Gesamtsystem_Architecture.md, 13 L2-Architekturen, L2_architectural_decomposition_iter-1.md*
+*Datum: 2026-07-01 | Branch: feat/se-implementation*
+*Handoff: HOFF-20260701-002*
 
 ---
 
@@ -883,3 +921,4 @@ sequenceDiagram
 | 2026-06-27 | **Phase 5:** 3 priorisierte L1-Backlog-Interfaces registriert (Full Design-by-Contract) | IF-L1-032, IF-L1-033, IF-L1-034 | REQ-L1-038, REQ-L1-039, REQ-L1-037 — neue Subsysteme VS, CM, RQ |
 | 2026-06-27 | **Phase 5:** 4 zusätzliche Interfaces aus Subsystem-Scan | IF-L1-035, IF-L1-036, IF-L1-037, IF-L1-038, IF-L1-039 (STUB) | Neue Subsysteme RQ, CM, VS — Schnittstellen zu AS, TE, AL, Notification |
 | 2026-06-27 | **Phase 5:** Propagations-Map + Sync-Analyse + Top-3-Risiken | Alle neuen IF-L1 | Deterministische Synchronisation validiert |
+| 2026-07-01 | **Phase 4:** 4 L1- + 9 L2-Interfaces für Canvas/Mermaid registriert (DiagramServiceSystem) | IF-L1-058..061, IF-DS-INT-001..009 | REQ-L1-056/057 — neue Komponenten COMP-DS-006/007 |

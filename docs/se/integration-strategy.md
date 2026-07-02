@@ -1,7 +1,7 @@
 # ReqFlow — Integrationsstrategie
 
-> **Status:** KONSOLIDIERT | **Datum:** 2026-06-20
-> **Scope:** 12 L2-Subsysteme, 55 Komponenten, 95 Schnittstellen
+> **Status:** KONSOLIDIERT + PHASE 7 EXECUTING | **Datum:** 2026-07-01
+> **Scope:** 12 L2-Subsysteme, 55 Komponenten, 95 Schnittstellen + 2 neue Komponenten (COMP-DS-006, COMP-DS-007)
 >
 > **Quellen (autoritativ):**
 > - L1-Architektur: `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Architektur.md`
@@ -9,6 +9,7 @@
 > - Interface-Registry: `docs/se/interface-registry.md`
 > - Test-Strategie: `docs/se/test-strategy.md` (338 Szenarien)
 > - Traceability-Matrix: `docs/se/traceability-matrix.md`
+> - **Integration Test Plan (Schritt 13):** `docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/validation/L2_DiagramServiceSystem_TestPlan.md`
 
 ---
 
@@ -121,8 +122,9 @@ PersistenceLayer → ApplicationService → RestApiAdapter → ReactFrontend
 | **Phase 3** | Orchestration Integration | 9 | ApplicationService | P1 — Hoch | 43 |
 | **Phase 4** | Interface Adapter Integration | 10–11 | RestApiAdapter, McpServer | P2 — Mittel | 64 |
 | **Phase 5** | Presentation Integration | 12 | ReactFrontend | P2 — Mittel | 17 |
+| **Phase 5b** | Canvas & Mermaid Integration | 13 | DiagramService (Canvas+Mermaid) | P2 — Mittel | 54 |
 | **Phase 6** | Cross-Cutting & E2E | — | Alle Systeme | P0 — Kritisch | 70 |
-| | **Gesamt** | **12** | **12 Systeme** | | **338** |
+| | **Gesamt** | **13** | **12 Systeme + Canvas/Mermaid** | | **392** |
 
 ### 3.2 Detaillierte Integrationsschritte
 
@@ -376,6 +378,69 @@ PersistenceLayer → ApplicationService → RestApiAdapter → ReactFrontend
 
 ---
 
+#### Phase 5b — DiagramService Canvas & Mermaid Integration (P2)
+
+##### Schritt 13: DiagramService (Canvas + Mermaid) + ReactFrontend + PersistenceLayer + TraceabilityEngine (ARCH-L1-013)
+
+| Attribut | Wert |
+|----------|------|
+| **Strategie** | **Bottom-Up** — neue Komponenten COMP-DS-006 (CanvasEditor) + COMP-DS-007 (MermaidLiveRenderer) werden Bottom-Up gegen bestehende COMP-DS-001..005 integriert |
+| **Abhängigkeiten** | PersistenceLayer (Schritt 1 ✅), ReactFrontend (Schritt 12 ✅), TraceabilityEngine (Schritt 6 ✅) |
+| **L3-Status** | Terminal at L2 (7 Komponenten: 5 legacy + 2 neu) |
+| **Verifizierte Interfaces** | IF-DS-INT-004..009 (6 neu intern); IF-L1-058..061 (4 neu L1); IF-L1-034, IF-L1-035 (bestehend) |
+| **Testanzahl** | 15+17 Komp. + 4 Int. + 5 FE + 5 E2E + 8 Perf = **54** |
+| **Entry-Kriterien** | Schritte 1, 6, 10, 12 bestanden; DiagramService (COMP-DS-001..005) verifiziert |
+| **Exit-Kriterien** | Canvas-Stroke-Daten versioniert persistierbar; Auto-Save ≤5s; ≥30fps bei 500 Strokes+100 Shapes; Mermaid 5 Typen valide/invalide; Syntax-Fehler mit Zeilennummer; Live-Preview <2s bei 100 Knoten; Fallback bei Renderer-Ausfall; TraceLink 'documents' für beide Typen; MCP artifact.get für Canvas+Mermaid; Verbinder folgt verschobenen Formen |
+| **Risiko** | MITTEL — Canvas-Performance und Mermaid-Syntax-Validierung sind neu. |
+| **Parallelism** | Kann parallel mit Cross-Cutting (Phase 6) laufen; unabhängige Component-Tests |
+| **Gate** | G13: Canvas & Mermaid Verified |
+
+**Bottom-Up Integrationsreihenfolge für COMP-DS-006 + COMP-DS-007:**
+
+```
+Step 13a: COMP-DS-006 isoliert (Stroke-Validierung, SVG-Export, Auto-Save)
+Step 13b: COMP-DS-007 isoliert (5 Mermaid-Typen, Syntax-Fehler, Render-Hints)
+Step 13c: COMP-DS-006 → COMP-DS-002 via IF-DS-INT-004 (Stroke-Validierung delegiert)
+Step 13d: COMP-DS-006 → COMP-DS-001 via IF-DS-INT-005 (Canvas-Persistierung)
+Step 13e: COMP-DS-006 → COMP-DS-004 via IF-DS-INT-006 (Canvas-TraceLink)
+Step 13f: COMP-DS-007 → COMP-DS-001 via IF-DS-INT-007 (Mermaid-Persistierung)
+Step 13g: COMP-DS-007 → COMP-DS-003 via IF-DS-INT-008 (Render-Hints)
+Step 13h: COMP-DS-007 → COMP-DS-005 via IF-DS-INT-009 (MCP-Registrierung)
+Step 13i: Frontend-Integration (Canvas-Zeichenfläche, Mermaid-Editor, Live-Preview)
+Step 13j: E2E-Journeys (Canvas zeichnen→speichern→verknüpfen, Mermaid→Preview→Export)
+Step 13k: Performance (≥30fps Canvas, <2s Mermaid-Render)
+```
+
+#### Phase 7 — Integration Execution Status (2026-07-01)
+
+**Ausführender Agent:** `se-integration-and-test-manager`
+
+##### Schritt 13: Execution Status
+
+| Sub-Step | Status | Testfile(s) | Test Count | Delegation |
+|----------|--------|------------|-----------|------------|
+| 13a | 🔄 READY | test_canvas_editor.py | 39 | se-verifier |
+| 13b | 🔄 READY | test_mermaid_live_renderer.py | 34 | se-verifier |
+| 13c | 🔄 READY | test_canvas_editor.py, test_validator.py | Integration | se-verifier |
+| 13d | 🔄 READY | test_canvas_editor.py + test_manager.py | Integration | se-verifier |
+| 13e | 🔄 READY | test_traceability_connector.py | Integration | se-verifier |
+| 13f | 🔄 READY | test_mermaid_live_renderer.py + test_manager.py | Integration | se-verifier |
+| 13g | 🔄 READY | test_renderer.py | Integration | se-verifier |
+| 13h | 🔄 READY | test_mcp_artifact_provider.py | Integration | se-verifier |
+| 13i | 🔄 READY | TC-FE-CNV-001..006, TC-FE-MRM-001..005 | 11 | se-test-engineer + se-verifier |
+| 13j | 🔄 READY | E2E-CNV-01/02, E2E-MRM-01/02/03 | 5 | se-validator |
+| 13k | 🔄 READY | TC-PERF-CNV-001..004, TC-PERF-MRM-001..004 | 8 | se-verifier |
+
+**Legende:** ✅ PASSED | ❌ FAILED | 🔄 READY (wartet auf Ausführung) | ⏳ IN PROGRESS
+
+**Integrationsplan (detailliert):** `docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/validation/L2_DiagramServiceSystem_TestPlan.md`
+
+**Aktuelle Blockierer:** Keine — alle Entry-Kriterien erfüllt. Tests implementiert und collectable (1599 Backend-Tests).
+
+**Gate G13 Status:** PRECONDITIONS_MET — alle Voraussetzungen erfüllt; Verifikation steht aus.
+
+---
+
 #### Phase 6 — Cross-Cutting & End-to-End
 
 ##### Phase 6a — Performance Tests
@@ -423,6 +488,9 @@ PersistenceLayer → ApplicationService → RestApiAdapter → ReactFrontend
 | E2E-05 | AI-Agent queried Traceability via MCP | MCP → Auth → AppSvc → Trace → Persist | P1 |
 | E2E-06 | Engineer sucht und exportiert via UI | UI → REST → Auth → AppSvc → Search/Export → Persist | P2 |
 | E2E-07 | Preset-Wechsel: Standard → Minimal | UI → REST → AppSvc → Preset → Persist | P2 |
+| E2E-08 | Canvas zeichnen → speichern → verknüpfen → MCP abrufen | Frontend → REST → DiagramService → PersistenceLayer → TraceabilityEngine → MCP | P1 |
+| E2E-09 | Mermaid-Code eingeben → Preview → korrigieren → exportieren | Frontend → DiagramService | P1 |
+| E2E-10 | Mermaid TraceLink → MCP artifact.get | Frontend → DiagramService → TraceabilityEngine → MCP | P1 |
 
 **E2E-Umgebung:** Docker Compose (3 Container: Backend, Frontend, PostgreSQL) + Playwright Browser-Automatisierung.
 
@@ -502,6 +570,7 @@ def test_cross_tenant_access_blocked(multi_tenant):
 | **M3** | Orchestrator Verified | G9 | 43 Tests grün; alle 10 ausgehenden L1-IFs verifiziert | se-verifier |
 | **M4** | Interface Adapters Green | G10–G11 | 64 Tests grün; OpenAPI-Spec vollständig; alle 20 MCP-Tools funktional | se-verifier |
 | **M5** | Full System Assembled | G12 | 17 Tests grün; UI rendert korrekt; i18n funktional | se-verifier |
+| **M5b** | Canvas & Mermaid Delta | G13 | 54 Tests grün; Canvas ≥30fps; Mermaid 5 Typen; Syntax-Fehler mit Zeile; Fallback | se-verifier |
 | **M6** | Cross-Cutting Complete | — | 63 Tests grün; alle Security/Performance/BVA/Edge-Szenarien grün | se-verifier |
 | **M7** | E2E Validation | — | 7 User Journeys grün; Performance-SLAs erfüllt | se-validator |
 | **M8** | V&V Sign-Off | — | V&V Gesamtbericht approved; alle 345 Tests grün | se-integration-and-test-manager |
@@ -549,6 +618,10 @@ Test-Fehler bei Schritt N:
 | R-06 | Preset × Feature-Interaktions-Matrix-Explosion | Niedrig | **Mittel** — unvollständige Coverage | Systematische Matrix-Test-Generierung; Äquivalenzklassen-Reduktion |
 | R-07 | ReactFrontend-Optimistic-Update-Race-Conditions | Mittel | **Mittel** — UI-Inkonsistenz | Concurrent-Update-Tests; Cache-Invalidation-Verifikation |
 | R-08 | LLM-Provider-Timeout-kaskadierende Fehler | Mittel | **Mittel** — degradierte UX | MockLlmProvider mit konfigurierbarem Delay; Graceful-Degradation-Tests |
+| R-09 | Canvas-Performance < 30fps bei 500 Strokes | Mittel | **Mittel** — UX-Degradation | Frühes Performance-Testing; Canvas-2D-Optimierung; requestAnimationFrame-Monitoring |
+| R-10 | Mermaid-Live-Preview > 2s bei 100 Knoten | Mittel | **Mittel** — SLA-Verletzung | Render-Zeit-Monitoring; Code-Optimierung; Debounce-Anpassung |
+| R-11 | Verbinder-Assoziation bricht bei Form-Verschiebung | Niedrig | **Mittel** — Datenverlust | Connector-Graph-Tests; Koordinaten-Neuberechnung automatisieren |
+| R-12 | Mermaid-Syntax-Validator erkennt Fehler nicht | Niedrig | **Niedrig** — Fehler schleicht ins Diagramm | Erweiterte Testabdeckung für 5 Mermaid-Typen; Edge-Case-Matrix |
 
 ---
 
@@ -578,9 +651,13 @@ Schritt 1: PersistenceLayer ─────────────────�
                                           ├── Schritt 10: RestApiAdapter ─────────
                                           └── Schritt 11: McpServer ──────────────
                                                         │
-                                                        └── Schritt 12: ReactFrontend
-                                                                      │
-                                                        Cross-Cutting + E2E
+                                                         └── Schritt 12: ReactFrontend
+                                                                       │
+                                                         ┌── Schritt 13: DiagramService
+                                                         │   Canvas + Mermaid
+                                                         │   (parallel zu CC)
+                                                                       │
+                                                         Cross-Cutting + E2E
 ```
 
 ### 6.2 Maximale Parallelität
@@ -594,9 +671,10 @@ Schritt 1: PersistenceLayer ─────────────────�
 | **Welle 5** | Schritt 9 | 1 Schritt | Schritte 1–8 |
 | **Welle 6** | Schritte 10, 11 | 2 Schritte parallel | Schritt 9 |
 | **Welle 7** | Schritt 12 | 1 Schritt | Schritt 10 |
-| **Welle 8** | Cross-Cutting + E2E | 1 Welle | Schritte 1–12 |
+| **Welle 8** | Schritt 13 | 1 Schritt | Schritte 1, 6, 10, 12 |
+| **Welle 9** | Cross-Cutting + E2E | 1 Welle | Schritte 1–13 |
 
-**Minimale sequentielle Tiefe:** 8 Wellen
+**Minimale sequentielle Tiefe:** 9 Wellen
 **Maximale parallele Schritte pro Welle:** 3 (Wellen 2 und 3)
 
 ---
@@ -648,8 +726,9 @@ Schritt 1: PersistenceLayer ─────────────────�
 | Schritt 10: RestApiAdapter | §2.10 | TC-Rest-001..012, IT-Rest-01..06 | 18 |
 | Schritt 11: McpServer | §3.2 | TC-MCP-001..035, IT-MCP-01..02, IT-Mcp-L2-01..09 | 46 |
 | Schritt 12: ReactFrontend | §2.9 | TC-React-001..012, IT-React-01..05 | 17 |
+| Schritt 13: DiagramService (Canvas+Mermaid) | §2.11 | TC-CNV-001..015, TC-MRM-001..017, IT-CNV-01..03, IT-MRM-01..04, TC-FE-CNV-001..006, TC-FE-MRM-001..005, E2E-CNV-01..02, E2E-MRM-01..03, TC-PERF-CNV-001..004, TC-PERF-MRM-001..004 | 54 |
 | Cross-Cutting | §5.4, §5.5, §5.7, §6, §7 | TC-BVA-001..019, TC-EDGE-001..012, TC-SEC-001..017, TC-PERF-BVA-001..003, TC-PERF-001..012 | 63 |
-| **Gesamt** | | | **338** |
+| **Gesamt** | | | **392** |
 
 ### 8.2 Interface-Coverage pro Integrationsschritt
 
@@ -675,9 +754,9 @@ Schritt 1: PersistenceLayer ─────────────────�
 
 ```json
 {
-  "integration_plan_id": "INT-001",
-  "strategy": "Bottom-Up with Sandwich Elements",
-  "strategy_rationale": "12 L2-Systeme mit klarer 5-Layer-Architektur. 10 Leaf-Systeme integrieren natürlich Bottom-Up. 2 Continue-Systeme (ApplicationService L3, McpServer L3) nutzen Sandwich-Ansatz. PersistenceLayer ist universelle Foundation (10/12 Systeme dependieren davon). Kritischer Pfad: Persist → Auth → WF → AppSvc → McpServer.",
+  "integration_plan_id": "INT-002",
+  "strategy": "Bottom-Up with Sandwich Elements + Delta Integration",
+  "strategy_rationale": "12 L2-Systeme mit klarer 5-Layer-Architektur + 1 Delta-Integration (Phase 5b: DiagramService Canvas+Mermaid). 10 Leaf-Systeme integrieren natürlich Bottom-Up. 2 Continue-Systeme (ApplicationService L3, McpServer L3) nutzen Sandwich-Ansatz. PersistenceLayer ist universelle Foundation (10/12 Systeme dependieren davon). Kritischer Pfad: Persist → Auth → WF → AppSvc → McpServer.",
   "integration_levels": [
     {
       "level": 1,
@@ -727,6 +806,14 @@ Schritt 1: PersistenceLayer ─────────────────�
       ]
     },
     {
+      "level": "5b",
+      "name": "Canvas & Mermaid Delta Integration",
+      "phase": "Phase 5b",
+      "steps": [
+        {"step": 13, "system": "DiagramServiceSystem (Canvas+Mermaid)", "arch_id": "ARCH-L1-013", "strategy": "Bottom-Up Delta", "test_count": 54, "gate": "G13", "risk": "MEDIUM", "depends_on": ["Step 1", "Step 6", "Step 10", "Step 12"]}
+      ]
+    },
+    {
       "level": 6,
       "name": "Cross-Cutting & E2E Validation",
       "phase": "Phase 6-7",
@@ -739,13 +826,18 @@ Schritt 1: PersistenceLayer ─────────────────�
       ]
     }
   ],
-  "critical_path": ["Step 1", "Step 2", "Step 7", "Step 9", "Step 11"],
+  "critical_path": ["Step 1", "Step 2", "Step 7", "Step 9", "Step 11", "Step 13"],
   "total_test_count": {
     "component_unit": 214,
     "integration": 61,
+    "canvas_mermaid_component": 32,
+    "canvas_mermaid_integration": 4,
+    "canvas_mermaid_fe": 5,
+    "canvas_mermaid_e2e": 5,
+    "canvas_mermaid_perf": 8,
     "cross_cutting": 63,
     "e2e": 7,
-    "grand_total": 345
+    "grand_total": 399
   }
 }
 ```
@@ -785,6 +877,7 @@ Kritischer Pfad: Persist → Auth → WF → AppSvc → McpServer.
 ---
 
 *Erstellt durch se-test-engineer-Agent | ReqFlow SE-Kaskade V&V | 2026-06-20*
+*Aktualisiert durch se-integration-and-test-manager | Phase 7 Execution | 2026-07-01*
 *Branch: refactor/se-structure*
-*Handoff: HOFF-20260620-006*
-*Bereit für Integrationsausführung — Phase 1 kann starten*
+*Handoff: HOFF-20260620-006 | HOFF-20260701-007*
+*Bereit für Integrationsausführung — Phase 5b (Schritt 13) startbereit*

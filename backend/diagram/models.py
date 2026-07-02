@@ -1,8 +1,9 @@
 """
 ARCH-L1-013 DiagramService — ORM models.
 
-leaf_id: COMP-DS-001 (DiagramManager), COMP-DS-002 (DiagramValidator)
-req_id: REQ-L1-027, REQ-L2-DS-001
+leaf_id: COMP-DS-001 (DiagramManager), COMP-DS-002 (DiagramValidator),
+         COMP-DS-006 (CanvasEditor)
+req_id: REQ-L1-027, REQ-L2-DS-001, REQ-L1-056, REQ-L2-DS-006
 
 Entities:
   Diagram        — the mutable header record (name, type, current version pointer)
@@ -29,11 +30,16 @@ class DiagramType(models.TextChoices):
     """Supported diagram types (REQ-L2-DS-002: at least 3 types).
 
     COMP-DS-002 DiagramValidator uses this enum to route type-specific rules.
+    COMP-DS-006 CanvasEditor uses CANVAS for free-hand drawings.
+    COMP-DS-007 MermaidLiveRenderer uses MERMAID for all 5 Mermaid diagram types
+    (flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram).
     """
 
     BLOCK = "block", "Block Diagram"
     FLOW = "flow", "Flow Diagram"
     CONTEXT = "context", "Context Diagram"
+    CANVAS = "canvas", "Canvas Drawing"
+    MERMAID = "mermaid", "Mermaid Diagram"
 
 
 class PayloadFormat(models.TextChoices):
@@ -41,11 +47,13 @@ class PayloadFormat(models.TextChoices):
 
     COMP-DS-002 uses this to select the correct syntax validator.
     COMP-DS-003 uses this to select the correct renderer hint.
+    COMP-DS-006 uses CANVAS_STROKE for canvas stroke data (JSON).
     """
 
     MERMAID = "mermaid", "Mermaid"
     PLANTUML = "plantuml", "PlantUML"
     JSON = "json", "Structured JSON"
+    CANVAS_STROKE = "canvas_stroke", "Canvas Stroke Data (JSON)"
 
 
 # ---------------------------------------------------------------------------
