@@ -652,7 +652,7 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            item = self._svc().create_architecture_element(workspace_id=UUID(str(data["workspace_id"])), title=data["title"], ctx=ctx, description=data.get("description", ""), element_type=data.get("element_type", ""))
+            item = self._svc().create_architecture_element(workspace_id=UUID(str(data["workspace_id"])), title=data["title"], ctx=ctx, description=data.get("description", ""), element_type=data.get("element_type", ""), parent_id=data.get("parent_id"))
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -661,12 +661,19 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
-        ser = ArchitectureElementSerializer(data=request.data, partial=True)
+        # REQ-L1-044: element_id context enables hierarchy invariant checks
+        ser = ArchitectureElementSerializer(
+            data=request.data, partial=True, context={"element_id": pk}
+        )
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            update_kwargs: dict[str, Any] = {}
+            if "parent_id" in data:
+                # Distinguish "omitted" from "set to null (detach)"
+                update_kwargs["parent_id"] = data["parent_id"]
             item = self._svc().update_architecture_element(
                 arch_el_id=UUID(pk),
                 ctx=ctx,
@@ -674,6 +681,7 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
                 title=data.get("title"),
                 description=data.get("description"),
                 element_type=data.get("element_type"),
+                **update_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -1231,6 +1239,7 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
         "title": el.title,
         "description": getattr(el, "description", ""),
         "element_type": getattr(el, "element_type", ""),
+        "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
         "version": el.version,
         "created_at": el.created_at,
         "updated_at": el.modified_at,

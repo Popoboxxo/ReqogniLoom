@@ -125,6 +125,13 @@ class TraceLinkService(ServiceBase):
         resolved_source = self._resolve_artifact_id(source_id)
         resolved_target = self._resolve_artifact_id(target_id)
 
+        # REQ-L1-044 I4: allocated-to must not target an ancestor of the
+        # source (Extended rigor only, gated inside the validator).
+        from traceability.types import LinkType
+
+        if link_type == LinkType.ALLOCATED_TO:
+            self._check_allocation_invariant(resolved_source, resolved_target)
+
         from traceability.services import (
             SourceNotFoundError,
             TargetNotFoundError,
@@ -202,7 +209,41 @@ class TraceLinkService(ServiceBase):
         deleted = batch_delete_trace_links(link_ids)
         return deleted
 
-    # ---------- Allocation (REQ-L1-042) ----------
+    # ---------- Allocation (REQ-L1-042, REQ-L1-044) ----------
+
+    def _check_allocation_invariant(
+        self, source_artifact_id: UUID, target_artifact_id: UUID
+    ) -> None:
+        """Enforce invariant I4 for allocated-to links (REQ-L1-044).
+
+        Applies only when both endpoints resolve to ArchitectureElements
+        (Requirement → ArchitectureElement allocations are unaffected).
+        The check itself is rigor-gated inside the validator (Extended only).
+
+        Raises:
+            ValidationError: If the target is an ancestor of the source.
+        """
+        from persistence.models import ArchitectureElement
+
+        from application.validators import ArchitectureElementInvariantValidator
+
+        source_el = (
+            ArchitectureElement.objects.select_related("artifact")
+            .filter(artifact_id=source_artifact_id)
+            .first()
+        )
+        target_el = ArchitectureElement.objects.filter(
+            artifact_id=target_artifact_id
+        ).first()
+        if source_el is None or target_el is None:
+            return
+
+        validator = ArchitectureElementInvariantValidator.for_workspace(
+            source_el.artifact.workspace_id
+        )
+        validator.validate_allocation(
+            source_element=source_el, target_element=target_el
+        )
 
     def allocate(
         self,

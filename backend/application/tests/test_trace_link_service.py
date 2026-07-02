@@ -61,10 +61,11 @@ class TestValidLinkTypes:
         "realizes",
         "traces",
         "copy-of",
+        "allocated-to",  # REQ-L1-042
     }
 
     def test_all_ten_types_present(self):
-        """VALID_LINK_TYPES contains all 10 harmonized link types."""
+        """VALID_LINK_TYPES contains all harmonized link types (incl. REQ-L1-042)."""
         assert self.EXPECTED_TYPES == VALID_LINK_TYPES
 
     def test_types_is_frozenset(self):
@@ -108,6 +109,9 @@ class TestCreateTraceLink:
             patch(
                 "application.trace_link_service.TraceLinkService._audit"
             ),
+            # REQ-L1-044: allocated-to runs the I4 invariant hook (ORM-backed);
+            # neutralized here, covered by TestAllocationInvariantHook below.
+            patch.object(svc, "_check_allocation_invariant"),
             patch(
                 "traceability.services.create_trace_link",
                 return_value=mock_result,
@@ -536,3 +540,89 @@ class TestResolveArtifactId:
             link_type="verifies",
             created_by_id=ctx.user_id,
         )
+
+
+# ---------------------------------------------------------------------------
+# Allocation invariant I4 hook (REQ-L1-044)
+# ---------------------------------------------------------------------------
+
+
+class TestAllocationInvariantHook:
+    """REQ-L1-044: create_trace_link routes allocated-to through I4."""
+
+    def _create(self, svc, ctx, link_type):
+        mock_result = MagicMock()
+        mock_result.id = uuid.uuid4()
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", side_effect=lambda x: x),
+            patch("application.trace_link_service.TraceLinkService._audit"),
+            patch.object(svc, "_check_allocation_invariant") as mock_check,
+            patch(
+                "traceability.services.create_trace_link",
+                return_value=mock_result,
+            ),
+        ):
+            svc.create_trace_link(
+                source_id=SOURCE_ID,
+                target_id=TARGET_ID,
+                link_type=link_type,
+                ctx=ctx,
+            )
+        return mock_check
+
+    def test_allocated_to_link_runs_invariant_check(self):
+        svc = TraceLinkService()
+        mock_check = self._create(svc, _make_ctx(), "allocated-to")
+        mock_check.assert_called_once_with(SOURCE_ID, TARGET_ID)
+
+    def test_other_link_types_skip_invariant_check(self):
+        svc = TraceLinkService()
+        mock_check = self._create(svc, _make_ctx(), "verifies")
+        mock_check.assert_not_called()
+
+    def test_check_delegates_to_validator_for_element_pairs(self):
+        """Both endpoints are ArchitectureElements → validate_allocation runs."""
+        svc = TraceLinkService()
+        source_el = MagicMock()
+        target_el = MagicMock()
+        qs = MagicMock()
+        qs.select_related.return_value.filter.return_value.first.return_value = (
+            source_el
+        )
+        qs.filter.return_value.first.return_value = target_el
+
+        with (
+            patch(
+                "persistence.models.ArchitectureElement.objects",
+                qs,
+            ),
+            patch(
+                "application.validators.ArchitectureElementInvariantValidator"
+                ".for_workspace"
+            ) as mock_for_ws,
+        ):
+            svc._check_allocation_invariant(SOURCE_ID, TARGET_ID)
+
+        mock_for_ws.assert_called_once_with(source_el.artifact.workspace_id)
+        mock_for_ws.return_value.validate_allocation.assert_called_once_with(
+            source_element=source_el, target_element=target_el
+        )
+
+    def test_check_skips_when_endpoint_is_not_an_element(self):
+        """Requirement → ArchitectureElement allocations are unaffected."""
+        svc = TraceLinkService()
+        qs = MagicMock()
+        qs.select_related.return_value.filter.return_value.first.return_value = None
+        qs.filter.return_value.first.return_value = MagicMock()
+
+        with (
+            patch("persistence.models.ArchitectureElement.objects", qs),
+            patch(
+                "application.validators.ArchitectureElementInvariantValidator"
+                ".for_workspace"
+            ) as mock_for_ws,
+        ):
+            svc._check_allocation_invariant(SOURCE_ID, TARGET_ID)
+
+        mock_for_ws.assert_not_called()

@@ -240,7 +240,13 @@ class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 class ArchitectureElementSerializer(
     PresetAwareSerializerMixin, serializers.Serializer
 ):
-    """Serializer for ArchitectureElement entity (REQ-L2-RA-001)."""
+    """Serializer for ArchitectureElement entity (REQ-L2-RA-001).
+
+    REQ-L1-044: ``parent_id`` changes run through the rigor-gated
+    hierarchy invariants (I1-I3) in validate().  On update, the view
+    provides ``context={"element_id": pk}`` so the validator can resolve
+    the element and its workspace.
+    """
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
@@ -249,12 +255,34 @@ class ArchitectureElementSerializer(
     element_type = serializers.ChoiceField(
         choices=ElementType.choices, allow_blank=True, default=ElementType.COMPONENT
     )
+    parent_id = serializers.UUIDField(required=False, allow_null=True)
     expected_version = serializers.IntegerField(
         required=False, write_only=True
     )
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        parent_id = attrs.get("parent_id")
+        if parent_id is not None:
+            # Deferred imports: keep the REST layer decoupled from the
+            # application layer at module load time.
+            from application.base import ValidationError as DomainValidationError
+            from application.validators import (
+                ArchitectureElementInvariantValidator,
+            )
+
+            try:
+                ArchitectureElementInvariantValidator.validate_hierarchy_change(
+                    parent_id=parent_id,
+                    element_id=self.context.get("element_id"),
+                    workspace_id=attrs.get("workspace_id"),
+                )
+            except DomainValidationError as exc:
+                raise serializers.ValidationError({"parent_id": str(exc)})
+        return attrs
 
 
 class TestCaseSerializer(PresetAwareSerializerMixin, serializers.Serializer):

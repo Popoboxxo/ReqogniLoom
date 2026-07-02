@@ -296,3 +296,77 @@ class TestQuerysetOptimizations:
 
         apply_queryset_optimizations(mock_qs, "requirement")
         mock_qs.select_related.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# ArchitectureElementSerializer parent_id invariants (REQ-L1-044)
+# ---------------------------------------------------------------------------
+
+
+class TestArchitectureElementSerializerParentInvariants:
+    """REQ-L1-044: parent_id changes run through the invariant validator."""
+
+    @staticmethod
+    def _payload(**extra) -> dict:
+        base = {"workspace_id": str(uuid.uuid4()), "title": "El"}
+        base.update(extra)
+        return base
+
+    def test_parent_id_triggers_invariant_validation(self) -> None:
+        from unittest.mock import patch
+
+        from application.validators import ArchitectureElementInvariantValidator
+        from rest_api.serializers import ArchitectureElementSerializer
+
+        parent_id = str(uuid.uuid4())
+        with patch.object(
+            ArchitectureElementInvariantValidator, "validate_hierarchy_change"
+        ) as mock_v:
+            ser = ArchitectureElementSerializer(data=self._payload(parent_id=parent_id))
+            assert ser.is_valid(), ser.errors
+        mock_v.assert_called_once()
+
+    def test_invariant_violation_maps_to_parent_id_field_error(self) -> None:
+        from unittest.mock import patch
+
+        from application.base import ValidationError as DomainValidationError
+        from application.validators import ArchitectureElementInvariantValidator
+        from rest_api.serializers import ArchitectureElementSerializer
+
+        with patch.object(
+            ArchitectureElementInvariantValidator,
+            "validate_hierarchy_change",
+            side_effect=DomainValidationError("[I3] Dangling parent reference"),
+        ):
+            ser = ArchitectureElementSerializer(
+                data=self._payload(parent_id=str(uuid.uuid4()))
+            )
+            assert not ser.is_valid()
+        assert "parent_id" in ser.errors
+        assert "[I3]" in str(ser.errors["parent_id"][0])
+
+    def test_without_parent_id_validator_is_not_called(self) -> None:
+        from unittest.mock import patch
+
+        from application.validators import ArchitectureElementInvariantValidator
+        from rest_api.serializers import ArchitectureElementSerializer
+
+        with patch.object(
+            ArchitectureElementInvariantValidator, "validate_hierarchy_change"
+        ) as mock_v:
+            ser = ArchitectureElementSerializer(data=self._payload())
+            assert ser.is_valid(), ser.errors
+        mock_v.assert_not_called()
+
+    def test_null_parent_id_is_valid_root(self) -> None:
+        from unittest.mock import patch
+
+        from application.validators import ArchitectureElementInvariantValidator
+        from rest_api.serializers import ArchitectureElementSerializer
+
+        with patch.object(
+            ArchitectureElementInvariantValidator, "validate_hierarchy_change"
+        ) as mock_v:
+            ser = ArchitectureElementSerializer(data=self._payload(parent_id=None))
+            assert ser.is_valid(), ser.errors
+        mock_v.assert_not_called()

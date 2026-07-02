@@ -33,8 +33,12 @@ from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
+from application.validators import ArchitectureElementInvariantValidator
 
 logger = logging.getLogger(__name__)
+
+# Sentinel distinguishing "parameter omitted" from "set parent to None (root)"
+_UNSET = object()
 
 
 class ArchitectureService(ServiceBase):
@@ -103,11 +107,15 @@ class ArchitectureService(ServiceBase):
             artifact_type="ArchitectureElement",
         )
 
-        # Validate parent_id if provided (REQ-L1-041 hierarchy)
+        # REQ-L1-044: hierarchy invariants I1/I3, rigor-gated via workspace preset.
+        # I3 replaces the former plain existence check and additionally rejects
+        # cross-workspace parents (behavior change: 400 instead of 404 for a
+        # dangling parent_id).
         if parent_id is not None:
-            parent = ArchitectureElement.objects.filter(id=parent_id).first()
-            if parent is None:
-                raise NotFoundError(f"Parent ArchitectureElement {parent_id} not found")
+            validator = ArchitectureElementInvariantValidator.for_workspace(workspace_id)
+            validator.validate_parent_assignment(
+                parent_id=parent_id, workspace_id=workspace_id
+            )
 
         arch_el = ArchitectureElement.objects.create(
             tenant=tenant,
@@ -154,6 +162,7 @@ class ArchitectureService(ServiceBase):
         title: Optional[str] = None,
         description: Optional[str] = None,
         element_type: Optional[str] = None,
+        parent_id: object = _UNSET,
     ) -> ArchitectureElement:
         """Update an ArchitectureElement with optimistic locking.
 
@@ -161,6 +170,10 @@ class ArchitectureService(ServiceBase):
         expected_version → OptimisticLockError.  When *expected_version* is
         omitted, no optimistic lock check is performed (backwards-compatible
         path for callers that do not track versions).
+
+        REQ-L1-044: when *parent_id* is provided (UUID or None to detach),
+        the hierarchy invariants I1-I3 are enforced according to the
+        workspace's rigor preset before the new parent is persisted.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -178,17 +191,39 @@ class ArchitectureService(ServiceBase):
                 f"current is {arch_el.version}"
             )
 
+        changed_fields: dict = {}
         if title is not None:
             arch_el.title = title
+            changed_fields["title"] = title
         if description is not None:
             arch_el.description = description
+            changed_fields["description"] = description
         if element_type is not None:
             arch_el.element_type = self._validate_element_type(element_type)
+            changed_fields["element_type"] = arch_el.element_type
 
-        # Atomic version increment — guard by expected_version when provided
+        # REQ-L1-044: invariant checks (I1-I3) before re-parenting
+        if parent_id is not _UNSET:
+            if parent_id is not None:
+                workspace_id = arch_el.artifact.workspace_id
+                validator = ArchitectureElementInvariantValidator.for_workspace(
+                    workspace_id
+                )
+                validator.validate_parent_assignment(
+                    parent_id=parent_id,
+                    element=arch_el,
+                    element_id=arch_el_id,
+                    workspace_id=workspace_id,
+                )
+            arch_el.parent_id = parent_id
+            changed_fields["parent_id"] = parent_id
+
+        # Atomic version increment + field persistence — guarded by
+        # expected_version when provided.  Changed fields are written in the
+        # same UPDATE (fix: they were previously assigned in memory only).
         current_version = expected_version if expected_version is not None else arch_el.version
         ArchitectureElement.objects.filter(id=arch_el_id, version=current_version).update(
-            version=F("version") + 1
+            version=F("version") + 1, **changed_fields
         )
         arch_el.refresh_from_db(fields=["version"])
 

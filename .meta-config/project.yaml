@@ -1,4 +1,4 @@
-agent-meta-version: 0.65.2
+agent-meta-version: 0.66.0-beta.2
 test-repo:
   enabled: false
   path: ''
@@ -530,3 +530,21 @@ model-overrides:
     developer: opencode-go/minimax-m3
     prompt-engineer: opencode-go/minimax-m3
     agent-meta-manager: opencode-go/minimax-m3
+agent-prompts:
+  default: legacy
+  modes:
+    developer: modern
+    orchestrator: modern
+# REQ-L1-044: Rigor-gated architecture invariants (I1-I4).
+# Declarative concept mirror — runtime single source of truth is
+# backend/application/validators.py (RIGOR_INVARIANT_PRESETS); the active
+# tier per workspace is resolved via FeatureGateService (COMP-PC-003).
+# Deployments override via Django setting ARCHITECTURE_RIGOR_INVARIANTS.
+architecture:
+  rigor_presets:
+    minimal:
+      enabled_invariants: [I3]
+    standard:
+      enabled_invariants: [I1, I2, I3]
+    extended:
+      enabled_invariants: [I1, I2, I3, I4]

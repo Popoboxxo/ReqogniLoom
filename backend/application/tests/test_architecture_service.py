@@ -797,3 +797,415 @@ class TestElementTypeValidation:
                 p.stop()
 
 
+# ---------------------------------------------------------------------------
+# Invariant validator I1-I4 with rigor gating (REQ-L1-044)
+# ---------------------------------------------------------------------------
+
+import contextlib  # noqa: E402  — section-local imports for REQ-L1-044 tests
+
+from application.validators import (  # noqa: E402
+    ALL_INVARIANTS,
+    ArchitectureElementInvariantValidator,
+    RIGOR_INVARIANT_PRESETS,
+)
+
+
+class TestRigorInvariantGating:
+    """REQ-L1-044: invariant sets are gated by rigor preset tier."""
+
+    def test_default_rigor_preset_mapping(self):
+        """Minimal={I3}, Standard={I1,I2,I3}, Extended={I1,I2,I3,I4}."""
+        assert RIGOR_INVARIANT_PRESETS["minimal"] == frozenset({"I3"})
+        assert RIGOR_INVARIANT_PRESETS["standard"] == frozenset({"I1", "I2", "I3"})
+        assert RIGOR_INVARIANT_PRESETS["extended"] == ALL_INVARIANTS
+
+    def test_for_tier_builds_gated_validator(self):
+        v = ArchitectureElementInvariantValidator.for_tier("minimal")
+        assert v.is_enabled("I3")
+        assert not v.is_enabled("I1")
+        assert not v.is_enabled("I2")
+        assert not v.is_enabled("I4")
+
+    def test_for_tier_unknown_falls_back_to_standard(self):
+        v = ArchitectureElementInvariantValidator.for_tier("my-custom-tier")
+        assert v.is_enabled("I1") and v.is_enabled("I2") and v.is_enabled("I3")
+        assert not v.is_enabled("I4")
+
+    def test_for_workspace_resolves_tier_via_feature_gate(self):
+        preset = MagicMock()
+        preset.tier = "extended"
+        gate = MagicMock()
+        gate.get_preset.return_value = preset
+        with patch("presets.gate.get_gate_service", return_value=gate):
+            v = ArchitectureElementInvariantValidator.for_workspace(WS_ID)
+        gate.get_preset.assert_called_once_with(str(WS_ID))
+        assert v.is_enabled("I4")
+
+    def test_for_workspace_falls_back_to_minimal_on_resolution_error(self):
+        with patch(
+            "presets.gate.get_gate_service", side_effect=RuntimeError("db down")
+        ):
+            v = ArchitectureElementInvariantValidator.for_workspace(WS_ID)
+        assert v.is_enabled("I3")
+        assert not v.is_enabled("I1")
+
+
+class TestInvariantI1CycleDetection:
+    """REQ-L1-044 I1: no circular parent references (standard/extended)."""
+
+    def test_self_parent_raises(self):
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        el_id = uuid.uuid4()
+        with pytest.raises(ValidationError, match=r"\[I1\]"):
+            v.check_i1(element_id=el_id, parent_id=el_id)
+
+    def test_indirect_cycle_raises(self):
+        """A -> C, where C.parent=B and B.parent=A closes a cycle."""
+        a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        chain = {
+            c: MagicMock(parent_id=b),
+            b: MagicMock(parent_id=a),
+        }
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        with patch.object(
+            ArchitectureElementInvariantValidator,
+            "_get_element",
+            side_effect=lambda eid: chain.get(eid),
+        ):
+            with pytest.raises(ValidationError, match=r"\[I1\]"):
+                v.check_i1(element_id=a, parent_id=c)
+
+    def test_acyclic_chain_passes(self):
+        a, b, root = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        chain = {
+            b: MagicMock(parent_id=root),
+            root: MagicMock(parent_id=None),
+        }
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        with patch.object(
+            ArchitectureElementInvariantValidator,
+            "_get_element",
+            side_effect=lambda eid: chain.get(eid),
+        ):
+            v.check_i1(element_id=a, parent_id=b)  # must not raise
+
+    def test_i1_skipped_on_minimal(self):
+        v = ArchitectureElementInvariantValidator.for_tier("minimal")
+        el_id = uuid.uuid4()
+        v.check_i1(element_id=el_id, parent_id=el_id)  # must not raise
+
+
+class TestInvariantI2LevelOrdering:
+    """REQ-L1-044 I2: parent.level < child.level (standard/extended)."""
+
+    @staticmethod
+    def _element(level, el_id=None):
+        el = MagicMock()
+        el.id = el_id or uuid.uuid4()
+        el.get_level = MagicMock(return_value=level)
+        return el
+
+    def test_child_level_2_with_parent_level_5_raises(self):
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        with pytest.raises(ValidationError, match=r"\[I2\]"):
+            v.check_i2(self._element(2), self._element(5))
+
+    def test_equal_levels_raise(self):
+        v = ArchitectureElementInvariantValidator.for_tier("extended")
+        with pytest.raises(ValidationError, match=r"\[I2\]"):
+            v.check_i2(self._element(1), self._element(1))
+
+    def test_valid_ordering_passes(self):
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        v.check_i2(self._element(2), self._element(1))  # must not raise
+
+    def test_i2_skipped_on_minimal(self):
+        v = ArchitectureElementInvariantValidator.for_tier("minimal")
+        v.check_i2(self._element(2), self._element(5))  # must not raise
+
+    def test_i2_skipped_on_create_path_without_element(self):
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        v.check_i2(None, self._element(5))  # must not raise
+
+
+class TestInvariantI3DanglingReferences:
+    """REQ-L1-044 I3: parent must exist in the same workspace (all tiers)."""
+
+    @pytest.mark.parametrize("tier", ["minimal", "standard", "extended"])
+    def test_dangling_parent_raises_on_all_tiers(self, tier):
+        v = ArchitectureElementInvariantValidator.for_tier(tier)
+        with patch.object(
+            ArchitectureElementInvariantValidator, "_get_element", return_value=None
+        ):
+            with pytest.raises(ValidationError, match=r"\[I3\]"):
+                v.check_i3(uuid.uuid4())
+
+    def test_cross_workspace_parent_raises(self):
+        parent = MagicMock()
+        parent.artifact.workspace_id = uuid.uuid4()
+        v = ArchitectureElementInvariantValidator.for_tier("minimal")
+        with patch.object(
+            ArchitectureElementInvariantValidator, "_get_element", return_value=parent
+        ):
+            with pytest.raises(ValidationError, match=r"\[I3\].*Cross-workspace"):
+                v.check_i3(uuid.uuid4(), workspace_id=uuid.uuid4())
+
+    def test_valid_parent_is_returned_for_reuse(self):
+        ws_id = uuid.uuid4()
+        parent = MagicMock()
+        parent.artifact.workspace_id = ws_id
+        v = ArchitectureElementInvariantValidator.for_tier("extended")
+        with patch.object(
+            ArchitectureElementInvariantValidator, "_get_element", return_value=parent
+        ):
+            assert v.check_i3(uuid.uuid4(), workspace_id=ws_id) is parent
+
+    def test_none_parent_is_always_valid_root(self):
+        v = ArchitectureElementInvariantValidator.for_tier("extended")
+        assert v.check_i3(None) is None
+
+
+class TestInvariantI4AllocationStructure:
+    """REQ-L1-044 I4: allocated-to must not target an ancestor (extended)."""
+
+    @staticmethod
+    def _element(el_id=None, parent_id=None):
+        el = MagicMock()
+        el.id = el_id or uuid.uuid4()
+        el.parent_id = parent_id
+        return el
+
+    def test_allocation_to_direct_parent_raises_on_extended(self):
+        target = self._element()
+        source = self._element(parent_id=target.id)
+        v = ArchitectureElementInvariantValidator.for_tier("extended")
+        with pytest.raises(ValidationError, match=r"\[I4\]"):
+            v.check_i4(source, target)
+
+    def test_allocation_to_transitive_ancestor_raises(self):
+        target = self._element()
+        mid_id = uuid.uuid4()
+        source = self._element(parent_id=mid_id)
+        chain = {mid_id: self._element(el_id=mid_id, parent_id=target.id)}
+        v = ArchitectureElementInvariantValidator.for_tier("extended")
+        with patch.object(
+            ArchitectureElementInvariantValidator,
+            "_get_element",
+            side_effect=lambda eid: chain.get(eid),
+        ):
+            with pytest.raises(ValidationError, match=r"\[I4\]"):
+                v.check_i4(source, target)
+
+    def test_allocation_to_unrelated_element_passes(self):
+        v = ArchitectureElementInvariantValidator.for_tier("extended")
+        v.check_i4(self._element(parent_id=None), self._element())  # no raise
+
+    @pytest.mark.parametrize("tier", ["minimal", "standard"])
+    def test_i4_skipped_below_extended(self, tier):
+        target = self._element()
+        source = self._element(parent_id=target.id)
+        v = ArchitectureElementInvariantValidator.for_tier(tier)
+        v.check_i4(source, target)  # must not raise
+
+
+class TestInvariantServiceIntegration:
+    """REQ-L1-044: ArchitectureService enforces invariants on CRUD."""
+
+    @staticmethod
+    def _create_patches():
+        return [
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.Tenant",
+                **{"objects.filter.return_value.first.return_value": MagicMock()},
+            ),
+            patch(
+                "application.architecture_service.Workspace",
+                **{"objects.filter.return_value.first.return_value": MagicMock()},
+            ),
+            patch(
+                "application.architecture_service.Artifact.objects.create",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.create",
+                return_value=_make_arch_el(version=1),
+            ),
+        ]
+
+    def test_create_with_parent_runs_validator(self):
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        parent_id = uuid.uuid4()
+
+        with contextlib.ExitStack() as stack:
+            for p in self._create_patches():
+                stack.enter_context(p)
+            mock_cls = stack.enter_context(
+                patch(
+                    "application.architecture_service."
+                    "ArchitectureElementInvariantValidator"
+                )
+            )
+            stack.enter_context(patch.object(svc, "_audit"))
+            stack.enter_context(patch.object(svc, "_emit_event"))
+            svc.create_architecture_element(
+                workspace_id=WS_ID, title="C", ctx=ctx, parent_id=parent_id
+            )
+
+        mock_cls.for_workspace.assert_called_once_with(WS_ID)
+        mock_cls.for_workspace.return_value.validate_parent_assignment.assert_called_once_with(
+            parent_id=parent_id, workspace_id=WS_ID
+        )
+
+    def test_create_without_parent_skips_validator(self):
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+
+        with contextlib.ExitStack() as stack:
+            for p in self._create_patches():
+                stack.enter_context(p)
+            mock_cls = stack.enter_context(
+                patch(
+                    "application.architecture_service."
+                    "ArchitectureElementInvariantValidator"
+                )
+            )
+            stack.enter_context(patch.object(svc, "_audit"))
+            stack.enter_context(patch.object(svc, "_emit_event"))
+            svc.create_architecture_element(workspace_id=WS_ID, title="C", ctx=ctx)
+
+        mock_cls.for_workspace.assert_not_called()
+
+    def test_create_with_invalid_parent_raises_validation_error(self):
+        """I3 violation aborts creation before the element row is written."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+
+        with contextlib.ExitStack() as stack:
+            patches = self._create_patches()
+            for p in patches[:5]:
+                stack.enter_context(p)
+            mock_el_create = stack.enter_context(patches[5])
+            mock_cls = stack.enter_context(
+                patch(
+                    "application.architecture_service."
+                    "ArchitectureElementInvariantValidator"
+                )
+            )
+            mock_cls.for_workspace.return_value.validate_parent_assignment.side_effect = ValidationError(
+                "[I3] Dangling parent reference"
+            )
+            with pytest.raises(ValidationError, match=r"\[I3\]"):
+                svc.create_architecture_element(
+                    workspace_id=WS_ID, title="C", ctx=ctx, parent_id=uuid.uuid4()
+                )
+            mock_el_create.assert_not_called()
+
+    @staticmethod
+    def _update_patches(mock_el, mock_filter_qs):
+        return [
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_el))
+                    )
+                ),
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=mock_filter_qs,
+            ),
+        ]
+
+    def test_update_with_parent_id_validates_and_persists(self):
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=1)
+        mock_filter_qs = MagicMock()
+        new_parent = uuid.uuid4()
+
+        with contextlib.ExitStack() as stack:
+            for p in self._update_patches(mock_el, mock_filter_qs):
+                stack.enter_context(p)
+            mock_cls = stack.enter_context(
+                patch(
+                    "application.architecture_service."
+                    "ArchitectureElementInvariantValidator"
+                )
+            )
+            stack.enter_context(patch.object(svc, "_audit"))
+            stack.enter_context(patch.object(svc, "_emit_event"))
+            svc.update_architecture_element(
+                arch_el_id=ARCH_EL_ID,
+                ctx=ctx,
+                expected_version=1,
+                parent_id=new_parent,
+            )
+
+        mock_cls.for_workspace.assert_called_once_with(mock_el.artifact.workspace_id)
+        mock_cls.for_workspace.return_value.validate_parent_assignment.assert_called_once()
+        assert mock_filter_qs.update.call_args.kwargs["parent_id"] == new_parent
+
+    def test_update_detach_parent_persists_none_without_validation(self):
+        """parent_id=None (detach to root) needs no invariant check."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=1)
+        mock_filter_qs = MagicMock()
+
+        with contextlib.ExitStack() as stack:
+            for p in self._update_patches(mock_el, mock_filter_qs):
+                stack.enter_context(p)
+            mock_cls = stack.enter_context(
+                patch(
+                    "application.architecture_service."
+                    "ArchitectureElementInvariantValidator"
+                )
+            )
+            stack.enter_context(patch.object(svc, "_audit"))
+            stack.enter_context(patch.object(svc, "_emit_event"))
+            svc.update_architecture_element(
+                arch_el_id=ARCH_EL_ID, ctx=ctx, expected_version=1, parent_id=None
+            )
+
+        mock_cls.for_workspace.assert_not_called()
+        assert mock_filter_qs.update.call_args.kwargs["parent_id"] is None
+
+    def test_update_without_parent_id_leaves_parent_untouched(self):
+        """Omitted parent_id (sentinel) must not appear in the UPDATE, and
+        changed fields (title) must be persisted in the UPDATE statement."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el(version=1)
+        mock_filter_qs = MagicMock()
+
+        with contextlib.ExitStack() as stack:
+            for p in self._update_patches(mock_el, mock_filter_qs):
+                stack.enter_context(p)
+            mock_cls = stack.enter_context(
+                patch(
+                    "application.architecture_service."
+                    "ArchitectureElementInvariantValidator"
+                )
+            )
+            stack.enter_context(patch.object(svc, "_audit"))
+            stack.enter_context(patch.object(svc, "_emit_event"))
+            svc.update_architecture_element(
+                arch_el_id=ARCH_EL_ID, ctx=ctx, expected_version=1, title="New"
+            )
+
+        mock_cls.for_workspace.assert_not_called()
+        update_kwargs = mock_filter_qs.update.call_args.kwargs
+        assert "parent_id" not in update_kwargs
+        assert update_kwargs["title"] == "New"
+
+
