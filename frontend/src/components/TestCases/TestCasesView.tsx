@@ -27,9 +27,6 @@ import type { Requirement, UUID } from "../../types";
 const STATUS_OPTIONS = ["draft", "active", "deprecated"] as const;
 type TestCaseStatus = (typeof STATUS_OPTIONS)[number];
 
-const PRIORITY_OPTIONS = ["low", "med", "high"] as const;
-type TestCasePriority = (typeof PRIORITY_OPTIONS)[number];
-
 // ---------------------------------------------------------------------------
 // Shared style helpers
 // ---------------------------------------------------------------------------
@@ -119,7 +116,6 @@ export default function TestCasesView(): JSX.Element {
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newStatus, setNewStatus] = useState<TestCaseStatus>("draft");
-  const [newPriority, setNewPriority] = useState<TestCasePriority>("med");
   const [newLinkedReqIds, setNewLinkedReqIds] = useState<Set<UUID>>(
     new Set()
   );
@@ -247,7 +243,6 @@ export default function TestCasesView(): JSX.Element {
     setNewTitle("");
     setNewDescription("");
     setNewStatus("draft");
-    setNewPriority("med");
     setNewLinkedReqIds(new Set());
     setFormError(null);
   };
@@ -269,7 +264,6 @@ export default function TestCasesView(): JSX.Element {
         title: newTitle.trim(),
         description: newDescription.trim() || undefined,
         status: newStatus,
-        priority: newPriority,
       });
 
       // Auto-resolve REQ test-case verifies-link for each linked requirement.
@@ -279,7 +273,6 @@ export default function TestCasesView(): JSX.Element {
             source_id: created.id,
             target_id: reqId,
             link_type: "verifies",
-            workspace_id: activeWorkspace.id,
           });
         } catch (err) {
           console.error("Failed to create trace link:", err);
@@ -465,27 +458,6 @@ export default function TestCasesView(): JSX.Element {
                 {STATUS_OPTIONS.map((s) => (
                   <option key={s} value={s}>
                     {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="testcase-priority" style={labelStyle}>
-                {t("editor.priority", "Priority")}
-              </label>
-              <select
-                id="testcase-priority"
-                data-testid="testcase-priority-select"
-                value={newPriority}
-                onChange={(e) =>
-                  setNewPriority(e.target.value as TestCasePriority)
-                }
-                disabled={isSubmitting}
-                style={inputStyle}
-              >
-                {PRIORITY_OPTIONS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
                   </option>
                 ))}
               </select>
