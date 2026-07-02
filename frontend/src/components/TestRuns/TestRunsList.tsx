@@ -1,38 +1,28 @@
 /**
- * ARCH-L1-001 ReactFrontend — ADR list view (COMP-RF-003).
+ * ARCH-L1-001 ReactFrontend — TestRunsList (COMP-RF-003).
  *
  * leaf_id: COMP-RF-003
- * req_id: REQ-L1-029 (ADR/Risk/Issue REST API)
+ * req_id:  REQ-L1-040 (Unified ModalDialogBase pattern), REQ-L2-AS-030 (Test-Run-Protokollierung)
  *
- * Lists all ADRs for the active workspace and provides a create form.
+ * Lists all Test Runs for the active workspace and provides a create form.
  * Uses unified ModalDialogBase for form pattern (REQ-L1-040).
  */
 
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { adrsApi } from "../../api/adrs";
+import { testRunsApi } from "../../api/test-runs";
 import ModalDialogBase, { SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
-import type { Adr, AdrStatus } from "../../types";
+import type { TestRun } from "../../types";
 
-const STATUS_OPTIONS: AdrStatus[] = [
-  "Draft",
-  "In Review",
-  "Approved",
-  "Rejected",
-  "Superseded",
-];
-
-export default function AdrList(): JSX.Element {
+export default function TestRunsList(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
-  const [items, setItems] = useState<Adr[]>([]);
+  const [items, setItems] = useState<TestRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [title, setTitle] = useState("");
-  const [context, setContext] = useState("");
-  const [decision, setDecision] = useState("");
-  const [status, setStatus] = useState<AdrStatus>("Draft");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -40,7 +30,7 @@ export default function AdrList(): JSX.Element {
     if (!activeWorkspace) return;
     setIsLoading(true);
     try {
-      const resp = await adrsApi.list(activeWorkspace.id);
+      const resp = await testRunsApi.list(activeWorkspace.id);
       setItems(resp.results);
     } catch (err) {
       console.error(err);
@@ -55,10 +45,8 @@ export default function AdrList(): JSX.Element {
   }, [activeWorkspace]);
 
   const resetForm = (): void => {
-    setTitle("");
-    setContext("");
-    setDecision("");
-    setStatus("Draft");
+    setName("");
+    setDescription("");
     setFormError(null);
   };
 
@@ -67,23 +55,16 @@ export default function AdrList(): JSX.Element {
   ): Promise<void> => {
     e.preventDefault();
     if (!activeWorkspace) return;
-    if (!title.trim()) {
-      setFormError("Title is required");
+    if (!name.trim()) {
+      setFormError("Name is required");
       return;
     }
     setIsSubmitting(true);
     setFormError(null);
     try {
-      // Backend maps `decision` -> `description` for consequence/outcome field
-      // and `context` -> `context` directly. Serializer on /api/v1/adrs/
-      // accepts both shapes; we send `description` for decision text and keep
-      // `context` separate.
-      await adrsApi.create({
+      await testRunsApi.create({
         workspace_id: activeWorkspace.id,
-        title: title.trim(),
-        description: decision.trim() || undefined,
-        context: context.trim() || undefined,
-        status,
+        name: name.trim(),
       });
       resetForm();
       setShowCreate(false);
@@ -103,7 +84,7 @@ export default function AdrList(): JSX.Element {
   return (
     <>
       <ModalDialogBase
-        title={t("nav.adrs")}
+        title={t("nav.testRuns", "Test Runs")}
         isOpen={showCreate}
         onToggle={() => {
           if (showCreate) {
@@ -121,74 +102,40 @@ export default function AdrList(): JSX.Element {
         error={formError}
         isSubmitting={isSubmitting}
         itemCount={items.length}
-        testIdPrefix="adr"
-        buttonTestIdPrefix="adr"
+        testIdPrefix="testrun"
+        buttonTestIdPrefix="testrun"
       >
         <div>
-          <label htmlFor="adr-title" style={SHARED_STYLES.label}>
-            {t("editor.title", "Title")} *
+          <label htmlFor="testrun-name" style={SHARED_STYLES.label}>
+            {t("editor.name", "Name")} *
           </label>
           <input
-            id="adr-title"
-            data-testid="adr-title-input"
+            id="testrun-name"
+            data-testid="testrun-name-input"
             type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             required
             autoFocus
             disabled={isSubmitting}
-            placeholder="ADR title"
+            placeholder="Test run name"
             style={SHARED_STYLES.input}
           />
         </div>
         <div>
-          <label htmlFor="adr-context" style={SHARED_STYLES.label}>
-            {t("editor.context", "Context")}
+          <label htmlFor="testrun-description" style={SHARED_STYLES.label}>
+            {t("editor.description", "Description")}
           </label>
           <textarea
-            id="adr-context"
-            data-testid="adr-context-input"
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
+            id="testrun-description"
+            data-testid="testrun-description-input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
             disabled={isSubmitting}
             rows={3}
-            placeholder="What is the context / problem?"
+            placeholder="Describe the test run..."
             style={{ ...SHARED_STYLES.input, fontFamily: "inherit", resize: "vertical" }}
           />
-        </div>
-        <div>
-          <label htmlFor="adr-decision" style={SHARED_STYLES.label}>
-            {t("editor.decision", "Decision")}
-          </label>
-          <textarea
-            id="adr-decision"
-            data-testid="adr-decision-input"
-            value={decision}
-            onChange={(e) => setDecision(e.target.value)}
-            disabled={isSubmitting}
-            rows={3}
-            placeholder="What is the decision and its consequences?"
-            style={{ ...SHARED_STYLES.input, fontFamily: "inherit", resize: "vertical" }}
-          />
-        </div>
-        <div>
-          <label htmlFor="adr-status" style={SHARED_STYLES.label}>
-            {t("editor.status", "Status")}
-          </label>
-          <select
-            id="adr-status"
-            data-testid="adr-status-select"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as AdrStatus)}
-            disabled={isSubmitting}
-            style={SHARED_STYLES.input}
-          >
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
         </div>
       </ModalDialogBase>
 
@@ -198,7 +145,7 @@ export default function AdrList(): JSX.Element {
           {items.map((item) => (
             <li
               key={item.id}
-              data-testid={`adr-item-${item.id}`}
+              data-testid={`testrun-item-${item.id}`}
               style={{
                 padding: "var(--space-3) var(--space-4)",
                 marginBottom: "var(--space-2)",
@@ -207,7 +154,7 @@ export default function AdrList(): JSX.Element {
                 border: "1px solid var(--color-border)",
               }}
             >
-              <strong>{item.title}</strong>{" "}
+              <strong>{item.name}</strong>{" "}
               <span
                 style={{
                   color: "var(--color-text-muted)",

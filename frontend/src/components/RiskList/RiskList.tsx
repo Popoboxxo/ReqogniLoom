@@ -5,48 +5,19 @@
  * req_id:  REQ-L1-029 (ADR/Risk/Issue REST API)
  *
  * Lists all Risks for the active workspace and provides a create form.
+ * Uses unified ModalDialogBase for form pattern (REQ-L1-040).
  */
 
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { risksApi } from "../../api/risks";
+import ModalDialogBase, { SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
 import type { Risk, RiskImpact, RiskProbability, RiskSeverity } from "../../types";
 
 const SEVERITY_OPTIONS: RiskSeverity[] = ["low", "medium", "high"];
 const PROBABILITY_OPTIONS: RiskProbability[] = ["low", "medium", "high"];
 const IMPACT_OPTIONS: RiskImpact[] = ["low", "medium", "high"];
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-border)",
-  fontSize: "var(--font-size-sm)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  fontFamily: "var(--font-sans)",
-  boxSizing: "border-box",
-};
-
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  display: "block",
-  marginBottom: "var(--space-1)",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "white",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
 
 export default function RiskList(): JSX.Element {
   const { t } = useTranslation();
@@ -125,219 +96,130 @@ export default function RiskList(): JSX.Element {
   if (isLoading) return <p>{t("loading")}</p>;
 
   return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginTop: 0,
-          marginBottom: "var(--space-6)",
+    <>
+      <ModalDialogBase
+        title={t("nav.risks")}
+        isOpen={showCreate}
+        onToggle={() => {
+          if (showCreate) {
+            resetForm();
+            setShowCreate(false);
+          } else {
+            setShowCreate(true);
+          }
         }}
+        onSubmit={handleSubmit}
+        onCancel={() => {
+          resetForm();
+          setShowCreate(false);
+        }}
+        error={formError}
+        isSubmitting={isSubmitting}
+        itemCount={items.length}
+        testIdPrefix="risk"
+        buttonTestIdPrefix="risk"
       >
-        <h2
+        <div>
+          <label htmlFor="risk-title" style={SHARED_STYLES.label}>
+            {t("editor.title", "Title")} *
+          </label>
+          <input
+            id="risk-title"
+            data-testid="risk-title-input"
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            autoFocus
+            disabled={isSubmitting}
+            placeholder="Risk title"
+            style={SHARED_STYLES.input}
+          />
+        </div>
+        <div>
+          <label htmlFor="risk-description" style={SHARED_STYLES.label}>
+            {t("editor.description", "Description")}
+          </label>
+          <textarea
+            id="risk-description"
+            data-testid="risk-description-input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            disabled={isSubmitting}
+            rows={3}
+            placeholder="Describe the risk..."
+            style={{ ...SHARED_STYLES.input, fontFamily: "inherit", resize: "vertical" }}
+          />
+        </div>
+        <div
           style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-          }}
-        >
-          {t("nav.risks")}
-        </h2>
-        <button
-          type="button"
-          data-testid="risk-create-btn"
-          onClick={() => {
-            if (showCreate) {
-              resetForm();
-              setShowCreate(false);
-            } else {
-              setShowCreate(true);
-            }
-          }}
-          style={primaryButtonStyle}
-        >
-          {showCreate ? t("actions.cancel") : `+ ${t("actions.new", "New Risk")}`}
-        </button>
-      </div>
-
-      {showCreate && (
-        <form
-          data-testid="risk-create-form"
-          onSubmit={(e) => void handleSubmit(e)}
-          style={{
-            display: "flex",
-            flexDirection: "column",
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
             gap: "var(--space-3)",
-            padding: "var(--space-4)",
-            marginBottom: "var(--space-4)",
-            background: "var(--color-surface-raised)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-lg)",
           }}
         >
           <div>
-            <label htmlFor="risk-title" style={labelStyle}>
-              {t("editor.title", "Title")} *
+            <label htmlFor="risk-severity" style={SHARED_STYLES.label}>
+              Severity
             </label>
-            <input
-              id="risk-title"
-              data-testid="risk-title-input"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              autoFocus
+            <select
+              id="risk-severity"
+              data-testid="risk-severity-select"
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value as RiskSeverity)}
               disabled={isSubmitting}
-              placeholder="Risk title"
-              style={inputStyle}
-            />
+              style={SHARED_STYLES.input}
+            >
+              {SEVERITY_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
-            <label htmlFor="risk-description" style={labelStyle}>
-              {t("editor.description", "Description")}
+            <label htmlFor="risk-probability" style={SHARED_STYLES.label}>
+              Probability
             </label>
-            <textarea
-              id="risk-description"
-              data-testid="risk-description-input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+            <select
+              id="risk-probability"
+              data-testid="risk-probability-select"
+              value={probability}
+              onChange={(e) => setProbability(e.target.value as RiskProbability)}
               disabled={isSubmitting}
-              rows={3}
-              placeholder="Describe the risk..."
-              style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }}
-            />
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: "var(--space-3)",
-            }}
-          >
-            <div>
-              <label htmlFor="risk-severity" style={labelStyle}>
-                Severity
-              </label>
-              <select
-                id="risk-severity"
-                data-testid="risk-severity-select"
-                value={severity}
-                onChange={(e) => setSeverity(e.target.value as RiskSeverity)}
-                disabled={isSubmitting}
-                style={inputStyle}
-              >
-                {SEVERITY_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="risk-probability" style={labelStyle}>
-                Probability
-              </label>
-              <select
-                id="risk-probability"
-                data-testid="risk-probability-select"
-                value={probability}
-                onChange={(e) => setProbability(e.target.value as RiskProbability)}
-                disabled={isSubmitting}
-                style={inputStyle}
-              >
-                {PROBABILITY_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="risk-impact" style={labelStyle}>
-                Impact
-              </label>
-              <select
-                id="risk-impact"
-                data-testid="risk-impact-select"
-                value={impact}
-                onChange={(e) => setImpact(e.target.value as RiskImpact)}
-                disabled={isSubmitting}
-                style={inputStyle}
-              >
-                {IMPACT_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {formError && (
-            <p
-              role="alert"
-              style={{
-                color: "var(--color-danger)",
-                fontSize: "var(--font-size-sm)",
-                margin: 0,
-              }}
+              style={SHARED_STYLES.input}
             >
-              {formError}
-            </p>
-          )}
-          <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
-            <button
-              type="button"
-              data-testid="risk-cancel-btn"
-              onClick={() => {
-                resetForm();
-                setShowCreate(false);
-              }}
+              {PROBABILITY_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="risk-impact" style={SHARED_STYLES.label}>
+              Impact
+            </label>
+            <select
+              id="risk-impact"
+              data-testid="risk-impact-select"
+              value={impact}
+              onChange={(e) => setImpact(e.target.value as RiskImpact)}
               disabled={isSubmitting}
-              style={{
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-              }}
+              style={SHARED_STYLES.input}
             >
-              {t("actions.cancel")}
-            </button>
-            <button
-              type="submit"
-              data-testid="risk-save-btn"
-              disabled={isSubmitting}
-              style={{
-                ...primaryButtonStyle,
-                opacity: isSubmitting ? 0.6 : 1,
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-              }}
-            >
-              {isSubmitting ? t("actions.saving") : t("actions.save")}
-            </button>
+              {IMPACT_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
           </div>
-        </form>
-      )}
+        </div>
+      </ModalDialogBase>
 
-      {items.length === 0 ? (
-        <p
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-            background: "var(--color-surface-raised)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px dashed var(--color-border)",
-          }}
-        >
-          {t("editor.empty")}
-        </p>
-      ) : (
+      {/* Item list (rendered outside modal) */}
+      {items.length > 0 && (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {items.map((item) => (
             <li
@@ -364,6 +246,6 @@ export default function RiskList(): JSX.Element {
           ))}
         </ul>
       )}
-    </div>
+    </>
   );
 }

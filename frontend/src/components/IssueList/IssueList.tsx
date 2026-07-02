@@ -5,47 +5,18 @@
  * req_id:  REQ-L1-029 (ADR/Risk/Issue REST API)
  *
  * Lists all Issues for the active workspace and provides a create form.
+ * Uses unified ModalDialogBase for form pattern (REQ-L1-040).
  */
 
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { issuesApi } from "../../api/issues";
+import ModalDialogBase, { SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
 import type { Issue, IssueSeverity, IssueStatus } from "../../types";
 
 const SEVERITY_OPTIONS: IssueSeverity[] = ["low", "medium", "high", "critical"];
 const STATUS_OPTIONS: IssueStatus[] = ["Open", "In Progress", "Resolved", "Closed", "Wontfix"];
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-border)",
-  fontSize: "var(--font-size-sm)",
-  background: "var(--color-surface)",
-  color: "var(--color-text)",
-  fontFamily: "var(--font-sans)",
-  boxSizing: "border-box",
-};
-
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  display: "block",
-  marginBottom: "var(--space-1)",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "white",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
 
 export default function IssueList(): JSX.Element {
   const { t } = useTranslation();
@@ -121,194 +92,105 @@ export default function IssueList(): JSX.Element {
   if (isLoading) return <p>{t("loading")}</p>;
 
   return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginTop: 0,
-          marginBottom: "var(--space-6)",
+    <>
+      <ModalDialogBase
+        title={t("nav.issues")}
+        isOpen={showCreate}
+        onToggle={() => {
+          if (showCreate) {
+            resetForm();
+            setShowCreate(false);
+          } else {
+            setShowCreate(true);
+          }
         }}
+        onSubmit={handleSubmit}
+        onCancel={() => {
+          resetForm();
+          setShowCreate(false);
+        }}
+        error={formError}
+        isSubmitting={isSubmitting}
+        itemCount={items.length}
+        testIdPrefix="issue"
+        buttonTestIdPrefix="issue"
       >
-        <h2
-          style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-          }}
-        >
-          {t("nav.issues")}
-        </h2>
-        <button
-          type="button"
-          data-testid="issue-create-btn"
-          onClick={() => {
-            if (showCreate) {
-              resetForm();
-              setShowCreate(false);
-            } else {
-              setShowCreate(true);
-            }
-          }}
-          style={primaryButtonStyle}
-        >
-          {showCreate ? t("actions.cancel") : `+ ${t("actions.new", "New Issue")}`}
-        </button>
-      </div>
-
-      {showCreate && (
-        <form
-          data-testid="issue-create-form"
-          onSubmit={(e) => void handleSubmit(e)}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-3)",
-            padding: "var(--space-4)",
-            marginBottom: "var(--space-4)",
-            background: "var(--color-surface-raised)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-lg)",
-          }}
-        >
+        <div>
+          <label htmlFor="issue-title" style={SHARED_STYLES.label}>
+            {t("editor.title", "Title")} *
+          </label>
+          <input
+            id="issue-title"
+            data-testid="issue-title-input"
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            autoFocus
+            disabled={isSubmitting}
+            placeholder="Issue title"
+            style={SHARED_STYLES.input}
+          />
+        </div>
+        <div>
+          <label htmlFor="issue-description" style={SHARED_STYLES.label}>
+            {t("editor.description", "Description")}
+          </label>
+          <textarea
+            id="issue-description"
+            data-testid="issue-description-input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            disabled={isSubmitting}
+            rows={3}
+            placeholder="Describe the issue..."
+            style={{ ...SHARED_STYLES.input, fontFamily: "inherit", resize: "vertical" }}
+          />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
           <div>
-            <label htmlFor="issue-title" style={labelStyle}>
-              {t("editor.title", "Title")} *
+            <label htmlFor="issue-severity" style={SHARED_STYLES.label}>
+              Severity
             </label>
-            <input
-              id="issue-title"
-              data-testid="issue-title-input"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              autoFocus
+            <select
+              id="issue-severity"
+              data-testid="issue-severity-select"
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value as IssueSeverity)}
               disabled={isSubmitting}
-              placeholder="Issue title"
-              style={inputStyle}
-            />
+              style={SHARED_STYLES.input}
+            >
+              {SEVERITY_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
-            <label htmlFor="issue-description" style={labelStyle}>
-              {t("editor.description", "Description")}
+            <label htmlFor="issue-status" style={SHARED_STYLES.label}>
+              Status
             </label>
-            <textarea
-              id="issue-description"
-              data-testid="issue-description-input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+            <select
+              id="issue-status"
+              data-testid="issue-status-select"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as IssueStatus)}
               disabled={isSubmitting}
-              rows={3}
-              placeholder="Describe the issue..."
-              style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }}
-            />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
-            <div>
-              <label htmlFor="issue-severity" style={labelStyle}>
-                Severity
-              </label>
-              <select
-                id="issue-severity"
-                data-testid="issue-severity-select"
-                value={severity}
-                onChange={(e) => setSeverity(e.target.value as IssueSeverity)}
-                disabled={isSubmitting}
-                style={inputStyle}
-              >
-                {SEVERITY_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="issue-status" style={labelStyle}>
-                Status
-              </label>
-              <select
-                id="issue-status"
-                data-testid="issue-status-select"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as IssueStatus)}
-                disabled={isSubmitting}
-                style={inputStyle}
-              >
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {formError && (
-            <p
-              role="alert"
-              style={{
-                color: "var(--color-danger)",
-                fontSize: "var(--font-size-sm)",
-                margin: 0,
-              }}
+              style={SHARED_STYLES.input}
             >
-              {formError}
-            </p>
-          )}
-          <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
-            <button
-              type="button"
-              data-testid="issue-cancel-btn"
-              onClick={() => {
-                resetForm();
-                setShowCreate(false);
-              }}
-              disabled={isSubmitting}
-              style={{
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-              }}
-            >
-              {t("actions.cancel")}
-            </button>
-            <button
-              type="submit"
-              data-testid="issue-save-btn"
-              disabled={isSubmitting}
-              style={{
-                ...primaryButtonStyle,
-                opacity: isSubmitting ? 0.6 : 1,
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-              }}
-            >
-              {isSubmitting ? t("actions.saving") : t("actions.save")}
-            </button>
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
           </div>
-        </form>
-      )}
+        </div>
+      </ModalDialogBase>
 
-      {items.length === 0 ? (
-        <p
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-            background: "var(--color-surface-raised)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px dashed var(--color-border)",
-          }}
-        >
-          {t("editor.empty")}
-        </p>
-      ) : (
+      {/* Item list (rendered outside modal) */}
+      {items.length > 0 && (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {items.map((item) => (
             <li
@@ -335,6 +217,6 @@ export default function IssueList(): JSX.Element {
           ))}
         </ul>
       )}
-    </div>
+    </>
   );
 }
