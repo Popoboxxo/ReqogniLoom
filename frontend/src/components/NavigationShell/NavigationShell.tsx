@@ -51,8 +51,12 @@ const BaselinesView = lazy(
 const AdrList = lazy(() => import("../AdrList/AdrList"));
 const RiskList = lazy(() => import("../RiskList/RiskList"));
 const IssueList = lazy(() => import("../IssueList/IssueList"));
-const TestCasesView = lazy(() => import("../TestCases/TestCasesView"));
-const TestRunsComponent = lazy(() => import("../TestRuns/TestRuns"));
+const TestcaseList = lazy(() =>
+  import("../TestCases/TestcaseList").then((m) => ({ default: m.TestcaseList }))
+);
+const TestRunsList = lazy(() =>
+  import("../TestRuns/TestRunsList").then((m) => ({ default: m.TestRunsList }))
+);
 const CsvImport = lazy(() => import("../CsvImport/CsvImport"));
 const IcdView = lazy(() => import("../IcdView/IcdView"));
 const DiagramView = lazy(() => import("../DiagramView/DiagramView"));
@@ -99,9 +103,8 @@ function AppShell(): JSX.Element {
               <Route path="/adrs" element={<AdrList />} />
               <Route path="/risks" element={<RiskList />} />
               <Route path="/issues" element={<IssueList />} />
-              <Route path="/testcases" element={<TestCasesView />} />
-              <Route path="/testcases/:id" element={<TestCasesView />} />
-              <Route path="/test-runs" element={<TestRunsComponent />} />
+              <Route path="/testcases" element={<TestcaseList />} />
+              <Route path="/test-runs" element={<TestRunsList />} />
               <Route path="/import" element={<CsvImport />} />
               <Route path="/icds" element={<IcdView />} />
               <Route path="/icds/:id" element={<IcdView />} />
