@@ -2,21 +2,21 @@
  * ARCH-L1-001 ReactFrontend — CanvasEditor (COMP-RF-005 Canvas).
  *
  * leaf_id: COMP-RF-005 (CanvasEditor)
- * req_id:  REQ-L1-056 (Free-Hand Canvas), REQ-L2-DS-006 (CanvasEditor)
+ * req_id: REQ-L1-056 (Free-Hand Canvas), REQ-L2-DS-006 (CanvasEditor)
  *
  * Free-hand canvas editor using Fabric.js v6.
  * Features:
- *   - Pen tool (free-hand drawing)
- *   - Select/move tool
- *   - Eraser tool
- *   - Color picker (CSS custom properties)
- *   - Stroke width slider
- *   - Undo/Redo (Ctrl+Z / Ctrl+Y)
- *   - Auto-Save every 5s via PUT /canvas-strokes/ when dirty
+ * - Pen tool (free-hand drawing)
+ * - Select/move tool
+ * - Eraser tool
+ * - Color picker (CSS custom properties)
+ * - Stroke width slider
+ * - Undo/Redo (Ctrl+Z / Ctrl+Y)
+ * - Auto-Save 5s via PUT /canvas-strokes/ when dirty
  *
  * Interfaces:
- *   IF-L1-058 (input):  Push stroke data to backend
- *   IF-L1-060 (output): Receive stroke data + SVG from backend
+ *   IF-L1-058 (input): Push stroke data backend
+ *   IF-L1-060 (output): Receive stroke data + SVG backend
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -52,6 +52,13 @@ export interface CanvasEditorProps {
 }
 
 // ---------------------------------------------------------------------------
+// Internal types for Fabric.js (dynamically imported)
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FabricCanvas = any;
+
+// ---------------------------------------------------------------------------
 // CanvasEditor component
 // ---------------------------------------------------------------------------
 
@@ -62,9 +69,8 @@ export function CanvasEditor({
 }: CanvasEditorProps): JSX.Element {
   const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fabricRef = useRef<InstanceType<typeof import("fabric").Canvas> | null>(
-    null
-  );
+  const fabricRef = useRef<FabricCanvas>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const undoStackRef = useRef<string[]>([]);
   const redoStackRef = useRef<string[]>([]);
 
@@ -72,10 +78,89 @@ export function CanvasEditor({
   const [color, setColor] = useState("#000000");
   const [strokeWidth, setStrokeWidth] = useState(2);
   const [isDirty, setIsDirty] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<
-    "idle" | "saving" | "saved" | "error"
-  >("idle");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // -----------------------------------------------------------------------
+  // Undo / Redo
+  // -----------------------------------------------------------------------
+
+  const pushUndoState = useCallback(
+    (canvas: FabricCanvas): void => {
+      const json = JSON.stringify(canvas.toJSON());
+      undoStackRef.current.push(json);
+      if (undoStackRef.current.length > MAX_UNDO_HISTORY) {
+        undoStackRef.current.shift();
+      }
+      redoStackRef.current = [];
+    },
+    []
+  );
+
+  const handleUndo = useCallback((): void => {
+    const canvas = fabricRef.current;
+    if (!canvas || undoStackRef.current.length === 0) return;
+
+    const currentState = JSON.stringify(canvas.toJSON());
+    redoStackRef.current.push(currentState);
+
+    const prevState = undoStackRef.current.pop();
+    if (prevState) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      canvas.loadFromJSON(JSON.parse(prevState)).then(() => {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        canvas.renderAll();
+      });
+    }
+    setIsDirty(true);
+  }, []);
+
+  const handleRedo = useCallback((): void => {
+    const canvas = fabricRef.current;
+    if (!canvas || redoStackRef.current.length === 0) return;
+
+    const currentState = JSON.stringify(canvas.toJSON());
+    undoStackRef.current.push(currentState);
+
+    const nextState = redoStackRef.current.pop();
+    if (nextState) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      canvas.loadFromJSON(JSON.parse(nextState)).then(() => {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        canvas.renderAll();
+      });
+    }
+    setIsDirty(true);
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Auto-Save (IF-L1-058)
+  // -----------------------------------------------------------------------
+
+  const performAutoSave = useCallback(async (): Promise<void> => {
+    const canvas = fabricRef.current;
+    if (!canvas || !isDirty) return;
+
+    setSaveStatus("saving");
+    try {
+      const strokeData = extractStrokeData(canvas);
+
+      await diagramsApi.saveCanvasStrokes(diagramId, {
+        strokes: strokeData.strokes,
+        width: strokeData.width,
+        height: strokeData.height,
+      } as CanvasStrokeData);
+
+      setIsDirty(false);
+      setSaveStatus("saved");
+      onAutoSave?.(strokeData.strokes);
+
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch (err) {
+      console.error("Canvas auto-save failed", err);
+      setSaveStatus("error");
+    }
+  }, [diagramId, isDirty, onAutoSave]);
 
   // -----------------------------------------------------------------------
   // Fabric.js initialization
@@ -125,7 +210,7 @@ export function CanvasEditor({
       }
 
       // Handle resize
-      const resizeObserver = new ResizeObserver(() => {
+      resizeObserverRef.current = new ResizeObserver(() => {
         if (!fabricRef.current || !parent) return;
         fabricRef.current.setDimensions({
           width: parent.clientWidth,
@@ -133,19 +218,17 @@ export function CanvasEditor({
         });
         fabricRef.current.renderAll();
       });
-      if (parent) resizeObserver.observe(parent);
+      if (parent) resizeObserverRef.current.observe(parent);
 
       setIsInitialized(true);
-
-      return () => {
-        resizeObserver.disconnect();
-      };
     }
 
     void initCanvas();
 
     return () => {
       cancelled = true;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       fabricRef.current?.dispose();
       fabricRef.current = null;
     };
@@ -161,135 +244,68 @@ export function CanvasEditor({
     if (!canvas) return;
 
     switch (activeTool) {
-      case "pen":
+      case "pen": {
         canvas.isDrawingMode = true;
         canvas.selection = false;
         if (canvas.freeDrawingBrush) {
           canvas.freeDrawingBrush.color = color;
           canvas.freeDrawingBrush.width = strokeWidth;
+          canvas.freeDrawingBrush.globalCompositeOperation = "source-over";
         }
-        // Eraser is implemented as drawing with destination-out composite
-        canvas.freeDrawingBrush.globalCompositeOperation = "source-over";
         break;
-      case "select":
+      }
+      case "select": {
         canvas.isDrawingMode = false;
         canvas.selection = true;
         break;
-      case "eraser":
+      }
+      case "eraser": {
         canvas.isDrawingMode = true;
         canvas.selection = false;
         if (canvas.freeDrawingBrush) {
-          canvas.freeDrawingBrush.color = "#ffffff";
+          canvas.freeDrawingBrush.color = color;
           canvas.freeDrawingBrush.width = strokeWidth * 3;
-          canvas.freeDrawingBrush.globalCompositeOperation =
-            "destination-out";
+          canvas.freeDrawingBrush.globalCompositeOperation = "destination-out";
         }
         break;
+      }
     }
   }, [activeTool, color, strokeWidth]);
 
   // -----------------------------------------------------------------------
-  // Undo / Redo
+  // Keyboard shortcuts
   // -----------------------------------------------------------------------
 
-  const pushUndoState = useCallback(
-    (canvas: NonNullable<typeof fabricRef.current>) => {
-      const json = JSON.stringify(canvas.toJSON());
-      undoStackRef.current.push(json);
-      if (undoStackRef.current.length > MAX_UNDO_HISTORY) {
-        undoStackRef.current.shift();
-      }
-      redoStackRef.current = [];
-    },
-    []
-  );
-
-  const handleUndo = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas || undoStackRef.current.length === 0) return;
-
-    const currentState = JSON.stringify(canvas.toJSON());
-    redoStackRef.current.push(currentState);
-
-    const prevState = undoStackRef.current.pop();
-    if (prevState) {
-      canvas.loadFromJSON(JSON.parse(prevState)).then(() => {
-        canvas.renderAll();
-      });
-    }
-    setIsDirty(true);
-  }, []);
-
-  const handleRedo = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas || redoStackRef.current.length === 0) return;
-
-    const currentState = JSON.stringify(canvas.toJSON());
-    undoStackRef.current.push(currentState);
-
-    const nextState = redoStackRef.current.pop();
-    if (nextState) {
-      canvas.loadFromJSON(JSON.parse(nextState)).then(() => {
-        canvas.renderAll();
-      });
-    }
-    setIsDirty(true);
-  }, []);
-
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (!e.ctrlKey && !e.metaKey) return;
       if (e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         handleUndo();
-      } else if (
-        (e.key === "y") ||
-        (e.key === "z" && e.shiftKey)
-      ) {
+      } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
         e.preventDefault();
         handleRedo();
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [handleUndo, handleRedo]);
 
   // -----------------------------------------------------------------------
-  // Auto-Save (every 5s when dirty)
+  // Auto-Save interval
   // -----------------------------------------------------------------------
 
   useEffect(() => {
-    if (!isDirty) return;
-
-    const timer = setInterval(() => {
+    if (!isInitialized) return;
+    const timerId = setInterval(() => {
       void performAutoSave();
     }, AUTO_SAVE_INTERVAL_MS);
-
-    return () => clearInterval(timer);
+    return () => clearInterval(timerId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, diagramId]);
-
-  const performAutoSave = useCallback(async () => {
-    const canvas = fabricRef.current;
-    if (!canvas || !isDirty) return;
-
-    setSaveStatus("saving");
-    try {
-      const strokeData = extractStrokeData(canvas);
-      await diagramsApi.saveCanvasStrokes(diagramId, strokeData);
-      setIsDirty(false);
-      setSaveStatus("saved");
-      onAutoSave?.(strokeData.strokes);
-
-      // Reset status after 2s
-      setTimeout(() => setSaveStatus("idle"), 2000);
-    } catch (err) {
-      console.error("Canvas auto-save failed", err);
-      setSaveStatus("error");
-    }
-  }, [diagramId, isDirty, onAutoSave]);
+  }, [isInitialized, performAutoSave]);
 
   // -----------------------------------------------------------------------
   // Render
@@ -344,7 +360,7 @@ export function CanvasEditor({
           aria-label={t("canvas.toolbar.color", "Color")}
         />
 
-        {/* Quick color palette */}
+        {/* Quick-color swatches */}
         {TOOLBAR_COLORS.map((c) => (
           <button
             key={c}
@@ -353,21 +369,19 @@ export function CanvasEditor({
             className={styles.toolButton}
             style={{
               background: c,
-              border: color === c ? "2px solid var(--color-primary)" : "1px solid var(--color-border)",
-              width: "24px",
-              height: "24px",
-              minWidth: "24px",
+              border: color === c ? "2px solid var(--color-primary)" : "2px solid var(--color-border)",
+              minWidth: 20,
+              height: 20,
               padding: 0,
             }}
             onClick={() => setColor(c)}
-            title={c}
             aria-label={`Color ${c}`}
           />
         ))}
 
         <div className={styles.toolbarSeparator} />
 
-        {/* Stroke width slider */}
+        {/* Stroke width */}
         <input
           type="range"
           data-testid="canvas-width-slider"
@@ -376,8 +390,8 @@ export function CanvasEditor({
           max={20}
           value={strokeWidth}
           onChange={(e) => setStrokeWidth(Number(e.target.value))}
-          title={t("canvas.toolbar.width", "Stroke Width")}
-          aria-label={t("canvas.toolbar.width", "Stroke Width")}
+          title={t("canvas.toolbar.width", "Stroke width")}
+          aria-label={t("canvas.toolbar.width", "Stroke width")}
         />
         <span className={styles.widthLabel} data-testid="canvas-width-label">
           {strokeWidth}px
@@ -447,22 +461,22 @@ export function CanvasEditor({
             saveStatus === "saved"
               ? styles.statusSaved
               : saveStatus === "error"
-                ? styles.statusError
-                : isDirty
-                  ? styles.statusUnsaved
-                  : ""
+              ? styles.statusError
+              : isDirty
+              ? styles.statusUnsaved
+              : ""
           }
           data-testid="canvas-save-status"
         >
           {saveStatus === "saving"
             ? t("canvas.status.saving", "Saving...")
             : saveStatus === "saved"
-              ? t("canvas.status.saved", "Saved")
-              : saveStatus === "error"
-                ? t("canvas.status.error", "Save failed")
-                : isDirty
-                  ? t("canvas.status.unsaved", "Unsaved changes")
-                  : t("canvas.status.idle", "Ready")}
+            ? t("canvas.status.saved", "Saved")
+            : saveStatus === "error"
+            ? t("canvas.status.error", "Save failed")
+            : isDirty
+            ? t("canvas.status.unsaved", "Unsaved changes")
+            : t("canvas.status.idle", "Ready")}
         </span>
       </div>
     </div>
@@ -474,33 +488,35 @@ export function CanvasEditor({
 // ---------------------------------------------------------------------------
 
 /**
- * Extract stroke data from the Fabric.js canvas as CanvasStrokeData.
+ * Extract stroke data from a Fabric.js canvas for persistence (IF-L1-058).
+ *
+ * Iterates over all canvas objects and maps them to CanvasStroke records.
+ * Only "path" (free-hand pen) objects are converted; other object types
+ * are included with an empty points array until richer extraction is needed.
  */
-function extractStrokeData(
-  canvas: NonNullable<typeof fabricRef.current>
-): CanvasStrokeData {
-  const objects = canvas.getObjects();
+function extractStrokeData(canvas: FabricCanvas): CanvasStrokeData {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  const objects: unknown[] = canvas.getObjects() as unknown[];
   const strokes: CanvasStroke[] = [];
 
   for (const obj of objects) {
+    const o = obj as Record<string, unknown>;
     const stroke: CanvasStroke = {
+      id: typeof o.id === "string" ? o.id : crypto.randomUUID(),
       type: "pen",
-      color: (obj as unknown as { stroke: string }).stroke ?? "#000000",
-      width: (obj as unknown as { strokeWidth: number }).strokeWidth ?? 2,
-      opacity: obj.opacity ?? 1.0,
+      color: typeof o.stroke === "string" ? o.stroke : "#000000",
+      width: typeof o.strokeWidth === "number" ? o.strokeWidth : 2,
+      opacity: typeof o.opacity === "number" ? o.opacity : 1.0,
+      points: [],
     };
 
-    // Path objects (free-hand drawing)
-    if (obj.type === "path") {
-      const pathObj = obj as unknown as {
-        path: Array<[string, ...number[]]>;
-      };
-      stroke.type = "pen";
+    // Extract path points for free-hand strokes (Fabric.js type === "path")
+    if (o.type === "path") {
+      const pathObj = o as { path?: Array<Array<string | number>> };
       stroke.points = (pathObj.path ?? [])
-        .filter((segment) => segment[0] === "L" || segment[0] === "M")
         .map((segment) => ({
-          x: segment[segment.length - 2],
-          y: segment[segment.length - 1],
+          x: segment[segment.length - 2] as number,
+          y: segment[segment.length - 1] as number,
         }));
     }
 
@@ -509,33 +525,34 @@ function extractStrokeData(
 
   return {
     strokes,
-    width: canvas.width ?? 800,
-    height: canvas.height ?? 600,
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    width: (canvas.width as number | undefined) ?? 800,
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    height: (canvas.height as number | undefined) ?? 600,
   };
 }
 
 /**
- * Load stroke data onto the Fabric.js canvas.
+ * Load stroke data onto a Fabric.js canvas (IF-L1-060).
+ *
+ * For pen strokes, converts point arrays to SVG path strings. Full Fabric
+ * object reconstruction from all stroke types is deferred to a future
+ * iteration — this simplified version handles pen strokes.
  */
-function loadStrokesToCanvas(
-  canvas: NonNullable<typeof fabricRef.current>,
-  strokes: CanvasStroke[]
-): void {
-  // For now, we load via JSON if the data came from the server
-  // In a full implementation, we would convert CanvasStroke[] to Fabric objects
-  // This is a simplified version that creates path objects from pen strokes
+function loadStrokesToCanvas(canvas: FabricCanvas, strokes: CanvasStroke[]): void {
   for (const stroke of strokes) {
     if (stroke.type === "pen" && stroke.points && stroke.points.length > 0) {
       const pathData = stroke.points
         .map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y}`)
         .join(" ");
-
-      // Use dynamic import would be async; for loading we use the global fabric
-      // This is called during init when fabric is already loaded
-      void pathData; // Placeholder — actual Fabric path creation requires async fabric import
+      // Placeholder: actual Fabric Path object creation requires the
+      // fabric module to be loaded. During init, fabric is already imported
+      // via the useEffect; a full implementation would call:
+      //   const path = new fabric.Path(pathData, { stroke: stroke.color, ... });
+      //   canvas.add(path);
+      void pathData;
     }
   }
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
   canvas.renderAll();
 }
-
-export default CanvasEditor;

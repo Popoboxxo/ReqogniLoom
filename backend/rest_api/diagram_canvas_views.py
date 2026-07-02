@@ -27,6 +27,7 @@ from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -202,6 +203,12 @@ class CanvasStrokeView(APIView):
             resp_serializer = CanvasStrokeResponseSerializer(response_data)
             return Response(resp_serializer.data)
 
+        except DRFValidationError as exc:
+            # Serializer field validation failure (raise_exception=True) — return 400
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc.detail)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except DiagramValidationError as exc:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
@@ -273,6 +280,12 @@ class CanvasStrokeView(APIView):
             resp_serializer = CanvasStrokeResponseSerializer(response_data)
             return Response(resp_serializer.data)
 
+        except DRFValidationError as exc:
+            # Serializer field validation failure (raise_exception=True) — return 400
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc.detail)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except DiagramValidationError as exc:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
@@ -400,6 +413,12 @@ class MermaidSourceView(APIView):
             resp_serializer = MermaidSourceResponseSerializer(response_data)
             return Response(resp_serializer.data)
 
+        except DRFValidationError as exc:
+            # Serializer field validation failure (raise_exception=True) — return 400
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc.detail)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except DiagramValidationError as exc:
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),

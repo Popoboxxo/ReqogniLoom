@@ -16,8 +16,8 @@ import { diagramsApi } from "../../api/diagrams";
 import ModalDialogBase, { SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
 import type { Diagram, DiagramType, PayloadFormat } from "../../types";
 
-const DIAGRAM_TYPES: DiagramType[] = ["block", "flow", "context"];
-const PAYLOAD_FORMATS: PayloadFormat[] = ["mermaid", "plantuml", "json"];
+const DIAGRAM_TYPES: DiagramType[] = ["block", "flow", "context", "canvas", "mermaid"];
+const PAYLOAD_FORMATS: PayloadFormat[] = ["mermaid", "plantuml", "json", "canvas_stroke"];
 
 const DEFAULT_CONTENT: Record<PayloadFormat, string> = {
   mermaid:
@@ -35,6 +35,8 @@ const DEFAULT_CONTENT: Record<PayloadFormat, string> = {
     null,
     2
   ),
+  // canvas_stroke diagrams use the CanvasEditor UI — no text content
+  canvas_stroke: "",
 };
 
 export default function DiagramList(): JSX.Element {

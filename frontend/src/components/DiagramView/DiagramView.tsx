@@ -23,6 +23,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { diagramsApi } from "../../api/diagrams";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
+import { CanvasEditor } from "../canvas/CanvasEditor";
 import type {
   ArchitectureElement,
   Diagram,
@@ -37,8 +38,8 @@ import type {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DIAGRAM_TYPES: DiagramType[] = ["block", "flow", "context"];
-const PAYLOAD_FORMATS: PayloadFormat[] = ["mermaid", "plantuml", "json"];
+const DIAGRAM_TYPES: DiagramType[] = ["block", "flow", "context", "canvas", "mermaid"];
+const PAYLOAD_FORMATS: PayloadFormat[] = ["mermaid", "plantuml", "json", "canvas_stroke"];
 
 const DEFAULT_CONTENT: Record<PayloadFormat, string> = {
   mermaid:
@@ -56,6 +57,8 @@ const DEFAULT_CONTENT: Record<PayloadFormat, string> = {
     null,
     2,
   ),
+  // canvas_stroke diagrams use the CanvasEditor UI — no text content
+  canvas_stroke: "",
 };
 
 interface FormState {
@@ -657,6 +660,8 @@ function DiagramDetailView({
               data-testid="diagram-edit-btn"
               onClick={() => setIsEditing(true)}
               style={formPrimaryButtonStyle}
+              // For canvas diagrams the button opens the canvas editor; hide when already in canvas mode
+              hidden={detail.diagram_type === "canvas"}
             >
               {t("diagrams.edit", "Edit Source")}
             </button>
@@ -707,7 +712,21 @@ function DiagramDetailView({
           </p>
         )}
 
-        {isEditing ? (
+        {/* Canvas diagrams use the CanvasEditor surface (REQ-L2-DS-006, IF-L1-058/060) */}
+        {detail.diagram_type === "canvas" ? (
+          <div
+            data-testid="diagram-canvas-section"
+            style={{ minHeight: "520px", display: "flex", flexDirection: "column" }}
+          >
+            <CanvasEditor
+              diagramId={diagramId}
+              onAutoSave={(strokes) => {
+                // Optimistically mark diagram as having saved content
+                console.debug("Canvas auto-saved", strokes.length, "strokes");
+              }}
+            />
+          </div>
+        ) : isEditing ? (
           <label style={{ display: "block" }}>
             <span
               style={{

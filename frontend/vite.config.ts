@@ -30,5 +30,10 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     // Include test files
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // Resolve stubs for packages that are installed in Docker but not locally
+    alias: {
+      // fabric@6 is installed via Docker/npm install — stub it for local unit tests
+      fabric: resolve(__dirname, "./src/__mocks__/fabric.ts"),
+    },
   },
 });

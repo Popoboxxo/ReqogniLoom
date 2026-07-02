@@ -60,7 +60,9 @@ const TestRunsList = lazy(() =>
 const CsvImport = lazy(() => import("../CsvImport/CsvImport"));
 const IcdView = lazy(() => import("../IcdView/IcdView"));
 const DiagramView = lazy(() => import("../DiagramView/DiagramView"));
-const CanvasEditor = lazy(() => import("../canvas/CanvasEditor"));
+const CanvasEditor = lazy(() =>
+  import("../canvas/CanvasEditor").then((m) => ({ default: m.CanvasEditor }))
+);
 const MermaidEditor = lazy(() => import("../mermaid/MermaidEditor"));
 const MetricsDashboard = lazy(
   () => import("../MetricsDashboard/MetricsDashboard")
