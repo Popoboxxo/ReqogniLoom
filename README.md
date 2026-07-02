@@ -175,11 +175,13 @@ ReqFlow has **1,400+ tests** across 4 layers. Run them based on what you need to
 # Database: ReqFlow tests require PostgreSQL.
 # Option A (recommended): Use the running Docker stack's Postgres
 docker-compose up -d postgres
-export DB_HOST=localhost   # the docker container exposes 5432
+export DB_HOST=localhost   # Linux/macOS
+# Windows PowerShell: $env:DB_HOST="localhost"
 
 # Option B: Local PostgreSQL with a 'reqflow' database
 createdb reqflow
-export DB_HOST=localhost
+export DB_HOST=localhost   # Linux/macOS
+# Windows PowerShell: $env:DB_HOST="localhost"
 ```
 
 ### Backend Tests (pytest)
@@ -219,6 +221,16 @@ python manage.py check && pytest -q
 ```
 
 **Status:** ~1,400 tests passing (last verified 2026-06-28 on `feat/se-implementation`).
+
+### Frontend Unit Tests (Vitest)
+
+```bash
+cd frontend
+npm install                  # first time only
+npm test                     # run tests (Vitest)
+```
+
+**Note:** If you encounter `Invalid URL` errors for API calls during tests, you may need to configure a base URL in your test environment or provide a mocked fetch setup.
 
 ### End-to-End Tests (Playwright)
 
