@@ -15,7 +15,7 @@ import { testRunsApi } from "../../api/test-runs";
 import ModalDialogBase, { SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
 import type { TestRun } from "../../types";
 
-export default function TestRunsList(): JSX.Element {
+export function TestRunsList(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   const [items, setItems] = useState<TestRun[]>([]);

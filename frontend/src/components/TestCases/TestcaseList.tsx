@@ -18,7 +18,7 @@ import type { TestCase } from "../../api/testcases";
 const STATUS_OPTIONS = ["draft", "active", "deprecated"] as const;
 type TestCaseStatus = (typeof STATUS_OPTIONS)[number];
 
-export default function TestcaseList(): JSX.Element {
+export function TestcaseList(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   const [items, setItems] = useState<TestCase[]>([]);
