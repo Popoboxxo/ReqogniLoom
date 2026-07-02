@@ -544,3 +544,26 @@ Ein Report-Endpunkt MUSS alle `cross-level`-Links eines Workspaces ohne Begründ
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-TE-016..017 aus REQ-L1-043, REQ-L1-047)*
+
+---
+
+## Erweiterung v8 — REQ-L2-TE-018 (Ebenen-Modell)
+
+> **Datum:** 2026-07-02 | **Quelle:** REQ-L1-060
+
+---
+
+### REQ-L2-TE-018: TraceLink allocated-to + Allocation-Coverage Reporter
+
+Die TraceabilityEngine MUSS den neuen Link-Typ `allocated-to` (Requirement → ArchitectureElement, 1:1) unterstützen. Der Typ MUSS über den Enum-Validator registriert werden. Das System MUSS einen Allocation-Coverage Report generieren, der den Zuweisungsstatus von Anforderungen gruppiert nach Level liefert.
+
+**Akzeptanzkriterien:**
+- AC1: `allocated-to` als gültiger link_type registriert
+- AC2: API GET /requirements/{id}/allocation liefert Owner-Architektur-Element
+- AC3: Coverage Report generiert Metriken (covered, uncovered) pro Level
+
+**Verifikationsmethode:** Unit-Test + Integrationstest
+**Abgeleitet von:** REQ-L1-060
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing

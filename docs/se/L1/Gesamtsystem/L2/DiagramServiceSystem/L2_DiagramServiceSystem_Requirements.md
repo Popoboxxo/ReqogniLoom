@@ -167,10 +167,10 @@ Browser-Crash begrenzen. Das Canvas muss flüssig (≥30fps) bei bis zu 500 Stro
 und 100 Formen rendern. Canvas-Diagramme müssen via TraceLink (Typ `documents`) verknüpfbar
 und via MCP (artifact.get) abrufbar sein.
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung (CanvasEditor) und Tests (Playwright + Vitest) im Code vorhanden.
+**Test Status:** Covered
+**Remarks:** Erfolgreich in v1.1.1 (Erweiterung) integriert.
 
 **Domain:** software
 **Priority:** desired
@@ -204,10 +204,10 @@ Bei Syntaxfehlern muss eine aussagekräftige Fehlermeldung (mit Zeilennummer) ge
 Bei Renderer-Ausfall muss der Quellcode lesbar als Fallback angezeigt werden. Das Live-Rendering
 muss in <2s für Diagramme mit bis zu 100 Knoten/Kanten abschließen.
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung (MermaidLiveRenderer) und Tests (Playwright + Vitest) im Code vorhanden.
+**Test Status:** Covered
+**Remarks:** Erfolgreich in v1.1.1 (Erweiterung) integriert.
 
 **Domain:** software
 **Priority:** desired

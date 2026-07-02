@@ -985,3 +985,68 @@ Begriffe im Glossar bekannt sind, und ggf. eine Warnung zurückgeben (nicht bloc
 **Test Status:** Missing
 **Remarks:** Sollte implementiert werden.
 
+---
+
+## Erweiterung v8 — REQ-L2-AS-034 bis REQ-L2-AS-036 (Ebenen-Modell)
+
+> **Datum:** 2026-07-02 | **Quelle:** REQ-L1-059, REQ-L1-061, REQ-L1-062
+
+---
+
+### REQ-L2-AS-034: ArchitectureElement parent_id + Level-Derivation
+
+Der ApplicationService MUSS ein `parent_id`-Feld auf ArchitectureElement verwalten (FK zu ArchitectureElement, nullable, self-referencing). Die Level-Ableitung MUSS über eine Recursive CTE aus der Baumtiefe abgeleitet werden. Der Serializer MUSS das `level` als read-only Feld zurückgeben.
+
+**Schnittstellen:**
+- `create_architecture_element(..., parent_id)`
+- GET /architecture/{id} liefert `level`
+
+**Akzeptanzkriterien:**
+- AC1: `parent_id` existiert als self-referencing FK
+- AC2: DB-Migration ohne Datenverlust
+- AC3: Recursive CTE-Query liefert Level-Ableitung
+- AC4: Serializer liefert read-only `level`
+
+**Verifikationsmethode:** Unit-Test + Integrationstest
+**Abgeleitet von:** REQ-L1-059
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-AS-035: RequirementService.decompose() Extension mit target_elements
+
+Der ApplicationService MUSS die Methode `decompose()` um den Parameter `target_elements` erweitern. Neben der Zerlegung MUSS in einer atomaren Transaktion ein `allocated-to` Link für jedes Sub-Requirement zu den angegebenen Architekturelementen erstellt werden.
+
+**Schnittstellen:**
+- `decompose(req_id, subs, target_elements)`
+
+**Akzeptanzkriterien:**
+- AC1: Neue Signatur für `decompose`
+- AC2: Transaktion beinhaltet Sub-Req-Create + Allocation-Create
+- AC3: Allocation-Create für jedes Sub-Req
+- AC4: Bei Fehler Rollback beider Operationen
+
+**Verifikationsmethode:** Unit-Test + Integrationstest
+**Abgeleitet von:** REQ-L1-061
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-AS-036: Invarianten-Validator (I1-I4) rigor-gated
+
+Der ApplicationService MUSS 4 Invarianten zur Sicherung der Ebenen-Konsistenz prüfen (I1: Level+1, I2: Keine höhere Ebene als Parent, I3: Keine zirkulären Allokationen, I4: Sub-Reqs müssen allociert sein). Die Prüfung MUSS über Rigor-Settings gesteuert werden (Minimal=skip, Standard=warn, Extended=error).
+
+**Akzeptanzkriterien:**
+- AC1: Prüffunktionen für I1 bis I4 vorhanden
+- AC2: Rigor-Settings steuern das Verhalten (Skip, Warn, Error)
+- AC3: Zirkel-Erkennung via Graph-Traversal
+
+**Verifikationsmethode:** Unit-Test + Integrationstest
+**Abgeleitet von:** REQ-L1-062
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing

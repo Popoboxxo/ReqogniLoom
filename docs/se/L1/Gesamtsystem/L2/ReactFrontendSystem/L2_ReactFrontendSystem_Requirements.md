@@ -499,3 +499,27 @@ Das Frontend MUSS eine dedizierte Diff-Ansicht für zwei Szenarien bereitstellen
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-RF-016..017 aus REQ-L1-048, REQ-L1-045/046)*
 
+---
+
+## Erweiterung v8 — REQ-L2-RF-018 (Ebenen-Modell)
+
+> **Datum:** 2026-07-02 | **Quelle:** REQ-L1-063
+
+---
+
+### REQ-L2-RF-018: Frontend Level-View (Requirements Hierarchy)
+
+Das ReactFrontendSystem MUSS eine neue Route oder Ansicht `/levels` bereitstellen, die alle Requirements gruppiert nach ihrer abgeleiteten Ebene (Level) darstellt. Das Layout SOLL als Tree-View oder Tabellen-View realisiert sein und die Felder Level, Allocated-to-Owner, Status und Workflow-State anzeigen.
+
+**Akzeptanzkriterien:**
+- AC1: Route `/levels` oder dedizierter Tab existiert
+- AC2: Ansicht gruppiert und rendert Requirements nach dem Feld `level`
+- AC3: Zuweisung (allocated-to-owner) ist als anklickbarer Link dargestellt
+- AC4: UI ist responsive (mobile-friendly, scrollbar/collapsible)
+
+**Verifikationsmethode:** UI-Test (Component Rendering & Navigation)
+**Abgeleitet von:** REQ-L1-063
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+

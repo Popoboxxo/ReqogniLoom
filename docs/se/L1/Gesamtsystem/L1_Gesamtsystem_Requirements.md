@@ -1563,10 +1563,10 @@ zwischen Whiteboard-Skizze und formalem Diagramm ohne Medienbruch zu externen To
 - AC7: Export als SVG/PNG möglich
 - AC8: Auto-Save (max. 5s Intervall) — bei Browser-Crash gehen höchstens 5s an Eingaben verloren
 - AC9: ≥30fps bei 500 Stroke-Elementen und 100 Formen
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung (CanvasEditor) und Tests (Playwright + Vitest) im Code vorhanden.
+**Test Status:** Covered
+**Remarks:** Erfolgreich in v1.1.1 (Erweiterung) integriert.
 
 **Traceability:** REQ-L0-036
 
@@ -1613,10 +1613,10 @@ bestehenden Mermaid-Codes ohne manuelle Übersetzung in strukturierte Formate.
 - AC8: Abrufbar via MCP (artifact.get) als strukturierter Payload
 - AC9: Fallback bei Renderer-Ausfall: Quellcode lesbar angezeigt, editierbar und speicherbar
 - AC10: Live-Rendering <2s für Diagramme mit bis zu 100 Knoten/Kanten
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** Implementierung (MermaidEditor) und Tests (Playwright + Vitest) im Code vorhanden.
+**Test Status:** Covered
+**Remarks:** Erfolgreich in v1.1.1 (Erweiterung) integriert.
 
 **Traceability:** REQ-L0-037
 
@@ -1631,4 +1631,124 @@ bestehenden Mermaid-Codes ohne manuelle Übersetzung in strukturierte Formate.
 
 ---
 
-*Erweiterung durch se-architect-Agent | 2026-06-30 (REQ-L1-056..057 aus SN-36, SN-37 — Canvas Free-Hand Drawing + Mermaid Live Preview)*
+*Erweiterung durch se-architect-Agent | 2026-06-30 (REQ-L1-056..057 aus SN-36, SN-37 - Canvas Free-Hand Drawing + Mermaid Live Preview)*
+
+---
+
+## Erweiterung v8 - REQ-L1-058 bis REQ-L1-063 (Ebenen-Modell)
+
+> **Quelle:** REQ-L0-003, REQ-L0-017 (formalisiert aus REQUIREMENTS.md)
+> **Datum:** 2026-07-02
+
+---
+
+### REQ-L1-058: SE Masks Unification (13 Entity Types)
+
+Standardisiere SE-Masken für alle 13 Entitätstypen zur Gewährleistung konsistenter Level-Ableitung, Parent-ID-Handling und Allocation-Tracking. Einheitliches Datenmodell für hierarchische Ebenen (L0-Ln), mit Level als abgeleitetes (nicht manuell gesetztes) Feld über Recursive CTE. Umfasst Backend-Invarianten (I1-I4), Frontend Level-View und Allocation-Coverage-Reporting.
+
+**Rationale:** Basis für konsistente Architekturmodellierung.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: SE-Masken für 13 Entitätstypen standardisiert
+- AC2: Parent-ID-Ableitung via Recursive CTE auf Query-Zeit implementiert
+- AC3: Allocation-Tracking via TraceLink.allocated-to eingeführt
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-003, REQ-L0-017
+
+---
+
+### REQ-L1-059: ArchitectureElement parent_id + Level-Derivation
+
+Implementiere parent_id-Feld auf ArchitectureElement zur Abbildung der Hierarchie (L1 → L2 → L3). Level wird über Recursive CTE aus Baumtiefe abgeleitet.
+
+**Rationale:** Architekturbaum benötigt saubere Vater-Kind-Beziehungen.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: ArchitectureElement.parent_id existiert
+- AC2: Recursive CTE-Query liefert level-Ableitung
+- AC3: Serializer liefert read-only level-Feld
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-017
+
+---
+
+### REQ-L1-060: TraceLink allocated-to + Allocation-Coverage Reporter
+
+Führe neuen TraceLink-Typ `allocated-to` ein (Requirement → ArchitectureElement). API und Report zeigen Allocation-Status pro Level.
+
+**Rationale:** Zuweisung von Requirements zu Systemkomponenten.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: TraceLink.link_type = 'allocated-to'
+- AC2: API GET /requirements/{id}/allocation
+- AC3: Coverage Report pro Level
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-003
+
+---
+
+### REQ-L1-061: RequirementService.decompose() Extension mit target_elements
+
+Erweitere decompose() um optionalen target_elements-Parameter. Erstellt allocated-to Links von Sub-Reqs zu angegebenen ArchEl.
+
+**Rationale:** Effiziente Zerlegung und Zuweisung in einem Schritt.
+**Domain:** software
+**Priority:** desired
+**Akzeptanzkriterien:**
+- AC1: decompose(req_id, subs, target_elements=[]) Signatur
+- AC2: Transaktion Sub-Req-Create + Allocation-Create
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-003
+
+---
+
+### REQ-L1-062: Invarianten-Validator (I1-I4) rigor-gated
+
+Implementiere 4 Invarianten zur Sicherung der Ebenen-Konsistenz. Rigor-abhängig: Minimal=skip, Standard=Warnings, Extended=Hard Errors.
+
+**Rationale:** Vermeidung ungültiger Allokationen und Zyklen.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: I1 (Req.level == Arch.level + 1)
+- AC2: I2 (Kein Req an höhere Ebene als Parent)
+- AC3: I3 (Keine Zirkulären Allokationen)
+- AC4: I4 (Sub-Reqs müssen allociert sein)
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-003, REQ-L0-017
+
+---
+
+### REQ-L1-063: Frontend Level-View (Requirements Hierarchy)
+
+Implementiere neue Route/Tab `/levels` mit Tree-View gruppiert nach abgeleiteter Ebene.
+
+**Rationale:** Visualisierung der Requirement-Hierarchien.
+**Domain:** software
+**Priority:** desired
+**Akzeptanzkriterien:**
+- AC1: Route `/levels` existiert
+- AC2: Tree rendert Requirements nach Level
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-003
