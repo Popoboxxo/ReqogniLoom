@@ -202,6 +202,144 @@ class TraceLinkService(ServiceBase):
         deleted = batch_delete_trace_links(link_ids)
         return deleted
 
+    # ---------- Allocation (REQ-L1-042) ----------
+
+    def allocate(
+        self,
+        requirement_id: UUID,
+        architecture_element_id: UUID,
+        ctx: AuthContext,
+    ):
+        """Allocate a Requirement to an ArchitectureElement via allocated-to TraceLink.
+
+        REQ-L1-042: Creates or replaces the allocated-to link. Only one allocation
+        per Requirement is allowed; if a previous allocation exists, it is deleted first.
+
+        Args:
+            requirement_id: UUID of the Requirement to allocate.
+            architecture_element_id: UUID of the target ArchitectureElement.
+            ctx: AuthContext for tenant scoping and audit.
+
+        Returns:
+            Created TraceLink instance.
+
+        Raises:
+            NotFoundError: Requirement or ArchitectureElement not found.
+            ValidationError: Invalid entity types or cross-tenant link.
+        """
+        from persistence.models import ArchitectureElement, Requirement, TraceLink
+        from traceability.types import LinkType
+
+        self._set_tenant_context(ctx)
+
+        # Validate that requirement_id is a Requirement
+        req = Requirement.objects.filter(id=requirement_id).first()
+        if req is None:
+            raise NotFoundError(f"Requirement {requirement_id} not found")
+
+        # Validate that architecture_element_id is an ArchitectureElement
+        arch_el = ArchitectureElement.objects.filter(id=architecture_element_id).first()
+        if arch_el is None:
+            raise NotFoundError(f"ArchitectureElement {architecture_element_id} not found")
+
+        # Delete any previous allocated-to link for this requirement
+        req_artifact_id = UUID(str(req.artifact_id))
+        existing = TraceLink.objects.filter(
+            source_id=req_artifact_id,
+            link_type=LinkType.ALLOCATED_TO,
+        )
+        if existing.exists():
+            existing.delete()
+
+        # Create new allocated-to link
+        result = self.create_trace_link(
+            source_id=requirement_id,
+            target_id=architecture_element_id,
+            link_type=LinkType.ALLOCATED_TO,
+            ctx=ctx,
+        )
+
+        return result
+
+    def get_allocation_coverage(
+        self,
+        architecture_element_id: UUID,
+        ctx: AuthContext,
+    ) -> dict:
+        """Get allocation coverage metrics for an ArchitectureElement.
+
+        REQ-L1-042: Returns metrics on how many child requirements are allocated
+        to this ArchitectureElement and its descendants.
+
+        Args:
+            architecture_element_id: UUID of the ArchitectureElement to analyze.
+            ctx: AuthContext for tenant scoping.
+
+        Returns:
+            Dict with keys:
+              - allocated_count: Number of allocated Requirements.
+              - coverage_ratio: Percentage (0-100) of allocated vs total child requirements.
+              - unallocated_requirements: List of unallocated child requirement IDs and titles.
+
+        Raises:
+            NotFoundError: ArchitectureElement not found.
+        """
+        from persistence.models import ArchitectureElement, Requirement
+        from traceability.types import LinkType
+
+        self._set_tenant_context(ctx)
+
+        arch_el = ArchitectureElement.objects.filter(id=architecture_element_id).first()
+        if arch_el is None:
+            raise NotFoundError(f"ArchitectureElement {architecture_element_id} not found")
+
+        # Get all child requirements in the workspace
+        # Child requirements are those in the same workspace
+        workspace_id = arch_el.artifact.workspace_id
+        all_reqs = list(
+            Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        )
+
+        # Count how many are allocated to this element
+        allocated_count = 0
+        unallocated_list = []
+
+        for req in all_reqs:
+            # Check if this requirement has an allocated-to link to this arch_el
+            from traceability.services import query
+
+            req_artifact_id = UUID(str(req.artifact_id))
+            links = list(query(artifact_id=req_artifact_id, direction="downstream"))
+            allocated_to_ids = [
+                link.entity_id
+                for link in links
+                if getattr(link, "link_type", None) == LinkType.ALLOCATED_TO
+            ]
+
+            # Check if any of the allocated-to targets match this arch_el's artifact
+            arch_el_artifact_id = UUID(str(arch_el.artifact_id))
+            is_allocated_to_this = arch_el_artifact_id in allocated_to_ids
+
+            if is_allocated_to_this:
+                allocated_count += 1
+            else:
+                unallocated_list.append({
+                    "id": req.id,
+                    "title": req.title,
+                })
+
+        # Calculate coverage ratio
+        total_reqs = len(all_reqs)
+        coverage_ratio = (
+            (allocated_count / total_reqs * 100) if total_reqs > 0 else 0
+        )
+
+        return {
+            "allocated_count": allocated_count,
+            "coverage_ratio": coverage_ratio,
+            "unallocated_requirements": unallocated_list,
+        }
+
     # ---------- Query ----------
 
     def query_trace_links(

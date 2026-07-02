@@ -42,6 +42,8 @@ class LinkType(str, Enum):
     # REQ-L1-030 harmonization (from COMP-AS-005):
     TRACES = "traces"
     COPY_OF = "copy-of"
+    # REQ-L1-042 allocation tracking:
+    ALLOCATED_TO = "allocated-to"
 
     @classmethod
     def values(cls) -> frozenset[str]:

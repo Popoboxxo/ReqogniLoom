@@ -692,6 +692,31 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["get"], url_path="allocation-coverage")
+    def allocation_coverage(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/architecture-elements/{id}/allocation-coverage/
+
+        REQ-L1-042: Returns allocation coverage metrics for this ArchitectureElement.
+
+        Response:
+          - allocated_count: Number of allocated Requirements.
+          - coverage_ratio: Percentage (0-100) of allocated vs total child requirements.
+          - unallocated_requirements: List of unallocated child requirements.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            from application.trace_link_service import TraceLinkService
+            svc = TraceLinkService()
+            report = svc.get_allocation_coverage(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(report)
+
 
 # ---------------------------------------------------------------------------
 # TestCaseViewSet
