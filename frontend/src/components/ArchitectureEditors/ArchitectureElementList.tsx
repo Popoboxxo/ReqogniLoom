@@ -19,6 +19,7 @@ interface ElementFormState {
   description: string;
   type: ElementType;
   parentId?: string;
+  level?: number;
 }
 
 interface DeleteConfirmationDialogProps {
@@ -177,7 +178,7 @@ export function ArchitectureElementList(): JSX.Element {
   }, [loadList]);
 
   const resetForm = useCallback((): void => {
-    setFormData({ name: "", description: "", type: "component" });
+    setFormData({ name: "", description: "", type: "component", level: undefined });
     setFormError(null);
   }, []);
 
@@ -285,6 +286,18 @@ export function ArchitectureElementList(): JSX.Element {
         buttonTestIdPrefix="arch-element"
       >
         <div>
+          {!formData.level && (
+            <p
+              style={{
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-text-muted)",
+                marginBottom: "var(--space-3)",
+                fontStyle: "italic",
+              }}
+            >
+              {t("arch.levelAutoCalculated")}
+            </p>
+          )}
           <label htmlFor="arch-element-name" style={SHARED_STYLES.label}>
             {t("editor.title")} *
           </label>
@@ -316,6 +329,26 @@ export function ArchitectureElementList(): JSX.Element {
             ))}
           </select>
 
+          {formData.level !== undefined && (
+            <div style={{ marginTop: "var(--space-3)", marginBottom: "var(--space-3)" }}>
+              <label style={SHARED_STYLES.label}>
+                {t("arch.level")}
+              </label>
+              <div
+                data-testid="arch-element-level"
+                style={{
+                  padding: "var(--space-2) var(--space-3)",
+                  background: "var(--color-surface-raised)",
+                  borderRadius: "var(--radius-md)",
+                  color: "var(--color-text-muted)",
+                  fontSize: "var(--font-size-sm)",
+                }}
+              >
+                {formData.level} {t("arch.levelHint")}
+              </div>
+            </div>
+          )}
+
           <label htmlFor="arch-element-description" style={SHARED_STYLES.label}>
             {t("editor.description")}
           </label>
@@ -340,69 +373,97 @@ export function ArchitectureElementList(): JSX.Element {
         </p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {items.map((element) => (
-            <li
-              key={element.id}
-              data-testid="arch-element-item"
-              style={{
-                background: "var(--color-surface)",
-                borderRadius: "var(--radius-md)",
-                boxShadow: "var(--shadow-card)",
-                padding: "var(--space-3) var(--space-4)",
-                marginBottom: "var(--space-2)",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                transition: "var(--transition-fast)",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLLIElement).style.background = "var(--color-surface-raised)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLLIElement).style.background = "var(--color-surface)";
-              }}
-            >
-              <div style={{ flex: 1 }}>
-                <span
-                  style={{
-                    fontSize: "var(--font-size-base)",
-                    fontWeight: 600,
-                    color: "var(--color-text)",
-                  }}
-                >
-                  {element.title || t("editor.untitled")}
-                </span>
-                <span
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    background: "var(--color-badge-draft)",
-                    color: "var(--color-badge-draft-text)",
-                    padding: "2px 8px",
-                    borderRadius: "var(--radius-full)",
-                    marginLeft: "var(--space-2)",
-                  }}
-                >
-                  {t(`arch.elementType.${element.element_type}`)}
-                </span>
-              </div>
-              <button
-                data-testid={`delete-arch-element-${element.id}`}
-                onClick={() => handleDelete(element)}
+          {items.map((element) => {
+            const indentPx = (element.level ?? 0) * 24;
+            return (
+              <li
+                key={element.id}
+                data-testid="arch-element-item"
                 style={{
-                  background: "var(--color-danger)",
-                  color: "white",
-                  border: "none",
+                  background: "var(--color-surface)",
                   borderRadius: "var(--radius-md)",
-                  padding: "var(--space-1) var(--space-3)",
-                  fontSize: "var(--font-size-sm)",
-                  cursor: "pointer",
+                  boxShadow: "var(--shadow-card)",
+                  padding: "var(--space-3) var(--space-4)",
+                  marginBottom: "var(--space-2)",
+                  marginLeft: `${indentPx}px`,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
                   transition: "var(--transition-fast)",
                 }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLLIElement).style.background = "var(--color-surface-raised)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLLIElement).style.background = "var(--color-surface)";
+                }}
               >
-                {t("actions.delete")}
-              </button>
-            </li>
-          ))}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "var(--space-2)",
+                      marginBottom: "var(--space-1)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "var(--font-size-base)",
+                        fontWeight: 600,
+                        color: "var(--color-text)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {element.title || t("editor.untitled")}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "var(--font-size-sm)",
+                        background: "var(--color-badge-draft)",
+                        color: "var(--color-badge-draft-text)",
+                        padding: "2px 8px",
+                        borderRadius: "var(--radius-full)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {t(`arch.elementType.${element.element_type}`)}
+                    </span>
+                  </div>
+                  {element.level !== undefined && (
+                    <span
+                      data-testid={`arch-element-level-${element.id}`}
+                      style={{
+                        fontSize: "var(--font-size-sm)",
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
+                      {t("arch.level")}: <strong>{element.level}</strong>
+                    </span>
+                  )}
+                </div>
+                <button
+                  data-testid={`delete-arch-element-${element.id}`}
+                  onClick={() => handleDelete(element)}
+                  style={{
+                    background: "var(--color-danger)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-1) var(--space-3)",
+                    fontSize: "var(--font-size-sm)",
+                    cursor: "pointer",
+                    transition: "var(--transition-fast)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {t("actions.delete")}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

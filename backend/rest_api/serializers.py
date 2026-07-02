@@ -256,6 +256,7 @@ class ArchitectureElementSerializer(
         choices=ElementType.choices, allow_blank=True, default=ElementType.COMPONENT
     )
     parent_id = serializers.UUIDField(required=False, allow_null=True)
+    level = serializers.SerializerMethodField(read_only=True)
     expected_version = serializers.IntegerField(
         required=False, write_only=True
     )
@@ -283,6 +284,19 @@ class ArchitectureElementSerializer(
             except DomainValidationError as exc:
                 raise serializers.ValidationError({"parent_id": str(exc)})
         return attrs
+
+    def get_level(self, obj: Any) -> int:
+        """Return computed hierarchy level (depth from root).
+
+        Root (parent=None) → level=0
+        Direct child → level=1
+        Nested → level=2, etc.
+
+        Auto-calculated from parent chain (REQ-L1-041).
+        """
+        if not hasattr(obj, "get_level"):
+            return 0
+        return obj.get_level()
 
 
 class TestCaseSerializer(PresetAwareSerializerMixin, serializers.Serializer):

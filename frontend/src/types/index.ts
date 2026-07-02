@@ -85,6 +85,8 @@ export interface ArchitectureElement {
   title: string;
   description: string;
   element_type: ElementType;
+  parent_id?: UUID | null;
+  level?: number;
   version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;

@@ -101,7 +101,10 @@
     "newElementTitle": "New Element",
     "deleteTitle": "Delete Element",
     "deleteConfirm": "Really delete element",
-    "tracelinkPanelTitle": "Trace Links"
+    "tracelinkPanelTitle": "Trace Links",
+    "level": "Level",
+    "levelHint": "(Auto-calculated from hierarchy)",
+    "levelAutoCalculated": "Level is automatically calculated from the hierarchy."
   },
   "traceability": {
     "upstream": "Upstream Links",
