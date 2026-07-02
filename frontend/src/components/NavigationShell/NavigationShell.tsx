@@ -103,8 +103,11 @@ function AppShell(): JSX.Element {
               <Route path="/traceability" element={<TraceabilityView />} />
               <Route path="/baselines" element={<BaselinesView />} />
               <Route path="/adrs" element={<AdrList />} />
+              <Route path="/adrs/:id" element={<AdrList />} />
               <Route path="/risks" element={<RiskList />} />
+              <Route path="/risks/:id" element={<RiskList />} />
               <Route path="/issues" element={<IssueList />} />
+              <Route path="/issues/:id" element={<IssueList />} />
               <Route path="/testcases" element={<TestcaseList />} />
               <Route path="/test-runs" element={<TestRunsList />} />
               <Route path="/import" element={<CsvImport />} />
