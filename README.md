@@ -370,7 +370,7 @@ curl -X POST http://localhost:8000/mcp/ \
 - **Workspace lifecycle (close/reactivate/delete)** and **permissions mutations** require Admin role; attempts return `PERMISSION_DENIED`.
 - **Backup restore** requires the literal Captcha header `X-Captcha: RESTORE` in addition to Admin role.
 
-See [`docs/MCP_SERVER.md`](docs/MCP_SERVER.md) for the complete tool reference (one example call per tool, full RBAC matrix, all 10 error codes).
+See [`docs/CODEBASE_OVERVIEW.md`](docs/CODEBASE_OVERVIEW.md) for the complete tool reference and architecture overview.
 
 ## REST API
 
@@ -565,7 +565,7 @@ DEBUG=pw:api npx playwright test
 
 ### Changelog Highlights
 
-Detailed session reports: [`docs/se/reports/`](docs/se/reports/)
+Detailed requirement and architecture specifications: [`docs/se/`](docs/se/)
 
 | Release | Date | Highlights |
 |---------|------|------------|

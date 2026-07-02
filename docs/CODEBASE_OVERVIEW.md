@@ -916,13 +916,333 @@ Alle höheren Schichten (REST, MCP) greifen auf `ApplicationService` zu. Es gibt
 
 ---
 
-## Offene Integrations-Aufgaben (v1.2+)
 
-1. **Celery-Broker-Wiring** — AsyncDispatcher, WebhookDispatcher, SeMetrics-Cache
-2. **WebhookDispatcher → ResilienceOrchestrator Umverdrahtung** — TODO-Marker gesetzt
-3. **Prod-Secrets via ENV** — `AUTH_JWT_SECRET`, `DEMO_ADMIN_PASSWORD`, LLM-Keys
-4. **Pipeline C (v2.0)** — ReqIF-Import/Export (ReqIFServiceSystem), Kommentar-Threads (CommentServiceSystem), Semantische Vektorsuche (VectorSearchServiceSystem)
+## MCP Server Reference
+
+### Authentication
+
+### API Key Header (preferred)
+
+```
+X-API-Key: rfk_<40 character hex string>
+```
+
+### API Key in Body (fallback, for stdio)
+
+Include `params.api_key` in the JSON-RPC request body alongside the tool name and arguments.
+
+### Creating an API Key
+
+```bash
+# Obtain a JWT session token
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"•••"}' | jq -r .access)
+
+# Create a new API key
+curl -X POST http://localhost:8000/api/v1/api-keys/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"claude-desktop"}'
+# Response: {"id":7, "key":"rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12", ...}
+```
+
+**The plaintext key is returned exactly once.** Store it in a password manager or environment variable immediately.
+
+### Revoking a Key
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/api-keys/7/ \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Returns `204 No Content`. The key is immediately invalidated.
+
+### Key Behaviour
+
+- Keys **inherit the creator's role and workspace scope** at creation time. Creating a key as Admin gives it full Admin scope; there is no separate key-role system.
+- Rotation workflow: create a new key → switch clients to use the new key → revoke the old one.
+- The `rfk_` prefix is intentional so secrets-scanners (truffleHog, Gitleaks, etc.) can detect leaked keys in source code.
+
+
+### Tool Reference
+
+All 11 tool groups listed below. Tools are called as `<prefix>.<tool_name>` (e.g., `requirement.query`, `test.run_create`).
+
+####1 `requirement.*` — Requirements Management
+
+Read, create, update, decompose, and validate requirements.
+
+**Tools:** `get`, `query`, `create`, `update`, `decompose`, `validate`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "requirement.get",
+      "arguments": {"workspace_id": 1, "requirement_id": 42}
+    }
+  }'
+```
+
+**Role required:** Member
 
 ---
 
-**Zuletzt aktualisiert:** 2026-07-01 (Branch `feat/se-implementation`)
+####2 `architecture.*` — Architecture Elements
+
+Read, create, update, and link architecture artifacts (system components, subsystems, interfaces).
+
+**Tools:** `get`, `query`, `create`, `update`, `link`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "architecture.query",
+      "arguments": {"workspace_id": 1, "parent_id": 10}
+    }
+  }'
+```
+
+**Role required:** Member
+
+---
+
+####3 `test.*` — Test Management
+
+Read, create, link, execute test runs, and report results.
+
+**Tools:** `get`, `query`, `create`, `update`, `link`, `run_create`, `run_get`, `run_report_results`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "test.run_create",
+      "arguments": {"workspace_id": 1, "testcase_ids": [10, 11, 12]}
+    }
+  }'
+```
+
+**Role required:** Member
+
+---
+
+####4 `traceability.*` — Cross-Cutting Traceability
+
+Cross-cutting queries across requirements, architecture, and tests. Search artifacts and retrieve full workspace traceability trees.
+
+**Tools:** `query`, `artifact.search`, `artifact.get_tree`, `workspace.get_context`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "traceability.artifact.search",
+      "arguments": {"workspace_id": 1, "q": "safety"}
+    }
+  }'
+```
+
+**Role required:** Member
+
+---
+
+####5 `artifact.*` — Artifact Tree & Comments
+
+Retrieve the full artifact tree and comments for a workspace.
+
+**Tools:** `get_tree`, `get_comments`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "artifact.get_tree",
+      "arguments": {"workspace_id": 1, "root_id": null}
+    }
+  }'
+```
+
+**Role required:** Member
+
+---
+
+####6 `workspace.*` — Workspace Lifecycle Management (Admin)
+
+Close, reactivate, and delete workspaces. These are destructive or state-changing operations on the workspace itself.
+
+**Tools:** `get_context`, `close`, `reactivate`, `delete`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "workspace.close",
+      "arguments": {"workspace_id": 1}
+    }
+  }'
+```
+
+**Role required:** Admin
+
+---
+
+####7 `permissions.*` — RBAC Rule Management (Admin)
+
+Set, list, revoke, and check RBAC permission rules.
+
+**Tools:** `set_rule`, `list`, `revoke`, `check`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "permissions.check",
+      "arguments": {"workspace_id": 1, "user_id": 5, "permission": "workspace.close"}
+    }
+  }'
+```
+
+**Role required:** Admin
+
+---
+
+####8 `admin.*` — Backup & Restore (Admin)
+
+Create and list backups; restore a workspace from a backup.
+
+**Tools:** `backup_create`, `backup_list`, `restore`
+
+**Restore requires** the `X-Captcha: RESTORE` header in addition to the Admin role.
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "admin.backup_create",
+      "arguments": {"workspace_id": 1}
+    }
+  }'
+```
+
+**Role required:** Admin (+ `X-Captcha: RESTORE` for restore)
+
+---
+
+####9 `audit.*` — Audit Log Query
+
+Query the system-wide audit log with filters for actor, operation, workspace, and time range.
+
+**Tools:** `query` (supports filters: `actor`, `operation`, `workspace`, `time_from`, `time_to`, `limit`, `offset`)
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "audit.query",
+      "arguments": {"workspace_id": 1, "limit": 20}
+    }
+  }'
+```
+
+**Role required:** Member (own scope) / Admin (all scopes)
+
+---
+
+####10 `events.*` — Dead-Letter Queue Management
+
+Inspect and replay failed events from the dead-letter queue (DLQ).
+
+**Tools:** `dlq_list`, `dlq_replay`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "events.dlq_list",
+      "arguments": {"workspace_id": 1, "limit": 10}
+    }
+  }'
+```
+
+**Role required:** Member
+
+---
+
+####11 `user.*` — User & Role Management (Admin)
+
+Create, list, assign roles, and deactivate users.
+
+**Tools:** `create`, `assign_role`, `list`, `deactivate`
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rfk_..." \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "user.list",
+      "arguments": {"workspace_id": 1}
+    }
+  }'
+```
+
+**Role required:** Admin
+
+---
+
