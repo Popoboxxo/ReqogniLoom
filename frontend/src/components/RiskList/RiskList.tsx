@@ -2,250 +2,481 @@
  * ARCH-L1-001 ReactFrontend — Risk list view (COMP-RF-003).
  *
  * leaf_id: COMP-RF-003
- * req_id:  REQ-L1-029 (ADR/Risk/Issue REST API)
+ * req_id:  REQ-L1-029 (ADR/Risk/Issue REST API),
+ *          REQ-002 (Masken-Standardisierung auf Split-View-Layout)
  *
- * Lists all Risks for the active workspace and provides a create form.
- * Uses unified ModalDialogBase for form pattern (REQ-L1-040).
+ * Split-View layout with resizable divider:
+ * - Left panel: Risk list with create button
+ * - Divider: 4px resizable
+ * - Right panel: Risk detail editor
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { risksApi } from "../../api/risks";
-import ModalDialogBase, { SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
-import type { Risk, RiskImpact, RiskProbability, RiskSeverity } from "../../types";
+import type { Risk, RiskImpact, RiskProbability, RiskSeverity, UUID } from "../../types";
 
 const SEVERITY_OPTIONS: RiskSeverity[] = ["low", "medium", "high"];
 const PROBABILITY_OPTIONS: RiskProbability[] = ["low", "medium", "high"];
 const IMPACT_OPTIONS: RiskImpact[] = ["low", "medium", "high"];
 
-export default function RiskList(): JSX.Element {
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  fontSize: "var(--font-size-base)",
+  padding: "var(--space-2) var(--space-3)",
+  marginBottom: "var(--space-4)",
+  boxSizing: "border-box",
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  color: "var(--color-text)",
+  fontFamily: "var(--font-sans)",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontWeight: 600,
+  display: "block",
+  marginBottom: "var(--space-2)",
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  background: "var(--color-primary)",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-2) var(--space-4)",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 600,
+  cursor: "pointer",
+  transition: "var(--transition-fast)",
+  fontFamily: "var(--font-sans)",
+};
+
+// ---------------------------------------------------------------------------
+// RiskDetailEditor — right panel content
+// ---------------------------------------------------------------------------
+
+interface RiskDetailEditorProps {
+  risk: Risk;
+  onSaved: () => void;
+}
+
+function RiskDetailEditor({ risk, onSaved }: RiskDetailEditorProps): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
-  const [items, setItems] = useState<Risk[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [severity, setSeverity] = useState<RiskSeverity>("medium");
-  const [probability, setProbability] = useState<RiskProbability>("medium");
-  const [impact, setImpact] = useState<RiskImpact>("medium");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [title, setTitle] = useState(risk.title);
+  const [description, setDescription] = useState(risk.description ?? "");
+  const [severity, setSeverity] = useState<RiskSeverity>(risk.severity ?? "medium");
+  const [probability, setProbability] = useState<RiskProbability>(risk.probability ?? "medium");
+  const [impact, setImpact] = useState<RiskImpact>(risk.impact ?? "medium");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const loadList = async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    setIsLoading(true);
+  const handleSave = useCallback(async (): Promise<void> => {
+    setIsSaving(true);
+    setSaveError(null);
     try {
-      const resp = await risksApi.list(activeWorkspace.id);
-      setItems(resp.results);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace]);
-
-  const resetForm = (): void => {
-    setTitle("");
-    setDescription("");
-    setSeverity("medium");
-    setProbability("medium");
-    setImpact("medium");
-    setFormError(null);
-  };
-
-  const handleSubmit = async (
-    e: React.FormEvent<HTMLFormElement>
-  ): Promise<void> => {
-    e.preventDefault();
-    if (!activeWorkspace) return;
-    if (!title.trim()) {
-      setFormError("Title is required");
-      return;
-    }
-    setIsSubmitting(true);
-    setFormError(null);
-    try {
-      await risksApi.create({
-        workspace_id: activeWorkspace.id,
+      await risksApi.update(risk.id, {
         title: title.trim(),
         description: description.trim() || undefined,
         severity,
         probability,
         impact,
       });
-      resetForm();
-      setShowCreate(false);
-      await loadList();
+      onSaved();
     } catch (err: unknown) {
       const msg =
-        (err as { error?: { message?: string } })?.error?.message ??
-        String(err);
-      setFormError(msg);
+        (err as { error?: { message?: string } })?.error?.message ?? String(err);
+      setSaveError(msg);
     } finally {
-      setIsSubmitting(false);
+      setIsSaving(false);
     }
-  };
+  }, [risk.id, title, description, severity, probability, impact, onSaved]);
 
-  if (isLoading) return <p>{t("loading")}</p>;
+  const handleDelete = useCallback(async (): Promise<void> => {
+    if (!window.confirm(t("editor.deleteConfirm"))) return;
+    try {
+      await risksApi.delete(risk.id);
+      onSaved();
+    } catch (err: unknown) {
+      console.error("Delete failed:", err);
+    }
+  }, [risk.id, t, onSaved]);
 
   return (
-    <>
-      <ModalDialogBase
-        title={t("nav.risks")}
-        isOpen={showCreate}
-        onToggle={() => {
-          if (showCreate) {
-            resetForm();
-            setShowCreate(false);
-          } else {
-            setShowCreate(true);
-          }
+    <div style={{ padding: "var(--space-6)", overflow: "auto" }}>
+      <h2 style={{ fontSize: "var(--font-size-xl)", fontWeight: 700, marginBottom: "var(--space-4)" }}>
+        {risk.title || t("editor.untitled")}
+      </h2>
+
+      <div>
+        <label htmlFor="risk-title" style={labelStyle}>
+          {t("editor.title")} *
+        </label>
+        <input
+          id="risk-title"
+          data-testid="risk-title-input"
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          disabled={isSaving}
+          style={inputStyle}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="risk-description" style={labelStyle}>
+          {t("editor.description")}
+        </label>
+        <textarea
+          id="risk-description"
+          data-testid="risk-description-input"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          disabled={isSaving}
+          rows={4}
+          style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }}
+        />
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: "var(--space-3)",
+          marginBottom: "var(--space-4)",
         }}
-        onSubmit={handleSubmit}
-        onCancel={() => {
-          resetForm();
-          setShowCreate(false);
-        }}
-        error={formError}
-        isSubmitting={isSubmitting}
-        itemCount={items.length}
-        testIdPrefix="risk"
-        buttonTestIdPrefix="risk"
       >
         <div>
-          <label htmlFor="risk-title" style={SHARED_STYLES.label}>
-            {t("editor.title", "Title")} *
+          <label htmlFor="risk-severity" style={labelStyle}>
+            Severity
           </label>
-          <input
-            id="risk-title"
-            data-testid="risk-title-input"
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-            autoFocus
-            disabled={isSubmitting}
-            placeholder="Risk title"
-            style={SHARED_STYLES.input}
-          />
+          <select
+            id="risk-severity"
+            data-testid="risk-severity-select"
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value as RiskSeverity)}
+            disabled={isSaving}
+            style={inputStyle}
+          >
+            {SEVERITY_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
-          <label htmlFor="risk-description" style={SHARED_STYLES.label}>
-            {t("editor.description", "Description")}
+          <label htmlFor="risk-probability" style={labelStyle}>
+            Probability
           </label>
-          <textarea
-            id="risk-description"
-            data-testid="risk-description-input"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            disabled={isSubmitting}
-            rows={3}
-            placeholder="Describe the risk..."
-            style={{ ...SHARED_STYLES.input, fontFamily: "inherit", resize: "vertical" }}
-          />
+          <select
+            id="risk-probability"
+            data-testid="risk-probability-select"
+            value={probability}
+            onChange={(e) => setProbability(e.target.value as RiskProbability)}
+            disabled={isSaving}
+            style={inputStyle}
+          >
+            {PROBABILITY_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
         </div>
-        <div
+        <div>
+          <label htmlFor="risk-impact" style={labelStyle}>
+            Impact
+          </label>
+          <select
+            id="risk-impact"
+            data-testid="risk-impact-select"
+            value={impact}
+            onChange={(e) => setImpact(e.target.value as RiskImpact)}
+            disabled={isSaving}
+            style={inputStyle}
+          >
+            {IMPACT_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {saveError && (
+        <p style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)" }}>
+          {saveError}
+        </p>
+      )}
+
+      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+        <button
+          data-testid="risk-save-btn"
+          onClick={() => void handleSave()}
+          disabled={isSaving}
+          style={primaryButtonStyle}
+        >
+          {isSaving ? t("actions.saving") : t("actions.save")}
+        </button>
+        <button
+          data-testid="risk-delete-btn"
+          onClick={() => void handleDelete()}
           style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
-            gap: "var(--space-3)",
+            background: "var(--color-danger)",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-2) var(--space-4)",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "var(--transition-fast)",
+            fontFamily: "var(--font-sans)",
           }}
         >
-          <div>
-            <label htmlFor="risk-severity" style={SHARED_STYLES.label}>
-              Severity
-            </label>
-            <select
-              id="risk-severity"
-              data-testid="risk-severity-select"
-              value={severity}
-              onChange={(e) => setSeverity(e.target.value as RiskSeverity)}
-              disabled={isSubmitting}
-              style={SHARED_STYLES.input}
-            >
-              {SEVERITY_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="risk-probability" style={SHARED_STYLES.label}>
-              Probability
-            </label>
-            <select
-              id="risk-probability"
-              data-testid="risk-probability-select"
-              value={probability}
-              onChange={(e) => setProbability(e.target.value as RiskProbability)}
-              disabled={isSubmitting}
-              style={SHARED_STYLES.input}
-            >
-              {PROBABILITY_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="risk-impact" style={SHARED_STYLES.label}>
-              Impact
-            </label>
-            <select
-              id="risk-impact"
-              data-testid="risk-impact-select"
-              value={impact}
-              onChange={(e) => setImpact(e.target.value as RiskImpact)}
-              disabled={isSubmitting}
-              style={SHARED_STYLES.input}
-            >
-              {IMPACT_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </ModalDialogBase>
+          {t("actions.delete")}
+        </button>
+      </div>
+    </div>
+  );
+}
 
-      {/* Item list (rendered outside modal) */}
-      {items.length > 0 && (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {items.map((item) => (
-            <li
-              key={item.id}
-              data-testid={`risk-item-${item.id}`}
-              style={{
-                padding: "var(--space-3) var(--space-4)",
-                marginBottom: "var(--space-2)",
-                background: "var(--color-surface)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              <strong>{item.title}</strong>{" "}
-              <span
-                style={{
-                  color: "var(--color-text-muted)",
-                  fontSize: "var(--font-size-sm)",
-                }}
-              >
-                — {item.severity} | prob {item.probability} | impact {item.impact} | {item.status}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
+// ---------------------------------------------------------------------------
+// RiskList — main view with split-pane
+// ---------------------------------------------------------------------------
+
+export default function RiskList(): JSX.Element {
+  const { t } = useTranslation();
+  const { id: selectedId } = useParams<{ id?: string }>();
+  const navigate = useNavigate();
+  const { activeWorkspace } = useWorkspace();
+  const [items, setItems] = useState<Risk[]>([]);
+  const [selectedRisk, setSelectedRisk] = useState<Risk | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Split-pane resize state
+  const [leftPanelWidth, setLeftPanelWidth] = useState(280);
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(0);
+
+  const loadList = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const resp = await risksApi.list(activeWorkspace.id);
+      setItems(resp.results);
+      // Auto-select first item or navigate to selectedId if it exists
+      if (selectedId) {
+        const risk = resp.results.find((r) => r.id === selectedId);
+        setSelectedRisk(risk || null);
+      }
+    } catch (err: unknown) {
+      const msg = (err as { error?: { message?: string } })?.error?.message ?? String(err);
+      setError(msg);
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeWorkspace, selectedId]);
+
+  useEffect(() => {
+    void loadList();
+  }, [loadList]);
+
+  const handleCreate = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace) return;
+    try {
+      const created = await risksApi.create({
+        workspace_id: activeWorkspace.id,
+        title: t("editor.newRequirementTitle"),
+      });
+      navigate(`/risks/${created.id}`);
+    } catch (err: unknown) {
+      console.error("Create failed:", err);
+    }
+  }, [activeWorkspace, t, navigate]);
+
+  // Split-pane resize handlers
+  const handleDividerMouseDown = (e: React.MouseEvent): void => {
+    isDraggingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = leftPanelWidth;
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!isDraggingRef.current) return;
+      const delta = e.clientX - dragStartXRef.current;
+      const newWidth = Math.max(280, dragStartWidthRef.current + delta);
+      setLeftPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = (): void => {
+      isDraggingRef.current = false;
+    };
+
+    if (isDraggingRef.current) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    }
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, [leftPanelWidth]);
+
+  if (isLoading) {
+    return <p role="status">{t("loading")}</p>;
+  }
+
+  if (error) {
+    return (
+      <div role="alert">
+        <p style={{ color: "var(--color-danger)" }}>{error}</p>
+        <button onClick={() => void loadList()}>{t("actions.reload")}</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+      {/* Left panel: Risk list */}
+      <div
+        style={{
+          width: `${leftPanelWidth}px`,
+          minWidth: "280px",
+          maxWidth: "70%",
+          overflow: "auto",
+          paddingRight: "var(--space-4)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          <h3
+            style={{
+              fontSize: "var(--font-size-lg)",
+              fontWeight: 600,
+              margin: 0,
+              color: "var(--color-text)",
+            }}
+          >
+            {t("nav.risks")}
+          </h3>
+          <button
+            type="button"
+            data-testid="create-risk-btn"
+            onClick={() => void handleCreate()}
+            style={primaryButtonStyle}
+          >
+            + {t("actions.new")}
+          </button>
+        </div>
+
+        {items.length === 0 ? (
+          <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+            {t("editor.empty")}
+          </p>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {items.map((item) => {
+              const isSelected = selectedRisk?.id === item.id;
+              return (
+                <li
+                  key={item.id}
+                  data-testid={`risk-item-${item.id}`}
+                  onClick={() => {
+                    setSelectedRisk(item);
+                    navigate(`/risks/${item.id}`);
+                  }}
+                  style={{
+                    padding: "var(--space-3) var(--space-4)",
+                    marginBottom: "var(--space-2)",
+                    background: isSelected ? "var(--color-surface-raised)" : "var(--color-surface)",
+                    borderRadius: "var(--radius-md)",
+                    border: isSelected ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+                    cursor: "pointer",
+                    transition: "var(--transition-fast)",
+                  }}
+                >
+                  <strong style={{ color: "var(--color-text)" }}>{item.title}</strong>
+                  <br />
+                  <span style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+                    {item.severity} | {item.probability} | {item.impact} | {item.status}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Divider for split-pane resize */}
+      <div
+        onMouseDown={handleDividerMouseDown}
+        data-testid="risk-editor-divider"
+        style={{
+          width: "4px",
+          backgroundColor: "var(--color-border)",
+          cursor: "col-resize",
+          userSelect: "none",
+          transition: isDraggingRef.current ? "none" : "background-color var(--transition-fast)",
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLDivElement).style.backgroundColor = "var(--color-border-hover)";
+        }}
+        onMouseLeave={(e) => {
+          if (!isDraggingRef.current) {
+            (e.currentTarget as HTMLDivElement).style.backgroundColor = "var(--color-border)";
+          }
+        }}
+      />
+
+      {/* Right panel: Risk detail editor */}
+      <div
+        style={{
+          flex: 1,
+          overflow: "hidden",
+          background: "var(--color-surface)",
+        }}
+      >
+        {selectedRisk ? (
+          <RiskDetailEditor risk={selectedRisk} onSaved={() => void loadList()} />
+        ) : (
+          <p
+            style={{
+              color: "var(--color-text-muted)",
+              fontSize: "var(--font-size-lg)",
+              padding: "var(--space-8)",
+              textAlign: "center",
+            }}
+          >
+            {t("editor.selectRequirement")}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
