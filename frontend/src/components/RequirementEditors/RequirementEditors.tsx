@@ -6,7 +6,8 @@
  *          REQ-L3-RF003-001 (Inline-Editing — Title, Description, Category),
  *          REQ-L3-RF003-002 (Workflow-State-Anzeige + Transition),
  *          REQ-L3-RF003-003 (TraceabilityPanel),
- *          REQ-L3-RF003-004 (Editor-Performance < 500ms)
+ *          REQ-L3-RF003-004 (Editor-Performance < 500ms),
+ *          REQ-003 (skalierbare Listen-Toolbar — Suche/Filter/Sortierung)
  *
  * Interfaces implemented:
  *   IF-RF-INT-001  ← NavigationShell activates this view
@@ -15,7 +16,7 @@
  *   IF-RF-EXT-OUT-001 → GET/PATCH /api/v1/requirements/
  */
 
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useRequirementData } from "./useRequirementData";
@@ -32,12 +33,45 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import type { Requirement, TraceLink, LinkType, UUID, ArchitectureElement } from "../../types";
 import type { TestCase } from "../../api/testcases";
 import { REQ_CATEGORIES } from "../../types";
+import { ListToolbar } from "../shared/ListToolbar";
 
 // ---------------------------------------------------------------------------
 // Workflow states (backend is source of truth, these are common values)
 // ---------------------------------------------------------------------------
 
 const WORKFLOW_STATES = ["draft", "review", "approved", "rejected", "deprecated"];
+
+// ---------------------------------------------------------------------------
+// List sorting (REQ-003 — scalable list panel)
+// ---------------------------------------------------------------------------
+
+type ReqSortKey = "default" | "title" | "status" | "updated";
+
+/** Sort a copy of the list; "default" preserves server order. */
+function sortRequirements(list: Requirement[], sortKey: ReqSortKey): Requirement[] {
+  if (sortKey === "default") return list;
+  const sorted = [...list];
+  switch (sortKey) {
+    case "title":
+      sorted.sort((a, b) => a.title.localeCompare(b.title));
+      break;
+    case "status":
+      sorted.sort((a, b) => {
+        const ai = WORKFLOW_STATES.indexOf(a.status);
+        const bi = WORKFLOW_STATES.indexOf(b.status);
+        // Unknown states sort last; ties fall back to title.
+        const av = ai === -1 ? WORKFLOW_STATES.length : ai;
+        const bv = bi === -1 ? WORKFLOW_STATES.length : bi;
+        return av - bv || a.title.localeCompare(b.title);
+      });
+      break;
+    case "updated":
+      // ISO 8601 timestamps compare correctly as strings (newest first).
+      sorted.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      break;
+  }
+  return sorted;
+}
 
 // ---------------------------------------------------------------------------
 // Status badge color mapping
@@ -1055,8 +1089,33 @@ export default function RequirementEditors(): JSX.Element {
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartWidthRef = useRef(0);
+  // List toolbar state (REQ-003 — search/filter/sort for large lists).
+  const [listSearch, setListSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sortKey, setSortKey] = useState<ReqSortKey>("default");
 
   const reqLabel = terminologyLabel("requirements");
+
+  // Client-side filtering is sufficient here: useRequirementData already
+  // loads the full workspace list (listAll paginates exhaustively), so the
+  // data is in memory anyway and a few hundred items filter in O(n) per
+  // keystroke without needing a server round-trip (REQ-003).
+  const hasActiveListControls =
+    listSearch.trim() !== "" || categoryFilter !== "" || statusFilter !== "";
+
+  const visibleRequirements = useMemo((): Requirement[] => {
+    const q = listSearch.trim().toLowerCase();
+    const filtered = requirements.filter((req) => {
+      if (q && !req.title.toLowerCase().includes(q) && !req.id.toLowerCase().includes(q)) {
+        return false;
+      }
+      if (categoryFilter && req.category !== categoryFilter) return false;
+      if (statusFilter && req.status !== statusFilter) return false;
+      return true;
+    });
+    return sortRequirements(filtered, sortKey);
+  }, [requirements, listSearch, categoryFilter, statusFilter, sortKey]);
 
   const openCreateForm = (): void => {
     setNewTitle("");
@@ -1352,13 +1411,67 @@ export default function RequirementEditors(): JSX.Element {
           </form>
         )}
 
+        {/* List toolbar — search/filter/sort (REQ-003) */}
+        <ListToolbar
+          testIdPrefix="req-list"
+          searchValue={listSearch}
+          onSearchChange={setListSearch}
+          searchPlaceholder={t("editor.searchPlaceholder")}
+          filters={[
+            {
+              id: "category",
+              allLabel: t("editor.allCategories"),
+              value: categoryFilter,
+              options: REQ_CATEGORIES.map((cat) => ({
+                value: cat,
+                label: t(`categories.${cat}`),
+              })),
+              onChange: setCategoryFilter,
+            },
+            {
+              id: "status",
+              allLabel: t("editor.allStatuses"),
+              value: statusFilter,
+              options: WORKFLOW_STATES.map((state) => ({
+                value: state,
+                label: state,
+              })),
+              onChange: setStatusFilter,
+            },
+          ]}
+          sortValue={sortKey}
+          sortOptions={[
+            { value: "default", label: t("editor.sortDefault") },
+            { value: "title", label: t("editor.sortTitleAsc") },
+            { value: "status", label: t("editor.sortStatus") },
+            { value: "updated", label: t("editor.sortUpdatedDesc") },
+          ]}
+          onSortChange={(value) => setSortKey(value as ReqSortKey)}
+          sortLabel={t("editor.sortLabel")}
+          countLabel={
+            hasActiveListControls
+              ? t("editor.filteredCount", {
+                  shown: visibleRequirements.length,
+                  total: requirements.length,
+                })
+              : null
+          }
+        />
+
         {requirements.length === 0 ? (
           <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
             {t("editor.empty")}
           </p>
+        ) : visibleRequirements.length === 0 ? (
+          <p
+            data-testid="req-list-no-matches"
+            style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}
+          >
+            {t("editor.noMatches")}
+          </p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {requirements.map((req) => {
+            {visibleRequirements.map((req) => {
               const isActive = req.id === selectedId;
               const isHovered = hoveredId === req.id;
 

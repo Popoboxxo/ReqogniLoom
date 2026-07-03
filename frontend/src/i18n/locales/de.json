@@ -87,7 +87,17 @@
     "newRequirementTitle": "Neue Anforderung",
     "untitled": "Ohne Titel",
     "selectRequirement": "Wählen Sie eine Anforderung aus der Liste.",
-    "deleteConfirm": "Wirklich löschen?"
+    "deleteConfirm": "Wirklich löschen?",
+    "searchPlaceholder": "Nach Titel oder ID suchen...",
+    "allCategories": "Alle Kategorien",
+    "allStatuses": "Alle Status",
+    "sortLabel": "Sortieren nach",
+    "sortDefault": "Standardreihenfolge",
+    "sortTitleAsc": "Titel (A–Z)",
+    "sortStatus": "Status",
+    "sortUpdatedDesc": "Zuletzt geändert",
+    "noMatches": "Keine Einträge entsprechen den aktuellen Filtern.",
+    "filteredCount": "{{shown}} von {{total}}"
   },
   "arch": {
     "elementType": "Element-Typ",
@@ -106,7 +116,25 @@
     "levelHint": "(Auto-berechnet aus der Hierarchie)",
     "levelAutoCalculated": "Ebene wird automatisch aus der Hierarchie berechnet.",
     "parentElement": "Übergeordnetes Element",
-    "noParent": "Kein Parent (Root / L0)"
+    "noParent": "Kein Parent (Root / L0)",
+    "tree": {
+      "searchPlaceholder": "Elemente suchen...",
+      "noMatches": "Keine passenden Elemente",
+      "allTypes": "Alle Typen",
+      "allLevels": "Alle Ebenen",
+      "sortLabel": "Sortieren nach",
+      "sortDefault": "Standardreihenfolge",
+      "sortTitleAsc": "Titel (A–Z)",
+      "sortUpdatedDesc": "Zuletzt geändert",
+      "filteredCount": "{{shown}} von {{total}}",
+      "expand": "Ausklappen",
+      "collapse": "Einklappen",
+      "dropRoot": "Hier ablegen, um Root-Element (L0) zu machen",
+      "showDetails": "Details anzeigen",
+      "edit": "Bearbeiten",
+      "addChild": "Kind-Element hinzufügen",
+      "linkRequirement": "Mit Anforderung verknüpfen"
+    }
   },
   "traceability": {
     "upstream": "Upstream-Links",

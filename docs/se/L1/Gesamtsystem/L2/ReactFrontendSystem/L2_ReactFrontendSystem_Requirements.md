@@ -703,3 +703,71 @@ Das ReactFrontendSystem MUSS das Announcement Banner global (z.B. oberhalb der H
 ---
 
 *Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*
+
+---
+
+## Erweiterung v5 — REQ-L2-RF-029 bis 031 (UI/UX Migration)
+
+> **Datum:** 2026-07-04 | **Quelle:** REQ-L1-083 bis 085
+
+---
+
+### REQ-L2-RF-029: Hierarchy Tree-View Component
+
+Das ReactFrontendSystem MUSS eine Komponente zur hierarchischen Darstellung bereitstellen.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Stellt Artefakte mit `parent_id` Referenzen als verschachtelten Baum dar.
+- [ ] Erlaubt das Auf- und Zuklappen (Expand/Collapse) von Knoten.
+- [ ] Rendert lazy oder mit Virtualisierung, um Performance-Einbrüche bei >1000 Elementen zu vermeiden.
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-029
+**Abgeleitet von:** REQ-L1-083
+
+---
+
+### REQ-L2-RF-030: Split-View Layout Component
+
+Das ReactFrontendSystem MUSS ein generisches Zweispalten-Layout implementieren, das von allen Domänen (Requirements, Architecture etc.) genutzt wird.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Resizable Divider zwischen linkem und rechtem Panel.
+- [ ] Breiten werden im LocalStorage des Browsers gespeichert und beim Reload wiederhergestellt.
+- [ ] Linkes Panel für Listen/Trees, rechtes Panel für Details/Editoren.
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-030
+**Abgeleitet von:** REQ-L1-084
+
+---
+
+### REQ-L2-RF-031: Reusable List-Toolbar
+
+Das ReactFrontendSystem MUSS eine wiederverwendbare Toolbar für Tabellen/Listen implementieren.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Beinhaltet Debounced Search-Input (löst nach 300ms API Call aus).
+- [ ] Beinhaltet konfigurierbare Dropdowns für Filter-Attribute (Status, Typ).
+- [ ] Beinhaltet Sortier-Controls.
+- [ ] Die aktiven Filter/Sortierungen spiegeln sich in den URL-Parametern wider (Bookmark-Fähigkeit).
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-031
+**Abgeleitet von:** REQ-L1-085
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*

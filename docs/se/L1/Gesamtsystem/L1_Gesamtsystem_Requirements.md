@@ -866,9 +866,69 @@ Das System MUSS eine Konfigurationsmöglichkeit bieten, um einen systemweiten St
 **Verifikiert durch:** L1-SystemAcceptanceTest-082
 **Abgeleitet von:** REQ-L0-051 (SN-51)
 
+## Erweiterung v6 — REQ-L1-083 bis 085 (UI/UX Migration)
+
+> **Datum:** 2026-07-04 | **Quelle:** REQ-L0-052 bis 054
+
 ---
 
-*Erstellt durch se-requirements-Agent (L1) | ReqFlow SE-Kaskade | 2026-06-20*
+### REQ-L1-083: Navigation in hierarchischer Baumstruktur
+
+Das System MUSS eine visuelle Navigationskomponente (Tree-View) im Frontend bereitstellen, welche die Artefakte anhand ihrer Traceability-Links (`parent_id`) hierarchisch darstellt.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Hierarchische Darstellung der Artefakte in der UI.
+- [ ] Knoten können durch den Anwender auf- und zugeklappt werden.
+
+**Verifikationsmethode:** UI-Test der Navigation.
+**Verifikiert durch:** L1-SystemAcceptanceTest-083
+**Abgeleitet von:** REQ-L0-052 (SN-52)
+
+---
+
+### REQ-L1-084: Konsistente Split-View-Maskenarchitektur
+
+Die Web-UI MUSS eine standardisierte Zwei-Spalten-Ansicht (Listen-Ansicht links, Detail-Ansicht rechts) für die Verwaltung aller Artefakttypen verwenden. Der Trenner MUSS verschiebbar (resizable) sein.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Split-View wird als generisches Container-Muster für alle Module genutzt.
+- [ ] Breite des rechten/linken Panels ist via Drag&Drop anpassbar.
+
+**Verifikationsmethode:** UI-Test des Layouts.
+**Verifikiert durch:** L1-SystemAcceptanceTest-084
+**Abgeleitet von:** REQ-L0-053 (SN-53)
+
+---
+
+### REQ-L1-085: Erweiterte Listenoperationen
+
+Die Listen-Ansichten der Web-UI MÜSSEN mit einer global konsistenten Toolbar ausgestattet sein, die Textsuche, Filtern nach Attributen (z.B. Status) und Sortierung ermöglicht, um die Navigation bei großen Datenmengen zu unterstützen.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Toolbar über Listen bietet Suchfeld.
+- [ ] Toolbar bietet Dropdowns für Filter (z.B. Workflow State).
+- [ ] Sortier-Controls für die Listenansicht.
+- [ ] API-Pagination wird durch das Frontend nahtlos unterstützt (Nachladen oder Seiten).
+
+**Verifikationsmethode:** End-to-End Test (Filtern und Suchen via UI triggert korrekte API-Requests).
+**Verifikiert durch:** L1-SystemAcceptanceTest-085
+**Abgeleitet von:** REQ-L0-054 (SN-54)
+
+---
+
+*Erstellt durch se-requirements-Agent (L1) | ReqFlow SE-Kaskade | 2026-07-04*
 *Nächster Schritt: L2-Anforderungen in docs/se/L1/Gesamtsystem/L2/*System/L2_*System_Requirements.md*
 
 ---

@@ -87,7 +87,17 @@
     "newRequirementTitle": "New Requirement",
     "untitled": "Untitled",
     "selectRequirement": "Select a requirement from the list.",
-    "deleteConfirm": "Really delete?"
+    "deleteConfirm": "Really delete?",
+    "searchPlaceholder": "Search by title or ID...",
+    "allCategories": "All categories",
+    "allStatuses": "All statuses",
+    "sortLabel": "Sort by",
+    "sortDefault": "Default order",
+    "sortTitleAsc": "Title (A–Z)",
+    "sortStatus": "Status",
+    "sortUpdatedDesc": "Last updated",
+    "noMatches": "No items match the current filters.",
+    "filteredCount": "{{shown}} of {{total}}"
   },
   "arch": {
     "elementType": "Element Type",
@@ -106,7 +116,25 @@
     "levelHint": "(Auto-calculated from hierarchy)",
     "levelAutoCalculated": "Level is automatically calculated from the hierarchy.",
     "parentElement": "Parent Element",
-    "noParent": "No parent (Root / L0)"
+    "noParent": "No parent (Root / L0)",
+    "tree": {
+      "searchPlaceholder": "Search elements...",
+      "noMatches": "No matching elements",
+      "allTypes": "All types",
+      "allLevels": "All levels",
+      "sortLabel": "Sort by",
+      "sortDefault": "Default order",
+      "sortTitleAsc": "Title (A–Z)",
+      "sortUpdatedDesc": "Last updated",
+      "filteredCount": "{{shown}} of {{total}}",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "dropRoot": "Drop here to make root (L0)",
+      "showDetails": "Show Details",
+      "edit": "Edit",
+      "addChild": "Add Child",
+      "linkRequirement": "Link to Requirement"
+    }
   },
   "traceability": {
     "upstream": "Upstream Links",

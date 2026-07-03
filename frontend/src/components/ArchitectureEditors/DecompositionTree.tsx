@@ -2,7 +2,8 @@
  * ARCH-L1-001 ReactFrontend — DecompositionTree (COMP-RF-004).
  *
  * leaf_id: COMP-RF-004 (ArchitectureEditors)
- * req_id:  REQ-001 (Hierarchie-Tree-View für L0-L4 Zerlegungsbaum)
+ * req_id:  REQ-001 (Hierarchie-Tree-View für L0-L4 Zerlegungsbaum),
+ *          REQ-003 (skalierbare Listen-Toolbar — Suche/Filter/Sortierung)
  *
  * Left-sidebar tree panel for the Architecture editor (Phase 1 MVP per
  * docs/DESIGN_TREE_VIEW_L0_L4_HIERARCHY.md):
@@ -33,7 +34,8 @@ import React, {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import type { ArchitectureElement } from "../../types";
+import type { ArchitectureElement, ElementType } from "../../types";
+import { ListToolbar } from "../shared/ListToolbar";
 
 // ---------------------------------------------------------------------------
 // Level badge colors (design doc section 6 — level_badge)
@@ -61,8 +63,28 @@ interface TreeNode {
   level: number;
 }
 
+/** Sibling ordering inside the tree (REQ-003). "default" keeps API order. */
+type TreeSortKey = "default" | "title" | "updated";
+
+function siblingComparator(
+  sortKey: TreeSortKey,
+): ((a: ArchitectureElement, b: ArchitectureElement) => number) | null {
+  switch (sortKey) {
+    case "title":
+      return (a, b) => a.title.localeCompare(b.title);
+    case "updated":
+      // ISO 8601 timestamps compare correctly as strings (newest first).
+      return (a, b) => b.updated_at.localeCompare(a.updated_at);
+    default:
+      return null;
+  }
+}
+
 /** Transform the flat API list into a tree via parent_id. */
-function buildTree(elements: ArchitectureElement[]): TreeNode[] {
+function buildTree(
+  elements: ArchitectureElement[],
+  sortKey: TreeSortKey = "default",
+): TreeNode[] {
   const byId = new Map<string, ArchitectureElement>();
   for (const el of elements) byId.set(el.id, el);
 
@@ -74,6 +96,12 @@ function buildTree(elements: ArchitectureElement[]): TreeNode[] {
     const bucket = childrenByParent.get(parentKey);
     if (bucket) bucket.push(el);
     else childrenByParent.set(parentKey, [el]);
+  }
+
+  // Sort siblings in place — buckets are local copies (REQ-003).
+  const compare = siblingComparator(sortKey);
+  if (compare) {
+    for (const bucket of childrenByParent.values()) bucket.sort(compare);
   }
 
   const toNode = (
@@ -133,6 +161,18 @@ function flattenVisible(
 }
 
 // ---------------------------------------------------------------------------
+// Toolbar filter options (REQ-003)
+// ---------------------------------------------------------------------------
+
+const ELEMENT_TYPE_OPTIONS: { value: ElementType; labelKey: string }[] = [
+  { value: "component", labelKey: "arch.elementType.component" },
+  { value: "interface", labelKey: "arch.elementType.interface" },
+  { value: "subsystem", labelKey: "arch.elementType.subsystem" },
+  { value: "layer", labelKey: "arch.elementType.layer" },
+  { value: "module", labelKey: "arch.elementType.module" },
+];
+
+// ---------------------------------------------------------------------------
 // Context menu
 // ---------------------------------------------------------------------------
 
@@ -171,6 +211,10 @@ export function DecompositionTree({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  // Toolbar filter/sort state (REQ-003 — scalable list panel).
+  const [typeFilter, setTypeFilter] = useState("");
+  const [levelFilter, setLevelFilter] = useState("");
+  const [sortKey, setSortKey] = useState<TreeSortKey>("default");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   // Drag&drop reparenting state (REQ-001). "__root__" marks the root
@@ -181,7 +225,7 @@ export function DecompositionTree({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitExpandRef = useRef(false);
 
-  const tree = useMemo(() => buildTree(elements), [elements]);
+  const tree = useMemo(() => buildTree(elements, sortKey), [elements, sortKey]);
 
   // Default-expand the root level once elements arrive (design journey step 1).
   useEffect(() => {
@@ -199,10 +243,11 @@ export function DecompositionTree({
     };
   }, [searchInput]);
 
-  // Search filter: nodes matching name/id + all their ancestors stay visible.
+  // Search + type/level filter: matching nodes and all their ancestors stay
+  // visible so the hierarchy context is preserved (REQ-001, REQ-003).
   const visibleIds = useMemo((): Set<string> | null => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return null;
+    if (!q && !typeFilter && !levelFilter) return null;
     const parentById = new Map<string, string | null>();
     const idSet = new Set(elements.map((e) => e.id));
     for (const el of elements) {
@@ -213,9 +258,14 @@ export function DecompositionTree({
     }
     const visible = new Set<string>();
     for (const el of elements) {
-      const matches =
-        el.title.toLowerCase().includes(q) || el.id.toLowerCase().includes(q);
-      if (!matches) continue;
+      const matchesSearch =
+        !q ||
+        el.title.toLowerCase().includes(q) ||
+        el.id.toLowerCase().includes(q);
+      const matchesType = !typeFilter || el.element_type === typeFilter;
+      const matchesLevel =
+        !levelFilter || String(el.level ?? 0) === levelFilter;
+      if (!matchesSearch || !matchesType || !matchesLevel) continue;
       // Include the match and walk up the ancestor chain.
       let cursor: string | null = el.id;
       while (cursor && !visible.has(cursor)) {
@@ -224,12 +274,23 @@ export function DecompositionTree({
       }
     }
     return visible;
-  }, [elements, searchQuery]);
+  }, [elements, searchQuery, typeFilter, levelFilter]);
 
   const visibleNodes = useMemo(
     () => flattenVisible(tree, expanded, visibleIds),
     [tree, expanded, visibleIds],
   );
+
+  // Level filter options are derived from the data — only levels that
+  // actually occur are offered (REQ-003).
+  const levelOptions = useMemo((): string[] => {
+    const levels = new Set<number>();
+    for (const el of elements) levels.add(el.level ?? 0);
+    return [...levels].sort((a, b) => a - b).map(String);
+  }, [elements]);
+
+  const hasActiveFilter =
+    searchQuery.trim() !== "" || typeFilter !== "" || levelFilter !== "";
 
   const toggleExpand = useCallback((id: string): void => {
     setExpanded((prev) => {
@@ -365,26 +426,52 @@ export function DecompositionTree({
       data-testid="decomposition-tree"
       style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
     >
-      {/* Search box (design doc section 6 — search_box) */}
-      <input
-        type="search"
-        data-testid="tree-search-input"
-        value={searchInput}
-        onChange={(e) => setSearchInput(e.target.value)}
-        placeholder={t("arch.tree.searchPlaceholder", "Search elements...")}
-        aria-label={t("arch.tree.searchPlaceholder", "Search elements...")}
-        style={{
-          height: "32px",
-          borderRadius: "var(--radius-sm)",
-          border: "1px solid var(--color-border)",
-          padding: "0 var(--space-2)",
-          fontSize: "var(--font-size-sm)",
-          fontFamily: "inherit",
-          background: "var(--color-surface)",
-          color: "var(--color-text)",
-          boxSizing: "border-box",
-          outline: "none",
-        }}
+      {/* Toolbar: search box (design doc section 6 — search_box) plus
+          type/level filters and sibling sort (REQ-003). */}
+      <ListToolbar
+        testIdPrefix="tree"
+        searchValue={searchInput}
+        onSearchChange={setSearchInput}
+        searchPlaceholder={t("arch.tree.searchPlaceholder", "Search elements...")}
+        filters={[
+          {
+            id: "type",
+            allLabel: t("arch.tree.allTypes", "All types"),
+            value: typeFilter,
+            options: ELEMENT_TYPE_OPTIONS.map((et) => ({
+              value: et.value,
+              label: t(et.labelKey),
+            })),
+            onChange: setTypeFilter,
+          },
+          {
+            id: "level",
+            allLabel: t("arch.tree.allLevels", "All levels"),
+            value: levelFilter,
+            options: levelOptions.map((lvl) => ({
+              value: lvl,
+              label: `L${lvl}`,
+            })),
+            onChange: setLevelFilter,
+          },
+        ]}
+        sortValue={sortKey}
+        sortOptions={[
+          { value: "default", label: t("arch.tree.sortDefault", "Default order") },
+          { value: "title", label: t("arch.tree.sortTitleAsc", "Title (A–Z)") },
+          { value: "updated", label: t("arch.tree.sortUpdatedDesc", "Last updated") },
+        ]}
+        onSortChange={(value) => setSortKey(value as TreeSortKey)}
+        sortLabel={t("arch.tree.sortLabel", "Sort by")}
+        countLabel={
+          hasActiveFilter
+            ? t("arch.tree.filteredCount", {
+                defaultValue: "{{shown}} of {{total}}",
+                shown: visibleNodes.length,
+                total: elements.length,
+              })
+            : null
+        }
       />
 
       {/* Root dropzone — visible while dragging; dropping detaches the
@@ -431,7 +518,7 @@ export function DecompositionTree({
             margin: "var(--space-2) 0",
           }}
         >
-          {searchQuery.trim()
+          {hasActiveFilter
             ? t("arch.tree.noMatches", "No matching elements")
             : t("editor.empty")}
         </p>

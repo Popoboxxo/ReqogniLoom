@@ -318,9 +318,56 @@ benötigt dokumentierbare Übergaben für Reviews und Compliance (KONZEPT.md §8
 **Rationale:** Wichtig, um Nutzer und integrierte Agenten auf anstehende Wartungsarbeiten, System-Downtimes oder geänderte Arbeitsanweisungen hinzuweisen.
 **Abgeleitet von:** User-Request
 
+## Stakeholder-Needs (Erweiterung v9 — REQ-L0-052 bis 054)
+
+> **Datum:** 2026-07-04 | **Quelle:** Migration der Alt-Anforderungen (REQUIREMENTS.md)
+
+### REQ-L0-052 — SN-52: Visuelle Baum-Struktur für Artefakt-Hierarchien
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration aus REQ-001.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Nutzer können die Systemhierarchie visuell als Baum (Tree-View) aufklappen und durchnavigieren.
+- [ ] Einzelne Äste lassen sich expandieren und kollabieren.
+
+**Rationale:** Um komplexe Systemstrukturen (L0→L1→L2) erfassen zu können, ist eine reine Listen-Darstellung unzureichend.
+**Abgeleitet von:** REQUIREMENTS.md (REQ-001)
+
 ---
 
-*Erstellt durch se-requirements-Agent (L0) | ReqFlow SE-Kaskade | 2026-06-20*
+### REQ-L0-053 — SN-53: Konsistentes Split-View Layout
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration aus REQ-002.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Alle wesentlichen Ansichten (Requirements, Architecture, Risks, etc.) verwenden ein einheitliches Zweispalten-Layout (Split-View).
+- [ ] Der Divider zwischen den Spalten ist durch den Nutzer verschiebbar (resizable).
+
+**Rationale:** Eine einheitliche User Experience (UX) verringert die kognitive Last beim Wechsel zwischen verschiedenen Domänen (z.B. von Requirements zu Tests).
+**Abgeleitet von:** REQUIREMENTS.md (REQ-002)
+
+---
+
+### REQ-L0-054 — SN-54: Effiziente Listen-Navigation
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration aus REQ-003.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] In allen Artefakt-Listen (linke Spalte des Split-Views) gibt es Freitextsuche, Filter und Sortierung.
+- [ ] Hunderte Artefakte bleiben durch diese Werkzeuge nutzbar.
+
+**Rationale:** In großen Projekten mit tausenden Artefakten ist schnelles Finden überwachstumskritisch.
+**Abgeleitet von:** REQUIREMENTS.md (REQ-003)
+
+---
+
+*Erstellt durch se-requirements-Agent (L0) | ReqFlow SE-Kaskade | 2026-07-04*
 *Nächster Schritt: L1 System-Anforderungen in docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md*
 
 ---
