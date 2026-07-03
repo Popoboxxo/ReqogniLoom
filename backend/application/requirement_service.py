@@ -176,6 +176,30 @@ class RequirementService(ServiceBase):
         )
         return requirement
 
+    def derive_requirement(
+        self,
+        parent_requirement_id: UUID,
+        architecture_element_id: UUID,
+        title: str,
+        ctx: AuthContext,
+        description: str = "",
+    ) -> DecompositionResultDTO:
+        """Derive a single child Requirement from *parent_requirement_id*, allocated
+        to *architecture_element_id* (decomposition onto the next system level).
+
+        Thin single-child convenience wrapper around :meth:`decompose` — reuses its
+        atomic parent-child TraceLink + allocation logic (REQ-L1-043) so the "Ableiten"
+        action (UI, REST, MCP) stays consistent with AI-driven decomposition. The
+        architecture target is mandatory here: derivation must always state which
+        system element the derived requirement belongs to.
+        """
+        return self.decompose(
+            requirement_id=parent_requirement_id,
+            ctx=ctx,
+            children=[{"title": title, "description": description}],
+            target_architecture_elements=[architecture_element_id],
+        )
+
     @atomic_transaction
     def update_requirement(
         self,
@@ -396,24 +420,22 @@ class RequirementService(ServiceBase):
                         "(may not exist in traceability engine yet)"
                     )
 
-                # REQ-L1-043: Optional allocation to ArchitectureElements
+                # REQ-L1-043: Allocation to ArchitectureElements. Not caught: a
+                # caller that explicitly passes target_architecture_elements
+                # expects the allocation to actually happen (REQ-L1-042), so
+                # NotFoundError/ValidationError must propagate rather than be
+                # silently swallowed — otherwise "derive" could create the
+                # child requirement while its mandatory allocation silently
+                # fails.
                 if target_architecture_elements is not None:
                     target_arch_id = target_architecture_elements[idx]
-                    try:
-                        alloc_link = self._trace_link_service.allocate(
-                            requirement_id=child_req.id,
-                            architecture_element_id=target_arch_id,
-                            ctx=ctx,
-                        )
-                        if hasattr(alloc_link, "id"):
-                            result.trace_link_ids.append(alloc_link.id)
-                    except Exception as e:
-                        logger.debug(
-                            "RequirementService.decompose: allocation failed for child %s to arch_el %s: %s",
-                            child_req.id,
-                            target_arch_id,
-                            str(e),
-                        )
+                    alloc_link = self._trace_link_service.allocate(
+                        requirement_id=child_req.id,
+                        architecture_element_id=target_arch_id,
+                        ctx=ctx,
+                    )
+                    if hasattr(alloc_link, "id"):
+                        result.trace_link_ids.append(alloc_link.id)
 
         return result
 

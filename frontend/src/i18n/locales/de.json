@@ -118,6 +118,11 @@
     "target": "Ziel",
     "linkType": "Link-Typ",
     "create": "Neuen Link erstellen",
+    "derive": "Ableiten",
+    "deriveTitle": "Titel der abgeleiteten Anforderung",
+    "deriveTitleRequired": "Bitte einen Titel für die abgeleitete Anforderung eingeben.",
+    "deriveArchitectureElement": "Architekturelement (Systemebene)",
+    "deriveArchitectureElementRequired": "Bitte das Architekturelement auswählen, dem die abgeleitete Anforderung zugeordnet wird.",
     "viewAll": "Alle anzeigen",
     "noArtifacts": "Keine Artefakte vorhanden.",
     "sourceRequired": "Bitte ein Quell-Artefakt auswählen.",
@@ -259,7 +264,10 @@
     "type.flow": "Fluss-Diagramm",
     "type.context": "Kontext-Diagramm",
     "type.canvas": "Canvas-Zeichnung",
-    "type.mermaid": "Mermaid-Diagramm"
+    "type.mermaid": "Mermaid-Diagramm",
+    "viewMode": "Ansicht",
+    "viewMode.code": "Code",
+    "viewMode.visual": "Visuell"
   },
   "canvas": {
     "toolbar": {

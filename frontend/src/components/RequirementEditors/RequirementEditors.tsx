@@ -19,6 +19,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useRequirementData } from "./useRequirementData";
+import { useCreateRequirement, useDeleteRequirement } from "../../queries/requirements";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { TraceabilityPanel } from "./TraceabilityPanel";
 import { ArtifactDiff } from "../ArtifactDiff/ArtifactDiff";
@@ -348,6 +349,7 @@ const REQ_LINK_TYPES: LinkType[] = [
   "verifies",
   "implements",
   "refines",
+  "allocated-to",
 ];
 
 const reqPanelInputStyle: React.CSSProperties = {
@@ -408,6 +410,11 @@ function ReqTraceLinkPanel({
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [architectureElements, setArchitectureElements] = useState<ArchitectureElement[]>([]);
+  const [showDeriveForm, setShowDeriveForm] = useState<boolean>(false);
+  const [deriveTitle, setDeriveTitle] = useState<string>("");
+  const [deriveArchitectureElementId, setDeriveArchitectureElementId] = useState<string>("");
+  const [isDeriving, setIsDeriving] = useState<boolean>(false);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -490,6 +497,18 @@ function ReqTraceLinkPanel({
     return m;
   }, [requirements]);
 
+  const testCasesById: Record<UUID, TestCase> = React.useMemo(() => {
+    const m: Record<UUID, TestCase> = {};
+    for (const tc of testCases) m[tc.id] = tc;
+    return m;
+  }, [testCases]);
+
+  const architectureElementsById: Record<UUID, ArchitectureElement> = React.useMemo(() => {
+    const m: Record<UUID, ArchitectureElement> = {};
+    for (const ae of architectureElements) m[ae.id] = ae;
+    return m;
+  }, [architectureElements]);
+
   const otherRequirements = requirements.filter((r) => r.id !== requirementId);
 
   function openForm(): void {
@@ -557,6 +576,48 @@ function ReqTraceLinkPanel({
     }
   }
 
+  function openDeriveForm(): void {
+    setDeriveTitle("");
+    setDeriveArchitectureElementId("");
+    setDeriveError(null);
+    setShowDeriveForm(true);
+  }
+
+  function cancelDeriveForm(): void {
+    setShowDeriveForm(false);
+    setDeriveError(null);
+  }
+
+  async function submitDerive(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    if (!deriveTitle.trim()) {
+      setDeriveError(t("traceability.deriveTitleRequired"));
+      return;
+    }
+    if (!deriveArchitectureElementId) {
+      setDeriveError(t("traceability.deriveArchitectureElementRequired"));
+      return;
+    }
+    setIsDeriving(true);
+    setDeriveError(null);
+    try {
+      const { requirement: created } = await requirementsApi.derive(requirementId, {
+        title: deriveTitle.trim(),
+        architecture_element_id: deriveArchitectureElementId,
+      });
+      setShowDeriveForm(false);
+      setDeriveTitle("");
+      setDeriveArchitectureElementId("");
+      onLinksChanged();
+      navigate(`/requirements/${created.id}`);
+    } catch (err: unknown) {
+      const apiErr = err as { error?: { message?: string } };
+      setDeriveError(apiErr?.error?.message ?? String(err));
+    } finally {
+      setIsDeriving(false);
+    }
+  }
+
   return (
     <div
       data-testid="req-tracelink-panel"
@@ -586,8 +647,16 @@ function ReqTraceLinkPanel({
         >
           {t("arch.tracelinkPanelTitle")}
         </h4>
-        {!showForm && (
+        {!showForm && !showDeriveForm && (
           <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button
+              type="button"
+              data-testid="req-tracelink-derive-btn"
+              onClick={openDeriveForm}
+              style={reqPanelPrimaryBtn}
+            >
+              {t("traceability.derive")}
+            </button>
             <button
               type="button"
               data-testid="req-tracelink-create-btn"
@@ -757,6 +826,105 @@ function ReqTraceLinkPanel({
         </form>
       )}
 
+      {showDeriveForm && (
+        <form
+          data-testid="req-derive-form"
+          onSubmit={(e) => void submitDerive(e)}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-2)",
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          <label style={reqPanelLabelStyle}>{t("traceability.deriveTitle")}</label>
+          <input
+            type="text"
+            data-testid="req-derive-title-input"
+            value={deriveTitle}
+            onChange={(e) => setDeriveTitle(e.target.value)}
+            disabled={isDeriving}
+            style={reqPanelInputStyle}
+            autoFocus
+          />
+
+          <label style={reqPanelLabelStyle}>
+            {t("traceability.deriveArchitectureElement")}
+          </label>
+          <select
+            data-testid="req-derive-architecture-select"
+            value={deriveArchitectureElementId}
+            onChange={(e) => setDeriveArchitectureElementId(e.target.value)}
+            disabled={isDeriving}
+            required
+            style={reqPanelInputStyle}
+          >
+            <option value="">
+              {architectureElements.length === 0 ? t("traceability.noArtifacts") : "—"}
+            </option>
+            {architectureElements.map((ae) => (
+              <option key={ae.id} value={ae.id}>
+                {ae.title || t("editor.untitled")}
+              </option>
+            ))}
+          </select>
+
+          {deriveError && (
+            <p
+              role="alert"
+              style={{
+                color: "var(--color-danger)",
+                fontSize: "var(--font-size-sm)",
+                margin: 0,
+              }}
+            >
+              {deriveError}
+            </p>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              justifyContent: "flex-end",
+            }}
+          >
+            <button
+              type="button"
+              data-testid="req-derive-cancel-btn"
+              onClick={cancelDeriveForm}
+              disabled={isDeriving}
+              style={{
+                background: "var(--color-surface-raised)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                cursor: isDeriving ? "not-allowed" : "pointer",
+              }}
+            >
+              {t("actions.cancel")}
+            </button>
+            <button
+              type="submit"
+              data-testid="req-derive-submit-btn"
+              disabled={isDeriving}
+              style={{
+                ...reqPanelPrimaryBtn,
+                opacity: isDeriving ? 0.6 : 1,
+                cursor: isDeriving ? "not-allowed" : "pointer",
+              }}
+            >
+              {isDeriving
+                ? t("traceability.submitting")
+                : t("traceability.submit")}
+            </button>
+          </div>
+        </form>
+      )}
+
       {isLoading && (
         <p
           role="status"
@@ -801,7 +969,10 @@ function ReqTraceLinkPanel({
           style={{ listStyle: "none", padding: 0, margin: 0 }}
         >
           {links.map((link) => {
-            const targetReq = requirementsById[link.target_id];
+            const targetLabel =
+              requirementsById[link.target_id]?.title ??
+              architectureElementsById[link.target_id]?.title ??
+              testCasesById[link.target_id]?.title;
             return (
               <li
                 key={link.id}
@@ -831,7 +1002,7 @@ function ReqTraceLinkPanel({
                   {link.link_type}
                 </span>
                 <span style={{ fontFamily: "monospace" }}>
-                  → {targetReq?.title ?? link.target_id.slice(0, 8) + "…"}
+                  → {targetLabel ?? link.target_id.slice(0, 8) + "…"}
                 </span>
                 <button
                   data-testid="req-tracelink-delete-btn"
@@ -869,6 +1040,8 @@ export default function RequirementEditors(): JSX.Element {
   const { activeWorkspace, terminologyLabel } = useWorkspace();
   const { requirements, requirement, upstreamLinks, downstreamLinks, linkedTitles, isLoading, error, refresh } =
     useRequirementData(selectedId);
+  const createRequirement = useCreateRequirement();
+  const deleteRequirement = useDeleteRequirement();
 
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [newBtnHovered, setNewBtnHovered] = useState(false);
@@ -900,14 +1073,12 @@ export default function RequirementEditors(): JSX.Element {
     const title = newTitle.trim() || t("editor.newRequirementTitle");
     setIsCreating(true);
     try {
-      const created = await requirementsApi.create({
+      const created = await createRequirement.mutateAsync({
         workspace_id: activeWorkspace.id,
         title,
       });
-      // Navigate first — the hook re-fetches automatically when selectedId changes.
-      // Calling refresh() here would cause a double-fetch race where the first
-      // fetch runs with the old selectedId and may overwrite state set by the
-      // second fetch that already has the correct ID.
+      // Query cache invalidation (list) happens in useCreateRequirement's
+      // onSuccess — navigating is enough to trigger the detail fetch.
       setShowCreateForm(false);
       setNewTitle("");
       navigate(`/requirements/${created.id}`);
@@ -916,20 +1087,20 @@ export default function RequirementEditors(): JSX.Element {
     } finally {
       setIsCreating(false);
     }
-  }, [activeWorkspace, t, refresh, navigate, newTitle]);
+  }, [activeWorkspace, createRequirement, navigate, newTitle]);
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
+      if (!activeWorkspace) return;
       if (!window.confirm(t("editor.deleteConfirm"))) return;
       try {
-        await requirementsApi.delete(id);
-        refresh();
+        await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id });
         navigate("/requirements");
       } catch (err: unknown) {
         console.error("Delete failed:", err);
       }
     },
-    [t, refresh, navigate]
+    [t, activeWorkspace, deleteRequirement, navigate]
   );
 
   const handleExportPdf = useCallback(async (): Promise<void> => {
@@ -960,6 +1131,8 @@ export default function RequirementEditors(): JSX.Element {
     isDraggingRef.current = true;
     dragStartXRef.current = e.clientX;
     dragStartWidthRef.current = leftPanelWidth;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
     e.preventDefault();
   };
 
@@ -972,23 +1145,20 @@ export default function RequirementEditors(): JSX.Element {
     };
 
     const handleMouseUp = (): void => {
+      if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
     };
 
-    if (isDraggingRef.current) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
-    }
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
 
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
     };
-  }, [leftPanelWidth]);
+  }, []);
 
   if (isLoading) {
     return <p role="status">{t("loading")}</p>;

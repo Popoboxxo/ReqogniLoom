@@ -8,14 +8,17 @@
  *          REQ-L2-RF-008 (Terminologie-Profil)
  *
  * Provider hierarchy:
- *   BrowserRouter
- *     └── AuthProvider (token management + 401 handler)
- *           └── WorkspaceProvider (preset + terminology)
- *                 └── NavigationShell (routes + auth gate)
+ *   QueryClientProvider (TanStack Query cache)
+ *     └── BrowserRouter
+ *           └── AuthProvider (token management + 401 handler)
+ *                 └── WorkspaceProvider (preset + terminology)
+ *                       └── NavigationShell (routes + auth gate)
  */
 
 import React from "react";
 import { BrowserRouter, useNavigate } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./queries/queryClient";
 import { AuthProvider } from "./context/AuthContext";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
 import { NavigationShell } from "./components/NavigationShell/NavigationShell";
@@ -41,7 +44,9 @@ function AppInner(): JSX.Element {
 // ---------------------------------------------------------------------------
 
 export const App = (): JSX.Element => (
-  <BrowserRouter>
-    <AppInner />
-  </BrowserRouter>
+  <QueryClientProvider client={queryClient}>
+    <BrowserRouter>
+      <AppInner />
+    </BrowserRouter>
+  </QueryClientProvider>
 );

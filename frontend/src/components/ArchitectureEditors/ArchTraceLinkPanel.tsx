@@ -427,8 +427,12 @@ export function ArchTraceLinkPanel({
           style={{ listStyle: "none", padding: 0, margin: 0 }}
         >
           {links.map((link) => {
-            const targetReq = requirementsById[link.target_id];
-            const sourceEl = archById[link.source_id];
+            const sourceLabel =
+              archById[link.source_id]?.title ??
+              requirementsById[link.source_id]?.title;
+            const targetLabel =
+              requirementsById[link.target_id]?.title ??
+              archById[link.target_id]?.title;
             return (
               <li
                 key={link.id}
@@ -447,7 +451,7 @@ export function ArchTraceLinkPanel({
                 }}
               >
                 <span style={{ fontFamily: "monospace" }}>
-                  {sourceEl?.title ?? link.source_id.slice(0, 8) + "…"}
+                  {sourceLabel ?? link.source_id.slice(0, 8) + "…"}
                 </span>
                 <span
                   style={{
@@ -461,7 +465,7 @@ export function ArchTraceLinkPanel({
                   {link.link_type}
                 </span>
                 <span style={{ fontFamily: "monospace" }}>
-                  {targetReq?.title ?? link.target_id.slice(0, 8) + "…"}
+                  {targetLabel ?? link.target_id.slice(0, 8) + "…"}
                 </span>
                 <button
                   type="button"

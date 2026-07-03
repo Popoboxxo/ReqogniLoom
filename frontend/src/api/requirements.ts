@@ -90,4 +90,14 @@ export const requirementsApi = {
   versions(id: UUID): Promise<ArtifactVersion[]> {
     return apiClient.get<ArtifactVersion[]>(`/requirements/${id}/versions/`);
   },
+
+  derive(
+    id: UUID,
+    data: { title: string; architecture_element_id: UUID; description?: string }
+  ): Promise<{ requirement: Requirement; trace_link_ids: UUID[] }> {
+    return apiClient.post<{ requirement: Requirement; trace_link_ids: UUID[] }>(
+      `/requirements/${id}/derive/`,
+      data
+    );
+  },
 };

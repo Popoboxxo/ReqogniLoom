@@ -305,60 +305,6 @@ class RequirementViewSet(BaseEntityViewSet):
 
     @action(detail=True, methods=["get"], url_path="diff")
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/architecture/{pk}/diff/?from_version=0&to_version=2
-
-        REQ-L2-AS-032 / REQ-L1-040: Structured field-level diff.
-        Delegates to ArtifactDiffService (COMP-AS-019).
-        """
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            el = self._svc().get_architecture_element(UUID(pk), ctx)
-            artifact_id = el.artifact_id
-
-            from_version = int(request.query_params.get("from_version", "0"))
-            to_version = int(request.query_params.get("to_version", str(el.version)))
-
-            diff_svc = ArtifactDiffService()
-            result = diff_svc.diff(
-                artifact_id=UUID(str(artifact_id)),
-                from_version=from_version,
-                to_version=to_version,
-                ctx=ctx,
-            )
-        except (NotFoundError, PermissionDeniedError) as exc:
-            return _service_error_response(exc, lang)
-        except ValueError as exc:
-            return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except Exception as exc:
-            return _service_error_response(exc, lang)
-        return Response(result)
-
-    @action(detail=True, methods=["get"], url_path="versions")
-    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/architecture/{pk}/versions/ — list available versions."""
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            el = self._svc().get_architecture_element(UUID(pk), ctx)
-            artifact_id = el.artifact_id
-
-            diff_svc = ArtifactDiffService()
-            result = diff_svc.list_versions(
-                artifact_id=UUID(str(artifact_id)),
-                ctx=ctx,
-            )
-        except (NotFoundError, PermissionDeniedError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            return _service_error_response(exc, lang)
-        return Response(result)
-
-    @action(detail=True, methods=["get"], url_path="diff")
-    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/diff/?from_version=0&to_version=2
 
         REQ-L2-AS-032 / REQ-L1-040: Structured field-level diff.
@@ -411,6 +357,48 @@ class RequirementViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(result)
+
+    @action(detail=True, methods=["post"], url_path="derive")
+    def derive(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/requirements/{pk}/derive/ — derive a child requirement
+        onto the next system level, allocated to a mandatory architecture element.
+        """
+        lang = detect_lang(request)
+        title = request.data.get("title")
+        architecture_element_id = request.data.get("architecture_element_id")
+        if not title:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="title is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not architecture_element_id:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="architecture_element_id is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            result = self._svc().derive_requirement(
+                parent_requirement_id=UUID(pk),
+                architecture_element_id=UUID(str(architecture_element_id)),
+                title=title,
+                ctx=ctx,
+                description=request.data.get("description", ""),
+            )
+            child = self._svc().get_requirement(result.children[0].id, ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "requirement": RequirementSerializer(_dto_from_orm(child)).data,
+                "trace_link_ids": [str(tl_id) for tl_id in result.trace_link_ids],
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ---------------------------------------------------------------------------

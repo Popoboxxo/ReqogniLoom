@@ -102,7 +102,9 @@ export type LinkType =
   | "satisfies"
   | "verifies"
   | "implements"
-  | "refines";
+  | "refines"
+  | "documents"
+  | "allocated-to";
 
 export interface TraceLink {
   id: UUID;

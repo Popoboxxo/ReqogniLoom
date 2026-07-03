@@ -12,10 +12,10 @@
  *   - Divider: 4px resizable
  *   - Right panel: create form OR diagram detail (source, traceability)
  *
- * Rendering: the source is shown as a monospaced pre/code block. The full
- * Mermaid/PlantUML rendering is out of scope for this iteration — the editor
- * surface stays source-of-truth so the next iteration can drop in a
- * Mermaid/PlantUML renderer without changing the data model.
+ * Rendering: the source is shown as a monospaced pre/code block by default,
+ * with a persistent Code/Visual toggle. Mermaid sources render client-side
+ * via mermaid.js when Visual is active; other payload formats stay code-only
+ * (no client-side renderer available).
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -25,6 +25,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { diagramsApi } from "../../api/diagrams";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
+import { tracelinksApi } from "../../api/tracelinks";
 import { CanvasEditor } from "../canvas/CanvasEditor";
 import type {
   ArchitectureElement,
@@ -136,6 +137,8 @@ export default function DiagramView(): JSX.Element {
     isDraggingRef.current = true;
     dragStartXRef.current = e.clientX;
     dragStartWidthRef.current = leftPanelWidth;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
     e.preventDefault();
   };
 
@@ -148,23 +151,20 @@ export default function DiagramView(): JSX.Element {
     };
 
     const handleMouseUp = (): void => {
+      if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
     };
 
-    if (isDraggingRef.current) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
-    }
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
 
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
     };
-  }, [leftPanelWidth]);
+  }, []);
 
   if (isLoading) {
     return <p role="status">{t("loading", "Loading...")}</p>;
@@ -605,10 +605,30 @@ function DiagramDetailView({
   const [error, setError] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [traceLinks, setTraceLinks] = useState<DiagramTraceLink[]>([]);
+  const [traceReloadKey, setTraceReloadKey] = useState(0);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [architectureElements, setArchitectureElements] = useState<
+    ArchitectureElement[]
+  >([]);
+
+  // Create-link form (REQ-L2-DS-004) — links this diagram to a Requirement
+  // or Architecture Element via the "documents" trace-link type. Previously
+  // the panel only displayed existing links with no way to create new ones.
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [linkTargetId, setLinkTargetId] = useState("");
+  const [isLinking, setIsLinking] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  // Code/Visual toggle (REQ-L1-057) — mermaid sources can be rendered
+  // client-side via mermaid.js; other payload formats stay code-only.
+  const [viewMode, setViewMode] = useState<"code" | "visual">("visual");
+  const [renderedSvg, setRenderedSvg] = useState<string>("");
+  const [renderError, setRenderError] = useState<string>("");
 
   useEffect(() => {
     setIsLoading(true);
     setDetail(null);
+    setViewMode("visual");
     diagramsApi
       .get(diagramId)
       .then((d) => {
@@ -618,6 +638,52 @@ function DiagramDetailView({
       .catch((err) => console.error("Failed to load diagram", err))
       .finally(() => setIsLoading(false));
   }, [diagramId]);
+
+  const canRenderVisual = detail?.payload_format === "mermaid";
+  const activeSource = isEditing ? editContent : (detail?.content ?? "");
+
+  // Client-side Mermaid rendering for the Visual view.
+  useEffect(() => {
+    if (!canRenderVisual || viewMode !== "visual") {
+      setRenderedSvg("");
+      setRenderError("");
+      return;
+    }
+    if (!activeSource.trim()) {
+      setRenderedSvg("");
+      setRenderError("");
+      return;
+    }
+
+    let cancelled = false;
+
+    async function renderMermaid(): Promise<void> {
+      try {
+        const mermaid = (await import("mermaid")).default;
+        if (cancelled) return;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: "default",
+          securityLevel: "strict",
+        });
+        const id = `diagram-mermaid-${diagramId}-${Date.now()}`;
+        const { svg } = await mermaid.render(id, activeSource);
+        if (!cancelled) {
+          setRenderedSvg(svg);
+          setRenderError("");
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setRenderedSvg("");
+        setRenderError(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    void renderMermaid();
+    return () => {
+      cancelled = true;
+    };
+  }, [canRenderVisual, viewMode, activeSource, diagramId]);
 
   // Load traceability + requirement/architecture titles for lookup
   useEffect(() => {
@@ -630,14 +696,16 @@ function DiagramDetailView({
           architectureApi.list(activeWorkspace.id).catch(() => null),
         ]);
         if (cancelled) return;
+        const reqList = reqResp?.results ?? [];
+        const archList = archResp?.results ?? [];
+        if (!cancelled) {
+          setRequirements(reqList);
+          setArchitectureElements(archList);
+        }
         const reqMap = new Map<string, string>();
-        (reqResp?.results ?? []).forEach((r: Requirement) =>
-          reqMap.set(r.id, r.title),
-        );
+        reqList.forEach((r: Requirement) => reqMap.set(r.id, r.title));
         const archMap = new Map<string, string>();
-        (archResp?.results ?? []).forEach((a: ArchitectureElement) =>
-          archMap.set(a.id, a.title),
-        );
+        archList.forEach((a: ArchitectureElement) => archMap.set(a.id, a.title));
         const links = await diagramsApi.getTraceability(
           activeWorkspace.id,
           diagramId,
@@ -652,7 +720,33 @@ function DiagramDetailView({
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspace, diagramId]);
+  }, [activeWorkspace, diagramId, traceReloadKey]);
+
+  const handleCreateLink = async (): Promise<void> => {
+    if (!linkTargetId) {
+      setLinkError(t("traceability.targetRequired"));
+      return;
+    }
+    setIsLinking(true);
+    setLinkError(null);
+    try {
+      await tracelinksApi.create({
+        source_id: diagramId,
+        target_id: linkTargetId,
+        link_type: "documents",
+      });
+      setShowLinkForm(false);
+      setLinkTargetId("");
+      setTraceReloadKey((k) => k + 1);
+    } catch (err: unknown) {
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        String(err);
+      setLinkError(msg);
+    } finally {
+      setIsLinking(false);
+    }
+  };
 
   const handleSave = async (): Promise<void> => {
     if (!detail) return;
@@ -830,7 +924,69 @@ function DiagramDetailView({
               }}
             />
           </div>
-        ) : isEditing ? (
+        ) : (
+          <>
+          {canRenderVisual && (
+            <div
+              role="group"
+              aria-label={t("diagrams.viewMode", "View mode")}
+              style={{ display: "flex", gap: "var(--space-1)", marginBottom: "var(--space-3)" }}
+            >
+              <button
+                type="button"
+                data-testid="diagram-viewmode-code-btn"
+                aria-pressed={viewMode === "code"}
+                onClick={() => setViewMode("code")}
+                style={{
+                  ...formCancelButtonStyle,
+                  ...(viewMode === "code" ? formPrimaryButtonStyle : {}),
+                }}
+              >
+                {t("diagrams.viewMode.code", "Code")}
+              </button>
+              <button
+                type="button"
+                data-testid="diagram-viewmode-visual-btn"
+                aria-pressed={viewMode === "visual"}
+                onClick={() => setViewMode("visual")}
+                style={{
+                  ...formCancelButtonStyle,
+                  ...(viewMode === "visual" ? formPrimaryButtonStyle : {}),
+                }}
+              >
+                {t("diagrams.viewMode.visual", "Visual")}
+              </button>
+            </div>
+          )}
+          {canRenderVisual && viewMode === "visual" ? (
+            <div
+              data-testid="diagram-visual-preview"
+              style={{
+                padding: "var(--space-4)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                background: "var(--color-surface-raised)",
+                overflow: "auto",
+                maxHeight: "480px",
+                minHeight: "160px",
+              }}
+            >
+              {renderError ? (
+                <p role="alert" data-testid="diagram-visual-error" style={{ color: "var(--color-danger)", margin: 0 }}>
+                  {renderError}
+                </p>
+              ) : renderedSvg ? (
+                <div
+                  data-testid="diagram-visual-svg"
+                  dangerouslySetInnerHTML={{ __html: renderedSvg }}
+                />
+              ) : (
+                <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+                  {t("diagrams.emptySource", "(no source)")}
+                </p>
+              )}
+            </div>
+          ) : isEditing ? (
           <label style={{ display: "block" }}>
             <span
               style={{
@@ -882,6 +1038,8 @@ function DiagramDetailView({
             {detail.content || t("diagrams.emptySource", "(no source)")}
           </pre>
         )}
+        </>
+        )}
       </div>
 
       <aside
@@ -894,17 +1052,120 @@ function DiagramDetailView({
           border: "1px solid var(--color-border)",
         }}
       >
-        <h3
+        <div
           style={{
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            marginTop: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
             marginBottom: "var(--space-3)",
-            color: "var(--color-text)",
           }}
         >
-          {t("diagrams.traceability", "Traceability")}
-        </h3>
+          <h3
+            style={{
+              fontSize: "var(--font-size-lg)",
+              fontWeight: 600,
+              margin: 0,
+              color: "var(--color-text)",
+            }}
+          >
+            {t("diagrams.traceability", "Traceability")}
+          </h3>
+          {!showLinkForm && (
+            <button
+              type="button"
+              data-testid="diagram-link-create-btn"
+              onClick={() => {
+                setLinkTargetId("");
+                setLinkError(null);
+                setShowLinkForm(true);
+              }}
+              style={{
+                ...formPrimaryButtonStyle,
+                padding: "var(--space-1) var(--space-2)",
+                fontSize: "var(--font-size-sm)",
+              }}
+            >
+              + {t("traceability.create")}
+            </button>
+          )}
+        </div>
+
+        {showLinkForm && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-2)",
+              marginBottom: "var(--space-3)",
+              padding: "var(--space-3)",
+              background: "var(--color-surface)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <label style={formLabelStyle}>
+              {t("traceability.target")}
+              <select
+                data-testid="diagram-link-target-select"
+                value={linkTargetId}
+                onChange={(e) => setLinkTargetId(e.target.value)}
+                disabled={isLinking}
+                style={formInputStyle}
+              >
+                <option value="">—</option>
+                {requirements.length > 0 && (
+                  <optgroup label={t("nav.requirements", "Requirements")}>
+                    {requirements.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.title || t("editor.untitled")}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {architectureElements.length > 0 && (
+                  <optgroup label={t("nav.architecture", "Architecture")}>
+                    {architectureElements.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.title || t("editor.untitled")}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </label>
+
+            {linkError && (
+              <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: 0 }}>
+                {linkError}
+              </p>
+            )}
+
+            <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                data-testid="diagram-link-cancel-btn"
+                onClick={() => setShowLinkForm(false)}
+                disabled={isLinking}
+                style={formCancelButtonStyle}
+              >
+                {t("actions.cancel", "Cancel")}
+              </button>
+              <button
+                type="button"
+                data-testid="diagram-link-save-btn"
+                onClick={() => void handleCreateLink()}
+                disabled={isLinking || !linkTargetId}
+                style={{
+                  ...formPrimaryButtonStyle,
+                  opacity: isLinking || !linkTargetId ? 0.6 : 1,
+                }}
+              >
+                {isLinking ? t("traceability.submitting") : t("traceability.submit")}
+              </button>
+            </div>
+          </div>
+        )}
+
         {traceLinks.length === 0 ? (
           <p
             data-testid="diagram-traceability-empty"

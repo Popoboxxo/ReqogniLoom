@@ -397,7 +397,9 @@ export function DecompositionTree({
             e.dataTransfer.dropEffect = "move";
             if (dropTargetId !== "__root__") setDropTargetId("__root__");
           }}
-          onDragLeave={() => {
+          onDragLeave={(e) => {
+            const related = e.relatedTarget as Node | null;
+            if (related && e.currentTarget.contains(related)) return;
             if (dropTargetId === "__root__") setDropTargetId(null);
           }}
           onDrop={(e) => handleDrop(e, null)}
@@ -413,6 +415,7 @@ export function DecompositionTree({
             fontSize: "var(--font-size-sm)",
             color: "var(--color-text-muted)",
             textAlign: "center",
+            userSelect: "none",
           }}
         >
           {t("arch.tree.dropRoot", "Drop here to make root (L0)")}
@@ -488,7 +491,13 @@ export function DecompositionTree({
                   e.dataTransfer.dropEffect = "move";
                   if (dropTargetId !== el.id) setDropTargetId(el.id);
                 }}
-                onDragLeave={() => {
+                onDragLeave={(e) => {
+                  // Native D&D fires dragleave when the pointer crosses onto a
+                  // nested child (expand button, title span, badge) even though
+                  // it's still logically over the same row — ignore those to
+                  // avoid the drop-target highlight flickering during drag.
+                  const related = e.relatedTarget as Node | null;
+                  if (related && e.currentTarget.contains(related)) return;
                   if (dropTargetId === el.id) setDropTargetId(null);
                 }}
                 onDrop={(e) => handleDrop(e, el.id)}
@@ -501,6 +510,7 @@ export function DecompositionTree({
                   paddingLeft: `${8 + depth * 16}px`,
                   borderRadius: "var(--radius-sm)",
                   cursor: "pointer",
+                  userSelect: "none",
                   // Selected styling per design doc section 6 (node_styling.selected)
                   background: isDropTarget
                     ? "#EFF6FF"

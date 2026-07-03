@@ -8,12 +8,12 @@
  * Uses unified ModalDialogBase for form pattern (REQ-L1-040).
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { testcasesApi } from "../../api/testcases";
+import { useTestCasesList, useCreateTestCase } from "../../queries/testcases";
 import ModalDialogBase, { SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
-import type { TestCase } from "../../api/testcases";
+import { extractErrorMessage } from "../../api/client";
 
 const STATUS_OPTIONS = ["draft", "active", "deprecated"] as const;
 type TestCaseStatus = (typeof STATUS_OPTIONS)[number];
@@ -21,32 +21,14 @@ type TestCaseStatus = (typeof STATUS_OPTIONS)[number];
 export function TestcaseList(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
-  const [items, setItems] = useState<TestCase[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: items = [], isLoading } = useTestCasesList(activeWorkspace?.id);
+  const createTestCase = useCreateTestCase();
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TestCaseStatus>("draft");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const loadList = async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    setIsLoading(true);
-    try {
-      const resp = await testcasesApi.list(activeWorkspace.id);
-      setItems(resp.results);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace]);
 
   const resetForm = (): void => {
     setTitle("");
@@ -67,7 +49,7 @@ export function TestcaseList(): JSX.Element {
     setIsSubmitting(true);
     setFormError(null);
     try {
-      await testcasesApi.create({
+      await createTestCase.mutateAsync({
         workspace_id: activeWorkspace.id,
         title: title.trim(),
         description: description.trim() || undefined,
@@ -75,12 +57,8 @@ export function TestcaseList(): JSX.Element {
       });
       resetForm();
       setShowCreate(false);
-      await loadList();
     } catch (err: unknown) {
-      const msg =
-        (err as { error?: { message?: string } })?.error?.message ??
-        String(err);
-      setFormError(msg);
+      setFormError(extractErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }

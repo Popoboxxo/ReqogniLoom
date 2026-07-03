@@ -27,6 +27,8 @@ import logging
 from typing import Dict, List, Optional
 from uuid import UUID
 
+from django.db.models import F
+
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, TestCase, Tenant, Workspace
 from persistence.transactions import atomic_transaction
@@ -156,6 +158,11 @@ class TestService(ServiceBase):
             test_case.steps = steps
 
         test_case.save()
+        # Atomic version increment (REQ-L3-PL001-002): mirrors the fix applied to
+        # RequirementService — update_test_case never bumped version, so every
+        # update stayed at version=1 forever.
+        TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
+        test_case.refresh_from_db(fields=["version"])
 
         self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
         self._emit_event(

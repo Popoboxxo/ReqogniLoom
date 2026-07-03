@@ -118,6 +118,11 @@
     "target": "Target",
     "linkType": "Link Type",
     "create": "New Link",
+    "derive": "Derive",
+    "deriveTitle": "Title of the derived requirement",
+    "deriveTitleRequired": "Please enter a title for the derived requirement.",
+    "deriveArchitectureElement": "Architecture Element (system level)",
+    "deriveArchitectureElementRequired": "Please select the architecture element the derived requirement is allocated to.",
     "viewAll": "View All",
     "noArtifacts": "No artifacts available.",
     "sourceRequired": "Please select a source artifact.",
@@ -259,7 +264,10 @@
     "type.flow": "Flow Diagram",
     "type.context": "Context Diagram",
     "type.canvas": "Canvas Drawing",
-    "type.mermaid": "Mermaid Diagram"
+    "type.mermaid": "Mermaid Diagram",
+    "viewMode": "View mode",
+    "viewMode.code": "Code",
+    "viewMode.visual": "Visual"
   },
   "canvas": {
     "toolbar": {

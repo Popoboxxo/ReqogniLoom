@@ -208,12 +208,12 @@ export default function TestCasesView(): JSX.Element {
     isDraggingRef.current = true;
     dragStartXRef.current = e.clientX;
     dragStartWidthRef.current = leftPanelWidth;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
     e.preventDefault();
   };
 
   useEffect(() => {
-    if (!isDraggingRef.current) return;
-
     const handleMouseMove = (e: MouseEvent): void => {
       if (!isDraggingRef.current) return;
       const delta = e.clientX - dragStartXRef.current;
@@ -221,21 +221,20 @@ export default function TestCasesView(): JSX.Element {
     };
 
     const handleMouseUp = (): void => {
+      if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
+      document.body.style.userSelect = "auto";
+      document.body.style.cursor = "auto";
     };
 
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
 
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = "auto";
-      document.body.style.cursor = "auto";
     };
-  }, [leftPanelWidth]);
+  }, []);
 
   // ---- Handlers ----
 

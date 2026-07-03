@@ -91,6 +91,7 @@ class RequirementsToolGroup(BaseToolGroup):
         "requirement.update": "_handle_update",
         "requirement.decompose": "_handle_decompose",
         "requirement.validate": "_handle_validate",
+        "requirement.derive": "_handle_derive",
     }
 
     def __init__(self, service: Optional[RequirementService] = None) -> None:
@@ -263,6 +264,55 @@ class RequirementsToolGroup(BaseToolGroup):
                 {"id": str(c.id), "title": c.title, "description": c.description}
                 for c in result.children
             ],
+        })
+
+    # ------------------------------------------------------------------
+    # requirement.derive
+    # ------------------------------------------------------------------
+
+    def _handle_derive(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.derive — derive a child requirement onto a mandatory
+        ArchitectureElement (single-child decomposition, no LLM required)."""
+        parent_id = require_uuid(params, "parent_requirement_id")
+        architecture_element_id = require_uuid(params, "architecture_element_id")
+        title = require_param(params, "title")
+        description: str = params.get("description", "")
+
+        try:
+            result = self._service.derive_requirement(
+                parent_requirement_id=parent_id,
+                architecture_element_id=architecture_element_id,
+                title=str(title),
+                ctx=auth_context,
+                description=description,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        child = result.children[0]
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="create",
+            entity_type="Requirement",
+            entity_id=child.id,
+            tool_name="requirement.derive",
+            api_key=api_key,
+        )
+        return ToolResult.ok({
+            "requirement": {
+                "id": str(child.id),
+                "title": child.title,
+                "description": child.description,
+            },
+            "parent_requirement_id": str(result.parent_id),
+            "architecture_element_id": str(architecture_element_id),
+            "trace_link_ids": [str(tl_id) for tl_id in result.trace_link_ids],
         })
 
     # ------------------------------------------------------------------

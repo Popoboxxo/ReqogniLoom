@@ -311,6 +311,8 @@ export default function RiskList(): JSX.Element {
     isDraggingRef.current = true;
     dragStartXRef.current = e.clientX;
     dragStartWidthRef.current = leftPanelWidth;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
     e.preventDefault();
   };
 
@@ -323,23 +325,20 @@ export default function RiskList(): JSX.Element {
     };
 
     const handleMouseUp = (): void => {
+      if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
     };
 
-    if (isDraggingRef.current) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
-    }
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
 
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
     };
-  }, [leftPanelWidth]);
+  }, []);
 
   if (isLoading) {
     return <p role="status">{t("loading")}</p>;

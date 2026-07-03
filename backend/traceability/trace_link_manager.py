@@ -249,7 +249,14 @@ class TraceLinkManager:
             raise CrossTenantLinkError()
 
         # Eager cycle detection: does target already reach source?
-        existing = self.get_trace_links()
+        # Scoped to this link_type only — the 8 relation types are semantically
+        # distinct directed graphs (e.g. "implements" ArchitectureElement->Requirement
+        # combined with "parent-child" and "allocated-to" edges produces coincidental
+        # paths that are not real domain cycles; mixing them made the textbook
+        # decomposition pattern "derive a child requirement and allocate it to the
+        # same ArchitectureElement that already implements its parent" falsely
+        # rejected as a cycle).
+        existing = self.get_trace_links(link_type=link_type)
         adj = _build_adjacency(existing)
         if _dfs_has_cycle_to(target_id, source_id, adj):
             raise CycleDetectedError(link_type)

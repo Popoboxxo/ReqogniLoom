@@ -54,6 +54,7 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "requirement.update",
     "requirement.decompose",
     "requirement.validate",
+    "requirement.derive",
     "architecture.create",
     "architecture.update",
     "architecture.link",

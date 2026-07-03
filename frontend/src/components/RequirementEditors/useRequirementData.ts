@@ -2,15 +2,23 @@
  * ARCH-L1-001 ReactFrontend — Requirement Data Hook.
  *
  * leaf_id: COMP-RF-003 (RequirementEditors)
- * req_id:  REQ-L3-RF003-001 (Inline-Editing),
- *          REQ-L3-RF003-004 (Editor-Performance < 500ms)
+ * req_id: REQ-L3-RF003-001 (Inline-Editing),
+ *         REQ-L3-RF003-004 (Editor-Performance < 500ms)
+ *
+ * Thin adapter over the TanStack Query hooks in ../../queries/requirements,
+ * preserving the RequirementData shape so existing call sites (e.g.
+ * RequirementEditors.tsx) don't need to change.
  */
 
-import { useState, useEffect } from "react";
-import { requirementsApi } from "../../api/requirements";
-import { tracelinksApi } from "../../api/tracelinks";
+import { useQueryClient } from "@tanstack/react-query";
+import { extractErrorMessage } from "../../api/client";
 import type { Requirement, TraceLink } from "../../types";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import {
+  requirementKeys,
+  useRequirementsList,
+  useRequirementDetail,
+} from "../../queries/requirements";
 
 export interface RequirementData {
   requirements: Requirement[];
@@ -25,112 +33,33 @@ export interface RequirementData {
 
 export function useRequirementData(selectedId?: string): RequirementData {
   const { activeWorkspace } = useWorkspace();
-  const [requirements, setRequirements] = useState<Requirement[]>([]);
-  const [requirement, setRequirement] = useState<Requirement | null>(null);
-  const [upstreamLinks, setUpstreamLinks] = useState<TraceLink[]>([]);
-  const [downstreamLinks, setDownstreamLinks] = useState<TraceLink[]>([]);
-  const [linkedTitles, setLinkedTitles] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
+  const workspaceId = activeWorkspace?.id;
+  const queryClient = useQueryClient();
 
-  const refresh = (): void => setTick((t) => t + 1);
+  const listQuery = useRequirementsList(workspaceId);
+  const detailQuery = useRequirementDetail(workspaceId, selectedId);
 
-  // Effect 1: Load the list (sidebar)
-  useEffect(() => {
-    if (!activeWorkspace) return;
-    let cancelled = false;
-
-    async function loadList(): Promise<void> {
-      if (!activeWorkspace) return;
-      try {
-        const all = await requirementsApi.listAll(activeWorkspace.id);
-        if (cancelled) return;
-        setRequirements(all);
-      } catch {
-        // list errors are non-fatal — detail effect handles its own errors
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
+  const refresh = (): void => {
+    if (workspaceId) {
+      void queryClient.invalidateQueries({
+        queryKey: requirementKeys.list(workspaceId),
+      });
     }
-
-    setIsLoading(true);
-    void loadList();
-    return () => { cancelled = true; };
-  }, [activeWorkspace, selectedId, tick]);
-
-  // Effect 2: Load the selected requirement detail + tracelinks (independent of list)
-  useEffect(() => {
-    if (!activeWorkspace || !selectedId) {
-      setRequirement(null);
-      setUpstreamLinks([]);
-      setDownstreamLinks([]);
-      setLinkedTitles({});
-      return;
+    if (selectedId) {
+      void queryClient.invalidateQueries({
+        queryKey: requirementKeys.detail(selectedId),
+      });
     }
-
-    let cancelled = false;
-
-    async function loadDetail(): Promise<void> {
-      if (!activeWorkspace || !selectedId) return;
-      try {
-        const req = await requirementsApi.get(selectedId);
-        if (cancelled) return;
-        setRequirement(req);
-
-        const links = await tracelinksApi.listForArtifact(activeWorkspace.id, req.id);
-        if (cancelled) return;
-        const upstream = links.results.filter((l) => l.target_id === req.id);
-        const downstream = links.results.filter((l) => l.source_id === req.id);
-        setUpstreamLinks(upstream);
-        setDownstreamLinks(downstream);
-
-        // Load titles for all linked requirements
-        const linkedIds = new Set<string>();
-        upstream.forEach((l) => linkedIds.add(l.source_id));
-        downstream.forEach((l) => linkedIds.add(l.target_id));
-
-        if (linkedIds.size > 0) {
-          const titles: Record<string, string> = {};
-          await Promise.all(
-            Array.from(linkedIds).map(async (id) => {
-              try {
-                const linkedReq = await requirementsApi.get(id);
-                titles[id] = linkedReq.title || "(untitled)";
-              } catch {
-                // If loading a linked requirement fails, use a fallback
-                titles[id] = `(${id.slice(0, 8)})`;
-              }
-            })
-          );
-          if (!cancelled) {
-            setLinkedTitles(titles);
-          }
-        } else {
-          setLinkedTitles({});
-        }
-      } catch (err: unknown) {
-        if (cancelled) return;
-        const msg =
-          (err as { error?: { message?: string } })?.error?.message ??
-          String(err);
-        setError(msg);
-        setRequirement(null);
-      }
-    }
-
-    void loadDetail();
-    return () => { cancelled = true; };
-  }, [activeWorkspace, selectedId, tick]);
+  };
 
   return {
-    requirements,
-    requirement,
-    upstreamLinks,
-    downstreamLinks,
-    linkedTitles,
-    isLoading,
-    error,
+    requirements: listQuery.data ?? [],
+    requirement: selectedId ? detailQuery.data?.requirement ?? null : null,
+    upstreamLinks: detailQuery.data?.upstreamLinks ?? [],
+    downstreamLinks: detailQuery.data?.downstreamLinks ?? [],
+    linkedTitles: detailQuery.data?.linkedTitles ?? {},
+    isLoading: listQuery.isLoading,
+    error: detailQuery.error ? extractErrorMessage(detailQuery.error) : null,
     refresh,
   };
 }
