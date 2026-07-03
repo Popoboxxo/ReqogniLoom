@@ -1240,6 +1240,9 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
         "description": getattr(el, "description", ""),
         "element_type": getattr(el, "element_type", ""),
         "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
+        # REQ-L1-041: level is derived from the parent chain on the ORM object;
+        # it must be materialized here because the serializer receives a dict.
+        "level": el.get_level() if hasattr(el, "get_level") else 0,
         "version": el.version,
         "created_at": el.created_at,
         "updated_at": el.modified_at,

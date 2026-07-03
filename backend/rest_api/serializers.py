@@ -294,6 +294,10 @@ class ArchitectureElementSerializer(
 
         Auto-calculated from parent chain (REQ-L1-041).
         """
+        # Views pass pre-materialized dicts (see _arch_to_dict); ORM objects
+        # expose get_level() directly (REQ-L1-041).
+        if isinstance(obj, dict):
+            return int(obj.get("level", 0))
         if not hasattr(obj, "get_level"):
             return 0
         return obj.get_level()
