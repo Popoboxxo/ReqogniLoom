@@ -100,8 +100,8 @@ function DiffLines({ lines }: { lines: string[] }): JSX.Element {
     <pre
       data-testid="diff-lines"
       style={{
-        background: "#f7fafc",
-        border: "1px solid #e2e8f0",
+        background: "var(--color-surface)",
+        border: "1px solid var(--color-border)",
         borderRadius: "4px",
         padding: "8px",
         marginTop: "4px",
@@ -113,10 +113,10 @@ function DiffLines({ lines }: { lines: string[] }): JSX.Element {
       }}
     >
       {lines.map((line, i) => {
-        let color = "#4a5568";
-        if (line.startsWith("+")) color = "#22543d";
-        else if (line.startsWith("-")) color = "#9b2c2c";
-        else if (line.startsWith("@@")) color = "#2b6cb0";
+        let color = "var(--color-text-muted)";
+        if (line.startsWith("+")) color = "var(--color-success)";
+        else if (line.startsWith("-")) color = "var(--color-danger)";
+        else if (line.startsWith("@@")) color = "var(--color-primary)";
 
         return (
           <div key={i} style={{ color }}>
@@ -139,7 +139,7 @@ function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
     <div
       data-testid={`diff-field-${field.name}`}
       style={{
-        borderBottom: "1px solid #e2e8f0",
+        borderBottom: "1px solid var(--color-border)",
         padding: "12px 0",
       }}
     >
@@ -158,23 +158,23 @@ function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
       </div>
 
       {field.status === "added" && (
-        <div style={{ color: "#22543d", fontSize: "13px" }}>
+        <div style={{ color: "var(--color-success)", fontSize: "13px" }}>
           {field.to}
         </div>
       )}
 
       {field.status === "removed" && (
-        <div style={{ color: "#9b2c2c", fontSize: "13px", textDecoration: "line-through" }}>
+        <div style={{ color: "var(--color-danger)", fontSize: "13px", textDecoration: "line-through" }}>
           {field.from}
         </div>
       )}
 
       {field.status === "modified" && !showLines && (
         <div style={{ fontSize: "13px" }}>
-          <div style={{ color: "#9b2c2c", textDecoration: "line-through" }}>
+          <div style={{ color: "var(--color-danger)", textDecoration: "line-through" }}>
             {field.from}
           </div>
-          <div style={{ color: "#22543d" }}>
+          <div style={{ color: "var(--color-success)" }}>
             {field.to}
           </div>
         </div>
@@ -183,7 +183,7 @@ function FieldDiffRow({ field }: { field: DiffField }): JSX.Element {
       {showLines && <DiffLines lines={field.lines!} />}
 
       {field.status === "unchanged" && (
-        <div style={{ color: "#718096", fontSize: "13px" }}>
+        <div style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>
           {field.from}
         </div>
       )}
@@ -244,20 +244,22 @@ export function ArtifactDiff({
   const selectStyle: React.CSSProperties = {
     padding: "4px 8px",
     borderRadius: "4px",
-    border: "1px solid #cbd5e0",
+    border: "1px solid var(--color-border)",
     fontSize: "13px",
-    background: "#fff",
+    background: "var(--color-surface-raised)",
+    color: "var(--color-text)",
   };
 
   return (
     <div
       data-testid="artifact-diff-view"
       style={{
-        background: "#fff",
-        border: "1px solid #e2e8f0",
+        background: "var(--color-surface-raised)",
+        border: "1px solid var(--color-border)",
         borderRadius: "8px",
         padding: "16px",
         marginTop: "16px",
+        color: "var(--color-text)",
       }}
     >
       {/* Header */}
@@ -277,11 +279,12 @@ export function ArtifactDiff({
           onClick={onClose}
           style={{
             background: "none",
-            border: "1px solid #cbd5e0",
+            border: "1px solid var(--color-border)",
             borderRadius: "4px",
             padding: "4px 12px",
             cursor: "pointer",
             fontSize: "13px",
+            color: "var(--color-text)",
           }}
         >
           Close
@@ -297,7 +300,7 @@ export function ArtifactDiff({
           alignItems: "center",
           marginBottom: "16px",
           padding: "8px",
-          background: "#f7fafc",
+          background: "var(--color-surface)",
           borderRadius: "4px",
         }}
       >
@@ -317,7 +320,7 @@ export function ArtifactDiff({
           </select>
         </label>
 
-        <span style={{ color: "#718096" }}>→</span>
+        <span style={{ color: "var(--color-text-muted)" }}>→</span>
 
         <label style={{ fontSize: "13px", fontWeight: 500 }}>
           To:

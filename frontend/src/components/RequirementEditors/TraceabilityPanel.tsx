@@ -38,7 +38,7 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
     <li
       style={{
         padding: "0.3rem 0",
-        borderBottom: "1px solid #eee",
+        borderBottom: "1px solid var(--color-border)",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
@@ -52,6 +52,7 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          color: "var(--color-text)",
         }}
         title={`${title} (${linkedId.slice(0, 8)}…)`}
       >
@@ -60,7 +61,8 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
       <span
         style={{
           fontSize: "0.75rem",
-          background: "#eef",
+          background: "var(--color-badge-draft)",
+          color: "var(--color-badge-draft-text)",
           padding: "0.1rem 0.4rem",
           borderRadius: "4px",
           flexShrink: 0,
@@ -90,14 +92,14 @@ export function TraceabilityPanel({
     <aside
       data-testid="traceability-panel"
       style={{
-        borderLeft: "1px solid #ddd",
+        borderLeft: "1px solid var(--color-border)",
         paddingLeft: "1rem",
         minWidth: "200px",
       }}
     >
       <h4 style={{ margin: "0 0 0.5rem" }}>{t("traceability.upstream")}</h4>
       {upstreamLinks.length === 0 ? (
-        <p style={{ fontSize: "0.85rem", color: "#888" }}>
+        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
           {t("traceability.none")}
         </p>
       ) : (
@@ -116,7 +118,7 @@ export function TraceabilityPanel({
 
       <h4 style={{ margin: "1rem 0 0.5rem" }}>{t("traceability.downstream")}</h4>
       {downstreamLinks.length === 0 ? (
-        <p style={{ fontSize: "0.85rem", color: "#888" }}>
+        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
           {t("traceability.none")}
         </p>
       ) : (

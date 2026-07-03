@@ -367,6 +367,7 @@ export const TERMINOLOGY_LABELS: Record<TerminologyProfile, TerminologyLabels> =
 // ---------------------------------------------------------------------------
 
 export const REQ_CATEGORIES = [
+  "stakeholder",
   "functional",
   "non-functional",
   "api",

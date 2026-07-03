@@ -21,6 +21,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./queries/queryClient";
 import { AuthProvider } from "./context/AuthContext";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { NavigationShell } from "./components/NavigationShell/NavigationShell";
 
 // ---------------------------------------------------------------------------
@@ -44,9 +45,11 @@ function AppInner(): JSX.Element {
 // ---------------------------------------------------------------------------
 
 export const App = (): JSX.Element => (
-  <QueryClientProvider client={queryClient}>
-    <BrowserRouter>
-      <AppInner />
-    </BrowserRouter>
-  </QueryClientProvider>
+  <ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AppInner />
+      </BrowserRouter>
+    </QueryClientProvider>
+  </ThemeProvider>
 );

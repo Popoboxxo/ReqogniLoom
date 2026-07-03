@@ -16,6 +16,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
+import { useTheme } from "../../context/ThemeContext";
 import { i18n } from "../../i18n/index";
 import { searchApi, type SearchHit } from "../../api/search";
 import { workspacesApi } from "../../api/workspaces";
@@ -71,6 +72,7 @@ export function SidebarNavigation(): JSX.Element {
     setHideAllOptional,
   } = useWorkspace();
   const { logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [hoveredPath, setHoveredPath] = React.useState<string | null>(null);
@@ -940,6 +942,27 @@ export function SidebarNavigation(): JSX.Element {
           }}
         >
           {i18n.language.startsWith("de") ? "EN" : "DE"}
+        </button>
+        <button
+          data-testid="theme-toggle"
+          onClick={toggleTheme}
+          onMouseEnter={() => setHoveredButton("theme")}
+          onMouseLeave={() => setHoveredButton(null)}
+          title={t("nav.toggleTheme")}
+          style={{
+            padding: "var(--space-2) var(--space-3)",
+            borderRadius: "var(--radius-md)",
+            border: `1px solid ${SIDEBAR_BORDER}`,
+            background: hoveredButton === "theme" ? HOVER_BG : "transparent",
+            color: SIDEBAR_TEXT,
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 500,
+            cursor: "pointer",
+            transition: "var(--transition-fast)",
+            textAlign: "left",
+          }}
+        >
+          {theme === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
         </button>
         {/* Personal Access Tokens — workspace-independent, always reachable (REQ-L2-RF-027) */}
         <button

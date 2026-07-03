@@ -21,7 +21,10 @@
     "logout": "Logout",
     "import": "Import",
     "icds": "ICDs",
-    "diagrams": "Diagrams"
+    "diagrams": "Diagrams",
+    "toggleTheme": "Toggle light/dark mode",
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode"
   },
   "workspaceCreate": {
     "button": "Create workspace",
@@ -204,6 +207,7 @@
     "deleteConfirmButton": "Permanently Delete"
   },
   "categories": {
+    "stakeholder": "Stakeholder Requirement",
     "functional": "Functional",
     "non-functional": "Non-Functional",
     "api": "API",

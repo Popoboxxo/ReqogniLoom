@@ -60,11 +60,12 @@ export function MarkdownPreview({
       {isPreview ? (
         <div
           style={{
-            border: "1px solid #ccc",
+            border: "1px solid var(--color-border)",
             borderRadius: "4px",
             padding: "0.75rem",
             minHeight: "120px",
-            background: "#fafafa",
+            background: "var(--color-surface-raised)",
+            color: "var(--color-text)",
           }}
         >
           <ReactMarkdown>{value || "*" + t("editor.empty") + "*"}</ReactMarkdown>
@@ -80,10 +81,12 @@ export function MarkdownPreview({
             padding: "0.5rem",
             fontSize: "0.95rem",
             fontFamily: "monospace",
-            border: "1px solid #ccc",
+            border: "1px solid var(--color-border)",
             borderRadius: "4px",
             boxSizing: "border-box",
             resize: "vertical",
+            background: "var(--color-surface-raised)",
+            color: "var(--color-text)",
           }}
           placeholder={t("editor.descriptionPlaceholder")}
         />

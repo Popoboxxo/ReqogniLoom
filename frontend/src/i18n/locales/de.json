@@ -21,7 +21,10 @@
     "logout": "Abmelden",
     "import": "Import",
     "icds": "ICDs",
-    "diagrams": "Diagramme"
+    "diagrams": "Diagramme",
+    "toggleTheme": "Hell-/Dunkelmodus umschalten",
+    "lightMode": "Heller Modus",
+    "darkMode": "Dunkler Modus"
   },
   "workspaceCreate": {
     "button": "Workspace erstellen",
@@ -204,6 +207,7 @@
     "deleteConfirmButton": "Endgültig löschen"
   },
   "categories": {
+    "stakeholder": "Stakeholder-Anforderung",
     "functional": "Funktional",
     "non-functional": "Nicht-funktional",
     "api": "API",
