@@ -77,6 +77,7 @@ def _test_case_to_dict(tc: Any) -> Dict[str, Any]:
 
 class McpTestToolGroup(BaseToolGroup):
     """COMP-MC-005 — Test tool group (8 tools)."""
+    __test__ = False
 
     _TOOL_MAP = {
         "test.get": "_handle_get",

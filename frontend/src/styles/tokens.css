@@ -1,20 +1,23 @@
 :root {
-  /* Colors */
-  --color-primary: #4f6ef7;
-  --color-primary-dark: #3a5bd9;
-  --color-surface: #ffffff;
-  --color-surface-raised: #f8f9fc;
-  --color-border: #e2e8f0;
-  --color-border-hover: #cbd5e1;
-  --color-text: #1a202c;
-  --color-text-muted: #718096;
-  --color-success: #38a169;
-  --color-warning: #d69e2e;
-  --color-danger: #e53e3e;
-  --color-badge-draft: #edf2f7;
-  --color-badge-draft-text: #4a5568;
-  --color-badge-approved: #c6f6d5;
-  --color-badge-approved-text: #276749;
+  /* Colors - Premium Deep Dark/Slate Theme */
+  --color-primary: #6366f1; /* Indigo 500 */
+  --color-primary-dark: #4f46e5; /* Indigo 600 */
+  --color-surface: #0f172a; /* Slate 900 */
+  --color-surface-raised: #1e293b; /* Slate 800 */
+  --color-border: #334155; /* Slate 700 */
+  --color-border-hover: #475569; /* Slate 600 */
+  --color-text: #f8fafc; /* Slate 50 */
+  --color-text-muted: #94a3b8; /* Slate 400 */
+  
+  --color-success: #10b981; /* Emerald 500 */
+  --color-warning: #f59e0b; /* Amber 500 */
+  --color-danger: #ef4444; /* Red 500 */
+  
+  /* Badge Colors */
+  --color-badge-draft: rgba(255, 255, 255, 0.1);
+  --color-badge-draft-text: #cbd5e1;
+  --color-badge-approved: rgba(16, 185, 129, 0.2);
+  --color-badge-approved-text: #34d399;
 
   /* Spacing */
   --space-1: 0.25rem;
@@ -25,7 +28,7 @@
   --space-8: 2rem;
 
   /* Typography */
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
   --font-size-sm: 0.875rem;
   --font-size-base: 1rem;
   --font-size-lg: 1.125rem;
@@ -33,17 +36,27 @@
   --font-size-2xl: 1.5rem;
 
   /* Borders */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
-  --shadow-card: 0 2px 8px rgba(0,0,0,0.06);
+  /* Shadows - Smooth glowing shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --shadow-card: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+  --shadow-glow: 0 0 15px rgba(99, 102, 241, 0.3);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.8) 100%);
+  
+  /* Glassmorphism */
+  --glass-bg: rgba(30, 41, 59, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
 
   /* Transitions */
-  --transition-fast: 150ms ease;
-  --transition-normal: 200ms ease;
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
 }

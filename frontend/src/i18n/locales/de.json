@@ -9,7 +9,7 @@
     "architecture": "Architektur",
     "tests": "Tests",
     "baselines": "Baselines",
-    "traceability": "Traceability",
+    "traceability": "Verknüpfungen",
     "metrics": "SE-Metriken",
     "adrs": "ADRs",
     "risks": "Risiken",
@@ -104,7 +104,9 @@
     "tracelinkPanelTitle": "TraceLinks",
     "level": "Ebene",
     "levelHint": "(Auto-berechnet aus der Hierarchie)",
-    "levelAutoCalculated": "Ebene wird automatisch aus der Hierarchie berechnet."
+    "levelAutoCalculated": "Ebene wird automatisch aus der Hierarchie berechnet.",
+    "parentElement": "Übergeordnetes Element",
+    "noParent": "Kein Parent (Root / L0)"
   },
   "traceability": {
     "upstream": "Upstream-Links",
@@ -116,6 +118,7 @@
     "target": "Ziel",
     "linkType": "Link-Typ",
     "create": "Neuen Link erstellen",
+    "viewAll": "Alle anzeigen",
     "noArtifacts": "Keine Artefakte vorhanden.",
     "sourceRequired": "Bitte ein Quell-Artefakt auswählen.",
     "targetRequired": "Bitte ein Ziel-Artefakt auswählen.",

@@ -79,10 +79,23 @@ export const architectureApi = {
   update(
     id: UUID,
     data: Partial<
-      Pick<ArchitectureElement, "title" | "description" | "element_type">
-    >
+      Pick<
+        ArchitectureElement,
+        "title" | "description" | "element_type" | "parent_id"
+      >
+    > & { change_reason?: string }
   ): Promise<ArchitectureElement> {
     return apiClient.patch<ArchitectureElement>(`/architecture/${id}/`, data);
+  },
+
+  /**
+   * Reparenting helper (REQ-001, Phase 2 — hierarchy tree reparenting).
+   * Shared by the edit-form parent dropdown and the tree drag&drop so
+   * both paths hit the same PATCH endpoint. `parentId = null` detaches
+   * the element and makes it a root (L0).
+   */
+  reparent(id: UUID, parentId: UUID | null): Promise<ArchitectureElement> {
+    return architectureApi.update(id, { parent_id: parentId });
   },
 
   delete(id: UUID): Promise<void> {

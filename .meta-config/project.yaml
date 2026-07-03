@@ -260,6 +260,12 @@ variables:
 
     - ESLint max-warnings 0 (frontend/package.json)
 
+    - AI-Optimized Test Runner: Keine rohen Playwright-Logs in den Chat leiten (niemals `tail -100`). Nutze gefilterten Runner (z.B. `npm run e2e:ai`), der nur Testnamen, Fehlerzeilen und relevante Network-Events ausgibt.
+
+    - Persistent Debug Sandbox: Iteratives Test-Debugging darf nur in einer permanenten Sandbox-Datei (z.B. `e2e/tests/sandbox.debug.ts`) stattfinden, um Schreib-Overhead im Chat zu vermeiden.
+
+    - Screenshot Pull-Policy: Screenshots und Traces dürfen nur bei absoluter Notwendigkeit per Datei-Lesevorgang (Pull) geladen werden. Kein routinemäßiges Analysieren von Bildern bei E2E-Fehlern.
+
     '
   REQ_CATEGORIES: '- Functional: Features, User Stories, CRUD-Operationen
 

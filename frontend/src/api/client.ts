@@ -132,6 +132,24 @@ export const apiClient = {
 };
 
 // ---------------------------------------------------------------------------
+// Error message extraction (REQ-L2-RF-011)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a human-readable message from a thrown ApiError. Prefers the
+ * first field-level detail (e.g. serializer validation on parent_id)
+ * over the generic top-level message.
+ */
+export function extractErrorMessage(err: unknown): string {
+  const apiErr = err as Partial<ApiError> | null;
+  const detail = apiErr?.error?.details?.[0];
+  const detailMsg = detail?.errors?.[0];
+  if (detailMsg) return detailMsg;
+  if (apiErr?.error?.message) return apiErr.error.message;
+  return String(err);
+}
+
+// ---------------------------------------------------------------------------
 // Paginated list helper
 // ---------------------------------------------------------------------------
 

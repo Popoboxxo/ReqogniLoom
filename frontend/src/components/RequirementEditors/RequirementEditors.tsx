@@ -26,8 +26,9 @@ import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
 import { workspacesApi } from "../../api/workspaces";
 import { testcasesApi } from "../../api/testcases";
+import { architectureApi } from "../../api/architecture";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import type { Requirement, TraceLink, LinkType, UUID } from "../../types";
+import type { Requirement, TraceLink, LinkType, UUID, ArchitectureElement } from "../../types";
 import type { TestCase } from "../../api/testcases";
 import { REQ_CATEGORIES } from "../../types";
 
@@ -395,6 +396,7 @@ function ReqTraceLinkPanel({
   onLinksChanged,
 }: ReqTraceLinkPanelProps): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -405,6 +407,7 @@ function ReqTraceLinkPanel({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [architectureElements, setArchitectureElements] = useState<ArchitectureElement[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -452,6 +455,29 @@ function ReqTraceLinkPanel({
         // doesn't expose them); log for diagnostics.
         // eslint-disable-next-line no-console
         console.warn("Failed to load TestCases for trace-link target list:", msg);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  // Load ArchitectureElements so the trace-link target dropdown can offer them in
+  // an optgroup alongside Requirements and TestCases (REQ-L2-RF-006).
+  useEffect(() => {
+    let cancelled = false;
+    architectureApi
+      .list(workspaceId)
+      .then((resp) => {
+        if (!cancelled) setArchitectureElements(resp.results);
+      })
+      .catch((err: unknown) => {
+        // Soft-fail: dropdown just shows other groups if architecture loading fails.
+        if (cancelled) return;
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          String(err);
+        // eslint-disable-next-line no-console
+        console.warn("Failed to load ArchitectureElements for trace-link target list:", msg);
       });
     return () => {
       cancelled = true;
@@ -561,14 +587,41 @@ function ReqTraceLinkPanel({
           {t("arch.tracelinkPanelTitle")}
         </h4>
         {!showForm && (
-          <button
-            type="button"
-            data-testid="req-tracelink-create-btn"
-            onClick={openForm}
-            style={reqPanelPrimaryBtn}
-          >
-            {t("traceability.create")}
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button
+              type="button"
+              data-testid="req-tracelink-create-btn"
+              onClick={openForm}
+              style={reqPanelPrimaryBtn}
+            >
+              {t("traceability.create")}
+            </button>
+            <button
+              type="button"
+              data-testid="req-tracelink-viewall-btn"
+              onClick={() => navigate("/traceability")}
+              title={t("nav.traceability")}
+              style={{
+                background: "transparent",
+                color: "var(--color-primary)",
+                border: "1px solid var(--color-primary)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                cursor: "pointer",
+                fontWeight: 500,
+                transition: "var(--transition-fast)",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = "rgba(79, 110, 247, 0.1)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+              }}
+            >
+              {t("traceability.viewAll")}
+            </button>
+          </div>
         )}
       </div>
 
@@ -598,7 +651,7 @@ function ReqTraceLinkPanel({
             style={reqPanelInputStyle}
           >
             <option value="">
-              {otherRequirements.length === 0 && testCases.length === 0
+              {otherRequirements.length === 0 && testCases.length === 0 && architectureElements.length === 0
                 ? t("traceability.noArtifacts")
                 : "—"}
             </option>
@@ -616,6 +669,15 @@ function ReqTraceLinkPanel({
                 {testCases.map((tc) => (
                   <option key={tc.id} value={tc.id}>
                     {tc.title || t("editor.untitled")}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {architectureElements.length > 0 && (
+              <optgroup label={t("traceability.architectureGroup", "Architecture")}>
+                {architectureElements.map((ae) => (
+                  <option key={ae.id} value={ae.id}>
+                    {ae.title || t("editor.untitled")}
                   </option>
                 ))}
               </optgroup>

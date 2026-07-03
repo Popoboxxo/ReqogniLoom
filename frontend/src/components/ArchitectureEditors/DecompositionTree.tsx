@@ -16,8 +16,13 @@
  *   - Accessibility: role="tree"/"treeitem", aria-expanded, keyboard
  *     navigation (Arrow keys, Enter, Escape)
  *
- * Out of scope (Phase 2 per design doc): drag&drop reparenting,
- * requirement link nodes.
+ * Phase 2 (REQ-001): drag&drop reparenting — drag a node onto another
+ * node to make it that node's child, or onto the root dropzone (shown
+ * while dragging) to detach it to L0. Dropping onto the element itself
+ * is blocked client-side; cycles are rejected by the backend hierarchy
+ * invariants and surfaced by the parent via an inline error banner.
+ *
+ * Out of scope: requirement link nodes.
  */
 
 import React, {
@@ -146,6 +151,12 @@ export interface DecompositionTreeProps {
   onAddChild: (parentId: string) => void;
   /** Context menu: delete the element (parent shows its confirm dialog). */
   onDelete: (element: ArchitectureElement) => void;
+  /**
+   * Drag&drop reparenting (REQ-001): move an element under a new parent.
+   * `newParentId = null` detaches the element to root level (L0).
+   * The parent component performs the PATCH and refreshes the tree.
+   */
+  onReparent: (elementId: string, newParentId: string | null) => void;
 }
 
 export function DecompositionTree({
@@ -154,6 +165,7 @@ export function DecompositionTree({
   onSelect,
   onAddChild,
   onDelete,
+  onReparent,
 }: DecompositionTreeProps): JSX.Element {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -161,6 +173,10 @@ export function DecompositionTree({
   const [searchQuery, setSearchQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  // Drag&drop reparenting state (REQ-001). "__root__" marks the root
+  // dropzone as the current drop target.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const treeRef = useRef<HTMLUListElement | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitExpandRef = useRef(false);
@@ -238,6 +254,37 @@ export function DecompositionTree({
       document.removeEventListener("keydown", handleKey);
     };
   }, [contextMenu]);
+
+  // ---- Drag & drop reparenting (REQ-001) ------------------------------------
+
+  const parentById = useMemo((): Map<string, string | null> => {
+    const map = new Map<string, string | null>();
+    for (const el of elements) map.set(el.id, el.parent_id ?? null);
+    return map;
+  }, [elements]);
+
+  const resetDrag = useCallback((): void => {
+    setDraggingId(null);
+    setDropTargetId(null);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent, newParentId: string | null): void => {
+      e.preventDefault();
+      e.stopPropagation();
+      const draggedId = e.dataTransfer.getData("text/plain") || draggingId;
+      resetDrag();
+      if (!draggedId) return;
+      // Self-drop is a no-op. Deeper cycle attempts (dropping onto an
+      // own descendant) are sent to the backend, which rejects them via
+      // the hierarchy invariants — the parent shows the error inline.
+      if (newParentId === draggedId) return;
+      // Dropping onto the current parent changes nothing.
+      if ((parentById.get(draggedId) ?? null) === newParentId) return;
+      onReparent(draggedId, newParentId);
+    },
+    [draggingId, parentById, resetDrag, onReparent],
+  );
 
   // ---- Keyboard navigation (design doc section 10) -------------------------
 
@@ -340,6 +387,38 @@ export function DecompositionTree({
         }}
       />
 
+      {/* Root dropzone — visible while dragging; dropping detaches the
+          element to root level L0 (REQ-001). */}
+      {draggingId && (
+        <div
+          data-testid="tree-root-dropzone"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (dropTargetId !== "__root__") setDropTargetId("__root__");
+          }}
+          onDragLeave={() => {
+            if (dropTargetId === "__root__") setDropTargetId(null);
+          }}
+          onDrop={(e) => handleDrop(e, null)}
+          style={{
+            border:
+              dropTargetId === "__root__"
+                ? "2px dashed #3B82F6"
+                : "2px dashed var(--color-border)",
+            background:
+              dropTargetId === "__root__" ? "#EFF6FF" : "transparent",
+            borderRadius: "var(--radius-sm)",
+            padding: "var(--space-2)",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
+            textAlign: "center",
+          }}
+        >
+          {t("arch.tree.dropRoot", "Drop here to make root (L0)")}
+        </div>
+      )}
+
       {visibleNodes.length === 0 ? (
         <p
           data-testid="tree-empty"
@@ -373,6 +452,8 @@ export function DecompositionTree({
             const el = node.element;
             const isSelected = el.id === selectedId;
             const isFocused = el.id === (focusedId ?? selectedId);
+            const isDropTarget = dropTargetId === el.id;
+            const isDragging = draggingId === el.id;
             const level = Math.min(Math.max(el.level ?? depth, 0), 4);
             return (
               <li
@@ -393,6 +474,24 @@ export function DecompositionTree({
                   setFocusedId(el.id);
                   setContextMenu({ x: e.clientX, y: e.clientY, element: el });
                 }}
+                // Drag&drop reparenting (REQ-001) — native HTML5 D&D.
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", el.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDraggingId(el.id);
+                }}
+                onDragEnd={resetDrag}
+                onDragOver={(e) => {
+                  if (!draggingId || draggingId === el.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (dropTargetId !== el.id) setDropTargetId(el.id);
+                }}
+                onDragLeave={() => {
+                  if (dropTargetId === el.id) setDropTargetId(null);
+                }}
+                onDrop={(e) => handleDrop(e, el.id)}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -403,13 +502,20 @@ export function DecompositionTree({
                   borderRadius: "var(--radius-sm)",
                   cursor: "pointer",
                   // Selected styling per design doc section 6 (node_styling.selected)
-                  background: isSelected ? "#DBEAFE" : "transparent",
+                  background: isDropTarget
+                    ? "#EFF6FF"
+                    : isSelected
+                      ? "#DBEAFE"
+                      : "transparent",
                   borderLeft: isSelected
                     ? "3px solid #3B82F6"
                     : "3px solid transparent",
                   color: "var(--color-text)",
                   transition: "var(--transition-fast)",
-                  outline: "none",
+                  // Drop-zone highlight while dragging over (REQ-001).
+                  outline: isDropTarget ? "2px dashed #3B82F6" : "none",
+                  outlineOffset: "-2px",
+                  opacity: isDragging ? 0.5 : 1,
                 }}
                 onMouseEnter={(e) => {
                   if (!isSelected) {

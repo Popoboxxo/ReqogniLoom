@@ -55,3 +55,11 @@ Our system architecture is decomposed from L1 (System) down to L3 (Component). T
 
 **Management of Integration Tests:**
 Integration tests (L2 and L1) are managed as first-class Test Cases. They must trace back to the respective L2 or L1 requirements. A bottom-up execution strategy is mandated: L3 tests must pass before L2 integration tests are executed, and L2 must pass before L1 E2E tests are initiated.
+
+## 6. Token-Optimized E2E Testing & Debugging Strategy
+
+To efficiently run and debug E2E tests (specifically Playwright) without polluting the context window with raw logs and exhausting token limits, the following strategy is mandated:
+
+*   **AI-Optimized Test Runner:** Raw test logs must never be piped directly into the chat context (e.g., avoid `tail -100`). Instead, a filtered runner (e.g., `npm run e2e:ai`) must be used. This runner suppresses verbose outputs and stack traces, surfacing only test names, the exact line of failure, and highly relevant events (like specific failed network requests).
+*   **Persistent Debug Sandbox:** Iterative debugging must use a persistent sandbox file (e.g., `e2e/tests/sandbox.debug.ts`). This avoids the overhead of continuously writing temporary shell scripts into the context for isolated test runs.
+*   **Screenshot & Trace Policy (Pull vs. Push):** Visual artifacts are saved to a dedicated directory (`e2e/test-results/failures/`). Agents must explicitly read these files with read-tools only when text logs lack clarity (e.g., "Element obscured"), preventing unnecessary token consumption from routine screenshot viewing.

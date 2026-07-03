@@ -45,6 +45,7 @@ VALID_TEST_TYPES = frozenset({"Unit", "Integration", "System", "Acceptance"})
 
 class TestService(ServiceBase):
     """COMP-AS-004 — TestCase CRUD and coverage calculation."""
+    __test__ = False
 
     def __init__(self, trace_link_service=None) -> None:
         from application.trace_link_service import TraceLinkService

@@ -14,7 +14,7 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
@@ -23,6 +23,7 @@ import { ArtifactDiff } from "../ArtifactDiff/ArtifactDiff";
 import { ArchTraceLinkPanel } from "./ArchTraceLinkPanel";
 import { DecompositionTree } from "./DecompositionTree";
 import { architectureApi } from "../../api/architecture";
+import { extractErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
   ArchitectureElement,
@@ -192,6 +193,8 @@ function DeleteConfirmationDialog({
 
 interface ArchElementFormProps {
   element: ArchitectureElement;
+  /** Full workspace element list — used for the parent picker (REQ-001). */
+  elements: ArchitectureElement[];
   onSaved: () => void;
   onDelete: (id: string) => void;
   isExtendedPreset: boolean;
@@ -199,6 +202,7 @@ interface ArchElementFormProps {
 
 function ArchElementForm({
   element,
+  elements,
   onSaved,
   onDelete,
   isExtendedPreset,
@@ -207,11 +211,49 @@ function ArchElementForm({
   const [title, setTitle] = useState(element.title);
   const [description, setDescription] = useState(element.description);
   const [elementType, setElementType] = useState(element.element_type);
+  const [parentId, setParentId] = useState<string>(element.parent_id ?? "");
+
+  // Keep the dropdown in sync when the element is reparented elsewhere
+  // (e.g. via tree drag&drop) and the detail is re-fetched (REQ-001).
+  useEffect(() => {
+    setParentId(element.parent_id ?? "");
+  }, [element.parent_id]);
   const [changeReason, setChangeReason] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
+
+  // Client-side cycle guard (UX pre-check; the backend hierarchy
+  // invariants I1/I2 validate authoritatively): an element must not be
+  // reparented under itself or one of its own descendants (REQ-001).
+  const invalidParentIds = useMemo((): Set<string> => {
+    const childrenByParent = new Map<string, string[]>();
+    for (const el of elements) {
+      if (!el.parent_id) continue;
+      const bucket = childrenByParent.get(el.parent_id);
+      if (bucket) bucket.push(el.id);
+      else childrenByParent.set(el.parent_id, [el.id]);
+    }
+    const invalid = new Set<string>([element.id]);
+    const stack: string[] = [element.id];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) break;
+      for (const childId of childrenByParent.get(current) ?? []) {
+        if (!invalid.has(childId)) {
+          invalid.add(childId);
+          stack.push(childId);
+        }
+      }
+    }
+    return invalid;
+  }, [elements, element.id]);
+
+  const parentOptions = useMemo(
+    () => elements.filter((el) => !invalidParentIds.has(el.id)),
+    [elements, invalidParentIds],
+  );
 
   const handleSave = useCallback(async (): Promise<void> => {
     setIsSaving(true);
@@ -221,12 +263,14 @@ function ArchElementForm({
       const payload: Partial<
         Pick<
           ArchitectureElement,
-          "title" | "description" | "element_type"
+          "title" | "description" | "element_type" | "parent_id"
         >
       > & { change_reason?: string } = {
         title,
         description,
         element_type: elementType,
+        // "" = "no parent" option → detach to root/L0 (REQ-001).
+        parent_id: parentId === "" ? null : parentId,
       };
       if (isExtendedPreset && changeReason.trim()) {
         payload.change_reason = changeReason.trim();
@@ -235,10 +279,7 @@ function ArchElementForm({
       setChangeReason("");
       onSaved();
     } catch (err: unknown) {
-      const msg =
-        (err as { error?: { message?: string } })?.error?.message ??
-        String(err);
-      setSaveError(msg);
+      setSaveError(extractErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -247,6 +288,7 @@ function ArchElementForm({
     title,
     description,
     elementType,
+    parentId,
     changeReason,
     isExtendedPreset,
     onSaved,
@@ -298,6 +340,27 @@ function ArchElementForm({
         {ELEMENT_TYPES.map((et) => (
           <option key={et.value} value={et.value}>
             {t(et.labelKey)}
+          </option>
+        ))}
+      </select>
+
+      {/* Parent element picker — reparenting via edit form (REQ-001).
+          Self and own descendants are excluded (client-side cycle guard);
+          the backend validates hierarchy invariants authoritatively. */}
+      <label htmlFor="arch-parent" style={labelStyle}>
+        {t("arch.parentElement", "Parent Element")}
+      </label>
+      <select
+        id="arch-parent"
+        data-testid="arch-parent-select"
+        value={parentId}
+        onChange={(e) => setParentId(e.target.value)}
+        style={{ ...inputStyle, width: "auto", minWidth: "200px" }}
+      >
+        <option value="">{t("arch.noParent", "No parent (Root / L0)")}</option>
+        {parentOptions.map((el) => (
+          <option key={el.id} value={el.id}>
+            {el.title || t("editor.untitled")} (L{el.level ?? 0})
           </option>
         ))}
       </select>
@@ -474,6 +537,24 @@ export default function ArchitectureEditors(): JSX.Element {
     [refresh, navigate]
   );
 
+  // Reparenting via tree drag&drop (REQ-001). Shares the PATCH endpoint
+  // with the edit-form parent dropdown via architectureApi.reparent.
+  const [reparentError, setReparentError] = useState<string | null>(null);
+  const handleReparent = useCallback(
+    async (elementId: string, newParentId: string | null): Promise<void> => {
+      setReparentError(null);
+      try {
+        await architectureApi.reparent(elementId, newParentId);
+        refresh();
+      } catch (err: unknown) {
+        // Backend rejected (e.g. cycle attempt) — surface the message
+        // and leave the tree untouched (no optimistic update to undo).
+        setReparentError(extractErrorMessage(err));
+      }
+    },
+    [refresh]
+  );
+
   // Split-pane resize handlers
   const handleDividerMouseDown = (e: React.MouseEvent): void => {
     isDraggingRef.current = true;
@@ -609,12 +690,54 @@ export default function ArchitectureEditors(): JSX.Element {
           </button>
         </div>
 
+        {/* Reparent failure banner (REQ-001, e.g. cycle rejected by backend) */}
+        {reparentError && (
+          <div
+            role="alert"
+            data-testid="reparent-error"
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "var(--space-2)",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-danger)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-3)",
+              marginBottom: "var(--space-3)",
+              color: "var(--color-danger)",
+              fontSize: "var(--font-size-sm)",
+            }}
+          >
+            <span style={{ flex: 1 }}>{reparentError}</span>
+            <button
+              type="button"
+              data-testid="reparent-error-dismiss"
+              aria-label={t("actions.cancel")}
+              onClick={() => setReparentError(null)}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "var(--color-danger)",
+                cursor: "pointer",
+                fontSize: "var(--font-size-sm)",
+                lineHeight: 1,
+                padding: 0,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         <DecompositionTree
           elements={elements}
           selectedId={selectedId}
           onSelect={(id) => navigate(`/architecture/${id}`)}
           onAddChild={(parentId) => void handleCreate(parentId)}
           onDelete={(el) => setTreeDeleteTarget(el)}
+          onReparent={(elementId, newParentId) =>
+            void handleReparent(elementId, newParentId)
+          }
         />
       </div>
 
@@ -674,6 +797,7 @@ export default function ArchitectureEditors(): JSX.Element {
               <ArchElementForm
                 key={element.id}
                 element={element}
+                elements={elements}
                 onSaved={refresh}
                 onDelete={(id) => void handleDelete(id)}
                 isExtendedPreset={activeWorkspace?.preset === "extended"}

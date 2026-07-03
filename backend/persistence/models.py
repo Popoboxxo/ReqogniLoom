@@ -465,6 +465,7 @@ class TraceLink(TenantScopedModel):
 
 class TestCase(TenantScopedModel):
     """Test case derived from an artifact (REQ-L1-012)."""
+    __test__ = False
 
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="test_case"
@@ -551,6 +552,7 @@ class TestRun(TenantScopedModel):
 
     Not linked to Artifact hierarchy — operational record for test execution runs.
     """
+    __test__ = False
 
     name = models.CharField(max_length=255)
     workspace = models.ForeignKey(
@@ -581,6 +583,7 @@ class TestRun(TenantScopedModel):
 
 class TestRunResult(TenantScopedModel):
     """Individual TestCase execution result within a TestRun (REQ-L2-AS-030)."""
+    __test__ = False
 
     test_run = models.ForeignKey(
         TestRun, on_delete=models.CASCADE, related_name="results"
