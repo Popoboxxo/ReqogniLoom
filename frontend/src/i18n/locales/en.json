@@ -17,6 +17,7 @@
     "testRuns": "Test Runs",
     "testCases": "Test Cases",
     "settings": "Workspace Settings",
+    "profile": "Access Tokens",
     "logout": "Logout",
     "import": "Import",
     "icds": "ICDs",
@@ -67,7 +68,10 @@
     "back": "Back",
     "new": "New",
     "delete": "Delete",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "create": "Create",
+    "copy": "Copy",
+    "dismiss": "Dismiss"
   },
   "dashboard": {
     "openItems": "Open Items",
@@ -355,5 +359,20 @@
       "critical": "Critical",
       "neutral": "Info"
     }
+  },
+  "apiKeys": {
+    "title": "Personal Access Tokens",
+    "hint": "Tokens authenticate MCP and REST clients (Bearer/X-API-Key header). The token value is shown exactly once after creation.",
+    "namePlaceholder": "Token label (e.g. ci-pipeline)",
+    "plaintextWarning": "Save this token now — it will not be shown again.",
+    "name": "Name",
+    "created": "Created",
+    "lastUsed": "Last used",
+    "status": "Status",
+    "revoked": "revoked",
+    "active": "active",
+    "revoke": "Revoke",
+    "revokeConfirm": "Revoke this token? Clients using it will lose access immediately.",
+    "empty": "No tokens yet."
   }
 }

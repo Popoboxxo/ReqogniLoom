@@ -941,6 +941,30 @@ export function SidebarNavigation(): JSX.Element {
         >
           {i18n.language.startsWith("de") ? "EN" : "DE"}
         </button>
+        {/* Personal Access Tokens — workspace-independent, always reachable (REQ-L2-RF-027) */}
+        <button
+          data-testid="nav-profile"
+          onClick={() => navigate("/profile")}
+          onMouseEnter={() => setHoveredButton("profile")}
+          onMouseLeave={() => setHoveredButton(null)}
+          style={{
+            padding: "var(--space-2) var(--space-3)",
+            borderRadius: "var(--radius-md)",
+            border: `1px solid ${SIDEBAR_BORDER}`,
+            background:
+              hoveredButton === "profile" || location.pathname === "/profile"
+                ? HOVER_BG
+                : "transparent",
+            color: SIDEBAR_TEXT,
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 500,
+            cursor: "pointer",
+            transition: "var(--transition-fast)",
+            textAlign: "left",
+          }}
+        >
+          {t("nav.profile")}
+        </button>
         <button
           onClick={logout}
           onMouseEnter={() => setHoveredButton("logout")}

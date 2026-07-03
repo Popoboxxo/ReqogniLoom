@@ -1,8 +1,8 @@
 /**
  * ARCH-L1-001 ReactFrontend — API Keys API.
  *
- * leaf_id: COMP-RF-001 (NavigationShell — WorkspaceSettings scope)
- * req_id:  REQ-L3-AT001-003 (API key lifecycle: create / list / revoke)
+ * leaf_id: COMP-RF-006 (UserProfileSettings — Personal Access Token management)
+ * req_id:  REQ-L2-RF-027, REQ-L3-AT001-003 (API key lifecycle: create / list / revoke)
  *
  * Wraps /api/v1/api-keys/ endpoints (ApiKeyViewSet).
  * Keys are scoped to the authenticated user; the plaintext key is returned

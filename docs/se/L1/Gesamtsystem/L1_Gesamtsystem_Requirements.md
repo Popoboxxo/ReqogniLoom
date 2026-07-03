@@ -828,15 +828,15 @@ Wie wird die Tenant-Isolation bei aktiviertem Multi-Tenancy durchgesetzt
 
 Das System MUSS registrierten Benutzern ermöglichen, persönliche Zugriffs-Token (PATs) zu generieren, aufzulisten und zu widerrufen (Revoke). Diese Tokens MÜSSEN für API- und MCP-Zugriffe verwendet werden und MÜSSEN den gleichen Berechtigungsprüfungen (RBAC) unterliegen wie die interaktive Web-Session des zugehörigen Benutzers.
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
+**Implementation State:** Erfüllt durch bestehende Komponenten (COMP-AT-001, ApiKeyViewSet, UserProfileSettings)
+**Review Findings:** Deckt sich funktional vollständig mit dem bereits produktiven `ApiKey`-System (REQ-L2-AT-002, REQ-L2-AT-009) — siehe Architektur-Entscheidungen in COMP-AT-006, COMP-RA-007, COMP-RF-006. Kein separater PAT-Mechanismus implementiert, um konkurrierende Bearer-Auth-Pfade zu vermeiden.
 **Test Status:** Missing
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] UI-Bereich zur Verwaltung der Tokens existiert.
-- [ ] REST API validiert `Authorization: Bearer <Token>` Header.
-- [ ] Zurückgezogene Tokens werden sofort ungültig.
-- [ ] Tokens werden kryptografisch sicher gehasht in der Datenbank gespeichert (kein Klartext-Speicher).
+- [x] UI-Bereich zur Verwaltung der Tokens existiert. → `/profile` (`UserProfileSettings.tsx` + `ApiKeysSection.tsx`), workspace-unabhängig erreichbar über Sidebar-Footer.
+- [x] REST API validiert `Authorization: Bearer <Token>` Header. → `AuthenticationService` / `AuthTenancyAuthentication` (COMP-AT-001).
+- [x] Zurückgezogene Tokens werden sofort ungültig. → `ApiKey.revoked_at` / `is_active`-Property, geprüft bei jeder Validierung.
+- [x] Tokens werden kryptografisch sicher gehasht in der Datenbank gespeichert (kein Klartext-Speicher). → `ApiKey.key_hash` (`sha256:<hex>`), Klartext nur einmalig im Response-Body.
 
 **Verifikationsmethode:** Integrationstest — Token generieren, API-Call ausführen, Revoke, erneuter API-Call (sollte fehlschlagen).
 **Verifikiert durch:** L1-SystemAcceptanceTest-081

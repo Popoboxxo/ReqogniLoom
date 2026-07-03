@@ -17,6 +17,7 @@
     "testRuns": "Testläufe",
     "testCases": "Testfälle",
     "settings": "Workspace-Einstellungen",
+    "profile": "Zugriffstoken",
     "logout": "Abmelden",
     "import": "Import",
     "icds": "ICDs",
@@ -67,7 +68,10 @@
     "back": "Zurück",
     "new": "Neu",
     "delete": "Löschen",
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "create": "Erstellen",
+    "copy": "Kopieren",
+    "dismiss": "Verwerfen"
   },
   "dashboard": {
     "openItems": "Offene Punkte",
@@ -355,5 +359,20 @@
       "critical": "Kritisch",
       "neutral": "Info"
     }
+  },
+  "apiKeys": {
+    "title": "Persönliche Zugriffstoken",
+    "hint": "Tokens authentifizieren MCP- und REST-Clients (Bearer/X-API-Key-Header). Der Token-Wert wird nach dem Erstellen genau einmal angezeigt.",
+    "namePlaceholder": "Bezeichnung (z.B. ci-pipeline)",
+    "plaintextWarning": "Token jetzt sichern — er wird danach nicht mehr angezeigt.",
+    "name": "Name",
+    "created": "Erstellt",
+    "lastUsed": "Zuletzt verwendet",
+    "status": "Status",
+    "revoked": "widerrufen",
+    "active": "aktiv",
+    "revoke": "Widerrufen",
+    "revokeConfirm": "Diesen Token widerrufen? Clients, die ihn verwenden, verlieren sofort den Zugriff.",
+    "empty": "Noch keine Token vorhanden."
   }
 }

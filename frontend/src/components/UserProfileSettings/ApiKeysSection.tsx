@@ -1,10 +1,12 @@
 /**
- * ARCH-L1-001 ReactFrontend — ApiKeysSection (WorkspaceSettings).
+ * ARCH-L1-001 ReactFrontend — ApiKeysSection (UserProfileSettings).
  *
- * leaf_id: COMP-RF-001 (NavigationShell scope — Workspace-Konfigurations-UI)
- * req_id:  REQ-L3-AT001-003 (API key lifecycle: create / list / revoke)
+ * leaf_id: COMP-RF-006 (UserProfileSettings — Personal Access Token management)
+ * req_id:  REQ-L2-RF-027 (User-Profile Dialog für PAT-Verwaltung),
+ *          REQ-L3-RF006-001 (Token-Liste und UI-Controls),
+ *          REQ-L3-AT001-003 (API key lifecycle: create / list / revoke)
  *
- * Manages the authenticated user's API keys:
+ * Manages the authenticated user's Personal Access Tokens, workspace-independent:
  *   - list (metadata only)
  *   - create (plaintext shown exactly ONCE with copy-me warning)
  *   - revoke (immediate)

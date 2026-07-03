@@ -67,6 +67,9 @@ const MermaidEditor = lazy(() => import("../mermaid/MermaidEditor"));
 const MetricsDashboard = lazy(
   () => import("../MetricsDashboard/MetricsDashboard")
 );
+const UserProfileSettings = lazy(
+  () => import("../UserProfileSettings/UserProfileSettings")
+);
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -120,6 +123,7 @@ function AppShell(): JSX.Element {
               <Route path="/metrics" element={<MetricsDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
               <Route path="/workspace-settings" element={<WorkspaceSettings />} />
+              <Route path="/profile" element={<UserProfileSettings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

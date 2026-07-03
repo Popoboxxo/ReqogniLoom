@@ -18,7 +18,6 @@ import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
-import { ApiKeysSection } from "./ApiKeysSection";
 import { WorkflowsSection } from "./WorkflowsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { BackupRestoreSection } from "./BackupRestoreSection";
@@ -478,9 +477,6 @@ export default function WorkspaceSettings(): JSX.Element {
           </button>
         </section>
       )}
-
-      {/* API Keys (REQ-L3-AT001-003) — any authenticated user */}
-      <ApiKeysSection />
 
       {/* Workflows (REQ-L2-RA-001) */}
       <WorkflowsSection workspaceId={activeWorkspace.id} />

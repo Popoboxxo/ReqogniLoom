@@ -288,14 +288,14 @@ benötigt dokumentierbare Übergaben für Reviews und Compliance (KONZEPT.md §8
 
 ### REQ-L0-050 — SN-50: Personal Access Tokens (PAT) via UI
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
+**Implementation State:** Erfüllt durch bestehende Komponenten (siehe REQ-L1-081)
+**Review Findings:** Erfüllt durch das bestehende `ApiKey`-System, herausgelöst in eine eigene, workspace-unabhängige `/profile`-Seite.
 **Test Status:** Missing
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] User kann sich über die UI selbstständig Tokens für externe Zugriffe (z.B. MCP Server) generieren.
-- [ ] Der Token wird nach Generierung nur ein einziges Mal im Klartext angezeigt.
-- [ ] User kann aktive Tokens in einer Liste einsehen (Name, Erstelldatum) und einzeln löschen (Revoke).
+- [x] User kann sich über die UI selbstständig Tokens für externe Zugriffe (z.B. MCP Server) generieren. → `/profile`, kein aktiver Workspace erforderlich.
+- [x] Der Token wird nach Generierung nur ein einziges Mal im Klartext angezeigt.
+- [x] User kann aktive Tokens in einer Liste einsehen (Name, Erstelldatum) und einzeln löschen (Revoke).
 
 **Rationale:** Für eine sichere Integration von AI-Agenten via MCP oder externen Skripten wird eine Möglichkeit zur Authentifizierung benötigt. Passwörter sind dafür zu unsicher, PATs lassen sich gezielt widerrufen.
 **Abgeleitet von:** User-Request
