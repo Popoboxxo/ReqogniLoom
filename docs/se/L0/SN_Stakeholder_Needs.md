@@ -282,9 +282,45 @@ benötigt dokumentierbare Übergaben für Reviews und Compliance (KONZEPT.md §8
 - Traceability-Matrizen (Requirement → Test, Requirement → Architektur) können als PDF exportiert werden
 - Der Bericht enthält alle für ein Audit relevanten Informationen (Status, Workflow-History, Baseline-Zuordnung)
 
+## Stakeholder-Needs (Erweiterung v7 — REQ-L0-050)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "PAT via UI"
+
+### REQ-L0-050 — SN-50: Personal Access Tokens (PAT) via UI
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] User kann sich über die UI selbstständig Tokens für externe Zugriffe (z.B. MCP Server) generieren.
+- [ ] Der Token wird nach Generierung nur ein einziges Mal im Klartext angezeigt.
+- [ ] User kann aktive Tokens in einer Liste einsehen (Name, Erstelldatum) und einzeln löschen (Revoke).
+
+**Rationale:** Für eine sichere Integration von AI-Agenten via MCP oder externen Skripten wird eine Möglichkeit zur Authentifizierung benötigt. Passwörter sind dafür zu unsicher, PATs lassen sich gezielt widerrufen.
+**Abgeleitet von:** User-Request
+
+## Stakeholder-Needs (Erweiterung v8 — REQ-L0-051)
+
+> **Datum:** 2026-07-04 | **Quelle:** User-Request "System Banner"
+
+### REQ-L0-051 — SN-51: System Broadcast Banner
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Administratoren können zur Laufzeit eine textuelle Nachricht aktivieren und deaktivieren.
+- [ ] Wenn aktiviert, wird die Nachricht global als Banner (Sticky) an alle Benutzer in der UI ausgeliefert.
+- [ ] KI-Agenten und Skripte können den Banner-Inhalt via API und MCP-Server abrufen.
+
+**Rationale:** Wichtig, um Nutzer und integrierte Agenten auf anstehende Wartungsarbeiten, System-Downtimes oder geänderte Arbeitsanweisungen hinzuweisen.
+**Abgeleitet von:** User-Request
+
 ---
 
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade | 2026-06-18*
+*Erstellt durch se-requirements-Agent (L0) | ReqFlow SE-Kaskade | 2026-06-20*
 *Nächster Schritt: L1 System-Anforderungen in docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md*
 
 ---
@@ -982,6 +1018,189 @@ Als Nutzer erwarte ich eine performante Applikation, die auch bei großen Projek
 
 ---
 
+---
+
+## Stakeholder-Needs (Erweiterung v8 — REQ-L0-041 bis REQ-L0-046)
+
+> **Quelle:** User-Request: Adaptive AI-Native Systems Engineering Plattform
+> **Datum:** 2026-07-03
+> **Erstellt durch:** se-requirements-Agent | 2026-07-03
+> **Status:** formalisiert
+
+---
+
+### REQ-L0-041 — SN-41: Adaptive Ontologie (Skalierung der SE-Strenge)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need (Architektur-Erweiterung).
+**Test Status:** Missing
+
+Als SysEng-Nutzer muss ich das System flexibel skalieren können — von einem leichten "Kleinprojekt" (Kanban-Stil) bis hin zu einem strengen, ISO-15288-konformen SE-Prozess (Hardcore SE) — ohne das Tool wechseln zu müssen.
+
+**Rationale:** Vermeidung von Tool-Bruch zwischen frühen agilen Phasen und späten regulierten Phasen.
+**Akzeptanzkriterien:**
+- AC1: Das System unterstützt "Modi" (Presets), die die Komplexität der Ontologie anpassen.
+- AC2: In leichten Modi sind komplexe Entitäten transparent ausgeblendet.
+
+**Ableitet L1:** Architekturvorgabe Preset-Engine, Traceability-Ontologie
+
+---
+
+### REQ-L0-042 — SN-42: Ontologie-Vielfalt (StReq, SyReq, ArchE, CoReq, IF, ADR, Risk, TC)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need (Architektur-Erweiterung).
+**Test Status:** Missing
+
+Das System muss spezifische SE-Entitäten (Stakeholder Requirement, System Requirement, Architecture Element, Component Requirement, Interface, ADR, Risk, TestCase) klar unterscheiden und deren Verbindungsregeln (z.B. *refines*, *allocated to*, *mitigated by*) erzwingen.
+
+**Rationale:** Ohne strikte Typisierung der Entitäten und Kanten ist kein semantisches Routing oder automatisiertes Anti-Pattern-Detection möglich.
+**Akzeptanzkriterien:**
+- AC1: Entitätstypen sind im Datenmodell tief verankert.
+- AC2: Kanten (Traces) haben eine feste Semantik.
+
+**Ableitet L1:** REQ-L1-071 (Spezifische Traceability-Ontologie)
+
+---
+
+### REQ-L0-043 — SN-43: Erweiterte UI-Ansichten (TRM, Node Graph, Split-Screen)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need.
+**Test Status:** Missing
+
+Nutzer benötigen neben klassischen Listen und Bäumen auch eine Traceability Matrix (Kreuztabelle), interaktive Netzwerk-Graphen für Impact-Analysen und einen Split-Screen für tiefen Kontext + KI-Chat.
+
+**Rationale:** Komplexe Systeme lassen sich nur visuell über TRM und Netzwerk-Graphen überschauen.
+**Akzeptanzkriterien:**
+- AC1: Ansicht für interaktive Node-Graphen.
+- AC2: Ansicht für Traceability Matrix (TRM).
+- AC3: Split-Screen Layout mit Kontext-Panel & KI-Chat.
+
+**Ableitet L1:** REQ-L1-070 (WebGL / Canvas Graph Rendering)
+
+---
+
+### REQ-L0-044 — SN-44: Versionierte Kanten (Dynamic vs. Static Traces)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Bisher nur dynamische Verweise auf `latest`.
+**Test Status:** Missing
+
+In späten/strengen Projektphasen müssen Trace-Links statisch ("Pinned") auf eine spezifische Objektversion zeigen können, während sie in frühen Phasen dynamisch auf den "Latest"-Stand zeigen.
+
+**Rationale:** Notwendig für Compliance, formale Releases und Baselines (Product Baseline).
+**Akzeptanzkriterien:**
+- AC1: TraceLinks können ein Attribut `pin_version` haben.
+- AC2: Wenn gesetzt, zeigt der Link auf einen Snapshot.
+
+**Ableitet L1:** REQ-L1-072 (Statische vs. Dynamische TraceLinks)
+
+---
+
+### REQ-L0-045 — SN-45: Anti-Pattern Erkennung (Orphans, Barren Nodes)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need.
+**Test Status:** Missing
+
+Das System muss Fehler in der Architektur (Orphans ohne Upstream, Barren Nodes ohne Downstream, Zirkelbezüge) aktiv erkennen und markieren.
+
+**Rationale:** Qualitätssicherung bei komplexen Traceability-Bäumen.
+**Akzeptanzkriterien:**
+- AC1: Das System flaggt Orphans (Gold Plating).
+- AC2: Das System flaggt Barren Nodes (Unfertige Spezifikation).
+- AC3: Zyklen im DAG werden verhindert oder markiert.
+
+**Ableitet L1:** REQ-L1-073 (Rules Engine für Anti-Patterns)
+
+---
+
+### REQ-L0-046 — SN-46: Proaktive KI-Agenten (Semantic Healing, Interfaces, Decomposition)
+
+**Implementation State:** Not Implemented
+**Review Findings:** KI-Agenten bisher meist reaktiv/chat-basiert.
+**Test Status:** Missing
+
+KI-Agenten dürfen nicht nur auf Anfrage reagieren, sondern müssen proaktiv Suspect-Links analysieren (Semantic Trace Healing), Schnittstellenkonsistenz einfordern und über RAG Architekturentwürfe generieren.
+
+**Rationale:** Echter AI-Native Ansatz — KI arbeitet als kontinuierlicher System-Ingenieur im Hintergrund.
+**Akzeptanzkriterien:**
+- AC1: Semantic Trace Healing schlägt Updates für Downstream-Elemente vor.
+- AC2: Interface-Consistency wird proaktiv überwacht.
+- AC3: KI bricht Anforderungen vertikal herunter (AI Decomposition).
+
+**Ableitet L1:** REQ-L1-074 (Semantic Trace Healing Engine), REQ-L1-069 (AI Orchestration Layer)
+
+---
+---
+
+## Stakeholder-Needs (Erweiterung v9 — REQ-L0-047 bis REQ-L0-049)
+
+> **Quelle:** User-Request: Striktes Datenmodell & Stage-Gating
+> **Datum:** 2026-07-03
+> **Erstellt durch:** se-requirements-Agent | 2026-07-03
+> **Status:** formalisiert
+
+---
+
+### REQ-L0-047 — SN-47: Präzises, domänenspezifisches Datenmodell
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need.
+**Test Status:** Missing
+
+Das System muss über ein rigides Datenmodell verfügen. Jedes Artefakt benötigt zwingend globale Metadaten (UID als Auto-String z.B. REQ-1042, Float/SemVer Versionierung, Created By/Date, Last Modified By/Date, Tags). Zudem müssen artefaktspezifische Attribute vorhanden sein (z.B. Priority nach MoSCoW für StReq, Complexity/Points nach Fibonacci für SyReq, Criticality/ASIL für ArchE).
+
+**Rationale:** Ein schwammiges Schema verhindert tiefgreifende Auswertungen und normkonformes Systems Engineering (wie ISO 26262, ASPICE).
+**Akzeptanzkriterien:**
+- AC1: Globale Metadaten (UID, Version, Audit-Trail) sind unveränderlich und systemgemanagt.
+- AC2: Artefaktspezifische UI-Masken und Backend-Validierungen existieren (z.B. MoSCoW-Dropdown).
+
+**Ableitet L1:** REQ-L1-076 (Global Metadata), REQ-L1-077 (Artifact-Specific Schema)
+
+---
+
+### REQ-L0-048 — SN-48: Industriestandard Workflow-Status
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need.
+**Test Status:** Missing
+
+Jedes Hauptartefakt (StReq, SyReq, ArchE, TC) muss einen strengen Lifecycle durchlaufen. Die erlaubten Status sind: Draft (Entwurf), In Review (In Prüfung), Approved (Freigegeben), In Implementation (Nur ArchE), Verified (Verifiziert), Rejected (Abgelehnt) und Obsolete (Veraltet).
+
+**Rationale:** Vermeidung von Chaos; klare Definition des Reifegrads (Maturity) eines Artefakts.
+**Akzeptanzkriterien:**
+- AC1: Artefakte starten immer im Status "Draft".
+- AC2: Übergänge sind nur nach einer definierten State Machine erlaubt.
+
+**Ableitet L1:** REQ-L1-078 (State Machine & Workflow)
+
+---
+
+### REQ-L0-049 — SN-49: Stage-Gating & Guardrails (Strenge SE-Regeln)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu identifizierter Need.
+**Test Status:** Missing
+
+Im "Hardcore SE-Modus" muss das System Statusübergänge aktiv blockieren (Guardrails), wenn semantische SE-Regeln verletzt sind.
+Spezifisch:
+- Top-Down Restriktion: SyReq darf nur "Approved" werden, wenn Parent-StReq "Approved" ist.
+- No-Orphan Rule: SyReq darf nicht "In Review" gehen, ohne Upstream-Trace.
+- Allocation Gate: ArchE muss mind. "Draft" sein für Allocation; ArchE darf erst "Approved" werden, wenn alle zugewiesenen SyReqs "Approved" sind.
+- Baseline Lock: Baseline-Erstellung erfordert 100% "Approved" Artefakte und 0 "Suspect" Links.
+
+**Rationale:** Die Software muss den Ingenieur zwingen, sauber zu arbeiten, statt ihm nur eine Dokumentationsfläche zu bieten.
+**Akzeptanzkriterien:**
+- AC1: Das Backend lehnt ungültige State-Transitions mit einem Fehler ab.
+- AC2: Die UI zeigt dem Nutzer klare Meldungen an, warum ein Statuswechsel blockiert wird.
+
+**Ableitet L1:** REQ-L1-079 (Stage-Gating Engine)
+
+---
+
+
 ## Zusammenfassung: Neue Stakeholder-Needs
 
 | REQ-ID | Titel | Priorität | Abgeleitet von | L1-Ableitung |
@@ -991,5 +1210,14 @@ Als Nutzer erwarte ich eine performante Applikation, die auch bei großen Projek
 | REQ-L0-038 | Skalierbarkeit & Übersicht | mandatory | UI-Befund | NEU REQ-L1-058, REQ-L1-060 |
 | REQ-L0-039 | Systemebenen-Orientierung | mandatory | UI-Befund | NEU REQ-L1-061 |
 | REQ-L0-040 | UI-Performance | mandatory | UI-Befund | NEU REQ-L1-059 |
+| REQ-L0-041 | Adaptive Ontologie | mandatory | User-Request | Architekturvorgabe Preset-Engine |
+| REQ-L0-042 | Ontologie-Vielfalt | mandatory | User-Request | REQ-L1-071 |
+| REQ-L0-043 | Erweiterte UI-Ansichten | mandatory | User-Request | REQ-L1-070 |
+| REQ-L0-044 | Versionierte Kanten | mandatory | User-Request | REQ-L1-072 |
+| REQ-L0-045 | Anti-Pattern Erkennung | mandatory | User-Request | REQ-L1-073 |
+| REQ-L0-046 | Proaktive KI-Agenten | mandatory | User-Request | REQ-L1-069, REQ-L1-074 |
+| REQ-L0-047 | Präzises Datenmodell | mandatory | User-Request | REQ-L1-076, REQ-L1-077 |
+| REQ-L0-048 | Workflow-Status | mandatory | User-Request | REQ-L1-078 |
+| REQ-L0-049 | Stage-Gating & Guardrails | mandatory | User-Request | REQ-L1-079 |
 
 **Nächster Schritt:** L1-System-Anforderungen in `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` erweitern.

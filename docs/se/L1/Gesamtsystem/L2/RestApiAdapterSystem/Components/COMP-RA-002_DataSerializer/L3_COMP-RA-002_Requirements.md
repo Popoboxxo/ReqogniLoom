@@ -119,4 +119,29 @@ Der DataSerializer SHALL die von COMP-RA-004 (PresetGuard) über IF-RA-INT-004 g
 
 ---
 
+## Erweiterung v2 — REQ-L3-RA002-005 (Schema Validation für AI-Native SE)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive" (REQ-L2-RA-019)
+
+---
+
+### REQ-L3-RA002-005: Domänenspezifische Validierung (Polymorphic Serialization)
+
+Der DataSerializer MUSS das Erstellen und Aktualisieren von Artefakten polymorph anhand des Feldes `type` validieren. Für jeden Artefakttyp (StReq, SyReq, ArchE, TC) MUSS eine spezifische Serializer-Child-Class exakt die im Datenmodell (REQ-L1-077) vorgeschriebenen Felder und Enums validieren.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu. Bisher nur generisches Artefakt-Schema.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] StakeholderRequirementSerializer validiert MoSCoW-Prioritäten.
+- [ ] SystemRequirementSerializer validiert Fibonacci-Werte (Complexity) und Enum (Verification Method).
+- [ ] ArchitectureElementSerializer validiert ASIL-Levels und Make-or-Buy-Enum.
+- [ ] TestCaseSerializer validiert Test Type und Pre-Conditions.
+- [ ] Ein POST/PATCH mit fehlenden oder unpassenden Pflichtfeldern für den `type` führt zu `400 Bad Request` mit Field-Errors.
+
+**Traceability:** Abgeleitet von REQ-L2-RA-019
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

@@ -542,3 +542,110 @@ Der RestApiAdapter MUSS auf allen `GET list`-Routen Filterung nach Suchbegriffen
 **Verifikiert durch:** L2-RA-Test-017
 **Abgeleitet von:** REQ-L1-066
 **Übergeordnete REQ-L0:** REQ-L0-038
+
+---
+
+## Erweiterung v4 — REQ-L2-RA-018 (GraphQL API)
+
+> **Datum:** 2026-07-03 | **Quelle:** Adaptive AI-Native SE Plattform
+
+---
+
+### REQ-L2-RA-018: GraphQL Endpoint für Traceability-Queries
+
+**Implementation State:** Deferred
+**Review Findings:** Zurückgestellt aufgrund von Architektur-Entscheidung (keine Architekturänderungen).
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-075.
+
+Der RestApiAdapter MUSS neben der REST-API einen `/graphql`-Endpunkt bereitstellen. Dieser Endpunkt MUSS das gesamte Datenmodell abbilden, um externe Agenten in die Lage zu versetzen, tiefe Traversierungen (z. B. "hole mir alle Testfälle von allen Requirements, die zu Architektur-Element X allokiert sind") ohne N+1-Query-Probleme durchzuführen.
+
+**Akzeptanzkriterien:**
+- AC1: `POST /graphql` Endpoint existiert und validiert Bearer-Tokens (RBAC-konform).
+- AC2: GraphQL Schema umfasst StReq, SyReq, ArchE, CoReq, TC, IF.
+- AC3: Pagination wird über GraphQL-Connections/Edges unterstützt.
+
+**Verifikationsmethode:** API-Test (Ausführung einer 3-Level-deep Query)
+**Verifikiert durch:** L2-RA-Test-018
+**Abgeleitet von:** REQ-L1-075
+**Übergeordnete REQ-L0:** REQ-L0-041
+
+---
+
+## Erweiterung v5 — REQ-L2-RA-019..020 (Striktes Datenmodell & Stage-Gating)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive"
+
+---
+
+### REQ-L2-RA-019: REST-Schema-Validierung für domänenspezifische Felder
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu. Bisher nur generisches Artefakt-Schema.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-077.
+
+Das RestApiAdapterSystem MUSS über DRF-Serializer sicherstellen, dass beim Erstellen (`POST`) und Bearbeiten (`PATCH`/`PUT`) von Artefakten die typspezifischen Metadaten zwingend validiert werden:
+- Ein Stakeholder-Requirement muss MoSCoW-Prioritäten validieren.
+- Ein System-Requirement muss Fibonacci-Werte für Complexity und definierte Enums für Verification Method validieren.
+- Ein Architecture Element muss ASIL-Levels (QM, A, B, C, D) und Make-or-Buy-Enums validieren.
+
+**Akzeptanzkriterien:**
+- AC1: DRF Serializer weisen Requests mit `400 Bad Request` ab, wenn Pflichtfelder für den jeweiligen Artefakt-Typ fehlen.
+- AC2: Unbekannte/Unpassende Felder in der Payload (z.B. ASIL bei einem TC) werden verworfen (stripping) oder führen zu einem Fehler.
+
+**Verifikationsmethode:** API-Unit-Tests (Invalid Payload Rejection)
+**Abgeleitet von:** REQ-L1-077
+**Übergeordnete REQ-L0:** REQ-L0-047
+
+---
+
+### REQ-L2-RA-020: API State Machine & Guardrails Enforcer
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu. Bisher keine serverseitige Status-Validierung.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-079.
+
+Die REST-API MUSS jeden `PATCH /artifacts/{id}` Request abfangen, der das Feld `workflow_state` verändert. Das System MUSS den State-Machine-Übergang und die Traceability-Graphen-Regeln evaluieren:
+- Ist der Übergang in der State-Machine definiert?
+- Erfüllt das Artefakt die Guardrail-Regeln (z.B. "No Orphan" für SyReq)?
+
+Schlägt eine Prüfung fehl, MUSS die API mit `409 Conflict` antworten und einen detaillierten Fehler-String liefern (z.B. `"transition_denied: Missing upstream trace to an Approved Stakeholder Requirement"`).
+
+**Akzeptanzkriterien:**
+- AC1: Status-Wechsel abseits der definierten State Machine werden mit `400 Bad Request` abgelehnt.
+- AC2: Status-Wechsel, die gegen Stage-Gating-Regeln (Orphan, Allocation, Parent-Approved) verstoßen, werden mit `409 Conflict` und Klartext-Fehlermeldung blockiert.
+- AC3: Baseline-Generierung (`POST /baselines`) blockiert mit `409`, wenn nicht 100% der Scope-Artefakte `Approved` sind.
+
+**Verifikationsmethode:** API-Integration-Tests (State-Transitions mit Mock-Graphen)
+**Abgeleitet von:** REQ-L1-079
+**Übergeordnete REQ-L0:** REQ-L0-049
+
+---
+
+## Erweiterung v4 — REQ-L2-RA-022 (System Announcement API)
+
+> **Datum:** 2026-07-04 | **Quelle:** REQ-L1-082
+
+---
+
+### REQ-L2-RA-022: System Announcement API
+
+Der RestApiAdapter MUSS REST-Routen für das Lesen und Schreiben des globalen System-Announcements bereitstellen.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] `GET /api/v1/system/announcement` liefert `{active: boolean, message: string}` (für alle authentifizierten User lesbar).
+- [ ] `PUT /api/v1/system/announcement` erlaubt das Ändern des Zustands (nur für Admins, sonst 403).
+
+**Verifikationsmethode:** API-Tests (Rollenprüfung und Persistenz).
+**Verifikiert durch:** L2-RA-Test-022
+**Abgeleitet von:** REQ-L1-082
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*

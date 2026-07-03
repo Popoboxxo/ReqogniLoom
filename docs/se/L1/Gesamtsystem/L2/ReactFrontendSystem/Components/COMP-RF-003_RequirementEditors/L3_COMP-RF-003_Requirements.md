@@ -116,4 +116,29 @@ Die RequirementEditors-Komponente MUSS einen Editor-Wechsel zwischen zwei Requir
 ---
 
 ---
+
+## Erweiterung v2 — REQ-L3-RF003-005 (Dynamische Masken für AI-Native SE)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive" (REQ-L2-RF-025)
+
+---
+
+### REQ-L3-RF003-005: Dynamische UI-Masken für StReq und SyReq
+
+Die RequirementEditors-Komponente MUSS das Eingabeformular dynamisch anhand des `type` Felds des geladenen Requirements aufbauen.
+- Ist der Typ `StakeholderRequirement`, wird ein MoSCoW-Dropdown gerendert.
+- Ist der Typ `SystemRequirement`, wird ein Fibonacci-Slider für `Complexity` und ein Dropdown für `Verification Method` gerendert.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] MoSCoW-Dropdown ist sichtbar und editierbar, wenn `type == 'StReq'`.
+- [ ] Fibonacci-Slider ist sichtbar und editierbar, wenn `type == 'SyReq'`.
+- [ ] Die Felder `UID` und `Version` sind prominent im Header platziert und read-only.
+
+**Traceability:** Abgeleitet von REQ-L2-RF-025
+
+---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

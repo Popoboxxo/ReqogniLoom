@@ -818,9 +818,57 @@ Wie wird die Tenant-Isolation bei aktiviertem Multi-Tenancy durchgesetzt
 | REQ-L1-025 | REQ-L0-002 |
 | REQ-L1-026 | REQ-L0-002 |
 
+## Erweiterung v4 — REQ-L1-081 (PAT Management)
+
+> **Datum:** 2026-07-03 | **Quelle:** REQ-L0-050
+
 ---
 
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade | 2026-06-18*
+### REQ-L1-081: Personal Access Token (PAT) Management
+
+Das System MUSS registrierten Benutzern ermöglichen, persönliche Zugriffs-Token (PATs) zu generieren, aufzulisten und zu widerrufen (Revoke). Diese Tokens MÜSSEN für API- und MCP-Zugriffe verwendet werden und MÜSSEN den gleichen Berechtigungsprüfungen (RBAC) unterliegen wie die interaktive Web-Session des zugehörigen Benutzers.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] UI-Bereich zur Verwaltung der Tokens existiert.
+- [ ] REST API validiert `Authorization: Bearer <Token>` Header.
+- [ ] Zurückgezogene Tokens werden sofort ungültig.
+- [ ] Tokens werden kryptografisch sicher gehasht in der Datenbank gespeichert (kein Klartext-Speicher).
+
+**Verifikationsmethode:** Integrationstest — Token generieren, API-Call ausführen, Revoke, erneuter API-Call (sollte fehlschlagen).
+**Verifikiert durch:** L1-SystemAcceptanceTest-081
+**Abgeleitet von:** REQ-L0-050 (SN-50)
+
+## Erweiterung v5 — REQ-L1-082 (System Announcement)
+
+> **Datum:** 2026-07-04 | **Quelle:** REQ-L0-051
+
+---
+
+### REQ-L1-082: Global System Announcement
+
+Das System MUSS eine Konfigurationsmöglichkeit bieten, um einen systemweiten Status-Text (Announcement) zu persistieren. Wenn ein Announcement existiert und als "aktiv" markiert ist, MUSS es allen interagierenden Clients zugänglich gemacht werden (Web-UI, REST-API, MCP-Protokoll).
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Globale Persistenz des Status-Textes (z.B. Singleton in der DB).
+- [ ] Berechtigung: Nur Administratoren dürfen den Text setzen/aktivieren/deaktivieren.
+- [ ] Lesezugriff ist für alle authentifizierten Nutzer und Agenten gestattet.
+- [ ] Die UI blendet das Announcement prominent ein, wenn es aktiv ist (Sticky, nicht dismissable).
+
+**Verifikationsmethode:** End-to-End Test — Admin setzt Text, Nutzer sieht Text in UI, Agent liest Text via MCP.
+**Verifikiert durch:** L1-SystemAcceptanceTest-082
+**Abgeleitet von:** REQ-L0-051 (SN-51)
+
+---
+
+*Erstellt durch se-requirements-Agent (L1) | ReqFlow SE-Kaskade | 2026-06-20*
 *Nächster Schritt: L2-Anforderungen in docs/se/L1/Gesamtsystem/L2/*System/L2_*System_Requirements.md*
 
 ---
@@ -1826,3 +1874,254 @@ Das System muss eine optionale hierarchische Einrückung (Tree-View-Modus) direk
 **Test Status:** Missing
 
 **Traceability:** REQ-L0-039
+
+---
+
+### REQ-L1-068: Graph-Datenbank als Backend-Kern
+
+Das System muss auf einer Graphen-Datenbank (z. B. Neo4j oder ArangoDB) basieren, um tief verschachtelte DAG-Strukturen performant aufzulösen.
+
+**Rationale:** Relationale DBs sind ineffizient für unbegrenzt tiefe Traceability-Abfragen.
+**Domain:** software
+**Priority:** deferred
+**Akzeptanzkriterien:**
+- AC1: Die primäre Persistenzschicht ist eine Graph-Datenbank.
+- AC2: Rekursive Traceability-Abfragen über den gesamten Baum dauern < 500ms.
+**Implementation State:** Deferred
+**Review Findings:** Architektur-Wechsel von SQL auf Graph-DB durch Projektleitung zurückgestellt. Wir behalten die relationale Architektur bei.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-041
+
+---
+
+### REQ-L1-069: AI Orchestration Layer & Semantic Router
+
+Das System muss einen Router besitzen, der komplexe Aufgaben (RAG, Herunterbrechen) an leistungsstarke Cloud-LLMs routet und hochfrequente/datenschutzkritische Aufgaben an lokale LLMs (z. B. Ollama) delegiert.
+
+**Rationale:** Kostenoptimierung, Datenschutz und Latenz-Reduzierung durch Hybrid-AI.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Der AI Orchestration Layer kann Cloud- und Local-LLMs ansteuern.
+- AC2: Routing-Entscheidungen basieren auf Datenschutz-Tags und Modell-Fähigkeiten.
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-046
+
+---
+
+### REQ-L1-070: WebGL / Canvas Graph Rendering
+
+Das Frontend muss WebGL/Canvas-Technologien einsetzen, um interaktive Node-Graphen mit tausenden Knoten flüssig zu rendern.
+
+**Rationale:** DOM-basierte Graph-Renderer (SVG) skalieren nicht für große System-Architekturen.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Netzwerk-Ansicht rendert bis zu 5000 Knoten mit 30 FPS.
+- AC2: Rendering basiert auf Canvas oder WebGL (z.B. React Flow / Cytoscape).
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-043
+
+---
+
+### REQ-L1-071: Spezifische Traceability-Ontologie
+
+Die Trace-Engine muss die Kanten-Semantik streng validieren (z. B. `StReq --derives to--> SyReq`, `CoReq --allocated to--> ArchE`).
+
+**Rationale:** Semantisches Routing und KI-Analyse erfordern eine deterministische Graphenstruktur.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Erstellung von Kanten, die gegen die Ontologie verstoßen, wird abgelehnt.
+- AC2: Kanten-Typen sind klar definiert (`derives to`, `allocated to`, `refines`, etc.).
+**Implementation State:** Backlog
+**Review Findings:** Aktuell unstrukturiertes `link_type` Attribut ohne Validierung.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-042
+
+---
+
+### REQ-L1-072: Statische vs. Dynamische TraceLinks
+
+TraceLinks müssen ein Attribut `pin_version` unterstützen. Ist dies gesetzt, verweist der Link auf eine unveränderliche Version des Zielelements (Statisch/Pinned). Ohne ist er Dynamisch (Latest).
+
+**Rationale:** Notwendig für formale Releases, um nachträgliche, unsichtbare Änderungen zu verhindern.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: TraceLinks können an eine spezifische Version gepinnt werden.
+- AC2: UI visualisiert den Unterschied zwischen "Latest" und "Pinned".
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-044
+
+---
+
+### REQ-L1-073: Rules Engine für Anti-Patterns
+
+Eine Rules-Engine prüft den DAG kontinuierlich auf Orphans (kein Upstream), Barren Nodes (kein Downstream) und Cycles (Zyklen) und meldet diese via UI und API.
+
+**Rationale:** Automatische Qualitätssicherung für komplexe Traceability.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Dashboard zeigt Liste der Anti-Patterns.
+- AC2: Graphen-DB-Abfragen identifizieren Zyklen und isolierte Knoten.
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-045
+
+---
+
+### REQ-L1-074: Semantic Trace Healing Engine
+
+Ein KI-Service horcht auf Suspect-Status-Änderungen, analysiert das inhaltliche Delta und generiert proaktiv Patch-Vorschläge für Downstream-Artefakte.
+
+**Rationale:** Reduzierung manueller Review-Aufwände bei kleinen Änderungen in großen Systemen.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Event-Listener erkennt, wenn ein Trace-Link auf "Suspect" geht.
+- AC2: KI generiert einen Text- oder Code-Vorschlag für das abhängige Element.
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-046
+
+---
+
+### REQ-L1-075: GraphQL & REST Parität
+
+Neben der REST-API muss eine vollständige GraphQL-API bereitgestellt werden, die tief verschachtelte Graph-Queries für externe Agenten und Clients effizient macht.
+
+**Rationale:** N+1 Query Probleme beim Traversieren des Graphen durch externe API-Clients vermeiden.
+**Domain:** software
+**Priority:** deferred
+**Akzeptanzkriterien:**
+- AC1: Ein `/graphql` Endpoint existiert.
+- AC2: Die GraphQL-Schema-Abdeckung entspricht 100% der Entitäten der REST-API.
+**Implementation State:** Deferred
+**Review Findings:** Zurückgestellt. Es erfolgen vorerst keine Architekturänderungen an der API-Schicht.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-041
+
+---
+
+### REQ-L1-076: Global Entity Metadata
+
+Jedes Artefakt im System (Requirement, ArchitectureElement, TestCase, etc.) MUSS zwingend ein Set von systemgemanagten Meta-Attributen aufweisen. Diese Felder dürfen nicht durch Nutzer überschrieben werden (außer ggf. Tags).
+
+**Rationale:** Revisionssicherheit, Eindeutige Referenzierung in Dokumenten und API.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: `uid`: Ein im Workspace eindeutiger Auto-String (z.B. REQ-1042).
+- AC2: `version`: Float oder SemVer (z.B. 1.2), das bei Änderungen hochgezählt wird.
+- AC3: `created_by` / `created_at` sowie `last_modified_by` / `last_modified_at`.
+- AC4: `tags`: Array von Strings für flexible Zuordnung.
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-047
+
+---
+
+### REQ-L1-077: Artifact-Specific Schema
+
+Das Datenmodell MUSS typspezifische Pflicht- und Optionsfelder erzwingen.
+- **Stakeholder Requirement:** MoSCoW-Priority, Origin/Source, Business Value (1-10).
+- **System Requirement:** Req. Type (Functional, Non-Functional, Interface, Constraint), Complexity/Points (Fibonacci), Verification Method (Test, Inspection, Analysis, Demonstration).
+- **Architecture Element:** Arch. Level (System, Subsystem, Component, Unit), Make-or-Buy (Make, Buy, Reuse), Criticality (ASIL/SIL Level).
+- **Test Case:** Test Type (Unit, Integration, System, E2E), Pre-Conditions (Text), Expected Result (Text).
+
+**Rationale:** Normkonformität nach INCOSE / ASPICE erfordert spezifische Metriken je Typ.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Das Datenbank-Schema und die REST-Serializer validieren diese spezifischen Felder zwingend.
+- AC2: Unpassende Felder (z.B. ASIL an einem StReq) werden von der API abgelehnt.
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-047
+
+---
+
+### REQ-L1-078: State Machine & Workflow
+
+Alle Hauptartefakte MÜSSEN den folgenden industriestandard-nahen Workflow-Status (State Machine) unterstützen:
+`Draft` (Entwurf) ➔ `In Review` (In Prüfung) ➔ `Approved` (Freigegeben) ➔ `In Implementation` (Nur ArchE) ➔ `Verified` (Verifiziert).
+Zusätzlich: `Rejected` und `Obsolete`.
+
+**Rationale:** Abbildung von Freigabeprozessen und Reifegrad-Messung.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Jedes Artefakt hat ein Feld `workflow_state`.
+- AC2: Neue Artefakte starten zwingend im Status `Draft`.
+- AC3: Übergänge sind nur nach der definierten State Machine (z.B. Draft ➔ Review, nicht Draft ➔ Verified) erlaubt.
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-048
+
+---
+
+### REQ-L1-079: Stage-Gating Engine (Guardrails)
+
+Das System MUSS serverseitige Stage-Gating-Regeln anwenden, die Statusübergänge blockieren, wenn die Struktur nicht konsistent ist.
+Regeln:
+1. **Top-Down Zwang:** Ein SyReq darf nur `Approved` werden, wenn sein referenziertes StReq ebenfalls `Approved` ist.
+2. **No-Orphan Rule:** Ein SyReq darf nicht `In Review` gehen, wenn kein Upstream-Trace zu einem StReq oder einer übergeordneten Komponente existiert.
+3. **Allocation Gate:** Eine ArchE-Komponente darf erst `Approved` werden, wenn alle ihr zugewiesenen SyReqs `Approved` sind. Allocation auf ArchEs ist erst ab Status `Draft` (existierend) erlaubt.
+4. **Baseline Lock:** Eine Baseline (Snapshot) darf nur erzeugt werden, wenn alle inkludierten Artefakte `Approved` sind und keine `Suspect`-Links existieren.
+
+**Rationale:** Erzwingen von sauberer Traceability (Guardrails gegen Schlampigkeit).
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Die REST-API lehnt PATCH-Requests für Statusänderungen mit `409 Conflict` (inkl. Detail-Message) ab, wenn ein Gate verletzt wird.
+- AC2: Baseline-Generierung blockiert bei unfertigen Dokumenten.
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-049
+
+---
+
+### REQ-L1-080: Event-Driven AI Automation
+
+Status-Übergänge (Events) MÜSSEN konfigurierbare KI-Aktionen im AI Orchestration Layer triggern:
+- Beim Übergang `Draft ➔ In Review`: AI Quality Gate prüft das Requirement (z.B. auf Messbarkeit, INCOSE-Regeln) und kann den Wechsel mit einer Begründung ablehnen.
+- Beim manuellen Trigger auf einem StReq (`Draft`): AI Decomposition generiert einen Entwurf von SyReqs.
+- Wenn ein SyReq auf `Approved` springt: AI Verification Agent entwirft passend zur Verification Method erste Test Cases (TC) im Status `Draft`.
+
+**Rationale:** Nutzung der harten Schema-Struktur als Hebel für verlässliche KI-Automatisierung.
+**Domain:** software
+**Priority:** desired
+**Akzeptanzkriterien:**
+- AC1: Status-Transitions feuern Events in das System.
+- AC2: KI-Agenten lauschen auf diese Events und führen die entsprechenden Use-Cases aus.
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-049, REQ-L0-046

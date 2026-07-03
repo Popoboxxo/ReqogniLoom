@@ -580,3 +580,126 @@ Das ReactFrontendSystem MUSS für Artefakte mit Parent-Child-Beziehungen (Requir
 **Review Findings:** Nicht implementiert.
 **Test Status:** Missing
 
+---
+
+## Erweiterung v10 — REQ-L2-RF-022..024 (Adaptive AI-Native SE UI)
+
+> **Datum:** 2026-07-03 | **Quelle:** Adaptive AI-Native SE Plattform
+
+---
+
+### REQ-L2-RF-022: WebGL-basierter Interaktiver Node-Graph
+
+Das ReactFrontendSystem MUSS eine interaktive Netzwerk-Ansicht (Node Graph) bereitstellen, die die Traceability-Beziehungen (DAG) zwischen allen Entitäten visualisiert. Um Performance bei tausenden Knoten zu gewährleisten, MUSS das Rendering auf WebGL/Canvas basieren (z.B. via React Flow, Cytoscape oder Sigma.js).
+
+**Akzeptanzkriterien:**
+- AC1: Neue Route `/graph` rendert das Projekt als Node-Graph.
+- AC2: Flüssiges Rendering (30 FPS) bei mindestens 5000 Knoten.
+- AC3: Knoten sind interaktiv (Klick öffnet Detail-Kontext, Drag & Drop).
+
+**Verifikationsmethode:** Performance-Profil im Browser mit 5000 Mock-Nodes.
+**Abgeleitet von:** REQ-L1-070
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-023: Traceability Matrix (TRM) Ansicht
+
+Das ReactFrontendSystem MUSS eine Traceability Matrix (Kreuztabelle) implementieren. Diese Ansicht erlaubt es Nutzern, Lücken in der Traceability zwischen zwei Ebenen (z. B. System Requirements vs. Architecture Elements) schnell zu identifizieren.
+
+**Akzeptanzkriterien:**
+- AC1: Neue Route `/trm` rendert eine konfigurierbare Matrix.
+- AC2: Nutzer kann Zeilen-Typ (z.B. SyReq) und Spalten-Typ (z.B. ArchE) auswählen.
+- AC3: Zellen zeigen Trace-Status an (verknüpft, nicht verknüpft, suspect).
+
+**Verifikationsmethode:** UI-Test (Matrix-Konfiguration und Rendering).
+**Abgeleitet von:** REQ-L1-071
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-024: Split-Screen Context Panel & KI-Chat
+
+Das ReactFrontendSystem MUSS ein Split-Screen-Layout implementieren, das es erlaubt, links primäre Ansichten (Tree, Node Graph) zu navigieren und rechts ein kontext-sensitives Panel offen zu halten. Dieses Panel MUSS die Metadaten des selektierten Elements und einen KI-Chat enthalten, der kontextbewusst auf das selektierte Element reagiert.
+
+**Akzeptanzkriterien:**
+- AC1: Rechte Sidebar (Context Panel) lässt sich ein-/ausblenden.
+- AC2: Selektion im Graph/Tree ändert automatisch den Kontext im Panel.
+- AC3: Chat-Interface im Panel ist direkt mit dem AI Orchestration Layer verbunden.
+
+**Verifikationsmethode:** UI-Test (Selektion synchronisiert Sidebar-Context).
+**Abgeleitet von:** REQ-L1-069, REQ-L1-070
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+## Erweiterung v11 — REQ-L2-RF-025..026 (Striktes Datenmodell & Stage-Gating)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive"
+
+---
+
+### REQ-L2-RF-025: Dynamische UI-Masken für Artefakt-Typen
+
+Das ReactFrontendSystem MUSS im Requirements-Editor und Architecture-Editor die Eingabemasken dynamisch an den Artefakt-Typ (StReq, SyReq, ArchE, TC) anpassen und typspezifische Dropdowns / Slider rendern.
+
+**Akzeptanzkriterien:**
+- AC1: Ist der Typ `Stakeholder Requirement`, wird ein Dropdown für MoSCoW-Priority gerendert.
+- AC2: Ist der Typ `System Requirement`, wird ein Number-Input (oder Slider) für Complexity (Fibonacci) gerendert.
+- AC3: Die globale `UID` und `Version` werden in allen Ansichten prominent und schreibgeschützt (read-only) angezeigt.
+
+**Verifikationsmethode:** UI-Test (Editor-Rendering basierend auf Typ).
+**Abgeleitet von:** REQ-L1-076, REQ-L1-077
+**Implementation State:** Backlog
+**Review Findings:** Bisher nur ein generisches Formular.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-026: UI-Feedback für Guardrail-Fehler (Stage-Gating)
+
+Wenn das Backend einen Status-Übergang mit HTTP `409 Conflict` (Stage-Gating-Violation) ablehnt, MUSS das Frontend die im Response enthaltene detaillierte Fehlermeldung direkt am WorkflowState-Dropdown (oder in einer Toast-Notification) gut sichtbar darstellen.
+
+**Akzeptanzkriterien:**
+- AC1: Fehler vom Typ "Orphan-Rule-Violation" (z.B. "Fehler: Anforderung hängt in der Luft") werden als rotes Alert-Banner oder Tooltip am Status-Feld gezeigt.
+- AC2: Der Status im Dropdown springt visuell auf den alten Wert zurück, um den Fehlerzustand aufzulösen.
+
+**Verifikationsmethode:** UI-Test (Mock Backend 409 Response auf PATCH request).
+**Abgeleitet von:** REQ-L1-079
+**Implementation State:** Backlog
+**Test Status:** Missing
+
+---
+
+## Erweiterung v4 — REQ-L2-RF-028 (System Announcement Banner)
+
+> **Datum:** 2026-07-04 | **Quelle:** REQ-L1-082
+
+---
+
+### REQ-L2-RF-028: Globales System Announcement Banner
+
+Das ReactFrontendSystem MUSS das Announcement Banner global (z.B. oberhalb der Hauptnavigation) anzeigen, wenn über die API ein aktiver Status-Text gemeldet wird. Für Administratoren MUSS es im Einstellungsbereich eine Möglichkeit geben, diesen Text zu ändern und das Banner zu aktivieren/deaktivieren.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Das Banner ist auf allen Seiten sichtbar (Sticky) und kann von normalen Nutzern nicht weggklickt werden.
+- [ ] Admin-Einstellungen: Textarea für den Inhalt und ein Toggle (An/Aus).
+- [ ] Das Banner pollt nicht, sondern wird beim initialen App-Load (`/api/v1/system/announcement`) geladen oder via SSE aktualisiert.
+
+**Verifikationsmethode:** UI-Test (Admin schaltet Banner ein, User sieht es).
+**Verifikiert durch:** L2-RF-Test-028
+**Abgeleitet von:** REQ-L1-082
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*

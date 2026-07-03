@@ -96,4 +96,28 @@ Die ArchitectureEditors-Komponente MUSS in einer Seitenleiste alle mit dem aktiv
 ---
 
 ---
+
+## Erweiterung v2 — REQ-L3-RF004-004 (Dynamische Masken für AI-Native SE)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive" (REQ-L2-RF-025)
+
+---
+
+### REQ-L3-RF004-004: Dynamische UI-Masken für Architecture Elements
+
+Die ArchitectureEditors-Komponente MUSS das Eingabeformular um domänenspezifische Felder erweitern:
+- Ein Dropdown für das `ASIL` Level (QM, A, B, C, D).
+- Ein Dropdown für `Make or Buy` (Make, Buy, Reuse).
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] ASIL und Make-or-Buy Dropdowns sind sichtbar und editierbar.
+- [ ] Die Felder `UID` und `Version` sind prominent im Header platziert und read-only.
+
+**Traceability:** Abgeleitet von REQ-L2-RF-025
+
+---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

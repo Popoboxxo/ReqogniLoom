@@ -254,3 +254,31 @@ Fehlermeldung (optional) und Zeitstempel.
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-MC-014..015 aus REQ-L1-036, REQ-L1-038)*
+
+---
+
+## Erweiterung v1 — REQ-L2-MC-016 (System Announcement Tool)
+
+> **Datum:** 2026-07-04 | **Quelle:** REQ-L1-082
+
+---
+
+### REQ-L2-MC-016: System Info Tool (Announcement)
+
+Das McpServerSystem MUSS ein Tool (`get_system_announcement`) bereitstellen, mit dem KI-Agenten abfragen können, ob systemweite Warnungen oder Hinweise (z.B. Wartungsarbeiten) vorliegen, um ihr Verhalten entsprechend anzupassen (oder den User darauf hinzuweisen).
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Tool `get_system_announcement` ist im MCP Server registriert.
+- [ ] Liefert die aktuelle System-Nachricht, falls `active=true`, andernfalls eine leere oder "all good" Rückmeldung.
+
+**Verifikationsmethode:** MCP Tool Aufruf Test.
+**Verifikiert durch:** L2-MC-Test-016
+**Abgeleitet von:** REQ-L1-082
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*

@@ -842,3 +842,31 @@ visuell kenntlich machen.
 *Erweiterung 2026-06-28: REQ-L2-AT-017..019 vollständig ausgearbeitet (REQ-L1-039, SN-27)*
 *Designation: component (terminal) — decomposition_status: terminal*
 
+---
+
+## Erweiterung v4 — REQ-L2-AT-020 (Personal Access Tokens)
+
+> **Datum:** 2026-07-03 | **Quelle:** REQ-L1-081
+
+---
+
+### REQ-L2-AT-020: Persistierung und Validierung von PATs
+
+Das AuthAndTenancySystem MUSS die Geschäftslogik für Personal Access Tokens kapseln. Tokens MÜSSEN in der Datenbank sicher (gehasht, z.B. HMAC/SHA256) abgelegt werden. Bei eingehenden Requests MUSS der Token aus dem `Authorization: Bearer <Token>` Header gegen den Hash in der Datenbank validiert und die Anfrage dem zugehörigen Benutzer-Kontext zugeordnet werden.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Datenbank-Modell `PersonalAccessToken` (User, Name, Hash, CreatedAt).
+- [ ] Klartext-Token wird niemals in der Datenbank gespeichert.
+- [ ] Token-Validierung integriert sich nahtlos in die DRF-Authentifizierung.
+
+**Verifikationsmethode:** Unit-Tests der TokenService-Krypto-Logik.
+**Verifikiert durch:** L2-AT-Test-020
+**Abgeleitet von:** REQ-L1-081
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-03*
