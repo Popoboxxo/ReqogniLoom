@@ -816,7 +816,7 @@ export default function RequirementEditors(): JSX.Element {
   const [newTitle, setNewTitle] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   // Split-pane resize state (REQ-L3-RF-***: enable split-pane resizing).
-  const [leftPanelWidth, setLeftPanelWidth] = useState(260);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(340);
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartWidthRef = useRef(0);
@@ -956,8 +956,10 @@ export default function RequirementEditors(): JSX.Element {
         <div
           style={{
             display: "flex",
+            flexWrap: "wrap",
             justifyContent: "space-between",
             alignItems: "center",
+            rowGap: "var(--space-2)",
             marginBottom: "var(--space-3)",
           }}
         >
@@ -971,7 +973,7 @@ export default function RequirementEditors(): JSX.Element {
           >
             {reqLabel}
           </h3>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
             <button
               type="button"
               data-testid="export-pdf-btn"

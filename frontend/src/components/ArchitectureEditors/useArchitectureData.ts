@@ -40,9 +40,11 @@ export function useArchitectureData(selectedId?: string): ArchitectureData {
     async function loadList(): Promise<void> {
       if (!activeWorkspace) return;
       try {
-        const resp = await architectureApi.list(activeWorkspace.id);
+        // Full (paginated-exhaustive) list — the decomposition tree needs
+        // every element to resolve parent_id chains (REQ-001).
+        const all = await architectureApi.listAll(activeWorkspace.id);
         if (cancelled) return;
-        setElements(resp.results);
+        setElements(all);
       } catch {
         // list errors are non-fatal
       } finally {

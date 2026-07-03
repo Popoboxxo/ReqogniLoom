@@ -43,7 +43,6 @@ from typing import Any, Optional
 from uuid import UUID
 
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -140,10 +139,10 @@ class ItemPermissionViewSet(APIView):
     URL: ``/api/v1/workspaces/<uuid:workspace_id>/permissions/``
 
     Permissions:
-        * :class:`IsAuthenticated` — DRF gate (401 if no auth context).
         * :class:`HasOperationPermission` with ``Operation.ASSIGN_ROLE`` —
-          the RBAC layer that maps to admin role. The service performs its
-          own ``_assert_permission(ctx, "admin")`` as the final gate.
+          the RBAC layer that maps to admin role; denies when no auth
+          context is present (401/403). The service performs its own
+          ``_assert_permission(ctx, "admin")`` as the final gate.
 
     Tenant scope:
         Implicit via the :class:`ItemPermissionService` which calls
@@ -151,7 +150,7 @@ class ItemPermissionViewSet(APIView):
         default manager on :class:`ItemPermission`.
     """
 
-    permission_classes = [IsAuthenticated, HasOperationPermission]
+    permission_classes = [HasOperationPermission]
     # RBAC: Operation.ASSIGN_ROLE is admin-only in the matrix
     # (auth_tenancy/services/authorization.py). Item-permission rules are a
     # form of access assignment, so this is the closest matching operation.
@@ -168,7 +167,7 @@ class ItemPermissionViewSet(APIView):
         """Return the request's auth context (set by AuthTenancyAuthentication)."""
         ctx = getattr(request, "auth_context", None)
         if ctx is None:
-            # Should be caught by IsAuthenticated, but be defensive.
+            # Should be caught by HasOperationPermission, but be defensive.
             raise PermissionDeniedError("Authentication required.")
         return ctx
 

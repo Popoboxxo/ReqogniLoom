@@ -463,7 +463,7 @@ variables:
   VOLUME_NAME: postgres_data
 orchestrator:
   enabled: true
-  strict: true
+  strict: false
   handoff:
     protocol: a2a-v1
     token-budget: {}
@@ -557,3 +557,10 @@ model-overrides:
     tester: opencode-go/minimax-m3
     se-developer: opencode-go/minimax-m3
     se-junior-developer: opencode-go/minimax-m3
+  Claude:
+    senior-developer: claude-fable-5
+agent-prompts:
+  default: legacy
+  modes:
+    orchestrator: modern
+    developer: modern

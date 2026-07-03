@@ -18,6 +18,10 @@ import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
+import { ApiKeysSection } from "./ApiKeysSection";
+import { WorkflowsSection } from "./WorkflowsSection";
+import { PermissionsSection } from "./PermissionsSection";
+import { BackupRestoreSection } from "./BackupRestoreSection";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -474,6 +478,18 @@ export default function WorkspaceSettings(): JSX.Element {
           </button>
         </section>
       )}
+
+      {/* API Keys (REQ-L3-AT001-003) — any authenticated user */}
+      <ApiKeysSection />
+
+      {/* Workflows (REQ-L2-RA-001) */}
+      <WorkflowsSection workspaceId={activeWorkspace.id} />
+
+      {/* Item Permissions (REQ-L1-039) — admin only */}
+      {isAdmin && <PermissionsSection workspaceId={activeWorkspace.id} />}
+
+      {/* Backup & Restore (REQ-L1-046) — admin only */}
+      {isAdmin && <BackupRestoreSection />}
 
       {/* Workspace Administration (REQ-L1-042) — admin only */}
       {isAdmin && (

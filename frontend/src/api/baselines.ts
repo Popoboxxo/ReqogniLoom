@@ -50,7 +50,8 @@ export const baselinesApi = {
 
   create(data: {
     workspace_id: UUID;
-    name: string;
+    /** Optional — the backend generates a timestamp-based default. */
+    name?: string;
     scope?: string;
     description?: string;
     artifact_id?: UUID | null;

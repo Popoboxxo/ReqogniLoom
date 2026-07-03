@@ -71,6 +71,7 @@ export const architectureApi = {
     title: string;
     description?: string;
     element_type?: string;
+    parent_id?: UUID | null;
   }): Promise<ArchitectureElement> {
     return apiClient.post<ArchitectureElement>("/architecture/", data);
   },

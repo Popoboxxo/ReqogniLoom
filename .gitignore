@@ -36,3 +36,4 @@ sync.log
 .meta-viz/
 docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/Components/COMP-DS-001_DiagramManager/.keep
 
+node_modules/

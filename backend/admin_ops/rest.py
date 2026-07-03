@@ -48,7 +48,6 @@ from typing import Any, Optional
 from uuid import UUID
 
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -191,10 +190,11 @@ class BackupListCreateView(APIView):
     URL: ``/api/v1/admin/backups/``
 
     Permissions:
-        * :class:`IsAuthenticated` — DRF gate (401 if no auth context).
         * :class:`HasOperationPermission` with ``Operation.WORKSPACE_CONFIG``
-          — admin-only in the RBAC matrix. The service performs its own
-          ``_assert_permission(ctx, "admin")`` as the final gate.
+          — admin-only in the RBAC matrix; denies when no auth context is
+          present (401/403) or the caller lacks the role. The service
+          performs its own ``_assert_permission(ctx, "admin")`` as the final
+          gate.
 
     Tenant scope:
         Implicit via the :class:`BackupService` which calls
@@ -203,7 +203,7 @@ class BackupListCreateView(APIView):
         instance-level by design.
     """
 
-    permission_classes = [IsAuthenticated, HasOperationPermission]
+    permission_classes = [HasOperationPermission]
     required_operation = Operation.WORKSPACE_CONFIG
 
     def __init__(self, **kwargs: Any) -> None:
@@ -217,7 +217,7 @@ class BackupListCreateView(APIView):
         """Return the request's auth context (set by BearerTokenAuthentication)."""
         ctx = getattr(request, "auth_context", None)
         if ctx is None:
-            # Should be caught by IsAuthenticated, but be defensive.
+            # Should be caught by HasOperationPermission, but be defensive.
             raise PermissionDeniedError("Authentication required.")
         return ctx
 
@@ -404,10 +404,11 @@ class AdminRestoreView(APIView):
     URL: ``/api/v1/admin/restore/``
 
     Permissions:
-        * :class:`IsAuthenticated` — DRF gate (401 if no auth context).
         * :class:`HasOperationPermission` with ``Operation.WORKSPACE_CONFIG``
-          — admin-only in the RBAC matrix. The service performs its own
-          ``_assert_permission(ctx, "admin")`` as the final gate.
+          — admin-only in the RBAC matrix; denies when no auth context is
+          present (401/403) or the caller lacks the role. The service
+          performs its own ``_assert_permission(ctx, "admin")`` as the final
+          gate.
 
     Captcha:
         * ``confirmation_text`` MUST equal the literal ``"RESTORE"`` —
@@ -416,7 +417,7 @@ class AdminRestoreView(APIView):
           inside the service (defence in depth).
     """
 
-    permission_classes = [IsAuthenticated, HasOperationPermission]
+    permission_classes = [HasOperationPermission]
     required_operation = Operation.WORKSPACE_CONFIG
 
     def __init__(self, **kwargs: Any) -> None:

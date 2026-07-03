@@ -4,15 +4,14 @@
  * leaf_id: COMP-RF-001 (NavigationShell — gated by preset)
  * req_id:  REQ-L0-017 (Rekursive Architektur-Hierarchie mit versionierten ICDs),
  *          REQ-L1-028 (ICD-Verwaltung),
- *          REQ-L2-ICD-001 (CRUD + immutable Versioning)
+ *          REQ-L2-ICD-001 (CRUD + immutable Versioning),
+ *          REQ-002 (Split-View Layout)
  *
- * Interface Control Document management:
- *   - List view of all ICDs in the active workspace
- *   - Detail view with version history (synthesized from current version)
- *   - Create-ICD form (title, source/target artifacts, contract spec)
- *   - "New Version" button that appends an immutable IcdVersion
- *   - Read-only contract spec (past versions cannot be edited)
- *   - Traceability sidebar (linked artifacts via the tracelinks API)
+ * Interface Control Document management in a split-view layout:
+ *   - Left panel: list of all ICDs in the active workspace (+ create button)
+ *   - Divider: 4px resizable
+ *   - Right panel: create form OR detail view with version history,
+ *     "New Version" flow and traceability sidebar
  *
  * NOTE: Past versions are immutable. There is no DELETE button — the DB
  * trigger `trg_icd_version_immutable` (ADR-ICD-01) makes deletion a
@@ -20,7 +19,7 @@
  * Use "archive" / "supersede" semantics via the new-version flow.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -66,11 +65,11 @@ function joinListField(values: string[] | undefined): string {
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   const e = err as { error?: { message?: string } };
-  return e?.error?.message ?? String(err) ?? fallback;
+  return e?.error?.message ?? (err ? String(err) : fallback);
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Main component — split-view
 // ---------------------------------------------------------------------------
 
 export default function IcdView(): JSX.Element {
@@ -84,7 +83,6 @@ export default function IcdView(): JSX.Element {
   const [architectureElements, setArchitectureElements] = useState<
     ArchitectureElement[]
   >([]);
-  const [selectedId, setSelectedId] = useState<string | null>(routeId ?? null);
   const [selectedDetail, setSelectedDetail] = useState<IcdDetail | null>(null);
   const [timeline, setTimeline] = useState<IcdTimelineEntry[]>([]);
   const [traceability, setTraceability] = useState<IcdTraceability | null>(null);
@@ -97,6 +95,12 @@ export default function IcdView(): JSX.Element {
   const [showNewVersion, setShowNewVersion] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Split-pane resize state (REQ-002)
+  const [leftPanelWidth, setLeftPanelWidth] = useState(300);
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(0);
 
   // Create form fields
   const [formName, setFormName] = useState("");
@@ -133,11 +137,9 @@ export default function IcdView(): JSX.Element {
     setIsLoading(true);
     setError(null);
     try {
-      // Bug fix B-ICD-004: the ICD source/target dropdowns used to show
-      // only the first page of architecture elements. We now fetch the
-      // full list via architectureApi.listAll (which follows pagination
-      // links) so every element is selectable in the source/target
-      // dropdowns.
+      // Bug fix B-ICD-004: fetch the full architecture element list via
+      // architectureApi.listAll (follows pagination links) so every element
+      // is selectable in the source/target dropdowns.
       const [icdResp, archAll] = await Promise.all([
         icdsApi.list(activeWorkspace.id),
         architectureApi.listAll(activeWorkspace.id),
@@ -190,14 +192,49 @@ export default function IcdView(): JSX.Element {
 
   // Sync route param with selection
   useEffect(() => {
-    if (routeId && routeId !== selectedId) {
-      setSelectedId(routeId);
+    if (routeId) {
       void loadDetail(routeId);
-    } else if (!routeId) {
-      setSelectedId(null);
+    } else {
       setSelectedDetail(null);
+      setTimeline([]);
+      setTraceability(null);
     }
-  }, [routeId, loadDetail, selectedId]);
+  }, [routeId, loadDetail]);
+
+  // Split-pane resize handlers
+  const handleDividerMouseDown = (e: React.MouseEvent): void => {
+    isDraggingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = leftPanelWidth;
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!isDraggingRef.current) return;
+      const delta = e.clientX - dragStartXRef.current;
+      const newWidth = Math.max(280, dragStartWidthRef.current + delta);
+      setLeftPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = (): void => {
+      isDraggingRef.current = false;
+    };
+
+    if (isDraggingRef.current) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    }
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, [leftPanelWidth]);
 
   // ---- Handlers ------------------------------------------------------------
 
@@ -215,15 +252,9 @@ export default function IcdView(): JSX.Element {
   };
 
   const handleSelectIcd = (icd: Icd): void => {
-    setSelectedId(icd.id);
     setShowNewVersion(false);
+    setShowCreate(false);
     navigate(`/icds/${icd.id}`);
-  };
-
-  const handleBackToList = (): void => {
-    setSelectedId(null);
-    setShowNewVersion(false);
-    navigate("/icds");
   };
 
   const handleCreate = useCallback(async (): Promise<void> => {
@@ -264,7 +295,7 @@ export default function IcdView(): JSX.Element {
       setShowCreate(false);
       resetCreateForm();
       await loadList();
-      handleSelectIcd(created);
+      navigate(`/icds/${created.id}`);
     } catch (err) {
       setFormError(extractErrorMessage(err, t("icds.createFailed")));
     } finally {
@@ -283,10 +314,11 @@ export default function IcdView(): JSX.Element {
     formInv,
     t,
     loadList,
+    navigate,
   ]);
 
   const handleNewVersion = useCallback(async (): Promise<void> => {
-    if (!selectedId) return;
+    if (!routeId) return;
     setIsSaving(true);
     setFormError(null);
     const payload: NewVersionPayload = {
@@ -298,17 +330,17 @@ export default function IcdView(): JSX.Element {
       invariants: parseListField(nvInv),
     };
     try {
-      await icdsApi.createVersion(selectedId, payload);
+      await icdsApi.createVersion(routeId, payload);
       setShowNewVersion(false);
       await loadList();
-      await loadDetail(selectedId);
+      await loadDetail(routeId);
     } catch (err) {
       setFormError(extractErrorMessage(err, t("icds.newVersionFailed")));
     } finally {
       setIsSaving(false);
     }
   }, [
-    selectedId,
+    routeId,
     nvDirection,
     nvInterfaceType,
     nvContract,
@@ -356,7 +388,7 @@ export default function IcdView(): JSX.Element {
     );
   }
 
-  if (error && !selectedId) {
+  if (error && !routeId) {
     return (
       <div
         data-testid="icd-view"
@@ -389,77 +421,55 @@ export default function IcdView(): JSX.Element {
     );
   }
 
-  // ---- Render: detail view -------------------------------------------------
+  // ---- Render: split-view ----------------------------------------------------
 
-  if (selectedId && selectedDetail) {
-    return (
-      <div data-testid="icd-view">
+  return (
+    <div
+      data-testid="icd-view"
+      style={{
+        display: "flex",
+        height: "100%",
+        overflow: "hidden",
+        fontFamily: "var(--font-sans)",
+        color: "var(--color-text)",
+      }}
+    >
+      {/* ICD list (left panel) */}
+      <div
+        style={{
+          width: `${leftPanelWidth}px`,
+          minWidth: "280px",
+          maxWidth: "70%",
+          overflow: "auto",
+          padding: "var(--space-4)",
+        }}
+      >
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: "var(--space-6)",
+            marginBottom: "var(--space-4)",
           }}
         >
-          <div>
-            <button
-              type="button"
-              data-testid="icd-back-btn"
-              onClick={handleBackToList}
-              style={{
-                background: "transparent",
-                color: "var(--color-text-muted)",
-                border: "none",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-                padding: 0,
-                marginBottom: "var(--space-2)",
-              }}
-            >
-              ← {t("icds.title")}
-            </button>
-            <h2
-              data-testid="icd-detail-title"
-              style={{
-                fontSize: "var(--font-size-2xl)",
-                fontWeight: 700,
-                color: "var(--color-text)",
-                margin: 0,
-              }}
-            >
-              {selectedDetail.name}{" "}
-              <span
-                data-testid="icd-version-badge"
-                style={{
-                  display: "inline-block",
-                  marginLeft: "var(--space-2)",
-                  padding: "2px var(--space-2)",
-                  borderRadius: "var(--radius-sm)",
-                  background: "var(--color-primary)",
-                  color: "white",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                }}
-              >
-                {t("icds.versionBadge", { n: selectedDetail.version })}
-              </span>
-            </h2>
-            <p
-              style={{
-                color: "var(--color-text-muted)",
-                fontSize: "var(--font-size-sm)",
-                margin: "var(--space-1) 0 0 0",
-              }}
-            >
-              {t("icds.source")}: {artifactLabel(selectedDetail.source_element_id)}{" "}
-              → {t("icds.target")}: {artifactLabel(selectedDetail.target_element_id)}
-            </p>
-          </div>
+          <h3
+            style={{
+              margin: 0,
+              fontSize: "var(--font-size-lg)",
+              fontWeight: 700,
+              color: "var(--color-text)",
+            }}
+          >
+            {t("icds.title")} ({icds.length})
+          </h3>
           <button
             type="button"
-            data-testid="icd-new-version-btn"
-            onClick={() => setShowNewVersion((v) => !v)}
+            data-testid="create-icd-btn"
+            onClick={() => {
+              setShowCreate((v) => !v);
+              setShowNewVersion(false);
+              setFormError(null);
+            }}
             style={{
               background: "var(--color-primary)",
               color: "white",
@@ -467,56 +477,281 @@ export default function IcdView(): JSX.Element {
               borderRadius: "var(--radius-md)",
               padding: "var(--space-2) var(--space-4)",
               fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
               cursor: "pointer",
               transition: "var(--transition-fast)",
             }}
           >
-            {showNewVersion
-              ? t("actions.cancel")
-              : `+ ${t("icds.newVersion")}`}
+            {showCreate ? t("actions.cancel") : `+ ${t("icds.create")}`}
           </button>
         </div>
 
-        {showNewVersion && (
-          <div
-            data-testid="icd-new-version-form"
+        {icds.length === 0 ? (
+          <p
+            data-testid="icds-empty"
             style={{
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-card)",
-              padding: "var(--space-6)",
-              marginBottom: "var(--space-6)",
-              maxWidth: "720px",
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-muted)",
             }}
           >
-            <p
+            {t("icds.empty")}
+          </p>
+        ) : (
+          <ul
+            data-testid="icds-list"
+            style={{ listStyle: "none", padding: 0, margin: 0 }}
+          >
+            {icds.map((icd) => {
+              const isSelected = icd.id === routeId && !showCreate;
+              return (
+                <li
+                  key={icd.id}
+                  data-testid={`icd-item-${icd.id}`}
+                  onClick={() => handleSelectIcd(icd)}
+                  style={{
+                    padding: "var(--space-3) var(--space-4)",
+                    marginBottom: "var(--space-2)",
+                    background: isSelected
+                      ? "var(--color-surface-raised)"
+                      : "var(--color-surface)",
+                    borderRadius: "var(--radius-md)",
+                    border: isSelected
+                      ? "1px solid var(--color-primary)"
+                      : "1px solid var(--color-border)",
+                    cursor: "pointer",
+                    transition: "var(--transition-fast)",
+                  }}
+                >
+                  <strong
+                    style={{
+                      display: "block",
+                      color: "var(--color-text)",
+                      fontSize: "var(--font-size-base)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {icd.name}
+                  </strong>
+                  <span
+                    style={{
+                      color: "var(--color-text-muted)",
+                      fontSize: "var(--font-size-sm)",
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {shortId(icd.source_element_id)} →{" "}
+                    {shortId(icd.target_element_id)}
+                  </span>
+                  <span
+                    style={{
+                      display: "block",
+                      color: "var(--color-text-muted)",
+                      fontSize: "var(--font-size-xs)",
+                    }}
+                  >
+                    {t("icds.source")}: {artifactLabel(icd.source_element_id)} ·{" "}
+                    {t("icds.target")}: {artifactLabel(icd.target_element_id)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Divider for split-pane resize */}
+      <div
+        onMouseDown={handleDividerMouseDown}
+        data-testid="icd-editor-divider"
+        style={{
+          width: "4px",
+          backgroundColor: "var(--color-border)",
+          cursor: "col-resize",
+          userSelect: "none",
+          transition: isDraggingRef.current
+            ? "none"
+            : "background-color var(--transition-fast)",
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLDivElement).style.backgroundColor =
+            "var(--color-border-hover)";
+        }}
+        onMouseLeave={(e) => {
+          if (!isDraggingRef.current) {
+            (e.currentTarget as HTMLDivElement).style.backgroundColor =
+              "var(--color-border)";
+          }
+        }}
+      />
+
+      {/* Detail / create form (right panel) */}
+      <div
+        style={{
+          flex: 1,
+          overflow: "auto",
+          padding: "var(--space-4)",
+          background: "var(--color-surface)",
+        }}
+      >
+        {showCreate ? (
+          <div
+            data-testid="create-icd-form"
+            style={{ maxWidth: "720px" }}
+          >
+            <h3
               style={{
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-muted)",
-                margin: "0 0 var(--space-4) 0",
+                fontSize: "var(--font-size-lg)",
+                fontWeight: 700,
+                marginTop: 0,
+                marginBottom: "var(--space-4)",
+                color: "var(--color-text)",
               }}
             >
-              {t("icds.immutableHint")}
-            </p>
-            {renderVersionFields(
-              nvDirection,
-              setNvDirection,
-              nvInterfaceType,
-              setNvInterfaceType,
-              nvContract,
-              setNvContract,
-              nvPre,
-              setNvPre,
-              nvPost,
-              setNvPost,
-              nvInv,
-              setNvInv,
-              t
-            )}
+              + {t("icds.create")}
+            </h3>
+            <label htmlFor="icd-name" style={labelStyle}>
+              {t("icds.nameLabel")}
+            </label>
+            <input
+              id="icd-name"
+              data-testid="icd-name-input"
+              type="text"
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              placeholder={t("icds.namePlaceholder")}
+              style={inputStyle}
+            />
+
+            <label htmlFor="icd-source" style={labelStyle}>
+              {t("icds.source")}
+            </label>
+            <select
+              id="icd-source"
+              data-testid="icd-source-select"
+              value={formSource}
+              onChange={(e) => setFormSource(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">{t("icds.selectSource")}</option>
+              {architectureElements.map((el) => (
+                <option key={el.id} value={el.id}>
+                  {el.title} ({el.element_type})
+                </option>
+              ))}
+            </select>
+
+            <label htmlFor="icd-target" style={labelStyle}>
+              {t("icds.target")}
+            </label>
+            <select
+              id="icd-target"
+              data-testid="icd-target-select"
+              value={formTarget}
+              onChange={(e) => setFormTarget(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">{t("icds.selectTarget")}</option>
+              {architectureElements.map((el) => (
+                <option key={el.id} value={el.id}>
+                  {el.title} ({el.element_type})
+                </option>
+              ))}
+            </select>
+
+            <label htmlFor="icd-direction" style={labelStyle}>
+              {t("icds.direction")}
+            </label>
+            <select
+              id="icd-direction"
+              data-testid="icd-direction-select"
+              value={formDirection}
+              onChange={(e) =>
+                setFormDirection(
+                  e.target.value as "unidirectional" | "bidirectional"
+                )
+              }
+              style={inputStyle}
+            >
+              <option value="unidirectional">
+                {t("icds.directionUnidirectional")}
+              </option>
+              <option value="bidirectional">
+                {t("icds.directionBidirectional")}
+              </option>
+            </select>
+
+            <label htmlFor="icd-interface-type" style={labelStyle}>
+              {t("icds.interfaceType")}
+            </label>
+            <input
+              id="icd-interface-type"
+              data-testid="icd-interface-type-input"
+              type="text"
+              value={formInterfaceType}
+              onChange={(e) => setFormInterfaceType(e.target.value)}
+              placeholder={t("icds.interfaceTypePlaceholder")}
+              style={inputStyle}
+            />
+
+            <label htmlFor="icd-contract" style={labelStyle}>
+              {t("icds.contract")}
+            </label>
+            <textarea
+              id="icd-contract"
+              data-testid="icd-contract-textarea"
+              value={formContract}
+              onChange={(e) => setFormContract(e.target.value)}
+              placeholder={t("icds.contractPlaceholder")}
+              rows={4}
+              style={{ ...inputStyle, fontFamily: "inherit" }}
+            />
+
+            <label htmlFor="icd-preconditions" style={labelStyle}>
+              {t("icds.preconditions")}
+            </label>
+            <textarea
+              id="icd-preconditions"
+              data-testid="icd-preconditions-input"
+              value={formPre}
+              onChange={(e) => setFormPre(e.target.value)}
+              rows={2}
+              style={{ ...inputStyle, fontFamily: "inherit" }}
+              placeholder="One per line"
+            />
+
+            <label htmlFor="icd-postconditions" style={labelStyle}>
+              {t("icds.postconditions")}
+            </label>
+            <textarea
+              id="icd-postconditions"
+              data-testid="icd-postconditions-input"
+              value={formPost}
+              onChange={(e) => setFormPost(e.target.value)}
+              rows={2}
+              style={{ ...inputStyle, fontFamily: "inherit" }}
+              placeholder="One per line"
+            />
+
+            <label htmlFor="icd-invariants" style={labelStyle}>
+              {t("icds.invariants")}
+            </label>
+            <textarea
+              id="icd-invariants"
+              data-testid="icd-invariants-input"
+              value={formInv}
+              onChange={(e) => setFormInv(e.target.value)}
+              rows={2}
+              style={{ ...inputStyle, fontFamily: "inherit" }}
+              placeholder="One per line"
+            />
+
             {formError && (
               <p
                 role="alert"
+                data-testid="create-icd-error"
                 style={{
                   color: "var(--color-danger)",
                   fontSize: "var(--font-size-sm)",
@@ -526,12 +761,19 @@ export default function IcdView(): JSX.Element {
                 {formError}
               </p>
             )}
-            <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-4)" }}>
+
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--space-3)",
+                marginTop: "var(--space-4)",
+              }}
+            >
               <button
                 type="button"
-                data-testid="icd-new-version-submit"
-                onClick={() => void handleNewVersion()}
-                disabled={isSaving}
+                data-testid="create-icd-submit"
+                onClick={() => void handleCreate()}
+                disabled={isSaving || architectureElements.length < 2}
                 style={{
                   background: "var(--color-primary)",
                   color: "white",
@@ -548,8 +790,8 @@ export default function IcdView(): JSX.Element {
               <button
                 type="button"
                 onClick={() => {
-                  setShowNewVersion(false);
-                  setFormError(null);
+                  setShowCreate(false);
+                  resetCreateForm();
                 }}
                 style={{
                   background: "transparent",
@@ -565,308 +807,115 @@ export default function IcdView(): JSX.Element {
               </button>
             </div>
           </div>
+        ) : routeId && isLoadingDetail ? (
+          <p
+            role="status"
+            style={{
+              color: "var(--color-text-muted)",
+              padding: "var(--space-6)",
+            }}
+          >
+            {t("loading")}
+          </p>
+        ) : routeId && selectedDetail ? (
+          <IcdDetailPane
+            detail={selectedDetail}
+            timeline={timeline}
+            traceability={traceability}
+            artifactLabel={artifactLabel}
+            showNewVersion={showNewVersion}
+            setShowNewVersion={setShowNewVersion}
+            formError={formError}
+            setFormError={setFormError}
+            isSaving={isSaving}
+            onNewVersion={() => void handleNewVersion()}
+            nvDirection={nvDirection}
+            setNvDirection={setNvDirection}
+            nvInterfaceType={nvInterfaceType}
+            setNvInterfaceType={setNvInterfaceType}
+            nvContract={nvContract}
+            setNvContract={setNvContract}
+            nvPre={nvPre}
+            setNvPre={setNvPre}
+            nvPost={nvPost}
+            setNvPost={setNvPost}
+            nvInv={nvInv}
+            setNvInv={setNvInv}
+          />
+        ) : (
+          <p
+            style={{
+              color: "var(--color-text-muted)",
+              fontSize: "var(--font-size-lg)",
+              padding: "var(--space-8)",
+              textAlign: "center",
+            }}
+          >
+            {t("icds.selectIcd", "Select an ICD from the list")}
+          </p>
         )}
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr",
-            gap: "var(--space-6)",
-          }}
-        >
-          <div>
-            <div
-              data-testid="icd-contract-section"
-              style={{
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-lg)",
-                boxShadow: "var(--shadow-card)",
-                padding: "var(--space-6)",
-                marginBottom: "var(--space-6)",
-              }}
-            >
-              <h3
-                style={{
-                  fontSize: "var(--font-size-lg)",
-                  fontWeight: 600,
-                  color: "var(--color-text)",
-                  margin: "0 0 var(--space-4) 0",
-                }}
-              >
-                {t("icds.contract")}
-              </h3>
-              <ReadOnlyField
-                label={t("icds.interfaceType")}
-                value={selectedDetail.interface_type ?? "—"}
-              />
-              <ReadOnlyField
-                label={t("icds.direction")}
-                value={
-                  selectedDetail.direction
-                    ? t(
-                        selectedDetail.direction === "bidirectional"
-                          ? "icds.directionBidirectional"
-                          : "icds.directionUnidirectional"
-                      )
-                    : "—"
-                }
-              />
-              <div style={{ marginBottom: "var(--space-4)" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontWeight: 500,
-                    color: "var(--color-text)",
-                    fontSize: "var(--font-size-sm)",
-                    marginBottom: "var(--space-1)",
-                  }}
-                >
-                  {t("icds.contract")}
-                </label>
-                <div
-                  data-testid="icd-contract-textarea"
-                  style={{
-                    padding: "var(--space-3)",
-                    background: "var(--color-surface-raised)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-md)",
-                    minHeight: "80px",
-                    whiteSpace: "pre-wrap",
-                    color: "var(--color-text)",
-                    fontSize: "var(--font-size-base)",
-                  }}
-                >
-                  {selectedDetail.semantic_description || "—"}
-                </div>
-              </div>
-              <ReadOnlyList
-                label={t("icds.preconditions")}
-                values={selectedDetail.preconditions}
-              />
-              <ReadOnlyList
-                label={t("icds.postconditions")}
-                values={selectedDetail.postconditions}
-              />
-              <ReadOnlyList
-                label={t("icds.invariants")}
-                values={selectedDetail.invariants}
-              />
-            </div>
-          </div>
-
-          <aside>
-            <div
-              data-testid="icd-versions-list"
-              style={{
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-lg)",
-                boxShadow: "var(--shadow-card)",
-                padding: "var(--space-6)",
-                marginBottom: "var(--space-6)",
-              }}
-            >
-              <h3
-                style={{
-                  fontSize: "var(--font-size-lg)",
-                  fontWeight: 600,
-                  color: "var(--color-text)",
-                  margin: "0 0 var(--space-4) 0",
-                }}
-              >
-                {t("icds.versions")}
-              </h3>
-              {timeline.length === 0 ? (
-                <p
-                  style={{
-                    color: "var(--color-text-muted)",
-                    fontSize: "var(--font-size-sm)",
-                    margin: 0,
-                  }}
-                >
-                  —
-                </p>
-              ) : (
-                <ol
-                  style={{
-                    listStyle: "none",
-                    padding: 0,
-                    margin: 0,
-                    borderLeft: "2px solid var(--color-border)",
-                    paddingLeft: "var(--space-4)",
-                  }}
-                >
-                  {timeline
-                    .slice()
-                    .reverse()
-                    .map((entry) => (
-                      <li
-                        key={entry.version_number}
-                        data-testid={`icd-version-item-${entry.version_number}`}
-                        style={{
-                          position: "relative",
-                          paddingBottom: "var(--space-3)",
-                        }}
-                      >
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            position: "absolute",
-                            left: "-22px",
-                            top: "4px",
-                            width: "10px",
-                            height: "10px",
-                            borderRadius: "var(--radius-full)",
-                            background: entry.is_current
-                              ? "var(--color-primary)"
-                              : "var(--color-text-muted)",
-                          }}
-                        />
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            color: "var(--color-text)",
-                            fontSize: "var(--font-size-sm)",
-                          }}
-                        >
-                          {t("icds.versionBadge", { n: entry.version_number })}{" "}
-                          {entry.is_current && (
-                            <span
-                              style={{
-                                marginLeft: "var(--space-1)",
-                                color: "var(--color-primary)",
-                                fontSize: "var(--font-size-xs)",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.05em",
-                              }}
-                            >
-                              {t("icds.current")}
-                            </span>
-                          )}
-                          {!entry.is_current && (
-                            <span
-                              style={{
-                                marginLeft: "var(--space-1)",
-                                color: "var(--color-text-muted)",
-                                fontSize: "var(--font-size-xs)",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.05em",
-                              }}
-                            >
-                              {t("icds.superseded")}
-                            </span>
-                          )}
-                        </div>
-                        <div
-                          style={{
-                            color: "var(--color-text-muted)",
-                            fontSize: "var(--font-size-xs)",
-                          }}
-                        >
-                          {formatDate(entry.created_at)}
-                        </div>
-                      </li>
-                    ))}
-                </ol>
-              )}
-            </div>
-
-            <div
-              data-testid="icd-traceability-sidebar"
-              style={{
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-lg)",
-                boxShadow: "var(--shadow-card)",
-                padding: "var(--space-6)",
-              }}
-            >
-              <h3
-                style={{
-                  fontSize: "var(--font-size-lg)",
-                  fontWeight: 600,
-                  color: "var(--color-text)",
-                  margin: "0 0 var(--space-4) 0",
-                }}
-              >
-                {t("icds.traceability")}
-              </h3>
-              {traceability === null ||
-              (traceability.upstream_links.length === 0 &&
-                traceability.downstream_links.length === 0) ? (
-                <p
-                  style={{
-                    color: "var(--color-text-muted)",
-                    fontSize: "var(--font-size-sm)",
-                    margin: 0,
-                  }}
-                >
-                  {t("icds.noTraceLinks")}
-                </p>
-              ) : (
-                <ul
-                  style={{
-                    listStyle: "none",
-                    padding: 0,
-                    margin: 0,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "var(--space-2)",
-                  }}
-                >
-                  {traceability.upstream_links.map((link) => (
-                    <li
-                      key={link.id}
-                      style={{
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text)",
-                        background: "var(--color-surface-raised)",
-                        padding: "var(--space-2)",
-                        borderRadius: "var(--radius-sm)",
-                      }}
-                    >
-                      <code style={{ fontFamily: "monospace" }}>
-                        {shortId(link.source_id)}
-                      </code>{" "}
-                      <span style={{ color: "var(--color-text-muted)" }}>
-                        → {link.link_type} →
-                      </span>{" "}
-                      <code style={{ fontFamily: "monospace" }}>
-                        {shortId(link.target_id)}
-                      </code>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </aside>
-        </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  // Loading detail state
-  if (selectedId && isLoadingDetail) {
-    return (
-      <div data-testid="icd-view">
-        <p
-          role="status"
-          style={{
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-          }}
-        >
-          {t("loading")}
-        </p>
-      </div>
-    );
-  }
+// ---------------------------------------------------------------------------
+// Detail pane (right panel content)
+// ---------------------------------------------------------------------------
 
-  // ---- Render: list view ---------------------------------------------------
+interface IcdDetailPaneProps {
+  detail: IcdDetail;
+  timeline: IcdTimelineEntry[];
+  traceability: IcdTraceability | null;
+  artifactLabel: (id: string) => string;
+  showNewVersion: boolean;
+  setShowNewVersion: React.Dispatch<React.SetStateAction<boolean>>;
+  formError: string | null;
+  setFormError: (v: string | null) => void;
+  isSaving: boolean;
+  onNewVersion: () => void;
+  nvDirection: "unidirectional" | "bidirectional";
+  setNvDirection: (v: "unidirectional" | "bidirectional") => void;
+  nvInterfaceType: string;
+  setNvInterfaceType: (v: string) => void;
+  nvContract: string;
+  setNvContract: (v: string) => void;
+  nvPre: string;
+  setNvPre: (v: string) => void;
+  nvPost: string;
+  setNvPost: (v: string) => void;
+  nvInv: string;
+  setNvInv: (v: string) => void;
+}
+
+function IcdDetailPane({
+  detail,
+  timeline,
+  traceability,
+  artifactLabel,
+  showNewVersion,
+  setShowNewVersion,
+  formError,
+  setFormError,
+  isSaving,
+  onNewVersion,
+  nvDirection,
+  setNvDirection,
+  nvInterfaceType,
+  setNvInterfaceType,
+  nvContract,
+  setNvContract,
+  nvPre,
+  setNvPre,
+  nvPost,
+  setNvPost,
+  nvInv,
+  setNvInv,
+}: IcdDetailPaneProps): JSX.Element {
+  const { t } = useTranslation();
 
   return (
-    <div data-testid="icd-view">
+    <div>
       <div
         style={{
           display: "flex",
@@ -875,23 +924,48 @@ export default function IcdView(): JSX.Element {
           marginBottom: "var(--space-6)",
         }}
       >
-        <h2
-          style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-          }}
-        >
-          {t("icds.title")}
-        </h2>
+        <div>
+          <h2
+            data-testid="icd-detail-title"
+            style={{
+              fontSize: "var(--font-size-2xl)",
+              fontWeight: 700,
+              color: "var(--color-text)",
+              margin: 0,
+            }}
+          >
+            {detail.name}{" "}
+            <span
+              data-testid="icd-version-badge"
+              style={{
+                display: "inline-block",
+                marginLeft: "var(--space-2)",
+                padding: "2px var(--space-2)",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--color-primary)",
+                color: "white",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+              }}
+            >
+              {t("icds.versionBadge", { n: detail.version })}
+            </span>
+          </h2>
+          <p
+            style={{
+              color: "var(--color-text-muted)",
+              fontSize: "var(--font-size-sm)",
+              margin: "var(--space-1) 0 0 0",
+            }}
+          >
+            {t("icds.source")}: {artifactLabel(detail.source_element_id)} →{" "}
+            {t("icds.target")}: {artifactLabel(detail.target_element_id)}
+          </p>
+        </div>
         <button
           type="button"
-          data-testid="create-icd-btn"
-          onClick={() => {
-            setShowCreate((v) => !v);
-            setFormError(null);
-          }}
+          data-testid="icd-new-version-btn"
+          onClick={() => setShowNewVersion((v) => !v)}
           style={{
             background: "var(--color-primary)",
             color: "white",
@@ -903,13 +977,13 @@ export default function IcdView(): JSX.Element {
             transition: "var(--transition-fast)",
           }}
         >
-          {showCreate ? t("actions.cancel") : `+ ${t("icds.create")}`}
+          {showNewVersion ? t("actions.cancel") : `+ ${t("icds.newVersion")}`}
         </button>
       </div>
 
-      {showCreate && (
+      {showNewVersion && (
         <div
-          data-testid="create-icd-form"
+          data-testid="icd-new-version-form"
           style={{
             background: "var(--color-surface)",
             border: "1px solid var(--color-border)",
@@ -920,149 +994,33 @@ export default function IcdView(): JSX.Element {
             maxWidth: "720px",
           }}
         >
-          <label
-            htmlFor="icd-name"
-            style={labelStyle}
+          <p
+            style={{
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-muted)",
+              margin: "0 0 var(--space-4) 0",
+            }}
           >
-            {t("icds.nameLabel")}
-          </label>
-          <input
-            id="icd-name"
-            data-testid="icd-name-input"
-            type="text"
-            value={formName}
-            onChange={(e) => setFormName(e.target.value)}
-            placeholder={t("icds.namePlaceholder")}
-            style={inputStyle}
-          />
-
-          <label htmlFor="icd-source" style={labelStyle}>
-            {t("icds.source")}
-          </label>
-          <select
-            id="icd-source"
-            data-testid="icd-source-select"
-            value={formSource}
-            onChange={(e) => setFormSource(e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">{t("icds.selectSource")}</option>
-            {architectureElements.map((el) => (
-              <option key={el.id} value={el.id}>
-                {el.title} ({el.element_type})
-              </option>
-            ))}
-          </select>
-
-          <label htmlFor="icd-target" style={labelStyle}>
-            {t("icds.target")}
-          </label>
-          <select
-            id="icd-target"
-            data-testid="icd-target-select"
-            value={formTarget}
-            onChange={(e) => setFormTarget(e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">{t("icds.selectTarget")}</option>
-            {architectureElements.map((el) => (
-              <option key={el.id} value={el.id}>
-                {el.title} ({el.element_type})
-              </option>
-            ))}
-          </select>
-
-          <label htmlFor="icd-direction" style={labelStyle}>
-            {t("icds.direction")}
-          </label>
-          <select
-            id="icd-direction"
-            data-testid="icd-direction-select"
-            value={formDirection}
-            onChange={(e) =>
-              setFormDirection(
-                e.target.value as "unidirectional" | "bidirectional"
-              )
-            }
-            style={inputStyle}
-          >
-            <option value="unidirectional">
-              {t("icds.directionUnidirectional")}
-            </option>
-            <option value="bidirectional">
-              {t("icds.directionBidirectional")}
-            </option>
-          </select>
-
-          <label htmlFor="icd-interface-type" style={labelStyle}>
-            {t("icds.interfaceType")}
-          </label>
-          <input
-            id="icd-interface-type"
-            data-testid="icd-interface-type-input"
-            type="text"
-            value={formInterfaceType}
-            onChange={(e) => setFormInterfaceType(e.target.value)}
-            placeholder={t("icds.interfaceTypePlaceholder")}
-            style={inputStyle}
-          />
-
-          <label htmlFor="icd-contract" style={labelStyle}>
-            {t("icds.contract")}
-          </label>
-          <textarea
-            id="icd-contract"
-            data-testid="icd-contract-textarea"
-            value={formContract}
-            onChange={(e) => setFormContract(e.target.value)}
-            placeholder={t("icds.contractPlaceholder")}
-            rows={4}
-            style={{ ...inputStyle, fontFamily: "inherit" }}
-          />
-
-          <label htmlFor="icd-preconditions" style={labelStyle}>
-            {t("icds.preconditions")}
-          </label>
-          <textarea
-            id="icd-preconditions"
-            data-testid="icd-preconditions-input"
-            value={formPre}
-            onChange={(e) => setFormPre(e.target.value)}
-            rows={2}
-            style={{ ...inputStyle, fontFamily: "inherit" }}
-            placeholder="One per line"
-          />
-
-          <label htmlFor="icd-postconditions" style={labelStyle}>
-            {t("icds.postconditions")}
-          </label>
-          <textarea
-            id="icd-postconditions"
-            data-testid="icd-postconditions-input"
-            value={formPost}
-            onChange={(e) => setFormPost(e.target.value)}
-            rows={2}
-            style={{ ...inputStyle, fontFamily: "inherit" }}
-            placeholder="One per line"
-          />
-
-          <label htmlFor="icd-invariants" style={labelStyle}>
-            {t("icds.invariants")}
-          </label>
-          <textarea
-            id="icd-invariants"
-            data-testid="icd-invariants-input"
-            value={formInv}
-            onChange={(e) => setFormInv(e.target.value)}
-            rows={2}
-            style={{ ...inputStyle, fontFamily: "inherit" }}
-            placeholder="One per line"
-          />
-
+            {t("icds.immutableHint")}
+          </p>
+          {renderVersionFields(
+            nvDirection,
+            setNvDirection,
+            nvInterfaceType,
+            setNvInterfaceType,
+            nvContract,
+            setNvContract,
+            nvPre,
+            setNvPre,
+            nvPost,
+            setNvPost,
+            nvInv,
+            setNvInv,
+            t
+          )}
           {formError && (
             <p
               role="alert"
-              data-testid="create-icd-error"
               style={{
                 color: "var(--color-danger)",
                 fontSize: "var(--font-size-sm)",
@@ -1072,13 +1030,18 @@ export default function IcdView(): JSX.Element {
               {formError}
             </p>
           )}
-
-          <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-4)" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-3)",
+              marginTop: "var(--space-4)",
+            }}
+          >
             <button
               type="button"
-              data-testid="create-icd-submit"
-              onClick={() => void handleCreate()}
-              disabled={isSaving || architectureElements.length < 2}
+              data-testid="icd-new-version-submit"
+              onClick={onNewVersion}
+              disabled={isSaving}
               style={{
                 background: "var(--color-primary)",
                 color: "white",
@@ -1095,8 +1058,8 @@ export default function IcdView(): JSX.Element {
             <button
               type="button"
               onClick={() => {
-                setShowCreate(false);
-                resetCreateForm();
+                setShowNewVersion(false);
+                setFormError(null);
               }}
               style={{
                 background: "transparent",
@@ -1114,87 +1077,281 @@ export default function IcdView(): JSX.Element {
         </div>
       )}
 
-      {icds.length === 0 ? (
-        <p
-          data-testid="icds-empty"
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-            background: "var(--color-surface-raised)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px dashed var(--color-border)",
-          }}
-        >
-          {t("icds.empty")}
-        </p>
-      ) : (
-        <ul
-          data-testid="icds-list"
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-2)",
-          }}
-        >
-          {icds.map((icd) => (
-            <li
-              key={icd.id}
-              data-testid={`icd-item-${icd.id}`}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 1fr",
+          gap: "var(--space-6)",
+        }}
+      >
+        <div>
+          <div
+            data-testid="icd-contract-section"
+            style={{
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-lg)",
+              boxShadow: "var(--shadow-card)",
+              padding: "var(--space-6)",
+              marginBottom: "var(--space-6)",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: "var(--font-size-lg)",
+                fontWeight: 600,
+                color: "var(--color-text)",
+                margin: "0 0 var(--space-4) 0",
+              }}
             >
-              <button
-                type="button"
-                onClick={() => handleSelectIcd(icd)}
+              {t("icds.contract")}
+            </h3>
+            <ReadOnlyField
+              label={t("icds.interfaceType")}
+              value={detail.interface_type ?? "—"}
+            />
+            <ReadOnlyField
+              label={t("icds.direction")}
+              value={
+                detail.direction
+                  ? t(
+                      detail.direction === "bidirectional"
+                        ? "icds.directionBidirectional"
+                        : "icds.directionUnidirectional"
+                    )
+                  : "—"
+              }
+            />
+            <div style={{ marginBottom: "var(--space-4)" }}>
+              <label
                 style={{
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "var(--space-4)",
-                  background: "var(--color-surface)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  boxShadow: "var(--shadow-card)",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--space-1)",
+                  display: "block",
+                  fontWeight: 500,
+                  color: "var(--color-text)",
+                  fontSize: "var(--font-size-sm)",
+                  marginBottom: "var(--space-1)",
                 }}
               >
-                <span
-                  style={{
-                    fontWeight: 600,
-                    color: "var(--color-text)",
-                    fontSize: "var(--font-size-base)",
-                  }}
-                >
-                  {icd.name}
-                </span>
-                <span
-                  style={{
-                    color: "var(--color-text-muted)",
-                    fontSize: "var(--font-size-sm)",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  {shortId(icd.source_element_id)} → {shortId(icd.target_element_id)}
-                </span>
-                <span
-                  style={{
-                    color: "var(--color-text-muted)",
-                    fontSize: "var(--font-size-xs)",
-                  }}
-                >
-                  {t("icds.source")}: {artifactLabel(icd.source_element_id)}{" "}
-                  · {t("icds.target")}: {artifactLabel(icd.target_element_id)}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                {t("icds.contract")}
+              </label>
+              <div
+                data-testid="icd-contract-textarea"
+                style={{
+                  padding: "var(--space-3)",
+                  background: "var(--color-surface-raised)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  minHeight: "80px",
+                  whiteSpace: "pre-wrap",
+                  color: "var(--color-text)",
+                  fontSize: "var(--font-size-base)",
+                }}
+              >
+                {detail.semantic_description || "—"}
+              </div>
+            </div>
+            <ReadOnlyList
+              label={t("icds.preconditions")}
+              values={detail.preconditions}
+            />
+            <ReadOnlyList
+              label={t("icds.postconditions")}
+              values={detail.postconditions}
+            />
+            <ReadOnlyList
+              label={t("icds.invariants")}
+              values={detail.invariants}
+            />
+          </div>
+        </div>
+
+        <aside>
+          <div
+            data-testid="icd-versions-list"
+            style={{
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-lg)",
+              boxShadow: "var(--shadow-card)",
+              padding: "var(--space-6)",
+              marginBottom: "var(--space-6)",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: "var(--font-size-lg)",
+                fontWeight: 600,
+                color: "var(--color-text)",
+                margin: "0 0 var(--space-4) 0",
+              }}
+            >
+              {t("icds.versions")}
+            </h3>
+            {timeline.length === 0 ? (
+              <p
+                style={{
+                  color: "var(--color-text-muted)",
+                  fontSize: "var(--font-size-sm)",
+                  margin: 0,
+                }}
+              >
+                —
+              </p>
+            ) : (
+              <ol
+                style={{
+                  listStyle: "none",
+                  padding: 0,
+                  margin: 0,
+                  borderLeft: "2px solid var(--color-border)",
+                  paddingLeft: "var(--space-4)",
+                }}
+              >
+                {timeline
+                  .slice()
+                  .reverse()
+                  .map((entry) => (
+                    <li
+                      key={entry.version_number}
+                      data-testid={`icd-version-item-${entry.version_number}`}
+                      style={{
+                        position: "relative",
+                        paddingBottom: "var(--space-3)",
+                      }}
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          position: "absolute",
+                          left: "-22px",
+                          top: "4px",
+                          width: "10px",
+                          height: "10px",
+                          borderRadius: "var(--radius-full)",
+                          background: entry.is_current
+                            ? "var(--color-primary)"
+                            : "var(--color-text-muted)",
+                        }}
+                      />
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          color: "var(--color-text)",
+                          fontSize: "var(--font-size-sm)",
+                        }}
+                      >
+                        {t("icds.versionBadge", { n: entry.version_number })}{" "}
+                        {entry.is_current && (
+                          <span
+                            style={{
+                              marginLeft: "var(--space-1)",
+                              color: "var(--color-primary)",
+                              fontSize: "var(--font-size-xs)",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                            }}
+                          >
+                            {t("icds.current")}
+                          </span>
+                        )}
+                        {!entry.is_current && (
+                          <span
+                            style={{
+                              marginLeft: "var(--space-1)",
+                              color: "var(--color-text-muted)",
+                              fontSize: "var(--font-size-xs)",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                            }}
+                          >
+                            {t("icds.superseded")}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          color: "var(--color-text-muted)",
+                          fontSize: "var(--font-size-xs)",
+                        }}
+                      >
+                        {formatDate(entry.created_at)}
+                      </div>
+                    </li>
+                  ))}
+              </ol>
+            )}
+          </div>
+
+          <div
+            data-testid="icd-traceability-sidebar"
+            style={{
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-lg)",
+              boxShadow: "var(--shadow-card)",
+              padding: "var(--space-6)",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: "var(--font-size-lg)",
+                fontWeight: 600,
+                color: "var(--color-text)",
+                margin: "0 0 var(--space-4) 0",
+              }}
+            >
+              {t("icds.traceability")}
+            </h3>
+            {traceability === null ||
+            (traceability.upstream_links.length === 0 &&
+              traceability.downstream_links.length === 0) ? (
+              <p
+                style={{
+                  color: "var(--color-text-muted)",
+                  fontSize: "var(--font-size-sm)",
+                  margin: 0,
+                }}
+              >
+                {t("icds.noTraceLinks")}
+              </p>
+            ) : (
+              <ul
+                style={{
+                  listStyle: "none",
+                  padding: 0,
+                  margin: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "var(--space-2)",
+                }}
+              >
+                {traceability.upstream_links.map((link) => (
+                  <li
+                    key={link.id}
+                    style={{
+                      fontSize: "var(--font-size-sm)",
+                      color: "var(--color-text)",
+                      background: "var(--color-surface-raised)",
+                      padding: "var(--space-2)",
+                      borderRadius: "var(--radius-sm)",
+                    }}
+                  >
+                    <code style={{ fontFamily: "monospace" }}>
+                      {shortId(link.source_id)}
+                    </code>{" "}
+                    <span style={{ color: "var(--color-text-muted)" }}>
+                      → {link.link_type} →
+                    </span>{" "}
+                    <code style={{ fontFamily: "monospace" }}>
+                      {shortId(link.target_id)}
+                    </code>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

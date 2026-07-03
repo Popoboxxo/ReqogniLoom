@@ -21,6 +21,7 @@ import { useArchitectureData } from "./useArchitectureData";
 import { MarkdownPreview } from "../RequirementEditors/MarkdownPreview";
 import { ArtifactDiff } from "../ArtifactDiff/ArtifactDiff";
 import { ArchTraceLinkPanel } from "./ArchTraceLinkPanel";
+import { DecompositionTree } from "./DecompositionTree";
 import { architectureApi } from "../../api/architecture";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
@@ -291,7 +292,7 @@ function ArchElementForm({
         id="arch-type"
         data-testid="arch-element-type-select"
         value={elementType}
-        onChange={(e) => setElementType(e.target.value)}
+        onChange={(e) => setElementType(e.target.value as ElementType)}
         style={{ ...inputStyle, width: "auto", minWidth: "200px" }}
       >
         {ELEMENT_TYPES.map((et) => (
@@ -435,21 +436,30 @@ export default function ArchitectureEditors(): JSX.Element {
   const dragStartXRef = useRef(0);
   const dragStartWidthRef = useRef(0);
 
-  const handleCreate = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    try {
-      const created = await architectureApi.create({
-        workspace_id: activeWorkspace.id,
-        title: t("arch.newElementTitle"),
-        element_type: "component",
-      });
-      // Navigate first — the hook re-fetches automatically when selectedId changes.
-      // Calling refresh() before navigate() causes a double-fetch race condition.
-      navigate(`/architecture/${created.id}`);
-    } catch (err: unknown) {
-      console.error("Create failed:", err);
-    }
-  }, [activeWorkspace, t, refresh, navigate]);
+  // Delete-confirmation target triggered from the tree context menu (REQ-001).
+  const [treeDeleteTarget, setTreeDeleteTarget] =
+    useState<ArchitectureElement | null>(null);
+
+  const handleCreate = useCallback(
+    async (parentId?: string): Promise<void> => {
+      if (!activeWorkspace) return;
+      try {
+        const created = await architectureApi.create({
+          workspace_id: activeWorkspace.id,
+          title: t("arch.newElementTitle"),
+          element_type: "component",
+          parent_id: parentId ?? undefined,
+        });
+        // Refresh the list so the tree shows the new node, then navigate —
+        // the hook re-fetches the detail automatically on selectedId change.
+        refresh();
+        navigate(`/architecture/${created.id}`);
+      } catch (err: unknown) {
+        console.error("Create failed:", err);
+      }
+    },
+    [activeWorkspace, t, refresh, navigate]
+  );
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
@@ -544,7 +554,20 @@ export default function ArchitectureEditors(): JSX.Element {
         color: "var(--color-text)",
       }}
     >
-      {/* Elements list (left panel) */}
+      {/* Tree-delete confirmation (context menu → Delete, REQ-001) */}
+      {treeDeleteTarget && (
+        <DeleteConfirmationDialog
+          elementName={treeDeleteTarget.title || t("editor.untitled")}
+          onConfirm={() => {
+            const id = treeDeleteTarget.id;
+            setTreeDeleteTarget(null);
+            void handleDelete(id);
+          }}
+          onCancel={() => setTreeDeleteTarget(null)}
+        />
+      )}
+
+      {/* Decomposition tree (left panel, REQ-001) */}
       <div
         style={{
           width: `${leftPanelWidth}px`,
@@ -586,87 +609,13 @@ export default function ArchitectureEditors(): JSX.Element {
           </button>
         </div>
 
-        {elements.length === 0 ? (
-          <p
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            {t("editor.empty")}
-          </p>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {elements.map((el) => {
-              const isActive = el.id === selectedId;
-              return (
-                <li
-                  key={el.id}
-                  onClick={() => navigate(`/architecture/${el.id}`)}
-                  style={{
-                    background: isActive ? "#eef2ff" : "var(--color-surface)",
-                    borderRadius: "var(--radius-md)",
-                    boxShadow: "var(--shadow-card)",
-                    padding: "var(--space-3) var(--space-4)",
-                    marginBottom: "var(--space-2)",
-                    cursor: "pointer",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    transition: "var(--transition-fast)",
-                    borderLeft: isActive
-                      ? "3px solid var(--color-primary)"
-                      : "3px solid transparent",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLLIElement).style.background =
-                        "var(--color-surface-raised)";
-                      (e.currentTarget as HTMLLIElement).style.boxShadow =
-                        "var(--shadow-sm)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLLIElement).style.background =
-                        "var(--color-surface)";
-                      (e.currentTarget as HTMLLIElement).style.boxShadow =
-                        "var(--shadow-card)";
-                    }
-                  }}
-                >
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: "var(--font-size-base)",
-                      color: "var(--color-text)",
-                      fontWeight: isActive ? 600 : 500,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {el.title || t("editor.untitled")}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "var(--font-size-sm)",
-                      background: "var(--color-badge-draft)",
-                      color: "var(--color-badge-draft-text)",
-                      padding: "2px 8px",
-                      borderRadius: "var(--radius-full)",
-                      marginLeft: "var(--space-2)",
-                      fontWeight: 500,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {t(`arch.elementType.${el.element_type}`)}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <DecompositionTree
+          elements={elements}
+          selectedId={selectedId}
+          onSelect={(id) => navigate(`/architecture/${id}`)}
+          onAddChild={(parentId) => void handleCreate(parentId)}
+          onDelete={(el) => setTreeDeleteTarget(el)}
+        />
       </div>
 
       {/* Divider for split-pane resize */}

@@ -4,11 +4,13 @@
  * leaf_id: COMP-RF-005 (DiagramView)
  * req_id:  REQ-L0-016 (Interaktive Diagramme und Grafiken),
  *          REQ-L2-DS-001 (DiagramService REST API),
- *          REQ-L2-DS-004 (Traceability connector)
+ *          REQ-L2-DS-004 (Traceability connector),
+ *          REQ-002 (Split-View Layout)
  *
- * Provides list/detail/create/edit of diagrams and a traceability sidebar
- * showing the artifacts (Requirements / ArchitectureElements) documented by
- * the selected diagram.
+ * Split-View layout with resizable divider:
+ *   - Left panel: diagram list + create button
+ *   - Divider: 4px resizable
+ *   - Right panel: create form OR diagram detail (source, traceability)
  *
  * Rendering: the source is shown as a monospaced pre/code block. The full
  * Mermaid/PlantUML rendering is out of scope for this iteration — the editor
@@ -16,7 +18,7 @@
  * Mermaid/PlantUML renderer without changing the data model.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -78,15 +80,23 @@ const EMPTY_FORM: FormState = {
 };
 
 // ---------------------------------------------------------------------------
-// DiagramView root
+// DiagramView root — split-view (list left, detail/create right)
 // ---------------------------------------------------------------------------
 
 export default function DiagramView(): JSX.Element {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
   const [items, setItems] = useState<Diagram[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+
+  // Split-pane resize state (REQ-002)
+  const [leftPanelWidth, setLeftPanelWidth] = useState(280);
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(0);
 
   const loadList = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
@@ -105,51 +115,288 @@ export default function DiagramView(): JSX.Element {
     void loadList();
   }, [loadList]);
 
-  // Detail view when an :id is present
-  if (id) {
-    return (
-      <DiagramDetailView
-        diagramId={id}
-        onBack={() => navigate("/diagrams")}
-        onChanged={loadList}
-      />
-    );
+  const handleDelete = useCallback(
+    async (diagramId: string): Promise<void> => {
+      if (!window.confirm(t("diagrams.deleteConfirm", "Really delete this diagram?"))) {
+        return;
+      }
+      try {
+        await diagramsApi.delete(diagramId);
+        await loadList();
+        if (diagramId === id) navigate("/diagrams");
+      } catch (err) {
+        console.error("Failed to delete diagram", err);
+      }
+    },
+    [id, loadList, navigate, t],
+  );
+
+  // Split-pane resize handlers
+  const handleDividerMouseDown = (e: React.MouseEvent): void => {
+    isDraggingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = leftPanelWidth;
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!isDraggingRef.current) return;
+      const delta = e.clientX - dragStartXRef.current;
+      const newWidth = Math.max(280, dragStartWidthRef.current + delta);
+      setLeftPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = (): void => {
+      isDraggingRef.current = false;
+    };
+
+    if (isDraggingRef.current) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    }
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, [leftPanelWidth]);
+
+  if (isLoading) {
+    return <p role="status">{t("loading", "Loading...")}</p>;
   }
 
-  // List view (also hosts the create form)
   return (
-    <DiagramListView
-      items={items}
-      isLoading={isLoading}
-      onCreated={loadList}
-      onDeleted={loadList}
-      onSelect={(diagramId) => navigate(`/diagrams/${diagramId}`)}
-    />
+    <div
+      style={{
+        display: "flex",
+        height: "100%",
+        overflow: "hidden",
+        fontFamily: "var(--font-sans)",
+        color: "var(--color-text)",
+      }}
+    >
+      {/* Diagram list (left panel) */}
+      <div
+        style={{
+          width: `${leftPanelWidth}px`,
+          minWidth: "280px",
+          maxWidth: "70%",
+          overflow: "auto",
+          padding: "var(--space-4)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "var(--space-4)",
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              fontSize: "var(--font-size-lg)",
+              fontWeight: 700,
+              color: "var(--color-text)",
+            }}
+          >
+            {t("diagrams.title", "Diagrams")} ({items.length})
+          </h3>
+          <button
+            type="button"
+            data-testid="create-diagram-btn"
+            onClick={() => setShowCreate((v) => !v)}
+            style={formPrimaryButtonStyle}
+          >
+            + {t("actions.new", "New")}
+          </button>
+        </div>
+
+        {items.length === 0 ? (
+          <p
+            data-testid="diagrams-empty"
+            style={{
+              color: "var(--color-text-muted)",
+              fontSize: "var(--font-size-sm)",
+            }}
+          >
+            {t("diagrams.noItems", "No diagrams yet. Create one to get started.")}
+          </p>
+        ) : (
+          <ul
+            data-testid="diagrams-list"
+            style={{ listStyle: "none", padding: 0, margin: 0 }}
+          >
+            {items.map((item) => {
+              const isSelected = item.id === id && !showCreate;
+              return (
+                <li
+                  key={item.id}
+                  data-testid={`diagram-item-${item.id}`}
+                  onClick={() => {
+                    setShowCreate(false);
+                    navigate(`/diagrams/${item.id}`);
+                  }}
+                  style={{
+                    padding: "var(--space-3) var(--space-4)",
+                    marginBottom: "var(--space-2)",
+                    background: isSelected
+                      ? "var(--color-surface-raised)"
+                      : "var(--color-surface)",
+                    borderRadius: "var(--radius-md)",
+                    border: isSelected
+                      ? "1px solid var(--color-primary)"
+                      : "1px solid var(--color-border)",
+                    cursor: "pointer",
+                    transition: "var(--transition-fast)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "var(--space-3)",
+                  }}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span
+                      style={{
+                        display: "block",
+                        fontWeight: 600,
+                        fontSize: "var(--font-size-base)",
+                        color: "var(--color-text)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "var(--font-size-sm)",
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
+                      {item.diagram_type}
+                      {item.version_count !== undefined
+                        ? ` · v${item.version_count}`
+                        : ""}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDelete(item.id);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--color-text-muted)",
+                      cursor: "pointer",
+                      fontSize: "1.1rem",
+                      lineHeight: 1,
+                      fontFamily: "inherit",
+                      flexShrink: 0,
+                    }}
+                    title={t("diagrams.delete", "Delete")}
+                    aria-label={t("diagrams.delete", "Delete")}
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Divider for split-pane resize */}
+      <div
+        onMouseDown={handleDividerMouseDown}
+        data-testid="diagram-editor-divider"
+        style={{
+          width: "4px",
+          backgroundColor: "var(--color-border)",
+          cursor: "col-resize",
+          userSelect: "none",
+          transition: isDraggingRef.current
+            ? "none"
+            : "background-color var(--transition-fast)",
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLDivElement).style.backgroundColor =
+            "var(--color-border-hover)";
+        }}
+        onMouseLeave={(e) => {
+          if (!isDraggingRef.current) {
+            (e.currentTarget as HTMLDivElement).style.backgroundColor =
+              "var(--color-border)";
+          }
+        }}
+      />
+
+      {/* Detail / create form (right panel) */}
+      <div
+        style={{
+          flex: 1,
+          overflow: "auto",
+          padding: "var(--space-4)",
+          background: "var(--color-surface)",
+        }}
+      >
+        {showCreate ? (
+          <DiagramCreateForm
+            onCreated={async (newId) => {
+              setShowCreate(false);
+              await loadList();
+              navigate(`/diagrams/${newId}`);
+            }}
+            onCancel={() => setShowCreate(false)}
+          />
+        ) : id ? (
+          <DiagramDetailView
+            diagramId={id}
+            onBack={() => navigate("/diagrams")}
+            onChanged={loadList}
+          />
+        ) : (
+          <p
+            style={{
+              color: "var(--color-text-muted)",
+              fontSize: "var(--font-size-lg)",
+              padding: "var(--space-8)",
+              textAlign: "center",
+            }}
+          >
+            {t("diagrams.selectDiagram", "Select a diagram from the list")}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// List view
+// Create form (right panel content)
 // ---------------------------------------------------------------------------
 
-interface DiagramListViewProps {
-  items: Diagram[];
-  isLoading: boolean;
-  onCreated: () => Promise<void> | void;
-  onDeleted: () => Promise<void> | void;
-  onSelect: (diagramId: string) => void;
+interface DiagramCreateFormProps {
+  onCreated: (diagramId: string) => Promise<void> | void;
+  onCancel: () => void;
 }
 
-function DiagramListView({
-  items,
-  isLoading,
+function DiagramCreateForm({
   onCreated,
-  onDeleted,
-  onSelect,
-}: DiagramListViewProps): JSX.Element {
+  onCancel,
+}: DiagramCreateFormProps): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
-  const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +410,7 @@ function DiagramListView({
     setIsSaving(true);
     setError(null);
     try {
-      await diagramsApi.create({
+      const created = await diagramsApi.create({
         workspace_id: activeWorkspace.id,
         name: form.name.trim(),
         diagram_type: form.diagram_type,
@@ -172,8 +419,7 @@ function DiagramListView({
         description: form.description,
       });
       setForm(EMPTY_FORM);
-      setShowCreate(false);
-      await onCreated();
+      await onCreated(created.id);
     } catch (err) {
       const msg =
         (err as { error?: { message?: string } })?.error?.message ??
@@ -184,294 +430,159 @@ function DiagramListView({
     }
   };
 
-  const handleDelete = async (diagramId: string): Promise<void> => {
-    try {
-      await diagramsApi.delete(diagramId);
-      await onDeleted();
-    } catch (err) {
-      console.error("Failed to delete diagram", err);
-    }
-  };
-
   return (
-    <div>
-      <div
+    <div data-testid="diagram-create-form">
+      <h3
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "var(--space-6)",
+          fontSize: "var(--font-size-lg)",
+          fontWeight: 700,
+          marginTop: 0,
+          marginBottom: "var(--space-4)",
+          color: "var(--color-text)",
         }}
       >
-        <h2
-          style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-          }}
-        >
-          {t("diagrams.title", "Diagrams")}
-        </h2>
-        <button
-          type="button"
-          data-testid="create-diagram-btn"
-          onClick={() => setShowCreate((v) => !v)}
-          style={{
-            padding: "var(--space-2) var(--space-4)",
-            background: "var(--color-primary)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            cursor: "pointer",
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 600,
-            fontFamily: "inherit",
-          }}
-        >
-          + {t("diagrams.create", "New Diagram")}
-        </button>
-      </div>
+        + {t("diagrams.create", "New Diagram")}
+      </h3>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "var(--space-3)",
+        }}
+      >
+        <label style={formLabelStyle}>
+          {t("diagrams.name", "Name")}
+          <input
+            data-testid="diagram-name-input"
+            type="text"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            style={formInputStyle}
+          />
+        </label>
 
-      {showCreate && (
-        <div
-          data-testid="diagram-create-form"
-          style={{
-            padding: "var(--space-4)",
-            marginBottom: "var(--space-4)",
-            background: "var(--color-surface-raised)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px solid var(--color-border)",
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "var(--space-3)",
-          }}
-        >
-          <label style={formLabelStyle}>
-            {t("diagrams.name", "Name")}
-            <input
-              data-testid="diagram-name-input"
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              style={formInputStyle}
-            />
-          </label>
+        <label style={formLabelStyle}>
+          {t("diagrams.type", "Type")}
+          <select
+            data-testid="diagram-type-select"
+            value={form.diagram_type}
+            onChange={(e) =>
+              setForm({ ...form, diagram_type: e.target.value as DiagramType })
+            }
+            style={formInputStyle}
+          >
+            {DIAGRAM_TYPES.map((tp) => (
+              <option key={tp} value={tp}>
+                {t(`diagrams.type.${tp}`, tp)}
+              </option>
+            ))}
+          </select>
+        </label>
 
-          <label style={formLabelStyle}>
-            {t("diagrams.type", "Type")}
-            <select
-              data-testid="diagram-type-select"
-              value={form.diagram_type}
-              onChange={(e) =>
-                setForm({ ...form, diagram_type: e.target.value as DiagramType })
-              }
-              style={formInputStyle}
-            >
-              {DIAGRAM_TYPES.map((tp) => (
-                <option key={tp} value={tp}>
-                  {t(`diagrams.type.${tp}`, tp)}
-                </option>
-              ))}
-            </select>
-          </label>
+        <label style={formLabelStyle}>
+          {t("diagrams.source", "Source Format")}
+          <select
+            data-testid="diagram-format-select"
+            value={form.payload_format}
+            onChange={(e) => {
+              const fmt = e.target.value as PayloadFormat;
+              setForm({
+                ...form,
+                payload_format: fmt,
+                content: DEFAULT_CONTENT[fmt],
+              });
+            }}
+            style={formInputStyle}
+          >
+            {PAYLOAD_FORMATS.map((fmt) => (
+              <option key={fmt} value={fmt}>
+                {fmt}
+              </option>
+            ))}
+          </select>
+        </label>
 
-          <label style={formLabelStyle}>
-            {t("diagrams.source", "Source Format")}
-            <select
-              data-testid="diagram-format-select"
-              value={form.payload_format}
-              onChange={(e) => {
-                const fmt = e.target.value as PayloadFormat;
-                setForm({
-                  ...form,
-                  payload_format: fmt,
-                  content: DEFAULT_CONTENT[fmt],
-                });
-              }}
-              style={formInputStyle}
-            >
-              {PAYLOAD_FORMATS.map((fmt) => (
-                <option key={fmt} value={fmt}>
-                  {fmt}
-                </option>
-              ))}
-            </select>
-          </label>
+        <label style={formLabelStyle}>
+          {t("diagrams.description", "Description")}
+          <input
+            data-testid="diagram-description-input"
+            type="text"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            style={formInputStyle}
+          />
+        </label>
 
-          <label style={formLabelStyle}>
-            {t("diagrams.description", "Description")}
-            <input
-              data-testid="diagram-description-input"
-              type="text"
-              value={form.description}
-              onChange={(e) =>
-                setForm({ ...form, description: e.target.value })
-              }
-              style={formInputStyle}
-            />
-          </label>
+        <label style={{ ...formLabelStyle, gridColumn: "1 / -1" }}>
+          {t("diagrams.source", "Source")}
+          <textarea
+            data-testid="diagram-source-textarea"
+            value={form.content}
+            onChange={(e) => setForm({ ...form, content: e.target.value })}
+            rows={8}
+            style={{
+              ...formInputStyle,
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--font-size-sm)",
+              resize: "vertical",
+            }}
+          />
+        </label>
 
-          <label style={{ ...formLabelStyle, gridColumn: "1 / -1" }}>
-            {t("diagrams.source", "Source")}
-            <textarea
-              data-testid="diagram-source-textarea"
-              value={form.content}
-              onChange={(e) => setForm({ ...form, content: e.target.value })}
-              rows={8}
-              style={{
-                ...formInputStyle,
-                fontFamily: "var(--font-mono)",
-                fontSize: "var(--font-size-sm)",
-                resize: "vertical",
-              }}
-            />
-          </label>
-
-          {error && (
-            <div
-              data-testid="diagram-create-error"
-              role="alert"
-              style={{
-                gridColumn: "1 / -1",
-                color: "var(--color-danger)",
-                fontSize: "var(--font-size-sm)",
-              }}
-            >
-              {error}
-            </div>
-          )}
-
+        {error && (
           <div
+            data-testid="diagram-create-error"
+            role="alert"
             style={{
               gridColumn: "1 / -1",
-              display: "flex",
-              gap: "var(--space-2)",
-              justifyContent: "flex-end",
+              color: "var(--color-danger)",
+              fontSize: "var(--font-size-sm)",
             }}
           >
-            <button
-              type="button"
-              onClick={() => {
-                setShowCreate(false);
-                setForm(EMPTY_FORM);
-                setError(null);
-              }}
-              style={formCancelButtonStyle}
-            >
-              {t("actions.cancel", "Cancel")}
-            </button>
-            <button
-              type="button"
-              data-testid="diagram-save-btn"
-              onClick={() => void handleCreate()}
-              disabled={isSaving || !form.name.trim()}
-              style={{
-                ...formPrimaryButtonStyle,
-                opacity: isSaving || !form.name.trim() ? 0.6 : 1,
-                cursor: isSaving || !form.name.trim() ? "not-allowed" : "pointer",
-              }}
-            >
-              {isSaving ? t("actions.saving", "Saving...") : t("actions.save", "Save")}
-            </button>
+            {error}
           </div>
-        </div>
-      )}
+        )}
 
-      {isLoading ? (
-        <p>{t("loading", "Loading...")}</p>
-      ) : items.length === 0 ? (
-        <p
-          data-testid="diagrams-empty"
+        <div
           style={{
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-            background: "var(--color-surface-raised)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px dashed var(--color-border)",
-            textAlign: "center",
+            gridColumn: "1 / -1",
+            display: "flex",
+            gap: "var(--space-2)",
+            justifyContent: "flex-end",
           }}
         >
-          {t("diagrams.noItems", "No diagrams yet. Create one to get started.")}
-        </p>
-      ) : (
-        <ul
-          data-testid="diagrams-list"
-          style={{ listStyle: "none", padding: 0, margin: 0 }}
-        >
-          {items.map((item) => (
-            <li
-              key={item.id}
-              data-testid={`diagram-item-${item.id}`}
-              style={{
-                padding: "var(--space-3) var(--space-4)",
-                marginBottom: "var(--space-2)",
-                background: "var(--color-surface)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "var(--space-3)",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => onSelect(item.id)}
-                style={{
-                  flex: 1,
-                  textAlign: "left",
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  color: "var(--color-text)",
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: "var(--font-size-base)" }}>
-                  {item.name}
-                </div>
-                <div
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--color-text-muted)",
-                    marginTop: "2px",
-                  }}
-                >
-                  {item.diagram_type}
-                  {item.version_count !== undefined
-                    ? ` · v${item.version_count}`
-                    : ""}
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDelete(item.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--color-text-muted)",
-                  cursor: "pointer",
-                  fontSize: "1.1rem",
-                  lineHeight: 1,
-                  fontFamily: "inherit",
-                }}
-                title={t("diagrams.delete", "Delete")}
-                aria-label={t("diagrams.delete", "Delete")}
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+          <button
+            type="button"
+            onClick={() => {
+              setForm(EMPTY_FORM);
+              setError(null);
+              onCancel();
+            }}
+            style={formCancelButtonStyle}
+          >
+            {t("actions.cancel", "Cancel")}
+          </button>
+          <button
+            type="button"
+            data-testid="diagram-save-btn"
+            onClick={() => void handleCreate()}
+            disabled={isSaving || !form.name.trim()}
+            style={{
+              ...formPrimaryButtonStyle,
+              opacity: isSaving || !form.name.trim() ? 0.6 : 1,
+              cursor: isSaving || !form.name.trim() ? "not-allowed" : "pointer",
+            }}
+          >
+            {isSaving ? t("actions.saving", "Saving...") : t("actions.save", "Save")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Detail view
+// Detail view (right panel content)
 // ---------------------------------------------------------------------------
 
 interface DiagramDetailViewProps {
@@ -589,9 +700,6 @@ function DiagramDetailView({
   if (!detail) {
     return (
       <div>
-        <button type="button" onClick={onBack} style={backLinkStyle}>
-          ← {t("actions.back", "Back")}
-        </button>
         <p>{t("diagrams.notFound", "Diagram not found.")}</p>
       </div>
     );
@@ -599,17 +707,13 @@ function DiagramDetailView({
 
   return (
     <div style={{ display: "flex", gap: "var(--space-6)", alignItems: "flex-start" }}>
-      <div style={{ flex: 1 }}>
-        <button type="button" onClick={onBack} style={backLinkStyle}>
-          ← {t("actions.back", "Back")}
-        </button>
-
+      <div style={{ flex: 1, minWidth: 0 }}>
         <h2
           style={{
             fontSize: "var(--font-size-2xl)",
             fontWeight: 700,
             color: "var(--color-text)",
-            marginTop: "var(--space-2)",
+            marginTop: 0,
             marginBottom: "var(--space-2)",
           }}
         >
@@ -927,16 +1031,5 @@ const formDangerButtonStyle: React.CSSProperties = {
   borderRadius: "var(--radius-md)",
   cursor: "pointer",
   fontSize: "var(--font-size-sm)",
-  fontFamily: "inherit",
-};
-
-const backLinkStyle: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  color: "var(--color-primary)",
-  cursor: "pointer",
-  fontSize: "var(--font-size-sm)",
-  padding: 0,
-  marginBottom: "var(--space-3)",
   fontFamily: "inherit",
 };
