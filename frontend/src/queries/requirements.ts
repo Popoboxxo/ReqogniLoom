@@ -12,6 +12,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { requirementsApi } from "../api/requirements";
 import { tracelinksApi } from "../api/tracelinks";
+import { resolveArtifactRef } from "../api/artifactRefs";
 import type { Requirement, TraceLink, UUID } from "../types";
 
 export const requirementKeys = {
@@ -35,6 +36,7 @@ export interface RequirementDetail {
   upstreamLinks: TraceLink[];
   downstreamLinks: TraceLink[];
   linkedTitles: Record<string, string>;
+  linkedRoutes: Record<string, string>;
 }
 
 async function fetchRequirementDetail(
@@ -50,19 +52,19 @@ async function fetchRequirementDetail(
   upstreamLinks.forEach((l) => linkedIds.add(l.source_id));
   downstreamLinks.forEach((l) => linkedIds.add(l.target_id));
 
+  // Linked artifacts are not always Requirements — satisfies/verifies/implements
+  // links can point at ArchitectureElements or TestCases too (REQ-L1-003).
   const linkedTitles: Record<string, string> = {};
+  const linkedRoutes: Record<string, string> = {};
   await Promise.all(
     Array.from(linkedIds).map(async (linkedId) => {
-      try {
-        const linkedReq = await requirementsApi.get(linkedId);
-        linkedTitles[linkedId] = linkedReq.title || "(untitled)";
-      } catch {
-        linkedTitles[linkedId] = `(${linkedId.slice(0, 8)})`;
-      }
+      const ref = await resolveArtifactRef(linkedId);
+      linkedTitles[linkedId] = ref.title;
+      linkedRoutes[linkedId] = ref.route;
     })
   );
 
-  return { requirement, upstreamLinks, downstreamLinks, linkedTitles };
+  return { requirement, upstreamLinks, downstreamLinks, linkedTitles, linkedRoutes };
 }
 
 export function useRequirementDetail(

@@ -12,13 +12,19 @@
  * Fix B-TR-001: This panel now offers a real source-select (all architecture
  * elements except the current one) so architects can link ANY architecture
  * element to any target — not just the currently-open one.
+ *
+ * Trace links are clickable (REQ-L2-RF-006): each source/target label navigates
+ * to the linked artifact, resolved generically since links can point at a
+ * Requirement, ArchitectureElement or TestCase (REQ-L1-003).
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { tracelinksApi } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
+import { resolveArtifactRef, type ArtifactRef } from "../../api/artifactRefs";
 import type {
   ArchitectureElement,
   LinkType,
@@ -76,11 +82,13 @@ export function ArchTraceLinkPanel({
   elementId,
 }: ArchTraceLinkPanelProps): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [architectureElements, setArchitectureElements] = useState<
     ArchitectureElement[]
   >([]);
+  const [refsById, setRefsById] = useState<Record<UUID, ArtifactRef>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState<boolean>(false);
@@ -112,6 +120,21 @@ export function ArchTraceLinkPanel({
         setLinks(linksResp.results);
         setRequirements(allReqs);
         setArchitectureElements(allArch);
+
+        // Resolve title + route for every linked artifact generically, since
+        // verifies-links can point at TestCases which listAll() above doesn't cover.
+        const linkedIds = new Set<UUID>();
+        linksResp.results.forEach((l) => {
+          linkedIds.add(l.source_id);
+          linkedIds.add(l.target_id);
+        });
+        const refEntries = await Promise.all(
+          Array.from(linkedIds).map(
+            async (id) => [id, await resolveArtifactRef(id)] as const
+          )
+        );
+        if (cancelled) return;
+        setRefsById(Object.fromEntries(refEntries));
       } catch (err: unknown) {
         if (cancelled) return;
         const msg =
@@ -429,10 +452,24 @@ export function ArchTraceLinkPanel({
           {links.map((link) => {
             const sourceLabel =
               archById[link.source_id]?.title ??
-              requirementsById[link.source_id]?.title;
+              requirementsById[link.source_id]?.title ??
+              refsById[link.source_id]?.title;
             const targetLabel =
               requirementsById[link.target_id]?.title ??
-              archById[link.target_id]?.title;
+              archById[link.target_id]?.title ??
+              refsById[link.target_id]?.title;
+            const sourceRoute = refsById[link.source_id]?.route;
+            const targetRoute = refsById[link.target_id]?.route;
+            const linkLabelStyle: React.CSSProperties = {
+              fontFamily: "monospace",
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: "var(--color-primary)",
+              cursor: "pointer",
+              textDecoration: "underline",
+              font: "inherit",
+            };
             return (
               <li
                 key={link.id}
@@ -450,9 +487,18 @@ export function ArchTraceLinkPanel({
                   flexWrap: "wrap",
                 }}
               >
-                <span style={{ fontFamily: "monospace" }}>
+                <button
+                  type="button"
+                  disabled={!sourceRoute}
+                  onClick={() => sourceRoute && navigate(sourceRoute)}
+                  style={
+                    sourceRoute
+                      ? linkLabelStyle
+                      : { ...linkLabelStyle, color: "inherit", textDecoration: "none", cursor: "default" }
+                  }
+                >
                   {sourceLabel ?? link.source_id.slice(0, 8) + "…"}
-                </span>
+                </button>
                 <span
                   style={{
                     background: "var(--color-badge-draft)",
@@ -464,9 +510,18 @@ export function ArchTraceLinkPanel({
                 >
                   {link.link_type}
                 </span>
-                <span style={{ fontFamily: "monospace" }}>
+                <button
+                  type="button"
+                  disabled={!targetRoute}
+                  onClick={() => targetRoute && navigate(targetRoute)}
+                  style={
+                    targetRoute
+                      ? linkLabelStyle
+                      : { ...linkLabelStyle, color: "inherit", textDecoration: "none", cursor: "default" }
+                  }
+                >
                   {targetLabel ?? link.target_id.slice(0, 8) + "…"}
-                </span>
+                </button>
                 <button
                   type="button"
                   data-testid="arch-tracelink-delete-btn"

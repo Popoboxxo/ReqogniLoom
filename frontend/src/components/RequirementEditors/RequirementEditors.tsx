@@ -107,6 +107,7 @@ interface RequirementDetailEditorProps {
   upstreamLinks: TraceLink[];
   downstreamLinks: TraceLink[];
   linkedTitles: Record<string, string>;
+  linkedRoutes: Record<string, string>;
   requirements: Requirement[];
   workspaceId: UUID;
   onSaved: () => void;
@@ -117,6 +118,7 @@ function RequirementDetailEditor({
   upstreamLinks,
   downstreamLinks,
   linkedTitles,
+  linkedRoutes,
   requirements,
   workspaceId,
   onSaved,
@@ -330,6 +332,7 @@ function RequirementDetailEditor({
         upstreamLinks={upstreamLinks}
         downstreamLinks={downstreamLinks}
         linkedTitles={linkedTitles}
+        linkedRoutes={linkedRoutes}
       />
     </div>
   );
@@ -1072,7 +1075,7 @@ export default function RequirementEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace, terminologyLabel } = useWorkspace();
-  const { requirements, requirement, upstreamLinks, downstreamLinks, linkedTitles, isLoading, error, refresh } =
+  const { requirements, requirement, upstreamLinks, downstreamLinks, linkedTitles, linkedRoutes, isLoading, error, refresh } =
     useRequirementData(selectedId);
   const createRequirement = useCreateRequirement();
   const deleteRequirement = useDeleteRequirement();
@@ -1565,6 +1568,7 @@ export default function RequirementEditors(): JSX.Element {
             upstreamLinks={upstreamLinks}
             downstreamLinks={downstreamLinks}
             linkedTitles={linkedTitles}
+            linkedRoutes={linkedRoutes}
             requirements={requirements}
             workspaceId={activeWorkspace!.id}
             onSaved={refresh}

@@ -26,6 +26,7 @@ export interface RequirementData {
   upstreamLinks: TraceLink[];
   downstreamLinks: TraceLink[];
   linkedTitles: Record<string, string>;
+  linkedRoutes: Record<string, string>;
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
@@ -58,6 +59,7 @@ export function useRequirementData(selectedId?: string): RequirementData {
     upstreamLinks: detailQuery.data?.upstreamLinks ?? [],
     downstreamLinks: detailQuery.data?.downstreamLinks ?? [],
     linkedTitles: detailQuery.data?.linkedTitles ?? {},
+    linkedRoutes: detailQuery.data?.linkedRoutes ?? {},
     isLoading: listQuery.isLoading,
     error: detailQuery.error ? extractErrorMessage(detailQuery.error) : null,
     refresh,

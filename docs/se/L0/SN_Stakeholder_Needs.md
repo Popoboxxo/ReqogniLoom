@@ -57,10 +57,17 @@ und zu schweren Enterprise-Systemen (KONZEPT.md, Abschnitt 1, 2).
 
 ### REQ-L0-003 — SN-03: Vollständige Traceability zwischen Requirements, Architektur und Tests
 
-**Implementation State:** Not Implemented
-**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
-**Test Status:** Missing
-**Remarks:** REQ-ID taucht im Codebase nicht auf.
+**Implementation State:** Teilweise Implementiert
+**Reviewbefunde:** Kern-Traceability-Engine implementiert und verifiziert
+(`backend/traceability/trace_link_manager.py` — Zyklen-Prüfung via SCC,
+`backend/application/trace_link_service.py` — CRUD/Cascade-Delete/Allocation-Invariant,
+`backend/traceability/query_engine.py` — Upstream/Downstream/Transitive Queries,
+`backend/traceability/coverage_calculator.py` — Coverage-Berechnung). Siehe REQ-L1-001,
+REQ-L1-003, REQ-L1-012 (alle Implemented). Offen bleibt der Stage-Gating-Guardrails-Teil
+(Orphan-Protection + Approval-Gate-Enforcement beim Statuswechsel) — siehe REQ-L0-005.
+**Test Status:** Teilweise (Backend-Traceability-Kern verifiziert; Guardrails fehlen)
+**Remarks:** Frühere Markierung "Not Implemented" war veraltet — Dokument war nicht mit
+dem tatsächlichen Implementierungsstand von L1/L2 synchron (Korrektur 2026-07-04).
 
 Systems Engineers und AI-first Teams benötigen bidirektionale Verknüpfungen zwischen
 Anforderungen, Architektur-Elementen und Testfällen, um Impact-Analysen, Coverage-Reports
@@ -90,10 +97,20 @@ ReqFlow für Systems Engineers nicht ernsthaft nutzbar (KONZEPT.md, Abschnitt 4.
 
 ### REQ-L0-005 — SN-05: Konfigurierbarer Item-Lifecycle mit Rollen und Approval-Gates
 
-**Implementation State:** Not Implemented
-**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
-**Test Status:** Missing
-**Remarks:** REQ-ID taucht im Codebase nicht auf.
+**Implementation State:** Teilweise Implementiert
+**Reviewbefunde:** Workflow-Engine mit rollenbasierten Übergängen implementiert
+(`backend/workflow/services.py` — `transition()`-Orchestrierung,
+`backend/workflow/transition_validator.py` — vierstufiges sequentielles Gateway:
+Transition-Existenz, Rollen-Prüfung, Change-Reason-Pflicht, SignatureGate).
+**Lücke (bestätigt, nicht dokumentationsbedingt):** Keine der vier Gateway-Regeln prüft
+den Traceability-Graphen — Top-Down-Approval-Enforcement (Status "Approved" nur wenn alle
+referenzierten Vorgänger ebenfalls "Approved") und No-Orphan-Rule fehlen vollständig.
+Siehe REQ-L1-079 / REQ-L2-RA-020 / REQ-L3-RA006-002 (Stage-Gating Guardrails,
+HTTP 409 + `guardrail_errors`) — dort korrekt als "Backlog"/"Not Implemented" geführt.
+**Test Status:** Teilweise (Workflow-Kern verifiziert; Guardrail-Regeln fehlen)
+**Remarks:** Frühere Markierung "Not Implemented" war veraltet für den Workflow-Kern;
+der verbleibende Guardrails-Teil ist echt fehlend, nicht nur ein Dokumentations-Rückstand
+(Korrektur 2026-07-04).
 
 Projektteams müssen den Lifecycle-Workflow für Requirements, Architektur-Elemente und
 Testfälle an ihre Domäne und Compliance-Anforderungen anpassen können — inklusive

@@ -15,19 +15,23 @@ interface TraceabilityPanelProps {
   upstreamLinks: TraceLink[];
   downstreamLinks: TraceLink[];
   linkedTitles: Record<string, string>;
+  linkedRoutes?: Record<string, string>;
 }
 
 interface LinkItemProps {
   link: TraceLink;
+  linkedId: string;
   title: string;
+  route?: string;
 }
 
-function LinkItem({ link, title }: LinkItemProps): JSX.Element {
+function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element {
   const navigate = useNavigate();
 
   const handleClick = (): void => {
-    // Navigate to the linked artifact (requirement)
-    navigate(`/requirements/${link.source_id}`);
+    // Navigate to the linked artifact — may be a Requirement, ArchitectureElement
+    // or TestCase (REQ-L1-003), not necessarily another Requirement.
+    navigate(route ?? `/requirements/${linkedId}`);
   };
 
   return (
@@ -49,7 +53,7 @@ function LinkItem({ link, title }: LinkItemProps): JSX.Element {
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
         }}
-        title={`${title} (${link.source_id.slice(0, 8)}…)`}
+        title={`${title} (${linkedId.slice(0, 8)}…)`}
       >
         {title}
       </span>
@@ -78,6 +82,7 @@ export function TraceabilityPanel({
   upstreamLinks,
   downstreamLinks,
   linkedTitles,
+  linkedRoutes,
 }: TraceabilityPanelProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -101,7 +106,9 @@ export function TraceabilityPanel({
             <LinkItem
               key={l.id}
               link={l}
+              linkedId={l.source_id}
               title={linkedTitles[l.source_id] || `(${l.source_id.slice(0, 8)}…)`}
+              route={linkedRoutes?.[l.source_id]}
             />
           ))}
         </ul>
@@ -118,7 +125,9 @@ export function TraceabilityPanel({
             <LinkItem
               key={l.id}
               link={l}
+              linkedId={l.target_id}
               title={linkedTitles[l.target_id] || `(${l.target_id.slice(0, 8)}…)`}
+              route={linkedRoutes?.[l.target_id]}
             />
           ))}
         </ul>
