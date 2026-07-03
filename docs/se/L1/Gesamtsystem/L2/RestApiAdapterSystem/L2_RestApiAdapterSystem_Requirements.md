@@ -494,3 +494,51 @@ die intern an den VectorSearchService (REQ-L2-VS-001..003) delegieren.
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-RA-014..015 aus REQ-L1-044, REQ-L1-038)*
 
+---
+
+## Erweiterung v3 — REQ-L2-RA-016..017 (aus REQ-L1-065 und REQ-L1-066)
+
+> **Datum:** 2026-07-03 | **Quelle:** UI-Befund für Listen-Skalierbarkeit (REQ-L0-038, REQ-L0-040)
+
+---
+
+### REQ-L2-RA-016: REST-Endpunkte mit serverseitiger Paginierung
+
+**Implementation State:** Not Implemented
+**Review Findings:** Aktuell werden alle Daten ohne Limit geladen.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-065 (← REQ-L0-040, SN-40).
+
+Der RestApiAdapter MUSS auf allen `GET list`-Routen für Artefakte (Requirements, ArchitectureElements, etc.) serverseitige Paginierung unterstützen.
+
+**Akzeptanzkriterien:**
+- AC1: `GET /workspaces/{id}/requirements/` unterstützt `page` und `page_size` Query-Parameter.
+- AC2: API-Response-Format ist `{"count": N, "next": URL, "previous": URL, "results": [...]}`.
+- AC3: Pagination-Parameter werden transparent an den DRF-Paginator durchgereicht.
+
+**Verifikationsmethode:** API-Test mit > 100 Requirements (Prüfen ob nur page_size Elemente zurückkommen)
+**Verifikiert durch:** L2-RA-Test-016
+**Abgeleitet von:** REQ-L1-065
+**Übergeordnete REQ-L0:** REQ-L0-040
+
+---
+
+### REQ-L2-RA-017: REST-Endpunkte mit serverseitigem Filter & Sort
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine DRF FilterBackends im Einsatz.
+**Test Status:** Missing
+**Remarks:** Abgeleitet von REQ-L1-066 (← REQ-L0-038, SN-38).
+
+Der RestApiAdapter MUSS auf allen `GET list`-Routen Filterung nach Suchbegriffen, Status und Kategorie sowie Sortierung nach konfigurierbaren Feldern unterstützen.
+
+**Akzeptanzkriterien:**
+- AC1: `GET` akzeptiert `?search=...` für die Volltextsuche.
+- AC2: `GET` akzeptiert `?status=...` und `?category=...` für exakte Filterung.
+- AC3: `GET` akzeptiert `?ordering=...` (z.B. `?ordering=-created_at`) für aufsteigende/absteigende Sortierung.
+- AC4: Diese Parameter werden via DjangoFilterBackend, SearchFilter und OrderingFilter von DRF verarbeitet.
+
+**Verifikationsmethode:** API-Test mit Filter-Parametern
+**Verifikiert durch:** L2-RA-Test-017
+**Abgeleitet von:** REQ-L1-066
+**Übergeordnete REQ-L0:** REQ-L0-038

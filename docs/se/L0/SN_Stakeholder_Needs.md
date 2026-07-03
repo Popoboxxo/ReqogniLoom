@@ -920,11 +920,76 @@ Der eingegebene Mermaid-Code wird als Quelle gespeichert; die gerenderte grafisc
 
 ---
 
+## Stakeholder-Needs (Erweiterung v7 — REQ-L0-038 bis REQ-L0-040)
+
+> **Quelle:** User-Feedback (Befund - SE-Mode / Requirements-Management-Fähigkeit der UI)
+> **Datum:** 2026-07-03
+> **Erstellt durch:** se-requirements-Agent | 2026-07-03
+> **Status:** formalisiert
+
+---
+
+### REQ-L0-038 — SN-38: Skalierbarkeit & Übersicht bei großen Datenmengen
+
+**Implementation State:** Not Implemented
+**Review Findings:** UI-Befund ergab unpaginierte, unstrukturierte Liste
+**Test Status:** Missing
+**Remarks:** Essentiell für den produktiven Einsatz bei Projekten mit > 100 Requirements.
+
+Als SysEng-Nutzer muss ich auch bei Hunderten von Requirements, Architecture-Elementen und anderen Artefakten die Übersicht behalten, ohne dass die Liste unendlich lang, unsortiert und unübersichtlich wird. Das System muss Mechanismen zur Filterung und Sortierung bereitstellen.
+
+**Rationale:** Aktuell werden alle Requirements in einer flachen `<ul>`-Liste ohne Filter- oder Suchfunktion dargestellt. Bei realistischen Projektgrößen ist diese Ansicht nicht handhabbar.
+**Akzeptanzkriterien:**
+- AC1: Artefakt-Listen bieten eine Suchleiste.
+- AC2: Artefakt-Listen bieten Filter nach Status und Kategorie.
+- AC3: Artefakt-Listen können nach verschiedenen Attributen sortiert werden.
+
+**Ableitet L1:** neue L1-Anforderungen REQ-L1-058 (Wiederverwendbarkeit) und REQ-L1-060 (Search, Filter, Sort)
+
+---
+
+### REQ-L0-039 — SN-39: Systemebenen-Orientierung durch Hierarchie-Darstellung
+
+**Implementation State:** Not Implemented
+**Review Findings:** Parent-Child-Struktur nur als Trace-Link sichtbar, nicht als Struktur
+**Test Status:** Missing
+
+Als SysEng-Nutzer muss ich die hierarchische Struktur (Parent-Child / Systemebenen) meiner Systemelemente sofort in der primären Listenansicht erkennen können, um den Kontext nicht zu verlieren.
+
+**Rationale:** Die flache Darstellung verdeckt die Dekompositionsebene der Requirements.
+**Akzeptanzkriterien:**
+- AC1: Die UI bietet eine Tree-View-Ansicht oder Einrückungen basierend auf Parent-Child-Beziehungen.
+- AC2: Untergeordnete Elemente können in der Liste ein- und ausgeklappt werden.
+
+**Ableitet L1:** neue L1-Anforderung REQ-L1-061 (Hierarchie-Darstellung)
+
+---
+
+### REQ-L0-040 — SN-40: UI-Performance durch Lazy Loading
+
+**Implementation State:** Not Implemented
+**Review Findings:** listAll() ruft alle Daten synchron ab
+**Test Status:** Missing
+
+Als Nutzer erwarte ich eine performante Applikation, die auch bei großen Projekten flüssig lädt, ohne unnötig alle Datensätze auf einmal vom Server zu ziehen.
+
+**Rationale:** Die aktuelle Implementierung ruft alle Requirements in einer Schleife (bis zu 100 Seiten) ab, was den Browser bei großen Projekten blockiert und API-Limits erschöpft.
+**Akzeptanzkriterien:**
+- AC1: Listen-Views rufen Daten paginiert (Lazy-Loading) vom Backend ab.
+- AC2: Paginierung wird serverseitig unterstützt.
+
+**Ableitet L1:** neue L1-Anforderung REQ-L1-059 (Lazy Loading / Pagination)
+
+---
+
 ## Zusammenfassung: Neue Stakeholder-Needs
 
 | REQ-ID | Titel | Priorität | Abgeleitet von | L1-Ableitung |
 |--------|-------|-----------|----------------|--------------|
 | REQ-L0-036 | Free-Hand Canvas Drawing | desired | REQ-L0-016, User Need-1 | Erweiterung REQ-L1-027 / NEU REQ-L1-056 |
 | REQ-L0-037 | Mermaid Live Preview | desired | REQ-L0-016, User Need-2 | Erweiterung REQ-L1-027 / NEU REQ-L1-057 |
+| REQ-L0-038 | Skalierbarkeit & Übersicht | mandatory | UI-Befund | NEU REQ-L1-058, REQ-L1-060 |
+| REQ-L0-039 | Systemebenen-Orientierung | mandatory | UI-Befund | NEU REQ-L1-061 |
+| REQ-L0-040 | UI-Performance | mandatory | UI-Befund | NEU REQ-L1-059 |
 
-**Nächster Schritt:** L1-System-Anforderungen in `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` erweitern (neue REQ-L1-056 und REQ-L1-057 oder Erweiterung von REQ-L1-027).
+**Nächster Schritt:** L1-System-Anforderungen in `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` erweitern.

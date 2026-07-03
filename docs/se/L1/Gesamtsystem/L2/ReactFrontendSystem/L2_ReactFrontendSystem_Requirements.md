@@ -523,3 +523,60 @@ Das ReactFrontendSystem MUSS eine neue Route oder Ansicht `/levels` bereitstelle
 **Review Findings:** Nicht implementiert.
 **Test Status:** Missing
 
+---
+
+## Erweiterung v9 — REQ-L2-RF-019..021 (Skalierbare Listen-UIs)
+
+> **Datum:** 2026-07-03 | **Quelle:** UI-Befund für Listen-Skalierbarkeit (REQ-L0-038, REQ-L0-039, REQ-L0-040)
+
+---
+
+### REQ-L2-RF-019: Pagination und API-State in Listen-Komponenten
+
+Das ReactFrontendSystem MUSS in allen primären Listenansichten (`RequirementEditors.tsx`, `ArchitectureEditors.tsx`, etc.) die Paginierung unterstützen. Statt `listAll()` aufzurufen, müssen die Query-Parameter (`page`, `search`, `status`, `ordering`) an die React Query Hooks übergeben werden.
+
+**Akzeptanzkriterien:**
+- AC1: API-Client und Query-Hooks akzeptieren Paginierungs- und Filter-Parameter.
+- AC2: UI rendert Infinite Scroll oder Paginierungs-Buttons, um weitere Seiten abzurufen.
+- AC3: API-Responses vom Format `{"results": [...], "count": N}` werden korrekt verarbeitet.
+
+**Verifikationsmethode:** UI-Test (Network-Traffic: nur eine Seite wird beim Mount geladen)
+**Abgeleitet von:** REQ-L1-065
+**Implementation State:** Backlog
+**Review Findings:** `useRequirementsList` ruft derzeit `listAll()` auf.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-020: Wiederverwendbare ListToolbar (Search, Filter, Sort)
+
+Das ReactFrontendSystem MUSS eine isolierte, wiederverwendbare `<ListToolbar />`-Komponente bereitstellen, die die Steuerung von Suche, Filter und Sortierung übernimmt und die Parameter über URL-State oder lokalen State an die Listen-Views weitergibt.
+
+**Akzeptanzkriterien:**
+- AC1: `<ListToolbar />` enthält ein debounced Search-Input.
+- AC2: Enthält Dropdowns/Selects für Filterung nach Status/Kategorie und Sortierung (ASC/DESC).
+- AC3: Wird einheitlich in Requirements-, Architecture- und TestCase-Views eingesetzt.
+
+**Verifikationsmethode:** UI-Test (Interaktion mit Toolbar ändert Query-Parameter)
+**Abgeleitet von:** REQ-L1-064, REQ-L1-066
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-021: Hierarchische Darstellung (Tree-View-Modus)
+
+Das ReactFrontendSystem MUSS für Artefakte mit Parent-Child-Beziehungen (Requirements, ArchitectureElements) einen umschaltbaren Hierarchie-Modus in der Liste bereitstellen. Dieser Modus rendert die Datensätze als Baum (Tree) mit visueller Einrückung und Expand/Collapse-Funktionalität.
+
+**Akzeptanzkriterien:**
+- AC1: Toggle-Switch in der ListToolbar zwischen "Flat List" und "Tree View".
+- AC2: Tree-View rückt Child-Elemente basierend auf `parent_id` oder TraceLinks visuell ein.
+- AC3: Parent-Elemente haben ein Chevron-Icon zum Ein-/Ausklappen ihrer Kinder.
+
+**Verifikationsmethode:** UI-Test (DOM-Struktur prüfen)
+**Abgeleitet von:** REQ-L1-067
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+

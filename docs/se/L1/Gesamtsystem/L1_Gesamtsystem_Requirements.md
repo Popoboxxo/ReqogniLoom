@@ -1752,3 +1752,77 @@ Implementiere neue Route/Tab `/levels` mit Tree-View gruppiert nach abgeleiteter
 **Test Status:** Missing
 
 **Traceability:** REQ-L0-003
+
+---
+
+### REQ-L1-064: Einheitliche, skalierbare Listen-Komponente (UI)
+
+Das System muss eine einheitliche, skalierbare Listen-Komponente für alle primären Artefakte (Requirements, Architecture, Issues, Risks, Testcases, ADRs) bereitstellen.
+
+**Rationale:** Vermeidung von redundantem Code und einheitliche User Experience über alle Artefakt-Ansichten hinweg.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Es existiert eine gemeinsame Listen-Komponente für alle Artefakttypen.
+- AC2: Die Komponente kann beliebige Felder der jeweiligen Typen rendern.
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert (aktuell nur flache unstrukturierte Listen).
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-038
+
+---
+
+### REQ-L1-065: Lazy Loading / Server-Side Pagination
+
+Die Datenladung für Artefakt-Listen muss zwingend paginiert (Lazy Loading / Server-Side) erfolgen, anstatt initiale `listAll()`-Aufrufe durchzuführen.
+
+**Rationale:** Verbesserung der UI-Performance und Skalierbarkeit bei großen Projekten.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: DRF ViewSets unterstützen Pagination.
+- AC2: UI-Listen rufen die Daten seitenweise ab (z.B. Infinite Scroll oder Pages).
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-040
+
+---
+
+### REQ-L1-066: Serverseitige Such-, Filter- und Sortierfunktionen
+
+Das System muss serverseitige Such-, Filter- (z. B. Status, Kategorie) und Sortierfunktionen unterstützen und über eine zugängliche UI (ListToolbar) anbieten.
+
+**Rationale:** Essentiell zum Finden von spezifischen Elementen in Projekten mit hunderten von Anforderungen.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: DRF ViewSets implementieren SearchFilter, DjangoFilterBackend und OrderingFilter.
+- AC2: Die UI bietet eine ListToolbar mit Inputs für Suche, Filter und Sortierung.
+- AC3: Parameter werden per Query-String an das Backend gesendet.
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-038
+
+---
+
+### REQ-L1-067: Hierarchische Darstellung in Primärlisten
+
+Das System muss eine optionale hierarchische Einrückung (Tree-View-Modus) direkt in der primären Listenansicht für Artefakte mit Parent-Child-Strukturen anbieten.
+
+**Rationale:** Erhalt des Kontexts (Systemebenen-Orientierung) in der Hauptansicht.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Toggle für "Tree View" in der Listen-Ansicht.
+- AC2: Wenn aktiviert, rücken Kindelemente visuell ein.
+- AC3: Parent-Knoten können eingeklappt werden.
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-039
