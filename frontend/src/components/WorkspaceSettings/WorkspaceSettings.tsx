@@ -112,6 +112,18 @@ export default function WorkspaceSettings(): JSX.Element {
       setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
     }
   }, [activeWorkspace, reloadWorkspaces]);
+  const handleDecompLinkChange = useCallback(async (linkType: string): Promise<void> => {
+    if (linkType === activeWorkspace.decomposition_link_type) return;
+    setSaveError(null);
+    setSavedOk(false);
+    try {
+      await workspacesApi.update(activeWorkspace.id, { decomposition_link_type: linkType });
+      await reloadWorkspaces(activeWorkspace.id);
+      setSavedOk(true);
+    } catch (err: unknown) {
+      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+    }
+  }, [activeWorkspace, reloadWorkspaces]);
 
   const handleSaveName = useCallback(async (): Promise<void> => {
     if (!name.trim() || name === activeWorkspace.name) return;
@@ -176,6 +188,26 @@ export default function WorkspaceSettings(): JSX.Element {
       setIsDeleting(false);
     }
   }, [activeWorkspace, deleteConfirmation, navigate, t]);
+
+  const [cloneName, setCloneName] = useState("");
+  const [isCloning, setIsCloning] = useState(false);
+
+  const handleCloneWorkspace = useCallback(async (): Promise<void> => {
+    if (!cloneName.trim()) return;
+    setSaveError(null);
+    setIsCloning(true);
+    try {
+      const cloned = await workspacesApi.clone(activeWorkspace.id, cloneName.trim());
+      await reloadWorkspaces(cloned.id);
+      setCloneName("");
+      setSavedOk(true);
+      navigate("/");
+    } catch (err: unknown) {
+      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+    } finally {
+      setIsCloning(false);
+    }
+  }, [activeWorkspace, cloneName, navigate, reloadWorkspaces]);
 
   // ---- Per-feature visibility handlers (REQ-L1-027) ----
 
@@ -348,6 +380,8 @@ export default function WorkspaceSettings(): JSX.Element {
           </label>
         ))}
       </section>
+
+
 
       {/* Language */}
       <section style={sectionStyle}>
@@ -562,6 +596,42 @@ export default function WorkspaceSettings(): JSX.Element {
             >
               {isClosing ? "…" : t("settings.closeWorkspace", "Close Workspace")}
             </button>
+          )}
+
+          {/* Clone/Sandbox button (SN-33) */}
+          {activeWorkspace.is_active !== false && (
+            <div style={{ marginTop: "var(--space-4)", marginBottom: "var(--space-4)", display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="Sandbox Name"
+                value={cloneName}
+                onChange={(e) => setCloneName(e.target.value)}
+                style={{
+                  padding: "var(--space-2)",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--color-border)",
+                }}
+              />
+              <button
+                type="button"
+                data-testid="clone-workspace-btn"
+                onClick={() => void handleCloneWorkspace()}
+                disabled={isCloning || !cloneName.trim()}
+                style={{
+                  background: "var(--color-primary, #3b82f6)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-4)",
+                  fontSize: "var(--font-size-sm)",
+                  fontWeight: 600,
+                  cursor: isCloning || !cloneName.trim() ? "not-allowed" : "pointer",
+                  opacity: isCloning || !cloneName.trim() ? 0.5 : 1,
+                }}
+              >
+                {isCloning ? "Cloning…" : "Create Sandbox"}
+              </button>
+            </div>
           )}
 
           {/* Reactivate button — visible when workspace is closed */}

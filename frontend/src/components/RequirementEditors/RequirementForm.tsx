@@ -218,17 +218,39 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
             border: '1px solid var(--color-border)',
           }}
         >
-          <h2
-            style={{
-              fontSize: 'var(--font-size-xl)',
-              fontWeight: 700,
-              marginBottom: 'var(--space-3)',
-              color: 'var(--color-text)',
-              marginTop: 0,
-            }}
-          >
-            {requirement.title || t('editor.untitled')}
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+            <h2
+              style={{
+                fontSize: 'var(--font-size-xl)',
+                fontWeight: 700,
+                color: 'var(--color-text)',
+                margin: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              {requirement.suspect && <span title="Needs review due to upstream changes">⚠️</span>}
+              {requirement.title || t('editor.untitled')}
+            </h2>
+            {requirement.suspect && (
+              <button
+                onClick={() => onChange({ ...requirement, suspect: false })}
+                style={{
+                  background: 'var(--color-success)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '4px 12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: 'var(--font-size-sm)',
+                }}
+              >
+                Mark as Reviewed
+              </button>
+            )}
+          </div>
           <div
             style={{
               display: 'flex',

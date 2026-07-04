@@ -44,6 +44,8 @@ class LinkType(str, Enum):
     COPY_OF = "copy-of"
     # REQ-L1-042 allocation tracking:
     ALLOCATED_TO = "allocated-to"
+    # REQ-L1-044 Semantic Glossary Link
+    USES_TERM = "uses-term"
 
     @classmethod
     def values(cls) -> frozenset[str]:

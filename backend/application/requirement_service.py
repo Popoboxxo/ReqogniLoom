@@ -230,6 +230,7 @@ class RequirementService(ServiceBase):
         complexity_fibonacci: object = _UNSET,
         verification_method: object = _UNSET,
         uid: object = _UNSET,
+        suspect: Optional[bool] = None,
     ) -> Requirement:
         """Update a Requirement, enforcing change_reason policy.
 
@@ -273,6 +274,13 @@ class RequirementService(ServiceBase):
             requirement.verification_method = verification_method
         if uid is not _UNSET:
             requirement.uid = uid
+        
+        # SN-30: If title, description, or status changed, we will propagate suspect
+        changed_critical = any(x is not None for x in [title, description, status])
+
+        if hasattr(requirement, "suspect"):
+            if suspect is not None:
+                requirement.suspect = suspect
 
         requirement.save()
         # Atomic version increment (REQ-L3-PL001-002): requirement_service was
@@ -297,6 +305,13 @@ class RequirementService(ServiceBase):
                 payload={"change_reason": change_reason},
             )
         )
+
+        if changed_critical:
+            try:
+                self._trace_link_service.propagate_suspect_status(requirement.artifact_id, ctx)
+            except Exception as e:
+                logger.error(f"Error propagating suspect status: {e}")
+
         return requirement
 
     @atomic_transaction
@@ -426,8 +441,7 @@ class RequirementService(ServiceBase):
 
         # Resolve configured decomposition link type from workspace preset
         workspace = Workspace.objects.filter(id=workspace_id).first()
-        preset = workspace.preset if workspace and isinstance(workspace.preset, dict) else {}
-        decomposition_link_type = preset.get("decomposition_link_type", "parent-child")
+        decomposition_link_type = getattr(workspace, "decomposition_link_type", "parent-child")
 
         result = DecompositionResultDTO(parent_id=requirement_id)
 

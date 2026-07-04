@@ -45,6 +45,10 @@ export const workspacesApi = {
     return apiClient.patch<Workspace>(`/workspaces/${id}/`, data);
   },
 
+  clone(id: UUID, target_name: string): Promise<Workspace> {
+    return apiClient.post<Workspace>(`/workspaces/${id}/clone/`, { target_name });
+  },
+
   setPreset(id: UUID, preset: WorkspacePreset): Promise<{ id: string; preset: string }> {
     return apiClient.patch<{ id: string; preset: string }>(`/workspaces/${id}/preset/`, { preset });
   },

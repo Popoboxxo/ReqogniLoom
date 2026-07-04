@@ -341,6 +341,7 @@ class ArchitectureElementSerializer(
     expected_version = serializers.IntegerField(
         required=False, write_only=True
     )
+    suspect = serializers.BooleanField(required=False, default=False)
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
@@ -375,6 +376,7 @@ class TestCaseSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
     status = serializers.CharField(max_length=64, default="draft")
+    suspect = serializers.BooleanField(required=False, default=False)
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
@@ -440,6 +442,9 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(max_length=255)
     preset = serializers.JSONField(required=False, default=dict)
+    decomposition_link_type = serializers.CharField(
+        required=False, default="parent-child", max_length=50
+    )
     terminology_profile = serializers.CharField(
         required=False, default="se_mode", max_length=32
     )
@@ -671,6 +676,35 @@ def apply_queryset_optimizations(queryset: Any, entity_type: str) -> Any:
     return queryset
 
 
+class GlossaryTermVersionSerializer(serializers.Serializer):
+    """Serializer for GlossaryTermVersion (REQ-L2-RA-001)."""
+
+    id = serializers.UUIDField(read_only=True)
+    term_fk_id = serializers.UUIDField(read_only=True)
+    term_version = serializers.IntegerField(read_only=True)
+    definition = serializers.CharField()
+    synonyms = serializers.JSONField(required=False, default=list)
+    abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
+
+
+class GlossaryTermSerializer(serializers.Serializer):
+    """Serializer for GlossaryTerm (REQ-L2-RA-001)."""
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    term = serializers.CharField(max_length=255)
+    definition = serializers.CharField()
+    synonyms = serializers.JSONField(required=False, default=list)
+    abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
+    created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
+    modified_by_id = serializers.UUIDField(read_only=True, allow_null=True)
+
+
 __all__ = [
     "ArtifactSerializer",
     "RequirementSerializer",
@@ -687,6 +721,8 @@ __all__ = [
     "TestRunSerializer",
     "TestRunResultSerializer",
     "TestRunResultBulkSerializer",
+    "GlossaryTermSerializer",
+    "GlossaryTermVersionSerializer",
     "StandardPagination",
     "PresetAwareSerializerMixin",
     "build_error_response",

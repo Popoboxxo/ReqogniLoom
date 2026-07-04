@@ -154,6 +154,114 @@ class WorkspaceService(ServiceBase):
 
         return workspace
 
+    @atomic_transaction
+    def clone_workspace(
+        self,
+        ctx: AuthContext,
+        source_id: UUID,
+        target_name: str,
+    ) -> Workspace:
+        """Create a sandbox clone of a workspace (SN-33)."""
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        source = Workspace.objects.filter(id=source_id, tenant_id=ctx.tenant_id).first()
+        if not source:
+            raise NotFoundError(f"Workspace {source_id} not found")
+        
+        target_name_clean = (target_name or "").strip()
+        if not target_name_clean:
+            raise ValidationError("target_name is required")
+
+        source_config = WorkspacePresetConfig.objects.filter(workspace=source).first()
+        active_tier = source_config.active_tier if source_config else "standard"
+        terminology = source_config.terminology_profile if source_config else "se_mode"
+
+        # 1. Create target Workspace
+        target = Workspace.objects.create(
+            tenant_id=ctx.tenant_id,
+            name=target_name_clean,
+            preset=source.preset,
+            parent_workspace=source,
+        )
+        WorkspacePresetConfig.objects.create(
+            tenant_id=ctx.tenant_id,
+            workspace=target,
+            active_tier=active_tier,
+            terminology_profile=terminology,
+        )
+
+        # 2. Deep copy artifacts
+        old_to_new_artifact = {}
+        old_to_new_arch = {}
+
+        # Copy Artifacts
+        artifacts = list(Artifact.objects.filter(workspace=source))
+        for a in artifacts:
+            new_a = Artifact.objects.create(
+                tenant_id=ctx.tenant_id,
+                workspace=target,
+                artifact_type=a.artifact_type,
+            )
+            old_to_new_artifact[a.id] = new_a
+
+        # Fix parent FKs on Artifacts
+        for a in artifacts:
+            if a.parent_id:
+                new_a = old_to_new_artifact[a.id]
+                new_a.parent_id = old_to_new_artifact[a.parent_id].id
+                new_a.save(update_fields=['parent_id'])
+
+        # Copy Requirements
+        reqs = list(Requirement.objects.filter(artifact__workspace=source))
+        for r in reqs:
+            r.pk = None
+            r.artifact = old_to_new_artifact[r.artifact_id]
+            r.save()
+
+        # Copy ArchitectureElements
+        archs = list(ArchitectureElement.objects.filter(artifact__workspace=source))
+        for arch in archs:
+            old_id = arch.id
+            arch.pk = None
+            arch.artifact = old_to_new_artifact[arch.artifact_id]
+            # parent is self-referential on ArchitectureElement
+            # we will fix parent_id in a second pass
+            arch.save()
+            old_to_new_arch[old_id] = arch.id
+        
+        for arch in archs:
+            if arch.parent_id:
+                new_arch = ArchitectureElement.objects.get(id=old_to_new_arch[arch.id])
+                new_arch.parent_id = old_to_new_arch[arch.parent_id]
+                new_arch.save(update_fields=['parent_id'])
+
+        # Copy TestCases
+        tests = list(TestCase.objects.filter(artifact__workspace=source))
+        for t in tests:
+            t.pk = None
+            t.artifact = old_to_new_artifact[t.artifact_id]
+            t.save()
+
+        # Copy TraceLinks
+        # Using TraceLink directly instead of engine to clone within same tenant easily
+        links = list(TraceLink.objects.filter(source__workspace=source))
+        for link in links:
+            link.pk = None
+            link.source_id = old_to_new_artifact[link.source_id].id
+            link.target_id = old_to_new_artifact[link.target_id].id
+            link.save()
+
+        self._audit(
+            ctx=ctx,
+            operation="clone",
+            entity_type="Workspace",
+            entity_id=target.id,
+            details={"source_id": str(source.id)},
+        )
+
+        return target
+
     # ---------- Lifecycle API (REQ-L1-042) ----------
 
     @atomic_transaction

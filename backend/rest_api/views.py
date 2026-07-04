@@ -62,6 +62,7 @@ from application.services import (
     AdrService,
     RiskService,
     IssueService,
+    GlossaryService,
 )
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
@@ -84,6 +85,7 @@ from rest_api.serializers import (
     TraceLinkSerializer,
     WorkflowDefinitionSerializer,
     WorkspaceSerializer,
+    GlossaryTermSerializer,
     build_error_response,
     detect_lang,
 )
@@ -1445,6 +1447,7 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         "id": str(ws.id),
         "name": ws.name,
         "preset": ws.preset or {},
+        "decomposition_link_type": getattr(ws, "decomposition_link_type", "parent-child"),
         "terminology_profile": terminology_profile,
         "language": "en",
         "is_active": getattr(ws, "is_active", True),
@@ -1633,10 +1636,9 @@ class WorkspaceViewSet(BaseEntityViewSet):
                     update_fields.append("preset")
 
             if "decomposition_link_type" in request.data:
-                preset_blob["decomposition_link_type"] = str(request.data["decomposition_link_type"])
-                ws.preset = preset_blob
-                if "preset" not in update_fields:
-                    update_fields.append("preset")
+                ws.decomposition_link_type = str(request.data["decomposition_link_type"])
+                if "decomposition_link_type" not in update_fields:
+                    update_fields.append("decomposition_link_type")
 
             if "terminology_profile" in request.data:
                 target_profile = str(request.data["terminology_profile"])
@@ -1754,6 +1756,37 @@ class WorkspaceViewSet(BaseEntityViewSet):
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+    @action(detail=True, methods=["post"], url_path="clone")
+    def clone(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """POST /api/v1/workspaces/{pk}/clone/ — clone a workspace.
+
+        Body: {target_name: string}
+        """
+        lang = detect_lang(request)
+        target_name = request.data.get("target_name")
+        if not target_name or not str(target_name).strip():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="target_name is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().clone_workspace(
+                ctx=ctx,
+                source_id=UUID(pk),
+                target_name=str(target_name),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(
+            WorkspaceSerializer(_workspace_to_dict(item)).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     # ---- Lifecycle actions (REQ-L1-042) ----
 
@@ -2713,6 +2746,83 @@ class CsvImportView(APIView):
 
         http_status = status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST
         return Response(response_data, status=http_status)
+
+
+class GlossaryTermViewSet(BaseEntityViewSet):
+    """ViewSet for Semantic Project Glossary (REQ-L1-044)."""
+
+    serializer_class = GlossaryTermSerializer
+
+    def _svc(self) -> GlossaryService:
+        return GlossaryService()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        ctx = get_auth_context(request)
+        workspace_id_str = request.query_params.get("workspace_id")
+        if not workspace_id_str:
+            return build_error_response(status.HTTP_400_BAD_REQUEST, "Missing workspace_id")
+
+        try:
+            workspace_id = UUID(workspace_id_str)
+        except ValueError:
+            return build_error_response(status.HTTP_400_BAD_REQUEST, "Invalid workspace_id")
+
+        try:
+            terms = self._svc().list_by_workspace(ctx, workspace_id)
+            data = [t.__dict__ for t in terms]
+            return self._paginate(request, data)
+        except Exception as e:
+            logger.exception("Error in GlossaryTermViewSet.list")
+            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        ctx = get_auth_context(request)
+        try:
+            term_id = UUID(pk)
+            term = self._svc().get(ctx, term_id)
+            return Response(term.__dict__)
+        except Exception as e:
+            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        ctx = get_auth_context(request)
+        try:
+            term_str = request.data.get("term", "")
+            definition = request.data.get("definition", "")
+            workspace_id_str = request.data.get("workspace_id")
+            synonyms = request.data.get("synonyms", [])
+            abbreviation = request.data.get("abbreviation", "")
+
+            if not workspace_id_str:
+                return build_error_response(status.HTTP_400_BAD_REQUEST, "workspace_id required")
+
+            workspace_id = UUID(workspace_id_str)
+            term = self._svc().create(ctx, workspace_id, term_str, definition, synonyms, abbreviation)
+            return Response(term.__dict__, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        ctx = get_auth_context(request)
+        try:
+            term_id = UUID(pk)
+            definition = request.data.get("definition")
+            synonyms = request.data.get("synonyms")
+            abbreviation = request.data.get("abbreviation")
+
+            term = self._svc().update(ctx, term_id, definition, synonyms, abbreviation)
+            return Response(term.__dict__)
+        except Exception as e:
+            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        ctx = get_auth_context(request)
+        try:
+            term_id = UUID(pk)
+            self._svc().delete(ctx, term_id)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Exception as e:
+            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
 
 
 class AttributeVisibilityConfigViewSet(BaseEntityViewSet):

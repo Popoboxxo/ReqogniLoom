@@ -417,6 +417,64 @@ class TraceLinkService(ServiceBase):
             ]
         return results
 
+    def propagate_suspect_status(self, source_id: UUID, ctx: AuthContext) -> None:
+        """Propagate 'suspect' status to downstream artifacts (SN-30).
+
+        Queries the transitive closure of outgoing links (downstream) and marks
+        all reachable Requirement, ArchitectureElement, and TestCase entities
+        as suspect = True.
+        """
+        if ctx is not None:
+            self._set_tenant_context(ctx)
+
+        try:
+            resolved_id = self._resolve_artifact_id(source_id)
+        except NotFoundError:
+            return  # Source does not exist or isn't an artifact
+
+        # Get all downstream artifacts (transitive hull).
+        # We query the engine for outgoing links recursively.
+        from traceability.services import query
+        # Fetch up to 5 levels deep
+        results = []
+        try:
+            # Depending on engine implementation, query might not do transitive closures.
+            # Assuming query() returns immediate targets, we'll do a simple BFS here.
+            # Alternatively, if query() is recursive, we just use it.
+            # Here we do BFS up to depth 5:
+            queue = [resolved_id]
+            visited = set()
+            depth = 0
+            while queue and depth < 5:
+                next_queue = []
+                for node_id in queue:
+                    if node_id in visited:
+                        continue
+                    visited.add(node_id)
+                    edges = query(artifact_id=node_id, direction="outgoing")
+                    for edge in edges:
+                        target = getattr(edge, "target_id", None)
+                        if target and target not in visited:
+                            next_queue.append(target)
+                queue = next_queue
+                depth += 1
+            
+            # Now update all visited downstream (excluding the source itself)
+            visited.discard(resolved_id)
+            if not visited:
+                return
+
+            from persistence.models import Requirement, ArchitectureElement, TestCase
+            # Update all reachable entities
+            Requirement.objects.filter(artifact_id__in=visited).update(suspect=True)
+            ArchitectureElement.objects.filter(artifact_id__in=visited).update(suspect=True)
+            TestCase.objects.filter(artifact_id__in=visited).update(suspect=True)
+
+            logger.info(f"Propagated suspect status to {len(visited)} artifacts from {source_id}")
+        except Exception as exc:
+            logger.error(f"Error propagating suspect status for {source_id}: {exc}")
+
+
 
 __all__ = [
     "TraceLinkService",

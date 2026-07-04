@@ -219,6 +219,23 @@ class VersionReconstructor:
         except Exception:
             pass
 
+        # Try GlossaryTerm
+        try:
+            from persistence.models import GlossaryTerm
+
+            gt = GlossaryTerm.objects.filter(id=item_uuid).first()
+            if gt is not None and gt.version == version:
+                return ItemPayload(
+                    item_id=item_id,
+                    version=version,
+                    title=gt.term,
+                    description=gt.definition,
+                    content=None,
+                    reconstructed_at=datetime.now(tz=timezone.utc),
+                )
+        except Exception:
+            pass
+
         return None
 
     def _load_from_audit_log(
@@ -256,6 +273,7 @@ class VersionReconstructor:
                     title = (
                         payload_data.get("title")
                         or payload_data.get("name")
+                        or payload_data.get("term")
                         or f"item:{item_id}"
                     )
                     return ItemPayload(

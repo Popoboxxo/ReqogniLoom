@@ -46,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/import", labelKey: "nav.import", feature: "csv_import" },
   { path: "/icds", labelKey: "nav.icds", feature: "icds" },
   { path: "/diagrams", labelKey: "nav.diagrams", feature: "diagrams" },
+  { path: "/glossary", labelKey: "nav.glossary", feature: "dashboard" },
   { path: "/metrics", labelKey: "nav.metrics", feature: "metrics" },
   { path: "/settings", labelKey: "nav.settings", feature: "dashboard" },
 ];

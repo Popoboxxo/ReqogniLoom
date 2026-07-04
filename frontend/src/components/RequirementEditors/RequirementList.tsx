@@ -290,8 +290,12 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                       fontWeight: 600,
                       fontSize: 'var(--font-size-base)',
                       color: 'var(--color-text)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
                     }}
                   >
+                    {req.suspect && <span title="Needs review due to upstream changes">⚠️</span>}
                     {req.title || t('editor.untitled')}
                   </span>
                   <div

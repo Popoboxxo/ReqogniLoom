@@ -73,6 +73,7 @@ export interface Requirement {
   moscow_priority?: MoscowPriority;
   complexity_fibonacci?: number;
   verification_method?: VerificationMethod;
+  suspect?: boolean;
   change_reason?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -88,6 +89,7 @@ export interface TestCase {
   title: string;
   description: string;
   status: string;
+  suspect?: boolean;
   version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -120,6 +122,7 @@ export interface ArchitectureElement {
   uid?: string | null;
   asil_level?: ASILLevel;
   make_or_buy?: MakeOrBuyDecision;
+  suspect?: boolean;
   change_reason?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;

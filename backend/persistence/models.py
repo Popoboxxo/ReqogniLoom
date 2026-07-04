@@ -380,9 +380,22 @@ class Workspace(TenantScopedModel):
 
     name = models.CharField(max_length=255)
     preset = models.JSONField(default=dict, blank=True)
+    decomposition_link_type = models.CharField(
+        max_length=50,
+        default="parent-child",
+        help_text="Default link type used when decomposing requirements.",
+    )
     is_active = models.BooleanField(
         default=True,
         help_text="Soft-delete flag. False = workspace is closed (REQ-L1-042).",
+    )
+    parent_workspace = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sandboxes",
+        help_text="SN-33: Source workspace this sandbox was cloned from.",
     )
     closed_at = models.DateTimeField(
         null=True,
@@ -486,6 +499,10 @@ class Requirement(TenantScopedModel):
         blank=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
+    suspect = models.BooleanField(
+        default=False,
+        help_text="SN-30: Indicates if this requirement needs review due to upstream changes.",
+    )
 
     class Meta:
         db_table = "pl_requirement"
@@ -542,6 +559,10 @@ class ArchitectureElement(TenantScopedModel):
         null=True,
         blank=True,
         help_text="Unique identifier (read-only, auto-generated)",
+    )
+    suspect = models.BooleanField(
+        default=False,
+        help_text="SN-30: Indicates if this element needs review due to upstream changes.",
     )
 
     class Meta:
@@ -623,6 +644,10 @@ class TestCase(TenantScopedModel):
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     steps = models.JSONField(default=list, blank=True)
+    suspect = models.BooleanField(
+        default=False,
+        help_text="SN-30: Indicates if this test case needs review due to upstream changes.",
+    )
 
     class Meta:
         db_table = "pl_testcase"
@@ -833,6 +858,42 @@ class AttributeVisibilityConfig(TenantScopedModel):
         return f"{self.entity_type}.{self.attribute_name} ({visibility_status}, {required_status})"
 
 
+class GlossaryTerm(TenantScopedModel):
+    """Semantic glossary term (REQ-L1-044)."""
+
+    workspace = models.ForeignKey(
+        Workspace, on_delete=models.CASCADE, related_name="glossary_terms"
+    )
+    term = models.CharField(max_length=255)
+    definition = models.TextField()
+    synonyms = models.JSONField(default=list, blank=True)
+    abbreviation = models.CharField(max_length=64, blank=True)
+    version = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = "pl_glossary_term"
+        unique_together = (("workspace", "term"),)
+
+    def __str__(self) -> str:
+        return self.term
+
+
+class GlossaryTermVersion(TenantScopedModel):
+    """Immutable version snapshot of GlossaryTerm."""
+
+    term_fk = models.ForeignKey(
+        GlossaryTerm, on_delete=models.CASCADE, related_name="versions"
+    )
+    term_version = models.IntegerField()
+    definition = models.TextField()
+    synonyms = models.JSONField(default=list, blank=True)
+    abbreviation = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        db_table = "pl_glossary_term_version"
+        unique_together = (("term_fk", "term_version"),)
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -859,4 +920,6 @@ __all__ = [
     "AuditLogEntry",
     "TestRun",
     "TestRunResult",
+    "GlossaryTerm",
+    "GlossaryTermVersion",
 ]

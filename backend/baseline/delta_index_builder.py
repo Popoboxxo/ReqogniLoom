@@ -98,10 +98,31 @@ class ScopeResolver:
         with connection.cursor() as cur:
             cur.execute(sql, [str(workspace_id), str(tenant_id)])
             rows = cur.fetchall()
-        return [
+
+        items = [
             DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="item")
             for row in rows
         ]
+
+        # REQ-L1-044 Semantic Glossary - include in project scope
+        glossary_sql = """
+            SELECT g.id::text, g.version
+            FROM pl_glossary_term g
+            WHERE g.workspace_id = %s
+              AND g.tenant_id = %s
+            ORDER BY g.id
+        """
+        with connection.cursor() as cur:
+            cur.execute(glossary_sql, [str(workspace_id), str(tenant_id)])
+            glossary_rows = cur.fetchall()
+
+        glossary_items = [
+            DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="glossary_term")
+            for row in glossary_rows
+        ]
+        items.extend(glossary_items)
+
+        return items
 
     def _resolve_global(self, tenant_id: uuid.UUID) -> list[DeltaIndexTuple]:
         """All Artifacts across all workspaces of the tenant."""
@@ -116,10 +137,28 @@ class ScopeResolver:
         with connection.cursor() as cur:
             cur.execute(sql, [str(tenant_id)])
             rows = cur.fetchall()
-        return [
+        items = [
             DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="item")
             for row in rows
         ]
+
+        glossary_sql = """
+            SELECT g.id::text, g.version
+            FROM pl_glossary_term g
+            WHERE g.tenant_id = %s
+            ORDER BY g.id
+        """
+        with connection.cursor() as cur:
+            cur.execute(glossary_sql, [str(tenant_id)])
+            glossary_rows = cur.fetchall()
+
+        glossary_items = [
+            DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="glossary_term")
+            for row in glossary_rows
+        ]
+        items.extend(glossary_items)
+
+        return items
 
     def _resolve_document(
         self,

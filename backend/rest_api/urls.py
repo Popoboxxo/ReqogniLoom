@@ -54,6 +54,7 @@ from rest_api.views import (
     AttributeVisibilityConfigViewSet,
     BaselineViewSet,
     CsvImportView,
+    GlossaryTermViewSet,
     IssueViewSet,
     RequirementHistoryView,
     RequirementViewSet,
@@ -89,6 +90,7 @@ router.register(r"diagrams", DiagramViewSet, basename="diagram")
 router.register(r"icds", IcdViewSet, basename="icd")
 router.register(r"metrics", MetricsViewSet, basename="metrics")
 router.register(r"attribute-visibility-configs", AttributeVisibilityConfigViewSet, basename="attribute-visibility-config")
+router.register(r"glossary", GlossaryTermViewSet, basename="glossary")
 
 # ---------------------------------------------------------------------------
 # URL patterns
