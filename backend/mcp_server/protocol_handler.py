@@ -193,10 +193,15 @@ class TransportAdapter(ABC):
         """Extract API key from request frame or headers (ADR-L3-MC001-03).
 
         Priority:
-          1. X-API-Key HTTP header (HTTP/SSE transports)
-          2. params.api_key (all transports — used by stdio clients)
+          1. Authorization: Bearer <key> header
+          2. X-API-Key HTTP header (HTTP/SSE transports)
+          3. params.api_key (all transports — used by stdio clients)
         """
         if headers:
+            auth_header = headers.get("HTTP_AUTHORIZATION") or headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                return auth_header[7:]
+
             key = headers.get("HTTP_X_API_KEY") or headers.get("X-API-Key")
             if key:
                 return key

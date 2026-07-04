@@ -129,6 +129,7 @@ services:
       - "5173:5173"
     depends_on:
       - backend
+    command: sh -c "npm install && npm run dev"
 
 volumes:
   postgres_data:

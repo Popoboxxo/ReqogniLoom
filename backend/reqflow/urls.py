@@ -39,5 +39,6 @@ urlpatterns = [
     path("api/v1/", include("rest_api.urls")),
     # MCP transport — ARCH-L1-003
     # TODO(ARCH-L1-003): include("mcp_server.urls") once implemented
+    path("api/v1/mcp/", include("mcp_server.urls")),
     path("mcp/", include("mcp_server.urls")),
 ]

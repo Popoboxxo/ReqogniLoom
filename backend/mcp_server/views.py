@@ -46,14 +46,43 @@ def _get_handler() -> ProtocolHandler:
 
 def _extract_django_headers(request: HttpRequest) -> dict:
     """Extract relevant HTTP headers from Django META for API-key resolution."""
-    return {
+    headers = {
         "HTTP_X_API_KEY": request.META.get("HTTP_X_API_KEY", ""),
         "X-API-Key": request.META.get("HTTP_X_API_KEY", ""),
+        "HTTP_AUTHORIZATION": request.META.get("HTTP_AUTHORIZATION", ""),
     }
+    
+    api_key_query = request.GET.get("api_key")
+    if api_key_query and not headers["HTTP_AUTHORIZATION"] and not headers["HTTP_X_API_KEY"]:
+        headers["HTTP_X_API_KEY"] = api_key_query
+        
+    logger.error(f"DEBUG HEADERS META: {request.META.get('HTTP_AUTHORIZATION')} | {request.META.get('HTTP_X_API_KEY')}")
+    logger.error(f"DEBUG QUERY: {api_key_query}")
+    logger.error(f"DEBUG EXTRACTED: {headers}")
+    return headers
+
+
+class CorsMixin:
+    """Mixin to add CORS headers to MCP responses."""
+    def options(self, request, *args, **kwargs):
+        response = HttpResponse()
+        return self._add_cors_headers(request, response)
+
+    def _add_cors_headers(self, request, response):
+        origin = request.headers.get("Origin", "*")
+        response["Access-Control-Allow-Origin"] = origin
+        response["Access-Control-Allow-Credentials"] = "true"
+        response["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
+        return response
+
+    def dispatch(self, request, *args, **kwargs):
+        response = super().dispatch(request, *args, **kwargs)
+        return self._add_cors_headers(request, response)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class McpHttpTransportView(View):
+class McpHttpTransportView(CorsMixin, View):
     """HTTP transport endpoint for MCP JSON-RPC requests.
 
     Accepts POST application/json with a JSON-RPC 2.0 body.
@@ -126,13 +155,49 @@ class McpHttpTransportView(View):
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class McpSseTransportView(View):
+class McpSseTransportView(CorsMixin, View):
     """SSE transport endpoint — serves a single MCP response as a SSE event.
 
     Clients connecting to this endpoint POST a JSON-RPC request; the response
     is sent as a ``data:`` SSE event. Long-lived SSE streaming would require
     an async server (out of scope for synchronous Django).
     """
+
+    def get(self, request: HttpRequest, *args, **kwargs) -> StreamingHttpResponse:
+        """Standard MCP SSE connection establishment."""
+        import time
+
+        def _sse_generator():
+            # Retrieve the API key from the initial GET request headers
+            api_key = ""
+            auth = request.META.get("HTTP_AUTHORIZATION", "")
+            if auth.startswith("Bearer "):
+                api_key = auth[7:]
+            else:
+                api_key = request.META.get("HTTP_X_API_KEY", "")
+
+            endpoint = "/api/v1/mcp/"
+            if api_key:
+                endpoint += f"?api_key={api_key}"
+
+            # Standard MCP client expects an 'endpoint' event with the POST URL
+            yield "event: endpoint\n"
+            yield f"data: {endpoint}\n\n"
+            
+            # Keep the connection open for the client
+            try:
+                while True:
+                    time.sleep(15)
+                    yield ": keepalive\n\n"
+            except GeneratorExit:
+                pass
+
+        response = StreamingHttpResponse(
+            _sse_generator(),
+            content_type="text/event-stream",
+            status=200,
+        )
+        return self._add_cors_headers(request, response)
 
     def post(self, request: HttpRequest, *args, **kwargs) -> StreamingHttpResponse:
         """Handle a single MCP tool call over SSE."""
@@ -155,11 +220,12 @@ class McpSseTransportView(View):
         def _sse_generator():
             yield f"data: {json.dumps(response_frame)}\n\n"
 
-        return StreamingHttpResponse(
+        response = StreamingHttpResponse(
             _sse_generator(),
             content_type="text/event-stream",
             status=200,
         )
+        return self._add_cors_headers(request, response)
 
 
 __all__ = [

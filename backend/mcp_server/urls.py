@@ -20,4 +20,5 @@ urlpatterns = [
     path("", McpHttpTransportView.as_view(), name="mcp-http"),
     # SSE transport (IF-MC-EXT-IN-001 over SSE)
     path("sse/", McpSseTransportView.as_view(), name="mcp-sse"),
+    path("sse", McpSseTransportView.as_view(), name="mcp-sse-no-slash"),
 ]
