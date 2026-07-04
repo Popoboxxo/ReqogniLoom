@@ -16,11 +16,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { risksApi } from "../../api/risks";
-import type { Risk, RiskImpact, RiskProbability, RiskSeverity, UUID } from "../../types";
+import type { Risk, RiskImpact, RiskProbability, RiskSeverity, RiskStatus, RiskCategory } from "../../types";
 
 const SEVERITY_OPTIONS: RiskSeverity[] = ["low", "medium", "high"];
 const PROBABILITY_OPTIONS: RiskProbability[] = ["low", "medium", "high"];
 const IMPACT_OPTIONS: RiskImpact[] = ["low", "medium", "high"];
+const STATUS_OPTIONS: RiskStatus[] = ["Identified", "Monitored", "Mitigated", "Accepted", "Closed"];
+const CATEGORY_OPTIONS: RiskCategory[] = ["technical", "operational", "organizational", "business"];
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -67,12 +69,15 @@ interface RiskDetailEditorProps {
 
 function RiskDetailEditor({ risk, onSaved }: RiskDetailEditorProps): JSX.Element {
   const { t } = useTranslation();
-  const { activeWorkspace } = useWorkspace();
   const [title, setTitle] = useState(risk.title);
   const [description, setDescription] = useState(risk.description ?? "");
   const [severity, setSeverity] = useState<RiskSeverity>(risk.severity ?? "medium");
   const [probability, setProbability] = useState<RiskProbability>(risk.probability ?? "medium");
   const [impact, setImpact] = useState<RiskImpact>(risk.impact ?? "medium");
+  const [status, setStatus] = useState(risk.status ?? "Identified");
+  const [category, setCategory] = useState(risk.category ?? "technical");
+  const [owner, setOwner] = useState(risk.owner ?? "");
+  const [mitigationStrategy, setMitigationStrategy] = useState(risk.mitigation_strategy ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -86,6 +91,10 @@ function RiskDetailEditor({ risk, onSaved }: RiskDetailEditorProps): JSX.Element
         severity,
         probability,
         impact,
+        status,
+        category,
+        owner: owner.trim(),
+        mitigation_strategy: mitigationStrategy.trim(),
       });
       onSaved();
     } catch (err: unknown) {
@@ -95,7 +104,7 @@ function RiskDetailEditor({ risk, onSaved }: RiskDetailEditorProps): JSX.Element
     } finally {
       setIsSaving(false);
     }
-  }, [risk.id, title, description, severity, probability, impact, onSaved]);
+  }, [risk.id, title, description, severity, probability, impact, status, category, owner, mitigationStrategy, onSaved]);
 
   const handleDelete = useCallback(async (): Promise<void> => {
     if (!window.confirm(t("editor.deleteConfirm"))) return;
@@ -208,6 +217,84 @@ function RiskDetailEditor({ risk, onSaved }: RiskDetailEditorProps): JSX.Element
             ))}
           </select>
         </div>
+      </div>
+      
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "var(--space-3)",
+          marginBottom: "var(--space-4)",
+        }}
+      >
+        <div>
+          <label htmlFor="risk-status" style={labelStyle}>
+            Status
+          </label>
+          <select
+            id="risk-status"
+            data-testid="risk-status-select"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as any)}
+            disabled={isSaving}
+            style={inputStyle}
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="risk-category" style={labelStyle}>
+            Category
+          </label>
+          <select
+            id="risk-category"
+            data-testid="risk-category-select"
+            value={category}
+            onChange={(e) => setCategory(e.target.value as any)}
+            disabled={isSaving}
+            style={inputStyle}
+          >
+            {CATEGORY_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="risk-owner" style={labelStyle}>
+          Owner
+        </label>
+        <input
+          id="risk-owner"
+          data-testid="risk-owner-input"
+          type="text"
+          value={owner}
+          onChange={(e) => setOwner(e.target.value)}
+          disabled={isSaving}
+          style={inputStyle}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="risk-mitigation" style={labelStyle}>
+          Mitigation Strategy
+        </label>
+        <textarea
+          id="risk-mitigation"
+          data-testid="risk-mitigation-input"
+          value={mitigationStrategy}
+          onChange={(e) => setMitigationStrategy(e.target.value)}
+          disabled={isSaving}
+          rows={3}
+          style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }}
+        />
       </div>
 
       {saveError && (

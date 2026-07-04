@@ -81,10 +81,15 @@ class ArchitectureService(ServiceBase):
         description: str = "",
         element_type: str = ElementType.COMPONENT,
         parent_id: Optional[UUID] = None,
+        asil_level: Optional[str] = None,
+        make_or_buy: Optional[str] = None,
+        uid: Optional[str] = None,
     ) -> ArchitectureElement:
         """Create an ArchitectureElement with initial version=1.
 
         REQ-L2-AS-004 acceptance: create → version=1, initial WorkflowState.
+        REQ-L3-RF004-004: Accepts ASIL level and Make-or-Buy decision.
+        REQ-L2-RF-025 AC3: Accepts uid for stable identification.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -125,6 +130,9 @@ class ArchitectureService(ServiceBase):
             element_type=element_type,
             parent_id=parent_id,
             version=1,
+            asil_level=asil_level,
+            make_or_buy=make_or_buy,
+            uid=uid,
         )
 
         # Initialise workflow state
@@ -163,6 +171,9 @@ class ArchitectureService(ServiceBase):
         description: Optional[str] = None,
         element_type: Optional[str] = None,
         parent_id: object = _UNSET,
+        asil_level: Optional[str] = _UNSET,
+        make_or_buy: Optional[str] = _UNSET,
+        uid: Optional[str] = _UNSET,
     ) -> ArchitectureElement:
         """Update an ArchitectureElement with optimistic locking.
 
@@ -174,6 +185,9 @@ class ArchitectureService(ServiceBase):
         REQ-L1-044: when *parent_id* is provided (UUID or None to detach),
         the hierarchy invariants I1-I3 are enforced according to the
         workspace's rigor preset before the new parent is persisted.
+
+        REQ-L3-RF004-004: Accepts ASIL level and Make-or-Buy decision.
+        REQ-L2-RF-025 AC3: Accepts uid for stable identification.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -201,6 +215,15 @@ class ArchitectureService(ServiceBase):
         if element_type is not None:
             arch_el.element_type = self._validate_element_type(element_type)
             changed_fields["element_type"] = arch_el.element_type
+        if asil_level is not _UNSET:
+            arch_el.asil_level = asil_level
+            changed_fields["asil_level"] = asil_level
+        if make_or_buy is not _UNSET:
+            arch_el.make_or_buy = make_or_buy
+            changed_fields["make_or_buy"] = make_or_buy
+        if uid is not _UNSET:
+            arch_el.uid = uid
+            changed_fields["uid"] = uid
 
         # REQ-L1-044: invariant checks (I1-I3) before re-parenting
         if parent_id is not _UNSET:

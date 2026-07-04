@@ -39,6 +39,7 @@ export interface Workspace {
   preset: WorkspacePreset;
   terminology_profile: TerminologyProfile;
   language: string;
+  decomposition_link_type?: string;
   is_active: boolean;
   closed_at: ISODateTime | null;
   closed_by: UUID | null;
@@ -56,8 +57,8 @@ export interface WorkspaceWithMetrics extends Workspace {
 // ---------------------------------------------------------------------------
 
 export type RequirementType = 'StReq' | 'SyReq' | 'SWReq' | 'HWReq';
-export type MoscowPriority = 'M' | 'S' | 'C' | 'W';
-export type VerificationMethod = 'inspection' | 'demonstration' | 'test' | 'analysis';
+export type MoscowPriority = 'Must' | 'Should' | 'Could' | "Won't";
+export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
 
 export interface Requirement {
   id: UUID;

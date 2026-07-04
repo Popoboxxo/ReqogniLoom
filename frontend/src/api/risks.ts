@@ -48,6 +48,7 @@ export const risksApi = {
         | "category"
         | "owner"
         | "mitigation_strategy"
+        | "severity"
         | "status"
       >
     >

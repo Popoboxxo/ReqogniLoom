@@ -44,6 +44,8 @@ from application.models import DomainEventOutbox
 
 logger = logging.getLogger(__name__)
 
+# Sentinel to distinguish "not provided" from "set to None" in update calls.
+_UNSET = object()
 
 # ---------------------------------------------------------------------------
 # DTOs
@@ -114,10 +116,18 @@ class RequirementService(ServiceBase):
         description: str = "",
         category: str = "",
         parent_id: Optional[UUID] = None,
+        type: str = "SyReq",
+        moscow_priority: Optional[str] = None,
+        complexity_fibonacci: Optional[int] = None,
+        verification_method: Optional[str] = None,
+        uid: Optional[str] = None,
     ) -> Requirement:
         """Create a Requirement with initial workflow state.
 
         REQ-L2-AS-003: creates Requirement + initialises WorkflowState.
+        REQ-L3-RF003-005: Accepts SE mask fields (type, moscow_priority,
+        complexity_fibonacci, verification_method).
+        REQ-L2-RF-025 AC3: Accepts uid for stable identification.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -146,6 +156,11 @@ class RequirementService(ServiceBase):
             description=description,
             category=category,
             status="draft",
+            type=type,
+            moscow_priority=moscow_priority,
+            complexity_fibonacci=complexity_fibonacci,
+            verification_method=verification_method,
+            uid=uid,
         )
 
         # Initialise workflow state (IF-AS-EXT-OUT-001)
@@ -210,11 +225,19 @@ class RequirementService(ServiceBase):
         category: Optional[str] = None,
         status: Optional[str] = None,
         change_reason: Optional[str] = None,
+        type: Optional[str] = None,
+        moscow_priority: object = _UNSET,
+        complexity_fibonacci: object = _UNSET,
+        verification_method: object = _UNSET,
+        uid: object = _UNSET,
     ) -> Requirement:
         """Update a Requirement, enforcing change_reason policy.
 
         REQ-L2-AS-003: change_reason required in Extended preset.
         ADR-L3-AS002-02: delegates policy check to PresetPolicyService.
+        REQ-L3-RF003-005: Accepts SE mask fields (type, moscow_priority,
+        complexity_fibonacci, verification_method).
+        REQ-L2-RF-025 AC3: Accepts uid for stable identification.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -240,6 +263,16 @@ class RequirementService(ServiceBase):
             requirement.category = category
         if status is not None:
             requirement.status = status
+        if type is not None:
+            requirement.type = type
+        if moscow_priority is not _UNSET:
+            requirement.moscow_priority = moscow_priority
+        if complexity_fibonacci is not _UNSET:
+            requirement.complexity_fibonacci = complexity_fibonacci
+        if verification_method is not _UNSET:
+            requirement.verification_method = verification_method
+        if uid is not _UNSET:
+            requirement.uid = uid
 
         requirement.save()
         # Atomic version increment (REQ-L3-PL001-002): requirement_service was
@@ -391,6 +424,11 @@ class RequirementService(ServiceBase):
                         f"ArchitectureElement {arch_el_id} is not in workspace {workspace_id}"
                     )
 
+        # Resolve configured decomposition link type from workspace preset
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        preset = workspace.preset if workspace and isinstance(workspace.preset, dict) else {}
+        decomposition_link_type = preset.get("decomposition_link_type", "parent-child")
+
         result = DecompositionResultDTO(parent_id=requirement_id)
 
         with TransactionContextManager():
@@ -404,12 +442,12 @@ class RequirementService(ServiceBase):
                 )
                 result.children.append(RequirementDTO.from_orm(child_req))
 
-                # IF-AS-INT-002: create parent-child TraceLink
+                # IF-AS-INT-002: create TraceLink using configured type
                 try:
                     tl = self._trace_link_service.create_trace_link(
                         source_id=UUID(str(parent_req.artifact_id)),
                         target_id=UUID(str(child_req.artifact_id)),
-                        link_type="parent-child",
+                        link_type=decomposition_link_type,
                         ctx=ctx,
                     )
                     if hasattr(tl, "id"):

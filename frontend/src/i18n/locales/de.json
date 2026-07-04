@@ -76,6 +76,15 @@
     "copy": "Kopieren",
     "dismiss": "Verwerfen"
   },
+  "admin": {
+    "attributeVisibility": "Attributkonfiguration",
+    "attributeVisibilityDescription": "Konfigurieren Sie, welche Felder in den Editoren sichtbar und welche Pflichtfelder sind.",
+    "entityType": "Entitätstyp",
+    "visibleFields": "Felder",
+    "visible": "Sichtbar",
+    "required": "Pflicht",
+    "saved": "Konfiguration erfolgreich gespeichert."
+  },
   "dashboard": {
     "openItems": "Offene Punkte",
     "preset": "Preset",
@@ -104,7 +113,20 @@
     "sortStatus": "Status",
     "sortUpdatedDesc": "Zuletzt geändert",
     "noMatches": "Keine Einträge entsprechen den aktuellen Filtern.",
-    "filteredCount": "{{shown}} von {{total}}"
+    "filteredCount": "{{shown}} von {{total}}",
+    "verificationMethod": "Verifikationsmethode",
+    "verificationMethodRequired": "Verifikationsmethode ist erforderlich.",
+    "complexityFibonacci": "Komplexität (Fibonacci)",
+    "selectOption": "Option auswählen",
+    "exportPdf": "PDF Export",
+    "titleRequired": "Titel ist erforderlich.",
+    "moscowPriorityRequired": "MoSCoW-Priorität ist erforderlich.",
+    "type": "Anforderungstyp",
+    "moscowPriority": "MoSCoW-Priorität",
+    "selectPriority": "Priorität auswählen",
+    "selectVerificationMethod": "Methode auswählen",
+    "viewDiff": "Diff anzeigen",
+    "hideDiff": "Diff verbergen"
   },
   "arch": {
     "elementType": "Element-Typ",
@@ -223,7 +245,14 @@
   },
   "req": {
     "changeReason": "Änderungsgrund",
-    "changeReasonPlaceholder": "Warum wird diese Anforderung geändert?"
+    "changeReasonPlaceholder": "Warum wird diese Anforderung geändert?",
+    "changeReasonRequired": "Änderungsgrund ist erforderlich."
+  },
+  "reqType": {
+    "StReq": "Stakeholder-Anforderung (StReq)",
+    "SyReq": "System-Anforderung (SyReq)",
+    "SWReq": "Software-Anforderung (SWReq)",
+    "HWReq": "Hardware-Anforderung (HWReq)"
   },
   "testRuns": {
     "create": "Testlauf erstellen",

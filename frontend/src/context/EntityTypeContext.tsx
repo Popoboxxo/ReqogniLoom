@@ -78,8 +78,9 @@ export interface AttributeVisibilityConfig {
   id?: string;
   entity_type: EntityType;
   entity_subtype?: EntitySubType;
-  attribute: string;
+  attribute_name: string;
   is_visible: boolean;
+  is_required?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -89,6 +90,12 @@ export interface AttributeVisibilityConfig {
  * Example: { moscow_priority: true, complexity_fibonacci: false, ... }
  */
 export type VisibleFieldsMap = Record<string, boolean>;
+
+/**
+ * Required fields map: attribute name → boolean
+ * Example: { moscow_priority: true, description: false, ... }
+ */
+export type RequiredFieldsMap = Record<string, boolean>;
 
 /**
  * Context value interface.
@@ -103,8 +110,14 @@ export interface EntityTypeContextValue {
   /** Visibility config for form fields */
   visibleFields: VisibleFieldsMap;
 
+  /** Required config for form fields */
+  requiredFields: RequiredFieldsMap;
+
   /** Check if a specific field is visible */
   isFieldVisible: (fieldName: string) => boolean;
+
+  /** Check if a specific field is required */
+  isFieldRequired: (fieldName: string) => boolean;
 
   /** Get all visible field names */
   getVisibleFieldNames: () => string[];
@@ -119,7 +132,9 @@ export interface EntityTypeContextValue {
 const defaultContextValue: EntityTypeContextValue = {
   entityType: 'requirement',
   visibleFields: {},
+  requiredFields: {},
   isFieldVisible: () => true, // Default: show all
+  isFieldRequired: () => false, // Default: optional
   getVisibleFieldNames: () => [],
 };
 
@@ -138,6 +153,7 @@ export interface EntityTypeProviderProps {
   entityType: EntityType;
   entitySubType?: EntitySubType;
   visibleFields?: VisibleFieldsMap;
+  requiredFields?: RequiredFieldsMap;
   visibilityConfigs?: AttributeVisibilityConfig[];
 }
 
@@ -152,6 +168,7 @@ export const EntityTypeProvider: React.FC<EntityTypeProviderProps> = ({
   entityType,
   entitySubType,
   visibleFields = {},
+  requiredFields = {},
   visibilityConfigs = [],
 }) => {
   // Memoize computed context value
@@ -160,6 +177,7 @@ export const EntityTypeProvider: React.FC<EntityTypeProviderProps> = ({
       entityType,
       entitySubType,
       visibleFields,
+      requiredFields,
       visibilityConfigs,
       isFieldVisible: (fieldName: string): boolean => {
         // If field explicitly configured, respect that
@@ -169,13 +187,20 @@ export const EntityTypeProvider: React.FC<EntityTypeProviderProps> = ({
         // Default: show all fields if not configured
         return true;
       },
+      isFieldRequired: (fieldName: string): boolean => {
+        if (fieldName in requiredFields) {
+          return requiredFields[fieldName];
+        }
+        // Default: optional
+        return false;
+      },
       getVisibleFieldNames: (): string[] => {
         return Object.entries(visibleFields)
           .filter(([, isVisible]) => isVisible)
           .map(([fieldName]) => fieldName);
       },
     };
-  }, [entityType, entitySubType, visibleFields, visibilityConfigs]);
+  }, [entityType, entitySubType, visibleFields, requiredFields, visibilityConfigs]);
 
   return (
     <EntityTypeContext.Provider value={value}>

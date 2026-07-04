@@ -76,6 +76,15 @@
     "copy": "Copy",
     "dismiss": "Dismiss"
   },
+  "admin": {
+    "attributeVisibility": "Attribute Configuration",
+    "attributeVisibilityDescription": "Configure which fields are visible and required in artifact editors.",
+    "entityType": "Entity Type",
+    "visibleFields": "Fields",
+    "visible": "Visible",
+    "required": "Required",
+    "saved": "Configuration saved successfully."
+  },
   "dashboard": {
     "openItems": "Open Items",
     "preset": "Preset",
@@ -104,7 +113,20 @@
     "sortStatus": "Status",
     "sortUpdatedDesc": "Last updated",
     "noMatches": "No items match the current filters.",
-    "filteredCount": "{{shown}} of {{total}}"
+    "filteredCount": "{{shown}} of {{total}}",
+    "verificationMethod": "Verification Method",
+    "verificationMethodRequired": "Verification method is required.",
+    "complexityFibonacci": "Complexity (Fibonacci)",
+    "selectOption": "Select Option",
+    "exportPdf": "Export PDF",
+    "titleRequired": "Title is required.",
+    "moscowPriorityRequired": "MoSCoW priority is required.",
+    "type": "Requirement Type",
+    "moscowPriority": "MoSCoW Priority",
+    "selectPriority": "Select Priority",
+    "selectVerificationMethod": "Select Method",
+    "viewDiff": "View Diff",
+    "hideDiff": "Hide Diff"
   },
   "arch": {
     "elementType": "Element Type",
@@ -223,7 +245,14 @@
   },
   "req": {
     "changeReason": "Change Reason",
-    "changeReasonPlaceholder": "Why is this requirement being changed?"
+    "changeReasonPlaceholder": "Why is this requirement being changed?",
+    "changeReasonRequired": "Change reason is required."
+  },
+  "reqType": {
+    "StReq": "Stakeholder Requirement (StReq)",
+    "SyReq": "System Requirement (SyReq)",
+    "SWReq": "Software Requirement (SWReq)",
+    "HWReq": "Hardware Requirement (HWReq)"
   },
   "testRuns": {
     "create": "Create Run",

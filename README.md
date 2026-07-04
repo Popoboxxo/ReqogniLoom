@@ -234,16 +234,17 @@ npm test                     # run tests (Vitest)
 
 ### End-to-End Tests (Playwright)
 
+Wir nutzen Playwright im Frontend für robuste UI-Tests und zur Bereitstellung eines MCP-Servers (Model Context Protocol), damit LLMs die UI testen können. Die UI ist mit über 400 `data-testid`-Attributen extrem LLM-freundlich aufgebaut.
+
 ```bash
 cd e2e
 npm install                  # first time only
 npx playwright test          # full suite (~3 min)
-npx playwright test --ui     # interactive UI mode
-npx playwright test tests/requirements.spec.ts  # single file
-DEBUG=pw:api npx playwright test    # verbose output
+npm run test:e2e:ui          # interactive UI mode
+npm run mcp:playwright       # starte Playwright MCP Server für LLM-Agenten
 ```
 
-**Status:** 111 tests passing (Playwright/Chromium). See `e2e/README.md`.
+**Status:** Playwright Setup & MCP integriert.
 
 ### Manual MCP Test (curl)
 

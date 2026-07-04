@@ -22,6 +22,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEntityType } from '../../context/EntityTypeContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import {
   Requirement,
   RequirementType,
@@ -67,7 +68,9 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   onSaved,
 }) => {
   const { t } = useTranslation();
-  const { entitySubType, visibleFields, isFieldVisible } = useEntityType();
+  const { isFieldVisible, isFieldRequired } = useEntityType();
+  const { activeWorkspace } = useWorkspace();
+  const isExtendedPreset = activeWorkspace?.preset === 'extended';
 
   // Form state
   const [title, setTitle] = useState(requirement.title);
@@ -98,20 +101,21 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     if (!title.trim()) {
       return t('editor.titleRequired');
     }
-    if (!changeReason.trim()) {
+    if (isExtendedPreset && isFieldVisible('change_reason') && isFieldRequired('change_reason') && !changeReason.trim()) {
       return t('req.changeReasonRequired');
     }
+    
     // Type-specific validations
-    if (type === 'StReq' && !moscowPriority) {
+    if (type === 'StReq' && isFieldVisible('moscow_priority') && isFieldRequired('moscow_priority') && !moscowPriority) {
       return t('editor.moscowPriorityRequired');
     }
     if (type === 'SyReq') {
-      if (!verificationMethod) {
+      if (isFieldVisible('verification_method') && isFieldRequired('verification_method') && !verificationMethod) {
         return t('editor.verificationMethodRequired');
       }
     }
     return null;
-  }, [title, changeReason, type, moscowPriority, verificationMethod, t]);
+  }, [title, changeReason, type, moscowPriority, verificationMethod, t, isExtendedPreset, isFieldVisible, isFieldRequired]);
 
   /**
    * Handle save action.
@@ -136,12 +140,12 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
       };
 
       // Include type-specific fields
-      if (type === 'StReq' && moscowPriority) {
-        updateData.moscow_priority = moscowPriority;
+      if (type === 'StReq') {
+        updateData.moscow_priority = moscowPriority || null;
       }
       if (type === 'SyReq') {
-        updateData.complexity_fibonacci = complexityFibonacci;
-        updateData.verification_method = verificationMethod;
+        updateData.complexity_fibonacci = complexityFibonacci === '' ? null : Number(complexityFibonacci);
+        updateData.verification_method = verificationMethod || null;
       }
 
       await requirementsApi.update(requirement.id, updateData);
@@ -244,178 +248,185 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
           </div>
         </div>
 
-        {/* Title */}
-        <label htmlFor="req-title" style={labelStyle}>
-          {t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span>
-        </label>
-        <input
-          id="req-title"
-          data-testid="req-title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          style={inputStyle}
-        />
+        {/* SECTION: General Information */}
+        <div style={{ marginBottom: 'var(--space-6)' }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+            General Information
+          </h3>
+          
+          <label htmlFor="req-title" style={labelStyle}>
+            {t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span>
+          </label>
+          <input
+            id="req-title"
+            data-testid="req-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={{ ...inputStyle, marginBottom: 'var(--space-4)' }}
+          />
 
-        {/* Description */}
-        <label htmlFor="req-description" style={{ ...labelStyle, marginBottom: 'var(--space-1)' }}>
-          {t('editor.description')}
-        </label>
-        <MarkdownPreview value={description} onChange={setDescription} />
+          <label htmlFor="req-description" style={{ ...labelStyle, marginBottom: 'var(--space-1)' }}>
+            {t('editor.description')}
+          </label>
+          <MarkdownPreview value={description} onChange={setDescription} />
+        </div>
 
-        {/* Category */}
-        <label htmlFor="req-category" style={{ ...labelStyle, marginBottom: 'var(--space-4)' }}>
-          {t('editor.category')}
-        </label>
-        <select
-          id="req-category"
-          data-testid="req-category"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          style={inputStyle}
-        >
-          <option value="">{t('editor.categoryPlaceholder')} --</option>
-          {REQ_CATEGORIES.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat}
-            </option>
-          ))}
-        </select>
+        {/* SECTION: Classification & Properties */}
+        <div style={{ marginBottom: 'var(--space-6)' }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+            Classification & Properties
+          </h3>
 
-        {/* Workflow State */}
-        <label htmlFor="req-workflow" style={labelStyle}>
-          {t('editor.workflowState')}
-        </label>
-        <select
-          id="req-workflow"
-          data-testid="req-workflow"
-          value={workflowState}
-          onChange={(e) => setWorkflowState(e.target.value)}
-          style={inputStyle}
-        >
-          {WORKFLOW_STATES.map((state) => (
-            <option key={state} value={state}>
-              {state}
-            </option>
-          ))}
-        </select>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
+            {isFieldVisible('category') && (
+              <div>
+                <label htmlFor="req-category" style={labelStyle}>
+                  {t('editor.category')} {isFieldRequired('category') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+                </label>
+                <select
+                  id="req-category"
+                  data-testid="req-category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">{t('editor.categoryPlaceholder')} --</option>
+                  {REQ_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-        {/* Type selector */}
-        <label htmlFor="req-type" style={labelStyle}>
-          {t('editor.type')}
-        </label>
-        <select
-          id="req-type"
-          data-testid="req-type"
-          value={type}
-          onChange={(e) => setType(e.target.value as RequirementType)}
-          style={inputStyle}
-        >
-          <option value="StReq">Stakeholder Requirement (StReq)</option>
-          <option value="SyReq">System Requirement (SyReq)</option>
-          <option value="SWReq">Software Requirement (SWReq)</option>
-          <option value="HWReq">Hardware Requirement (HWReq)</option>
-        </select>
+            {isFieldVisible('status') && (
+              <div>
+                <label htmlFor="req-workflow" style={labelStyle}>
+                  {t('editor.workflowState')} {isFieldRequired('status') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+                </label>
+                <select
+                  id="req-workflow"
+                  data-testid="req-workflow"
+                  value={workflowState}
+                  onChange={(e) => setWorkflowState(e.target.value)}
+                  style={inputStyle}
+                >
+                  {WORKFLOW_STATES.map((state) => (
+                    <option key={state} value={state}>
+                      {state}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-        {/* Type-specific fields: Moscow Priority (StReq only) */}
-        {type === 'StReq' && isFieldVisible('moscow_priority') && (
-          <>
-            <label htmlFor="moscow-priority" style={labelStyle}>
-              {t('editor.moscowPriority')} <span style={{ color: 'var(--color-danger)' }}>*</span>
+            {isFieldVisible('type') && (
+              <div>
+                <label htmlFor="req-type" style={labelStyle}>
+                  {t('editor.type')} {isFieldRequired('type') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+                </label>
+                <select
+                  id="req-type"
+                  data-testid="req-type"
+                  value={type}
+                  onChange={(e) => setType(e.target.value as RequirementType)}
+                  style={inputStyle}
+                >
+                  <option value="StReq">{t('reqType.StReq')}</option>
+                  <option value="SyReq">{t('reqType.SyReq')}</option>
+                  <option value="SWReq">{t('reqType.SWReq')}</option>
+                  <option value="HWReq">{t('reqType.HWReq')}</option>
+                </select>
+              </div>
+            )}
+
+            {type === 'StReq' && isFieldVisible('moscow_priority') && (
+              <div>
+                <label htmlFor="moscow-priority" style={labelStyle}>
+                  {t('editor.moscowPriority')} {isFieldRequired('moscow_priority') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+                </label>
+                <select
+                  id="moscow-priority"
+                  data-testid="moscow-priority"
+                  value={moscowPriority}
+                  onChange={(e) => setMoscowPriority(e.target.value as MoscowPriority)}
+                  style={inputStyle}
+                >
+                  <option value="">{t('editor.selectPriority')} --</option>
+                  <option value="Must">Must Have (M)</option>
+                  <option value="Should">Should Have (S)</option>
+                  <option value="Could">Could Have (C)</option>
+                  <option value="Won't">Won't Have (W)</option>
+                </select>
+              </div>
+            )}
+
+            {type === 'SyReq' && isFieldVisible('complexity_fibonacci') && (
+              <div>
+                <label htmlFor="complexity-fibonacci" style={labelStyle}>
+                  {t('editor.complexityFibonacci')} {isFieldRequired('complexity_fibonacci') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+                </label>
+                <select
+                  id="complexity-fibonacci"
+                  data-testid="complexity-fibonacci"
+                  value={complexityFibonacci}
+                  onChange={(e) => setComplexityFibonacci(Number(e.target.value))}
+                  style={inputStyle}
+                >
+                  {FIBONACCI_SEQUENCE.map((val) => (
+                    <option key={val} value={val}>
+                      {val}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {type === 'SyReq' && isFieldVisible('verification_method') && (
+              <div>
+                <label htmlFor="verification-method" style={labelStyle}>
+                  {t('editor.verificationMethod')} {isFieldRequired('verification_method') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+                </label>
+                <select
+                  id="verification-method"
+                  data-testid="verification-method"
+                  value={verificationMethod}
+                  onChange={(e) => setVerificationMethod(e.target.value as VerificationMethod)}
+                  style={inputStyle}
+                >
+                  <option value="">{t('editor.selectVerificationMethod')} --</option>
+                  <option value="Inspection">Inspection</option>
+                  <option value="Review">Review</option>
+                  <option value="Test">Test</option>
+                  <option value="Analysis">Analysis</option>
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* SECTION: Change Control */}
+        {isExtendedPreset && isFieldVisible('change_reason') && (
+          <div style={{ marginBottom: 'var(--space-6)' }}>
+            <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+              Change Control
+            </h3>
+            
+            <label htmlFor="change-reason" style={labelStyle}>
+              {t('req.changeReason')} {isFieldRequired('change_reason') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
             </label>
-            <select
-              id="moscow-priority"
-              data-testid="moscow-priority"
-              value={moscowPriority}
-              onChange={(e) => setMoscowPriority(e.target.value as MoscowPriority)}
-              style={inputStyle}
-            >
-              <option value="">{t('editor.selectPriority')} --</option>
-              <option value="M">Must Have (M)</option>
-              <option value="S">Should Have (S)</option>
-              <option value="C">Could Have (C)</option>
-              <option value="W">Won't Have (W)</option>
-            </select>
-          </>
+            <textarea
+              id="change-reason"
+              data-testid="change-reason-input"
+              value={changeReason}
+              onChange={(e) => setChangeReason(e.target.value)}
+              rows={2}
+              style={{ ...inputStyle, resize: 'vertical' }}
+              placeholder={t('req.changeReasonPlaceholder')}
+            />
+          </div>
         )}
-
-        {/* Type-specific fields: Complexity Fibonacci (SyReq only) */}
-        {type === 'SyReq' && isFieldVisible('complexity_fibonacci') && (
-          <>
-            <label htmlFor="complexity-fibonacci" style={labelStyle}>
-              {t('editor.complexityFibonacci')}
-            </label>
-            <div
-              style={{
-                display: 'flex',
-                gap: 'var(--space-4)',
-                alignItems: 'center',
-                marginBottom: 'var(--space-4)',
-              }}
-            >
-              <input
-                id="complexity-fibonacci"
-                data-testid="complexity-fibonacci"
-                type="range"
-                min="0"
-                max={FIBONACCI_SEQUENCE.length - 1}
-                value={FIBONACCI_SEQUENCE.indexOf(complexityFibonacci) >= 0 ? FIBONACCI_SEQUENCE.indexOf(complexityFibonacci) : 0}
-                onChange={(e) => {
-                  const idx = parseInt(e.target.value, 10);
-                  setComplexityFibonacci(FIBONACCI_SEQUENCE[idx]);
-                }}
-                style={{
-                  flex: 1,
-                }}
-              />
-              <span
-                style={{
-                  fontWeight: 600,
-                  color: 'var(--color-text)',
-                  minWidth: '80px',
-                  textAlign: 'right',
-                }}
-              >
-                {complexityFibonacci}
-              </span>
-            </div>
-          </>
-        )}
-
-        {/* Type-specific fields: Verification Method (SyReq only) */}
-        {type === 'SyReq' && isFieldVisible('verification_method') && (
-          <>
-            <label htmlFor="verification-method" style={labelStyle}>
-              {t('editor.verificationMethod')} <span style={{ color: 'var(--color-danger)' }}>*</span>
-            </label>
-            <select
-              id="verification-method"
-              data-testid="verification-method"
-              value={verificationMethod}
-              onChange={(e) => setVerificationMethod(e.target.value as VerificationMethod)}
-              style={inputStyle}
-            >
-              <option value="">{t('editor.selectVerificationMethod')} --</option>
-              <option value="inspection">Inspection</option>
-              <option value="demonstration">Demonstration</option>
-              <option value="test">Test</option>
-              <option value="analysis">Analysis</option>
-            </select>
-          </>
-        )}
-
-        {/* Change Reason */}
-        <label htmlFor="change-reason" style={labelStyle}>
-          {t('req.changeReason')} <span style={{ color: 'var(--color-danger)' }}>*</span>
-        </label>
-        <textarea
-          id="change-reason"
-          data-testid="change-reason-input"
-          value={changeReason}
-          onChange={(e) => setChangeReason(e.target.value)}
-          rows={2}
-          style={{ ...inputStyle, resize: 'vertical' }}
-          placeholder={t('req.changeReasonPlaceholder')}
-        />
 
         {/* Error message */}
         {saveError && (

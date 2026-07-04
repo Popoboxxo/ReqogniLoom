@@ -24,6 +24,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { EntityType, EntitySubType, AttributeVisibilityConfig, VisibleFieldsMap } from '../../context/EntityTypeContext';
+import { attributeVisibilityApi } from '../../api';
+import { useWorkspace } from '../../context/WorkspaceContext';
 
 /**
  * Available attributes per entity type.
@@ -115,9 +117,6 @@ export interface AttributeVisibilityAdminProps {
 
   /** Callback on error */
   onError?: (error: Error) => void;
-
-  /** Initial visibility configs (from API) */
-  initialConfigs?: AttributeVisibilityConfig[];
 }
 
 /**
@@ -132,52 +131,93 @@ export interface AttributeVisibilityAdminProps {
 export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> = ({
   onSave,
   onError,
-  initialConfigs = [],
 }) => {
   const { t } = useTranslation();
+  const { activeWorkspace } = useWorkspace();
 
   // -----------------------------------------------------------------------
   // State: selected entity type, visibility toggles, loading/error
   // -----------------------------------------------------------------------
 
   const [selectedEntityType, setSelectedEntityType] = useState<EntityType>('requirement');
-  const [visibilityMap, setVisibilityMap] = useState<VisibleFieldsMap>({});
+  const [visibilityMap, setVisibilityMap] = useState<Record<string, boolean>>({});
+  const [requiredMap, setRequiredMap] = useState<Record<string, boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // -----------------------------------------------------------------------
-  // Load visibility config for selected entity type
-  // -----------------------------------------------------------------------
+  const [configs, setConfigs] = useState<AttributeVisibilityConfig[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    attributeVisibilityApi.list()
+      .then((data) => {
+        if (isMounted) setConfigs(data);
+      })
+      .catch((err) => {
+        if (isMounted) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          setSaveError(error.message);
+          onError?.(error);
+        }
+      });
+    return () => { isMounted = false; };
+  }, [onError]);
 
   useEffect(() => {
     // Filter configs for selected entity type
-    const typeConfigs = initialConfigs.filter(
+    const typeConfigs = configs.filter(
       (cfg) => cfg.entity_type === selectedEntityType
     );
 
-    // Build visibility map from configs
-    const map: VisibleFieldsMap = {};
+    // Build visibility and required map from configs
+    const vMap: Record<string, boolean> = {};
+    const rMap: Record<string, boolean> = {};
     ENTITY_ATTRIBUTES[selectedEntityType]?.forEach((attr) => {
-      const config = typeConfigs.find((cfg) => cfg.attribute === attr);
-      // Default: visible if no config found
-      map[attr] = config?.is_visible ?? true;
+      const config = typeConfigs.find((cfg) => cfg.attribute_name === attr);
+      
+      // Indisputable defaults
+      if (attr === 'title' || attr === 'description') {
+        vMap[attr] = true;
+        rMap[attr] = attr === 'title'; // title is always required, description is optional
+      } else {
+        vMap[attr] = config?.is_visible ?? true;
+        rMap[attr] = config?.is_required ?? false;
+      }
     });
 
-    setVisibilityMap(map);
+    setVisibilityMap(vMap);
+    setRequiredMap(rMap);
     setSaveError(null);
     setSaveSuccess(false);
-  }, [selectedEntityType, initialConfigs]);
+  }, [selectedEntityType, configs]);
 
   // -----------------------------------------------------------------------
   // Handlers: toggle attribute visibility, save
   // -----------------------------------------------------------------------
 
-  const handleToggleAttribute = useCallback((attrName: string): void => {
-    setVisibilityMap((prev) => ({
-      ...prev,
-      [attrName]: !prev[attrName],
-    }));
+  const handleToggleAttribute = useCallback((attrName: string, type: 'visible' | 'required'): void => {
+    if (attrName === 'title' || attrName === 'description') return; // indisputable
+
+    if (type === 'visible') {
+      setVisibilityMap((prev) => {
+        const nextVis = !prev[attrName];
+        // If we hide it, it cannot be required
+        if (!nextVis) {
+          setRequiredMap((rPrev) => ({ ...rPrev, [attrName]: false }));
+        }
+        return { ...prev, [attrName]: nextVis };
+      });
+    } else {
+      setRequiredMap((prev) => {
+        const nextReq = !prev[attrName];
+        // If we require it, it must be visible
+        if (nextReq) {
+          setVisibilityMap((vPrev) => ({ ...vPrev, [attrName]: true }));
+        }
+        return { ...prev, [attrName]: nextReq };
+      });
+    }
   }, []);
 
   const handleSave = useCallback(async (): Promise<void> => {
@@ -186,24 +226,34 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
     setSaveSuccess(false);
 
     try {
-      // Build config records from visibility map
-      const configs: AttributeVisibilityConfig[] = Object.entries(visibilityMap).map(
-        ([attribute, is_visible]) => ({
+      // Build config records from visibility and required maps
+      const payload: AttributeVisibilityConfig[] = Object.keys(visibilityMap).map(
+        (attribute_name) => ({
           entity_type: selectedEntityType,
-          attribute,
-          is_visible,
+          attribute_name,
+          is_visible: visibilityMap[attribute_name],
+          is_required: requiredMap[attribute_name] || false,
         })
       );
 
-      // TODO: Replace with actual API call when endpoint is ready
-      // const response = await attributeVisibilityApi.upsert(configs);
+      const response = await attributeVisibilityApi.upsert(payload);
 
-      // For now, log and simulate success
-      console.log('Saving attribute visibility config:', configs);
+      setConfigs((prev) => {
+        // Update local configs with the response
+        const newConfigs = [...prev];
+        response.forEach((newCfg) => {
+          const idx = newConfigs.findIndex(
+            (c) => c.entity_type === newCfg.entity_type && c.attribute_name === newCfg.attribute_name
+          );
+          if (idx >= 0) newConfigs[idx] = newCfg;
+          else newConfigs.push(newCfg);
+        });
+        return newConfigs;
+      });
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-      onSave?.(configs);
+      onSave?.(response);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       setSaveError(error.message);
@@ -248,7 +298,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
         >
           {t(
             'admin.attributeVisibilityDescription',
-            'Configure which fields are visible in artifact editors.'
+            'Configure which fields are visible and required in artifact editors.'
           )}
         </p>
       </div>
@@ -303,7 +353,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
         </select>
       </div>
 
-      {/* Attribute Checklist */}
+      {/* Attribute Checklist Table */}
       <div>
         <h4
           style={{
@@ -313,63 +363,77 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
             color: 'var(--color-text-muted)',
           }}
         >
-          {t('admin.visibleFields', 'Visible Fields')}
+          {t('admin.visibleFields', 'Fields')}
         </h4>
         <div
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
             maxHeight: '400px',
             overflowY: 'auto',
-            padding: 'var(--space-3)',
             background: 'var(--color-background)',
             borderRadius: 'var(--radius-md)',
             border: '1px solid var(--color-border)',
           }}
         >
-          {attributes.map((attr) => (
-            <label
-              key={attr}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-2)',
-                cursor: 'pointer',
-                fontSize: 'var(--font-size-sm)',
-                padding: 'var(--space-1) var(--space-2)',
-                borderRadius: 'var(--radius-sm)',
-                transition: 'background 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--color-surface)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={visibilityMap[attr] ?? true}
-                onChange={() => handleToggleAttribute(attr)}
-                style={{
-                  cursor: 'pointer',
-                  width: '16px',
-                  height: '16px',
-                  accentColor: 'var(--color-primary)',
-                }}
-              />
-              <span
-                style={{
-                  fontFamily: 'monospace',
-                  fontSize: 'var(--font-size-xs)',
-                  color: 'var(--color-text)',
-                }}
-              >
-                {attr}
-              </span>
-            </label>
-          ))}
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
+              <tr>
+                <th style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Attribute</th>
+                <th style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 600, textAlign: 'center' }}>{t('admin.visible', 'Visible')}</th>
+                <th style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 600, textAlign: 'center' }}>{t('admin.required', 'Required')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {attributes.map((attr) => {
+                const isIndisputable = attr === 'title' || attr === 'description';
+                return (
+                  <tr
+                    key={attr}
+                    style={{
+                      borderBottom: '1px solid var(--color-border)',
+                      transition: 'background 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'var(--color-surface)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    <td style={{ padding: 'var(--space-2) var(--space-3)' }}>
+                      <span
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: 'var(--font-size-xs)',
+                          color: isIndisputable ? 'var(--color-text-muted)' : 'var(--color-text)',
+                        }}
+                      >
+                        {attr}
+                        {isIndisputable && ' (core)'}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-2) var(--space-3)', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={visibilityMap[attr] ?? true}
+                        disabled={isIndisputable}
+                        onChange={() => handleToggleAttribute(attr, 'visible')}
+                        style={{ cursor: isIndisputable ? 'not-allowed' : 'pointer', accentColor: 'var(--color-primary)' }}
+                      />
+                    </td>
+                    <td style={{ padding: 'var(--space-2) var(--space-3)', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={requiredMap[attr] ?? false}
+                        disabled={isIndisputable}
+                        onChange={() => handleToggleAttribute(attr, 'required')}
+                        style={{ cursor: isIndisputable ? 'not-allowed' : 'pointer', accentColor: 'var(--color-primary)' }}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 

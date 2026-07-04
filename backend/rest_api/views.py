@@ -279,6 +279,7 @@ class RequirementViewSet(BaseEntityViewSet):
         lang = detect_lang(request)
         ser = RequirementSerializer(data=request.data, partial=True)
         if not ser.is_valid():
+            logger.error(f"Validation failed for Requirement PATCH {pk}: data={request.data}, errors={ser.errors}")
             return Response(
                 build_error_response(
                     "VALIDATION_ERROR",
@@ -1631,6 +1632,12 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 if "preset" not in update_fields:
                     update_fields.append("preset")
 
+            if "decomposition_link_type" in request.data:
+                preset_blob["decomposition_link_type"] = str(request.data["decomposition_link_type"])
+                ws.preset = preset_blob
+                if "preset" not in update_fields:
+                    update_fields.append("preset")
+
             if "terminology_profile" in request.data:
                 target_profile = str(request.data["terminology_profile"])
                 if target_profile not in ("dev_mode", "se_mode"):
@@ -2739,6 +2746,53 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             logger.exception("AttributeVisibilityConfigViewSet.list: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    @action(detail=False, methods=["post"])
+    def bulk_update(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/attribute-visibility-configs/bulk_update/ — upsert configs."""
+        lang = detect_lang(request)
+        if not isinstance(request.data, list):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="Expected a list of configs"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            from persistence.models import AttributeVisibilityConfig
+            from django.db import transaction
+            ctx = get_auth_context(request)
+            
+            results = []
+            with transaction.atomic():
+                for item in request.data:
+                    ser = AttributeVisibilityConfigSerializer(data=item)
+                    if not ser.is_valid():
+                        return Response(
+                            build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    data = ser.validated_data
+                    config, created = AttributeVisibilityConfig.objects.update_or_create(
+                        tenant_id=data["tenant_id"],
+                        entity_type=data["entity_type"],
+                        attribute_name=data["attribute_name"],
+                        defaults={
+                            "is_visible": data.get("is_visible", True),
+                            "is_required": data.get("is_required", False),
+                        }
+                    )
+                    # update_or_create does not set created_by conditionally on create cleanly in defaults for modified_by etc.
+                    if created:
+                        config.created_by = ctx.user
+                    else:
+                        config.modified_by = ctx.user
+                        config.version += 1
+                    config.save()
+                    results.append(config)
+            
+            return Response(AttributeVisibilityConfigSerializer(results, many=True).data, status=status.HTTP_200_OK)
+        except Exception as exc:
+            logger.exception("AttributeVisibilityConfigViewSet.bulk_update: unhandled exception")
             return _service_error_response(exc, lang)
 
     def create(self, request: Request, **kwargs: Any) -> Response:

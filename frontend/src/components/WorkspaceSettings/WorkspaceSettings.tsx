@@ -21,6 +21,7 @@ import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/prefe
 import { WorkflowsSection } from "./WorkflowsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { BackupRestoreSection } from "./BackupRestoreSection";
+import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -366,6 +367,42 @@ export default function WorkspaceSettings(): JSX.Element {
         ))}
       </section>
 
+      {/* Traceability */}
+      <section style={sectionStyle}>
+        <h3 style={headingStyle}>{t("settings.traceability", "Traceability")}</h3>
+        <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
+          {t("settings.traceabilityHint", "Konfiguriere, welcher Trace Link Typ standardmäßig beim Herunterbruch (Ableiten) von Requirements verwendet werden soll.")}
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+          <label style={{ fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+            {t("settings.decompositionLinkType", "Decomposition Link Typ")}
+          </label>
+          <select
+            value={activeWorkspace.decomposition_link_type || "parent-child"}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSaveError(null);
+              setSavedOk(false);
+              workspacesApi.update(activeWorkspace.id, { decomposition_link_type: val })
+                .then(() => reloadWorkspaces(activeWorkspace.id))
+                .then(() => setSavedOk(true))
+                .catch(err => setSaveError(err?.error?.message ?? String(err)));
+            }}
+            style={{
+              padding: "var(--space-2) var(--space-3)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
+            }}
+            data-testid="decomposition-link-type-select"
+          >
+            <option value="parent-child">parent-child (Strukturell)</option>
+            <option value="derives-from">derives-from (Ableitung)</option>
+          </select>
+        </div>
+      </section>
+
       {/* Sichtbarkeit — per-user visibility overrides (REQ-L1-027) */}
       <section style={sectionStyle} data-testid="visibility-section">
         <h3 style={headingStyle}>{t("settings.visibility", "Sichtbarkeit")}</h3>
@@ -450,6 +487,17 @@ export default function WorkspaceSettings(): JSX.Element {
           );
         })}
       </section>
+
+      {/* Attribute Visibility (REQ-L1-084) — admin only */}
+      {isAdmin && (
+        <section style={sectionStyle}>
+          <h3 style={headingStyle}>{t("settings.attributeVisibility", "Attribut-Sichtbarkeit")}</h3>
+          <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
+            {t("settings.attributeVisibilityHint", "Konfiguriere, welche Attribute für die jeweiligen Elementtypen im Workspace sichtbar sind.")}
+          </p>
+          <AttributeVisibilityAdmin />
+        </section>
+      )}
 
       {/* Data Management (REQ-L0-013, REQ-L2-RF-016) */}
       {isFeatureVisible("csv_import") && (

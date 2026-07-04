@@ -23,7 +23,7 @@
  * - EntityTypeProvider for context-aware field rendering
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData } from './useRequirementData';
@@ -32,6 +32,7 @@ import { requirementsApi } from '../../api/requirements';
 import { workspacesApi } from '../../api/workspaces';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { EntityTypeProvider } from '../../context/EntityTypeContext';
+import { attributeVisibilityApi } from '../../api';
 import { SplitView } from '../SplitView/SplitView';
 import { RequirementList } from './RequirementList';
 import { RequirementForm } from './RequirementForm';
@@ -67,6 +68,38 @@ export default function RequirementEditors(): JSX.Element {
 
   // PDF export state
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+
+  // Dynamic attribute configurations
+  const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({
+    moscow_priority: true,
+    complexity_fibonacci: true,
+    verification_method: true,
+  });
+  const [requiredFields, setRequiredFields] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let isMounted = true;
+    attributeVisibilityApi.list()
+      .then((data) => {
+        if (!isMounted) return;
+        const vMap: Record<string, boolean> = {};
+        const rMap: Record<string, boolean> = {};
+        data.filter(cfg => cfg.entity_type === 'requirement').forEach(cfg => {
+          vMap[cfg.attribute_name] = cfg.is_visible;
+          rMap[cfg.attribute_name] = cfg.is_required || false;
+        });
+        
+        // Defaults if completely missing from DB
+        if (!('moscow_priority' in vMap)) vMap['moscow_priority'] = true;
+        if (!('complexity_fibonacci' in vMap)) vMap['complexity_fibonacci'] = true;
+        if (!('verification_method' in vMap)) vMap['verification_method'] = true;
+        
+        setVisibleFields(vMap);
+        setRequiredFields(rMap);
+      })
+      .catch(err => console.error('Failed to load attribute configs', err));
+    return () => { isMounted = false; };
+  }, []);
 
   // Split-view state for localStorage persistence
   const isDraggingRef = useRef(false);
@@ -325,11 +358,8 @@ export default function RequirementEditors(): JSX.Element {
     <EntityTypeProvider
       entityType="requirement"
       entitySubType={(requirement.type || 'SyReq') as RequirementType}
-      visibleFields={{
-        moscow_priority: true,
-        complexity_fibonacci: true,
-        verification_method: true,
-      }}
+      visibleFields={visibleFields}
+      requiredFields={requiredFields}
     >
       <RequirementForm
         requirement={requirement}

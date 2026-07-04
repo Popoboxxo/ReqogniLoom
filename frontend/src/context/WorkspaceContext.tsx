@@ -54,12 +54,13 @@ function normalizePreset(ws: Workspace): Workspace {
       return { ...ws, preset: (raw as { name: string }).name as WorkspacePreset };
     }
     if ("tier" in raw) {
-      const p = raw as { tier: string; language?: string; terminology_profile?: string };
+      const p = raw as { tier: string; language?: string; terminology_profile?: string; decomposition_link_type?: string };
       return {
         ...ws,
         preset: p.tier as WorkspacePreset,
         language: ws.language ?? p.language,
         terminology_profile: ws.terminology_profile ?? (p.terminology_profile as import("../types").TerminologyProfile | undefined),
+        decomposition_link_type: ws.decomposition_link_type ?? p.decomposition_link_type,
       };
     }
   }

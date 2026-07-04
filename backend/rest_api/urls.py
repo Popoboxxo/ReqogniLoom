@@ -49,8 +49,9 @@ from rest_api.metrics_views import MetricsViewSet
 from rest_api.preference_views import UserPreferenceView
 from rest_api.views import (
     AdrViewSet,
-    ArtifactViewSet,
     ArchitectureElementViewSet,
+    ArtifactViewSet,
+    AttributeVisibilityConfigViewSet,
     BaselineViewSet,
     CsvImportView,
     IssueViewSet,
@@ -87,6 +88,7 @@ router.register(r"api-keys", ApiKeyViewSet, basename="api-key")
 router.register(r"diagrams", DiagramViewSet, basename="diagram")
 router.register(r"icds", IcdViewSet, basename="icd")
 router.register(r"metrics", MetricsViewSet, basename="metrics")
+router.register(r"attribute-visibility-configs", AttributeVisibilityConfigViewSet, basename="attribute-visibility-config")
 
 # ---------------------------------------------------------------------------
 # URL patterns

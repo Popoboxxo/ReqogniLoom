@@ -39,6 +39,7 @@ export { adminOpsApi, RESTORE_CONFIRMATION_TEXT } from "./admin-ops";
 export type { BackupMetadata, RestoreResult } from "./admin-ops";
 export { itemPermissionsApi } from "./item-permissions";
 export type { ItemPermission, ItemPermissionLevel } from "./item-permissions";
+export { attributeVisibilityApi } from "./attribute-visibility";
 export { workflowsApi } from "./workflows";
 export type { WorkflowDefinition, WorkflowTransitionResult } from "./workflows";
 export { metricsApi } from "./metrics";
