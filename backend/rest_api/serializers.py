@@ -220,7 +220,13 @@ class ArtifactSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
 
 class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for Requirement entity (REQ-L2-RA-001).
+    """Serializer for Requirement entity (REQ-L2-RA-001, REQ-L3-RF003-005).
+
+    REQ-L3-RF003-005: Type-dependent fields (moscow_priority, complexity_fibonacci,
+    verification_method) are included in the serializer but conditionally rendered
+    in to_representation() based on the requirement type.
+
+    REQ-L2-RF-025: Includes uid for stable identification.
 
     select_related hint: artifact, artifact__workspace (for queryset optimization).
     """
@@ -231,21 +237,77 @@ class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     description = serializers.CharField(allow_blank=True, default="")
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
     status = serializers.CharField(max_length=64, default="draft")
+    type = serializers.ChoiceField(
+        choices=['StReq', 'SyReq', 'UseCase', 'FeatureReq'],
+        default='SyReq',
+        help_text="Requirement classification per REQ-L3-RF003-005",
+    )
+    moscow_priority = serializers.ChoiceField(
+        choices=['Must', 'Should', 'Could', "Won't"],
+        required=False,
+        allow_null=True,
+        help_text="MoSCoW priority (visible only for StReq)",
+    )
+    complexity_fibonacci = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Complexity via Fibonacci scale (visible only for SyReq)",
+    )
+    verification_method = serializers.ChoiceField(
+        choices=['Test', 'Review', 'Analysis', 'Inspection'],
+        required=False,
+        allow_null=True,
+        help_text="Verification method (visible only for SyReq)",
+    )
+    uid = serializers.CharField(
+        max_length=64,
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
     version = serializers.IntegerField(read_only=True)
     change_reason = serializers.CharField(required=False, allow_blank=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
+    def to_representation(self, instance) -> dict:
+        """Render conditional fields based on requirement type (REQ-L3-RF003-005).
+
+        AC1: moscow_priority visible only when type='StReq'
+        AC2: complexity_fibonacci and verification_method visible only when type='SyReq'
+
+        Returns:
+            dict: Serialized instance with type-filtered fields.
+        """
+        data = super().to_representation(instance)
+        req_type = getattr(instance, 'type', 'SyReq')
+
+        # Filter fields based on type
+        if req_type != 'StReq':
+            data.pop('moscow_priority', None)
+        if req_type != 'SyReq':
+            data.pop('complexity_fibonacci', None)
+            data.pop('verification_method', None)
+
+        return data
+
 
 class ArchitectureElementSerializer(
     PresetAwareSerializerMixin, serializers.Serializer
 ):
-    """Serializer for ArchitectureElement entity (REQ-L2-RA-001).
+    """Serializer for ArchitectureElement entity (REQ-L2-RA-001, REQ-L3-RF004-004).
 
     REQ-L1-044: ``parent_id`` changes run through the rigor-gated
     hierarchy invariants (I1-I3) in validate().  On update, the view
     provides ``context={"element_id": pk}`` so the validator can resolve
     the element and its workspace.
+
+    REQ-L1-058 AC2: level annotation via CTE manager (get_with_level())
+    avoids N+1 queries. Expects pre-annotated 'level' field from queryset.
+
+    REQ-L3-RF004-004: Includes ASIL level and Make-or-Buy decision fields.
+    REQ-L2-RF-025 AC3: Includes uid for stable identification.
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -256,7 +318,26 @@ class ArchitectureElementSerializer(
         choices=ElementType.choices, allow_blank=True, default=ElementType.COMPONENT
     )
     parent_id = serializers.UUIDField(required=False, allow_null=True)
-    level = serializers.SerializerMethodField(read_only=True)
+    level = serializers.IntegerField(read_only=True)
+    asil_level = serializers.ChoiceField(
+        choices=['QM', 'A', 'B', 'C', 'D'],
+        required=False,
+        allow_null=True,
+        help_text="ASIL level per REQ-L3-RF004-004",
+    )
+    make_or_buy = serializers.ChoiceField(
+        choices=['Make', 'Buy', 'Reuse'],
+        required=False,
+        allow_null=True,
+        help_text="Make-or-Buy decision per REQ-L3-RF004-004",
+    )
+    uid = serializers.CharField(
+        max_length=64,
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
     expected_version = serializers.IntegerField(
         required=False, write_only=True
     )
@@ -284,23 +365,6 @@ class ArchitectureElementSerializer(
             except DomainValidationError as exc:
                 raise serializers.ValidationError({"parent_id": str(exc)})
         return attrs
-
-    def get_level(self, obj: Any) -> int:
-        """Return computed hierarchy level (depth from root).
-
-        Root (parent=None) → level=0
-        Direct child → level=1
-        Nested → level=2, etc.
-
-        Auto-calculated from parent chain (REQ-L1-041).
-        """
-        # Views pass pre-materialized dicts (see _arch_to_dict); ORM objects
-        # expose get_level() directly (REQ-L1-041).
-        if isinstance(obj, dict):
-            return int(obj.get("level", 0))
-        if not hasattr(obj, "get_level"):
-            return 0
-        return obj.get_level()
 
 
 class TestCaseSerializer(PresetAwareSerializerMixin, serializers.Serializer):
@@ -501,6 +565,56 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
+class AttributeVisibilityConfigSerializer(serializers.Serializer):
+    """Serializer for AttributeVisibilityConfig (REQ-L1-058 AC2).
+
+    Admin configuration for field visibility per entity type and workspace.
+    Allows controlling which type-dependent fields are visible in the UI
+    and whether they are required in forms.
+
+    Constraint: Unique on (tenant_id, entity_type, attribute_name).
+    Index: Composite BTree on (tenant_id, entity_type) for fast bulk lookups.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    tenant_id = serializers.UUIDField(required=True)
+    entity_type = serializers.CharField(
+        max_length=64,
+        help_text="Target entity type (e.g., 'Requirement', 'ArchitectureElement')",
+    )
+    attribute_name = serializers.CharField(
+        max_length=128,
+        help_text="Field name (e.g., 'moscow_priority', 'asil_level')",
+    )
+    is_visible = serializers.BooleanField(
+        default=True,
+        help_text="Show/hide toggle for frontend",
+    )
+    is_required = serializers.BooleanField(
+        default=False,
+        help_text="Mark as required in forms",
+    )
+    created_by = serializers.CharField(
+        source='created_by.username',
+        read_only=True,
+        required=False,
+        help_text="Audit: username who created this config",
+    )
+    modified_by = serializers.CharField(
+        source='modified_by.username',
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Audit: username who last modified this config",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    modified_at = serializers.DateTimeField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True,
+        help_text="Audit: version counter",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Queryset optimization helpers (REQ-L2-RA-013, COMP-RA-006 integration point)
 # ---------------------------------------------------------------------------
@@ -569,6 +683,7 @@ __all__ = [
     "AdrSerializer",
     "RiskSerializer",
     "IssueSerializer",
+    "AttributeVisibilityConfigSerializer",
     "TestRunSerializer",
     "TestRunResultSerializer",
     "TestRunResultBulkSerializer",

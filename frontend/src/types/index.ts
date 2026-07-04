@@ -55,6 +55,10 @@ export interface WorkspaceWithMetrics extends Workspace {
 // Requirement (mirrors RequirementSerializer)
 // ---------------------------------------------------------------------------
 
+export type RequirementType = 'StReq' | 'SyReq' | 'SWReq' | 'HWReq';
+export type MoscowPriority = 'M' | 'S' | 'C' | 'W';
+export type VerificationMethod = 'inspection' | 'demonstration' | 'test' | 'analysis';
+
 export interface Requirement {
   id: UUID;
   workspace_id: UUID;
@@ -63,7 +67,27 @@ export interface Requirement {
   category: string;
   status: string;
   version: number;
+  uid?: string;
+  type?: RequirementType;
+  moscow_priority?: MoscowPriority;
+  complexity_fibonacci?: number;
+  verification_method?: VerificationMethod;
   change_reason?: string;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+// ---------------------------------------------------------------------------
+// TestCase (mirrors TestCaseSerializer)
+// ---------------------------------------------------------------------------
+
+export interface TestCase {
+  id: UUID;
+  workspace_id: UUID;
+  title: string;
+  description: string;
+  status: string;
+  version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -79,6 +103,10 @@ export type ElementType =
   | "layer"
   | "module";
 
+export type ASILLevel = "QM" | "A" | "B" | "C" | "D" | null;
+
+export type MakeOrBuyDecision = "Make" | "Buy" | "Reuse" | null;
+
 export interface ArchitectureElement {
   id: UUID;
   workspace_id: UUID;
@@ -88,6 +116,10 @@ export interface ArchitectureElement {
   parent_id?: UUID | null;
   level?: number;
   version: number;
+  uid?: string | null;
+  asil_level?: ASILLevel;
+  make_or_buy?: MakeOrBuyDecision;
+  change_reason?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -533,3 +565,18 @@ export interface MermaidPreviewResponse {
   fallback_mode: boolean;
   error_message: string;
 }
+
+// ---------------------------------------------------------------------------
+// Requirement Editor Constants (COMP-RF-003)
+// ---------------------------------------------------------------------------
+
+export const WORKFLOW_STATES = [
+  'Draft',
+  'Review',
+  'Approved',
+  'In Progress',
+  'Implemented',
+  'Verified',
+  'Rejected',
+  'Deprecated',
+];

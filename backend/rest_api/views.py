@@ -72,6 +72,7 @@ from rest_api.serializers import (
     AdrSerializer,
     ArtifactSerializer,
     ArchitectureElementSerializer,
+    AttributeVisibilityConfigSerializer,
     BaselineSerializer,
     IssueSerializer,
     RequirementSerializer,
@@ -232,7 +233,11 @@ class RequirementViewSet(BaseEntityViewSet):
         return Response(RequirementSerializer(_dto_from_orm(item)).data)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
-        """POST /api/v1/requirements/ — create a requirement. Returns 201."""
+        """POST /api/v1/requirements/ — create a requirement. Returns 201.
+
+        REQ-L3-RF003-005: Accepts type-dependent fields (moscow_priority,
+        complexity_fibonacci, verification_method).
+        """
         lang = detect_lang(request)
         ser = RequirementSerializer(data=request.data)
         if not ser.is_valid():
@@ -253,6 +258,11 @@ class RequirementViewSet(BaseEntityViewSet):
                 ctx=ctx,
                 description=data.get("description", ""),
                 category=data.get("category", ""),
+                type=data.get("type", "SyReq"),
+                moscow_priority=data.get("moscow_priority"),
+                complexity_fibonacci=data.get("complexity_fibonacci"),
+                verification_method=data.get("verification_method"),
+                uid=data.get("uid"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -261,7 +271,11 @@ class RequirementViewSet(BaseEntityViewSet):
         return Response(RequirementSerializer(_dto_from_orm(item)).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """PATCH /api/v1/requirements/{pk}/ — update a requirement. Returns 200."""
+        """PATCH /api/v1/requirements/{pk}/ — update a requirement. Returns 200.
+
+        REQ-L3-RF003-005: Accepts type-dependent fields (moscow_priority,
+        complexity_fibonacci, verification_method).
+        """
         lang = detect_lang(request)
         ser = RequirementSerializer(data=request.data, partial=True)
         if not ser.is_valid():
@@ -284,6 +298,11 @@ class RequirementViewSet(BaseEntityViewSet):
                 category=data.get("category"),
                 status=data.get("status"),
                 change_reason=data.get("change_reason"),
+                type=data.get("type"),
+                moscow_priority=data.get("moscow_priority"),
+                complexity_fibonacci=data.get("complexity_fibonacci"),
+                verification_method=data.get("verification_method"),
+                uid=data.get("uid"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -399,6 +418,73 @@ class RequirementViewSet(BaseEntityViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=True, methods=["get"], url_path="allocation")
+    def allocation_coverage(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/requirements/{pk}/allocation/ — list allocations.
+
+        REQ-L1-058 AC3: Returns all ArchitectureElements a requirement is
+        allocated to (via TraceLink with link_type='allocated-to').
+
+        Response schema:
+        {
+            "requirement_id": "UUID",
+            "requirement_title": "string",
+            "allocations": [
+                {
+                    "architecture_element_id": "UUID",
+                    "architecture_element_title": "string",
+                    "target_level": 2,
+                    "asil_level": "A",
+                    "make_or_buy": "Make"
+                }
+            ]
+        }
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            req = self._svc().get_requirement(UUID(pk), ctx)
+
+            # Query TraceLinks for this requirement
+            from persistence.models import TraceLink, ArchitectureElement
+            from django.db.models import Prefetch
+
+            # Get all TraceLinks where source is this requirement's artifact
+            # with CTE-annotated level to avoid N+1 queries (REQ-L2-RA-013)
+            trace_links = TraceLink.objects.filter(
+                source_id=req.artifact_id,
+                link_type="allocated-to",
+                tenant_id=req.tenant_id,
+            ).select_related("target").prefetch_related(
+                Prefetch(
+                    'target__architecture_element',
+                    queryset=ArchitectureElement.objects.get_with_level()
+                )
+            )
+
+            allocations = []
+            for tl in trace_links:
+                if tl.target and hasattr(tl.target, 'architecture_element'):
+                    ae = tl.target.architecture_element
+                    allocations.append({
+                        "architecture_element_id": str(ae.id),
+                        "architecture_element_title": ae.title,
+                        "target_level": ae.level,
+                        "asil_level": ae.asil_level,
+                        "make_or_buy": ae.make_or_buy,
+                    })
+
+            return Response({
+                "requirement_id": str(req.id),
+                "requirement_title": req.title,
+                "allocations": allocations,
+            })
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("RequirementViewSet.allocation_coverage: unhandled exception")
+            return _service_error_response(exc, lang)
 
 
 # ---------------------------------------------------------------------------
@@ -633,6 +719,10 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
         return Response(ArchitectureElementSerializer(_arch_to_dict(item)).data)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/architecture-elements/ — create an element. Returns 201.
+
+        REQ-L3-RF004-004: Accepts ASIL level and Make-or-Buy decision.
+        """
         lang = detect_lang(request)
         ser = ArchitectureElementSerializer(data=request.data)
         if not ser.is_valid():
@@ -640,7 +730,17 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            item = self._svc().create_architecture_element(workspace_id=UUID(str(data["workspace_id"])), title=data["title"], ctx=ctx, description=data.get("description", ""), element_type=data.get("element_type", ""), parent_id=data.get("parent_id"))
+            item = self._svc().create_architecture_element(
+                workspace_id=UUID(str(data["workspace_id"])),
+                title=data["title"],
+                ctx=ctx,
+                description=data.get("description", ""),
+                element_type=data.get("element_type", ""),
+                parent_id=data.get("parent_id"),
+                asil_level=data.get("asil_level"),
+                make_or_buy=data.get("make_or_buy"),
+                uid=data.get("uid"),
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -648,6 +748,10 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
         return Response(ArchitectureElementSerializer(_arch_to_dict(item)).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/architecture-elements/{pk}/ — update an element. Returns 200.
+
+        REQ-L3-RF004-004: Accepts ASIL level and Make-or-Buy decision.
+        """
         lang = detect_lang(request)
         # REQ-L1-044: element_id context enables hierarchy invariant checks
         ser = ArchitectureElementSerializer(
@@ -669,6 +773,9 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
                 title=data.get("title"),
                 description=data.get("description"),
                 element_type=data.get("element_type"),
+                asil_level=data.get("asil_level"),
+                make_or_buy=data.get("make_or_buy"),
+                uid=data.get("uid"),
                 **update_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
@@ -1220,7 +1327,18 @@ def _artifact_to_dict(art: Any) -> dict[str, Any]:
 
 
 def _arch_to_dict(el: Any) -> dict[str, Any]:
-    """Convert ArchitectureElement ORM object to dict."""
+    """Convert ArchitectureElement ORM object to dict.
+
+    REQ-L2-RA-013: Prefers CTE-annotated 'level' field (from get_with_level())
+    to avoid N+1 queries. Falls back to Python get_level() only if not annotated.
+    """
+    # Prefer annotated level field (from CTE) over recursive method call
+    level = getattr(el, 'level', None)
+    if level is None and hasattr(el, 'get_level'):
+        level = el.get_level()
+    if level is None:
+        level = 0
+
     return {
         "id": str(el.id),
         "workspace_id": str(el.artifact.workspace_id) if hasattr(el, "artifact") else None,
@@ -1228,9 +1346,7 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
         "description": getattr(el, "description", ""),
         "element_type": getattr(el, "element_type", ""),
         "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
-        # REQ-L1-041: level is derived from the parent chain on the ORM object;
-        # it must be materialized here because the serializer receives a dict.
-        "level": el.get_level() if hasattr(el, "get_level") else 0,
+        "level": level,
         "version": el.version,
         "created_at": el.created_at,
         "updated_at": el.modified_at,
@@ -2592,6 +2708,129 @@ class CsvImportView(APIView):
         return Response(response_data, status=http_status)
 
 
+class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
+    """ViewSet for AttributeVisibilityConfig (REQ-L1-058 AC2).
+
+    Admin CRUD for field visibility configuration per entity type and workspace.
+    Endpoint: /api/v1/attribute-visibility-config/
+
+    Permissions: tenant admins only (enforced by BaseEntityViewSet gate).
+    """
+
+    serializer_class = AttributeVisibilityConfigSerializer
+
+    def _svc(self):
+        """Return RequirementService (workaround: models use generic service)."""
+        from persistence.services import RequirementService
+        return RequirementService()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/attribute-visibility-config/ — list all visibility configs."""
+        lang = detect_lang(request)
+        try:
+            from persistence.models import AttributeVisibilityConfig
+            ctx = get_auth_context(request)
+            configs = AttributeVisibilityConfig.objects.filter(
+                tenant_id=ctx.tenant_id
+            ).order_by("entity_type", "attribute_name")
+            serializer = AttributeVisibilityConfigSerializer(configs, many=True)
+            return Response(serializer.data)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("AttributeVisibilityConfigViewSet.list: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/attribute-visibility-config/ — create config. Returns 201."""
+        lang = detect_lang(request)
+        ser = AttributeVisibilityConfigSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            from persistence.models import AttributeVisibilityConfig
+            ctx = get_auth_context(request)
+
+            config = AttributeVisibilityConfig.objects.create(
+                tenant_id=data["tenant_id"],
+                entity_type=data["entity_type"],
+                attribute_name=data["attribute_name"],
+                is_visible=data.get("is_visible", True),
+                is_required=data.get("is_required", False),
+                created_by=ctx.user,
+            )
+            return Response(
+                AttributeVisibilityConfigSerializer(config).data,
+                status=status.HTTP_201_CREATED,
+            )
+        except Exception as exc:
+            logger.exception("AttributeVisibilityConfigViewSet.create: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/attribute-visibility-config/{pk}/ — update config. Returns 200."""
+        lang = detect_lang(request)
+        ser = AttributeVisibilityConfigSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            from persistence.models import AttributeVisibilityConfig
+            ctx = get_auth_context(request)
+
+            config = AttributeVisibilityConfig.objects.get(id=pk, tenant_id=ctx.tenant_id)
+            if "is_visible" in data:
+                config.is_visible = data["is_visible"]
+            if "is_required" in data:
+                config.is_required = data["is_required"]
+            config.modified_by = ctx.user
+            config.version += 1
+            config.save()
+            return Response(AttributeVisibilityConfigSerializer(config).data)
+        except AttributeVisibilityConfig.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=f"Config {pk} not found"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception("AttributeVisibilityConfigViewSet.partial_update: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/attribute-visibility-config/{pk}/ — delete config. Returns 204."""
+        lang = detect_lang(request)
+        try:
+            from persistence.models import AttributeVisibilityConfig
+            ctx = get_auth_context(request)
+
+            config = AttributeVisibilityConfig.objects.get(id=pk, tenant_id=ctx.tenant_id)
+            config.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except AttributeVisibilityConfig.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=f"Config {pk} not found"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.exception("AttributeVisibilityConfigViewSet.destroy: unhandled exception")
+            return _service_error_response(exc, lang)
+
+
 __all__ = [
     "RequirementViewSet",
     "ArtifactViewSet",
@@ -2604,6 +2843,7 @@ __all__ = [
     "AdrViewSet",
     "RiskViewSet",
     "IssueViewSet",
+    "AttributeVisibilityConfigViewSet",
     "SearchViewSet",
     "CsvImportView",
     "ArtifactDiffService",

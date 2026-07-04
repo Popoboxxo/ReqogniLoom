@@ -81,7 +81,12 @@ export const architectureApi = {
     data: Partial<
       Pick<
         ArchitectureElement,
-        "title" | "description" | "element_type" | "parent_id"
+        | "title"
+        | "description"
+        | "element_type"
+        | "parent_id"
+        | "asil_level"
+        | "make_or_buy"
       >
     > & { change_reason?: string }
   ): Promise<ArchitectureElement> {

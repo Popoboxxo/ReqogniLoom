@@ -14,476 +14,42 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
-import { MarkdownPreview } from "../RequirementEditors/MarkdownPreview";
-import { ArtifactDiff } from "../ArtifactDiff/ArtifactDiff";
+import { SplitView } from "../SplitView/SplitView";
+import { ArchitectureList } from "./ArchitectureList";
+import { ArchitectureForm } from "./ArchitectureForm";
 import { ArchTraceLinkPanel } from "./ArchTraceLinkPanel";
-import { DecompositionTree } from "./DecompositionTree";
+import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
 import { extractErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
   ArchitectureElement,
-  ElementType,
 } from "../../types";
 
-// ---------------------------------------------------------------------------
-// Element type options (REQ-L3-RF004-001, ADR-L3-RF-007)
-// ---------------------------------------------------------------------------
-
-const ELEMENT_TYPES: { value: ElementType; labelKey: string }[] = [
-  { value: "component", labelKey: "arch.elementType.component" },
-  { value: "interface", labelKey: "arch.elementType.interface" },
-  { value: "subsystem", labelKey: "arch.elementType.subsystem" },
-  { value: "layer", labelKey: "arch.elementType.layer" },
-  { value: "module", labelKey: "arch.elementType.module" },
-];
-
-// ---------------------------------------------------------------------------
-// Shared style helpers — token-based
-// ---------------------------------------------------------------------------
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  fontSize: "var(--font-size-base)",
-  padding: "var(--space-2) var(--space-3)",
-  marginBottom: "var(--space-4)",
-  boxSizing: "border-box",
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-text)",
-  fontFamily: "var(--font-sans)",
-  transition: "var(--transition-fast)",
-  outline: "none",
-};
-
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  display: "block",
-  marginBottom: "var(--space-2)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-  transition: "var(--transition-fast)",
-  fontFamily: "var(--font-sans)",
-};
-
-const dangerButtonStyle: React.CSSProperties = {
-  background: "var(--color-danger)",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-  transition: "var(--transition-fast)",
-  fontFamily: "var(--font-sans)",
-};
-
-// ---------------------------------------------------------------------------
-// Delete Confirmation Dialog (ADR-L3-RF-008)
-// ---------------------------------------------------------------------------
-
-interface DeleteConfirmationDialogProps {
-  elementName: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-function DeleteConfirmationDialog({
-  elementName,
-  onConfirm,
-  onCancel,
-}: DeleteConfirmationDialogProps): JSX.Element {
-  const { t } = useTranslation();
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.4)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: 1000,
-      }}
-    >
-      <div
-        style={{
-          background: "var(--color-surface)",
-          padding: "var(--space-6)",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "var(--shadow-md)",
-          maxWidth: "400px",
-          textAlign: "center",
-          fontFamily: "var(--font-sans)",
-          color: "var(--color-text)",
-        }}
-      >
-        <h3 style={{ margin: 0, marginBottom: "var(--space-3)", fontSize: "var(--font-size-lg)" }}>
-          {t("arch.deleteTitle")}
-        </h3>
-        <p style={{ margin: 0, marginBottom: "var(--space-4)", color: "var(--color-text-muted)" }}>
-          {t("arch.deleteConfirm")}: <strong style={{ color: "var(--color-text)" }}>{elementName}</strong>?
-        </p>
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--space-3)",
-            justifyContent: "center",
-            marginTop: "var(--space-4)",
-          }}
-        >
-          <button
-            data-testid="confirm-delete-btn"
-            onClick={onConfirm}
-            style={dangerButtonStyle}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "#b91c1c";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-danger)";
-            }}
-          >
-            {t("actions.delete")}
-          </button>
-          <button
-            onClick={onCancel}
-            style={{
-              background: "var(--color-surface-raised)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "var(--transition-fast)",
-              fontFamily: "var(--font-sans)",
-            }}
-          >
-            {t("actions.cancel")}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Architecture Element Form
-// ---------------------------------------------------------------------------
-
-interface ArchElementFormProps {
-  element: ArchitectureElement;
-  /** Full workspace element list — used for the parent picker (REQ-001). */
-  elements: ArchitectureElement[];
-  onSaved: () => void;
-  onDelete: (id: string) => void;
-  isExtendedPreset: boolean;
-}
-
-function ArchElementForm({
-  element,
-  elements,
-  onSaved,
-  onDelete,
-  isExtendedPreset,
-}: ArchElementFormProps): JSX.Element {
-  const { t } = useTranslation();
-  const [title, setTitle] = useState(element.title);
-  const [description, setDescription] = useState(element.description);
-  const [elementType, setElementType] = useState(element.element_type);
-  const [parentId, setParentId] = useState<string>(element.parent_id ?? "");
-
-  // Keep the dropdown in sync when the element is reparented elsewhere
-  // (e.g. via tree drag&drop) and the detail is re-fetched (REQ-001).
-  useEffect(() => {
-    setParentId(element.parent_id ?? "");
-  }, [element.parent_id]);
-  const [changeReason, setChangeReason] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [showDiff, setShowDiff] = useState(false);
-
-  // Client-side cycle guard (UX pre-check; the backend hierarchy
-  // invariants I1/I2 validate authoritatively): an element must not be
-  // reparented under itself or one of its own descendants (REQ-001).
-  const invalidParentIds = useMemo((): Set<string> => {
-    const childrenByParent = new Map<string, string[]>();
-    for (const el of elements) {
-      if (!el.parent_id) continue;
-      const bucket = childrenByParent.get(el.parent_id);
-      if (bucket) bucket.push(el.id);
-      else childrenByParent.set(el.parent_id, [el.id]);
-    }
-    const invalid = new Set<string>([element.id]);
-    const stack: string[] = [element.id];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) break;
-      for (const childId of childrenByParent.get(current) ?? []) {
-        if (!invalid.has(childId)) {
-          invalid.add(childId);
-          stack.push(childId);
-        }
-      }
-    }
-    return invalid;
-  }, [elements, element.id]);
-
-  const parentOptions = useMemo(
-    () => elements.filter((el) => !invalidParentIds.has(el.id)),
-    [elements, invalidParentIds],
-  );
-
-  const handleSave = useCallback(async (): Promise<void> => {
-    setIsSaving(true);
-    setSaveError(null);
-    try {
-      // For extended preset, also send change_reason (REQ-L2-RF-009).
-      const payload: Partial<
-        Pick<
-          ArchitectureElement,
-          "title" | "description" | "element_type" | "parent_id"
-        >
-      > & { change_reason?: string } = {
-        title,
-        description,
-        element_type: elementType,
-        // "" = "no parent" option → detach to root/L0 (REQ-001).
-        parent_id: parentId === "" ? null : parentId,
-      };
-      if (isExtendedPreset && changeReason.trim()) {
-        payload.change_reason = changeReason.trim();
-      }
-      await architectureApi.update(element.id, payload);
-      setChangeReason("");
-      onSaved();
-    } catch (err: unknown) {
-      setSaveError(extractErrorMessage(err));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [
-    element.id,
-    title,
-    description,
-    elementType,
-    parentId,
-    changeReason,
-    isExtendedPreset,
-    onSaved,
-  ]);
-
-  const handleConfirmDelete = useCallback(async (): Promise<void> => {
-    setShowDeleteDialog(false);
-    onDelete(element.id);
-  }, [element.id, onDelete]);
-
-  return (
-    <div>
-      {showDeleteDialog && (
-        <DeleteConfirmationDialog
-          elementName={title}
-          onConfirm={() => void handleConfirmDelete()}
-          onCancel={() => setShowDeleteDialog(false)}
-        />
-      )}
-
-      <label htmlFor="arch-title" style={labelStyle}>
-        {t("editor.title")}
-      </label>
-      <input
-        id="arch-title"
-        data-testid="arch-title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        style={{ ...inputStyle, fontSize: "var(--font-size-lg)", fontWeight: 600 }}
-        onFocus={(e) => {
-          (e.currentTarget as HTMLInputElement).style.borderColor = "var(--color-primary)";
-        }}
-        onBlur={(e) => {
-          (e.currentTarget as HTMLInputElement).style.borderColor = "var(--color-border)";
-        }}
-      />
-
-      {/* Element type dropdown (REQ-L3-RF004-001, ADR-L3-RF-007) */}
-      <label htmlFor="arch-type" style={labelStyle}>
-        {t("arch.elementType")}
-      </label>
-      <select
-        id="arch-type"
-        data-testid="arch-element-type-select"
-        value={elementType}
-        onChange={(e) => setElementType(e.target.value as ElementType)}
-        style={{ ...inputStyle, width: "auto", minWidth: "200px" }}
-      >
-        {ELEMENT_TYPES.map((et) => (
-          <option key={et.value} value={et.value}>
-            {t(et.labelKey)}
-          </option>
-        ))}
-      </select>
-
-      {/* Parent element picker — reparenting via edit form (REQ-001).
-          Self and own descendants are excluded (client-side cycle guard);
-          the backend validates hierarchy invariants authoritatively. */}
-      <label htmlFor="arch-parent" style={labelStyle}>
-        {t("arch.parentElement", "Parent Element")}
-      </label>
-      <select
-        id="arch-parent"
-        data-testid="arch-parent-select"
-        value={parentId}
-        onChange={(e) => setParentId(e.target.value)}
-        style={{ ...inputStyle, width: "auto", minWidth: "200px" }}
-      >
-        <option value="">{t("arch.noParent", "No parent (Root / L0)")}</option>
-        {parentOptions.map((el) => (
-          <option key={el.id} value={el.id}>
-            {el.title || t("editor.untitled")} (L{el.level ?? 0})
-          </option>
-        ))}
-      </select>
-
-      {/* Markdown description (REQ-L3-RF004-002) */}
-      <label style={labelStyle}>
-        {t("editor.description")}
-      </label>
-      <MarkdownPreview
-        value={description}
-        onChange={setDescription}
-      />
-
-      {/* Change reason — only visible under the extended preset (REQ-L2-RF-009). */}
-      {isExtendedPreset && (
-        <>
-          <label htmlFor="arch-change-reason" style={labelStyle}>
-            {t("req.changeReason")}
-          </label>
-          <input
-            id="arch-change-reason"
-            data-testid="arch-change-reason-input"
-            value={changeReason}
-            onChange={(e) => setChangeReason(e.target.value)}
-            placeholder={t("req.changeReasonPlaceholder")}
-            style={inputStyle}
-          />
-        </>
-      )}
-
-      {saveError && (
-        <p
-          role="alert"
-          style={{
-            color: "var(--color-danger)",
-            marginTop: "var(--space-3)",
-            fontSize: "var(--font-size-sm)",
-          }}
-        >
-          {saveError}
-        </p>
-      )}
-
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-3)",
-          marginTop: "var(--space-4)",
-        }}
-      >
-        <button
-          data-testid="arch-save-btn"
-          onClick={() => void handleSave()}
-          disabled={isSaving}
-          style={{
-            ...primaryButtonStyle,
-            opacity: isSaving ? 0.6 : 1,
-            cursor: isSaving ? "not-allowed" : "pointer",
-          }}
-          onMouseEnter={(e) => {
-            if (!isSaving) {
-              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary-dark)";
-            }
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary)";
-          }}
-        >
-          {isSaving ? t("actions.saving") : t("actions.save")}
-        </button>
-        <button
-          data-testid="arch-delete-btn"
-          onClick={() => setShowDeleteDialog(true)}
-          style={dangerButtonStyle}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = "#b91c1c";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = "var(--color-danger)";
-          }}
-        >
-          {t("actions.delete")}
-        </button>
-        <button
-          data-testid="arch-view-diff-btn"
-          onClick={() => setShowDiff(!showDiff)}
-          style={{
-            background: showDiff ? "var(--color-primary)" : "transparent",
-            color: showDiff ? "white" : "var(--color-primary)",
-            border: "1px solid var(--color-primary)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
-            fontSize: "var(--font-size-sm)",
-            cursor: "pointer",
-            fontWeight: 500,
-          }}
-        >
-          {showDiff ? "Hide Diff" : "View Diff"}
-        </button>
-      </div>
-
-      {/* Artifact Diff View (REQ-L2-RF-014) */}
-      {showDiff && (
-        <ArtifactDiff
-          entityId={element.id}
-          entityType="architecture"
-          currentVersion={element.version}
-          diffFetcher={architectureApi.diff}
-          versionsFetcher={architectureApi.versions}
-          onClose={() => setShowDiff(false)}
-        />
-      )}
-    </div>
-  );
-}
+// (Style helpers and dialog moved to ArchitectureForm component)
 
 // ---------------------------------------------------------------------------
 // ArchTraceLinkPanel has been extracted to ./ArchTraceLinkPanel.tsx (Fix B-TR-001).
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// ArchitectureEditors — main view
+// ArchitectureEditors — main view with SplitView integration
 // ---------------------------------------------------------------------------
+
+/**
+ * ARCH-L1-001 ReactFrontend — ArchitectureEditors (COMP-RF-004).
+ *
+ * Refactored to use SplitView component (REQ-L1-084) for generic
+ * split-panel layout. Extracts ArchitectureList (left) and
+ * ArchitectureForm (right) for cleaner composition.
+ *
+ * Dynamic field visibility via EntityTypeProvider + ASIL/Make-or-Buy
+ * dropdowns + UID/Version read-only header (REQ-L3-RF004-004).
+ */
 
 export default function ArchitectureEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -493,15 +59,8 @@ export default function ArchitectureEditors(): JSX.Element {
   const { elements, element, linkedTraceLinks, isLoading, error, refresh } =
     useArchitectureData(selectedId);
 
-  // Split-pane resize state (REQ-L3-RF-***: enable split-pane resizing).
-  const [leftPanelWidth, setLeftPanelWidth] = useState(280);
-  const isDraggingRef = useRef(false);
-  const dragStartXRef = useRef(0);
-  const dragStartWidthRef = useRef(0);
-
-  // Delete-confirmation target triggered from the tree context menu (REQ-001).
-  const [treeDeleteTarget, setTreeDeleteTarget] =
-    useState<ArchitectureElement | null>(null);
+  // Delete-confirmation target from list context menu
+  const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
 
   const handleCreate = useCallback(
     async (parentId?: string): Promise<void> => {
@@ -513,8 +72,6 @@ export default function ArchitectureEditors(): JSX.Element {
           element_type: "component",
           parent_id: parentId ?? undefined,
         });
-        // Refresh the list so the tree shows the new node, then navigate —
-        // the hook re-fetches the detail automatically on selectedId change.
         refresh();
         navigate(`/architecture/${created.id}`);
       } catch (err: unknown) {
@@ -536,58 +93,6 @@ export default function ArchitectureEditors(): JSX.Element {
     },
     [refresh, navigate]
   );
-
-  // Reparenting via tree drag&drop (REQ-001). Shares the PATCH endpoint
-  // with the edit-form parent dropdown via architectureApi.reparent.
-  const [reparentError, setReparentError] = useState<string | null>(null);
-  const handleReparent = useCallback(
-    async (elementId: string, newParentId: string | null): Promise<void> => {
-      setReparentError(null);
-      try {
-        await architectureApi.reparent(elementId, newParentId);
-        refresh();
-      } catch (err: unknown) {
-        // Backend rejected (e.g. cycle attempt) — surface the message
-        // and leave the tree untouched (no optimistic update to undo).
-        setReparentError(extractErrorMessage(err));
-      }
-    },
-    [refresh]
-  );
-
-  // Split-pane resize handlers
-  const handleDividerMouseDown = (e: React.MouseEvent): void => {
-    isDraggingRef.current = true;
-    dragStartXRef.current = e.clientX;
-    dragStartWidthRef.current = leftPanelWidth;
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent): void => {
-      if (!isDraggingRef.current) return;
-      const delta = e.clientX - dragStartXRef.current;
-      const newWidth = Math.max(280, dragStartWidthRef.current + delta);
-      setLeftPanelWidth(newWidth);
-    };
-
-    const handleMouseUp = (): void => {
-      if (!isDraggingRef.current) return;
-      isDraggingRef.current = false;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, []);
 
   if (isLoading) {
     return (
@@ -617,183 +122,114 @@ export default function ArchitectureEditors(): JSX.Element {
         }}
       >
         <p style={{ color: "var(--color-danger)", marginTop: 0 }}>{error}</p>
-        <button onClick={refresh} style={primaryButtonStyle}>
+        <button
+          onClick={refresh}
+          style={{
+            background: "var(--color-primary)",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-2) var(--space-4)",
+            cursor: "pointer",
+          }}
+        >
           {t("actions.reload")}
         </button>
       </div>
     );
   }
 
-  return (
+  // Build list panel with header
+  const listPanel = (
     <div
       style={{
         display: "flex",
+        flexDirection: "column",
         height: "100%",
-        overflow: "hidden",
-        fontFamily: "var(--font-sans)",
-        color: "var(--color-text)",
       }}
     >
-      {/* Tree-delete confirmation (context menu → Delete, REQ-001) */}
-      {treeDeleteTarget && (
-        <DeleteConfirmationDialog
-          elementName={treeDeleteTarget.title || t("editor.untitled")}
-          onConfirm={() => {
-            const id = treeDeleteTarget.id;
-            setTreeDeleteTarget(null);
-            void handleDelete(id);
-          }}
-          onCancel={() => setTreeDeleteTarget(null)}
-        />
-      )}
-
-      {/* Decomposition tree (left panel, REQ-001) */}
       <div
         style={{
-          width: `${leftPanelWidth}px`,
-          minWidth: "280px",
-          maxWidth: "70%",
-          overflow: "auto",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "var(--space-4)",
+          paddingBottom: "var(--space-3)",
+          borderBottom: "1px solid var(--color-border)",
         }}
       >
-        <div
+        <h3
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-4)",
+            margin: 0,
+            fontSize: "var(--font-size-lg)",
+            fontWeight: 700,
+            color: "var(--color-text)",
           }}
         >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-            }}
-          >
-            {t("nav.architecture")}
-          </h3>
-          <button
-            data-testid="create-arch-btn"
-            onClick={() => void handleCreate()}
-            style={primaryButtonStyle}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary-dark)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary)";
-            }}
-          >
-            + {t("actions.new")}
-          </button>
-        </div>
+          {t("nav.architecture")}
+        </h3>
+        <button
+          data-testid="create-arch-btn"
+          onClick={() => void handleCreate()}
+          style={{
+            background: "var(--color-primary)",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-2) var(--space-4)",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          + {t("actions.new")}
+        </button>
+      </div>
 
-        {/* Reparent failure banner (REQ-001, e.g. cycle rejected by backend) */}
-        {reparentError && (
-          <div
-            role="alert"
-            data-testid="reparent-error"
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "var(--space-2)",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-danger)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-3)",
-              marginBottom: "var(--space-3)",
-              color: "var(--color-danger)",
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            <span style={{ flex: 1 }}>{reparentError}</span>
-            <button
-              type="button"
-              data-testid="reparent-error-dismiss"
-              aria-label={t("actions.cancel")}
-              onClick={() => setReparentError(null)}
-              style={{
-                border: "none",
-                background: "transparent",
-                color: "var(--color-danger)",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-                lineHeight: 1,
-                padding: 0,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        <DecompositionTree
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <ArchitectureList
           elements={elements}
           selectedId={selectedId}
           onSelect={(id) => navigate(`/architecture/${id}`)}
           onAddChild={(parentId) => void handleCreate(parentId)}
-          onDelete={(el) => setTreeDeleteTarget(el)}
-          onReparent={(elementId, newParentId) =>
-            void handleReparent(elementId, newParentId)
-          }
+          onDelete={(el) => setDeleteTarget(el)}
+          onReparent={() => refresh()}
         />
       </div>
+    </div>
+  );
 
-      {/* Divider for split-pane resize */}
-      <div
-        onMouseDown={handleDividerMouseDown}
-        data-testid="architecture-editor-divider"
-        style={{
-          width: "4px",
-          backgroundColor: "var(--color-border)",
-          cursor: "col-resize",
-          userSelect: "none",
-          transition: isDraggingRef.current ? "none" : "background-color var(--transition-fast)",
-          flexShrink: 0,
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLDivElement).style.backgroundColor = "var(--color-border-hover)";
-        }}
-        onMouseLeave={(e) => {
-          if (!isDraggingRef.current) {
-            (e.currentTarget as HTMLDivElement).style.backgroundColor = "var(--color-border)";
-          }
-        }}
-      />
-
-      {/* Detail editor (right panel) */}
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {element ? (
+  // Build detail panel (form + sidebar)
+  const detailPanel = (
+    <div
+      style={{
+        display: "flex",
+        gap: "var(--space-6)",
+        alignItems: "flex-start",
+        padding: "var(--space-4)",
+      }}
+    >
+      {element ? (
+        <>
+          {/* Main form wrapper */}
           <div
             style={{
-              display: "flex",
-              gap: "var(--space-6)",
-              alignItems: "flex-start",
+              flex: 1,
+              background: "var(--color-surface)",
+              borderRadius: "var(--radius-lg)",
+              boxShadow: "var(--shadow-card)",
+              padding: "var(--space-6)",
             }}
           >
-            {/* Main form wrapper */}
-            <div
-              style={{
-                flex: 1,
-                background: "var(--color-surface)",
-                borderRadius: "var(--radius-lg)",
-                boxShadow: "var(--shadow-card)",
-                padding: "var(--space-6)",
+            <EntityTypeProvider
+              entityType="architecture_element"
+              entitySubType={element.element_type}
+              visibleFields={{
+                asil_level: true,
+                make_or_buy: true,
               }}
             >
-              <h2
-                style={{
-                  margin: 0,
-                  marginBottom: "var(--space-4)",
-                  fontSize: "var(--font-size-2xl)",
-                  fontWeight: 700,
-                  color: "var(--color-text)",
-                }}
-              >
-                {element.title || t("editor.untitled")}
-              </h2>
-              <ArchElementForm
+              <ArchitectureForm
                 key={element.id}
                 element={element}
                 elements={elements}
@@ -801,110 +237,173 @@ export default function ArchitectureEditors(): JSX.Element {
                 onDelete={(id) => void handleDelete(id)}
                 isExtendedPreset={activeWorkspace?.preset === "extended"}
               />
+            </EntityTypeProvider>
 
-              {/* TraceLink panel for this element (REQ-L2-RF-006).
-                  Use activeWorkspace.id if available, otherwise fall back to
-                  element.workspace_id so the panel still renders when navigating
-                  directly to /architecture/:id without a workspace in context. */}
-              {(activeWorkspace?.id || element.workspace_id) && (
-                <ArchTraceLinkPanel
-                  workspaceId={activeWorkspace?.id ?? element.workspace_id}
-                  elementId={element.id}
-                />
-              )}
-            </div>
-
-            {/* Linked requirements sidebar (REQ-L3-RF004-003) */}
-            <aside
-              data-testid="arch-linked-reqs-panel"
-              style={{
-                minWidth: "240px",
-                background: "var(--color-surface)",
-                borderRadius: "var(--radius-lg)",
-                boxShadow: "var(--shadow-card)",
-                padding: "var(--space-4)",
-              }}
-            >
-              <h4
-                style={{
-                  margin: 0,
-                  marginBottom: "var(--space-3)",
-                  fontSize: "var(--font-size-base)",
-                  fontWeight: 700,
-                  color: "var(--color-text)",
-                }}
-              >
-                {t("arch.linkedRequirements")}
-              </h4>
-              {linkedTraceLinks.length === 0 ? (
-                <p
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    color: "var(--color-text-muted)",
-                    margin: 0,
-                  }}
-                >
-                  {t("traceability.none")}
-                </p>
-              ) : (
-                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                  {linkedTraceLinks.map((link) => (
-                    <li
-                      key={link.id}
-                      onClick={() =>
-                        navigate(`/requirements/${link.source_id}`)
-                      }
-                      style={{
-                        padding: "var(--space-2) var(--space-3)",
-                        marginBottom: "var(--space-2)",
-                        background: "var(--color-surface-raised)",
-                        borderRadius: "var(--radius-md)",
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text)",
-                        cursor: "pointer",
-                        transition: "var(--transition-fast)",
-                      }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLLIElement).style.background =
-                          "#eef2ff";
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLLIElement).style.background =
-                          "var(--color-surface-raised)";
-                      }}
-                    >
-                      <span style={{ fontFamily: "monospace" }}>
-                        {link.source_id.slice(0, 8)}…
-                      </span>{" "}
-                      <span
-                        style={{
-                          background: "var(--color-badge-draft)",
-                          color: "var(--color-badge-draft-text)",
-                          padding: "1px 6px",
-                          borderRadius: "var(--radius-full)",
-                          fontSize: "var(--font-size-sm)",
-                          marginLeft: "var(--space-1)",
-                        }}
-                      >
-                        {link.link_type}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </aside>
+            {/* TraceLink panel */}
+            {(activeWorkspace?.id || element.workspace_id) && (
+              <ArchTraceLinkPanel
+                workspaceId={activeWorkspace?.id ?? element.workspace_id}
+                elementId={element.id}
+              />
+            )}
           </div>
-        ) : (
-          <p
+
+          {/* Linked requirements sidebar */}
+          <aside
+            data-testid="arch-linked-reqs-panel"
             style={{
-              color: "var(--color-text-muted)",
+              minWidth: "240px",
+              background: "var(--color-surface)",
+              borderRadius: "var(--radius-lg)",
+              boxShadow: "var(--shadow-card)",
               padding: "var(--space-4)",
             }}
           >
-            {t("arch.selectElement")}
-          </p>
-        )}
-      </div>
+            <h4
+              style={{
+                margin: 0,
+                marginBottom: "var(--space-3)",
+                fontSize: "var(--font-size-base)",
+                fontWeight: 700,
+                color: "var(--color-text)",
+              }}
+            >
+              {t("arch.linkedRequirements")}
+            </h4>
+            {linkedTraceLinks.length === 0 ? (
+              <p
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-muted)",
+                  margin: 0,
+                }}
+              >
+                {t("traceability.none")}
+              </p>
+            ) : (
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                {linkedTraceLinks.map((link) => (
+                  <li
+                    key={link.id}
+                    onClick={() => navigate(`/requirements/${link.source_id}`)}
+                    style={{
+                      padding: "var(--space-2) var(--space-3)",
+                      marginBottom: "var(--space-2)",
+                      background: "var(--color-surface-raised)",
+                      borderRadius: "var(--radius-md)",
+                      fontSize: "var(--font-size-sm)",
+                      color: "var(--color-text)",
+                      cursor: "pointer",
+                      transition: "var(--transition-fast)",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLLIElement).style.background = "#eef2ff";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLLIElement).style.background =
+                        "var(--color-surface-raised)";
+                    }}
+                  >
+                    <span style={{ fontFamily: "monospace" }}>
+                      {link.source_id.slice(0, 8)}…
+                    </span>{" "}
+                    <span
+                      style={{
+                        background: "var(--color-badge-draft)",
+                        color: "var(--color-badge-draft-text)",
+                        padding: "1px 6px",
+                        borderRadius: "var(--radius-full)",
+                        fontSize: "var(--font-size-sm)",
+                        marginLeft: "var(--space-1)",
+                      }}
+                    >
+                      {link.link_type}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        </>
+      ) : (
+        <p style={{ color: "var(--color-text-muted)" }}>{t("arch.selectElement")}</p>
+      )}
     </div>
+  );
+
+  return (
+    <>
+      {deleteTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--color-surface)",
+              padding: "var(--space-6)",
+              borderRadius: "var(--radius-lg)",
+              boxShadow: "var(--shadow-md)",
+              maxWidth: "400px",
+              textAlign: "center",
+            }}
+          >
+            <h3 style={{ margin: 0, marginBottom: "var(--space-3)" }}>
+              {t("arch.deleteTitle")}
+            </h3>
+            <p style={{ margin: 0, marginBottom: "var(--space-4)" }}>
+              {t("arch.deleteConfirm")}: <strong>{deleteTarget.title}</strong>?
+            </p>
+            <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "center" }}>
+              <button
+                onClick={() => {
+                  setDeleteTarget(null);
+                  void handleDelete(deleteTarget.id);
+                }}
+                style={{
+                  background: "var(--color-danger)",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-4)",
+                  cursor: "pointer",
+                }}
+              >
+                {t("actions.delete")}
+              </button>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                style={{
+                  background: "var(--color-surface-raised)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-4)",
+                  cursor: "pointer",
+                }}
+              >
+                {t("actions.cancel")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <SplitView
+        leftPanel={listPanel}
+        rightPanel={detailPanel}
+        moduleType="architecture"
+        leftMinWidth={250}
+      />
+    </>
   );
 }

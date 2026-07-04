@@ -72,6 +72,81 @@ class ElementType(models.TextChoices):
     MODULE = "module", "Module"
 
 
+class RequirementType(models.TextChoices):
+    """Requirement type for SE mask standardization (REQ-L3-RF003-005).
+
+    Classifies requirements by level in specification hierarchy.
+    """
+
+    STREQ = "StReq", "Stakeholder Requirement"
+    SYREQ = "SyReq", "System Requirement"
+    USECASE = "UseCase", "Use Case"
+    FEATUREREQ = "FeatureReq", "Feature Requirement"
+
+
+class MoSCoWPriority(models.TextChoices):
+    """MoSCoW prioritization framework (REQ-L3-RF003-005).
+
+    Visible only for StReq requirements.
+    """
+
+    MUST = "Must", "Must Have"
+    SHOULD = "Should", "Should Have"
+    COULD = "Could", "Could Have"
+    WONT = "Won't", "Won't Have"
+
+
+class ComplexityFibonacci(models.IntegerChoices):
+    """Fibonacci scale for complexity estimation (REQ-L3-RF003-005).
+
+    Visible only for SyReq requirements.
+    """
+
+    ONE = 1
+    TWO = 2
+    THREE = 3
+    FIVE = 5
+    EIGHT = 8
+    THIRTEEN = 13
+    TWENTY_ONE = 21
+
+
+class VerificationMethod(models.TextChoices):
+    """Verification method choices (REQ-L3-RF003-005).
+
+    Visible only for SyReq requirements.
+    """
+
+    TEST = "Test", "Test"
+    REVIEW = "Review", "Review"
+    ANALYSIS = "Analysis", "Analysis"
+    INSPECTION = "Inspection", "Inspection"
+
+
+class ASILLevel(models.TextChoices):
+    """ASIL (Automotive Safety Integrity Level) (REQ-L3-RF004-004).
+
+    Used for ArchitectureElement safety classification.
+    """
+
+    QM = "QM", "QM (not ASIL)"
+    A = "A", "ASIL A"
+    B = "B", "ASIL B"
+    C = "C", "ASIL C"
+    D = "D", "ASIL D"
+
+
+class MakeOrBuy(models.TextChoices):
+    """Make-or-Buy decision for ArchitectureElement (REQ-L3-RF004-004).
+
+    Drives supply chain and sourcing analysis.
+    """
+
+    MAKE = "Make", "Make"
+    BUY = "Buy", "Buy"
+    REUSE = "Reuse", "Reuse"
+
+
 # ---------------------------------------------------------------------------
 # Abstract base classes (COMP-PL-001, ADR-L3-PL-001)
 # ---------------------------------------------------------------------------
@@ -367,6 +442,9 @@ class Requirement(TenantScopedModel):
     GIN tsvector index on title+description backs full-text search
     (REQ-L3-PL005-001, ADR-09). The index is created via RawSQL in the migration
     because it is an expression index (German config).
+
+    REQ-L3-RF003-005: Supports SE mask standardization via type-dependent fields.
+    REQ-L2-RF-025 AC3: Includes uid for stable identification.
     """
 
     artifact = models.OneToOneField(
@@ -376,6 +454,38 @@ class Requirement(TenantScopedModel):
     description = models.TextField(blank=True)
     category = models.CharField(max_length=64, blank=True)
     status = models.CharField(max_length=64, default="draft")
+    type = models.CharField(
+        max_length=64,
+        choices=RequirementType.choices,
+        default=RequirementType.SYREQ,
+        help_text="Requirement classification (StReq, SyReq, UseCase, FeatureReq)",
+    )
+    moscow_priority = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=MoSCoWPriority.choices,
+        help_text="MoSCoW priority (visible only for StReq)",
+    )
+    complexity_fibonacci = models.IntegerField(
+        null=True,
+        blank=True,
+        choices=ComplexityFibonacci.choices,
+        help_text="Complexity via Fibonacci scale (visible only for SyReq)",
+    )
+    verification_method = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        choices=VerificationMethod.choices,
+        help_text="Verification method (visible only for SyReq)",
+    )
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
 
     class Meta:
         db_table = "pl_requirement"
@@ -388,7 +498,11 @@ class ArchitectureElement(TenantScopedModel):
     """Architecture element derived from an artifact (REQ-L1-002).
 
     REQ-L1-041: Supports hierarchical parent-child relationships via parent_id.
-    Level is derived from tree depth (0=root, 1=child of root, etc.).
+    Level is derived from tree depth (0=root, 1=child of root, etc.) via CTE
+    annotation in manager.get_with_level() (REQ-L1-058 AC2).
+
+    REQ-L3-RF004-004: Supports SE mask fields (asil_level, make_or_buy, uid).
+    REQ-L2-RF-025 AC3: Includes uid for stable identification.
     """
 
     artifact = models.OneToOneField(
@@ -409,12 +523,46 @@ class ArchitectureElement(TenantScopedModel):
         blank=True,
         related_name="children",
     )
+    asil_level = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=ASILLevel.choices,
+        help_text="ASIL level (QM, A, B, C, D) per REQ-L3-RF004-004",
+    )
+    make_or_buy = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        choices=MakeOrBuy.choices,
+        help_text="Make-or-Buy decision per REQ-L3-RF004-004",
+    )
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
 
     class Meta:
         db_table = "pl_architecture_element"
 
     def __str__(self) -> str:
         return self.title
+
+    @property
+    def level(self) -> int:
+        """Return tree depth of this element (from annotation or fallback).
+
+        REQ-L1-058 AC2: Prefer .get_with_level() for bulk fetches (CTE-based).
+        This property provides compatibility for single-instance access
+        and falls back to Python recursion if not annotated.
+        """
+        # Check if level was annotated by get_with_level()
+        if hasattr(self, '_level_annotated'):
+            return self._level_annotated
+        # Fallback: compute via recursive get_level()
+        return self.get_level()
 
     def get_level(self) -> int:
         """Return tree depth of this element.
@@ -423,7 +571,9 @@ class ArchitectureElement(TenantScopedModel):
         Direct child → level=1
         Nested → level=2, etc.
 
-        Recursively traverses parent chain.
+        NOTE: For bulk level retrieval, use manager.get_queryset_with_level()
+        which uses DB CTE annotation (avoids N+1 queries, REQ-L1-058 AC2).
+        This method is a fallback for single-instance level computation.
         """
         if self.parent_id is None:
             return 0
@@ -615,6 +765,74 @@ class TestRunResult(TenantScopedModel):
         return f"Result:{self.test_case_title}:{self.status}"
 
 
+class AttributeVisibilityConfig(TenantScopedModel):
+    """Admin configuration for field visibility per entity type (REQ-L1-058).
+
+    Allows tenant admins to control which type-dependent fields are visible
+    in the UI and whether they are required in forms.
+
+    Constraint: Unique on (tenant_id, entity_type, attribute_name).
+    Index: Composite BTree on (tenant_id, entity_type) for fast bulk lookups.
+
+    AC2: Used by RequirementSerializer and ArchitectureElementSerializer
+    to conditionally include/exclude type-dependent fields in responses.
+    """
+
+    entity_type = models.CharField(
+        max_length=64,
+        help_text="Target entity type (e.g., 'Requirement', 'ArchitectureElement')",
+    )
+    attribute_name = models.CharField(
+        max_length=128,
+        help_text="Field name (e.g., 'moscow_priority', 'asil_level')",
+    )
+    is_visible = models.BooleanField(
+        default=True,
+        help_text="Show/hide toggle for frontend",
+    )
+    is_required = models.BooleanField(
+        default=False,
+        help_text="Mark as required in forms",
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Audit: who created this config",
+    )
+    modified_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Audit: who last modified this config",
+    )
+    version = models.IntegerField(
+        default=1,
+        help_text="Audit: version counter",
+    )
+
+    class Meta:
+        db_table = "pl_attribute_visibility_config"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "entity_type", "attribute_name"],
+                name="uq_attrvisib_tenant_entity_attr",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "entity_type"], name="idx_attrvisib_tenant_type"),
+        ]
+
+    def __str__(self) -> str:
+        visibility_status = "visible" if self.is_visible else "hidden"
+        required_status = "required" if self.is_required else "optional"
+        return f"{self.entity_type}.{self.attribute_name} ({visibility_status}, {required_status})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -625,8 +843,15 @@ __all__ = [
     "Workspace",
     "Artifact",
     "Requirement",
+    "RequirementType",
+    "MoSCoWPriority",
+    "ComplexityFibonacci",
+    "VerificationMethod",
     "ElementType",
     "ArchitectureElement",
+    "ASILLevel",
+    "MakeOrBuy",
+    "AttributeVisibilityConfig",
     "TraceLink",
     "TestCase",
     "WorkflowDefinition",

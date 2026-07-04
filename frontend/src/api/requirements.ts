@@ -8,7 +8,16 @@
  */
 
 import { apiClient, getList } from "./client";
-import type { Requirement, PaginatedResponse, UUID, ArtifactDiffResult, ArtifactVersion } from "../types";
+import type {
+  Requirement,
+  PaginatedResponse,
+  UUID,
+  ArtifactDiffResult,
+  ArtifactVersion,
+  RequirementType,
+  MoscowPriority,
+  VerificationMethod,
+} from "../types";
 
 export const requirementsApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<Requirement>> {
@@ -72,7 +81,7 @@ export const requirementsApi = {
 
   update(
     id: UUID,
-    data: Partial<Pick<Requirement, "title" | "description" | "category" | "status" | "change_reason">>
+    data: Partial<Pick<Requirement, "title" | "description" | "category" | "status" | "change_reason" | "type" | "moscow_priority" | "complexity_fibonacci" | "verification_method">>
   ): Promise<Requirement> {
     return apiClient.patch<Requirement>(`/requirements/${id}/`, data);
   },
