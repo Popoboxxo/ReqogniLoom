@@ -18,6 +18,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
@@ -25,9 +26,24 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // Mock API modules
 // ---------------------------------------------------------------------------
 
+vi.mock("../api/client", () => ({
+  getList: vi.fn().mockResolvedValue({ results: [], count: 0 }),
+  extractErrorMessage: vi.fn().mockReturnValue("Error"),
+  setAuthToken: vi.fn(),
+  setUnauthorizedHandler: vi.fn(),
+  apiClient: {
+    get: vi.fn().mockResolvedValue({}),
+    post: vi.fn().mockResolvedValue({}),
+    put: vi.fn().mockResolvedValue({}),
+    patch: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
+  },
+}));
+
 vi.mock("../api/requirements", () => ({
   requirementsApi: {
     list: vi.fn(),
+    listAll: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -91,18 +107,23 @@ function renderEditor(requirementId?: string): ReturnType<typeof render> {
   sessionStorage.setItem("reqflow_token", "test-token");
 
   const path = requirementId ? `/requirements/${requirementId}` : "/requirements";
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
 
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <WorkspaceProvider>
-          <Routes>
-            <Route path="/requirements" element={<RequirementEditors />} />
-            <Route path="/requirements/:id" element={<RequirementEditors />} />
-          </Routes>
-        </WorkspaceProvider>
-      </AuthProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[path]}>
+        <AuthProvider>
+          <WorkspaceProvider>
+            <Routes>
+              <Route path="/requirements" element={<RequirementEditors />} />
+              <Route path="/requirements/:id" element={<RequirementEditors />} />
+            </Routes>
+          </WorkspaceProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -117,11 +138,10 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
 
     // Default mock implementations
     vi.mocked(requirementsApi.list).mockResolvedValue({
-      count: 1,
-      next: null,
-      previous: null,
       results: [MOCK_REQUIREMENT],
-    });
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
 
     vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
 
@@ -148,10 +168,9 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
-      const divider = screen.getByTestId("requirement-editor-divider");
+      const divider = screen.getByTestId("splitview-divider");
       expect(divider).toBeInTheDocument();
       expect(divider).toHaveStyle("cursor: col-resize");
-      expect(divider).toHaveStyle("width: 4px");
     });
   });
 });

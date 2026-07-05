@@ -49,6 +49,11 @@ def _clear_tenant_context() -> Iterator[None]:
     """Prevent tenant context bleed between tests."""
     TenantContext.clear_tenant()
     yield
+
+@pytest.fixture(autouse=True)
+def _mock_resolve_arch_artifact_id() -> Iterator[None]:
+    with patch("icd.icd_manager.IcdManager._resolve_arch_artifact_id", side_effect=lambda x: x):
+        yield
     TenantContext.clear_tenant()
 
 

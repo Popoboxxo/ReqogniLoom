@@ -24,8 +24,6 @@ import { WorkspaceProvider } from "./context/WorkspaceContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { NavigationShell } from "./components/NavigationShell/NavigationShell";
 
-import { NeedsEditor } from "./components/NeedsEditor/NeedsEditor";
-
 // ---------------------------------------------------------------------------
 // Inner wrapper — needs Router context to call useNavigate
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import type { UUID } from "../types";
 
 export interface SearchHit {
   id: UUID;
-  artifact_type: "Requirement" | "ArchitectureElement" | "TestCase";
+  artifact_type: "Requirement" | "ArchitectureElement" | "TestCase" | "Adr" | "Risk" | "Issue" | "StakeholderNeed";
   title: string;
   description: string;
   relevance_score: number;

@@ -346,6 +346,7 @@ class TestUpdateRequirement:
                     )
                 ),
             ),
+            patch("application.requirement_service.Requirement.objects.filter"),
             patch.object(svc, "_audit") as mock_audit,
             patch.object(svc, "_emit_event"),
         ):
@@ -382,6 +383,7 @@ class TestUpdateRequirement:
                     )
                 ),
             ),
+            patch("application.requirement_service.Requirement.objects.filter"),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
@@ -417,6 +419,7 @@ class TestUpdateRequirement:
                     )
                 ),
             ),
+            patch("application.requirement_service.Requirement.objects.filter"),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
@@ -676,6 +679,7 @@ class TestDecompose:
                 ),
             ),
             patch.object(svc, "create_requirement", return_value=mock_child_req),
+            patch("application.requirement_service.Workspace.objects.filter"),
             patch.object(
                 svc._trace_link_service, "create_trace_link", side_effect=Exception("no-op")
             ),
@@ -771,8 +775,9 @@ class TestDecompose:
                 ),
             ),
             patch.object(svc, "create_requirement", return_value=mock_child_req),
+            patch("application.requirement_service.Workspace.objects.filter"),
             patch(
-                "application.requirement_service.ArchitectureElement.objects.filter",
+                "persistence.models.ArchitectureElement.objects.filter",
                 return_value=MagicMock(
                     first=MagicMock(
                         return_value=MagicMock(
@@ -859,8 +864,9 @@ class TestDecompose:
                     )
                 ),
             ),
+            patch("application.requirement_service.Workspace.objects.filter"),
             patch(
-                "application.requirement_service.ArchitectureElement.objects.filter",
+                "persistence.models.ArchitectureElement.objects.filter",
                 return_value=MagicMock(first=MagicMock(return_value=None)),
             ),
         ):

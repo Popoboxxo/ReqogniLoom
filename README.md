@@ -25,9 +25,10 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — 11 AI-powered tool groups (40+ tools) for Claude, ChatGPT, and other LLM platforms
+- **MCP Server** — 11 AI-powered tool groups (40+ tools) for Claude, Cursor, and other LLM platforms
 - **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama, or mock mode
-- **Semantic Linking** — Intelligent requirement matching and suggestions
+- **AI Derivation** — Configurable prompts to intelligently decompose Stakeholder Needs into System Requirements
+- **Semantic Glossary & Linking** — Intelligent requirement matching and terminology suggestions
 
 ### Enterprise Features
 - **Multi-Tenancy** — Row-level security with automatic tenant isolation
@@ -280,6 +281,43 @@ curl http://localhost:8000/mcp/
 # → {"server":"ReqFlow MCP Server","protocol":"JSON-RPC 2.0","transports":["http","sse","stdio"],"version":"1.0.0"}
 ```
 
+### 7. Connect an MCP Client (Claude Desktop / Cursor)
+
+You can connect external AI assistants like Claude Desktop or Cursor to ReqFlow's MCP server.
+ReqFlow exposes an SSE (Server-Sent Events) transport endpoint for remote connections.
+
+**Important:** You need an active API key to authenticate (see Step 5 above).
+
+#### Example: Claude Desktop Configuration
+
+Edit your `claude_desktop_config.json` (usually located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\\Claude\\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "reqflow": {
+      "command": "curl",
+      "args": [
+        "-N", 
+        "-s",
+        "-H", "X-API-Key: YOUR_API_KEY",
+        "http://localhost:8000/mcp/sse/"
+      ]
+    }
+  }
+}
+```
+*Note: Since ReqFlow provides an HTTP/SSE endpoint, we use `curl -N` to pipe the SSE stream into Claude Desktop's standard input. Alternatively, you can write a tiny Node.js script that connects to the SSE URL and bridges it to stdio.*
+
+#### Example: Cursor IDE
+
+In Cursor, go to **Settings > Features > MCP**:
+1. Click **+ Add new MCP server**
+2. **Name**: `ReqFlow`
+3. **Type**: `sse`
+4. **URL**: `http://localhost:8000/mcp/sse/`
+5. **Headers**: Add a header `X-API-Key` with your API Key value.
+
 ### Troubleshooting Tests
 
 ```bash
@@ -345,6 +383,45 @@ curl -X POST http://localhost:8000/mcp/ \
       "arguments":{"workspace_id":1,"limit":5}
     }
   }'
+```
+
+### Client Configuration Examples
+
+**Cursor (`.cursor/mcp.json`)**
+```json
+{
+  "mcpServers": {
+    "reqflow": {
+      "command": "curl",
+      "args": [
+        "-s",
+        "-X", "POST",
+        "http://localhost:8000/mcp/stdio/",
+        "-H", "X-API-Key: rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12",
+        "-d", "@-"
+      ]
+    }
+  }
+}
+```
+*(Note: Since Cursor only supports stdio currently, we use `curl` to bridge stdio to the HTTP endpoint).*
+
+**Claude Desktop (`claude_desktop_config.json`)**
+```json
+{
+  "mcpServers": {
+    "reqflow": {
+      "command": "curl",
+      "args": [
+        "-s",
+        "-X", "POST",
+        "http://localhost:8000/mcp/stdio/",
+        "-H", "X-API-Key: rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12",
+        "-d", "@-"
+      ]
+    }
+  }
+}
 ```
 
 ### Tool Groups (11 prefixes, 40+ tools)

@@ -160,7 +160,7 @@ class TestPreferenceService:
         self, tenant_a, user_a, workspace_a
     ):
         """Creating two preferences for (tenant, user, workspace) raises."""
-        from django.db import IntegrityError
+        from django.db import IntegrityError, transaction
 
         with active_tenant(tenant_a):
             UserWorkspacePreference.objects.create(
@@ -169,10 +169,11 @@ class TestPreferenceService:
                 workspace=workspace_a,
                 optional_artifact_visibility={"adr": False},
             )
-            with pytest.raises(IntegrityError):
-                UserWorkspacePreference.objects.create(
-                    tenant=tenant_a,
-                    user=user_a,
-                    workspace=workspace_a,
-                    optional_artifact_visibility={"risk": False},
-                )
+            with transaction.atomic():
+                with pytest.raises(IntegrityError):
+                    UserWorkspacePreference.objects.create(
+                        tenant=tenant_a,
+                        user=user_a,
+                        workspace=workspace_a,
+                        optional_artifact_visibility={"risk": False},
+                    )

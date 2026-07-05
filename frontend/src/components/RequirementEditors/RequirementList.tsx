@@ -80,8 +80,6 @@ function getStatusBadgeStyle(status: string): React.CSSProperties {
  */
 function getTypeColor(type?: RequirementType): string {
   switch (type) {
-    case 'StReq':
-      return '#3B82F6'; // Blue
     case 'SyReq':
       return '#10B981'; // Green
     case 'SWReq':

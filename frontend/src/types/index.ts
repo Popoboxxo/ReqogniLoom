@@ -64,6 +64,7 @@ export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
 export interface StakeholderNeed {
   id: UUID;
   workspace_id: UUID;
+  artifact_id: UUID;
   title: string;
   description: string;
   category: string;
@@ -600,3 +601,19 @@ export const WORKFLOW_STATES = [
   'Rejected',
   'Deprecated',
 ];
+
+// ---------------------------------------------------------------------------
+// Glossary
+// ---------------------------------------------------------------------------
+
+export interface GlossaryTerm {
+  id: string;
+  workspace_id: string;
+  term: string;
+  definition: string;
+  synonyms: string[];
+  abbreviation?: string;
+  is_global?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}

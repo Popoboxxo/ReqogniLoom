@@ -300,6 +300,22 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
             logger.exception("StakeholderNeedViewSet.destroy: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @action(detail=True, methods=["post"], url_path="derive")
+    def derive(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/needs/{pk}/derive/ — trigger async AI derivation."""
+        lang = detect_lang(request)
+        try:
+            response_data = self.service.derive_requirements_async(get_auth_context(request), pk)
+            return Response(response_data, status=status.HTTP_202_ACCEPTED)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.derive: unhandled exception")
+            return _service_error_response(exc, lang)
+
+
 
 class RequirementViewSet(BaseEntityViewSet):
     """ViewSet for Requirement CRUD operations.

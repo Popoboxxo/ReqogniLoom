@@ -50,6 +50,7 @@ from persistence.models import (
     User,
     Workspace,
 )
+from presets.models import WorkspacePresetConfig
 
 # Auth & tenancy — for UserRole/ApiKey seeding and role constants.
 from auth_tenancy.models import (
@@ -82,6 +83,7 @@ from mcp_server.tests.conftest_e2e import (
     e2e_userrole_admin,
     e2e_userrole_member,
     e2e_userrole_viewer,
+    e2e_api_key_viewer,
     e2e_workspace,
     mock_llm_configured,
     viewer_client,

@@ -157,7 +157,6 @@ class RequirementService(ServiceBase):
             category=category,
             status="draft",
             type=type,
-            moscow_priority=moscow_priority,
             complexity_fibonacci=complexity_fibonacci,
             verification_method=verification_method,
             uid=uid,
@@ -226,7 +225,6 @@ class RequirementService(ServiceBase):
         status: Optional[str] = None,
         change_reason: Optional[str] = None,
         type: Optional[str] = None,
-        moscow_priority: object = _UNSET,
         complexity_fibonacci: object = _UNSET,
         verification_method: object = _UNSET,
         uid: object = _UNSET,
@@ -266,8 +264,6 @@ class RequirementService(ServiceBase):
             requirement.status = status
         if type is not None:
             requirement.type = type
-        if moscow_priority is not _UNSET:
-            requirement.moscow_priority = moscow_priority
         if complexity_fibonacci is not _UNSET:
             requirement.complexity_fibonacci = complexity_fibonacci
         if verification_method is not _UNSET:

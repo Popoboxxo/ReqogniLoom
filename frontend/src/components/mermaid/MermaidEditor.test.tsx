@@ -64,13 +64,21 @@ vi.mock("@codemirror/state", () => ({
 }));
 
 vi.mock("@codemirror/view", () => ({
-  EditorView: vi.fn().mockImplementation(() => ({
-    destroy: vi.fn(),
-    state: {
-      doc: { toString: () => "flowchart TD\n  A --> B" },
-    },
-  })),
-  keymap: vi.fn(),
+  EditorView: Object.assign(
+    vi.fn().mockImplementation(() => ({
+      destroy: vi.fn(),
+      state: {
+        doc: { toString: () => "flowchart TD\n  A --> B" },
+      },
+    })),
+    {
+      updateListener: { of: vi.fn() },
+      lineWrapping: "lineWrapping",
+    }
+  ),
+  keymap: {
+    of: vi.fn(),
+  },
 }));
 
 vi.mock("@codemirror/commands", () => ({

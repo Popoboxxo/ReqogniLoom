@@ -31,10 +31,18 @@ from django.test import Client
 from auth_tenancy.models import UserRole
 from mcp_server.tests.conftest_e2e import (
     admin_client,
+    e2e_api_key_admin,
     e2e_preset,
+    e2e_tenant,
+    e2e_user_admin,
+    e2e_user_member,
+    e2e_user_viewer,
     e2e_userrole_admin,
+    e2e_userrole_member,
     e2e_userrole_viewer,
+    e2e_api_key_viewer,
     e2e_workspace,
+    mock_llm_configured,
     viewer_client,
 )
 from mcp_server.tests.helpers import make_jsonrpc_request
@@ -75,7 +83,10 @@ def _parse_sse_events(response) -> List[Dict[str, Any]]:
     per request, but the parser handles multiple events for forward-
     compatibility with any future streaming-response work.
     """
-    body = response.content.decode("utf-8")
+    if hasattr(response, "streaming_content"):
+        body = b"".join(response.streaming_content).decode("utf-8")
+    else:
+        body = response.content.decode("utf-8")
     events: List[Dict[str, Any]] = []
     for line in body.split("\n"):
         line = line.strip()

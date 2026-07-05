@@ -7,9 +7,23 @@ interface NeedListProps {
   needs: StakeholderNeed[];
   selectedId?: string;
   onCreateNew: () => void;
+  showCreateForm?: boolean;
+  setShowCreateForm?: (show: boolean) => void;
+  newTitle?: string;
+  setNewTitle?: (val: string) => void;
+  onSubmitCreate?: () => void;
 }
 
-export function NeedList({ needs, selectedId, onCreateNew }: NeedListProps): JSX.Element {
+export function NeedList({ 
+  needs, 
+  selectedId, 
+  onCreateNew,
+  showCreateForm,
+  setShowCreateForm,
+  newTitle,
+  setNewTitle,
+  onSubmitCreate
+}: NeedListProps): JSX.Element {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
 
@@ -54,6 +68,60 @@ export function NeedList({ needs, selectedId, onCreateNew }: NeedListProps): JSX
         />
       </div>
       
+      {showCreateForm && setShowCreateForm && setNewTitle && onSubmitCreate && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSubmitCreate();
+          }}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-2)',
+            padding: 'var(--space-3)',
+            margin: 'var(--space-3)',
+            background: 'var(--color-surface-raised)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-md)',
+          }}
+        >
+          <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
+            {t('editor.title', 'Title')}
+          </label>
+          <input
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            autoFocus
+            placeholder={t('editor.newNeedTitle', 'e.g. As a user, I need...')}
+            style={{
+              padding: 'var(--space-2) var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              fontSize: 'var(--font-size-sm)',
+              background: 'var(--color-surface)',
+              color: 'var(--color-text)',
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+            <button
+              type="button"
+              onClick={() => setShowCreateForm(false)}
+              className="btn-secondary"
+            >
+              {t('cancel', 'Cancel')}
+            </button>
+            <button
+              type="submit"
+              disabled={!(newTitle || '').trim()}
+              className="btn-primary"
+            >
+              {t('create', 'Create')}
+            </button>
+          </div>
+        </form>
+      )}
+
       <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-2)' }}>
         {filtered.map(need => {
           const isActive = need.id === selectedId;

@@ -15,3 +15,12 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     disconnect(): void {}
   };
 }
+
+// jsdom does not implement HTMLFormElement.prototype.requestSubmit
+if (typeof HTMLFormElement !== "undefined" && !HTMLFormElement.prototype.requestSubmit) {
+  HTMLFormElement.prototype.requestSubmit = function () {
+    if (this.reportValidity()) {
+      this.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+  };
+}

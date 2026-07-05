@@ -152,7 +152,7 @@ class IcdManager:
         IF:     IF-L1-037, IF-ICD-INT-002, IF-L1-040
         """
         from persistence.models import Tenant, ArchitectureElement
-        from auth_tenancy.context import TenantContext
+        from persistence.tenancy import TenantContext
 
         syntax_check = self._validator.validate_syntax(
             {

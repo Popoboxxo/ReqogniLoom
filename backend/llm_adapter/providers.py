@@ -155,8 +155,6 @@ class MockLlmProvider(LlmCapabilityInterface):
             ],
         )
 
-        )
-
     def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
         """Return a fixed consistency result for the given workspace."""
         self._simulate()

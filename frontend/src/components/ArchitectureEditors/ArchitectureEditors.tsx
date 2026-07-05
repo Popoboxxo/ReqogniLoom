@@ -365,6 +365,7 @@ export default function ArchitectureEditors(): JSX.Element {
             </p>
             <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "center" }}>
               <button
+                data-testid="confirm-delete-btn"
                 onClick={() => {
                   setDeleteTarget(null);
                   void handleDelete(deleteTarget.id);

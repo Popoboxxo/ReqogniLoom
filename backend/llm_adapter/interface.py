@@ -121,8 +121,6 @@ class LlmCapabilityInterface(ABC):
             LlmDecompositionResult with children list and usage metadata.
         """
 
-        """
-
     @abstractmethod
     def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
         """Check consistency across all artifacts in a workspace.

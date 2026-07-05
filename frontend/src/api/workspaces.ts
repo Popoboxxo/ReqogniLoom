@@ -40,7 +40,7 @@ export const workspacesApi = {
 
   update(
     id: UUID,
-    data: Partial<{ name: string; language: string; terminology_profile: TerminologyProfile; decomposition_link_type: string }>
+    data: Partial<{ name: string; language: string; terminology_profile: TerminologyProfile; decomposition_link_type: string; ai_prompts: Record<string, string> }>
   ): Promise<Workspace> {
     return apiClient.patch<Workspace>(`/workspaces/${id}/`, data);
   },
@@ -82,7 +82,7 @@ export const workspacesApi = {
    * POST /api/v1/workspaces/{id}/close/
    */
   closeWorkspace(id: UUID): Promise<Workspace> {
-    return apiClient.post<Workspace>(`/workspaces/${id}/close/`);
+    return apiClient.post<Workspace>(`/workspaces/${id}/close/`, {});
   },
 
   /**
@@ -90,7 +90,7 @@ export const workspacesApi = {
    * POST /api/v1/workspaces/{id}/reactivate/
    */
   reactivateWorkspace(id: UUID): Promise<Workspace> {
-    return apiClient.post<Workspace>(`/workspaces/${id}/reactivate/`);
+    return apiClient.post<Workspace>(`/workspaces/${id}/reactivate/`, {});
   },
 
   /**

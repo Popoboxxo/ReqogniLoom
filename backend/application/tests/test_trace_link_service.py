@@ -62,6 +62,7 @@ class TestValidLinkTypes:
         "traces",
         "copy-of",
         "allocated-to",  # REQ-L1-042
+        "uses-term",
     }
 
     def test_all_ten_types_present(self):

@@ -257,13 +257,12 @@ class TestCanvasAutoSaveUpdate:
     """REQ-L2-DS-006 AC3: Auto-Save creates new version on update."""
 
     def _make_canvas(self, canvas_editor, tenant_a):
-        with active_tenant(tenant_a):
-            return canvas_editor.handle_stroke_update(
-                diagram_id=None,
-                stroke_data=VALID_CANVAS_STROKES,
-                tenant=tenant_a,
-                name="Auto-Save Test",
-            )
+        return canvas_editor.handle_stroke_update(
+            diagram_id=None,
+            stroke_data=VALID_CANVAS_STROKES,
+            tenant=tenant_a,
+            name="Auto-Save Test",
+        )
 
     def test_update_creates_new_version(self, canvas_editor, tenant_a, workspace_a):
         with active_tenant(tenant_a):
@@ -389,7 +388,7 @@ class TestCanvasTraceLink:
         with patch("diagram.manager.log_write"):
             with active_tenant(tenant_a):
                 with patch.object(
-                    canvas_editor._traceability,
+                    canvas_editor._manager._traceability,
                     "create_document_link",
                 ) as mock_link:
                     mock_link.return_value = MagicMock()

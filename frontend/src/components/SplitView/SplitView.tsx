@@ -104,7 +104,10 @@ export const SplitView = React.forwardRef<
       }
 
       // 2. localStorage (persisted from previous session)
-      const stored = localStorage.getItem(storageKey);
+      const stored =
+        typeof window !== "undefined" && window.localStorage
+          ? window.localStorage.getItem(storageKey)
+          : null;
       if (stored) {
         const parsed = parseInt(stored, 10);
         if (!isNaN(parsed) && parsed >= leftMinWidth) {
@@ -323,6 +326,7 @@ export const SplitView = React.forwardRef<
         {/* Divider */}
         <div
           ref={dividerRef}
+          data-testid="splitview-divider"
           className={`splitview-divider ${dividerClassName || ''}`}
           onMouseDown={handleDividerMouseDown}
           style={{
@@ -331,9 +335,6 @@ export const SplitView = React.forwardRef<
             cursor: 'col-resize',
             transition: isDraggingRef.current ? 'none' : 'background 0.2s ease',
             userSelect: 'none',
-            '&:hover': {
-              background: 'var(--color-primary)',
-            },
           }}
           onMouseEnter={(e) => {
             if (!isDraggingRef.current) {

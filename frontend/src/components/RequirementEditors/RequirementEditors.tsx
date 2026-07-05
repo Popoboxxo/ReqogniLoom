@@ -91,7 +91,7 @@ export default function RequirementEditors(): JSX.Element {
         if (!('complexity_fibonacci' in vMap)) vMap['complexity_fibonacci'] = true;
         if (!('verification_method' in vMap)) vMap['verification_method'] = true;
         
-        setVisibleFields(vMap);
+        setAttributeVisibility(vMap);
         setRequiredFields(rMap);
       })
       .catch(err => console.error('Failed to load attribute configs', err));
@@ -355,7 +355,7 @@ export default function RequirementEditors(): JSX.Element {
     <EntityTypeProvider
       entityType="requirement"
       entitySubType={(requirement.type || 'SyReq') as RequirementType}
-      visibleFields={visibleFields}
+      visibleFields={attributeVisibility}
       requiredFields={requiredFields}
     >
       <RequirementForm

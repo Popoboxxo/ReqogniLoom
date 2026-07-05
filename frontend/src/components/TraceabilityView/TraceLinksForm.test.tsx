@@ -25,9 +25,10 @@ vi.mock("../../api/architecture");
 vi.mock("../../api/testcases");
 vi.mock("../../api/artifacts");
 vi.mock("../../context/WorkspaceContext");
+const mockT = (key: string) => key;
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: mockT,
   }),
 }));
 

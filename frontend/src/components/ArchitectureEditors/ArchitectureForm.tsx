@@ -143,7 +143,7 @@ function DeleteConfirmationDialog({
           {t('arch.deleteConfirm')}: <strong style={{ color: 'var(--color-text)' }}>{elementName}</strong>?
         </p>
         <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center', marginTop: 'var(--space-4)' }}>
-          <button onClick={onConfirm} style={dangerButtonStyle}>
+          <button data-testid="confirm-delete-btn" onClick={onConfirm} style={dangerButtonStyle}>
             {t('actions.delete')}
           </button>
           <button

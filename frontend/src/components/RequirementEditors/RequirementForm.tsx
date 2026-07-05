@@ -79,7 +79,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [workflowState, setWorkflowState] = useState(requirement.status);
   const [changeReason, setChangeReason] = useState(requirement.change_reason || '');
   const [type, setType] = useState<RequirementType>(requirement.type || 'SyReq');
-  const [complexityFibonacci, setComplexityFibonacci] = useState<number>(
+  const [complexityFibonacci, setComplexityFibonacci] = useState<number | ''>(
     requirement.complexity_fibonacci || 1
   );
   const [verificationMethod, setVerificationMethod] = useState<VerificationMethod | ''>(

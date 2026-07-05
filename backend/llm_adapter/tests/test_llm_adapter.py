@@ -131,6 +131,9 @@ class TestLlmCapabilityInterface:
             def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
                 return LlmConsistencyResult(score=0.5, suggestions=[], provider="test", model="t", token_usage=None)
 
+            def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+                return LlmDecompositionResult(score=0.5, suggestions=[], provider="test", model="t", token_usage=None)
+
         provider = CompleteProvider()
         assert isinstance(provider, LlmCapabilityInterface)
 
@@ -190,6 +193,9 @@ class TestProviderRegistry:
 
             def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
                 return LlmConsistencyResult(score=0.1, suggestions=[], provider="custom", model="c", token_usage=None)
+
+            def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+                return LlmDecompositionResult(score=0.1, suggestions=[], provider="custom", model="c", token_usage=None)
 
         provider = get_provider()
         assert isinstance(provider, CustomProvider)

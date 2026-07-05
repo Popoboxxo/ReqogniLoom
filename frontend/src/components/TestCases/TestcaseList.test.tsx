@@ -12,6 +12,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { TestcaseList } from "./TestcaseList";
 import * as testcasesModule from "../../api/testcases";
@@ -19,6 +20,17 @@ import * as workspaceContext from "../../context/WorkspaceContext";
 
 vi.mock("../../api/testcases");
 vi.mock("../../context/WorkspaceContext");
+vi.mock("../../api/client", () => ({
+  getList: vi.fn().mockResolvedValue({ results: [], count: 0 }),
+  extractErrorMessage: vi.fn().mockReturnValue("duplicate title"),
+  apiClient: {
+    get: vi.fn().mockResolvedValue({}),
+    post: vi.fn().mockResolvedValue({}),
+    put: vi.fn().mockResolvedValue({}),
+    patch: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
+  },
+}));
 // Stable t reference — a fresh t per render would re-trigger the
 // useCallback([activeWorkspace, t]) load effect in an endless loop.
 vi.mock("react-i18next", () => {
@@ -52,6 +64,18 @@ const mockTestcases = [
 ];
 
 describe("TestcaseList (REQ-L1-040 Phase 3)", () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  const renderComponent = () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TestcaseList />
+      </QueryClientProvider>
+    );
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(workspaceContext.useWorkspace).mockReturnValue({
@@ -63,7 +87,7 @@ describe("TestcaseList (REQ-L1-040 Phase 3)", () => {
   });
 
   it("loads the test case list on mount", async () => {
-    render(<TestcaseList />);
+    renderComponent();
 
     await waitFor(() => {
       expect(screen.getByTestId("testcase-item-tc-1")).toBeInTheDocument();
@@ -74,7 +98,7 @@ describe("TestcaseList (REQ-L1-040 Phase 3)", () => {
   });
 
   it("displays status for each test case", async () => {
-    render(<TestcaseList />);
+    renderComponent();
 
     await waitFor(() => {
       expect(screen.getByTestId("testcase-item-tc-1")).toBeInTheDocument();
@@ -88,7 +112,7 @@ describe("TestcaseList (REQ-L1-040 Phase 3)", () => {
       results: [],
     } as any);
 
-    render(<TestcaseList />);
+    renderComponent();
 
     await waitFor(() => {
       expect(screen.queryByTestId(/testcase-item/)).not.toBeInTheDocument();
@@ -97,7 +121,7 @@ describe("TestcaseList (REQ-L1-040 Phase 3)", () => {
 
   it("validates that title is required before create", async () => {
     const user = userEvent.setup();
-    render(<TestcaseList />);
+    renderComponent();
 
     await waitFor(() => {
       expect(screen.getByTestId("testcase-create-btn")).toBeInTheDocument();
@@ -118,7 +142,7 @@ describe("TestcaseList (REQ-L1-040 Phase 3)", () => {
       id: "tc-3",
     } as any);
     const user = userEvent.setup();
-    render(<TestcaseList />);
+    renderComponent();
 
     await waitFor(() => {
       expect(screen.getByTestId("testcase-create-btn")).toBeInTheDocument();
@@ -152,9 +176,10 @@ describe("TestcaseList (REQ-L1-040 Phase 3)", () => {
   it("refreshes the list after a successful create", async () => {
     vi.mocked(testcasesModule.testcasesApi.create).mockResolvedValue({
       id: "tc-3",
+      workspace_id: "ws-123",
     } as any);
     const user = userEvent.setup();
-    render(<TestcaseList />);
+    renderComponent();
 
     await waitFor(() => {
       expect(screen.getByTestId("testcase-create-btn")).toBeInTheDocument();
@@ -174,7 +199,7 @@ describe("TestcaseList (REQ-L1-040 Phase 3)", () => {
       error: { message: "duplicate title" },
     });
     const user = userEvent.setup();
-    render(<TestcaseList />);
+    renderComponent();
 
     await waitFor(() => {
       expect(screen.getByTestId("testcase-create-btn")).toBeInTheDocument();

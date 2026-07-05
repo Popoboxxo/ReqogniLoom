@@ -16,6 +16,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
@@ -23,9 +24,24 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 // Mock API modules
 // ---------------------------------------------------------------------------
 
+vi.mock("../api/client", () => ({
+  getList: vi.fn().mockResolvedValue({ results: [], count: 0 }),
+  extractErrorMessage: vi.fn().mockReturnValue("Error"),
+  setAuthToken: vi.fn(),
+  setUnauthorizedHandler: vi.fn(),
+  apiClient: {
+    get: vi.fn().mockResolvedValue({}),
+    post: vi.fn().mockResolvedValue({}),
+    put: vi.fn().mockResolvedValue({}),
+    patch: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
+  },
+}));
+
 vi.mock("../api/architecture", () => ({
   architectureApi: {
     list: vi.fn(),
+    listAll: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -42,10 +58,19 @@ vi.mock("../api/tracelinks", () => ({
   },
 }));
 
+vi.mock("../api/requirements", () => ({
+  requirementsApi: {
+    list: vi.fn().mockResolvedValue({ results: [], count: 0 }),
+    listAll: vi.fn().mockResolvedValue([]),
+    get: vi.fn(),
+  },
+}));
+
 // Must import AFTER vi.mock
 import ArchitectureEditors from "../components/ArchitectureEditors/ArchitectureEditors";
 import { architectureApi } from "../api/architecture";
 import { tracelinksApi } from "../api/tracelinks";
+import { requirementsApi } from "../api/requirements";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
 
@@ -73,17 +98,23 @@ function renderEditor(elementId?: string): ReturnType<typeof render> {
 
   const path = elementId ? `/architecture/${elementId}` : "/architecture";
 
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <WorkspaceProvider>
-          <Routes>
-            <Route path="/architecture" element={<ArchitectureEditors />} />
-            <Route path="/architecture/:id" element={<ArchitectureEditors />} />
-          </Routes>
-        </WorkspaceProvider>
-      </AuthProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[path]}>
+        <AuthProvider>
+          <WorkspaceProvider>
+            <Routes>
+              <Route path="/architecture" element={<ArchitectureEditors />} />
+              <Route path="/architecture/:id" element={<ArchitectureEditors />} />
+            </Routes>
+          </WorkspaceProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -103,6 +134,18 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       previous: null,
       results: [MOCK_ELEMENT],
     });
+
+    vi.mocked(architectureApi.list).mockResolvedValue({
+      results: [MOCK_ELEMENT],
+      count: 1,
+    } as any);
+    vi.mocked(architectureApi.listAll).mockResolvedValue([MOCK_ELEMENT] as any);
+
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [],
+      count: 0,
+    });
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
 
     vi.mocked(architectureApi.get).mockResolvedValue(MOCK_ELEMENT);
 
@@ -206,7 +249,7 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      const divider = screen.getByTestId("architecture-editor-divider");
+      const divider = screen.getByTestId("splitview-divider");
       expect(divider).toBeInTheDocument();
       expect(divider).toHaveStyle("cursor: col-resize");
     });

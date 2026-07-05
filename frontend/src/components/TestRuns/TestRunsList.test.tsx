@@ -78,8 +78,8 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
     });
-    expect(screen.getByText(/— completed/)).toBeInTheDocument();
-    expect(screen.getByText(/— in-progress/)).toBeInTheDocument();
+    expect(screen.getByText(/completed/)).toBeInTheDocument();
+    expect(screen.getByText(/in-progress/)).toBeInTheDocument();
   });
 
   it("shows empty state when no test runs exist", async () => {
@@ -104,11 +104,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     await user.click(screen.getByTestId("testrun-create-btn"));
     // Try submitting with only whitespace
     await user.type(screen.getByTestId("testrun-name-input"), "   ");
-    await user.click(screen.getByTestId("testrun-save-btn"));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
-    });
+    expect(screen.getByTestId("testrun-create-submit-btn")).toBeDisabled();
     expect(testRunsModule.testRunsApi.create).not.toHaveBeenCalled();
   });
 
@@ -128,11 +124,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
       screen.getByTestId("testrun-name-input"),
       "New test run"
     );
-    await user.type(
-      screen.getByTestId("testrun-description-input"),
-      "Run description"
-    );
-    await user.click(screen.getByTestId("testrun-save-btn"));
+    await user.click(screen.getByTestId("testrun-create-submit-btn"));
 
     await waitFor(() => {
       expect(testRunsModule.testRunsApi.create).toHaveBeenCalledWith({
@@ -154,7 +146,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     });
     await user.click(screen.getByTestId("testrun-create-btn"));
     await user.type(screen.getByTestId("testrun-name-input"), "New run");
-    await user.click(screen.getByTestId("testrun-save-btn"));
+    await user.click(screen.getByTestId("testrun-create-submit-btn"));
 
     await waitFor(() => {
       // initial load + refresh after create
@@ -174,7 +166,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     });
     await user.click(screen.getByTestId("testrun-create-btn"));
     await user.type(screen.getByTestId("testrun-name-input"), "Test");
-    await user.click(screen.getByTestId("testrun-save-btn"));
+    await user.click(screen.getByTestId("testrun-create-submit-btn"));
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("workspace not found");

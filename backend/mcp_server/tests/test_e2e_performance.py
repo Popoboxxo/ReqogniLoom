@@ -32,10 +32,12 @@ from persistence.models import Tenant, User
 # so type checkers and IDEs see them as fixture references.
 from mcp_server.tests.conftest_e2e import (  # noqa: F401
     admin_client,
+    e2e_api_key_admin,
     e2e_preset,
     e2e_tenant,
     e2e_user_admin,
     e2e_user_member,
+    e2e_userrole_admin,
     e2e_workspace,
 )
 from mcp_server.tests.helpers import extract_result, post_mcp
@@ -150,6 +152,7 @@ def test_permissions_list_with_50_rules_under_1_5s(
     e2e_workspace,
     e2e_user_admin,
     e2e_user_member,
+    e2e_userrole_admin,
 ):
     """50 ItemPermissions: list must complete in < 1.5s.
 
@@ -158,14 +161,19 @@ def test_permissions_list_with_50_rules_under_1_5s(
     would just upsert one row. Varying artifact_id yields 50 distinct
     rows that ``permissions.list`` returns as a single page.
     """
+    from persistence.models import Artifact
     set_request_tenant(e2e_workspace.tenant_id)
     try:
         for _ in range(50):
+            art = Artifact.objects.create(
+                tenant_id=e2e_workspace.tenant_id,
+                workspace_id=e2e_workspace.id,
+            )
             ItemPermission.unscoped.create(
                 tenant_id=e2e_workspace.tenant_id,
                 user_id=e2e_user_member.id,
                 workspace_id=e2e_workspace.id,
-                artifact_id=uuid4(),
+                artifact_id=art.id,
                 permission_level=ITEM_PERMISSION_READ,
                 granted_by_id=e2e_user_admin.id,
             )
@@ -205,6 +213,7 @@ def test_audit_query_with_50_entries_under_1_5s(
     admin_client,
     e2e_workspace,
     e2e_user_admin,
+    e2e_userrole_admin,
 ):
     """50 AuditEntries: query must complete in < 1.5s."""
     _seed_audit_entry_bulk(e2e_workspace, e2e_user_admin, count=50)
@@ -239,6 +248,7 @@ def test_user_list_with_50_users_under_1s(
     admin_client,
     e2e_tenant,
     e2e_workspace,
+    e2e_userrole_admin,
 ):
     """50 Users: list must complete in < 1s.
 
