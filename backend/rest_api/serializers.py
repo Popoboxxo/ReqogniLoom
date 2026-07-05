@@ -222,7 +222,7 @@ class ArtifactSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for Requirement entity (REQ-L2-RA-001, REQ-L3-RF003-005).
 
-    REQ-L3-RF003-005: Type-dependent fields (moscow_priority, complexity_fibonacci,
+    REQ-L3-RF003-005: Type-dependent fields (complexity_fibonacci,
     verification_method) are included in the serializer but conditionally rendered
     in to_representation() based on the requirement type.
 
@@ -238,15 +238,9 @@ class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
     status = serializers.CharField(max_length=64, default="draft")
     type = serializers.ChoiceField(
-        choices=['StReq', 'SyReq', 'UseCase', 'FeatureReq'],
+        choices=['SyReq', 'UseCase', 'FeatureReq'],
         default='SyReq',
         help_text="Requirement classification per REQ-L3-RF003-005",
-    )
-    moscow_priority = serializers.ChoiceField(
-        choices=['Must', 'Should', 'Could', "Won't"],
-        required=False,
-        allow_null=True,
-        help_text="MoSCoW priority (visible only for StReq)",
     )
     complexity_fibonacci = serializers.IntegerField(
         required=False,
@@ -271,26 +265,41 @@ class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
-    def to_representation(self, instance) -> dict:
-        """Render conditional fields based on requirement type (REQ-L3-RF003-005).
-
-        AC1: moscow_priority visible only when type='StReq'
-        AC2: complexity_fibonacci and verification_method visible only when type='SyReq'
-
-        Returns:
-            dict: Serialized instance with type-filtered fields.
-        """
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        """Render conditional fields based on requirement type."""
         data = super().to_representation(instance)
-        req_type = getattr(instance, 'type', 'SyReq')
-
-        # Filter fields based on type
-        if req_type != 'StReq':
-            data.pop('moscow_priority', None)
+        # AC2: complexity_fibonacci and verification_method visible only when type='SyReq'
+        req_type = data.get('type')
         if req_type != 'SyReq':
             data.pop('complexity_fibonacci', None)
             data.pop('verification_method', None)
-
         return data
+
+
+class StakeholderNeedSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for StakeholderNeed entity.
+    
+    Represents the user's problem space and needs.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    title = serializers.CharField(max_length=500)
+    description = serializers.CharField(allow_blank=True, default="")
+    category = serializers.CharField(max_length=64, allow_blank=True, default="")
+    status = serializers.CharField(max_length=64, default="draft")
+    moscow_priority = serializers.ChoiceField(
+        choices=['Must', 'Should', 'Could', "Won't"],
+        required=False,
+        allow_null=True,
+        help_text="MoSCoW priority",
+    )
+    uid = serializers.CharField(read_only=True)
+    suspect = serializers.BooleanField(read_only=True)
+    version = serializers.IntegerField(read_only=True)
+    change_reason = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
 
 
 class ArchitectureElementSerializer(
@@ -707,6 +716,7 @@ class GlossaryTermSerializer(serializers.Serializer):
 
 __all__ = [
     "ArtifactSerializer",
+    "StakeholderNeedSerializer",
     "RequirementSerializer",
     "ArchitectureElementSerializer",
     "TestCaseSerializer",

@@ -58,6 +58,7 @@ from rest_api.views import (
     IssueViewSet,
     RequirementHistoryView,
     RequirementViewSet,
+    StakeholderNeedViewSet,
     RiskViewSet,
     SearchViewSet,
     TestCaseViewSet,
@@ -74,6 +75,7 @@ from rest_api.views import (
 router = DefaultRouter(trailing_slash=True)
 router.register(r"artifacts", ArtifactViewSet, basename="artifact")
 router.register(r"requirements", RequirementViewSet, basename="requirement")
+router.register(r"needs", StakeholderNeedViewSet, basename="need")
 router.register(r"architecture", ArchitectureElementViewSet, basename="architecture")
 router.register(r"testcases", TestCaseViewSet, basename="testcase")
 router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
@@ -115,6 +117,12 @@ urlpatterns = [
         "workspaces/<uuid:pk>/import/csv/",
         CsvImportView.as_view(),
         name="workspace-csv-import",
+    ),
+    # Needs routing by workspace
+    path(
+        "workspaces/<uuid:workspace_pk>/needs/",
+        StakeholderNeedViewSet.as_view({"get": "list", "post": "create"}),
+        name="workspace-needs",
     ),
     # ItemPermission CRUD (REQ-L1-039, COMP-AT-005) — workspace-scoped, admin-only.
     path(

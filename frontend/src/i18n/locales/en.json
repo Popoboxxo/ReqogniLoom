@@ -5,7 +5,8 @@
   },
   "nav": {
     "dashboard": "Dashboard",
-    "requirements": "Requirements",
+    "needs": "Stakeholder Needs",
+    "requirements": "System Requirements",
     "architecture": "Architecture",
     "tests": "Tests",
     "baselines": "Baselines",

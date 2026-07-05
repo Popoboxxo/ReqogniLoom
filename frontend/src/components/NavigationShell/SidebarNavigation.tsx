@@ -34,6 +34,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { path: "/", labelKey: "nav.dashboard", feature: "dashboard" },
+  { path: "/needs", labelKey: "nav.needs", feature: "requirements" },
   { path: "/requirements", labelKey: "nav.requirements", feature: "requirements" },
   { path: "/architecture", labelKey: "nav.architecture", feature: "architecture" },
   { path: "/traceability", labelKey: "nav.traceability", feature: "traceability" },

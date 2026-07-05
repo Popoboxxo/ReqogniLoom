@@ -5,6 +5,7 @@
   },
   "nav": {
     "dashboard": "Dashboard",
+    "needs": "Bedarfe",
     "requirements": "Anforderungen",
     "architecture": "Architektur",
     "tests": "Tests",

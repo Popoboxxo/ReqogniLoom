@@ -78,16 +78,15 @@ class RequirementType(models.TextChoices):
     Classifies requirements by level in specification hierarchy.
     """
 
-    STREQ = "StReq", "Stakeholder Requirement"
     SYREQ = "SyReq", "System Requirement"
     USECASE = "UseCase", "Use Case"
     FEATUREREQ = "FeatureReq", "Feature Requirement"
 
 
 class MoSCoWPriority(models.TextChoices):
-    """MoSCoW prioritization framework (REQ-L3-RF003-005).
+    """MoSCoW prioritization framework.
 
-    Visible only for StReq requirements.
+    Visible only for Stakeholder Needs.
     """
 
     MUST = "Must", "Must Have"
@@ -449,6 +448,44 @@ class Artifact(TenantScopedModel):
         return f"{self.artifact_type}:{self.id}"
 
 
+class StakeholderNeed(TenantScopedModel):
+    """Stakeholder Need entity derived from an artifact.
+    
+    Represents user/customer desires and problems to be solved.
+    """
+
+    artifact = models.OneToOneField(
+        Artifact, on_delete=models.CASCADE, related_name="stakeholder_need"
+    )
+    title = models.CharField(max_length=500)
+    description = models.TextField(blank=True)
+    category = models.CharField(max_length=64, blank=True)
+    status = models.CharField(max_length=64, default="draft")
+    moscow_priority = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=MoSCoWPriority.choices,
+        help_text="MoSCoW priority",
+    )
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
+    suspect = models.BooleanField(
+        default=False,
+        help_text="SN-30: Indicates if this need requires review due to upstream changes.",
+    )
+
+    class Meta:
+        db_table = "pl_stakeholder_need"
+
+    def __str__(self) -> str:
+        return self.title
+
+
 class Requirement(TenantScopedModel):
     """Requirement entity derived from an artifact (REQ-L1-001).
 
@@ -471,14 +508,7 @@ class Requirement(TenantScopedModel):
         max_length=64,
         choices=RequirementType.choices,
         default=RequirementType.SYREQ,
-        help_text="Requirement classification (StReq, SyReq, UseCase, FeatureReq)",
-    )
-    moscow_priority = models.CharField(
-        max_length=16,
-        null=True,
-        blank=True,
-        choices=MoSCoWPriority.choices,
-        help_text="MoSCoW priority (visible only for StReq)",
+        help_text="Requirement classification (SyReq, UseCase, FeatureReq)",
     )
     complexity_fibonacci = models.IntegerField(
         null=True,

@@ -194,6 +194,7 @@ class ToolRegistry:
         if self._router is not None:
             return
         from mcp_server.tools.requirements import RequirementsToolGroup
+        from mcp_server.tools.needs import StakeholderNeedsToolGroup
         from mcp_server.tools.architecture import ArchitectureToolGroup
         from mcp_server.tools.tests import TestToolGroup
         from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
@@ -226,6 +227,7 @@ class ToolRegistry:
         audit_tool_group = AuditToolGroup()
         self.register_groups({
             "requirement": RequirementsToolGroup(),
+            "needs": StakeholderNeedsToolGroup(),
             "architecture": ArchitectureToolGroup(),
             "test": TestToolGroup(),
             "traceability": CrossCuttingToolGroup(),

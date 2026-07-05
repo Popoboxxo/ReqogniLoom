@@ -78,6 +78,7 @@ from rest_api.serializers import (
     IssueSerializer,
     RequirementSerializer,
     RiskSerializer,
+    StakeholderNeedSerializer,
     StandardPagination,
     TestCaseSerializer,
     TestRunSerializer,
@@ -175,6 +176,129 @@ class BaseEntityViewSet(PresetGateMixin, viewsets.ViewSet):
 # COMP-RA-001: RequirementViewSet
 # REQ-L3-RA001-001: CRUD for Requirement entity
 # ---------------------------------------------------------------------------
+
+
+class StakeholderNeedViewSet(BaseEntityViewSet):
+    """ViewSet for Stakeholder Need entity."""
+
+    serializer_class = StakeholderNeedSerializer
+
+    @property
+    def service(self):
+        from application.stakeholder_need_service import StakeholderNeedService
+        from application.preset_policy_service import PresetPolicyService
+        return StakeholderNeedService(preset_policy_service=PresetPolicyService())
+
+    def get_queryset(self):
+        """Used only by DRF for generic lookups. Logic is in Service layer."""
+        from persistence.models import StakeholderNeed
+        return StakeholderNeed.objects.all()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs."""
+        lang = detect_lang(request)
+        try:
+            workspace_id = kwargs["workspace_pk"]
+            items = self.service.list_by_workspace(get_auth_context(request), workspace_id)
+            serialized = [StakeholderNeedSerializer(_dto_from_orm(item)).data for item in items]
+            
+            page = self.paginate_queryset(serialized)
+            if page is not None:
+                return self.get_paginated_response(page)
+            return Response(serialized)
+        except NotFoundError as e:
+            return Response(build_error_response("NOT_FOUND", lang, message=str(e)), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.list: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """GET /api/v1/needs/<id>/ — retrieve single need."""
+        lang = detect_lang(request)
+        try:
+            item = self.service.get(get_auth_context(request), kwargs["pk"])
+            return Response(StakeholderNeedSerializer(_dto_from_orm(item)).data)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.retrieve: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/workspaces/<workspace_id>/needs/ — create new need."""
+        lang = detect_lang(request)
+        workspace_id = kwargs.get("workspace_pk")
+        if not workspace_id:
+            workspace_id = request.data.get("workspace_id")
+        
+        ser = StakeholderNeedSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            item = self.service.create(
+                ctx=get_auth_context(request),
+                workspace_id=workspace_id,
+                **ser.validated_data,
+            )
+            return Response(StakeholderNeedSerializer(_dto_from_orm(item)).data, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError as e:
+            return Response(build_error_response("NOT_FOUND", lang, message=str(e)), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.create: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """PATCH /api/v1/needs/<id>/ — update need fields."""
+        lang = detect_lang(request)
+        ser = StakeholderNeedSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Remove write-only/readonly kwargs from validated data before passing to service
+        data = dict(ser.validated_data)
+        change_reason = data.pop("change_reason", "")
+        # Remove fields that should not be updated via kwargs
+        for f in ["id", "workspace_id", "uid", "suspect", "version", "created_at", "updated_at"]:
+            data.pop(f, None)
+            
+        try:
+            item = self.service.update(
+                ctx=get_auth_context(request),
+                need_id=kwargs["pk"],
+                change_reason=change_reason,
+                **data,
+            )
+            return Response(StakeholderNeedSerializer(_dto_from_orm(item)).data)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.partial_update: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """DELETE /api/v1/needs/<id>/ — delete need."""
+        lang = detect_lang(request)
+        change_reason = request.data.get("change_reason", "") if isinstance(request.data, dict) else ""
+        try:
+            self.service.delete(get_auth_context(request), kwargs["pk"], change_reason=change_reason)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.destroy: unhandled exception")
+            return _service_error_response(exc, lang)
 
 
 class RequirementViewSet(BaseEntityViewSet):
@@ -2875,7 +2999,9 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
             results = []
             with transaction.atomic():
                 for item in request.data:
-                    ser = AttributeVisibilityConfigSerializer(data=item)
+                    item_data = dict(item)
+                    item_data["tenant_id"] = str(ctx.tenant_id)
+                    ser = AttributeVisibilityConfigSerializer(data=item_data)
                     if not ser.is_valid():
                         return Response(
                             build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
@@ -2996,6 +3122,7 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
 
 
 __all__ = [
+    "StakeholderNeedViewSet",
     "RequirementViewSet",
     "ArtifactViewSet",
     "ArchitectureElementViewSet",

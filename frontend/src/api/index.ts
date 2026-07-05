@@ -5,6 +5,7 @@
  */
 export { apiClient, getList, setAuthToken, getAuthToken, setUnauthorizedHandler } from "./client";
 export { requirementsApi } from "./requirements";
+export { stakeholderNeedApi } from "./stakeholder-need";
 export { architectureApi } from "./architecture";
 export { tracelinksApi } from "./tracelinks";
 export { artifactsApi } from "./artifacts";

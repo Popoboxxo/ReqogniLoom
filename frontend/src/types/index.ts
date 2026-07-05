@@ -56,9 +56,25 @@ export interface WorkspaceWithMetrics extends Workspace {
 // Requirement (mirrors RequirementSerializer)
 // ---------------------------------------------------------------------------
 
-export type RequirementType = 'StReq' | 'SyReq' | 'SWReq' | 'HWReq';
+export type RequirementType = 'SyReq' | 'SWReq' | 'HWReq';
 export type MoscowPriority = 'Must' | 'Should' | 'Could' | "Won't";
 export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
+
+export interface StakeholderNeed {
+  id: UUID;
+  workspace_id: UUID;
+  title: string;
+  description: string;
+  category: string;
+  status: string;
+  version: number;
+  uid?: string;
+  moscow_priority?: MoscowPriority;
+  suspect?: boolean;
+  change_reason?: string;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
 
 export interface Requirement {
   id: UUID;
@@ -70,7 +86,6 @@ export interface Requirement {
   version: number;
   uid?: string;
   type?: RequirementType;
-  moscow_priority?: MoscowPriority;
   complexity_fibonacci?: number;
   verification_method?: VerificationMethod;
   suspect?: boolean;

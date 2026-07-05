@@ -31,6 +31,7 @@ import React, { createContext, useContext, ReactNode, useMemo } from 'react';
  */
 export type EntityType =
   | 'requirement'
+  | 'stakeholder_need'
   | 'architecture_element'
   | 'test_case'
   | 'adr'
@@ -42,7 +43,6 @@ export type EntityType =
  * Maps to requirement categories or classification.
  */
 export type RequirementSubType =
-  | 'StReq' // Stakeholder Requirement
   | 'SyReq' // System Requirement
   | 'SWReq' // Software Requirement
   | 'HWReq'; // Hardware Requirement

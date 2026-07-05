@@ -79,9 +79,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [workflowState, setWorkflowState] = useState(requirement.status);
   const [changeReason, setChangeReason] = useState(requirement.change_reason || '');
   const [type, setType] = useState<RequirementType>(requirement.type || 'SyReq');
-  const [moscowPriority, setMoscowPriority] = useState<MoscowPriority | ''>(
-    requirement.moscow_priority || ''
-  );
   const [complexityFibonacci, setComplexityFibonacci] = useState<number>(
     requirement.complexity_fibonacci || 1
   );
@@ -106,16 +103,13 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     }
     
     // Type-specific validations
-    if (type === 'StReq' && isFieldVisible('moscow_priority') && isFieldRequired('moscow_priority') && !moscowPriority) {
-      return t('editor.moscowPriorityRequired');
-    }
     if (type === 'SyReq') {
       if (isFieldVisible('verification_method') && isFieldRequired('verification_method') && !verificationMethod) {
         return t('editor.verificationMethodRequired');
       }
     }
     return null;
-  }, [title, changeReason, type, moscowPriority, verificationMethod, t, isExtendedPreset, isFieldVisible, isFieldRequired]);
+  }, [title, changeReason, type, verificationMethod, t, isExtendedPreset, isFieldVisible, isFieldRequired]);
 
   /**
    * Handle save action.
@@ -140,9 +134,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
       };
 
       // Include type-specific fields
-      if (type === 'StReq') {
-        updateData.moscow_priority = moscowPriority || null;
-      }
       if (type === 'SyReq') {
         updateData.complexity_fibonacci = complexityFibonacci === '' ? null : Number(complexityFibonacci);
         updateData.verification_method = verificationMethod || null;
@@ -166,7 +157,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     workflowState,
     changeReason,
     type,
-    moscowPriority,
     complexityFibonacci,
     verificationMethod,
     onSaved,
@@ -233,23 +223,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               {requirement.suspect && <span title="Needs review due to upstream changes">⚠️</span>}
               {requirement.title || t('editor.untitled')}
             </h2>
-            {requirement.suspect && (
-              <button
-                onClick={() => onChange({ ...requirement, suspect: false })}
-                style={{
-                  background: 'var(--color-success)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '4px 12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  fontSize: 'var(--font-size-sm)',
-                }}
-              >
-                Mark as Reviewed
-              </button>
-            )}
           </div>
           <div
             style={{
@@ -363,26 +336,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               </div>
             )}
 
-            {type === 'StReq' && isFieldVisible('moscow_priority') && (
-              <div>
-                <label htmlFor="moscow-priority" style={labelStyle}>
-                  {t('editor.moscowPriority')} {isFieldRequired('moscow_priority') && <span style={{ color: 'var(--color-danger)' }}>*</span>}
-                </label>
-                <select
-                  id="moscow-priority"
-                  data-testid="moscow-priority"
-                  value={moscowPriority}
-                  onChange={(e) => setMoscowPriority(e.target.value as MoscowPriority)}
-                  style={inputStyle}
-                >
-                  <option value="">{t('editor.selectPriority')} --</option>
-                  <option value="Must">Must Have (M)</option>
-                  <option value="Should">Should Have (S)</option>
-                  <option value="Could">Could Have (C)</option>
-                  <option value="Won't">Won't Have (W)</option>
-                </select>
-              </div>
-            )}
 
             {type === 'SyReq' && isFieldVisible('complexity_fibonacci') && (
               <div>

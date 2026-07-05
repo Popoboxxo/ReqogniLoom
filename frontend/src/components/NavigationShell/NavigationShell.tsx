@@ -36,6 +36,9 @@ const DashboardViews = lazy(
 const RequirementEditors = lazy(
   () => import("../RequirementEditors/RequirementEditors")
 );
+const NeedsEditors = lazy(
+  () => import("../NeedsEditors/NeedsEditors")
+);
 const ArchitectureEditors = lazy(
   () => import("../ArchitectureEditors/ArchitectureEditors")
 );
@@ -100,6 +103,8 @@ function AppShell(): JSX.Element {
           <Suspense fallback={<div>{t("loading")}</div>}>
             <Routes>
               <Route path="/" element={<DashboardViews />} />
+              <Route path="/needs" element={<NeedsEditors />} />
+              <Route path="/needs/:id" element={<NeedsEditors />} />
               <Route path="/requirements" element={<RequirementEditors />} />
               <Route path="/requirements/:id" element={<RequirementEditors />} />
               <Route path="/architecture" element={<ArchitectureEditors />} />

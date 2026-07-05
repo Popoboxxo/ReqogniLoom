@@ -70,8 +70,7 @@ export default function RequirementEditors(): JSX.Element {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // Dynamic attribute configurations
-  const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({
-    moscow_priority: true,
+    complexity_fibonacci: true,
     complexity_fibonacci: true,
     verification_method: true,
   });
@@ -89,8 +88,6 @@ export default function RequirementEditors(): JSX.Element {
           rMap[cfg.attribute_name] = cfg.is_required || false;
         });
         
-        // Defaults if completely missing from DB
-        if (!('moscow_priority' in vMap)) vMap['moscow_priority'] = true;
         if (!('complexity_fibonacci' in vMap)) vMap['complexity_fibonacci'] = true;
         if (!('verification_method' in vMap)) vMap['verification_method'] = true;
         
