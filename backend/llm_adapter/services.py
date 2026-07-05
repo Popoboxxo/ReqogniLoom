@@ -122,6 +122,25 @@ def check_consistency(workspace_id: str) -> Dict[str, Any]:
     )
 
 
+def derive_requirements(need_id: str) -> Dict[str, Any]:
+    """Derive system requirements from a stakeholder need via an async Celery task.
+
+    Returns immediately with a task_id. The actual LLM call runs in the
+    Celery worker. Poll the result with get_task_status(task_id).
+
+    Args:
+        need_id: Identifier of the stakeholder need to derive from.
+
+    Returns:
+        {"task_id": "<uuid>"} on successful dispatch.
+        {"error": {"code": "BROKER_NOT_CONFIGURED", ...}} if Celery is unavailable.
+        {"error": {"code": "LLM_NOT_CONFIGURED", ...}} if capability is disabled.
+    """
+    return _router.execute_capability(
+        "derive_requirements", need_id=need_id
+    )
+
+
 # ---------------------------------------------------------------------------
 # Task status query
 # ---------------------------------------------------------------------------

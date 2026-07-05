@@ -97,3 +97,16 @@ Das System MUSS zwei spezialisierte Agenten-Rollen für den Hardcore-SE-Modus be
 **Priority:** desired
 **Abgeleitet von:** REQ-L1-080
 **Übergeordnete REQ-L0:** REQ-L0-046
+
+---
+
+### REQ-L2-AI-006: Workspace-spezifische KI-Prompts anwenden
+
+Vor jeder Ausführung eines Prompts für AI Decomposition, AI Quality Gate oder AI Test-Generation MUSS der AI Orchestration Layer prüfen, ob für den aktuellen Workspace ein benutzerdefinierter Prompt konfiguriert ist. Ist dies der Fall, MUSS dieser anstelle des System-Defaults verwendet werden.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Abgeleitet von:** REQ-L1-088
+**Übergeordnete REQ-L0:** REQ-L0-056

@@ -121,6 +121,8 @@ class LlmCapabilityInterface(ABC):
             LlmDecompositionResult with children list and usage metadata.
         """
 
+        """
+
     @abstractmethod
     def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
         """Check consistency across all artifacts in a workspace.
@@ -130,6 +132,17 @@ class LlmCapabilityInterface(ABC):
 
         Returns:
             LlmConsistencyResult with issues list and usage metadata.
+        """
+
+    @abstractmethod
+    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need.
+
+        Args:
+            need_id: Identifier of the stakeholder need to derive from.
+
+        Returns:
+            LlmDecompositionResult with derived requirements.
         """
 
 

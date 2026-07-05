@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Button } from '../Button/Button';
 import type { StakeholderNeed } from '../../types';
 
 interface NeedListProps {
@@ -33,9 +32,9 @@ export function NeedList({ needs, selectedId, onCreateNew }: NeedListProps): JSX
           <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600, color: 'var(--color-text)' }}>
             Stakeholder Needs
           </h2>
-          <Button onClick={onCreateNew} variant="primary" size="small">
+          <button onClick={onCreateNew} className="btn-primary" style={{ padding: "4px 8px", fontSize: "0.85rem" }}>
             + {t('common.new', 'New')}
-          </Button>
+          </button>
         </div>
         <input
           type="text"

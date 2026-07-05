@@ -4,6 +4,7 @@
 .bin
 frontend/node_modules/
 e2e/node_modules/
+.continue
 
 
 # --- agent-meta managed (do not edit) ---
@@ -12,6 +13,11 @@ e2e/node_modules/
 .claude/pending-tasks.md
 .claude/settings.json
 .claude/settings.local.json
+.continue/agents/
+.continue/config.yaml
+.continue/rules/
+.continue/rules/project-context.md
+.continue/settings.local.yaml
 .gemini/GEMINI.md
 .gemini/agents/
 .gemini/commands/

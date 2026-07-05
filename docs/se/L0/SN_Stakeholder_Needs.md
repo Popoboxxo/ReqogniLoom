@@ -1308,5 +1308,27 @@ Beim Löschen eines Workspaces dürfen Glossar-Begriffe nicht gelöscht werden (
 | REQ-L0-048 | Workflow-Status | mandatory | User-Request | REQ-L1-078 |
 | REQ-L0-049 | Stage-Gating & Guardrails | mandatory | User-Request | REQ-L1-079 |
 | REQ-L0-055 | Glossar-Referenzen im Freitext (@-Mentions) | mandatory | User-Request | REQ-L1-080 |
+| REQ-L0-056 | Konfigurierbare KI-Ableitungs-Prompts | desired | User-Request | REQ-L1-088 |
 
 **Nächster Schritt:** L1-System-Anforderungen in `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` erweitern.
+
+---
+
+## Stakeholder-Needs (Erweiterung v11 — REQ-L0-056)
+
+### REQ-L0-056 — SN-56: Konfigurierbare KI-Ableitungs-Prompts
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Neu angelegt.
+**Test Status:** Missing
+
+System- und Projektadministratoren müssen die System-Prompts, die von KI-Agenten zur automatischen Ableitung von Anforderungen (z.B. L1 zu L2) oder zur Testfall-Generierung verwendet werden, projekt- oder workspacespezifisch konfigurieren können. 
+
+**Rationale:** Jedes Projekt hat individuelle Domänen-Richtlinien und Dokumentationsstandards. Hardcodierte Prompts generieren oft Ergebnisse, die nicht den spezifischen Projektvorgaben entsprechen. Eine Konfigurierbarkeit stellt sicher, dass die KI-Agenten qualitativ hochwertige und passgenaue Ergebnisse liefern.
+**Akzeptanzkriterien:**
+- AC1: Die UI bietet Administratoren eine Möglichkeit, KI-Prompts für verschiedene Ableitungs-Aufgaben (Requirements, Architecture, Tests) einzusehen und zu bearbeiten.
+- AC2: Konfigurierte Prompts sind an den aktiven Workspace gebunden (Tenant-Isolation).
+- AC3: KI-Agenten nutzen bei der Ausführung immer den aktuell im Workspace hinterlegten Prompt für die jeweilige Aufgabe.
+- AC4: Änderungen an den Prompts werden im Audit-Log protokolliert.
+
+**Ableitet L1:** REQ-L1-088 (Configurable AI Prompts)

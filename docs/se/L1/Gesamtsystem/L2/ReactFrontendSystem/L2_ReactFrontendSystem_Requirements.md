@@ -788,4 +788,21 @@ Das ReactFrontendSystem MUSS im Markdown-Renderer eine Erweiterung implementiere
 
 ---
 
+### REQ-L2-RF-033: Workspace-spezifische KI-Prompts Konfigurations-UI
+
+Das ReactFrontendSystem MUSS im Workspace-Admin-Bereich eine UI bereitstellen, in der berechtigte Administratoren die KI-Prompts für AI-Aufgaben konfigurieren können.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] UI-Tab "AI Prompts" im Workspace Settings Dialog.
+- [ ] Textarea für die Eingabe von Prompts pro Agenten-Rolle (Decomposition, Quality Gate, Test-Generation).
+- [ ] Speichern ruft den entsprechenden REST-API-Endpunkt zur Prompt-Konfiguration auf.
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-033
+**Abgeleitet von:** REQ-L1-088
+
 *Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*

@@ -13,8 +13,12 @@ Interface contracts:
     IF-LA-EXT-IN-001 (inbound from ApplicationService):
         execute_capability(capability_name, **kwargs) -> LlmResult | dict
     IF-LA-INT-001 (outbound to COMP-LA-001):
-        Provider methods: validate_artifact, decompose_requirement, check_consistency
-    IF-LA-INT-002 (outbound to COMP-LA-002):
+        _ALLOWED_CAPABILITIES = {
+        "validate_artifact",
+        "decompose_requirement",
+        "check_consistency",
+        "derive_requirements",
+    }IF-LA-INT-002 (outbound to COMP-LA-002):
         get_provider() -> LlmCapabilityInterface
     IF-LA-INT-004 (outbound to COMP-LA-004):
         log_llm_call(provider, capability, artifact_id, token_usage, success, error)
@@ -56,7 +60,7 @@ from llm_adapter.providers import (
 _SYNC_CAPABILITIES: Set[str] = {"validate_artifact"}
 
 # Capabilities that are dispatched asynchronously via Celery
-_ASYNC_CAPABILITIES: Set[str] = {"decompose_requirement", "check_consistency"}
+_ASYNC_CAPABILITIES: Set[str] = {"decompose_requirement", "check_consistency", "derive_requirements"}
 
 # All known capabilities
 _ALL_CAPABILITIES: Set[str] = _SYNC_CAPABILITIES | _ASYNC_CAPABILITIES

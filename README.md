@@ -574,6 +574,20 @@ Detailed requirement and architecture specifications: [`docs/se/`](docs/se/)
 | **v1.1 — Session 2026-06-27** | 2026-06-27 | 1,130 pytest / 111 E2E tests; 9 L1 REQs decomposed (SE-Phases 1-6); 6 leaf REQs in Pipeline B (3 implemented); 3 continue REQs for v2.0 (ReqIF, Comments, RAG) |
 | **v1.0 — Greenfield** | 2026-06-25 | 1,042 pytest tests; 16 L2 subsystems; 12 L2 architectures terminal; full SE-Kaskade L0→L2 |
 
+## AI-Driven E2E Test Execution
+
+ReqFlow utilizes Playwright for end-to-end testing, and provides a specialized workflow designed for **autonomous AI agents** (like agent-meta). Because LLM context windows are limited, standard test outputs are too noisy. We provide an AI-optimized test runner that generates minimal, highly readable logs.
+
+### How the AI executes tests
+The AI uses its terminal execution capability (e.g. `run_command`) to run E2E tests and directly consume the output:
+1. **Single Test / Module Execution:**
+   The AI runs `npm run test:e2e:ai -- tests/<name>.spec.ts`. 
+   This utilizes the `--reporter=line` or `--reporter=list` flag. It provides a compact pass/fail list.
+2. **Failure Analysis:**
+   Playwright automatically appends the DOM-Snapshot and stacktrace to the terminal output for failed tests. The AI reads this directly from its tool-response context, identifies the broken selector or state, and can propose or implement a fix immediately.
+3. **Mass-Execution (Whole Suite):**
+   When verifying the entire system, the AI runs `npm run test:e2e:ai-mass`. This uses the `dot` reporter and pipes only failures to a summary file, ensuring the AI is only notified about regressions without exceeding context limits.
+
 ## License
 
 [To be defined — add license file if applicable]

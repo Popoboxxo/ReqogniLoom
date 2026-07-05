@@ -39,6 +39,7 @@ export interface Workspace {
   preset: WorkspacePreset;
   terminology_profile: TerminologyProfile;
   language: string;
+  ai_prompts?: Record<string, string>;
   decomposition_link_type?: string;
   is_active: boolean;
   closed_at: ISODateTime | null;

@@ -155,6 +155,8 @@ class MockLlmProvider(LlmCapabilityInterface):
             ],
         )
 
+        )
+
     def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
         """Return a fixed consistency result for the given workspace."""
         self._simulate()
@@ -165,6 +167,21 @@ class MockLlmProvider(LlmCapabilityInterface):
             model=self.MODEL_NAME,
             token_usage=200,
             issues=[],
+        )
+
+    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+        """Return a fixed set of derived requirements for the given need."""
+        self._simulate()
+        return LlmDecompositionResult(
+            score=0.92,
+            suggestions=[],
+            provider=self.PROVIDER_NAME,
+            model=self.MODEL_NAME,
+            token_usage=120,
+            children=[
+                {"id": f"{need_id}-derived-1", "title": "Mock Derived Requirement 1", "description": "System shall do X.", "type": "SyReq"},
+                {"id": f"{need_id}-derived-2", "title": "Mock Derived Requirement 2", "description": "System shall do Y.", "type": "SyReq"},
+            ],
         )
 
 
@@ -406,6 +423,54 @@ class OpenAiProvider(_BaseHttpProvider):
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
             model=self.MODEL_NAME,
+            token_usage=token_usage,
+            children=data.get("children", []),
+        )
+
+    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+        import json
+        from persistence.models import StakeholderNeed
+        
+        need = StakeholderNeed.objects.select_related("artifact__workspace").get(id=need_id)
+        
+        # Get configured prompt if available
+        workspace = need.artifact.workspace
+        configured_prompt = getattr(workspace, "ai_prompts", {}).get("L0_L1")
+        
+        # We don't have direct access to architecture elements from StakeholderNeed here easily, 
+        # but the request asks to pass it if available. 
+        # For L0->L1 there are typically no architecture elements yet.
+        
+        if configured_prompt:
+            prompt_text = (
+                f"{configured_prompt}\n\n"
+                f"Source Requirement (Need):\n"
+                f"Title: {need.title}\n"
+                f"Description: {getattr(need, 'description', '')}\n\n"
+                "Return exactly JSON format: {\"children\": [{\"title\": \"System Req 1\", \"description\": \"Desc...\"}]}"
+            )
+        else:
+            prompt_text = (
+                f"Decompose Stakeholder Need {need.title} into System Requirements.\n"
+                f"Need Description: {getattr(need, 'description', '')}\n"
+                "Return exactly JSON format: {\"score\": 1.0, \"suggestions\": [], \"children\": [{\"title\": \"...\", \"description\": \"...\"}]}"
+            )
+
+        text, token_usage = self._chat(prompt_text)
+        
+        try:
+            # Qwen or other LLMs might wrap JSON in markdown blocks
+            text = text.replace("```json", "").replace("```", "").strip()
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            print(f"LLM returned invalid JSON: {text}")
+            data = {"children": [{"title": "Generated Req", "description": text}]}
+            
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._model,
             token_usage=token_usage,
             children=data.get("children", []),
         )

@@ -21,6 +21,7 @@ import { WorkflowsSection } from "./WorkflowsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { BackupRestoreSection } from "./BackupRestoreSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
+import { AiPromptsSection } from "./AiPromptsSection";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -394,6 +395,26 @@ export default function WorkspaceSettings(): JSX.Element {
         </p>
         <AttributeVisibilityAdmin />
       </section>
+
+      {/* Feature-flagged: Baselines & Backup/Restore */}
+      {isFeatureVisible("baselines") && (
+        <BackupRestoreSection activeWorkspace={activeWorkspace} />
+      )}
+
+      {/* Feature-flagged: AI Configuration */}
+      <AiPromptsSection 
+        workspace={activeWorkspace} 
+        onSavePrompts={async (prompts) => {
+          setSaveError(null);
+          try {
+            await workspacesApi.update(activeWorkspace.id, { ai_prompts: prompts });
+            await reloadWorkspaces(activeWorkspace.id);
+            setSavedOk(true);
+          } catch (err: unknown) {
+            setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+          }
+        }} 
+      />
 
       {/* Data Management (REQ-L0-013, REQ-L2-RF-016) */}
       {isFeatureVisible("csv_import") && (

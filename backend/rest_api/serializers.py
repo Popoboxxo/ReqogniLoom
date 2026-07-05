@@ -451,6 +451,7 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(max_length=255)
     preset = serializers.JSONField(required=False, default=dict)
+    ai_prompts = serializers.JSONField(required=False, default=dict)
     decomposition_link_type = serializers.CharField(
         required=False, default="parent-child", max_length=50
     )

@@ -1571,6 +1571,7 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         "id": str(ws.id),
         "name": ws.name,
         "preset": ws.preset or {},
+        "ai_prompts": getattr(ws, "ai_prompts", {}),
         "decomposition_link_type": getattr(ws, "decomposition_link_type", "parent-child"),
         "terminology_profile": terminology_profile,
         "language": "en",

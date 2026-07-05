@@ -60,10 +60,10 @@ services:
       # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02)
       # Set LLM_PROVIDER=anthropic|openai|ollama to enable AI features.
       # Graceful degradation if not set (REQ-L1-032).
-      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_BASE_URL: ${LLM_API_BASE_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${LLM_MODEL:-qwen3.6:35b-a3b}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
     volumes:
       - ./backend:/app
@@ -97,10 +97,10 @@ services:
       DB_PORT: 5432
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_BASE_URL: ${LLM_API_BASE_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${LLM_MODEL:-qwen3.6:35b-a3b}
     volumes:
       - ./backend:/app
     depends_on:

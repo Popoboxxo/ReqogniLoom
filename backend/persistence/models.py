@@ -379,6 +379,11 @@ class Workspace(TenantScopedModel):
 
     name = models.CharField(max_length=255)
     preset = models.JSONField(default=dict, blank=True)
+    ai_prompts = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="SN-56: Configurable AI derivation prompts per level.",
+    )
     decomposition_link_type = models.CharField(
         max_length=50,
         default="parent-child",

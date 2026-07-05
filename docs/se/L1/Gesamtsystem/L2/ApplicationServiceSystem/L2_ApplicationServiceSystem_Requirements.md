@@ -1067,3 +1067,19 @@ Der ApplicationService MUSS beim Löschen eines Workspaces sicherstellen, dass v
 **Review Findings:** Neu.
 **Test Status:** Missing
 
+---
+
+### REQ-L2-AS-038: Workspace-spezifische KI-Prompts (AIPrompt CRUD)
+
+Der ApplicationService MUSS CRUD-Operationen für KI-Prompts auf Workspace-Ebene bereitstellen. Es muss möglich sein, für verschiedene Einsatzzwecke (z.B. "Decomposition", "QualityGate", "TestGeneration") spezifische Prompts pro Workspace zu speichern.
+
+**Akzeptanzkriterien:**
+- AC1: Bereitstellung von Endpunkten für das Erstellen, Lesen, Aktualisieren und Löschen von `AIPrompt`-Entitäten.
+- AC2: Jeder Prompt ist genau einem Workspace und einem Einsatzzweck zugeordnet.
+- AC3: Alle Änderungen an Prompts schreiben einen AuditLog-Eintrag.
+
+**Verifikationsmethode:** Integrationstest — CRUD-Operationen prüfen, AuditLog prüfen.
+**Abgeleitet von:** REQ-L1-088
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing

@@ -2238,3 +2238,30 @@ Der `Workspace Admin Dialog` DARF NUR für Workspace-Admins zugänglich sein und
 **Test Status:** Missing
 
 **Traceability:** N/A
+
+---
+
+## Erweiterung v12 — REQ-L1-088 (Configurable AI Prompts)
+
+> **Datum:** 2026-07-05 | **Quelle:** REQ-L0-056
+
+---
+
+### REQ-L1-088: Konfigurierbare KI-Ableitungs-Prompts
+
+Das System MUSS es Administratoren ermöglichen, die von KI-Agenten genutzten System-Prompts für domänenspezifische Aufgaben (z.B. Requirement-Ableitung, Test-Generierung, Code-Review) auf Workspace-Ebene zu konfigurieren.
+Wenn für einen Workspace kein spezifischer Prompt konfiguriert ist, MUSS das System auf einen systemweiten Default-Prompt zurückfallen.
+
+**Rationale:** Hardcodierte Prompts decken nicht die projektspezifischen Dokumentationsstandards und Nomenklaturen (z.B. ISO 26262 vs. Agile) ab. Administratoren müssen die KI-Anweisungen an die Workspace-Gegebenheiten anpassen können.
+**Domain:** software
+**Priority:** desired
+**Akzeptanzkriterien:**
+- AC1: Die REST-API bietet Endpunkte für CRUD-Operationen von AI-Prompts auf Workspace-Ebene (`/api/v1/workspaces/{id}/prompts`).
+- AC2: Der AI Orchestration Layer verwendet vor jeder Prompt-Ausführung den vom Workspace konfigurierten Prompt.
+- AC3: Existiert im Workspace keine Konfiguration, wird der Default-Prompt verwendet.
+- AC4: Änderungen an Prompts schreiben einen AuditLog-Eintrag.
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-056

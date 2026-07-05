@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '../Button/Button';
 import type { StakeholderNeed, MoscowPriority } from '../../types';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
 
@@ -85,10 +84,10 @@ export function NeedForm({ need, onSaved, onDeleted }: NeedFormProps): JSX.Eleme
           </span>
         </div>
         <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-          <Button onClick={handleDelete} variant="danger" size="small">Delete</Button>
-          <Button onClick={handleSave} variant="primary" size="small" disabled={isSaving}>
+          <button onClick={handleDelete} className="btn-danger" style={{ padding: "4px 8px", fontSize: "0.85rem" }}>Delete</button>
+          <button onClick={handleSave} className="btn-primary" style={{ padding: "4px 8px", fontSize: "0.85rem" }} disabled={isSaving}>
             {isSaving ? 'Saving...' : 'Save Changes'}
-          </Button>
+          </button>
         </div>
       </div>
 

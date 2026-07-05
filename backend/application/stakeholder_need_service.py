@@ -205,3 +205,26 @@ class StakeholderNeedService(ServiceBase):
             str(need_id),
             {"workspace_id": str(workspace_id), "change_reason": change_reason},
         )
+
+    def derive_requirements_async(self, ctx: AuthContext, need_id: UUID | str) -> Dict[str, Any]:
+        """Trigger an async LLM task to derive system requirements from a stakeholder need.
+
+        Returns:
+            Dict containing the task_id.
+        """
+        try:
+            need = StakeholderNeed.objects.select_related("artifact").get(
+                id=need_id, tenant_id=ctx.tenant_id
+            )
+        except StakeholderNeed.DoesNotExist:
+            raise NotFoundError(f"StakeholderNeed {need_id} not found.")
+
+        from llm_adapter.services import derive_requirements
+        response = derive_requirements(str(need_id))
+        
+        if "error" in response:
+            raise ValueError(
+                f"LLM derivation dispatch failed: {response['error'].get('message', response)}"
+            )
+
+        return response
