@@ -2213,3 +2213,28 @@ Beim Löschen eines Workspaces DÜRFEN Glossar-Begriffe nicht gelöscht werden (
 **Test Status:** Missing
 
 **Traceability:** REQ-L0-055
+
+---
+
+## Erweiterung v11 — REQ-L1-087 (Workspace Admin & User Preferences Separation)
+
+> **Datum:** 2026-07-05 | **Quelle:** User Feedback
+
+---
+
+### REQ-L1-087: Strikte Trennung von Workspace Administration und User Preferences
+
+Das System MUSS administrative Workspace-Einstellungen (Name, Preset, Terminology, Language, Decomposition Link, Attribute Visibility, Permissions, Backup, Lifecycle) strikt von benutzerspezifischen Einstellungen (Personal Access Tokens, UI-Sichtbarkeiten/Overrides) in zwei getrennten UI-Dialogen trennen.
+Der `Workspace Admin Dialog` DARF NUR für Workspace-Admins zugänglich sein und MUSS robuster gestaltet werden, sodass keine Berechtigungsfehler bei regulären Benutzern auftreten. Die benutzerspezifischen Einstellungen MÜSSEN im `User Preferences` (Profile) Dialog untergebracht sein.
+
+**Rationale:** Die Vermischung von administrativen und benutzerspezifischen Einstellungen führt zu Verwirrung und Fehlern in der Berechtigungsprüfung. Benutzerspezifische Einstellungen wie die Ausblendung optionaler Artefakte ("Sichtbarkeit") gelten nur pro Benutzer und sollten in dessen Profil verwaltet werden.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Die Sektion "Sichtbarkeit" ist nicht mehr im WorkspaceSettings Dialog, sondern im UserProfileSettings Dialog.
+- AC2: Reguläre Benutzer erhalten keine unschönen Fehler beim Zugriff auf Einstellungen, die ihre eigenen Präferenzen betreffen.
+**Implementation State:** In Progress
+**Review Findings:** Geplant und als Implementation Plan genehmigt.
+**Test Status:** Missing
+
+**Traceability:** N/A

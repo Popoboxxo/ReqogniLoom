@@ -17,7 +17,6 @@ import { useAuth } from "../../context/AuthContext";
 import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
-import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 import { WorkflowsSection } from "./WorkflowsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { BackupRestoreSection } from "./BackupRestoreSection";
@@ -29,24 +28,12 @@ const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReaso
   extended: { baselines: true,  changeReason: "required", workflow: "Full + Approval workflow" },
 };
 
-const VISIBILITY_LABELS: Record<OptionalArtifactFeature, string> = {
-  adr: "ADR (Architecture Decision Records)",
-  risk: "Risks",
-  issue: "Issues",
-  diagrams: "Diagrams",
-  icds: "ICDs (Interface Control Documents)",
-  metrics: "Metrics",
-};
-
 export default function WorkspaceSettings(): JSX.Element {
   const { t } = useTranslation();
   const {
     activeWorkspace,
     reloadWorkspaces,
     isFeatureVisible,
-    setFeatureVisible,
-    resetFeatureOverride,
-    isFeatureOverridden,
   } = useWorkspace();
   const { roles } = useAuth();
   const navigate = useNavigate();
@@ -55,9 +42,6 @@ export default function WorkspaceSettings(): JSX.Element {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
-
-  // Per-feature saving state for the Sichtbarkeit section (REQ-L1-027).
-  const [pendingFeature, setPendingFeature] = useState<OptionalArtifactFeature | null>(null);
 
   // Lifecycle state (REQ-L1-042)
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -70,6 +54,17 @@ export default function WorkspaceSettings(): JSX.Element {
 
   if (!activeWorkspace) {
     return <p style={{ padding: "var(--space-6)" }}>{t("errors.generic")}</p>;
+  }
+
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
+        <h2>{t("nav.settings")}</h2>
+        <p style={{ color: "var(--color-warning)" }}>
+          {t("settings.adminOnly", "You must be an admin to view or edit Workspace Settings. Please visit the Profile dialog for personal preferences.")}
+        </p>
+      </div>
+    );
   }
 
   const handlePresetChange = useCallback(async (preset: WorkspacePreset): Promise<void> => {
@@ -106,18 +101,6 @@ export default function WorkspaceSettings(): JSX.Element {
     setSavedOk(false);
     try {
       await workspacesApi.update(activeWorkspace.id, { language: lang });
-      await reloadWorkspaces(activeWorkspace.id);
-      setSavedOk(true);
-    } catch (err: unknown) {
-      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
-    }
-  }, [activeWorkspace, reloadWorkspaces]);
-  const handleDecompLinkChange = useCallback(async (linkType: string): Promise<void> => {
-    if (linkType === activeWorkspace.decomposition_link_type) return;
-    setSaveError(null);
-    setSavedOk(false);
-    try {
-      await workspacesApi.update(activeWorkspace.id, { decomposition_link_type: linkType });
       await reloadWorkspaces(activeWorkspace.id);
       setSavedOk(true);
     } catch (err: unknown) {
@@ -209,41 +192,7 @@ export default function WorkspaceSettings(): JSX.Element {
     }
   }, [activeWorkspace, cloneName, navigate, reloadWorkspaces]);
 
-  // ---- Per-feature visibility handlers (REQ-L1-027) ----
-
-  const handleFeatureToggle = useCallback(
-    async (feature: OptionalArtifactFeature, value: boolean): Promise<void> => {
-      setSaveError(null);
-      setSavedOk(false);
-      setPendingFeature(feature);
-      try {
-        await setFeatureVisible(feature, value);
-        setSavedOk(true);
-      } catch (err: unknown) {
-        setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
-      } finally {
-        setPendingFeature(null);
-      }
-    },
-    [setFeatureVisible]
-  );
-
-  const handleResetFeature = useCallback(
-    async (feature: OptionalArtifactFeature): Promise<void> => {
-      setSaveError(null);
-      setSavedOk(false);
-      setPendingFeature(feature);
-      try {
-        await resetFeatureOverride(feature);
-        setSavedOk(true);
-      } catch (err: unknown) {
-        setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
-      } finally {
-        setPendingFeature(null);
-      }
-    },
-    [resetFeatureOverride]
-  );
+  // ---- Helper styles ----
 
   const sectionStyle: React.CSSProperties = {
     background: "var(--color-surface)",
@@ -437,101 +386,14 @@ export default function WorkspaceSettings(): JSX.Element {
         </div>
       </section>
 
-      {/* Sichtbarkeit — per-user visibility overrides (REQ-L1-027) */}
-      <section style={sectionStyle} data-testid="visibility-section">
-        <h3 style={headingStyle}>{t("settings.visibility", "Sichtbarkeit")}</h3>
-        <p
-          style={{
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text-muted)",
-            marginBottom: "var(--space-3)",
-          }}
-        >
-          {t(
-            "settings.visibilityHint",
-            "Blendet einzelne optionale Artefakttypen in der Navigation und den Editoren ein oder aus. Overrides wirken nur für dich in diesem Workspace und überschreiben die Preset-Vorgabe."
-          )}
-        </p>
-        {OPTIONAL_FEATURES.map((feature) => {
-          const effective = isFeatureVisible(feature);
-          const overridden = isFeatureOverridden(feature);
-          const isPending = pendingFeature === feature;
-          return (
-            <div
-              key={feature}
-              style={{
-                ...labelStyle,
-                justifyContent: "space-between",
-                padding: "var(--space-2) 0",
-                borderTop: "1px solid var(--color-border)",
-              }}
-              data-testid={`visibility-row-${feature}`}
-            >
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--space-3)",
-                  cursor: isPending ? "wait" : "pointer",
-                  flex: 1,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={effective}
-                  disabled={isPending}
-                  onChange={(e) => void handleFeatureToggle(feature, e.target.checked)}
-                  data-testid={`visibility-checkbox-${feature}`}
-                />
-                <span>
-                  <span style={{ fontWeight: 500 }}>{VISIBILITY_LABELS[feature]}</span>
-                  <span
-                    style={{
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text-muted)",
-                      marginLeft: "var(--space-2)",
-                    }}
-                  >
-                    {overridden
-                      ? t("settings.visibilityOverridden", "(überschrieben)")
-                      : t("settings.visibilityFromPreset", "(aus Preset)")}
-                  </span>
-                </span>
-              </label>
-              {overridden && (
-                <button
-                  type="button"
-                  data-testid={`visibility-reset-${feature}`}
-                  onClick={() => void handleResetFeature(feature)}
-                  disabled={isPending}
-                  style={{
-                    background: "transparent",
-                    color: "var(--color-text-muted)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "var(--space-1) var(--space-3)",
-                    fontSize: "var(--font-size-sm)",
-                    cursor: isPending ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {t("settings.visibilityReset", "Auf Preset zurücksetzen")}
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </section>
-
       {/* Attribute Visibility (REQ-L1-084) — admin only */}
-      {isAdmin && (
-        <section style={sectionStyle}>
-          <h3 style={headingStyle}>{t("settings.attributeVisibility", "Attribut-Sichtbarkeit")}</h3>
-          <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
-            {t("settings.attributeVisibilityHint", "Konfiguriere, welche Attribute für die jeweiligen Elementtypen im Workspace sichtbar sind.")}
-          </p>
-          <AttributeVisibilityAdmin />
-        </section>
-      )}
+      <section style={sectionStyle}>
+        <h3 style={headingStyle}>{t("settings.attributeVisibility", "Attribut-Sichtbarkeit")}</h3>
+        <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
+          {t("settings.attributeVisibilityHint", "Konfiguriere, welche Attribute für die jeweiligen Elementtypen im Workspace sichtbar sind.")}
+        </p>
+        <AttributeVisibilityAdmin />
+      </section>
 
       {/* Data Management (REQ-L0-013, REQ-L2-RF-016) */}
       {isFeatureVisible("csv_import") && (
@@ -564,14 +426,13 @@ export default function WorkspaceSettings(): JSX.Element {
       <WorkflowsSection workspaceId={activeWorkspace.id} />
 
       {/* Item Permissions (REQ-L1-039) — admin only */}
-      {isAdmin && <PermissionsSection workspaceId={activeWorkspace.id} />}
+      <PermissionsSection workspaceId={activeWorkspace.id} />
 
       {/* Backup & Restore (REQ-L1-046) — admin only */}
-      {isAdmin && <BackupRestoreSection />}
+      <BackupRestoreSection />
 
       {/* Workspace Administration (REQ-L1-042) — admin only */}
-      {isAdmin && (
-        <section style={sectionStyle} data-testid="lifecycle-section">
+      <section style={sectionStyle} data-testid="lifecycle-section">
           <h3 style={headingStyle}>{t("settings.lifecycleSection", "Workspace Administration")}</h3>
 
           {/* Close button — visible when workspace is active */}
@@ -756,7 +617,6 @@ export default function WorkspaceSettings(): JSX.Element {
             </div>
           )}
         </section>
-      )}
 
       {/* Status */}
       {saveError && (

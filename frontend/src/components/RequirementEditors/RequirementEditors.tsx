@@ -70,7 +70,7 @@ export default function RequirementEditors(): JSX.Element {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // Dynamic attribute configurations
-    complexity_fibonacci: true,
+  const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
     complexity_fibonacci: true,
     verification_method: true,
   });

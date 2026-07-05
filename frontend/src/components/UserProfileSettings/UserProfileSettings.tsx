@@ -13,9 +13,70 @@
 
 import { useTranslation } from "react-i18next";
 import { ApiKeysSection } from "./ApiKeysSection";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
+import { useState, useCallback } from "react";
+
+const VISIBILITY_LABELS: Record<OptionalArtifactFeature, string> = {
+  adr: "ADR (Architecture Decision Records)",
+  risk: "Risks",
+  issue: "Issues",
+  diagrams: "Diagrams",
+  icds: "ICDs (Interface Control Documents)",
+  metrics: "Metrics",
+};
 
 export default function UserProfileSettings(): JSX.Element {
   const { t } = useTranslation();
+  const {
+    activeWorkspace,
+    isFeatureVisible,
+    setFeatureVisible,
+    resetFeatureOverride,
+    isFeatureOverridden,
+  } = useWorkspace();
+
+  const [pendingFeature, setPendingFeature] = useState<OptionalArtifactFeature | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleFeatureToggle = useCallback(
+    async (feature: OptionalArtifactFeature, value: boolean): Promise<void> => {
+      setSaveError(null);
+      setPendingFeature(feature);
+      try {
+        await setFeatureVisible(feature, value);
+      } catch (err: unknown) {
+        setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+      } finally {
+        setPendingFeature(null);
+      }
+    },
+    [setFeatureVisible]
+  );
+
+  const handleResetFeature = useCallback(
+    async (feature: OptionalArtifactFeature): Promise<void> => {
+      setSaveError(null);
+      setPendingFeature(feature);
+      try {
+        await resetFeatureOverride(feature);
+      } catch (err: unknown) {
+        setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+      } finally {
+        setPendingFeature(null);
+      }
+    },
+    [resetFeatureOverride]
+  );
+
+  const labelStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--space-3)",
+    padding: "var(--space-2) 0",
+    cursor: "pointer",
+    fontSize: "var(--font-size-base)",
+  };
 
   return (
     <div data-testid="user-profile-settings" style={{ maxWidth: "640px" }}>
@@ -31,6 +92,111 @@ export default function UserProfileSettings(): JSX.Element {
       </h2>
 
       <ApiKeysSection />
+
+      {activeWorkspace && (
+        <section style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-lg)",
+          padding: "var(--space-5)",
+          marginTop: "var(--space-5)",
+          boxShadow: "var(--shadow-card)",
+        }} data-testid="visibility-section">
+          <h3 style={{
+            fontSize: "var(--font-size-lg)",
+            fontWeight: 600,
+            color: "var(--color-text)",
+            margin: "0 0 var(--space-4) 0",
+          }}>{t("settings.visibility", "Sichtbarkeit")} (Workspace: {activeWorkspace.name})</h3>
+          <p
+            style={{
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-muted)",
+              marginBottom: "var(--space-3)",
+            }}
+          >
+            {t(
+              "settings.visibilityHint",
+              "Blendet einzelne optionale Artefakttypen in der Navigation und den Editoren ein oder aus. Overrides wirken nur für dich in diesem Workspace und überschreiben die Preset-Vorgabe."
+            )}
+          </p>
+          
+          {saveError && (
+            <div style={{ color: "var(--color-danger)", marginBottom: "var(--space-3)", fontSize: "var(--font-size-sm)" }}>
+              {saveError}
+            </div>
+          )}
+
+          {OPTIONAL_FEATURES.map((feature) => {
+            const effective = isFeatureVisible(feature);
+            const overridden = isFeatureOverridden(feature);
+            const isPending = pendingFeature === feature;
+            return (
+              <div
+                key={feature}
+                style={{
+                  ...labelStyle,
+                  justifyContent: "space-between",
+                  padding: "var(--space-2) 0",
+                  borderTop: "1px solid var(--color-border)",
+                }}
+                data-testid={`visibility-row-${feature}`}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--space-3)",
+                    cursor: isPending ? "wait" : "pointer",
+                    flex: 1,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={effective}
+                    disabled={isPending}
+                    onChange={(e) => void handleFeatureToggle(feature, e.target.checked)}
+                    data-testid={`visibility-checkbox-${feature}`}
+                  />
+                  <span>
+                    <span style={{ fontWeight: 500 }}>{VISIBILITY_LABELS[feature]}</span>
+                    <span
+                      style={{
+                        fontSize: "var(--font-size-sm)",
+                        color: "var(--color-text-muted)",
+                        marginLeft: "var(--space-2)",
+                      }}
+                    >
+                      {overridden
+                        ? t("settings.visibilityOverridden", "(überschrieben)")
+                        : t("settings.visibilityFromPreset", "(aus Preset)")}
+                    </span>
+                  </span>
+                </label>
+                {overridden && (
+                  <button
+                    type="button"
+                    data-testid={`visibility-reset-${feature}`}
+                    onClick={() => void handleResetFeature(feature)}
+                    disabled={isPending}
+                    style={{
+                      background: "transparent",
+                      color: "var(--color-text-muted)",
+                      border: "1px solid var(--color-border)",
+                      borderRadius: "var(--radius-sm)",
+                      padding: "var(--space-1) var(--space-3)",
+                      fontSize: "var(--font-size-sm)",
+                      cursor: isPending ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {t("settings.visibilityReset", "Auf Preset zurücksetzen")}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
     </div>
   );
 }
