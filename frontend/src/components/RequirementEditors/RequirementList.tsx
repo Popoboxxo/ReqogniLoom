@@ -17,7 +17,7 @@
  * IF-RF-EXT-OUT-001 → GET/DELETE /api/v1/requirements/
  */
 
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
 import { Requirement, RequirementType, UUID } from '../../types';
@@ -128,6 +128,17 @@ function sortRequirements(
       break;
   }
   return sorted;
+}
+
+/**
+ * Calculate the depth of a requirement in the hierarchy for visual indentation.
+ */
+function getDepth(reqId: string, reqList: Requirement[], visited = new Set<string>()): number {
+  if (visited.has(reqId)) return 0; // prevent cycle
+  const req = reqList.find((r) => r.id === reqId);
+  if (!req || !req.parent_id) return 0;
+  visited.add(reqId);
+  return 1 + getDepth(req.parent_id, reqList, visited);
 }
 
 /**
@@ -248,6 +259,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           {visibleRequirements.map((req) => {
             const isActive = req.id === selectedId;
             const isHovered = hoveredId === req.id;
+            const depth = getDepth(req.id, requirements);
 
             const cardStyle: React.CSSProperties = {
               background: isActive
@@ -259,6 +271,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
               boxShadow: isHovered || isActive ? 'var(--shadow-card)' : 'var(--shadow-sm)',
               padding: 'var(--space-3) var(--space-4)',
               marginBottom: 'var(--space-2)',
+              marginLeft: `calc(${depth} * var(--space-4))`,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'flex-start',
@@ -267,7 +280,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
               transition: 'var(--transition-fast)',
               wordWrap: 'break-word',
               wordBreak: 'break-word',
-              margin: 0,
+              margin: `0 0 var(--space-2) calc(${depth} * var(--space-4))`,
             };
 
             return (

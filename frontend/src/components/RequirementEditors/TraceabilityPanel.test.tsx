@@ -1,9 +1,9 @@
+import { describe, it, expect } from "vitest";
 /**
  * Tests for TraceabilityPanel component.
  * Verifies that linked requirement titles are displayed correctly.
  */
 
-import React from "react";
 import { render, screen } from "@testing-library/react";
 import { BrowserRouter } from "react-router-dom";
 import { TraceabilityPanel } from "./TraceabilityPanel";

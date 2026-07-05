@@ -2265,3 +2265,21 @@ Wenn fÃ¼r einen Workspace kein spezifischer Prompt konfiguriert ist, MUSS das Sy
 **Test Status:** Missing
 
 **Traceability:** REQ-L0-056
+
+### REQ-L1-085: Unified TraceLink Panel
+Das System muss eine global wiederverwendbare UI-Komponente (TraceLink Panel) bereitstellen, die für Requirements, Needs und Architektur exakt identisch funktioniert. Sie muss Downstream/Upstream unterscheiden und Aktionen wie "Ableiten" anbieten.
+**Domain:** software
+**Priorität:** mandatory
+**Traceability:** REQ-L0-060
+
+### REQ-L1-086: Universal Version Badge
+Das System muss den Versions-Badge der ICDs auf alle anderen Entitäts-Header übertragen und eine History-Ansicht als Toggle bereitstellen.
+**Domain:** software
+**Priorität:** mandatory
+**Traceability:** REQ-L0-060
+
+### REQ-L1-087: Interactive Canvas und Diagramm-Traces
+Die Diagramm-Ansicht muss freies Zeichnen (Canvas) unterstützen und die Zuweisung von Architektur-Elementen ("describes/helps") fehlerfrei persistieren.
+**Domain:** software
+**Priorität:** mandatory
+**Traceability:** REQ-L0-061

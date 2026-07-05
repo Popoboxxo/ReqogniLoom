@@ -11,7 +11,7 @@
  * req_id: REQ-L3-RF004-003, REQ-L1-084
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ArchitectureElement } from '../../types';
 import { getAsilColor, getAsilBadgeStyle } from '../../utils/asilUtils';

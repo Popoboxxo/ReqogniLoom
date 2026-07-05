@@ -64,6 +64,7 @@ export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
 export interface StakeholderNeed {
   id: UUID;
   workspace_id: UUID;
+  parent_id?: string;
   artifact_id: UUID;
   title: string;
   description: string;
@@ -81,6 +82,7 @@ export interface StakeholderNeed {
 export interface Requirement {
   id: UUID;
   workspace_id: UUID;
+  parent_id?: string;
   title: string;
   description: string;
   category: string;

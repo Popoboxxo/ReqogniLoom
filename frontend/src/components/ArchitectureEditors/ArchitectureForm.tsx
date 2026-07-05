@@ -14,12 +14,13 @@
  * req_id: REQ-L3-RF004-004, REQ-L1-084
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useEntityType } from '../../context/EntityTypeContext';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
+import { VersionBadge } from '../shared/VersionBadge';
 import { architectureApi } from '../../api/architecture';
 import { extractErrorMessage } from '../../api/client';
 import { ASIL_LEVEL_OPTIONS, MAKE_OR_BUY_OPTIONS } from '../../utils/asilUtils';
@@ -363,7 +364,10 @@ export function ArchitectureForm({
           }}
         >
           {element.uid && <ReadOnlyField label="UID" value={element.uid} />}
-          <ReadOnlyField label="Version" value={element.version} />
+          <div>
+            <label style={labelStyle}>Version</label>
+            <VersionBadge version={element.version || 1} />
+          </div>
           <ReadOnlyField label="Hierarchy Level" value={element.level ?? 0} />
         </div>
       </div>

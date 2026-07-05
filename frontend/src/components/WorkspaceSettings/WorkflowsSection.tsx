@@ -13,7 +13,7 @@
  * this section therefore only offers the two supported operations.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { workflowsApi } from "../../api/workflows";
 import { artifactsApi } from "../../api/artifacts";

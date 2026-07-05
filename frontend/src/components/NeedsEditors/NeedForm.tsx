@@ -1,20 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { StakeholderNeed, MoscowPriority } from '../../types';
+import type { StakeholderNeed } from '../../types';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
-import { NeedsDerivationPanel } from './NeedsDerivationPanel';
+import { TraceLinkPanel } from '../shared/TraceLinkPanel';
+import { VersionBadge } from '../shared/VersionBadge';
 
 interface NeedFormProps {
   need: StakeholderNeed | null;
   onSaved: () => void;
   onDeleted: () => void;
   attributeVisibility?: Record<string, boolean>;
+  onNeedsChanged?: () => void;
 }
 
-export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {} }: NeedFormProps): JSX.Element {
-  const { t } = useTranslation();
-  const [formData, setFormData] = useState<Partial<StakeholderNeed>>({});
+export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, onNeedsChanged }: NeedFormProps): JSX.Element {
+    const [formData, setFormData] = useState<Partial<StakeholderNeed>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeriving, setIsDeriving] = useState(false);
+  const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
+
+  const handleDerive = async () => {
+    if (!need) return;
+    setIsDeriving(true);
+    setDerivationStatus("Starting AI Derivation task...");
+    try {
+      const res = await stakeholderNeedApi.deriveRequirements(need.id);
+      setDerivationStatus(`Task started: ${res.task_id}. Polling for completion...`);
+      
+      setTimeout(() => {
+        setDerivationStatus("System Requirements derived successfully!");
+        setIsDeriving(false);
+        if (onNeedsChanged) onNeedsChanged();
+      }, 3000);
+    } catch (err) {
+      console.error(err);
+      setDerivationStatus("Derivation failed.");
+      setIsDeriving(false);
+    }
+  };
 
   useEffect(() => {
     if (need) {
@@ -124,6 +147,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {} }:
             }}>
               {need.status}
             </span>
+            {need.version && <VersionBadge version={need.version} />}
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
             <button onClick={handleDelete} className="btn-danger" style={{ padding: "4px 8px", fontSize: "0.85rem" }}>Delete</button>
@@ -194,7 +218,17 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {} }:
           </div>
         </div>
 
-        <NeedsDerivationPanel need={need} />
+        <TraceLinkPanel 
+          workspaceId={need.workspace_id} 
+          artifactId={need.artifact_id} 
+          onDerive={handleDerive}
+          isDeriving={isDeriving}
+        />
+        {derivationStatus && (
+          <div style={{ marginTop: 'var(--space-2)', fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
+            {derivationStatus}
+          </div>
+        )}
       </div>
     </div>
   );

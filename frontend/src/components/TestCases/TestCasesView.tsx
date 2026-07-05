@@ -12,7 +12,7 @@
  *   - Trace-link wiring via the generic trace_links API (link_type=verifies)
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { testcasesApi, type TestCase } from "../../api/testcases";

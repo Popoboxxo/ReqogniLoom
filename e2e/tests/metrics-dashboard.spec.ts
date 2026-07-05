@@ -16,7 +16,7 @@ test.describe('[REQ-L0-020 / REQ-L2-SM-001] MetricsDashboard UI', () => {
 
     // Root container becomes visible once the route mounts
     const root = page.locator('[data-testid="metrics-dashboard"]');
-    await expect(root).toBeVisible({ timeout: 15000 });
+    await expect(root).toBeVisible({ timeout: 10000 });
 
     // Wait for the initial loading text to disappear (or tiles to render)
     await expect(page.getByText('Loading...')).not.toBeVisible({ timeout: 10000 });
@@ -32,7 +32,7 @@ test.describe('[REQ-L0-020 / REQ-L2-SM-001] MetricsDashboard UI', () => {
     await page.goto(`${FRONTEND_URL}/metrics`);
 
     const root = page.locator('[data-testid="metrics-dashboard"]');
-    await expect(root).toBeVisible({ timeout: 15000 });
+    await expect(root).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Loading...')).not.toBeVisible({ timeout: 10000 });
 
     const refreshBtn = page.locator('[data-testid="metrics-refresh-btn"]');

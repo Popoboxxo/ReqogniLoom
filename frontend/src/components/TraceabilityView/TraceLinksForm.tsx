@@ -8,7 +8,7 @@
  * and LinkType grouping validation.
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { tracelinksApi } from "../../api/tracelinks";

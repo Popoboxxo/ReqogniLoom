@@ -23,7 +23,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   test('[REQ-L0-002] architecture editor element_type selector has correct testid and 5 options', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     // Bug A3: correct testid is "arch-element-type-select"
     const typeSelect = page.locator('[data-testid="arch-element-type-select"]');
@@ -42,7 +42,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
     const workflow = page.locator('[data-testid="req-workflow"]');
-    await expect(workflow).toBeVisible({ timeout: 12000 });
+    await expect(workflow).toBeVisible({ timeout: 10000 });
     // Verify it is a functional select element
     const tagName = await workflow.evaluate((el) => el.tagName.toLowerCase());
     expect(tagName).toBe('select');
@@ -54,7 +54,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   test('[REQ-L0-011] change_reason field is present in requirement editor for extended preset', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     const changeReasonInput = page.locator('[data-testid="change-reason-input"]');
     const count = await changeReasonInput.count();
@@ -70,7 +70,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     // The SEEDED_WORKSPACE_ID is the extended preset workspace
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     const changeReason = page.locator('[data-testid="change-reason-input"]');
     const count = await changeReason.count();
@@ -91,7 +91,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   test('[REQ-L2-RF-005] architecture editor shows element_type selector', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     const typeSelect = page.locator('[data-testid="arch-element-type-select"]');
     await expect(typeSelect).toBeVisible({ timeout: 8000 });
@@ -106,7 +106,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   test('[REQ-L2-RF-005] architecture editor shows tracelink panel (Bug A2)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     const traceLinkPanel = page.locator('[data-testid="arch-tracelink-panel"]');
     await expect(traceLinkPanel).toBeVisible({ timeout: 8000 });
@@ -119,7 +119,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   test('[REQ-L2-RF-005] architecture editor change_reason input is present (extended preset)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     const changeReason = page.locator('[data-testid="arch-change-reason-input"]');
     const count = await changeReason.count();

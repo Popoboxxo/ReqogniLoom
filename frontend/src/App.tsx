@@ -15,7 +15,6 @@
  *                       └── NavigationShell (routes + auth gate)
  */
 
-import React from "react";
 import { BrowserRouter, useNavigate } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./queries/queryClient";

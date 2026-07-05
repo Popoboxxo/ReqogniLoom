@@ -8,7 +8,7 @@
  * Uses unified ModalDialogBase for form pattern (REQ-L1-040).
  */
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useTestCasesList, useCreateTestCase } from "../../queries/testcases";

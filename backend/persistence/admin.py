@@ -38,6 +38,8 @@ from .models import (
     TestRunResult,
     TraceLink,
     Workspace,
+    StakeholderNeed,
+    AttributeVisibilityConfig,
 )
 
 User = get_user_model()
@@ -182,6 +184,32 @@ class RequirementAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return Requirement.objects.unscoped()
+
+
+@admin.register(StakeholderNeed)
+class StakeholderNeedAdmin(admin.ModelAdmin):
+    """Admin view for Stakeholder Need."""
+
+    list_display = ("title", "status", "category", "tenant", "moscow_priority", "created_at")
+    list_filter = ("tenant", "status", "category", "moscow_priority")
+    search_fields = ("title", "description")
+    ordering = ("-created_at",)
+    readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
+
+    def get_queryset(self, request):
+        return StakeholderNeed.objects.unscoped()
+
+
+@admin.register(AttributeVisibilityConfig)
+class AttributeVisibilityConfigAdmin(admin.ModelAdmin):
+    """Admin view for Attribute Visibility Configs."""
+
+    list_display = ("entity_type", "tenant", "created_at")
+    list_filter = ("tenant", "entity_type")
+    readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
+
+    def get_queryset(self, request):
+        return AttributeVisibilityConfig.objects.unscoped()
 
 
 @admin.register(ArchitectureElement)

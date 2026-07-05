@@ -15,7 +15,7 @@ test.describe('[REQ-L0-017 / REQ-L2-ICD-001] IcdView UI', () => {
     await page.goto(`${FRONTEND_URL}/icds`);
     // The view container should mount and finish loading
     const view = page.locator('[data-testid="icd-view"]');
-    await expect(view).toBeVisible({ timeout: 15000 });
+    await expect(view).toBeVisible({ timeout: 10000 });
     // Wait for the loading spinner to disappear (status role is reserved for loading)
     await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
     // Either the list or the empty-state placeholder must be on the page
@@ -26,7 +26,7 @@ test.describe('[REQ-L0-017 / REQ-L2-ICD-001] IcdView UI', () => {
 
   test('[REQ-L0-017] icd_create_button_visible', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/icds`);
-    await expect(page.locator('[data-testid="icd-view"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="icd-view"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
     const createBtn = page.locator('[data-testid="create-icd-btn"]');
     await expect(createBtn).toBeVisible({ timeout: 10000 });

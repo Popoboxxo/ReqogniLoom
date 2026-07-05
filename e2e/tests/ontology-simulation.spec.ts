@@ -44,7 +44,7 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     // ---------------------------------------------------------
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-new-title-input"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-new-title-input"]')).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="req-new-title-input"]').fill('SYS-REQ-001: Main System Function');
     
     // There might not be a type selector in the quick create form, so we just save
@@ -66,7 +66,7 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     // ---------------------------------------------------------
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="arch-title"]').fill('SYS-ARCH-001: Core System Component');
     await page.locator('[data-testid="arch-save-btn"]').click();
     await expect(page.locator('[data-testid="arch-title"]')).toHaveValue('SYS-ARCH-001: Core System Component', { timeout: 8000 });

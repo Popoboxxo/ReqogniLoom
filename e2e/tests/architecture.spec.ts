@@ -22,7 +22,7 @@ test.describe('Architecture Management', () => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
     // Title input should appear after successful create + navigation to /architecture/:id
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
   });
 
   test('[REQ-L1-004] create architecture element via API', async ({ request }) => {
@@ -51,7 +51,7 @@ test.describe('Architecture Management', () => {
     await page.locator('[data-testid="create-arch-btn"]').click();
 
     // Wait for navigation to /architecture/:id and the title input to appear
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="arch-title"]').fill('UI E2E Arch Element');
     await page.locator('[data-testid="arch-save-btn"]').click();
 

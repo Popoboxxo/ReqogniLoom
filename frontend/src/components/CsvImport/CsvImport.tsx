@@ -14,7 +14,7 @@
  *   - i18n support (de/en)
  */
 
-import React, { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { importApi, type EntityType, type ImportResult } from "../../api/import";

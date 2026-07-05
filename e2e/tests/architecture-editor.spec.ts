@@ -13,7 +13,7 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
   test('[REQ-L3-RF004-001] element-type dropdown and delete confirmation dialog work', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     // Element-type dropdown is visible with the 5 ADR-L3-RF-007 options
     const typeSelect = page.locator('[data-testid="arch-element-type-select"]');
@@ -40,7 +40,7 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
   test('[REQ-L3-RF004-002] description field with markdown preview toggle is present', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     // Markdown toggle controls exist for the description field
     const previewBtn = page.locator('[data-testid="md-preview-btn"]').first();
@@ -56,7 +56,7 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
   test('[REQ-L3-RF004-003] linked-requirements sidebar is rendered (empty state ok)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     // Linked-requirements panel must be rendered
     const panel = page.locator('[data-testid="arch-linked-reqs-panel"]');

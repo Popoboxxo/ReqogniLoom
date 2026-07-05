@@ -26,8 +26,7 @@
  * Out of scope: requirement link nodes.
  */
 
-import React, {
-  useCallback,
+import { useCallback,
   useEffect,
   useMemo,
   useRef,

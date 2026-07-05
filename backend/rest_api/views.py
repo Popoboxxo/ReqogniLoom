@@ -202,10 +202,7 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
             items = self.service.list_by_workspace(get_auth_context(request), workspace_id)
             serialized = [StakeholderNeedSerializer(_dto_from_orm(item)).data for item in items]
             
-            page = self.paginate_queryset(serialized)
-            if page is not None:
-                return self.get_paginated_response(page)
-            return Response(serialized)
+            return self._paginate(request, serialized)
         except NotFoundError as e:
             return Response(build_error_response("NOT_FOUND", lang, message=str(e)), status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
@@ -228,10 +225,12 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         """POST /api/v1/workspaces/<workspace_id>/needs/ — create new need."""
         lang = detect_lang(request)
         workspace_id = kwargs.get("workspace_pk")
-        if not workspace_id:
-            workspace_id = request.data.get("workspace_id")
         
-        ser = StakeholderNeedSerializer(data=request.data)
+        data = dict(request.data)
+        if "workspace_id" not in data and workspace_id:
+            data["workspace_id"] = workspace_id
+            
+        ser = StakeholderNeedSerializer(data=data)
         if not ser.is_valid():
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
@@ -400,6 +399,7 @@ class RequirementViewSet(BaseEntityViewSet):
                 ctx=ctx,
                 description=data.get("description", ""),
                 category=data.get("category", ""),
+                parent_id=data.get("parent_id"),
                 type=data.get("type", "SyReq"),
                 moscow_priority=data.get("moscow_priority"),
                 complexity_fibonacci=data.get("complexity_fibonacci"),
@@ -2899,14 +2899,15 @@ class GlossaryTermViewSet(BaseEntityViewSet):
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
+        lang = detect_lang(request)
         workspace_id_str = request.query_params.get("workspace_id")
         if not workspace_id_str:
-            return build_error_response(status.HTTP_400_BAD_REQUEST, "Missing workspace_id")
+            return Response(build_error_response("VALIDATION_ERROR", lang, message="Missing workspace_id"), status=status.HTTP_400_BAD_REQUEST)
 
         try:
             workspace_id = UUID(workspace_id_str)
         except ValueError:
-            return build_error_response(status.HTTP_400_BAD_REQUEST, "Invalid workspace_id")
+            return Response(build_error_response("VALIDATION_ERROR", lang, message="Invalid workspace_id"), status=status.HTTP_400_BAD_REQUEST)
 
         try:
             terms = self._svc().list_by_workspace(ctx, workspace_id)
@@ -2914,19 +2915,21 @@ class GlossaryTermViewSet(BaseEntityViewSet):
             return self._paginate(request, data)
         except Exception as e:
             logger.exception("Error in GlossaryTermViewSet.list")
-            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+            return _service_error_response(e, lang)
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
+        lang = detect_lang(request)
         try:
             term_id = UUID(pk)
             term = self._svc().get(ctx, term_id)
             return Response(term.__dict__)
         except Exception as e:
-            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+            return _service_error_response(e, lang)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
+        lang = detect_lang(request)
         try:
             term_str = request.data.get("term", "")
             definition = request.data.get("definition", "")
@@ -2935,35 +2938,37 @@ class GlossaryTermViewSet(BaseEntityViewSet):
             abbreviation = request.data.get("abbreviation", "")
 
             if not workspace_id_str:
-                return build_error_response(status.HTTP_400_BAD_REQUEST, "workspace_id required")
+                return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id required"), status=status.HTTP_400_BAD_REQUEST)
 
             workspace_id = UUID(workspace_id_str)
             term = self._svc().create(ctx, workspace_id, term_str, definition, synonyms, abbreviation)
             return Response(term.__dict__, status=status.HTTP_201_CREATED)
         except Exception as e:
-            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+            return _service_error_response(e, lang)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
+        lang = detect_lang(request)
         try:
             term_id = UUID(pk)
             definition = request.data.get("definition")
             synonyms = request.data.get("synonyms")
             abbreviation = request.data.get("abbreviation")
 
-            term = self._svc().update(ctx, term_id, definition, synonyms, abbreviation)
+            term = self._svc().update(ctx, term_id, definition=definition, synonyms=synonyms, abbreviation=abbreviation)
             return Response(term.__dict__)
         except Exception as e:
-            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+            return _service_error_response(e, lang)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
+        lang = detect_lang(request)
         try:
             term_id = UUID(pk)
             self._svc().delete(ctx, term_id)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Exception as e:
-            return build_error_response(_EXC_TO_HTTP.get(type(e), 500), str(e))
+            return _service_error_response(e, lang)
 
 
 class AttributeVisibilityConfigViewSet(BaseEntityViewSet):

@@ -14,7 +14,7 @@
  * addressed by UUID (copy from the admin panel or the auth/me response).
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   itemPermissionsApi,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { glossaryApi } from "../../api/glossary";
@@ -11,7 +11,7 @@ export default function GlossaryView(): JSX.Element {
   const [terms, setTerms] = useState<GlossaryTerm[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterMode, setFilterMode] = useState<"all" | "project" | "global">("all");
+  const [filterMode, setFilterMode] = useState<"all" | "workspace" | "global">("all");
   
   // Form state
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -99,7 +99,7 @@ export default function GlossaryView(): JSX.Element {
                           t.definition.toLowerCase().includes(searchTerm.toLowerCase());
     
     let matchesMode = true;
-    if (filterMode === "project") {
+    if (filterMode === "workspace") {
       matchesMode = t.workspace_id === activeWorkspace?.id;
     } else if (filterMode === "global") {
       matchesMode = t.workspace_id === null;
@@ -206,7 +206,7 @@ export default function GlossaryView(): JSX.Element {
           />
         </div>
         <div style={{ display: "flex", background: "var(--color-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border)", overflow: "hidden" }}>
-          {(["all", "project", "global"] as const).map(mode => (
+          {(["all", "workspace", "global"] as const).map(mode => (
             <button
               key={mode}
               onClick={() => setFilterMode(mode)}

@@ -40,6 +40,9 @@ class MetricsViewSet(ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        from persistence.tenancy import TenantContext
+        TenantContext.set_tenant(ctx.tenant_id)
+
         workspace_id = request.query_params.get("workspace_id")
         if not workspace_id:
             return Response(

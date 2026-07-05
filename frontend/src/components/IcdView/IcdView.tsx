@@ -19,7 +19,7 @@
  * Use "archive" / "supersede" semantics via the new-version flow.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -34,6 +34,7 @@ import {
 } from "../../api/icds";
 import { architectureApi } from "../../api/architecture";
 import type { ArchitectureElement } from "../../types";
+import { VersionBadge, VersionTimeline } from "../shared/VersionBadge";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -934,21 +935,7 @@ function IcdDetailPane({
             }}
           >
             {detail.name}{" "}
-            <span
-              data-testid="icd-version-badge"
-              style={{
-                display: "inline-block",
-                marginLeft: "var(--space-2)",
-                padding: "2px var(--space-2)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--color-primary)",
-                color: "white",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-              }}
-            >
-              {t("icds.versionBadge", { n: detail.version })}
-            </span>
+            <VersionBadge version={detail.version} />
           </h2>
           <p
             style={{

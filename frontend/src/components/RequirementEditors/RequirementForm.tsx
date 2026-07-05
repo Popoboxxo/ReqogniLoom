@@ -19,7 +19,7 @@
  * IF-RF-EXT-OUT-001 → PATCH /api/v1/requirements/
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEntityType } from '../../context/EntityTypeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -36,8 +36,9 @@ import {
 import { requirementsApi } from '../../api/requirements';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
-import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
+import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { TraceabilityPanel } from './TraceabilityPanel';
+import { VersionBadge } from '../shared/VersionBadge';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
 
 /**
@@ -237,9 +238,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                 <span style={{ fontWeight: 600 }}>UID:</span> {requirement.uid}
               </div>
             )}
-            <div>
-              <span style={{ fontWeight: 600 }}>Version:</span> {requirement.version || '1'}
-            </div>
+            <VersionBadge version={requirement.version || '1'} />
           </div>
         </div>
 
@@ -462,11 +461,9 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         )}
 
         {/* TraceLink panel */}
-        <ReqTraceLinkPanel
+        <TraceLinkPanel
           workspaceId={workspaceId}
-          requirementId={requirement.id}
-          requirements={requirements}
-          onLinksChanged={onSaved}
+          artifactId={requirement.id}
         />
       </div>
 

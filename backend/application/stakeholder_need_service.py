@@ -83,7 +83,7 @@ class StakeholderNeedService(ServiceBase):
             workspace=workspace,
             artifact_type="StakeholderNeed",
             tenant_id=ctx.tenant_id,
-            created_by=ctx.user,
+            created_by_id=ctx.user_id,
         )
         need = StakeholderNeed.objects.create(
             artifact=artifact,
@@ -93,7 +93,7 @@ class StakeholderNeedService(ServiceBase):
             category=category,
             status=status,
             moscow_priority=moscow_priority,
-            created_by=ctx.user,
+            created_by_id=ctx.user_id,
         )
 
         DomainEventOutbox.publish(

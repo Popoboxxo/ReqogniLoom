@@ -142,7 +142,7 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   test('[REQ-L2-RF-006] architecture editor shows arch-tracelink-panel (Bug A2)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     const panel = page.locator('[data-testid="arch-tracelink-panel"]');
     await expect(panel).toBeVisible({ timeout: 8000 });
@@ -154,7 +154,7 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   test('[REQ-L2-RF-005] architecture editor has element_type selector with correct testid and 5 options', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
 
     // Bug A3: testid should be "arch-element-type-select" (not "arch-element-type")
     const typeSelect = page.locator('[data-testid="arch-element-type-select"]');

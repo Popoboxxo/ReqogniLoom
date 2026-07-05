@@ -11,7 +11,6 @@
  *   - The master "hide all optional" toggle wins over per-feature overrides.
  */
 
-import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { AuthProvider } from "../context/AuthContext";

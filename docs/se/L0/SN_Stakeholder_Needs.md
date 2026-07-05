@@ -1332,3 +1332,19 @@ System- und Projektadministratoren mÃ¼ssen die System-Prompts, die von KI-Agente
 - AC4: Ã„nderungen an den Prompts werden im Audit-Log protokolliert.
 
 **Ableitet L1:** REQ-L1-088 (Configurable AI Prompts)
+
+### REQ-L0-060 — SN-60: Konsistentes UI/UX Design und Universelles Versioning
+**Implementation State:** Not Implemented
+**Reviewbefunde:** N/A
+**Test Status:** Missing
+
+Benutzer benötigen ein durchgehend konsistentes Look-and-Feel über alle Entitätstypen (Requirements, Needs, ADRs) hinweg. TraceLinks, Versionierungen und Filter müssen in allen Ansichten einheitlich verfügbar und bedienbar sein.
+**Rationale:** Steigert die Effizienz und Usability massiv.
+
+### REQ-L0-061 — SN-61: Interaktive und versionierte Architektur-Diagramme
+**Implementation State:** Not Implemented
+**Reviewbefunde:** N/A
+**Test Status:** Missing
+
+Benutzer müssen Architektur-Diagramme direkt im System zeichnen können (Canvas) und diese lückenlos über TraceLinks mit den Architekturelementen verknüpfen können. Diagramme müssen ebenfalls versionierbar sein.
+**Rationale:** Diagramme sind integrale Bestandteile von Architektur-Entscheidungen.

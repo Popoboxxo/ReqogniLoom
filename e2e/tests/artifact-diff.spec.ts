@@ -12,12 +12,12 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
   });
 
   test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {
-    test.setTimeout(60000);
+    test.setTimeout(10000);
 
     // Navigate to requirements and create a new one
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // Fill in initial data
     const titleInput = page.locator('[data-testid="req-title"]');
@@ -26,7 +26,7 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     // Save the requirement
     await page.locator('[data-testid="save-btn"]').click();
     // Wait for save to complete (button text returns from "Saving..." to "Save")
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 15000 });
+    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
     // Small delay for state stabilization
     await page.waitForTimeout(1000);
 
@@ -35,12 +35,12 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
 
     // Save again to create a new version
     await page.locator('[data-testid="save-btn"]').click();
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 15000 });
+    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
     await page.waitForTimeout(1000);
 
     // Click the "View Diff" button
     const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 15000 });
+    await expect(viewDiffBtn).toBeVisible({ timeout: 10000 });
     await viewDiffBtn.click();
 
     // The diff view should appear
@@ -73,22 +73,22 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
   });
 
   test('[REQ-L2-RF-014] diff view shows version 0 baseline as all fields added', async ({ page }) => {
-    test.setTimeout(60000);
+    test.setTimeout(10000);
 
     // Navigate to requirements and create a new one
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // Fill in data and save
     await page.locator('[data-testid="req-title"]').fill('Baseline Diff Test');
     await page.locator('[data-testid="save-btn"]').click();
-    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 15000 });
+    await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
     await page.waitForTimeout(1000);
 
     // Open diff view
     const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 15000 });
+    await expect(viewDiffBtn).toBeVisible({ timeout: 10000 });
     await viewDiffBtn.click();
 
     const diffView = page.locator('[data-testid="artifact-diff-view"]');

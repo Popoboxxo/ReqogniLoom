@@ -50,6 +50,6 @@ test.describe('Workspace Settings', () => {
     await nameInput.fill('Test Workspace E2E');
     await page.locator('[data-testid="new-workspace-submit"]').click();
     // After creation, dashboard should show (no blank screen)
-    await expect(page.locator('[data-testid="workspace-list"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="workspace-list"]')).toBeVisible({ timeout: 10000 });
   });
 });

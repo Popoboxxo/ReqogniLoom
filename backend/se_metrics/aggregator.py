@@ -54,6 +54,7 @@ from se_metrics.types import (
     VolatilityResult,
     WorkflowGapResult,
 )
+from persistence.tenancy import TenantContext
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +88,13 @@ def _parse_timeframe_days(timeframe: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_audit_entries(workspace_id: str, timeframe: str) -> List[Any]:
+def _fetch_audit_entries(workspace_id: str, timeframe: str, tenant_id: UUID) -> List[Any]:
     """IF-L1-044: Query AuditLog for Requirement change events.
 
     Returns list of AuditEntry objects (or empty list on error).
     Tenant isolation is automatic via TenantContext (managed by caller).
     """
+    TenantContext.set_tenant(tenant_id)
     try:
         days = _parse_timeframe_days(timeframe)
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
@@ -121,11 +123,12 @@ def _fetch_audit_entries(workspace_id: str, timeframe: str) -> List[Any]:
         return []
 
 
-def _fetch_coverage(workspace_id: str) -> Any:
+def _fetch_coverage(workspace_id: str, tenant_id: UUID) -> Any:
     """IF-L1-045: Query TraceabilityEngine for traceability coverage.
 
     Returns CoverageReport or None on error.
     """
+    TenantContext.set_tenant(tenant_id)
     try:
         return traceability_coverage(workspace_id=UUID(str(workspace_id)))
     except Exception:
@@ -137,7 +140,7 @@ def _fetch_coverage(workspace_id: str) -> Any:
         return None
 
 
-def _fetch_incomplete_states(workspace_id: str) -> List[IncompleteState]:
+def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> List[IncompleteState]:
     """IF-L1-046: Query WorkflowEngine for items with incomplete state history.
 
     Implements find_incomplete_states(workspace_id) via direct ORM query on
@@ -149,6 +152,7 @@ def _fetch_incomplete_states(workspace_id: str) -> List[IncompleteState]:
 
     Returns list of IncompleteState or empty list on error/no definition.
     """
+    TenantContext.set_tenant(tenant_id)
     try:
         from workflow.models import WorkflowEngineDefinition, WorkflowHistoryEntry, WorkflowItemState
 
@@ -221,7 +225,7 @@ def _fetch_incomplete_states(workspace_id: str) -> List[IncompleteState]:
         return []
 
 
-def _fetch_risks(workspace_id: str) -> List[Any]:
+def _fetch_risks(workspace_id: str, tenant_id: UUID) -> List[Any]:
     """IF-L1-047: Query ApplicationService for all risks in this workspace.
 
     Uses RiskService.list_risks() to get all risks, then RiskClassifier
@@ -234,6 +238,7 @@ def _fetch_risks(workspace_id: str) -> List[Any]:
 
     Returns list of Risk ORM objects or empty list on error.
     """
+    TenantContext.set_tenant(tenant_id)
     try:
         from application.services import RiskService
 
@@ -242,9 +247,6 @@ def _fetch_risks(workspace_id: str) -> List[Any]:
         # The RiskService._set_tenant_context() will be called internally.
         # We construct a minimal context that satisfies the interface.
         from auth_tenancy.context import AuthContext
-        from persistence.tenancy import TenantContext
-
-        tenant_id = TenantContext.get_tenant()
 
         ctx = AuthContext(
             user_id=UUID("00000000-0000-0000-0000-000000000000"),
@@ -322,11 +324,14 @@ class MetricsAggregator:
         incomplete_states: List[IncompleteState] = []
         risk_artifacts: List[Any] = []
 
+        # Get the current tenant to pass to workers
+        tenant_id = TenantContext.get_tenant()
+
         with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
-            future_audit = executor.submit(_fetch_audit_entries, workspace_id, effective_timeframe)
-            future_coverage = executor.submit(_fetch_coverage, workspace_id)
-            future_gaps = executor.submit(_fetch_incomplete_states, workspace_id)
-            future_risks = executor.submit(_fetch_risks, workspace_id)
+            future_audit = executor.submit(_fetch_audit_entries, workspace_id, effective_timeframe, tenant_id)
+            future_coverage = executor.submit(_fetch_coverage, workspace_id, tenant_id)
+            future_gaps = executor.submit(_fetch_incomplete_states, workspace_id, tenant_id)
+            future_risks = executor.submit(_fetch_risks, workspace_id, tenant_id)
 
             for future in as_completed(
                 [future_audit, future_coverage, future_gaps, future_risks]

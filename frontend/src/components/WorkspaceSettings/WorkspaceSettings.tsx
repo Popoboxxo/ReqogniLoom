@@ -9,7 +9,7 @@
  *          REQ-L1-027 (Per-user visibility overrides — Sichtbarkeit section)
  */
 
-import React, { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -324,7 +324,7 @@ export default function WorkspaceSettings(): JSX.Element {
                 {profile === "dev_mode" ? t("settings.devMode") : t("settings.seMode")}
               </div>
               <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
-                {profile === "dev_mode" ? "Feature / Story / Task" : "System / Subsystem / Component"}
+                {profile === "dev_mode" ? t("settings.devModeHint", "Feature / Story / Task") : t("settings.seModeHint", "System / Subsystem / Component")}
               </div>
             </div>
           </label>
@@ -398,7 +398,7 @@ export default function WorkspaceSettings(): JSX.Element {
 
       {/* Feature-flagged: Baselines & Backup/Restore */}
       {isFeatureVisible("baselines") && (
-        <BackupRestoreSection activeWorkspace={activeWorkspace} />
+        <BackupRestoreSection />
       )}
 
       {/* Feature-flagged: AI Configuration */}
@@ -450,7 +450,7 @@ export default function WorkspaceSettings(): JSX.Element {
       <PermissionsSection workspaceId={activeWorkspace.id} />
 
       {/* Backup & Restore (REQ-L1-046) — admin only */}
-      <BackupRestoreSection />
+      
 
       {/* Workspace Administration (REQ-L1-042) — admin only */}
       <section style={sectionStyle} data-testid="lifecycle-section">

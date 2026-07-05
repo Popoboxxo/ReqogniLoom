@@ -7,7 +7,7 @@
  *          REQ-L3-RF002-003 (Navigation von Dashboard zu Workspace-Detail)
  */
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceWithMetrics } from "../../types";
 import { useWorkspace } from "../../context/WorkspaceContext";

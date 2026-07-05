@@ -75,7 +75,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/mermaid`);
 
     // Main editor container
-    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     // Left: code editor pane
     await expect(page.locator('[data-testid="mermaid-editor-pane"]')).toBeVisible({ timeout: 10000 });
@@ -91,7 +91,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-057] test_mermaid_save_button_and_status_bar', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/mermaid`);
-    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     // Save button exists
     const saveBtn = page.locator('[data-testid="mermaid-save-btn"]');
@@ -109,7 +109,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-057] test_mermaid_valid_code_renders_preview', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/mermaid`);
-    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     // Type valid flowchart code
     await typeInMermaidEditor(page, 'flowchart TD\n  A[Start] --> B[End]');
@@ -136,7 +136,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-057] test_mermaid_invalid_code_shows_error', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/mermaid`);
-    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     // Type invalid mermaid syntax
     await typeInMermaidEditor(page, 'this is not valid mermaid syntax at all');
@@ -159,7 +159,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-057] test_mermaid_fix_invalid_code_restores_preview', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/mermaid`);
-    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     // First type invalid code
     await typeInMermaidEditor(page, 'garbage mermaid input {{ invalid }}');
@@ -186,7 +186,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-057] test_mermaid_manual_save_sends_put', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/mermaid`);
-    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     // Type some valid source to make the editor dirty
     const source = 'flowchart TD\n  A --> B\n  B --> C';
@@ -222,7 +222,7 @@ test.describe('[REQ-L1-057 / REQ-L2-DS-007] Mermaid Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-057] test_mermaid_auto_save_fires_after_debounce', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/mermaid`);
-    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="mermaid-editor"]')).toBeVisible({ timeout: 10000 });
 
     // Type source code — this triggers auto-save after 2s of inactivity
     const source = 'flowchart LR\n  A --> D';

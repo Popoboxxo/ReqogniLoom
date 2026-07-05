@@ -18,7 +18,7 @@
  * (no client-side renderer available).
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -859,7 +859,7 @@ function DiagramDetailView({
               onClick={() => setIsEditing(true)}
               style={formPrimaryButtonStyle}
               // For canvas diagrams the button opens the canvas editor; hide when already in canvas mode
-              hidden={detail.diagram_type === "canvas"}
+              hidden={detail.payload_format === "canvas_stroke"}
             >
               {t("diagrams.edit", "Edit Source")}
             </button>
@@ -911,7 +911,7 @@ function DiagramDetailView({
         )}
 
         {/* Canvas diagrams use the CanvasEditor surface (REQ-L2-DS-006, IF-L1-058/060) */}
-        {detail.diagram_type === "canvas" ? (
+        {detail.payload_format === "canvas_stroke" ? (
           <div
             data-testid="diagram-canvas-section"
             style={{ minHeight: "520px", display: "flex", flexDirection: "column" }}

@@ -54,7 +54,7 @@ test.describe('CSV Import', () => {
     await page.locator('[data-testid="csv-import-btn"]').click();
 
     // Wait for success result
-    await expect(page.locator('[data-testid="csv-import-success"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="csv-import-success"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="csv-import-success"]')).toContainText('3');
 
     // Cleanup: verify requirements were created via API and delete them

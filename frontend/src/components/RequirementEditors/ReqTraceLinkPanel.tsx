@@ -148,7 +148,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         if (cancelled) return;
         const msg =
           (err as { error?: { message?: string } })?.error?.message ?? String(err);
-        // eslint-disable-next-line no-console
+         
         console.warn('Failed to load TestCases for trace-link target list:', msg);
       });
     return () => {
@@ -168,7 +168,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         if (cancelled) return;
         const msg =
           (err as { error?: { message?: string } })?.error?.message ?? String(err);
-        // eslint-disable-next-line no-console
+         
         console.warn('Failed to load ArchitectureElements for trace-link target list:', msg);
       });
     return () => {

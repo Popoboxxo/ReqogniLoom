@@ -116,7 +116,7 @@ test.describe('[REQ-L0-004] Baselines — create via UI', () => {
 
   test('[REQ-L0-004] create baseline form appears on button click', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/baselines`);
-    await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 10000 });
     const createBtn = page.locator('[data-testid="create-baseline-btn"]');
     await expect(createBtn).toBeVisible({ timeout: 10000 });
     await createBtn.click();
@@ -126,7 +126,7 @@ test.describe('[REQ-L0-004] Baselines — create via UI', () => {
 
   test('[REQ-L0-004] baseline creation form has artifact select and scope input', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/baselines`);
-    await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await expect(page.locator('[data-testid="create-baseline-form"]')).toBeVisible({ timeout: 6000 });
 
@@ -152,7 +152,7 @@ test.describe('[REQ-L0-005] Configurable lifecycle — workflow states', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
     const workflow = page.locator('[data-testid="req-workflow"]');
-    await expect(workflow).toBeVisible({ timeout: 12000 });
+    await expect(workflow).toBeVisible({ timeout: 10000 });
     const options = await workflow.locator('option').allTextContents();
     expect(options).toEqual(expect.arrayContaining(['draft', 'review', 'approved']));
   });
@@ -292,7 +292,7 @@ test.describe('[REQ-L0-011] Audit trail', () => {
   test('[REQ-L0-011] change_reason field is visible in requirement editor (extended preset)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     const changeReasonInput = page.locator('[data-testid="change-reason-input"]');
     const found = await changeReasonInput.count();

@@ -56,7 +56,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
 
     // Wait for editor to render and Fabric.js to initialize
-    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="canvas-toolbar"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="canvas-element"]')).toBeVisible({ timeout: 10000 });
 
@@ -82,7 +82,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-056] test_canvas_tool_switching', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
-    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
 
     // Click select tool
     await page.locator('[data-testid="canvas-tool-select"]').click();
@@ -102,7 +102,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-056] test_canvas_color_and_width_controls', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
-    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="canvas-color-picker"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="canvas-width-slider"]')).toBeVisible();
     await expect(page.locator('[data-testid="canvas-width-label"]')).toHaveText('2px');
@@ -127,7 +127,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-056] test_canvas_drawing_triggers_unsaved_state', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
-    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
 
     // Wait for canvas to fully initialize (status bar shows "pen")
     await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
@@ -162,7 +162,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-056] test_canvas_undo_via_ctrl_z', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
-    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
 
     // Draw on canvas
@@ -197,7 +197,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-056] test_canvas_manual_save_sends_put', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
-    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
 
     // Draw on canvas to make it dirty
@@ -240,7 +240,7 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L1-056] test_canvas_auto_save_fires_after_drawing', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/diagrams/${diagramId}/canvas`);
-    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="canvas-editor"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="canvas-status-bar"]')).toContainText('pen', { timeout: 8000 });
 
     // Draw on canvas to make it dirty

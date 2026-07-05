@@ -13,7 +13,6 @@
  * useMemo) — this component only owns the controls.
  */
 
-import React from "react";
 
 export interface ListToolbarFilterOption {
   value: string;

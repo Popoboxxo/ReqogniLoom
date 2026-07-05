@@ -17,7 +17,7 @@
  *                        GET /api/v1/requirements/{id}/versions/
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type {
   ArtifactDiffResult,
   ArtifactVersion,

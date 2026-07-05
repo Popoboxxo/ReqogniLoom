@@ -350,7 +350,6 @@ export const SplitView = React.forwardRef<
               e.currentTarget.style.marginLeft = '0';
             }
           }}
-          data-testid="splitview-divider"
         />
 
         {/* Right Panel */}

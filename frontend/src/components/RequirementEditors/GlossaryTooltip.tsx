@@ -1,4 +1,3 @@
-import React from "react";
 import type { GlossaryTerm } from "../../types";
 
 interface GlossaryTooltipProps {

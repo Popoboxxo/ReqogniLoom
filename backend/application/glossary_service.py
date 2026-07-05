@@ -85,8 +85,9 @@ class GlossaryService(ServiceBase):
             synonyms=syns,
             abbreviation=abbreviation,
             version=1,
-            created_by_id=ctx.actor_id,
-            modified_by_id=ctx.actor_id,
+            # Changed from actor_id to user_id to fix bug
+        created_by_id=ctx.user_id,
+            modified_by_id=ctx.user_id,
         )
 
         GlossaryTermVersion.objects.create(
@@ -95,7 +96,8 @@ class GlossaryService(ServiceBase):
             definition=gt.definition,
             synonyms=gt.synonyms,
             abbreviation=gt.abbreviation,
-            created_by_id=ctx.actor_id,
+            # Changed from actor_id to user_id to fix bug
+        created_by_id=ctx.user_id,
         )
 
         return GlossaryTermDTO.from_orm(gt)
@@ -139,7 +141,8 @@ class GlossaryService(ServiceBase):
             definition=gt.definition,
             synonyms=gt.synonyms,
             abbreviation=gt.abbreviation,
-            created_by_id=ctx.actor_id,
+            # Changed from actor_id to user_id to fix bug
+        created_by_id=ctx.user_id,
         )
 
         return GlossaryTermDTO.from_orm(gt)

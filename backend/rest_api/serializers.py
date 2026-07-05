@@ -233,6 +233,7 @@ class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
@@ -284,6 +285,7 @@ class StakeholderNeedSerializer(PresetAwareSerializerMixin, serializers.Serializ
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
     category = serializers.CharField(max_length=64, allow_blank=True, default="")

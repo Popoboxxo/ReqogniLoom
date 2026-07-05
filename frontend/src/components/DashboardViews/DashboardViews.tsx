@@ -13,7 +13,6 @@
  *   IF-RF-EXT-OUT-001 → GET /api/v1/requirements/ (for metrics)
  */
 
-import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useDashboardData } from "./useDashboardData";

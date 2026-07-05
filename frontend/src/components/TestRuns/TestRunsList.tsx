@@ -9,7 +9,7 @@
  * Resizable divider between panels (REQ-002 Masken-Standardisierung).
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { testRunsApi } from "../../api/test-runs";

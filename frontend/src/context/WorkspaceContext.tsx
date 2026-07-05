@@ -21,8 +21,7 @@
  *   4. default → true.
  */
 
-import React, {
-  createContext,
+import { createContext,
   useContext,
   useState,
   useCallback,

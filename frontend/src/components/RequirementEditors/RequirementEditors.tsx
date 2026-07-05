@@ -23,12 +23,11 @@
  * - EntityTypeProvider for context-aware field rendering
  */
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData } from './useRequirementData';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
-import { requirementsApi } from '../../api/requirements';
 import { workspacesApi } from '../../api/workspaces';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { EntityTypeProvider } from '../../context/EntityTypeContext';
@@ -99,8 +98,7 @@ export default function RequirementEditors(): JSX.Element {
   }, []);
 
   // Split-view state for localStorage persistence
-  const isDraggingRef = useRef(false);
-
+  
   /**
    * Handle create new requirement.
    */

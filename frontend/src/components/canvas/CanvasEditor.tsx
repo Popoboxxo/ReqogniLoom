@@ -106,9 +106,9 @@ export function CanvasEditor({
 
     const prevState = undoStackRef.current.pop();
     if (prevState) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+       
       canvas.loadFromJSON(JSON.parse(prevState)).then(() => {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+         
         canvas.renderAll();
       });
     }
@@ -124,9 +124,9 @@ export function CanvasEditor({
 
     const nextState = redoStackRef.current.pop();
     if (nextState) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+       
       canvas.loadFromJSON(JSON.parse(nextState)).then(() => {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+         
         canvas.renderAll();
       });
     }
@@ -206,7 +206,7 @@ export function CanvasEditor({
 
       // Load initial strokes if provided
       if (initialStrokes && initialStrokes.length > 0) {
-        loadStrokesToCanvas(canvas, initialStrokes);
+        loadStrokesToCanvas(canvas, fabric, initialStrokes);
       }
 
       // Handle resize
@@ -495,7 +495,7 @@ export function CanvasEditor({
  * are included with an empty points array until richer extraction is needed.
  */
 function extractStrokeData(canvas: FabricCanvas): CanvasStrokeData {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+   
   const objects: unknown[] = canvas.getObjects() as unknown[];
   const strokes: CanvasStroke[] = [];
 
@@ -525,9 +525,9 @@ function extractStrokeData(canvas: FabricCanvas): CanvasStrokeData {
 
   return {
     strokes,
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+     
     width: (canvas.width as number | undefined) ?? 800,
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+     
     height: (canvas.height as number | undefined) ?? 600,
   };
 }
@@ -539,20 +539,24 @@ function extractStrokeData(canvas: FabricCanvas): CanvasStrokeData {
  * object reconstruction from all stroke types is deferred to a future
  * iteration — this simplified version handles pen strokes.
  */
-function loadStrokesToCanvas(canvas: FabricCanvas, strokes: CanvasStroke[]): void {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function loadStrokesToCanvas(canvas: FabricCanvas, fabric: any, strokes: CanvasStroke[]): void {
   for (const stroke of strokes) {
     if (stroke.type === "pen" && stroke.points && stroke.points.length > 0) {
       const pathData = stroke.points
         .map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y}`)
         .join(" ");
-      // Placeholder: actual Fabric Path object creation requires the
-      // fabric module to be loaded. During init, fabric is already imported
-      // via the useEffect; a full implementation would call:
-      //   const path = new fabric.Path(pathData, { stroke: stroke.color, ... });
-      //   canvas.add(path);
-      void pathData;
+      const path = new fabric.Path(pathData, {
+        stroke: stroke.color,
+        strokeWidth: stroke.width,
+        fill: "transparent",
+        opacity: stroke.opacity,
+        strokeLineCap: "round",
+        strokeLineJoin: "round"
+      });
+      canvas.add(path);
     }
   }
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+   
   canvas.renderAll();
 }

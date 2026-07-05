@@ -7,7 +7,6 @@
  * Generic component supporting arbitrary field configurations and submit handlers.
  */
 
-import React from "react";
 import { useTranslation } from "react-i18next";
 
 // Shared style constants — unified across all entity types

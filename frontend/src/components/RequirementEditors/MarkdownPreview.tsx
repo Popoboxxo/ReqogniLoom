@@ -5,7 +5,7 @@
  * req_id:  REQ-L3-RF003-001 (Inline-Editing — Markdown Preview toggleable)
  */
 
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";

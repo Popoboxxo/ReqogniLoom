@@ -6,7 +6,6 @@
  * Used as base for AdrList, RiskList, and IssueList.
  */
 
-import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -595,7 +594,8 @@ describe("ModalDialogBase (REQ-L1-040)", () => {
       onSubmit: vi.fn(),
       onCancel: vi.fn(),
       testIdPrefix: "min",
-      buttonTestIdPrefix: "min",
+      buttonTestIdPrefix: "min", itemCount: 0,
+      itemCount: 0,
     };
 
     render(

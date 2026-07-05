@@ -6,7 +6,6 @@
  *          REQ-L2-RF-006 (Traceability-Anzeige)
  */
 
-import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { TraceLink } from "../../types";

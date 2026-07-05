@@ -16,7 +16,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
 
     // Create a fresh requirement so the detail editor is shown
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // Inline edit title
     const title = page.locator('[data-testid="req-title"]');
@@ -41,7 +41,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
   test('[REQ-L3-RF003-002] workflow-state dropdown is visible and selectable', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-workflow"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-workflow"]')).toBeVisible({ timeout: 10000 });
 
     const workflow = page.locator('[data-testid="req-workflow"]');
 
@@ -57,7 +57,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
   test('[REQ-L3-RF003-003] traceability panel is visible in requirement editor', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // Traceability panel must be rendered as part of the detail editor
     const panel = page.locator('[data-testid="traceability-panel"]');
@@ -74,7 +74,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
   test('[REQ-L2-RF-006] requirement editor shows tracelink panel with create button', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // ReqTraceLinkPanel must be rendered
     const panel = page.locator('[data-testid="req-tracelink-panel"]');
@@ -88,7 +88,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
   test('[REQ-L2-RF-006] tracelink create form shows target and type selectors', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // Open the create form
     await page.locator('[data-testid="req-tracelink-create-btn"]').click();
@@ -111,7 +111,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
 
     // Create a requirement so the detail panel is shown
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // Verify divider exists
     const divider = page.locator('[data-testid="requirement-editor-divider"]');
@@ -142,7 +142,7 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
   test('[REQ-L1-040] split-pane divider has correct styling and hover effect', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     const divider = page.locator('[data-testid="requirement-editor-divider"]');
 

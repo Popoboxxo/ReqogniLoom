@@ -23,7 +23,7 @@
  * interfaces: Context provider for all artifact editors
  */
 
-import React, { createContext, useContext, ReactNode, useMemo } from 'react';
+import { createContext, useContext, ReactNode, useMemo } from 'react';
 
 /**
  * Supported entity types for artifact editors.

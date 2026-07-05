@@ -21,10 +21,11 @@
  * interfaces: Admin UI for Settings/Workspace panel
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { EntityType, EntitySubType, AttributeVisibilityConfig, VisibleFieldsMap } from '../../context/EntityTypeContext';
 import { attributeVisibilityApi } from '../../api';
+import { extractErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
 
 /**
@@ -40,9 +41,19 @@ const ENTITY_ATTRIBUTES: Record<EntityType, string[]> = {
     'category',
     'status',
     'version',
-    'moscow_priority', // StReq-specific
     'complexity_fibonacci', // SyReq-specific
     'verification_method', // SyReq-specific
+    'traceability_links',
+    'created_at',
+    'updated_at',
+  ],
+  stakeholder_need: [
+    'title',
+    'description',
+    'category',
+    'status',
+    'version',
+    'moscow_priority',
     'traceability_links',
     'created_at',
     'updated_at',
@@ -156,9 +167,9 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
       })
       .catch((err) => {
         if (isMounted) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          setSaveError(error.message);
-          onError?.(error);
+          const msg = extractErrorMessage(err);
+          setSaveError(msg);
+          onError?.(new Error(msg));
         }
       });
     return () => { isMounted = false; };
@@ -255,9 +266,9 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
       setTimeout(() => setSaveSuccess(false), 3000);
       onSave?.(response);
     } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      setSaveError(error.message);
-      onError?.(error);
+      const msg = extractErrorMessage(err);
+      setSaveError(msg);
+      onError?.(new Error(msg));
     } finally {
       setIsSaving(false);
     }
@@ -334,6 +345,9 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
         >
           <option value="requirement">
             {t('admin.entityType.requirement', 'Requirement')}
+          </option>
+          <option value="stakeholder_need">
+            {t('admin.entityType.stakeholderNeed', 'Stakeholder Need')}
           </option>
           <option value="architecture_element">
             {t('admin.entityType.architectureElement', 'Architecture Element')}

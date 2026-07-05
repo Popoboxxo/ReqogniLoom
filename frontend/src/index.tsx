@@ -4,7 +4,6 @@
  * Initializes i18n (react-i18next, DE/EN — REQ-L1-016) and renders the
  * root App component into the DOM.
  */
-import React from "react";
 import ReactDOM from "react-dom/client";
 import "./styles/tokens.css";
 import "./styles/global.css";

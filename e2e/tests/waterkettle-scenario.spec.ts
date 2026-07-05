@@ -314,7 +314,7 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
   test('REQ-L1-002: Requirement-Detail öffnen → Workflow-State + Title editierbar', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements/${fix.requirementIds['WK-001-FUNC']}`);
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="req-title"]')).toHaveValue(/Wasser auf 100/);
 
     // Workflow-Select mit Standard-States
@@ -342,7 +342,7 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
 
   test('REQ-L1-004: Architecture-Detail öffnen → element_type-Select mit 5 Optionen', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture/${fix.architectureIds['WK-CTRL']}`);
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="arch-title"]')).toHaveValue(/Steuerungs-Platine/);
 
     const typeSelect = page.locator('[data-testid="arch-element-type-select"]');
@@ -362,7 +362,7 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
   // -------------------------------------------------------------------------
   test('REQ-L1-003: Traceability-View rendert (Liste oder Empty-State)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/traceability`);
-    await expect(page.locator('[data-testid="traceability-view"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="traceability-view"]')).toBeVisible({ timeout: 10000 });
     // Warten bis entweder Liste oder Empty-State sichtbar ist
     await Promise.race([
       expect(page.locator('[data-testid="traceability-list"]')).toBeVisible({ timeout: 8000 }).catch(() => null),
@@ -378,7 +378,7 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
   // -------------------------------------------------------------------------
   test('REQ-L1-035: TestRuns-View zeigt den WK-Abnahme-Lauf in der Liste', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/test-runs`);
-    await expect(page.getByText(WK_TESTRUN_NAME).first()).toBeVisible({ timeout: 12000 });
+    await expect(page.getByText(WK_TESTRUN_NAME).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('REQ-L1-035: TestRun-Detail öffnen → Aggregate-Status failed (1 von 3)', async ({ page, request }) => {
@@ -421,7 +421,7 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
   // -------------------------------------------------------------------------
   test('REQ-L1-008: Baselines-View rendert und kann eine Baseline erstellen', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/baselines`);
-    await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 10000 });
 
     // Liste oder Empty-State sichtbar
     await Promise.race([

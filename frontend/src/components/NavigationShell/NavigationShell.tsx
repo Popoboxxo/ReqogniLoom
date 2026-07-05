@@ -21,7 +21,7 @@
  *   IF-RF-INT-003     → Artifact selection passed to editors via Router state
  */
 
-import React, { Suspense, lazy, useCallback } from "react";
+import { Suspense, lazy, useCallback } from "react";
 import { Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ErrorBoundary } from "./ErrorBoundary";

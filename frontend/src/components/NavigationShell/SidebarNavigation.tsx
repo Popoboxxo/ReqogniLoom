@@ -11,7 +11,6 @@
  * per their own data loaders; sidebar links only navigate to section routes.
  */
 
-import React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";

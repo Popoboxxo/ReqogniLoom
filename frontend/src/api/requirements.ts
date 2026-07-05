@@ -44,7 +44,7 @@ export const requirementsApi = {
     }
     let nextUrl: string | null = resp.next;
     let pageCount = 0;
-    // eslint-disable-next-line no-constant-condition
+     
     while (nextUrl && pageCount < 100) {
       pageCount += 1;
       // The backend may return `next` as an absolute URL, a path starting

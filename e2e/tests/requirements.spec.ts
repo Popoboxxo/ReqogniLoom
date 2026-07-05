@@ -23,7 +23,7 @@ test.describe('Requirements Management', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
     // Title input should appear after successful create + navigation to /requirements/:id
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
   });
 
   test('[REQ-L1-002] create requirement via API', async ({ request }) => {
@@ -53,7 +53,7 @@ test.describe('Requirements Management', () => {
     await page.locator('[data-testid="create-req-btn"]').click();
 
     // Wait for navigation to /requirements/:id and the title input to appear
-    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 12000 });
+    await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="req-title"]').fill('UI E2E Requirement');
 
     // Save

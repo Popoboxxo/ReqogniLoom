@@ -14,14 +14,14 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
 import { ArchitectureList } from "./ArchitectureList";
 import { ArchitectureForm } from "./ArchitectureForm";
-import { ArchTraceLinkPanel } from "./ArchTraceLinkPanel";
+import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
 import { extractErrorMessage } from "../../api/client";
@@ -241,9 +241,9 @@ export default function ArchitectureEditors(): JSX.Element {
 
             {/* TraceLink panel */}
             {(activeWorkspace?.id || element.workspace_id) && (
-              <ArchTraceLinkPanel
+              <TraceLinkPanel
                 workspaceId={activeWorkspace?.id ?? element.workspace_id}
-                elementId={element.id}
+                artifactId={element.id}
               />
             )}
           </div>

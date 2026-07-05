@@ -19,7 +19,7 @@
  *   IF-RF-EXT-OUT-001 → GET /api/v1/artifacts/ (artifact picker for create form)
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   baselinesApi,

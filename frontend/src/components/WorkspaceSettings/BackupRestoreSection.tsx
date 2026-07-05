@@ -11,7 +11,7 @@
  *     confirmation text "RESTORE" (enforced by the backend as well)
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   adminOpsApi,

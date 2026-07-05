@@ -17,7 +17,7 @@ test.describe('[REQ-L0-016 / REQ-L2-DS-001] DiagramView UI', () => {
     // Page heading becomes visible once the view mounts
     await expect(
       page.getByRole('heading', { name: /Diagramme|Diagrams/i }),
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 10000 });
 
     // Wait for the loading text to disappear (or list/empty-state to render)
     await expect(page.getByText('Loading...')).not.toBeVisible({ timeout: 10000 });
@@ -33,7 +33,7 @@ test.describe('[REQ-L0-016 / REQ-L2-DS-001] DiagramView UI', () => {
 
     await expect(
       page.getByRole('heading', { name: /Diagramme|Diagrams/i }),
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Loading...')).not.toBeVisible({ timeout: 10000 });
 
     const createBtn = page.locator('[data-testid="create-diagram-btn"]');
