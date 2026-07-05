@@ -11,6 +11,7 @@ export default function GlossaryView(): JSX.Element {
   const [terms, setTerms] = useState<GlossaryTerm[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterMode, setFilterMode] = useState<"all" | "project" | "global">("all");
   
   // Form state
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -67,7 +68,7 @@ export default function GlossaryView(): JSX.Element {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm(t("actions.confirmDelete"))) {
+    if (confirm(t("actions.confirmDelete") || "Are you sure?")) {
       try {
         await glossaryApi.delete(id);
         loadTerms();
@@ -93,158 +94,189 @@ export default function GlossaryView(): JSX.Element {
     setEditingId(null);
   };
 
-  const filteredTerms = terms.filter(t => 
-    t.term.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    t.definition.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTerms = terms.filter(t => {
+    const matchesSearch = t.term.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          t.definition.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    let matchesMode = true;
+    if (filterMode === "project") {
+      matchesMode = t.workspace_id === activeWorkspace?.id;
+    } else if (filterMode === "global") {
+      matchesMode = t.workspace_id === null;
+    }
 
-  if (!activeWorkspace) return <div>{t("workspace.selectFirst")}</div>;
+    return matchesSearch && matchesMode;
+  });
+
+  const btnStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--space-2)",
+    padding: "var(--space-2) var(--space-4)",
+    backgroundColor: "var(--color-primary)",
+    color: "#fff",
+    border: "none",
+    borderRadius: "var(--radius-md)",
+    cursor: "pointer",
+    fontWeight: 600,
+    fontSize: "var(--font-size-sm)",
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "var(--space-2) var(--space-3)",
+    background: "var(--color-surface-raised)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-md)",
+    color: "var(--color-text)",
+    boxSizing: "border-box",
+  };
+
+  if (!activeWorkspace) return <div style={{ padding: "var(--space-6)" }}>{t("workspace.selectFirst")}</div>;
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-          {t("glossary.title", "Project Glossary")}
+    <div style={{ padding: "var(--space-6)", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-6)" }}>
+        <h1 style={{ margin: 0, fontSize: "var(--font-size-2xl)", color: "var(--color-text)" }}>
+          {t("nav.glossary", "Glossary")}
         </h1>
-        <button
-          onClick={() => { resetForm(); setIsFormOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-        >
+        <button onClick={() => { resetForm(); setIsFormOpen(true); }} style={btnStyle}>
           <PlusCircle size={18} />
-          <span>{t("glossary.addTerm", "Add Term")}</span>
+          <span>{t("actions.create", "Add Term")}</span>
         </button>
       </div>
 
       {isFormOpen && (
-        <form onSubmit={handleSubmit} className="mb-8 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium mb-4 text-gray-900 dark:text-white">
-            {editingId ? t("glossary.editTerm", "Edit Term") : t("glossary.newTerm", "New Term")}
+        <form onSubmit={handleSubmit} style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-lg)",
+          padding: "var(--space-5)",
+          marginBottom: "var(--space-6)",
+          boxShadow: "var(--shadow-card)",
+        }}>
+          <h2 style={{ margin: "0 0 var(--space-4) 0", fontSize: "var(--font-size-lg)" }}>
+            {editingId ? t("actions.edit", "Edit") : t("actions.create", "New Term")}
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
             <div>
-              <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{t("glossary.term", "Term")} *</label>
-              <input
-                required
-                type="text"
-                value={formData.term}
-                onChange={e => setFormData({ ...formData, term: e.target.value })}
-                className="w-full px-3 py-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                disabled={!!editingId} // Cannot change term name once created to preserve trace links easily
-              />
+              <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+                Term *
+              </label>
+              <input required style={inputStyle} value={formData.term} onChange={e => setFormData({...formData, term: e.target.value})} disabled={!!editingId} />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{t("glossary.abbreviation", "Abbreviation")}</label>
-              <input
-                type="text"
-                value={formData.abbreviation}
-                onChange={e => setFormData({ ...formData, abbreviation: e.target.value })}
-                className="w-full px-3 py-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-              />
+              <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+                Abbreviation
+              </label>
+              <input style={inputStyle} value={formData.abbreviation} onChange={e => setFormData({...formData, abbreviation: e.target.value})} />
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{t("glossary.definition", "Definition")} *</label>
-              <textarea
-                required
-                rows={3}
-                value={formData.definition}
-                onChange={e => setFormData({ ...formData, definition: e.target.value })}
-                className="w-full px-3 py-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-              />
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+                Definition *
+              </label>
+              <textarea required rows={3} style={{...inputStyle, resize: "vertical"}} value={formData.definition} onChange={e => setFormData({...formData, definition: e.target.value})} />
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">{t("glossary.synonyms", "Synonyms (comma separated)")}</label>
-              <input
-                type="text"
-                value={formData.synonyms}
-                onChange={e => setFormData({ ...formData, synonyms: e.target.value })}
-                className="w-full px-3 py-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                placeholder="e.g. Requirement, Spec"
-              />
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+                Synonyms (comma separated)
+              </label>
+              <input style={inputStyle} value={formData.synonyms} onChange={e => setFormData({...formData, synonyms: e.target.value})} />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setIsFormOpen(false)}
-              className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700"
-            >
-              {t("actions.cancel")}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-3)" }}>
+            <button type="button" onClick={() => setIsFormOpen(false)} style={{ ...btnStyle, backgroundColor: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text)" }}>
+              {t("actions.cancel", "Cancel")}
             </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              {t("actions.save")}
+            <button type="submit" style={btnStyle}>
+              {t("actions.save", "Save")}
             </button>
           </div>
         </form>
       )}
 
-      <div className="relative mb-6">
-        <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
-        <input
-          type="text"
-          placeholder={t("glossary.search", "Search glossary...")}
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border rounded-lg dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-        />
+      <div style={{ display: "flex", gap: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+        <div style={{ flex: 1, position: "relative" }}>
+          <Search style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "var(--color-text-muted)" }} size={18} />
+          <input
+            style={{ ...inputStyle, paddingLeft: "36px" }}
+            placeholder="Search glossary..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div style={{ display: "flex", background: "var(--color-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border)", overflow: "hidden" }}>
+          {(["all", "project", "global"] as const).map(mode => (
+            <button
+              key={mode}
+              onClick={() => setFilterMode(mode)}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                border: "none",
+                background: filterMode === mode ? "var(--color-primary-soft)" : "transparent",
+                color: filterMode === mode ? "var(--color-primary)" : "var(--color-text)",
+                fontWeight: filterMode === mode ? 600 : "normal",
+                cursor: "pointer",
+                borderRight: mode !== "global" ? "1px solid var(--color-border)" : "none",
+              }}
+            >
+              {mode.charAt(0).toUpperCase() + mode.slice(1)}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-8">{t("loading")}</div>
-      ) : (
-        <div className="flex-1 overflow-auto">
-          <div className="grid grid-cols-1 gap-4">
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-muted)" }}>Loading...</div>
+        ) : filteredTerms.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-muted)" }}>No terms found.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
             {filteredTerms.map(term => (
-              <div key={term.id} className="p-4 border rounded-lg hover:shadow-md transition-shadow dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 group">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                      {term.term}
-                      {term.abbreviation && (
-                        <span className="text-sm font-normal px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-300">
-                          {term.abbreviation}
-                        </span>
-                      )}
-                    </h3>
-                    <p className="mt-2 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                      {term.definition}
-                    </p>
-                    {term.synonyms && term.synonyms.length > 0 && (
-                      <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-                        <strong>{t("glossary.synonyms", "Synonyms")}:</strong> {term.synonyms.join(', ')}
-                      </div>
+              <div key={term.id} style={{
+                background: "var(--color-surface)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-4)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+              }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginBottom: "var(--space-2)" }}>
+                    <h3 style={{ margin: 0, fontSize: "var(--font-size-lg)", color: "var(--color-text)" }}>{term.term}</h3>
+                    {term.abbreviation && (
+                      <span style={{ background: "var(--color-surface-raised)", border: "1px solid var(--color-border)", padding: "2px 6px", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-xs)" }}>
+                        {term.abbreviation}
+                      </span>
+                    )}
+                    {term.workspace_id === null && (
+                      <span style={{ background: "var(--color-warning-soft)", color: "var(--color-warning)", padding: "2px 6px", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-xs)", fontWeight: 600 }}>
+                        GLOBAL
+                      </span>
                     )}
                   </div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleEdit(term)}
-                      className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded dark:hover:bg-gray-700"
-                      title={t("actions.edit")}
-                    >
-                      <Edit2 size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(term.id)}
-                      className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-gray-700"
-                      title={t("actions.delete")}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <p style={{ margin: 0, color: "var(--color-text-muted)", whiteSpace: "pre-wrap" }}>{term.definition}</p>
+                  {term.synonyms && term.synonyms.length > 0 && (
+                    <div style={{ marginTop: "var(--space-3)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                      <strong>Synonyms:</strong> {term.synonyms.join(', ')}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                  <button onClick={() => handleEdit(term)} style={{ background: "transparent", border: "none", color: "var(--color-text-muted)", cursor: "pointer", padding: "4px" }} title="Edit">
+                    <Edit2 size={16} />
+                  </button>
+                  <button onClick={() => handleDelete(term.id)} style={{ background: "transparent", border: "none", color: "var(--color-danger)", cursor: "pointer", padding: "4px" }} title="Delete">
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             ))}
-            
-            {filteredTerms.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                {t("glossary.noTerms", "No terms found.")}
-              </div>
-            )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

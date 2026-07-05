@@ -142,3 +142,27 @@ Die RequirementEditors-Komponente MUSS das Eingabeformular dynamisch anhand des 
 
 ---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+---
+
+## Erweiterung v3 — REQ-L3-RF003-006 (Glossary Mentions & Tooltips)
+
+> **Datum:** 2026-07-05 | **Quelle:** User-Request "SN-55" (REQ-L2-RF-032)
+
+---
+
+### REQ-L3-RF003-006: Markdown Glossary Mentions (@-Syntax) & Tooltips
+
+Die RequirementEditors-Komponente (insbesondere `MarkdownPreview`) MUSS im Preview-Modus Begriffe mit der Syntax `@Begriff` identifizieren.
+Ist der Begriff im Projekt-Glossar (oder im globalen Glossar) vorhanden, MUSS dieser als interaktiver Link gerendert werden. Beim Hovern (oder Anklicken) MUSS ein Tooltip mit der Glossar-Definition eingeblendet werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] @Begriff wird im Preview-Modus formatiert, sofern der Begriff im Glossar existiert.
+- [ ] Ein Hover-Tooltip zeigt die Definition des Begriffs.
+- [ ] Unbekannte @Begriffe bleiben als normaler Text stehen.
+
+**Traceability:** Abgeleitet von REQ-L2-RF-032

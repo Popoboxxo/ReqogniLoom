@@ -648,4 +648,22 @@ Der RestApiAdapter MUSS REST-Routen für das Lesen und Schreiben des globalen Sy
 
 ---
 
-*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*
+### REQ-L2-RA-023: Global Glossary API
+
+Der RestApiAdapter MUSS REST-Routen bereitstellen, um projektübergreifende (globale bzw. verwaiste) Glossar-Begriffe abzurufen, deren `workspace_id` auf `null` gesetzt wurde.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] `GET /api/v1/glossary/global` liefert alle Glossar-Einträge ohne Workspace-Zuordnung.
+- [ ] Alternative: Der bestehende Endpunkt liefert über einen Query-Parameter `?global=true` zusätzlich die verwaisten Begriffe.
+
+**Verifikationsmethode:** API-Tests (Abruf globaler Glossar-Daten).
+**Verifikiert durch:** L2-RA-Test-023
+**Abgeleitet von:** REQ-L1-086
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*

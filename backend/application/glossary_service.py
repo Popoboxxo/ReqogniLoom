@@ -9,7 +9,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F
+from django.db.models import F, Q
 from persistence.models import GlossaryTerm, GlossaryTermVersion, Workspace
 from persistence.transactions import atomic_transaction
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GlossaryTermDTO:
     id: UUID
-    workspace_id: UUID
+    workspace_id: Optional[UUID]
     term: str
     definition: str
     synonyms: list
@@ -51,7 +51,9 @@ class GlossaryService(ServiceBase):
         return GlossaryTermDTO.from_orm(term)
 
     def list_by_workspace(self, ctx: AuthContext, workspace_id: UUID) -> List[GlossaryTermDTO]:
-        terms = GlossaryTerm.objects.filter(workspace_id=workspace_id).order_by("term")
+        terms = GlossaryTerm.objects.filter(
+            Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
+        ).order_by("term")
         return [GlossaryTermDTO.from_orm(t) for t in terms]
 
     @atomic_transaction

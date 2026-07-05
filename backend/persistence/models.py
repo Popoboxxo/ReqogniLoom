@@ -862,7 +862,7 @@ class GlossaryTerm(TenantScopedModel):
     """Semantic glossary term (REQ-L1-044)."""
 
     workspace = models.ForeignKey(
-        Workspace, on_delete=models.CASCADE, related_name="glossary_terms"
+        Workspace, on_delete=models.SET_NULL, null=True, blank=True, related_name="glossary_terms"
     )
     term = models.CharField(max_length=255)
     definition = models.TextField()

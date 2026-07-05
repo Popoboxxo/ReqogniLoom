@@ -1265,6 +1265,30 @@ Spezifisch:
 ---
 
 
+## Stakeholder-Needs (Erweiterung v10 — REQ-L0-055)
+
+### REQ-L0-055 — SN-55: Glossar-Referenzen im Freitext (@-Mentions)
+
+**Implementation State:** Not Implemented
+**Reviewbefunde:** Neu angelegt.
+**Test Status:** Missing
+
+Die Anwendung muss es ermöglichen, definierte Glossar-Einträge direkt im Freitext (Beschreibungen von Anforderungen, Testfällen etc.) über eine `@Begriff`-Syntax zu referenzieren.
+Glossar-Begriffe müssen auch über die API abrufbar sein, um programmgesteuert kontextbezogene Erklärungen zu liefern.
+Beim Löschen eines Workspaces dürfen Glossar-Begriffe nicht gelöscht werden (kein CASCADE Delete), sondern bleiben mit `null`-Workspace global oder verwaist erhalten, damit die Definitionen über Projekte hinweg nutzbar oder zumindest historisch gesichert bleiben.
+
+**Rationale:** Fachtexte enthalten oft domänenspezifische Begriffe. Durch eine einfache `@`-Erwähnung und Auto-Erkennung im Text können Nutzer sofort beim Lesen Tooltips mit den Definitionen abrufen, was Missverständnisse reduziert. Die Persistenz über Workspace-Grenzen hinweg sichert mühsam erarbeitete Begriffsklärungen.
+**Akzeptanzkriterien:**
+- AC1: Die Markdown-Vorschau erkennt `@Begriff` und macht daraus ein UI-Element (z.B. Link oder Tooltip).
+- AC2: Tooltips zeigen die Definition des Begriffs.
+- AC3: Das Löschen eines Workspaces löscht nicht das Glossar, sondern setzt die Workspace-ID auf `null` (`on_delete=SET_NULL`).
+- AC4: REST-API unterstützt den Abruf von Glossarbegriffen.
+
+**Ableitet L1:** REQ-L1-080 (Glossary Mentions & Persistence)
+
+---
+
+
 ## Zusammenfassung: Neue Stakeholder-Needs
 
 | REQ-ID | Titel | Priorität | Abgeleitet von | L1-Ableitung |
@@ -1283,5 +1307,6 @@ Spezifisch:
 | REQ-L0-047 | Präzises Datenmodell | mandatory | User-Request | REQ-L1-076, REQ-L1-077 |
 | REQ-L0-048 | Workflow-Status | mandatory | User-Request | REQ-L1-078 |
 | REQ-L0-049 | Stage-Gating & Guardrails | mandatory | User-Request | REQ-L1-079 |
+| REQ-L0-055 | Glossar-Referenzen im Freitext (@-Mentions) | mandatory | User-Request | REQ-L1-080 |
 
 **Nächster Schritt:** L1-System-Anforderungen in `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` erweitern.

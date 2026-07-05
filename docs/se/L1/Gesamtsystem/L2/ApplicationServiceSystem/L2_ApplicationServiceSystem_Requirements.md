@@ -1050,3 +1050,20 @@ Der ApplicationService MUSS 4 Invarianten zur Sicherung der Ebenen-Konsistenz pr
 **Implementation State:** Backlog
 **Review Findings:** Nicht implementiert.
 **Test Status:** Missing
+
+---
+
+### REQ-L2-AS-037: Glossary Persistence on Workspace Deletion
+
+Der ApplicationService MUSS beim Löschen eines Workspaces sicherstellen, dass verknüpfte Glossar-Begriffe nicht durch CASCADE-Mechanismen gelöscht werden. Stattdessen MUSS die `workspace_id` auf `null` (`on_delete=SET_NULL`) gesetzt werden, um die Begriffe historisch und global verfügbar zu halten.
+
+**Akzeptanzkriterien:**
+- AC1: Glossar-Begriffe behalten ihre Existenz auch nach Löschen des referenzierten Workspaces.
+- AC2: Datenbank-Constraints verwenden `SET_NULL` für die Workspace-Fremdschlüsselbeziehung.
+
+**Verifikationsmethode:** Integrationstest — Workspace löschen, Prüfen ob Glossar-Einträge noch vorhanden sind.
+**Abgeleitet von:** REQ-L1-086
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing
+

@@ -2185,3 +2185,31 @@ Status-Übergänge (Events) MÜSSEN konfigurierbare KI-Aktionen im AI Orchestrat
 **Test Status:** Missing
 
 **Traceability:** REQ-L0-049, REQ-L0-046
+
+---
+
+## Erweiterung v10 — REQ-L1-086 (Glossary Mentions & Persistence)
+
+> **Datum:** 2026-07-05 | **Quelle:** REQ-L0-055
+
+---
+
+### REQ-L1-086: Glossary Mentions & Persistence
+
+Das System MUSS es ermöglichen, definierte Glossar-Einträge direkt im Freitext (Beschreibungen von Anforderungen, Testfällen etc.) über eine `@Begriff`-Syntax zu referenzieren.
+Glossar-Begriffe MÜSSEN auch über die API abrufbar sein, um programmgesteuert kontextbezogene Erklärungen zu liefern.
+Beim Löschen eines Workspaces DÜRFEN Glossar-Begriffe nicht gelöscht werden (kein CASCADE Delete), sondern bleiben mit `null`-Workspace global oder verwaist erhalten, damit die Definitionen über Projekte hinweg nutzbar oder zumindest historisch gesichert bleiben.
+
+**Rationale:** Fachtexte enthalten oft domänenspezifische Begriffe. Durch eine einfache `@`-Erwähnung und Auto-Erkennung im Text können Nutzer sofort beim Lesen Tooltips mit den Definitionen abrufen, was Missverständnisse reduziert. Die Persistenz über Workspace-Grenzen hinweg sichert mühsam erarbeitete Begriffsklärungen.
+**Domain:** software
+**Priority:** mandatory
+**Akzeptanzkriterien:**
+- AC1: Die Markdown-Vorschau erkennt `@Begriff` und macht daraus ein UI-Element (z.B. Link oder Tooltip).
+- AC2: Tooltips zeigen die Definition des Begriffs.
+- AC3: Das Löschen eines Workspaces löscht nicht das Glossar, sondern setzt die Workspace-ID auf `null` (`on_delete=SET_NULL`).
+- AC4: REST-API unterstützt den Abruf von Glossarbegriffen.
+**Implementation State:** Backlog
+**Review Findings:** Neu.
+**Test Status:** Missing
+
+**Traceability:** REQ-L0-055

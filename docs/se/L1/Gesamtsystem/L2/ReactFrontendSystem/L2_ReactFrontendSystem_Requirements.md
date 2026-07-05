@@ -770,4 +770,22 @@ Das ReactFrontendSystem MUSS eine wiederverwendbare Toolbar für Tabellen/Listen
 
 ---
 
-*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*
+### REQ-L2-RF-032: Markdown Glossary Tooltips
+
+Das ReactFrontendSystem MUSS im Markdown-Renderer eine Erweiterung implementieren, welche `@Begriff`-Syntax erkennt und als interaktiven Tooltip-Trigger rendert.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Der Markdown-Renderer registriert `@Begriff` und erzeugt ein interaktives Element (Tooltip-Trigger).
+- [ ] Beim Hover lädt das Frontend asynchron die Definition aus der API oder verwendet einen gecachten Store und zeigt diese an.
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-032
+**Abgeleitet von:** REQ-L1-086
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*

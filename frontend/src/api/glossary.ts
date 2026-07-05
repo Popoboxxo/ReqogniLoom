@@ -1,5 +1,5 @@
-import { api } from './client';
-import type { GlossaryTerm } from '../types';
+import { apiClient, getList } from './client';
+import type { GlossaryTerm, PaginatedResponse } from '../types';
 
 export interface GlossaryTermPayload {
   workspace_id: string;
@@ -11,26 +11,23 @@ export interface GlossaryTermPayload {
 
 export const glossaryApi = {
   list: async (workspaceId: string): Promise<GlossaryTerm[]> => {
-    const response = await api.get<{ results: GlossaryTerm[] }>(`/glossary/?workspace_id=${workspaceId}`);
-    return response.data.results;
+    const response = await getList<GlossaryTerm>('/glossary/', { workspace_id: workspaceId });
+    return response.results;
   },
 
   get: async (id: string): Promise<GlossaryTerm> => {
-    const response = await api.get<GlossaryTerm>(`/glossary/${id}/`);
-    return response.data;
+    return apiClient.get<GlossaryTerm>(`/glossary/${id}/`);
   },
 
   create: async (payload: GlossaryTermPayload): Promise<GlossaryTerm> => {
-    const response = await api.post<GlossaryTerm>('/glossary/', payload);
-    return response.data;
+    return apiClient.post<GlossaryTerm>('/glossary/', payload);
   },
 
   update: async (id: string, payload: Partial<GlossaryTermPayload>): Promise<GlossaryTerm> => {
-    const response = await api.patch<GlossaryTerm>(`/glossary/${id}/`, payload);
-    return response.data;
+    return apiClient.patch<GlossaryTerm>(`/glossary/${id}/`, payload);
   },
 
   delete: async (id: string): Promise<void> => {
-    await api.delete(`/glossary/${id}/`);
+    return apiClient.delete(`/glossary/${id}/`);
   },
 };
