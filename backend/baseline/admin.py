@@ -52,7 +52,7 @@ class BaselineSnapshotAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return BaselineSnapshot.objects.unscoped()
+        return BaselineSnapshot.unscoped.all()
 
 
 @admin.register(BaselineDeltaIndexEntry)

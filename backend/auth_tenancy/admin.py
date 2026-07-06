@@ -32,7 +32,7 @@ class ApiKeyAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return ApiKey.objects.unscoped()
+        return ApiKey.unscoped.all()
 
 
 @admin.register(UserRole)
@@ -46,7 +46,7 @@ class UserRoleAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return UserRole.objects.unscoped()
+        return UserRole.unscoped.all()
 
 
 @admin.register(ItemPermission)
@@ -67,7 +67,7 @@ class ItemPermissionAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return ItemPermission.objects.unscoped()
+        return ItemPermission.unscoped.all()
 
 
 @admin.register(UserWorkspacePreference)
@@ -81,4 +81,4 @@ class UserWorkspacePreferenceAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return UserWorkspacePreference.objects.unscoped()
+        return UserWorkspacePreference.unscoped.all()

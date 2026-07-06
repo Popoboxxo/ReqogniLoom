@@ -39,7 +39,7 @@ class DiagramAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return Diagram.objects.unscoped()
+        return Diagram.unscoped.all()
 
 
 @admin.register(DiagramVersion)
@@ -74,7 +74,7 @@ class DiagramVersionAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return DiagramVersion.objects.unscoped()
+        return DiagramVersion.unscoped.all()
 
     def has_add_permission(self, request):
         return False  # read-only

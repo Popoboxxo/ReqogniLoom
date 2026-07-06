@@ -42,7 +42,7 @@ class WorkflowEngineDefinitionAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return WorkflowEngineDefinition.objects.unscoped()
+        return WorkflowEngineDefinition.unscoped.all()
 
 
 @admin.register(WorkflowItemState)
@@ -63,7 +63,7 @@ class WorkflowItemStateAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return WorkflowItemState.objects.unscoped()
+        return WorkflowItemState.unscoped.all()
 
 
 @admin.register(WorkflowHistoryEntry)
@@ -111,7 +111,7 @@ class WorkflowHistoryEntryAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return WorkflowHistoryEntry.objects.unscoped()
+        return WorkflowHistoryEntry.unscoped.all()
 
     def has_add_permission(self, request):
         return False  # read-only

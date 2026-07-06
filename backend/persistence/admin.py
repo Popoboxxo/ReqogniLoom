@@ -141,7 +141,7 @@ class RoleAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return Role.objects.unscoped()
+        return Role.unscoped.all()
 
 
 @admin.register(Workspace)
@@ -155,7 +155,7 @@ class WorkspaceAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return Workspace.objects.unscoped()
+        return Workspace.unscoped.all()
 
 
 @admin.register(Artifact)
@@ -169,7 +169,7 @@ class ArtifactAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return Artifact.objects.unscoped()
+        return Artifact.unscoped.all()
 
 
 @admin.register(Requirement)
@@ -183,7 +183,7 @@ class RequirementAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return Requirement.objects.unscoped()
+        return Requirement.unscoped.all()
 
 
 @admin.register(StakeholderNeed)
@@ -197,7 +197,7 @@ class StakeholderNeedAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return StakeholderNeed.objects.unscoped()
+        return StakeholderNeed.unscoped.all()
 
 
 @admin.register(AttributeVisibilityConfig)
@@ -209,7 +209,7 @@ class AttributeVisibilityConfigAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return AttributeVisibilityConfig.objects.unscoped()
+        return AttributeVisibilityConfig.unscoped.all()
 
 
 @admin.register(ArchitectureElement)
@@ -223,7 +223,7 @@ class ArchitectureElementAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return ArchitectureElement.objects.unscoped()
+        return ArchitectureElement.unscoped.all()
 
 
 @admin.register(TraceLink)
@@ -237,7 +237,7 @@ class TraceLinkAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return TraceLink.objects.unscoped()
+        return TraceLink.unscoped.all()
 
 
 @admin.register(TestCase)
@@ -251,7 +251,7 @@ class TestCaseAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return TestCase.objects.unscoped()
+        return TestCase.unscoped.all()
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ class AuditLogEntryAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return AuditLogEntry.objects.unscoped()
+        return AuditLogEntry.unscoped.all()
 
     def has_add_permission(self, request):
         return False  # read-only
@@ -315,7 +315,7 @@ class TestRunAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return TestRun.objects.unscoped()
+        return TestRun.unscoped.all()
 
 
 @admin.register(TestRunResult)
@@ -336,4 +336,4 @@ class TestRunResultAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "created_by", "modified_at", "modified_by", "version")
 
     def get_queryset(self, request):
-        return TestRunResult.objects.unscoped()
+        return TestRunResult.unscoped.all()

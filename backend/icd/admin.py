@@ -41,7 +41,7 @@ class IcdAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return Icd.objects.unscoped()
+        return Icd.unscoped.all()
 
 
 @admin.register(IcdVersion)
@@ -82,7 +82,7 @@ class IcdVersionAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return IcdVersion.objects.unscoped()
+        return IcdVersion.unscoped.all()
 
     def has_add_permission(self, request):
         return False  # read-only

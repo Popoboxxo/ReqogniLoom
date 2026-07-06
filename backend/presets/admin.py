@@ -36,4 +36,4 @@ class WorkspacePresetConfigAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return WorkspacePresetConfig.objects.unscoped()
+        return WorkspacePresetConfig.unscoped.all()

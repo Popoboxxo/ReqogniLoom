@@ -4,11 +4,16 @@
  * Initializes i18n (react-i18next, DE/EN — REQ-L1-016) and renders the
  * root App component into the DOM.
  */
+import React, { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 import "./styles/tokens.css";
 import "./styles/global.css";
 import "./i18n/index";
 import { App } from "./App";
+
+// Force React to be globally available to prevent esbuild from stripping the import
+// and to satisfy any old JSX transforms or third-party libraries.
+(window as any).React = React;
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -16,7 +21,7 @@ if (!rootElement) {
 }
 
 ReactDOM.createRoot(rootElement).render(
-  <React.StrictMode>
+  <StrictMode>
     <App />
-  </React.StrictMode>
+  </StrictMode>
 );

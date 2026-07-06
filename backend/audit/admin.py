@@ -61,7 +61,7 @@ class AuditEntryAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return AuditEntry.objects.unscoped()
+        return AuditEntry.unscoped.all()
 
     def has_add_permission(self, request):
         return False  # read-only

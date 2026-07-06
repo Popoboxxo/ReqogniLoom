@@ -41,4 +41,4 @@ class CircuitBreakerStateAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # CRITICAL: bypass the tenant-isolating default manager.
-        return CircuitBreakerState.objects.unscoped()
+        return CircuitBreakerState.unscoped.all()
