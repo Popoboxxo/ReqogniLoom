@@ -35,7 +35,6 @@ import {
 import { requirementsApi } from '../../api/requirements';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
-import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { VersionBadge } from '../shared/VersionBadge';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
@@ -476,18 +475,11 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
           />
         )}
 
-        {/* TraceLink panel */}
-        <TraceLinkPanel
-          workspaceId={workspaceId}
-          artifactId={requirement.id}
-        />
       </div>
 
-      {/* Removed: replaced by ArtifactInspector (REQ-L1-095).
-          The inline <TraceabilityPanel> (upstream/downstream links) is
-          replaced by the shared <RightSidebar kind="requirement" />,
-          which renders VersionPanel + DiffPanel + TracePanel in one
-          persistent shell (UI standards §3 / §4 / §11). */}
+      {/* ArtifactInspector RightSidebar (REQ-L1-095).
+          Replaces the inline TraceLinkPanel with a unified shell that
+          renders VersionPanel + DiffPanel + TracePanel. */}
       <RightSidebar
         kind="requirement"
         artifactId={requirement.id}

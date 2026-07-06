@@ -24,8 +24,37 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { requirementsApi } from "../../../api/requirements";
+import { architectureApi } from "../../../api/architecture";
+import type { ArtifactVersion } from "../../../types";
 import { type ArtifactKind, type BaselineSummary, type VersionRef } from "./types";
 import styles from "./VersionPanel.module.css";
+
+// ---------------------------------------------------------------------------
+// API dispatch — only requirement + architecture expose /versions/ today.
+// ---------------------------------------------------------------------------
+
+const VERSION_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
+  "requirement",
+  "architecture",
+]);
+
+function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise<VersionRef[]> {
+  const map = (v: ArtifactVersion): VersionRef => ({
+    version: v.version,
+    label: v.label,
+    createdAt: v.modified_at ?? null,
+    baselineIds: [],
+  });
+
+  if (kind === "requirement") {
+    return requirementsApi.versions(String(artifactId)).then((list) => list.map(map));
+  }
+  if (kind === "architecture") {
+    return architectureApi.versions(String(artifactId)).then((list) => list.map(map));
+  }
+  return Promise.resolve([]);
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -51,29 +80,7 @@ export interface VersionPanelProps {
   baselines?: ReadonlyArray<BaselineSummary>;
 }
 
-// ---------------------------------------------------------------------------
-// Mock fetcher — replaced by a real API call in a follow-up.
-// Returns Promise<VersionRef[]> to match ArtifactVersion[] semantics.
-// ---------------------------------------------------------------------------
 
-interface MockFetchResult {
-  versions: VersionRef[];
-}
-
-/**
- * TODO(backend): replace with a real call to
- *   `<kind>Api.versions(id)` from `frontend/src/api/<kind>.ts`. Today
- *   the call is mocked: it always resolves to an empty list. The
- *   404 / not-supported path is unit-tested separately and is the
- *   documented behaviour for the 7 kinds that have no `/versions/`
- *   endpoint yet (UI standards §5.1 / §11).
- */
-async function mockFetchVersions(
-  _kind: ArtifactKind,
-  _artifactId: string | number
-): Promise<MockFetchResult> {
-  return Promise.resolve({ versions: [] });
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -103,16 +110,21 @@ export function VersionPanel({
   const load = useCallback(async (): Promise<void> => {
     setState("loading");
     setErrorMessage(null);
+    if (!VERSION_SUPPORTED_KINDS.has(kind)) {
+      setVersions([]);
+      setState("empty");
+      return;
+    }
     try {
-      const res = await mockFetchVersions(kind, artifactId);
-      if (res.versions.length === 0) {
+      const list = await fetchVersions(kind, artifactId);
+      if (list.length === 0) {
         // Both "no history" and "endpoint not implemented for this kind"
         // collapse to the same empty state today (UI standards §5.1 / §11).
         setVersions([]);
         setState("empty");
         return;
       }
-      setVersions(res.versions);
+      setVersions(list);
       setState("ready");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));

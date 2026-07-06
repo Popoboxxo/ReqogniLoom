@@ -20,9 +20,37 @@
  *   other 8 kinds show the "unsupported" empty state.
  */
 import { useTranslation } from "react-i18next";
+import { requirementsApi } from "../../../api/requirements";
+import { architectureApi } from "../../../api/architecture";
 import { ArtifactDiff, type DiffEntityType } from "../../ArtifactDiff/ArtifactDiff";
 import { DIFF_SUPPORTED_KINDS, type ArtifactKind } from "./types";
 import styles from "./DiffPanel.module.css";
+
+// ---------------------------------------------------------------------------
+// Real fetcher dispatch — requirement + architecture only.
+// ---------------------------------------------------------------------------
+
+function diffFetcherFor(kind: ArtifactKind) {
+  if (kind === "requirement") {
+    return (id: string, from: number, to: number) =>
+      requirementsApi.diff(id, from, to);
+  }
+  if (kind === "architecture") {
+    return (id: string, from: number, to: number) =>
+      architectureApi.diff(id, from, to);
+  }
+  throw new Error(`Unsupported diff kind: ${kind}`);
+}
+
+function versionsFetcherFor(kind: ArtifactKind) {
+  if (kind === "requirement") {
+    return (id: string) => requirementsApi.versions(id);
+  }
+  if (kind === "architecture") {
+    return (id: string) => architectureApi.versions(id);
+  }
+  throw new Error(`Unsupported versions kind: ${kind}`);
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -53,28 +81,7 @@ function mapKindToDiffEntityType(kind: ArtifactKind): DiffEntityType | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Mock fetchers — replaced when backend coverage lands.
-// ---------------------------------------------------------------------------
 
-// TODO(backend): replace with real
-//   `requirementsApi.diff(id, from, to)` / `architectureApi.diff(...)`.
-//   The signature intentionally matches ArtifactDiff's contract so the
-//   swap is mechanical.
-const mockDiffFetcher = async (
-  _id: string | number,
-  _from: number,
-  _to: number
-): Promise<never> => {
-  // No-op — the panel renders the "unsupported" empty state for the
-  // non-supported kinds, and the requirement/architecture paths will
-  // use real fetchers once this component is wired into a page.
-  return Promise.reject(new Error("diff not yet wired (mock fetcher)"));
-};
-
-const mockVersionsFetcher = async (_id: string | number): Promise<never[]> => {
-  return Promise.resolve([]);
-};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -132,8 +139,8 @@ export function DiffPanel({
           entityId={String(artifactId)}
           entityType={entityType}
           currentVersion={rightVersion}
-          diffFetcher={mockDiffFetcher}
-          versionsFetcher={mockVersionsFetcher}
+          diffFetcher={diffFetcherFor(kind)}
+          versionsFetcher={versionsFetcherFor(kind)}
           onClose={(): void => {
             /* no-op — the inspector is persistent; per UI standards §1.2
                the close button must not unmount the inspector. */

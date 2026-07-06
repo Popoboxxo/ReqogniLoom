@@ -48,6 +48,8 @@ vi.mock("../api/requirements", () => ({
     update: vi.fn(),
     delete: vi.fn(),
     get: vi.fn(),
+    versions: vi.fn().mockResolvedValue([]),
+    diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
   },
 }));
 

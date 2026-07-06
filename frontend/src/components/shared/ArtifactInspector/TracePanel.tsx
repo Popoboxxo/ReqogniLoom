@@ -26,6 +26,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { tracelinksApi } from "../../../api/tracelinks";
+import { useWorkspace } from "../../../context/WorkspaceContext";
+import type { TraceLink } from "../../../types";
 import {
   ALL_LINK_TYPES,
   type ArtifactKind,
@@ -44,19 +47,38 @@ export interface TracePanelProps {
 }
 
 // ---------------------------------------------------------------------------
-// Mock fetcher
+// Link type mapping — backend enum -> frontend subset
 // ---------------------------------------------------------------------------
 
-/**
- * TODO(backend): replace with `tracelinksApi.listForArtifact(wsId, id)`
- *   from `frontend/src/api/tracelinks.ts`. The signature intentionally
- *   returns a Promise<TraceLinkRow[]> to match the real API shape.
- */
-async function mockFetchTraceLinks(
-  _kind: ArtifactKind,
-  _artifactId: string | number
-): Promise<TraceLinkRow[]> {
-  return Promise.resolve([]);
+function normalizeLinkType(raw: string): LinkType | null {
+  const normalized = raw.replace(/_/g, "-") as LinkType;
+  return ALL_LINK_TYPES.includes(normalized) ? normalized : null;
+}
+
+function mapTraceLink(
+  link: TraceLink,
+  currentArtifactId: string
+): TraceLinkRow | null {
+  const isSource = link.source_id === currentArtifactId;
+  const isTarget = link.target_id === currentArtifactId;
+  if (!isSource && !isTarget) return null;
+
+  const linkType = normalizeLinkType(link.link_type);
+  if (!linkType) return null;
+
+  const otherId = isSource ? link.target_id : link.source_id;
+  return {
+    id: link.id,
+    direction: isSource ? "outbound" : "inbound",
+    linkType,
+    otherArtifact: {
+      id: otherId,
+      title: otherId,
+      kind: "requirement", // TODO: resolve real kind once API exposes it
+      route: `/requirements/${otherId}`,
+    },
+    createdAt: link.created_at,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +90,7 @@ type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { activeWorkspace } = useWorkspace();
   const [state, setState] = useState<LoadState>("idle");
   const [links, setLinks] = useState<TraceLinkRow[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -83,20 +106,31 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
   const load = useCallback(async (): Promise<void> => {
     setState("loading");
     setErrorMessage(null);
+    if (!activeWorkspace) {
+      setLinks([]);
+      setState("empty");
+      return;
+    }
     try {
-      const res = await mockFetchTraceLinks(kind, artifactId);
-      if (res.length === 0) {
+      const paginated = await tracelinksApi.listForArtifact(
+        activeWorkspace.id,
+        String(artifactId)
+      );
+      const mapped = paginated.results
+        .map((link) => mapTraceLink(link, String(artifactId)))
+        .filter((row): row is TraceLinkRow => row !== null);
+      if (mapped.length === 0) {
         setLinks([]);
         setState("empty");
         return;
       }
-      setLinks(res);
+      setLinks(mapped);
       setState("ready");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setState("error");
     }
-  }, [kind, artifactId]);
+  }, [kind, artifactId, activeWorkspace]);
 
   useEffect(() => {
     void load();
