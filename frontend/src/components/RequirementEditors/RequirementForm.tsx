@@ -26,7 +26,6 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import {
   Requirement,
   RequirementType,
-  MoscowPriority,
   VerificationMethod,
   UUID,
   TraceLink,
@@ -37,8 +36,9 @@ import { requirementsApi } from '../../api/requirements';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
-import { TraceabilityPanel } from './TraceabilityPanel';
 import { VersionBadge } from '../shared/VersionBadge';
+import { RightSidebar } from '../shared/ArtifactInspector';
+import type { VersionRef } from '../shared/ArtifactInspector';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
 
 /**
@@ -57,14 +57,16 @@ interface RequirementFormProps {
 
 /**
  * RequirementForm — Right panel component with type-dependent field rendering.
+ *
+ * The `upstreamLinks`/`downstreamLinks`/`linkedTitles`/`linkedRoutes`
+ * props are retained on the public interface for compatibility with
+ * `RequirementEditors.tsx` (out of scope of the current task) but are
+ * no longer consumed here — traceability is now surfaced through the
+ * shared ArtifactInspector (REQ-L1-095).
  */
 export const RequirementForm: React.FC<RequirementFormProps> = ({
   requirement,
-  upstreamLinks,
-  downstreamLinks,
-  linkedTitles,
-  linkedRoutes,
-  requirements,
+  requirements: _requirements,
   workspaceId,
   onSaved,
 }) => {
@@ -91,6 +93,20 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
+
+  // Feed the ArtifactInspector with the current version
+  // (REQ-L2-RF-035). The actual /versions/ list is fetched inside
+  // VersionPanel; we only hand it the current row to anchor the
+  // diff baseline (UI standards §4.1).
+  const currentVersion: VersionRef = useMemo(
+    () => ({
+      version: requirement.version,
+      label: `v${requirement.version}`,
+      createdAt: requirement.updated_at ?? requirement.created_at,
+      baselineIds: [],
+    }),
+    [requirement.version, requirement.created_at, requirement.updated_at]
+  );
 
   /**
    * Validate form data before saving.
@@ -467,12 +483,15 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         />
       </div>
 
-      {/* Traceability sidebar */}
-      <TraceabilityPanel
-        upstreamLinks={upstreamLinks}
-        downstreamLinks={downstreamLinks}
-        linkedTitles={linkedTitles}
-        linkedRoutes={linkedRoutes}
+      {/* Removed: replaced by ArtifactInspector (REQ-L1-095).
+          The inline <TraceabilityPanel> (upstream/downstream links) is
+          replaced by the shared <RightSidebar kind="requirement" />,
+          which renders VersionPanel + DiffPanel + TracePanel in one
+          persistent shell (UI standards §3 / §4 / §11). */}
+      <RightSidebar
+        kind="requirement"
+        artifactId={requirement.id}
+        currentVersion={currentVersion}
       />
     </div>
   );

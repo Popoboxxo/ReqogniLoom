@@ -1,0 +1,196 @@
+/* ArtifactInspector — RightSidebar shell styles (REQ-L2-RF-034). */
+
+.aside {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  overflow: hidden;
+  position: relative;
+  min-width: 0;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  transition: width var(--transition-fast);
+}
+
+.asideCollapsed {
+  background: var(--color-surface-raised);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  flex: 0 0 auto;
+  gap: var(--space-2);
+}
+
+.headerTitle {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.headerButton {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  font-family: inherit;
+}
+
+.headerButton:hover {
+  background: var(--color-border);
+  border-color: var(--color-border-hover);
+}
+
+.headerButton[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.headerButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.panels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.panels::-webkit-scrollbar {
+  width: 8px;
+}
+
+.panels::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.panels::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+.panels::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 5;
+  transition: background var(--transition-fast);
+}
+
+.resizeHandle:hover,
+.resizeHandle:active {
+  background: var(--color-primary);
+}
+
+.collapsed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  height: 100%;
+  background: var(--color-surface-raised);
+}
+
+.collapsedButton {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  transition: background var(--transition-fast);
+}
+
+.collapsedButton:hover {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.collapsedButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.collapsedIconButton {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  transition: background var(--transition-fast);
+}
+
+.collapsedIconButton:hover {
+  background: var(--color-border);
+}
+
+.collapsedIconButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aside {
+    transition: none;
+  }
+  .headerButton,
+  .resizeHandle,
+  .collapsedButton,
+  .collapsedIconButton {
+    transition: none;
+  }
+}

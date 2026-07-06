@@ -403,6 +403,10 @@ Das ReactFrontend MUSS den Vergleich zweier benannter Baselines als visuellen Di
 | REQ-L2-RF-013 | (reserviert) | — | — |
 | REQ-L2-RF-014 | Visuelles Artefakt-Diff | REQ-L1-040 | — |
 | REQ-L2-RF-015 | Visuelles Baseline-Diff | REQ-L1-041 | — |
+| REQ-L2-RF-034 | RightSidebar Shell (ArtifactInspector) | REQ-L1-089 | REQ-L1-093, REQ-L1-094 |
+| REQ-L2-RF-035 | VersionPanel | REQ-L1-090 | REQ-L1-094 |
+| REQ-L2-RF-036 | DiffPanel | REQ-L1-091 | REQ-L1-093, REQ-L1-094 |
+| REQ-L2-RF-037 | TracePanel | REQ-L1-092 | REQ-L1-094 |
 
 ---
 
@@ -415,6 +419,23 @@ Das ReactFrontend MUSS den Vergleich zweier benannter Baselines als visuellen Di
 | REQ-L1-016 | i18n DE/EN | REQ-L2-RF-001, REQ-L2-RF-011 | ✓ |
 | REQ-L1-017 | React-UI | REQ-L2-RF-002..006, REQ-L2-RF-010, REQ-L2-RF-012 | ✓ |
 | REQ-L1-026 | Performance | REQ-L2-RF-009 | ✓ |
+
+**Vollständigkeit:** Alle ARCH-L1-001 zugeordneten REQ-L1 sind durch mindestens eine REQ-L2-RF abgedeckt.
+
+| REQ-L1 | Titel | Abgedeckt durch | Status |
+|--------|-------|-----------------|--------|
+| REQ-L1-007 | Configurable-Rigor-Presets | REQ-L2-RF-007, REQ-L2-RF-012 | ✓ |
+| REQ-L1-014 | Terminologie-Profile | REQ-L2-RF-008, REQ-L2-RF-012 | ✓ |
+| REQ-L1-016 | i18n DE/EN | REQ-L2-RF-001, REQ-L2-RF-011, REQ-L2-RF-034..037 | ✓ |
+| REQ-L1-017 | React-UI | REQ-L2-RF-002..006, REQ-L2-RF-010, REQ-L2-RF-012, REQ-L2-RF-034..037 | ✓ |
+| REQ-L1-026 | Performance | REQ-L2-RF-009 | ✓ |
+| REQ-L1-089 | Unified ArtifactInspector (RightSidebar) Shell | REQ-L2-RF-034 | ✓ |
+| REQ-L1-090 | VersionPanel inside ArtifactInspector | REQ-L2-RF-035 | ✓ |
+| REQ-L1-091 | DiffPanel inside ArtifactInspector | REQ-L2-RF-036 | ✓ |
+| REQ-L1-092 | TracePanel inside ArtifactInspector | REQ-L2-RF-037 | ✓ |
+| REQ-L1-093 | Accessibility baseline for ArtifactInspector | REQ-L2-RF-034..037 (in scope) | ✓ |
+| REQ-L1-094 | i18n key naming convention for ArtifactInspector | REQ-L2-RF-001 (mitwirkend), REQ-L2-RF-034..037 | ✓ |
+| REQ-L1-095 | Adoption of ArtifactInspector on all 10 artifact types | REQ-L2-RF-034..037 (adoption unit) | ✓ |
 
 **Vollständigkeit:** Alle ARCH-L1-001 zugeordneten REQ-L1 sind durch mindestens eine REQ-L2-RF abgedeckt.
 
@@ -804,5 +825,113 @@ Das ReactFrontendSystem MUSS im Workspace-Admin-Bereich eine UI bereitstellen, i
 **Verifikationsmethode:** UI-Test.
 **Verifikiert durch:** L2-RF-Test-033
 **Abgeleitet von:** REQ-L1-088
+
+---
+
+## Erweiterung v12 — REQ-L2-RF-034..037 (Unified ArtifactInspector / Right Sidebar)
+
+> **Datum:** 2026-07-06 | **Quelle:** REQ-L1-089..095 (User-Request "UI Unification of the Right Sidebar")
+
+---
+
+### REQ-L2-RF-034: RightSidebar Shell Component (ArtifactInspector)
+
+The ReactFrontendSystem MUST implement a generic, reusable right-sidebar shell component (`RightSidebar` / `ArtifactInspector`) used by every artifact detail page. The shell MUST host three panel slots in fixed order — `VersionPanel`, `DiffPanel`, `TracePanel` — and MUST expose `collapse` and `pin` user actions, with the resulting state persisted per user session (LocalStorage). The shell MUST apply the ARIA roles defined in REQ-L1-093 and source all user-visible strings from the `sidebar.inspector.*` i18n key tree defined in REQ-L1-094. The shell MUST be keyboard-navigable and announce collapse/pin/switch state changes via `aria-live="polite"` regions.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. Supersedes the inline sidebars of the RequirementEditor (REQ-L3-RF003-003) and ArchitectureEditor (REQ-L3-RF004-003).
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Shell component renders three panel slots in fixed order: VersionPanel, DiffPanel, TracePanel.
+- [ ] User can collapse and pin the sidebar; state persists per user session (LocalStorage).
+- [ ] Shell applies ARIA roles (`complementary` on shell, `region` + `aria-labelledby` on each panel, `aria-expanded` on toggle button) and announces state changes via `aria-live="polite"`.
+- [ ] All shell strings are sourced from `sidebar.inspector.*` and translated in `de` and `en`.
+- [ ] Existing inline sidebars of RequirementEditor and ArchitectureEditor are removed and the unified shell takes their place.
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (REST: GET /api/v1/artifacts/{type}/{id}/versions, /api/v1/artifacts/{type}/{id}/trace-links)
+- Outgoing: IF-RF-EXT-OUT-002 (rendered right column of the artifact detail page)
+
+**Traceability:** REQ-L1-089, REQ-L1-093, REQ-L1-094
+**Abgeleitet von:** REQ-L1-089, REQ-L1-093, REQ-L1-094
+
+---
+
+### REQ-L2-RF-035: VersionPanel Component
+
+The ReactFrontendSystem MUST implement a reusable `VersionPanel` component that renders a list of all versions of the active artifact (newest first, with version label, author, timestamp), allows the user to switch the displayed version by clicking an entry, and displays a baseline indicator for the currently selected version (baseline name, scope, date) or a neutral "Not in any active baseline" state. For artifact types without versioning, the panel MUST render an explicit "Single version" state. All user-visible strings MUST be sourced from the `sidebar.version.*` i18n key tree (REQ-L1-094), translated in `de` and `en`.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Panel lists all versions of the active artifact, newest first, with version label, author, timestamp.
+- [ ] Clicking a version entry switches the detail view to that version.
+- [ ] When the selected version is contained in a baseline, a baseline indicator is shown (baseline name, scope, date).
+- [ ] When no baseline contains the selected version, a neutral "Not in any active baseline" state is rendered.
+- [ ] For artifact types without versioning, an explicit "Single version" state is shown.
+- [ ] All strings are sourced from `sidebar.version.*` and translated in `de` and `en`.
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (REST: GET /api/v1/artifacts/{type}/{id}/versions, GET /api/v1/baselines?artifact={id})
+- Outgoing: IF-RF-EXT-OUT-002 (rendered VersionPanel slot)
+
+**Traceability:** REQ-L1-090, REQ-L1-094
+**Abgeleitet von:** REQ-L1-090, REQ-L1-094
+
+---
+
+### REQ-L2-RF-036: DiffPanel Component (field-level diff)
+
+The ReactFrontendSystem MUST implement a reusable `DiffPanel` component that accepts any two versions of the active artifact (sourced from the VersionPanel) and renders a field-level diff grouped by field name with per-field status (added / changed / removed) and old/new values. For ICDs the diff MUST include semantic fields (precondition, postcondition, invariant). An empty diff MUST be shown as an explicit "no differences" state, not a blank panel. All user-visible strings MUST be sourced from the `sidebar.diff.*` i18n key tree (REQ-L1-094), translated in `de` and `en`.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. The existing `Visuelles Artefakt-Diff` (REQ-L2-RF-014) is a global view; the DiffPanel is the per-artifact companion.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Panel exposes two version pickers (from / to) sourced from the VersionPanel.
+- [ ] Panel renders a field-level diff grouped by field name with per-field status (added / changed / removed) and old/new values.
+- [ ] For ICDs, semantic fields (precondition, postcondition, invariant) are included in the diff.
+- [ ] Identical versions render an explicit "no differences" state, not a blank panel.
+- [ ] Loading and error states are rendered consistently with the other panels.
+- [ ] All strings are sourced from `sidebar.diff.*` and translated in `de` and `en`.
+- [ ] Color contrast for added/changed/removed states meets WCAG 2.1 AA (REQ-L1-093).
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (REST: GET /api/v1/artifacts/{type}/{id}/diff?from={v1}&to={v2})
+- Outgoing: IF-RF-EXT-OUT-002 (rendered DiffPanel slot)
+
+**Traceability:** REQ-L1-091, REQ-L1-093, REQ-L1-094
+**Abgeleitet von:** REQ-L1-091, REQ-L1-093, REQ-L1-094
+
+---
+
+### REQ-L2-RF-037: TracePanel Component (inbound/outbound links, type filter)
+
+The ReactFrontendSystem MUST implement a reusable `TracePanel` component that displays all inbound (other artifacts linking to this artifact) and outbound (this artifact linking to other artifacts) TraceLinks of the active artifact, grouped by direction and by TraceLink type. A multi-select filter MUST let the user restrict both groups to one or more TraceLink types. Each link entry MUST show source/target artifact ID, type, direction, and `suspect` flag (per REQ-L1-043) when applicable. Empty groups MUST show an explicit "No inbound links" / "No outbound links" placeholder. All user-visible strings MUST be sourced from the `sidebar.trace.*` i18n key tree (REQ-L1-094), translated in `de` and `en`.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. The existing `Traceability-Anzeige` (REQ-L2-RF-006) and the inline sidebars of RequirementEditor / ArchitectureEditor are predecessors; the TracePanel is the unified successor.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Panel shows two groups: inbound and outbound, each grouped by TraceLink type.
+- [ ] A multi-select filter restricts both groups to one or more TraceLink types.
+- [ ] Each link entry shows source/target artifact ID, type, direction, and `suspect` flag when applicable.
+- [ ] Clicking a link entry navigates to the linked artifact's detail view, preserving the inspector state.
+- [ ] Empty groups show an explicit "No inbound links" / "No outbound links" placeholder.
+- [ ] All strings are sourced from `sidebar.trace.*` and translated in `de` and `en`.
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (REST: GET /api/v1/artifacts/{type}/{id}/trace-links?direction={in|out}&type={...})
+- Outgoing: IF-RF-EXT-OUT-002 (rendered TracePanel slot)
+
+**Traceability:** REQ-L1-092, REQ-L1-094
+**Abgeleitet von:** REQ-L1-092, REQ-L1-094
+
+---
 
 *Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*

@@ -8,7 +8,7 @@
  */
 
 import { apiClient, getList } from "./client";
-import type { Adr, PaginatedResponse, UUID } from "../types";
+import type { Adr, ArtifactDiffResult, ArtifactVersion, PaginatedResponse, UUID } from "../types";
 
 export const adrsApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<Adr>> {
@@ -41,5 +41,37 @@ export const adrsApi = {
 
   delete(id: UUID): Promise<void> {
     return apiClient.delete(`/adrs/${id}/`);
+  },
+
+  // -----------------------------------------------------------------------
+  // Diff / Versions — stubs (UI standards §4.5 / §11 Backend gaps)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Field-level diff between two ADR versions. Signature mirrors
+   * `requirementsApi.diff` / `architectureApi.diff` so the DiffPanel can
+   * swap fetchers per kind without changing the call site.
+   * TODO(backend): wire to GET /api/v1/adrs/{id}/diff/ (not exposed yet).
+   */
+  diff(id: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {
+    return Promise.reject(
+      new Error(
+        `Not Implemented: ADR /diff/ endpoint for ${id} (from v${fromVersion} to v${toVersion}) — see UI standards §11.`
+      )
+    );
+  },
+
+  /**
+   * Version list for an ADR. The backend does not expose a `/versions/`
+   * endpoint for ADRs. DiffPanel will short-circuit to its empty state
+   * for ADRs in the meantime.
+   * TODO(backend): wire to GET /api/v1/adrs/{id}/versions/.
+   */
+  versions(id: UUID): Promise<ArtifactVersion[]> {
+    return Promise.reject(
+      new Error(
+        `Not Implemented: ADR /versions/ endpoint for ${id} — see UI standards §11.`
+      )
+    );
   },
 };

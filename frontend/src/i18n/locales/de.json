@@ -446,5 +446,55 @@
     "revoke": "Widerrufen",
     "revokeConfirm": "Diesen Token widerrufen? Clients, die ihn verwenden, verlieren sofort den Zugriff.",
     "empty": "Noch keine Token vorhanden."
+  },
+  "sidebar": {
+    "inspector": {
+      "title": "Inspektor",
+      "ariaLabel": "Inspektor für {{kind}}",
+      "collapse": "Seitenleiste einklappen",
+      "expand": "Seitenleiste öffnen",
+      "pin": "Seitenleiste anheften",
+      "unpin": "Seitenleiste lösen",
+      "refresh": "Aktualisieren",
+      "skeletonLoading": "Lade Inspektor...",
+      "resize": "Inspektor skalieren"
+    },
+    "version": {
+      "title": "Version",
+      "currentLabel": "Aktuell",
+      "baselineChip": "In Baseline: {{name}}",
+      "baselineChipPlural": "In {{n}} Baselines",
+      "empty": "Keine Versionshistorie für dieses Artefakt.",
+      "error": "Versionen konnten nicht geladen werden.",
+      "menu": {
+        "switch": "Zu v{{n}} wechseln",
+        "compare": "Mit aktueller Version vergleichen",
+        "copy": "Versions-ID kopieren"
+      },
+      "copied": "Versions-ID kopiert"
+    },
+    "diff": {
+      "title": "Diff",
+      "from": "Von",
+      "to": "Bis",
+      "empty": "Wähle oben zwei Versionen zum Vergleichen.",
+      "error": "Diff konnte nicht geladen werden.",
+      "unsupported": "Diff ist für {{kind}}-Artefakte noch nicht verfügbar.",
+      "compareCurrent": "Vergleiche v{{from}} → v{{to}}"
+    },
+    "trace": {
+      "title": "Trace-Links",
+      "inbound": "Eingehend",
+      "outbound": "Ausgehend",
+      "empty": "Keine Trace-Links.",
+      "error": "Trace-Links konnten nicht geladen werden.",
+      "filter": {
+        "label": "Nach Typ filtern",
+        "clear": "Zurücksetzen",
+        "allSelected": "Alle Typen"
+      },
+      "create": "Trace-Link hinzufügen",
+      "viewAll": "Vollständigen Graph anzeigen"
+    }
   }
 }

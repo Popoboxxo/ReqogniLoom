@@ -56,3 +56,10 @@ export type {
   RiskSeverity,
   ThresholdWarning,
 } from "./metrics";
+
+// ---------------------------------------------------------------------------
+// Shared types — re-exported from the ArtifactInspector module so callers
+// can import the 10-kind union from the central API barrel (UI standards
+// §4.0 / §4.5 — DiffPanel and ArtifactDiff use it as the type contract).
+// ---------------------------------------------------------------------------
+export type { ArtifactKind } from "../components/shared/ArtifactInspector/types";

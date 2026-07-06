@@ -26,7 +26,13 @@
 
 import { apiClient, getList } from "./client";
 import { tracelinksApi } from "./tracelinks";
-import type { PaginatedResponse, UUID, ISODateTime } from "../types";
+import type {
+  ArtifactDiffResult,
+  ArtifactVersion,
+  PaginatedResponse,
+  UUID,
+  ISODateTime,
+} from "../types";
 
 // ---------------------------------------------------------------------------
 // Domain types — mirror IcdViewSet serializer in backend/rest_api/icd_views.py
@@ -201,5 +207,38 @@ export const icdsApi = {
       upstream_links: touching,
       downstream_links: [],
     };
+  },
+
+  // -----------------------------------------------------------------------
+  // Diff / Versions — stubs (UI standards §4.5 / §11 Backend gaps)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Field-level diff between two ICD versions. Signature mirrors
+   * `requirementsApi.diff` / `architectureApi.diff` so the DiffPanel can
+   * swap fetchers per kind without changing the call site.
+   * TODO(backend): wire to GET /api/v1/icds/{id}/diff/ (not exposed yet).
+   */
+  diff(id: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {
+    return Promise.reject(
+      new Error(
+        `Not Implemented: ICD /diff/ endpoint for ${id} (from v${fromVersion} to v${toVersion}) — see UI standards §11.`
+      )
+    );
+  },
+
+  /**
+   * Version list for an ICD. The backend's GET /icds/<id>/ returns the
+   * *current* version number only; the full per-version audit trail is
+   * not yet exposed via REST. DiffPanel will short-circuit to its empty
+   * state for ICDs in the meantime.
+   * TODO(backend): wire to GET /api/v1/icds/{id}/versions/.
+   */
+  versions(id: UUID): Promise<ArtifactVersion[]> {
+    return Promise.reject(
+      new Error(
+        `Not Implemented: ICD /versions/ endpoint for ${id} — see UI standards §11.`
+      )
+    );
   },
 };

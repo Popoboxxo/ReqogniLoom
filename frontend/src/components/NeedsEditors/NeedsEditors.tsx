@@ -1,8 +1,22 @@
+/**
+ * NeedsEditors — split-view editor for stakeholder needs.
+ *
+ * leaf_id: COMP-RF-003 (split-view editors)
+ * req_id:  REQ-L1-095 (ArtifactInspector adoption — 10 artifact types),
+ *          REQ-L2-RF-034 (ArtifactInspector RightSidebar shell)
+ *
+ * Layout: SplitView (left = NeedList, right = NeedForm). When a detail
+ * is selected, the right pane becomes a flex container that hosts both
+ * the editor and the ArtifactInspector (Version / Diff / Trace). The
+ * inspector is hidden when the user is browsing the list (no detail).
+ */
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { SplitView } from '../SplitView/SplitView';
 import { NeedList } from './NeedList';
 import { NeedForm } from './NeedForm';
+import { RightSidebar } from '../shared/ArtifactInspector';
+import type { VersionRef } from '../shared/ArtifactInspector';
 import { useNeedData } from './useNeedData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
@@ -63,10 +77,10 @@ export default function NeedsEditors(): JSX.Element {
   return (
     <SplitView
       leftPanel={
-        <NeedList 
-          needs={needs} 
-          selectedId={selectedId} 
-          onCreateNew={() => setShowCreate(true)} 
+        <NeedList
+          needs={needs}
+          selectedId={selectedId}
+          onCreateNew={() => setShowCreate(true)}
           showCreateForm={showCreate}
           setShowCreateForm={setShowCreate}
           newTitle={newTitle}
@@ -75,12 +89,39 @@ export default function NeedsEditors(): JSX.Element {
         />
       }
       rightPanel={
-        <NeedForm 
-          need={need} 
-          onSaved={handleSaved} 
-          onDeleted={handleDeleted}
-          attributeVisibility={attributeVisibility}
-        />
+        <div
+          style={{
+            display: 'flex',
+            height: '100%',
+            minHeight: 0,
+            gap: 'var(--space-3)',
+          }}
+        >
+          <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+            <NeedForm
+              need={need}
+              onSaved={handleSaved}
+              onDeleted={handleDeleted}
+              attributeVisibility={attributeVisibility}
+            />
+          </div>
+          {/* ArtifactInspector — REQ-L1-095, REQ-L2-RF-034 (detail only) */}
+          {need && (() => {
+            const needCurrentVersion: VersionRef = {
+              version: need.version,
+              label: `v${need.version}`,
+              createdAt: null,
+              baselineIds: [],
+            };
+            return (
+              <RightSidebar
+                kind="stakeholderNeed"
+                artifactId={need.id}
+                currentVersion={needCurrentVersion}
+              />
+            );
+          })()}
+        </div>
       }
       initialLeftWidth={350}
     />

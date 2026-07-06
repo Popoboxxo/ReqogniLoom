@@ -3,12 +3,15 @@
  *
  * leaf_id: COMP-RF-003
  * req_id:  REQ-L1-029 (ADR/Risk/Issue REST API),
- *          REQ-002 (Masken-Standardisierung auf Split-View-Layout)
+ *          REQ-002 (Masken-Standardisierung auf Split-View-Layout),
+ *          REQ-L1-095 (ArtifactInspector adoption — 10 artifact types),
+ *          REQ-L2-RF-034 (ArtifactInspector RightSidebar shell)
  *
  * Split-View layout with resizable divider:
  * - Left panel: Risk list with create button
  * - Divider: 4px resizable
- * - Right panel: Risk detail editor
+ * - Middle panel: Risk detail editor
+ * - Right panel (detail only): ArtifactInspector (Version / Diff / Trace)
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -16,6 +19,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { risksApi } from "../../api/risks";
+import { RightSidebar } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 import type { Risk, RiskImpact, RiskProbability, RiskSeverity, RiskStatus, RiskCategory } from "../../types";
 
 const SEVERITY_OPTIONS: RiskSeverity[] = ["low", "medium", "high"];
@@ -563,6 +568,23 @@ export default function RiskList(): JSX.Element {
           </p>
         )}
       </div>
+
+      {/* Right pane: ArtifactInspector (REQ-L1-095, REQ-L2-RF-034) */}
+      {selectedRisk && (() => {
+        const riskCurrentVersion: VersionRef = {
+          version: selectedRisk.version,
+          label: `v${selectedRisk.version}`,
+          createdAt: null,
+          baselineIds: [],
+        };
+        return (
+          <RightSidebar
+            kind="risk"
+            artifactId={selectedRisk.id}
+            currentVersion={riskCurrentVersion}
+          />
+        );
+      })()}
     </div>
   );
 }

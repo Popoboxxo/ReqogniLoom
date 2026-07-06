@@ -16,6 +16,7 @@ from typing import Any
 from uuid import UUID
 
 from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
@@ -264,6 +265,109 @@ class IcdViewSet(ViewSet):
             # Now delete the ICD itself (no child FK references remain)
             icd.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
+        except Icd.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # -- versions ----------------------------------------------------------
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/icds/<pk>/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            icd = Icd.objects.get(id=UUID(pk), tenant_id=ctx.tenant_id)
+            version_list = get_icd_history(icd_id=icd.id)
+            result = [{"version": 0, "label": "Creation baseline"}]
+            for v in version_list:
+                result.append({
+                    "version": v.version_number,
+                    "label": f"v{v.version_number}",
+                    "modified_at": v.created_at.isoformat() if v.created_at else None,
+                })
+            return Response(result)
+        except Icd.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # -- diff --------------------------------------------------------------
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/icds/<pk>/diff/?from_version=1&to_version=2
+
+        REQ-L1-090 / REQ-L1-091: Structured field-level diff for ICDs.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            icd = Icd.objects.get(id=UUID(pk), tenant_id=ctx.tenant_id)
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            current_ver = icd.current_version.version_number if icd.current_version else 1
+            to_version = int(request.query_params.get("to_version", str(current_ver)))
+
+            version_list = get_icd_history(icd_id=icd.id)
+            from_v = next((v for v in version_list if v.version_number == from_version), None)
+            to_v = next((v for v in version_list if v.version_number == to_version), None)
+
+            if to_v is None:
+                return Response(
+                    build_error_response("NOT_FOUND", lang, message=f"Version {to_version} not found"),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            fields = []
+            # Compare Design-by-Contract fields
+            dbc_fields = ["direction", "interface_type", "semantic_description", "preconditions", "postconditions", "invariants"]
+            for field_name in dbc_fields:
+                from_val = getattr(from_v, field_name, None) if from_v else None
+                to_val = getattr(to_v, field_name, None)
+                
+                if from_v is None:
+                    # Version 0 = creation baseline
+                    fields.append({
+                        "name": field_name,
+                        "status": "added",
+                        "to": to_val,
+                    })
+                elif from_val != to_val:
+                    fields.append({
+                        "name": field_name,
+                        "status": "modified",
+                        "from": from_val,
+                        "to": to_val,
+                    })
+                else:
+                    fields.append({
+                        "name": field_name,
+                        "status": "unchanged",
+                        "from": from_val,
+                        "to": to_val,
+                    })
+
+            result = {
+                "from_version": from_version,
+                "to_version": to_version,
+                "entity_type": "Icd",
+                "fields": fields,
+            }
+            return Response(result)
         except Icd.DoesNotExist:
             return Response(
                 build_error_response("NOT_FOUND", lang),

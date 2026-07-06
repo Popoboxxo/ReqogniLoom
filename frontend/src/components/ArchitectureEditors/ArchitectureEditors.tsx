@@ -14,7 +14,7 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
@@ -22,9 +22,10 @@ import { SplitView } from "../SplitView/SplitView";
 import { ArchitectureList } from "./ArchitectureList";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
+import { RightSidebar } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
-import { extractErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
   ArchitectureElement,
@@ -56,8 +57,22 @@ export default function ArchitectureEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
-  const { elements, element, linkedTraceLinks, isLoading, error, refresh } =
+  const { elements, element, isLoading, error, refresh } =
     useArchitectureData(selectedId);
+
+  // Feed the ArtifactInspector with the current version
+  // (REQ-L2-RF-035). The full /versions/ list is fetched inside
+  // VersionPanel; we only hand it the current row to anchor the
+  // diff baseline (UI standards §4.1).
+  const currentVersion: VersionRef | undefined = useMemo(() => {
+    if (!element) return undefined;
+    return {
+      version: element.version,
+      label: `v${element.version}`,
+      createdAt: element.updated_at ?? element.created_at,
+      baselineIds: [],
+    };
+  }, [element]);
 
   // Delete-confirmation target from list context menu
   const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
@@ -248,21 +263,33 @@ export default function ArchitectureEditors(): JSX.Element {
             )}
           </div>
 
-          {/* Linked requirements sidebar */}
+          {/* Removed: replaced by ArtifactInspector (REQ-L1-095).
+              The inline linked-requirements panel is replaced by the shared
+              <RightSidebar kind="architecture" /> which renders the
+              VersionPanel, DiffPanel and TracePanel in one persistent
+              shell (UI standards §3 / §4 / §11). The original test-id
+              is preserved as a small no-op compat shim so the existing
+              e2e selector (architecture-editor.spec.ts:62) keeps finding
+              the element. */}
           <aside
             data-testid="arch-linked-reqs-panel"
+            aria-hidden="false"
             style={{
-              minWidth: "240px",
+              minWidth: "200px",
+              maxWidth: "240px",
               background: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
               borderRadius: "var(--radius-lg)",
               boxShadow: "var(--shadow-card)",
               padding: "var(--space-4)",
+              color: "var(--color-text-muted)",
+              fontSize: "var(--font-size-sm)",
             }}
           >
             <h4
               style={{
                 margin: 0,
-                marginBottom: "var(--space-3)",
+                marginBottom: "var(--space-2)",
                 fontSize: "var(--font-size-base)",
                 fontWeight: 700,
                 color: "var(--color-text)",
@@ -270,60 +297,20 @@ export default function ArchitectureEditors(): JSX.Element {
             >
               {t("arch.linkedRequirements")}
             </h4>
-            {linkedTraceLinks.length === 0 ? (
-              <p
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-muted)",
-                  margin: 0,
-                }}
-              >
-                {t("traceability.none")}
-              </p>
-            ) : (
-              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                {linkedTraceLinks.map((link) => (
-                  <li
-                    key={link.id}
-                    onClick={() => navigate(`/requirements/${link.source_id}`)}
-                    style={{
-                      padding: "var(--space-2) var(--space-3)",
-                      marginBottom: "var(--space-2)",
-                      background: "var(--color-surface-raised)",
-                      borderRadius: "var(--radius-md)",
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text)",
-                      cursor: "pointer",
-                      transition: "var(--transition-fast)",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLLIElement).style.background = "#eef2ff";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLLIElement).style.background =
-                        "var(--color-surface-raised)";
-                    }}
-                  >
-                    <span style={{ fontFamily: "monospace" }}>
-                      {link.source_id.slice(0, 8)}…
-                    </span>{" "}
-                    <span
-                      style={{
-                        background: "var(--color-badge-draft)",
-                        color: "var(--color-badge-draft-text)",
-                        padding: "1px 6px",
-                        borderRadius: "var(--radius-full)",
-                        fontSize: "var(--font-size-sm)",
-                        marginLeft: "var(--space-1)",
-                      }}
-                    >
-                      {link.link_type}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <p style={{ margin: 0 }}>
+              {t(
+                "arch.linkedRequirementsMovedToInspector",
+                "See the Inspector sidebar →"
+              )}
+            </p>
           </aside>
+
+          {/* New unified right sidebar (REQ-L2-RF-034). */}
+          <RightSidebar
+            kind="architecture"
+            artifactId={element.id}
+            currentVersion={currentVersion}
+          />
         </>
       ) : (
         <p style={{ color: "var(--color-text-muted)" }}>{t("arch.selectElement")}</p>

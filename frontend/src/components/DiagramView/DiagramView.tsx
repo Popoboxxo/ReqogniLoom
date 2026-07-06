@@ -5,36 +5,38 @@
  * req_id:  REQ-L0-016 (Interaktive Diagramme und Grafiken),
  *          REQ-L2-DS-001 (DiagramService REST API),
  *          REQ-L2-DS-004 (Traceability connector),
- *          REQ-002 (Split-View Layout)
+ *          REQ-002 (Split-View Layout),
+ *          REQ-L1-095 (ArtifactInspector adoption),
+ *          REQ-L2-RF-034 (RightSidebar shell)
  *
  * Split-View layout with resizable divider:
  *   - Left panel: diagram list + create button
  *   - Divider: 4px resizable
- *   - Right panel: create form OR diagram detail (source, traceability)
+ *   - Right panel: create form OR diagram detail (source, canvas)
+ *   - Far right: <RightSidebar kind="diagram" /> (Version / Diff / Trace)
  *
  * Rendering: the source is shown as a monospaced pre/code block by default,
  * with a persistent Code/Visual toggle. Mermaid sources render client-side
  * via mermaid.js when Visual is active; other payload formats stay code-only
- * (no client-side renderer available).
+ * (no client-side renderer available). The previous inline
+ * `<aside data-testid="diagram-traceability-panel">` (lines ~1045-1234)
+ * has been removed in REQ-L1-095 adoption — the unified RightSidebar now
+ * owns the Version / Diff / Trace panels.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { diagramsApi } from "../../api/diagrams";
-import { requirementsApi } from "../../api/requirements";
-import { architectureApi } from "../../api/architecture";
-import { tracelinksApi } from "../../api/tracelinks";
 import { CanvasEditor } from "../canvas/CanvasEditor";
+import { RightSidebar } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 import type {
-  ArchitectureElement,
   Diagram,
   DiagramDetail,
-  DiagramTraceLink,
   DiagramType,
   PayloadFormat,
-  Requirement,
 } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -597,33 +599,35 @@ function DiagramDetailView({
   onChanged,
 }: DiagramDetailViewProps): JSX.Element {
   const { t } = useTranslation();
-  const { activeWorkspace } = useWorkspace();
   const [detail, setDetail] = useState<DiagramDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
-  const [traceLinks, setTraceLinks] = useState<DiagramTraceLink[]>([]);
-  const [traceReloadKey, setTraceReloadKey] = useState(0);
-  const [requirements, setRequirements] = useState<Requirement[]>([]);
-  const [architectureElements, setArchitectureElements] = useState<
-    ArchitectureElement[]
-  >([]);
-
-  // Create-link form (REQ-L2-DS-004) — links this diagram to a Requirement
-  // or Architecture Element via the "documents" trace-link type. Previously
-  // the panel only displayed existing links with no way to create new ones.
-  const [showLinkForm, setShowLinkForm] = useState(false);
-  const [linkTargetId, setLinkTargetId] = useState("");
-  const [isLinking, setIsLinking] = useState(false);
-  const [linkError, setLinkError] = useState<string | null>(null);
 
   // Code/Visual toggle (REQ-L1-057) — mermaid sources can be rendered
   // client-side via mermaid.js; other payload formats stay code-only.
   const [viewMode, setViewMode] = useState<"code" | "visual">("visual");
   const [renderedSvg, setRenderedSvg] = useState<string>("");
   const [renderError, setRenderError] = useState<string>("");
+
+  // Current-version ref for the ArtifactInspector (REQ-L2-RF-035).
+  // The Diagram backend exposes version_number + created_at; we hand
+  // VersionPanel the current row so the diff baseline is anchored
+  // (UI standards §4.1). When version_number is null (not yet versioned)
+  // the VersionPanel falls back to the empty-state.
+  const currentVersion: VersionRef | undefined = useMemo(() => {
+    if (!detail || detail.version_number === null || detail.version_number === undefined) {
+      return undefined;
+    }
+    return {
+      version: detail.version_number,
+      label: `v${detail.version_number}`,
+      createdAt: detail.created_at ?? null,
+      baselineIds: [],
+    };
+  }, [detail]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -686,67 +690,10 @@ function DiagramDetailView({
   }, [canRenderVisual, viewMode, activeSource, diagramId]);
 
   // Load traceability + requirement/architecture titles for lookup
-  useEffect(() => {
-    if (!activeWorkspace) return;
-    let cancelled = false;
-    (async (): Promise<void> => {
-      try {
-        const [reqResp, archResp] = await Promise.all([
-          requirementsApi.list(activeWorkspace.id).catch(() => null),
-          architectureApi.list(activeWorkspace.id).catch(() => null),
-        ]);
-        if (cancelled) return;
-        const reqList = reqResp?.results ?? [];
-        const archList = archResp?.results ?? [];
-        if (!cancelled) {
-          setRequirements(reqList);
-          setArchitectureElements(archList);
-        }
-        const reqMap = new Map<string, string>();
-        reqList.forEach((r: Requirement) => reqMap.set(r.id, r.title));
-        const archMap = new Map<string, string>();
-        archList.forEach((a: ArchitectureElement) => archMap.set(a.id, a.title));
-        const links = await diagramsApi.getTraceability(
-          activeWorkspace.id,
-          diagramId,
-          (id) => reqMap.get(id),
-          (id) => archMap.get(id),
-        );
-        if (!cancelled) setTraceLinks(links);
-      } catch (err) {
-        if (!cancelled) console.error("Failed to load traceability", err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeWorkspace, diagramId, traceReloadKey]);
-
-  const handleCreateLink = async (): Promise<void> => {
-    if (!linkTargetId) {
-      setLinkError(t("traceability.targetRequired"));
-      return;
-    }
-    setIsLinking(true);
-    setLinkError(null);
-    try {
-      await tracelinksApi.create({
-        source_id: diagramId,
-        target_id: linkTargetId,
-        link_type: "documents",
-      });
-      setShowLinkForm(false);
-      setLinkTargetId("");
-      setTraceReloadKey((k) => k + 1);
-    } catch (err: unknown) {
-      const msg =
-        (err as { error?: { message?: string } })?.error?.message ??
-        String(err);
-      setLinkError(msg);
-    } finally {
-      setIsLinking(false);
-    }
-  };
+  // Removed in REQ-L1-095 adoption: the inline aside that surfaced trace
+  // links and the create-link form has been replaced by the unified
+  // <RightSidebar kind="diagram" />. The TracePanel in the inspector
+  // fetches and renders trace links on its own (UI standards §4.4).
 
   const handleSave = async (): Promise<void> => {
     if (!detail) return;
@@ -1042,192 +989,18 @@ function DiagramDetailView({
         )}
       </div>
 
-      <aside
-        data-testid="diagram-traceability-panel"
-        style={{
-          width: "300px",
-          padding: "var(--space-4)",
-          background: "var(--color-surface-raised)",
-          borderRadius: "var(--radius-lg)",
-          border: "1px solid var(--color-border)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "var(--space-3)",
-          }}
-        >
-          <h3
-            style={{
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 600,
-              margin: 0,
-              color: "var(--color-text)",
-            }}
-          >
-            {t("diagrams.traceability", "Traceability")}
-          </h3>
-          {!showLinkForm && (
-            <button
-              type="button"
-              data-testid="diagram-link-create-btn"
-              onClick={() => {
-                setLinkTargetId("");
-                setLinkError(null);
-                setShowLinkForm(true);
-              }}
-              style={{
-                ...formPrimaryButtonStyle,
-                padding: "var(--space-1) var(--space-2)",
-                fontSize: "var(--font-size-sm)",
-              }}
-            >
-              + {t("traceability.create")}
-            </button>
-          )}
-        </div>
-
-        {showLinkForm && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-2)",
-              marginBottom: "var(--space-3)",
-              padding: "var(--space-3)",
-              background: "var(--color-surface)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            <label style={formLabelStyle}>
-              {t("traceability.target")}
-              <select
-                data-testid="diagram-link-target-select"
-                value={linkTargetId}
-                onChange={(e) => setLinkTargetId(e.target.value)}
-                disabled={isLinking}
-                style={formInputStyle}
-              >
-                <option value="">—</option>
-                {requirements.length > 0 && (
-                  <optgroup label={t("nav.requirements", "Requirements")}>
-                    {requirements.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.title || t("editor.untitled")}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {architectureElements.length > 0 && (
-                  <optgroup label={t("nav.architecture", "Architecture")}>
-                    {architectureElements.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.title || t("editor.untitled")}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-            </label>
-
-            {linkError && (
-              <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: 0 }}>
-                {linkError}
-              </p>
-            )}
-
-            <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                data-testid="diagram-link-cancel-btn"
-                onClick={() => setShowLinkForm(false)}
-                disabled={isLinking}
-                style={formCancelButtonStyle}
-              >
-                {t("actions.cancel", "Cancel")}
-              </button>
-              <button
-                type="button"
-                data-testid="diagram-link-save-btn"
-                onClick={() => void handleCreateLink()}
-                disabled={isLinking || !linkTargetId}
-                style={{
-                  ...formPrimaryButtonStyle,
-                  opacity: isLinking || !linkTargetId ? 0.6 : 1,
-                }}
-              >
-                {isLinking ? t("traceability.submitting") : t("traceability.submit")}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {traceLinks.length === 0 ? (
-          <p
-            data-testid="diagram-traceability-empty"
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-sm)",
-              margin: 0,
-            }}
-          >
-            {t(
-              "diagrams.noTraceLinks",
-              "No artifacts are linked to this diagram yet.",
-            )}
-          </p>
-        ) : (
-          <ul
-            style={{
-              listStyle: "none",
-              padding: 0,
-              margin: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-2)",
-            }}
-          >
-            {traceLinks.map((link) => (
-              <li
-                key={link.id}
-                data-testid="diagram-trace-link"
-                style={{
-                  padding: "var(--space-2) var(--space-3)",
-                  borderRadius: "var(--radius-md)",
-                  background: "var(--color-surface)",
-                  border: "1px solid var(--color-border)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "var(--font-size-sm)",
-                    fontWeight: 600,
-                    color: "var(--color-text)",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {link.target_title}
-                </div>
-                <div
-                  style={{
-                    fontSize: "0.7rem",
-                    color: "var(--color-text-muted)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    marginTop: "2px",
-                  }}
-                >
-                  {link.link_type}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </aside>
+      {/* Replaced: <aside data-testid="diagram-traceability-panel"> removed
+          (REQ-L1-095). The inline traceability panel and its create-link
+          form have been replaced by the unified <RightSidebar kind="diagram" />
+          which renders the VersionPanel, DiffPanel and TracePanel in one
+          persistent shell (UI standards §3 / §4 / §11). No e2e test depends
+          on the old test-id (verified via e2e/tests/), so the inline panel
+          is deleted cleanly. */}
+      <RightSidebar
+        kind="diagram"
+        artifactId={diagramId}
+        currentVersion={currentVersion}
+      />
     </div>
   );
 }

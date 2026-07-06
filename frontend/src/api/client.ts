@@ -126,8 +126,12 @@ export const apiClient = {
     });
   },
 
-  delete(path: string): Promise<void> {
-    return apiFetch<void>(path, { method: "DELETE" });
+  delete(path: string, body?: unknown): Promise<void> {
+    const options: RequestInit = { method: "DELETE" };
+    if (body !== undefined) {
+      options.body = JSON.stringify(body);
+    }
+    return apiFetch<void>(path, options);
   },
 };
 

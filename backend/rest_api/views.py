@@ -314,6 +314,62 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
             logger.exception("StakeholderNeedViewSet.derive: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/needs/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L1-090 / REQ-L1-091: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            need = self.service.get(ctx, pk)
+            artifact_id = need.artifact_id
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(need.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff(
+                artifact_id=UUID(str(artifact_id)),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.diff: unhandled exception")
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/needs/{pk}/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            need = self.service.get(ctx, pk)
+            artifact_id = need.artifact_id
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.list_versions(
+                artifact_id=UUID(str(artifact_id)),
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.versions: unhandled exception")
+            return _service_error_response(exc, lang)
+        return Response(result)
+
 
 
 class RequirementViewSet(BaseEntityViewSet):
@@ -962,6 +1018,60 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(report)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/architecture/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L1-090 / REQ-L1-091: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_architecture_element(UUID(pk), ctx)
+            artifact_id = item.artifact_id
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(item.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff(
+                artifact_id=UUID(str(artifact_id)),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/architecture/{pk}/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_architecture_element(UUID(pk), ctx)
+            artifact_id = item.artifact_id
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.list_versions(
+                artifact_id=UUID(str(artifact_id)),
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
 
 
 # ---------------------------------------------------------------------------
@@ -2142,6 +2252,58 @@ class AdrViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/adrs/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L1-090 / REQ-L1-091: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            adr = self._svc().get_adr(UUID(pk), ctx)
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(adr.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff_for_entity(
+                entity_type="Adr",
+                entity_id=UUID(pk),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/adrs/{pk}/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.list_versions_for_entity(
+                entity_type="Adr",
+                entity_id=UUID(pk),
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
 
 # ---------------------------------------------------------------------------
 # RiskViewSet — COMP-AS-014 (REQ-L1-029)
@@ -2280,6 +2442,58 @@ class RiskViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/risks/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L1-090 / REQ-L1-091: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            risk = self._svc().get_risk(UUID(pk), ctx)
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(risk.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff_for_entity(
+                entity_type="Risk",
+                entity_id=UUID(pk),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/risks/{pk}/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.list_versions_for_entity(
+                entity_type="Risk",
+                entity_id=UUID(pk),
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
 
 # ---------------------------------------------------------------------------
 # IssueViewSet — COMP-AS-015 (REQ-L1-029)
@@ -2401,6 +2615,58 @@ class IssueViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(IssueSerializer(_issue_to_dict(item)).data)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/issues/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L1-090 / REQ-L1-091: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            issue = self._svc().get_issue(UUID(pk), ctx)
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(issue.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff_for_entity(
+                entity_type="Issue",
+                entity_id=UUID(pk),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/issues/{pk}/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.list_versions_for_entity(
+                entity_type="Issue",
+                entity_id=UUID(pk),
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """DELETE /api/v1/testcases/{pk}/ — delete a test case. Returns 204."""

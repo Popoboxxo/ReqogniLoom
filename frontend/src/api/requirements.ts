@@ -14,9 +14,6 @@ import type {
   UUID,
   ArtifactDiffResult,
   ArtifactVersion,
-  RequirementType,
-  MoscowPriority,
-  VerificationMethod,
 } from "../types";
 
 export const requirementsApi = {

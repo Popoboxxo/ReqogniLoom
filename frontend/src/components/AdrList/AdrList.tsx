@@ -4,16 +4,21 @@
  * leaf_id: COMP-RF-003
  * req_id: REQ-L1-029 (ADR/Risk/Issue REST API)
  *        REQ-002 (Split-View Layout)
+ *        REQ-L1-095 (ArtifactInspector adoption — 10 artifact types),
+ *        REQ-L2-RF-034 (ArtifactInspector RightSidebar shell)
  *
  * Lists all ADRs for the active workspace in a split-view layout:
  * - Left pane: searchable list of ADRs
- * - Right pane: create/edit form with resizable divider
+ * - Middle pane: create/edit form with resizable divider
+ * - Right pane (detail only): ArtifactInspector (Version / Diff / Trace)
  */
 
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { adrsApi } from "../../api/adrs";
+import { RightSidebar } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 import type { Adr, AdrStatus } from "../../types";
 
 const STATUS_OPTIONS: AdrStatus[] = [
@@ -177,12 +182,26 @@ export default function AdrList(): JSX.Element {
 
   if (isLoading) return <p>{t("loading")}</p>;
 
+  // ArtifactInspector is rendered only when a detail is selected (REQ-L1-095).
+  // The grid template adds a 360 px column on the right for the inspector.
+  const inspectorColumn = selectedAdr
+    ? `${dividerPos}% 8px 1fr 360px`
+    : `${dividerPos}% 8px 1fr`;
+  const adrCurrentVersion: VersionRef | undefined = selectedAdr
+    ? {
+        version: selectedAdr.version,
+        label: `v${selectedAdr.version}`,
+        createdAt: null,
+        baselineIds: [],
+      }
+    : undefined;
+
   return (
     <div
       ref={containerRef}
       style={{
         display: "grid",
-        gridTemplateColumns: `${dividerPos}% 8px 1fr`,
+        gridTemplateColumns: inspectorColumn,
         height: "100vh",
         gap: 0,
       }}
@@ -269,7 +288,6 @@ export default function AdrList(): JSX.Element {
           background: "var(--color-border)",
           cursor: "col-resize",
           transition: "background 0.2s",
-          hoverBackground: "var(--color-primary)",
         }}
         onMouseEnter={(e) => {
           (e.currentTarget as HTMLDivElement).style.background =
@@ -438,6 +456,15 @@ export default function AdrList(): JSX.Element {
           </button>
         </form>
       </div>
+
+      {/* Right pane: ArtifactInspector (REQ-L1-095, REQ-L2-RF-034) */}
+      {selectedAdr && (
+        <RightSidebar
+          kind="adr"
+          artifactId={selectedAdr.id}
+          currentVersion={adrCurrentVersion}
+        />
+      )}
     </div>
   );
 }

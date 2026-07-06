@@ -27,27 +27,18 @@ import {
   icdsApi,
   type Icd,
   type IcdDetail,
-  type IcdTimelineEntry,
-  type IcdTraceability,
   type CreateIcdPayload,
   type NewVersionPayload,
 } from "../../api/icds";
 import { architectureApi } from "../../api/architecture";
 import type { ArchitectureElement } from "../../types";
-import { VersionBadge, VersionTimeline } from "../shared/VersionBadge";
+import { VersionBadge } from "../shared/VersionBadge";
+import { RightSidebar } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
 
 function shortId(id: string): string {
   return `${id.slice(0, 8)}…`;
@@ -85,8 +76,6 @@ export default function IcdView(): JSX.Element {
     ArchitectureElement[]
   >([]);
   const [selectedDetail, setSelectedDetail] = useState<IcdDetail | null>(null);
-  const [timeline, setTimeline] = useState<IcdTimelineEntry[]>([]);
-  const [traceability, setTraceability] = useState<IcdTraceability | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
@@ -158,14 +147,8 @@ export default function IcdView(): JSX.Element {
     async (icdId: string): Promise<void> => {
       setIsLoadingDetail(true);
       try {
-        const [detail, tl, tr] = await Promise.all([
-          icdsApi.get(icdId),
-          icdsApi.getVersionTimeline(icdId).catch(() => [] as IcdTimelineEntry[]),
-          icdsApi.getTraceability(icdId).catch(() => null),
-        ]);
+        const detail = await icdsApi.get(icdId);
         setSelectedDetail(detail);
-        setTimeline(tl);
-        setTraceability(tr);
 
         // Pre-fill the new-version form with the current values
         setNvDirection(detail.direction ?? "unidirectional");
@@ -177,8 +160,6 @@ export default function IcdView(): JSX.Element {
       } catch (err) {
         setError(extractErrorMessage(err, t("icds.loadFailed")));
         setSelectedDetail(null);
-        setTimeline([]);
-        setTraceability(null);
       } finally {
         setIsLoadingDetail(false);
       }
@@ -197,8 +178,6 @@ export default function IcdView(): JSX.Element {
       void loadDetail(routeId);
     } else {
       setSelectedDetail(null);
-      setTimeline([]);
-      setTraceability(null);
     }
   }, [routeId, loadDetail]);
 
@@ -820,8 +799,6 @@ export default function IcdView(): JSX.Element {
         ) : routeId && selectedDetail ? (
           <IcdDetailPane
             detail={selectedDetail}
-            timeline={timeline}
-            traceability={traceability}
             artifactLabel={artifactLabel}
             showNewVersion={showNewVersion}
             setShowNewVersion={setShowNewVersion}
@@ -865,8 +842,6 @@ export default function IcdView(): JSX.Element {
 
 interface IcdDetailPaneProps {
   detail: IcdDetail;
-  timeline: IcdTimelineEntry[];
-  traceability: IcdTraceability | null;
   artifactLabel: (id: string) => string;
   showNewVersion: boolean;
   setShowNewVersion: React.Dispatch<React.SetStateAction<boolean>>;
@@ -890,8 +865,6 @@ interface IcdDetailPaneProps {
 
 function IcdDetailPane({
   detail,
-  timeline,
-  traceability,
   artifactLabel,
   showNewVersion,
   setShowNewVersion,
@@ -913,6 +886,20 @@ function IcdDetailPane({
   setNvInv,
 }: IcdDetailPaneProps): JSX.Element {
   const { t } = useTranslation();
+
+  // Build the current VersionRef consumed by ArtifactInspector
+  // (REQ-L2-RF-035). ICD's /versions/ endpoint is not exposed yet
+  // (UI standards §5.1), so we feed the inspector the current version
+  // only — VersionPanel renders the empty state for older entries.
+  const currentVersion: VersionRef = useMemo(
+    () => ({
+      version: detail.version,
+      label: `v${detail.version}`,
+      createdAt: detail.created_at,
+      baselineIds: [],
+    }),
+    [detail.version, detail.created_at]
+  );
 
   return (
     <div>
@@ -1151,192 +1138,15 @@ function IcdDetailPane({
           </div>
         </div>
 
-        <aside>
-          <div
-            data-testid="icd-versions-list"
-            style={{
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-card)",
-              padding: "var(--space-6)",
-              marginBottom: "var(--space-6)",
-            }}
-          >
-            <h3
-              style={{
-                fontSize: "var(--font-size-lg)",
-                fontWeight: 600,
-                color: "var(--color-text)",
-                margin: "0 0 var(--space-4) 0",
-              }}
-            >
-              {t("icds.versions")}
-            </h3>
-            {timeline.length === 0 ? (
-              <p
-                style={{
-                  color: "var(--color-text-muted)",
-                  fontSize: "var(--font-size-sm)",
-                  margin: 0,
-                }}
-              >
-                —
-              </p>
-            ) : (
-              <ol
-                style={{
-                  listStyle: "none",
-                  padding: 0,
-                  margin: 0,
-                  borderLeft: "2px solid var(--color-border)",
-                  paddingLeft: "var(--space-4)",
-                }}
-              >
-                {timeline
-                  .slice()
-                  .reverse()
-                  .map((entry) => (
-                    <li
-                      key={entry.version_number}
-                      data-testid={`icd-version-item-${entry.version_number}`}
-                      style={{
-                        position: "relative",
-                        paddingBottom: "var(--space-3)",
-                      }}
-                    >
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          position: "absolute",
-                          left: "-22px",
-                          top: "4px",
-                          width: "10px",
-                          height: "10px",
-                          borderRadius: "var(--radius-full)",
-                          background: entry.is_current
-                            ? "var(--color-primary)"
-                            : "var(--color-text-muted)",
-                        }}
-                      />
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          color: "var(--color-text)",
-                          fontSize: "var(--font-size-sm)",
-                        }}
-                      >
-                        {t("icds.versionBadge", { n: entry.version_number })}{" "}
-                        {entry.is_current && (
-                          <span
-                            style={{
-                              marginLeft: "var(--space-1)",
-                              color: "var(--color-primary)",
-                              fontSize: "var(--font-size-xs)",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.05em",
-                            }}
-                          >
-                            {t("icds.current")}
-                          </span>
-                        )}
-                        {!entry.is_current && (
-                          <span
-                            style={{
-                              marginLeft: "var(--space-1)",
-                              color: "var(--color-text-muted)",
-                              fontSize: "var(--font-size-xs)",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.05em",
-                            }}
-                          >
-                            {t("icds.superseded")}
-                          </span>
-                        )}
-                      </div>
-                      <div
-                        style={{
-                          color: "var(--color-text-muted)",
-                          fontSize: "var(--font-size-xs)",
-                        }}
-                      >
-                        {formatDate(entry.created_at)}
-                      </div>
-                    </li>
-                  ))}
-              </ol>
-            )}
-          </div>
-
-          <div
-            data-testid="icd-traceability-sidebar"
-            style={{
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-card)",
-              padding: "var(--space-6)",
-            }}
-          >
-            <h3
-              style={{
-                fontSize: "var(--font-size-lg)",
-                fontWeight: 600,
-                color: "var(--color-text)",
-                margin: "0 0 var(--space-4) 0",
-              }}
-            >
-              {t("icds.traceability")}
-            </h3>
-            {traceability === null ||
-            (traceability.upstream_links.length === 0 &&
-              traceability.downstream_links.length === 0) ? (
-              <p
-                style={{
-                  color: "var(--color-text-muted)",
-                  fontSize: "var(--font-size-sm)",
-                  margin: 0,
-                }}
-              >
-                {t("icds.noTraceLinks")}
-              </p>
-            ) : (
-              <ul
-                style={{
-                  listStyle: "none",
-                  padding: 0,
-                  margin: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--space-2)",
-                }}
-              >
-                {traceability.upstream_links.map((link) => (
-                  <li
-                    key={link.id}
-                    style={{
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text)",
-                      background: "var(--color-surface-raised)",
-                      padding: "var(--space-2)",
-                      borderRadius: "var(--radius-sm)",
-                    }}
-                  >
-                    <code style={{ fontFamily: "monospace" }}>
-                      {shortId(link.source_id)}
-                    </code>{" "}
-                    <span style={{ color: "var(--color-text-muted)" }}>
-                      → {link.link_type} →
-                    </span>{" "}
-                    <code style={{ fontFamily: "monospace" }}>
-                      {shortId(link.target_id)}
-                    </code>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </aside>
+        {/* Removed: replaced by ArtifactInspector (REQ-L1-095).
+            The inline version-list + traceability aside is replaced by the
+            shared <RightSidebar kind="icd" />, which owns the VersionPanel,
+            DiffPanel and TracePanel (UI standards §3 / §4 / §11). */}
+        <RightSidebar
+          kind="icd"
+          artifactId={detail.id}
+          currentVersion={currentVersion}
+        />
       </div>
     </div>
   );

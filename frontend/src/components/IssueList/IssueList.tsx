@@ -3,12 +3,20 @@
  *
  * leaf_id: COMP-RF-003
  * req_id:  REQ-L1-029 (ADR/Risk/Issue REST API),
- *          REQ-002 (Masken-Standardisierung auf Split-View-Layout)
+ *          REQ-002 (Masken-Standardisierung auf Split-View-Layout),
+ *          REQ-L1-095 (ArtifactInspector adoption — 10 artifact types),
+ *          REQ-L2-RF-034 (ArtifactInspector RightSidebar shell)
  *
  * Split-View layout with resizable divider:
  * - Left panel: Issue list with create button
  * - Divider: 4px resizable
- * - Right panel: Issue detail editor
+ * - Middle panel: Issue detail editor
+ * - Right panel (detail only): ArtifactInspector (Version / Diff / Trace).
+ *   Note: Issue wire-format has no `version` field (see
+ *   `frontend/src/types/index.ts:247`), so the inspector is mounted
+ *   with `currentVersion={undefined}`; the VersionPanel will fetch
+ *   history from the backend if/when a `/issues/<id>/versions/`
+ *   endpoint is added.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -16,7 +24,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { issuesApi } from "../../api/issues";
-import type { Issue, IssueSeverity, IssueStatus, IssueCategory, UUID } from "../../types";
+import { RightSidebar } from "../shared/ArtifactInspector";
+import type { Issue, IssueSeverity, IssueStatus, IssueCategory } from "../../types";
 
 const SEVERITY_OPTIONS: IssueSeverity[] = ["low", "medium", "high", "critical"];
 const STATUS_OPTIONS: IssueStatus[] = ["Open", "In Progress", "Resolved", "Closed", "Wontfix"];
@@ -478,6 +487,15 @@ export default function IssueList(): JSX.Element {
           </p>
         )}
       </div>
+
+      {/* Right pane: ArtifactInspector (REQ-L1-095, REQ-L2-RF-034) */}
+      {selectedIssue && (
+        <RightSidebar
+          kind="issue"
+          artifactId={selectedIssue.id}
+          currentVersion={undefined}
+        />
+      )}
     </div>
   );
 }

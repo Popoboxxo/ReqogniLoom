@@ -3,13 +3,25 @@
  *
  * leaf_id: COMP-RF-014
  * req_id:  REQ-L2-RF-014 (visual diff rendering),
- *          REQ-L1-040 (visual artifact diff)
+ *          REQ-L1-040 (visual artifact diff),
+ *          REQ-L1-095 (Adoption on 10 artifact types)
  *
  * Renders a field-level diff between two artifact versions.
  * - Status badges: green=added, red=removed, yellow=modified, gray=unchanged
  * - Text fields show unified diff with line-level highlighting
  * - Version selector dropdowns for from/to
  * - Close button
+ *
+ * Today: rich field-level rendering is implemented for `requirement` and
+ * `architecture` only (the two kinds the backend exposes a `/diff/`
+ * endpoint for — see `docs/UI_STANDARDS.md` §4.5 and §11 Backend gaps
+ * column). The 8 remaining kinds (`icd`, `diagram`, `adr`, `risk`,
+ * `issue`, `glossary`, `stakeholderNeed`, `testCase`) fall through to a
+ * generic "no field-level renderer for this kind" view that shows a
+ * `from: X, to: Y` summary plus the raw `ArtifactDiffResult` JSON in a
+ * `<details>` block. DiffPanel already short-circuits to an empty state
+ * for the unsupported kinds (UI standards §4.5), so this fallback is a
+ * safety net, not the primary path.
  *
  * Interfaces:
  *   IF-RF-INT-001  ← RequirementEditor / ArchitectureEditor opens this view
@@ -25,12 +37,41 @@ import type {
   DiffFieldStatus,
   UUID,
 } from "../../types";
+import type { ArtifactKind } from "../shared/ArtifactInspector/types";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type DiffEntityType = "requirement" | "architecture";
+/**
+ * The set of artifact kinds accepted by this component.
+ *
+ * Aliased to the single source of truth in
+ * `frontend/src/components/shared/ArtifactInspector/types.ts` so the
+ * public `DiffEntityType` name keeps working for `DiffPanel` and other
+ * callers (UI standards §4.5 / §11 open question #3).
+ */
+export type DiffEntityType = ArtifactKind;
+
+/** The two kinds the backend currently exposes a `/diff/` endpoint for. */
+const RICH_DIFF_KINDS: ReadonlySet<ArtifactKind> = new Set([
+  "requirement",
+  "architecture",
+]);
+
+/** Header label per kind. Kept here so the title text is co-located. */
+const ENTITY_LABELS: Record<ArtifactKind, string> = {
+  requirement: "Requirement",
+  architecture: "Architecture Element",
+  icd: "ICD",
+  diagram: "Diagram",
+  adr: "ADR",
+  risk: "Risk",
+  issue: "Issue",
+  glossary: "Glossary",
+  stakeholderNeed: "Stakeholder Need",
+  testCase: "Test Case",
+};
 
 interface ArtifactDiffProps {
   entityId: UUID;
@@ -272,7 +313,7 @@ export function ArtifactDiff({
         }}
       >
         <h3 style={{ margin: 0, fontSize: "16px" }}>
-          {entityType === "requirement" ? "Requirement" : "Architecture Element"} Diff
+          {ENTITY_LABELS[entityType]} Diff
         </h3>
         <button
           data-testid="diff-close-btn"
@@ -378,12 +419,65 @@ export function ArtifactDiff({
         </div>
       )}
 
-      {/* Field diffs */}
-      {diffResult && !loading && (
+      {/* Field diffs — rich rendering for the two backend-supported kinds. */}
+      {diffResult && !loading && RICH_DIFF_KINDS.has(entityType) && (
         <div data-testid="diff-fields">
           {diffResult.fields.map((field) => (
             <FieldDiffRow key={field.name} field={field} />
           ))}
+        </div>
+      )}
+
+      {/* Fallback — generic summary for the 8 kinds without a field-level
+          renderer. The DiffPanel already short-circuits to an empty state
+          for these (UI standards §4.5), so this branch is a safety net
+          for the day a backend endpoint is wired for one of them. */}
+      {diffResult && !loading && !RICH_DIFF_KINDS.has(entityType) && (
+        <div data-testid="diff-generic-fallback" data-kind={entityType}>
+          {/* TODO(backend): wire real diff for {entityType}. */}
+          <p
+            style={{
+              fontSize: "13px",
+              color: "var(--color-text-muted)",
+              margin: "0 0 8px 0",
+            }}
+          >
+            No field-level renderer for this artifact kind. Showing raw
+            payload.
+          </p>
+          <div
+            style={{
+              fontSize: "13px",
+              marginBottom: "8px",
+            }}
+          >
+            from: v{diffResult.from_version}, to: v{diffResult.to_version}
+          </div>
+          <details>
+            <summary
+              style={{ cursor: "pointer", fontSize: "13px" }}
+              data-testid="diff-generic-raw-toggle"
+            >
+              Raw JSON
+            </summary>
+            <pre
+              data-testid="diff-generic-raw"
+              style={{
+                background: "var(--color-surface)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "4px",
+                padding: "8px",
+                marginTop: "4px",
+                fontSize: "12px",
+                fontFamily: "monospace",
+                overflowX: "auto",
+                whiteSpace: "pre-wrap",
+                lineHeight: "1.6",
+              }}
+            >
+              {JSON.stringify(diffResult, null, 2)}
+            </pre>
+          </details>
         </div>
       )}
     </div>

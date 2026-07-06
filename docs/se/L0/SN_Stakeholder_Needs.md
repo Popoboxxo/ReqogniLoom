@@ -1309,6 +1309,7 @@ Beim LÃ¶schen eines Workspaces dÃ¼rfen Glossar-Begriffe nicht gelÃ¶scht werden (
 | REQ-L0-049 | Stage-Gating & Guardrails | mandatory | User-Request | REQ-L1-079 |
 | REQ-L0-055 | Glossar-Referenzen im Freitext (@-Mentions) | mandatory | User-Request | REQ-L1-080 |
 | REQ-L0-056 | Konfigurierbare KI-Ableitungs-Prompts | desired | User-Request | REQ-L1-088 |
+| REQ-L0-062 | Unified Artifact Inspector Sidebar | mandatory | User-Request 2026-07-06 | NEU REQ-L1-089..095 |
 
 **NÃ¤chster Schritt:** L1-System-Anforderungen in `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` erweitern.
 
@@ -1333,18 +1334,60 @@ System- und Projektadministratoren mÃ¼ssen die System-Prompts, die von KI-Agente
 
 **Ableitet L1:** REQ-L1-088 (Configurable AI Prompts)
 
-### REQ-L0-060 — SN-60: Konsistentes UI/UX Design und Universelles Versioning
+### REQ-L0-060 ï¿½ SN-60: Konsistentes UI/UX Design und Universelles Versioning
 **Implementation State:** Not Implemented
 **Reviewbefunde:** N/A
 **Test Status:** Missing
 
-Benutzer benötigen ein durchgehend konsistentes Look-and-Feel über alle Entitätstypen (Requirements, Needs, ADRs) hinweg. TraceLinks, Versionierungen und Filter müssen in allen Ansichten einheitlich verfügbar und bedienbar sein.
+Benutzer benï¿½tigen ein durchgehend konsistentes Look-and-Feel ï¿½ber alle Entitï¿½tstypen (Requirements, Needs, ADRs) hinweg. TraceLinks, Versionierungen und Filter mï¿½ssen in allen Ansichten einheitlich verfï¿½gbar und bedienbar sein.
 **Rationale:** Steigert die Effizienz und Usability massiv.
 
-### REQ-L0-061 — SN-61: Interaktive und versionierte Architektur-Diagramme
+### REQ-L0-061 ï¿½ SN-61: Interaktive und versionierte Architektur-Diagramme
 **Implementation State:** Not Implemented
 **Reviewbefunde:** N/A
 **Test Status:** Missing
 
-Benutzer müssen Architektur-Diagramme direkt im System zeichnen können (Canvas) und diese lückenlos über TraceLinks mit den Architekturelementen verknüpfen können. Diagramme müssen ebenfalls versionierbar sein.
+Benutzer mï¿½ssen Architektur-Diagramme direkt im System zeichnen kï¿½nnen (Canvas) und diese lï¿½ckenlos ï¿½ber TraceLinks mit den Architekturelementen verknï¿½pfen kï¿½nnen. Diagramme mï¿½ssen ebenfalls versionierbar sein.
 **Rationale:** Diagramme sind integrale Bestandteile von Architektur-Entscheidungen.
+
+---
+
+## Stakeholder-Needs (Erweiterung v12 â€” REQ-L0-062)
+
+> **Quelle:** User-Request "UI Unification of the Right Sidebar (ArtifactInspector)"
+> **Datum:** 2026-07-06 | **Erstellt durch:** requirements-Agent
+
+---
+
+### REQ-L0-062 â€” SN-62: Unified Artifact Inspector Sidebar (Right Sidebar)
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. The existing `bidirektionale Traceability-Seitenleiste` (REQ-L3-RF003-003) and `verknuepfte Requirements in Seitenleiste` (REQ-L3-RF004-003) are inline, page-specific widgets. They will be replaced/superseded by the unified ArtifactInspector pattern.
+**Test Status:** Missing
+**Priority:** mandatory
+
+Users must encounter a single, consistent right-sidebar (the **ArtifactInspector**) on every artifact detail page (ICD, Diagram, ADR, Risk, Issue, Glossary, Stakeholder Need, Requirement, Architecture, TestCase). The ArtifactInspector MUST always expose the same set of panel slots in the same order:
+
+1. **VersionPanel** â€” list of versions of the current artifact, the ability to switch the displayed version, and a baseline indicator (whether the displayed version is part of an active baseline).
+2. **DiffPanel** â€” field-level diff between any two selectable versions of the current artifact.
+3. **TracePanel** â€” inbound and outbound TraceLinks of the current artifact, filterable by TraceLink type.
+
+The sidebar shell MUST support collapse (hide all panels) and pin (keep the sidebar open while the user navigates between artifacts). The pattern REPLACES existing inline sidebars on the Requirement and Architecture editor pages and is ADDED to all other artifact detail pages that do not yet have a sidebar.
+
+**Rationale:** Today the right sidebar exists only on a subset of artifact detail pages (Requirement editor, Architecture editor) and uses page-specific widgets. When users move between artifact types (e.g. from a Requirement to a Risk, an ADR or an ICD) the right-hand area either disappears or shows an inconsistent widget. This breaks the user's mental model, hides cross-cutting capabilities (versioning, diffing, traceability) on most artifact types, and forces context-switches. A unified, predictable ArtifactInspector reduces cognitive load, makes version/diff/trace capabilities discoverable on every artifact type, and gives AI-Agents a stable UI contract to drive via MCP-driven actions.
+
+**Acceptance Criteria:**
+- AC1: Every artifact detail page of the 10 supported artifact types renders the ArtifactInspector in the right column of the split-view.
+- AC2: The ArtifactInspector exposes VersionPanel, DiffPanel, and TracePanel in this fixed order.
+- AC3: The user can collapse the entire sidebar and pin it open; both states are persisted per user session.
+- AC4: The TracePanel shows inbound and outbound TraceLinks grouped by link type, and supports a type filter (multi-select).
+- AC5: The VersionPanel lists all available versions of the artifact, allows switching the displayed version, and shows a baseline indicator (e.g. "In Baseline: v1.2.0 (Project, 2026-07-01)").
+- AC6: The DiffPanel accepts any two selectable versions as inputs and renders a field-level diff (added / changed / removed).
+- AC7: The ArtifactInspector is keyboard-navigable (Tab order: sidebar â†’ panel headers â†’ panel content; focus visible), exposes ARIA roles (`complementary`, `region`, `tab`/`tabpanel` per panel), and supports screen readers in both German and English.
+- AC8: All user-visible strings of the ArtifactInspector follow the i18n key naming convention `sidebar.inspector.*`, `sidebar.version.*`, `sidebar.diff.*`, `sidebar.trace.*` and are translated for both `de` and `en`.
+- AC9: The unified sidebar supersedes the existing inline `Traceability-Seitenleiste` of the Requirement editor and the `verknuepfte Requirements in Seitenleiste` of the Architecture editor â€” those inline widgets are removed.
+
+**Derived from:** User-Request "UI Unification of the Right Sidebar (ArtifactInspector)" 2026-07-06
+**Derived L1:** new L1-requirements REQ-L1-089 (Unified Right Sidebar Shell) through REQ-L1-095 (Adoption on 10 artifact types)
+**Cross-references:** REQ-L0-009 (DE/EN i18n), REQ-L0-003 (Traceability), REQ-L0-028 (Visual Diffing), REQ-L0-004 (Baselines), REQ-L0-017 (ICDs), REQ-L0-018 (ADRs/Risks/Issues), REQ-L0-042 (Ontology variety)
+

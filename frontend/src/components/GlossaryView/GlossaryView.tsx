@@ -4,6 +4,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { glossaryApi } from "../../api/glossary";
 import type { GlossaryTerm } from "../../types";
 import { PlusCircle, Search, Edit2, Trash2 } from "lucide-react";
+import { RightSidebar } from "../shared/ArtifactInspector";
 
 export default function GlossaryView(): JSX.Element {
   const { t } = useTranslation();
@@ -134,8 +135,26 @@ export default function GlossaryView(): JSX.Element {
 
   if (!activeWorkspace) return <div style={{ padding: "var(--space-6)" }}>{t("workspace.selectFirst")}</div>;
 
+  // Detail state: an existing term is being edited (REQ-L1-095).
+  // GlossaryTerm has no `version` field, so currentVersion is undefined
+  // — the VersionPanel in the inspector falls back to its empty state
+  // (UI standards §5.1). The TracePanel still works; trace links for
+  // glossary terms typically remain sparse.
+  const editingTerm = editingId ? terms.find((t) => t.id === editingId) : null;
+
   return (
-    <div style={{ padding: "var(--space-6)", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <div style={{ display: "flex", height: "100%", minHeight: 0, overflow: "hidden" }}>
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: "var(--space-6)",
+          display: "flex",
+          flexDirection: "column",
+          boxSizing: "border-box",
+          overflowY: "auto",
+        }}
+      >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-6)" }}>
         <h1 style={{ margin: 0, fontSize: "var(--font-size-2xl)", color: "var(--color-text)" }}>
           {t("nav.glossary", "Glossary")}
@@ -277,6 +296,19 @@ export default function GlossaryView(): JSX.Element {
           </div>
         )}
       </div>
+      </div>
+      {/* Right pane: ArtifactInspector (REQ-L1-095, REQ-L2-RF-034).
+          Glossary is an "Add" type (UI standards §11) — no prior inline
+          sidebar existed. The inspector appears whenever a term is
+          selected for editing (editingId set), which is the de-facto
+          detail view in the current single-page layout. */}
+      {editingTerm && (
+        <RightSidebar
+          kind="glossary"
+          artifactId={editingTerm.id}
+          currentVersion={undefined}
+        />
+      )}
     </div>
   );
 }

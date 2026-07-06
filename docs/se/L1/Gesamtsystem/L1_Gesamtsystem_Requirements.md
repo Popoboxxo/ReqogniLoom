@@ -2267,19 +2267,177 @@ Wenn fÃ¼r einen Workspace kein spezifischer Prompt konfiguriert ist, MUSS das Sy
 **Traceability:** REQ-L0-056
 
 ### REQ-L1-085: Unified TraceLink Panel
-Das System muss eine global wiederverwendbare UI-Komponente (TraceLink Panel) bereitstellen, die für Requirements, Needs und Architektur exakt identisch funktioniert. Sie muss Downstream/Upstream unterscheiden und Aktionen wie "Ableiten" anbieten.
+Das System muss eine global wiederverwendbare UI-Komponente (TraceLink Panel) bereitstellen, die fï¿½r Requirements, Needs und Architektur exakt identisch funktioniert. Sie muss Downstream/Upstream unterscheiden und Aktionen wie "Ableiten" anbieten.
 **Domain:** software
-**Priorität:** mandatory
+**Prioritï¿½t:** mandatory
 **Traceability:** REQ-L0-060
 
 ### REQ-L1-086: Universal Version Badge
-Das System muss den Versions-Badge der ICDs auf alle anderen Entitäts-Header übertragen und eine History-Ansicht als Toggle bereitstellen.
+Das System muss den Versions-Badge der ICDs auf alle anderen Entitï¿½ts-Header ï¿½bertragen und eine History-Ansicht als Toggle bereitstellen.
 **Domain:** software
-**Priorität:** mandatory
+**Prioritï¿½t:** mandatory
 **Traceability:** REQ-L0-060
 
 ### REQ-L1-087: Interactive Canvas und Diagramm-Traces
-Die Diagramm-Ansicht muss freies Zeichnen (Canvas) unterstützen und die Zuweisung von Architektur-Elementen ("describes/helps") fehlerfrei persistieren.
+Die Diagramm-Ansicht muss freies Zeichnen (Canvas) unterstï¿½tzen und die Zuweisung von Architektur-Elementen ("describes/helps") fehlerfrei persistieren.
 **Domain:** software
-**Priorität:** mandatory
+**Prioritï¿½t:** mandatory
 **Traceability:** REQ-L0-061
+
+---
+
+## Erweiterung v13 â€” REQ-L1-089..095 (Unified ArtifactInspector / Right Sidebar)
+
+> **Datum:** 2026-07-06 | **Quelle:** REQ-L0-062 (User-Request "UI Unification of the Right Sidebar")
+
+---
+
+### REQ-L1-089: Unified ArtifactInspector (RightSidebar) Shell
+
+The system MUST provide a single, shared right-sidebar component â€” the **ArtifactInspector** â€” that is rendered on every artifact detail page. The shell MUST host a fixed, ordered set of panel slots (VersionPanel, DiffPanel, TracePanel) and MUST support the user actions **collapse** (hide all panels, restoring the full detail area) and **pin** (keep the inspector open while the user navigates between artifacts). The collapse/pin state MUST be persisted per user session.
+
+**Domain:** software
+**Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. The existing inline `bidirektionale Traceability-Seitenleiste` (REQ-L3-RF003-003) and `verknuepfte Requirements in Seitenleiste` (REQ-L3-RF004-003) are the only page-local predecessors and are superseded by this requirement.
+**Test Status:** Missing
+**Acceptance Criteria:**
+- [ ] Right-sidebar shell rendered on all 10 artifact detail pages (ICD, Diagram, ADR, Risk, Issue, Glossary, Stakeholder Need, Requirement, Architecture, TestCase).
+- [ ] Shell exposes three panel slots in fixed order: VersionPanel, DiffPanel, TracePanel.
+- [ ] User can collapse and pin the sidebar; state persists per user session (LocalStorage).
+- [ ] Inline sidebars of RequirementEditor and ArchitectureEditor are removed and replaced by the unified shell.
+
+**Traceability:** REQ-L0-062, REQ-L0-009 (i18n), REQ-L0-017 (ICD), REQ-L0-018 (ADR/Risk/Issue)
+**Derived L2:** REQ-L2-RF-034
+
+---
+
+### REQ-L1-090: VersionPanel inside ArtifactInspector
+
+The system MUST render a **VersionPanel** as the first slot of the ArtifactInspector on every artifact detail page. The VersionPanel MUST list all available versions of the active artifact (newest first), allow the user to switch the displayed version, and display a **baseline indicator** for the currently selected version (e.g. "Part of baseline `BL-PROJ-2026-07-01` (Project, 2026-07-01)").
+
+**Domain:** software
+**Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified.
+**Test Status:** Missing
+**Acceptance Criteria:**
+- [ ] VersionPanel lists all versions of the active artifact, newest first, with version label, author, and timestamp.
+- [ ] User can select a version; the detail view re-renders against the selected version.
+- [ ] When the selected version is contained in one or more baselines, a baseline indicator is shown (baseline name, scope, date).
+- [ ] When no baseline contains the selected version, the indicator shows a neutral "Not in any active baseline" state.
+- [ ] VersionPanel degrades gracefully for artifact types without versioning (shows "Single version" state).
+
+**Traceability:** REQ-L0-062, REQ-L0-004 (Baselines), REQ-L0-017 (ICDs)
+**Derived L2:** REQ-L2-RF-035
+
+---
+
+### REQ-L1-091: DiffPanel inside ArtifactInspector (field-level diff)
+
+The system MUST render a **DiffPanel** as the second slot of the ArtifactInspector on every artifact detail page. The DiffPanel MUST allow the user to pick any two versions of the active artifact and render a **field-level diff** (added / changed / removed per field) for the artifact payload. For ICDs the diff MUST include semantic fields (precondition, postcondition, invariant) in addition to the structural fields.
+
+**Domain:** software
+**Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. The existing `Visuelles Artefakt-Diff` (REQ-L1-040) and `Visuelles Baseline-Diff` (REQ-L1-041) are global views; the DiffPanel is the inline, per-artifact companion.
+**Test Status:** Missing
+**Acceptance Criteria:**
+- [ ] DiffPanel exposes two version pickers (from / to) sourced from the VersionPanel.
+- [ ] DiffPanel renders a field-level diff grouped by field name, with per-field status (added / changed / removed) and old/new values.
+- [ ] For ICDs, semantic fields (precondition, postcondition, invariant) are diffed in addition to structural fields.
+- [ ] Empty diff (versions identical) is shown as an explicit "no differences" state, not a blank panel.
+- [ ] DiffPanel loading and error states are rendered consistently with the other panels.
+
+**Traceability:** REQ-L0-062, REQ-L0-028 (Visual Diffing), REQ-L0-017 (ICDs)
+**Derived L2:** REQ-L2-RF-036
+
+---
+
+### REQ-L1-092: TracePanel inside ArtifactInspector (inbound/outbound links, type filter)
+
+The system MUST render a **TracePanel** as the third slot of the ArtifactInspector on every artifact detail page. The TracePanel MUST display all **inbound** (other artifacts linking to this artifact) and **outbound** (this artifact linking to other artifacts) TraceLinks of the active artifact, grouped by direction and **filterable by TraceLink type** via a multi-select control. Each link entry MUST show: source/target artifact ID, type, direction, and `suspect` flag (per REQ-L0-030 / REQ-L1-043) when applicable.
+
+**Domain:** software
+**Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. The existing `Traceability-Anzeige` (REQ-L2-RF-006) and the inline sidebars of RequirementEditor / ArchitectureEditor are predecessors; the TracePanel is the unified successor.
+**Test Status:** Missing
+**Acceptance Criteria:**
+- [ ] TracePanel shows two groups: inbound and outbound, each grouped by TraceLink type.
+- [ ] A multi-select filter lets the user restrict both groups to one or more TraceLink types.
+- [ ] Each link entry shows source/target artifact ID, type, direction, and `suspect` flag when applicable.
+- [ ] Clicking a link entry navigates to the linked artifact's detail view (preserving the inspector state).
+- [ ] Empty groups are shown with an explicit "No inbound links" / "No outbound links" placeholder, not a blank panel.
+
+**Traceability:** REQ-L0-062, REQ-L0-003 (Traceability), REQ-L0-030 (Suspect), REQ-L0-035 (Cross-Level)
+**Derived L2:** REQ-L2-RF-037
+
+---
+
+### REQ-L1-093: Accessibility baseline for ArtifactInspector
+
+The system MUST implement an accessibility baseline for the ArtifactInspector (shell + VersionPanel + DiffPanel + TracePanel) covering: full keyboard navigation with visible focus, focus management when switching artifacts, ARIA roles for landmark/region/tab structures, and screen-reader announcements for state changes (collapse, pin, panel switching, version switching). The accessibility baseline MUST be met in both German and English.
+
+**Domain:** software
+**Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified.
+**Test Status:** Missing
+**Acceptance Criteria:**
+- [ ] Tab order: shell toggle â†’ panel headers (in order) â†’ panel content controls; focus is always visible.
+- [ ] Focus is moved to the ArtifactInspector header when the user navigates to a new artifact.
+- [ ] ARIA roles: shell = `complementary`; each panel = `region` with `aria-labelledby` referencing its header; collapse/expand = `button` with `aria-expanded`.
+- [ ] State changes (collapse, pin, panel switching, version switching) are announced via `aria-live="polite"` regions in the active language.
+- [ ] Color contrast meets WCAG 2.1 AA for the diff states (added/changed/removed).
+
+**Traceability:** REQ-L0-062, REQ-L0-009 (i18n)
+**Derived L2:** REQ-L2-RF-034 (in scope of the shell), REQ-L2-RF-035..037 (in scope of the panels)
+
+---
+
+### REQ-L1-094: i18n key naming convention for ArtifactInspector (DE/EN)
+
+The system MUST define and use a single i18n key naming convention for the ArtifactInspector and its panels, fully translated for both `de` and `en`. The convention MUST be:
+
+- `sidebar.inspector.*` â€” shell-level strings (title, collapse, pin, locale-aware labels)
+- `sidebar.version.*` â€” VersionPanel strings
+- `sidebar.diff.*` â€” DiffPanel strings
+- `sidebar.trace.*` â€” TracePanel strings
+
+All user-visible strings of the ArtifactInspector MUST be sourced from this key tree; no hard-coded UI strings are permitted in the shell or any of the three panels.
+
+**Domain:** software
+**Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified.
+**Test Status:** Missing
+**Acceptance Criteria:**
+- [ ] Key tree `sidebar.inspector.*`, `sidebar.version.*`, `sidebar.diff.*`, `sidebar.trace.*` is registered in the i18n catalog.
+- [ ] All shell strings and all three panel strings are sourced exclusively from this key tree.
+- [ ] Each key has a German (`de`) and an English (`en`) translation; missing translations fail the build.
+- [ ] The terminology profile (dev_mode / se_mode, per REQ-L1-014) does not change the key tree; it only changes term labels in payloads.
+
+**Traceability:** REQ-L0-062, REQ-L0-009 (i18n), REQ-L1-016
+**Derived L2:** REQ-L2-RF-001 (withwirkend), REQ-L2-RF-034..037
+
+---
+
+### REQ-L1-095: Adoption of ArtifactInspector on all 10 artifact types
+
+The system MUST render the unified ArtifactInspector (REQ-L1-089) on the detail page of every supported artifact type: **ICD, Diagram, ADR, Risk, Issue, Glossary, Stakeholder Need, Requirement, Architecture, TestCase**. For artifact types whose payload is naturally empty for a given panel (e.g. a Glossary entry has no TraceLinks of its own), the corresponding panel MUST show an explicit "Not applicable for this artifact type" state instead of a blank or hidden panel.
+
+**Domain:** software
+**Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified.
+**Test Status:** Missing
+**Acceptance Criteria:**
+- [ ] Artifact detail page of each of the 10 artifact types renders the unified ArtifactInspector.
+- [ ] Each of the three panels (VersionPanel, DiffPanel, TracePanel) is rendered in every detail page; no panel is silently hidden.
+- [ ] When a panel has no meaningful content for a given artifact type, the panel renders an explicit "Not applicable for this artifact type" state in the active language.
+- [ ] Adoption covers: ICD (COMP-ICD-001), Diagram (COMP-DS-001), ADR (COMP-AS-013), Risk (COMP-AS-014), Issue (COMP-AS-015), Glossary (L1-032 area), Stakeholder Need (L0 cascade), Requirement (COMP-AS-002), Architecture (COMP-AS-003), TestCase (COMP-AS-004).
+
+**Traceability:** REQ-L0-062, REQ-L0-017 (ICDs), REQ-L0-018 (ADRs/Risks/Issues), REQ-L0-042 (Ontology variety)
+**Derived L2:** REQ-L2-RF-034..037 (each panel is the unit of adoption)
+

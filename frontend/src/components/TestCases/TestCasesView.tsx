@@ -4,11 +4,15 @@
  * leaf_id: COMP-RF-003
  * req_id:  REQ-L2-RA-001 (Test Cases),
  *          REQ-L1-035 (Trace Links: TestCase verifies Requirement),
- *          REQ-002 (Masken-Standardisierung: split-view layout)
+ *          REQ-002 (Masken-Standardisierung: split-view layout),
+ *          REQ-L1-095 (ArtifactInspector adoption),
+ *          REQ-L2-RF-034 (RightSidebar shell)
  *
  * Split-view test-case catalog with resizable panels. Provides:
  *   - Left panel: List view of all TestCases for the active workspace + create form
- *   - Right panel: Detail/edit view with linked-requirements multi-select
+ *   - Right panel: Detail/edit view + <RightSidebar kind="testCase" />
+ *     (Version / Diff / Trace) — the legacy inline "Linked Requirements"
+ *     panel has been removed in REQ-L1-095 adoption.
  *   - Trace-link wiring via the generic trace_links API (link_type=verifies)
  */
 
@@ -18,6 +22,8 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { testcasesApi, type TestCase } from "../../api/testcases";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
+import { RightSidebar } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 import type { Requirement, UUID } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -126,9 +132,6 @@ export default function TestCasesView(): JSX.Element {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editStatus, setEditStatus] = useState<TestCaseStatus>("draft");
-  const [editLinkedReqIds, setEditLinkedReqIds] = useState<Set<UUID>>(
-    new Set()
-  );
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -175,26 +178,15 @@ export default function TestCasesView(): JSX.Element {
         setEditDescription(tc.description);
         setEditStatus((tc.status as TestCaseStatus) ?? "draft");
 
-        // Hydrate linked requirements: pull all trace links for test case and
-        // resolve "verifies" links to requirement artifacts.
-        if (activeWorkspace) {
-          const linksResp = await tracelinksApi.listForArtifact(
-            activeWorkspace.id,
-            id
-          );
-          const linkedIds = new Set<UUID>();
-          for (const link of linksResp.results) {
-            if (link.link_type === "verifies") {
-              linkedIds.add(link.target_id);
-            }
-          }
-          setEditLinkedReqIds(linkedIds);
-        }
+        // Trace-link hydration removed in REQ-L1-095 adoption: the legacy
+        // "Linked Requirements" panel inside the detail view has been
+        // replaced by <RightSidebar kind="testCase" />. The TracePanel in
+        // the inspector fetches verifies-links on its own.
       } catch (err) {
         console.error("Failed to load test case detail:", err);
       }
     },
-    [activeWorkspace]
+    []
   );
 
   useEffect(() => {
@@ -312,12 +304,6 @@ export default function TestCasesView(): JSX.Element {
     }
   };
 
-  const requirementsById = useMemo(() => {
-    const m: Record<UUID, Requirement> = {};
-    for (const r of requirements) m[r.id] = r;
-    return m;
-  }, [requirements]);
-
   // ---- Render: loading
 
   if (isLoading) {
@@ -337,6 +323,19 @@ export default function TestCasesView(): JSX.Element {
   }
 
   const selected = selectedId ? items.find((it) => it.id === selectedId) : null;
+
+  // Current-version ref for the ArtifactInspector (REQ-L2-RF-035).
+  // TestCase exposes `version` + `updated_at`; we hand VersionPanel the
+  // current row so the diff baseline is anchored (UI standards §4.1).
+  const currentVersion: VersionRef | undefined = useMemo(() => {
+    if (!selected) return undefined;
+    return {
+      version: selected.version,
+      label: `v${selected.version}`,
+      createdAt: selected.updated_at ?? selected.created_at ?? null,
+      baselineIds: [],
+    };
+  }, [selected]);
 
   // ---- Render: split-view layout (REQ-002: Masken-Standardisierung)
 
@@ -668,14 +667,27 @@ export default function TestCasesView(): JSX.Element {
         }}
       />
 
-      {/* Right panel: detail editor or empty state */}
+      {/* Right panel: detail editor (left column) + ArtifactInspector
+          (right column) — wrapped in a flex row so the inspector can
+          render alongside the detail editor (REQ-L1-095, REQ-L2-RF-034). */}
       <div
         style={{
           flex: 1,
-          overflow: "auto",
+          display: "flex",
+          minWidth: 0,
+          overflow: "hidden",
           paddingLeft: "var(--space-4)",
         }}
       >
+        {/* Detail editor / empty state column */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "auto",
+            paddingRight: "var(--space-4)",
+          }}
+        >
         {!selected ? (
           <div
             style={{
@@ -801,67 +813,28 @@ export default function TestCasesView(): JSX.Element {
                     cursor: isSaving ? "not-allowed" : "pointer",
                   }}
                 >
-                  {isSaving ? t("actions.saving") : t("actions.save")}
-                </button>
+                {isSaving ? t("actions.saving") : t("actions.save")}
+              </button>
               </div>
             </div>
 
-            <div
-              data-testid="testcase-linked-reqs"
-              style={{
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-lg)",
-                boxShadow: "var(--shadow-card)",
-                padding: "var(--space-6)",
-              }}
-            >
-              <h3
-                style={{
-                  margin: 0,
-                  marginBottom: "var(--space-3)",
-                  fontSize: "var(--font-size-lg)",
-                  fontWeight: 600,
-                  color: "var(--color-text)",
-                }}
-              >
-                {t("traceability.linkedRequirements", "Linked Requirements")}
-              </h3>
-              {editLinkedReqIds.size === 0 ? (
-                <p
-                  style={{
-                    color: "var(--color-text-muted)",
-                    fontSize: "var(--font-size-sm)",
-                    margin: 0,
-                  }}
-                >
-                  {t("traceability.none", "None")}
-                </p>
-              ) : (
-                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                  {[...editLinkedReqIds].map((rid) => {
-                    const req = requirementsById[rid];
-                    return (
-                      <li
-                        key={rid}
-                        data-testid="testcase-linked-req-item"
-                        style={{
-                          padding: "var(--space-2) var(--space-3)",
-                          marginBottom: "var(--space-2)",
-                          background: "var(--color-surface-raised)",
-                          borderRadius: "var(--radius-md)",
-                          fontSize: "var(--font-size-sm)",
-                          color: "var(--color-text)",
-                        }}
-                      >
-                        → {req?.title ?? rid.slice(0, 8) + "…"}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+            {/* Replaced: <div data-testid="testcase-linked-reqs"> removed
+                (REQ-L1-095). The legacy inline "Linked Requirements" panel
+                has been replaced by the unified <RightSidebar kind="testCase" />
+                which renders the VersionPanel, DiffPanel and TracePanel in
+                one persistent shell (UI standards §3 / §4 / §11). No e2e
+                test depends on the old test-id (verified via e2e/tests/),
+                so the inline panel is deleted cleanly. */}
           </div>
+        )}
+        </div>
+        {/* Right pane: ArtifactInspector (REQ-L1-095, REQ-L2-RF-034) */}
+        {selected && (
+          <RightSidebar
+            kind="testCase"
+            artifactId={selected.id}
+            currentVersion={currentVersion}
+          />
         )}
       </div>
     </div>

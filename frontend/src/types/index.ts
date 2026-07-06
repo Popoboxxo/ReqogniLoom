@@ -90,6 +90,7 @@ export interface Requirement {
   version: number;
   uid?: string;
   type?: RequirementType;
+  moscow_priority?: MoscowPriority;
   complexity_fibonacci?: number;
   verification_method?: VerificationMethod;
   suspect?: boolean;

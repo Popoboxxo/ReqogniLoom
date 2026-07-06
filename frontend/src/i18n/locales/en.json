@@ -446,5 +446,55 @@
     "revoke": "Revoke",
     "revokeConfirm": "Revoke this token? Clients using it will lose access immediately.",
     "empty": "No tokens yet."
+  },
+  "sidebar": {
+    "inspector": {
+      "title": "Inspector",
+      "ariaLabel": "Inspector for {{kind}}",
+      "collapse": "Collapse sidebar",
+      "expand": "Open sidebar",
+      "pin": "Pin sidebar",
+      "unpin": "Unpin sidebar",
+      "refresh": "Refresh",
+      "skeletonLoading": "Loading inspector...",
+      "resize": "Resize inspector"
+    },
+    "version": {
+      "title": "Version",
+      "currentLabel": "Current",
+      "baselineChip": "In baseline: {{name}}",
+      "baselineChipPlural": "In {{n}} baselines",
+      "empty": "No version history for this artifact.",
+      "error": "Could not load versions.",
+      "menu": {
+        "switch": "Switch to v{{n}}",
+        "compare": "Compare to current",
+        "copy": "Copy version id"
+      },
+      "copied": "Version id copied"
+    },
+    "diff": {
+      "title": "Diff",
+      "from": "From",
+      "to": "To",
+      "empty": "Select two versions above to compare.",
+      "error": "Could not load diff.",
+      "unsupported": "Diff is not yet available for {{kind}} artifacts.",
+      "compareCurrent": "Comparing v{{from}} → v{{to}}"
+    },
+    "trace": {
+      "title": "Trace Links",
+      "inbound": "Inbound",
+      "outbound": "Outbound",
+      "empty": "No trace links.",
+      "error": "Could not load trace links.",
+      "filter": {
+        "label": "Filter by type",
+        "clear": "Clear",
+        "allSelected": "All types"
+      },
+      "create": "Add trace link",
+      "viewAll": "View full graph"
+    }
   }
 }

@@ -37,9 +37,12 @@ from auth_tenancy.context import AuthContext
 from persistence.models import (
     ArchitectureElement,
     Artifact,
+    GlossaryTerm,
     Requirement,
+    StakeholderNeed,
     TestCase,
 )
+from application.models import Adr, Issue, Risk
 
 from application.base import NotFoundError, ServiceBase
 
@@ -61,12 +64,22 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     "Requirement": ["title", "description", "category", "status"],
     "ArchitectureElement": ["title", "description", "element_type"],
     "TestCase": ["title", "description", "steps"],
+    "StakeholderNeed": ["title", "description", "category", "status"],
+    "Adr": ["title", "description", "context", "consequences", "status"],
+    "Risk": ["title", "description", "category", "probability", "impact", "status"],
+    "Issue": ["title", "description", "severity", "category", "status"],
+    "GlossaryTerm": ["term", "definition", "synonyms", "abbreviation"],
 }
 
 _ENTITY_MODELS = {
     "Requirement": Requirement,
     "ArchitectureElement": ArchitectureElement,
     "TestCase": TestCase,
+    "StakeholderNeed": StakeholderNeed,
+    "Adr": Adr,
+    "Risk": Risk,
+    "Issue": Issue,
+    "GlossaryTerm": GlossaryTerm,
 }
 
 
@@ -357,6 +370,132 @@ class ArtifactDiffService(ServiceBase):
                 }
             )
         return versions
+
+    # ------------------------------------------------------------------
+    # Entity-based version/diff helpers (no artifact FK required)
+    # REQ-L1-090, REQ-L1-091, REQ-L1-095
+    # ------------------------------------------------------------------
+
+    def list_versions_for_entity(
+        self,
+        entity_type: str,
+        entity_id: UUID,
+        ctx: AuthContext,
+    ) -> List[Dict[str, Any]]:
+        """List available versions for an entity by type and ID.
+
+        Works for entities with a ``version`` field but no artifact FK
+        (ADR, Risk, Issue, GlossaryTerm). Returns the same shape as
+        ``list_versions`` for consistency.
+        """
+        self._set_tenant_context(ctx)
+
+        model_class = _ENTITY_MODELS.get(entity_type)
+        if model_class is None:
+            return [{"version": 0, "label": "Creation baseline"}]
+
+        entity = model_class.objects.filter(id=entity_id).first()
+        if entity is None:
+            raise NotFoundError(f"{entity_type} {entity_id} not found")
+
+        versions = [{"version": 0, "label": "Creation baseline"}]
+        if hasattr(entity, "version"):
+            versions.append(
+                {
+                    "version": entity.version,
+                    "label": f"Current (v{entity.version})",
+                    "modified_at": entity.updated_at.isoformat()
+                    if hasattr(entity, "updated_at") and entity.updated_at
+                    else (
+                        entity.modified_at.isoformat()
+                        if hasattr(entity, "modified_at") and entity.modified_at
+                        else None
+                    ),
+                }
+            )
+        return versions
+
+    def diff_for_entity(
+        self,
+        entity_type: str,
+        entity_id: UUID,
+        from_version: int,
+        to_version: int,
+        ctx: AuthContext,
+    ) -> Dict[str, Any]:
+        """Compute structured diff for an entity by type and ID.
+
+        Works for entities with a ``version`` field but no artifact FK.
+        Returns the same shape as ``diff`` for consistency.
+        """
+        self._set_tenant_context(ctx)
+
+        if entity_type not in _ENTITY_FIELDS:
+            raise NotFoundError(
+                f"Diff not supported for entity type '{entity_type}'"
+            )
+
+        model_class = _ENTITY_MODELS.get(entity_type)
+        if model_class is None:
+            raise NotFoundError(f"Entity model for '{entity_type}' not found")
+
+        entity = model_class.objects.filter(id=entity_id).first()
+        if entity is None:
+            raise NotFoundError(f"{entity_type} {entity_id} not found")
+
+        # Resolve snapshots
+        from_snapshot = self._resolve_entity_snapshot_for_entity(
+            entity, entity_type, from_version
+        )
+        to_snapshot = self._resolve_entity_snapshot_for_entity(
+            entity, entity_type, to_version
+        )
+
+        if to_snapshot is None:
+            raise NotFoundError(
+                f"Version {to_version} not available for {entity_type} "
+                f"entity {entity_id}"
+            )
+
+        # Compute field-level diff
+        fields = self._compute_fields_diff(
+            from_snapshot or {},
+            to_snapshot,
+            entity_type,
+        )
+
+        result: Dict[str, Any] = {
+            "from_version": from_version,
+            "to_version": to_version,
+            "entity_type": entity_type,
+            "fields": fields,
+        }
+
+        # Document limitation when historical data is not available
+        if from_version > 0 and from_snapshot is None:
+            result["note"] = (
+                f"Historical version {from_version} is not available. "
+                "Only the current state is stored. "
+                "Use version 0 to compare against the creation baseline."
+            )
+
+        return result
+
+    def _resolve_entity_snapshot_for_entity(
+        self,
+        entity: Any,
+        entity_type: str,
+        version: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve entity field values for a given version (no artifact FK).
+
+        Version 0 → None (creation baseline, no data).
+        Any valid version → current entity state (single-row model).
+        """
+        if version == 0:
+            return None
+
+        return self._entity_to_snapshot(entity, entity_type)
 
 
 __all__ = [
