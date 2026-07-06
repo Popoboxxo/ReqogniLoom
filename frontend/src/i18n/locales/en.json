@@ -76,7 +76,8 @@
     "cancel": "Cancel",
     "create": "Create",
     "copy": "Copy",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "clear": "Clear"
   },
   "admin": {
     "attributeVisibility": "Attribute Configuration",
@@ -193,6 +194,7 @@
   "baselines": {
     "placeholder": "Baselines — in progress.",
     "empty": "No baselines available.",
+    "selectBaseline": "Select a baseline from the list.",
     "create": "New Baseline",
     "id": "ID",
     "scope": "Scope",
@@ -207,6 +209,41 @@
     "created": "Created",
     "noArtifacts": "No artifacts available",
     "artifactRequired": "Please select an artifact."
+  },
+  "glossary": {
+    "searchPlaceholder": "Search glossary...",
+    "noTerms": "No terms found.",
+    "loading": "Loading terms...",
+    "term": "Term",
+    "termRequired": "Term is required.",
+    "abbreviation": "Abbreviation",
+    "definition": "Definition",
+    "definitionRequired": "Definition is required.",
+    "synonyms": "Synonyms (comma separated)",
+    "global": "Global",
+    "all": "All",
+    "workspace": "Workspace",
+    "addTerm": "Add term",
+    "editTerm": "Edit term",
+    "newTerm": "New term",
+    "deleteConfirm": "Really delete this term?"
+  },
+  "adr": {
+    "titlePlaceholder": "ADR title",
+    "contextPlaceholder": "What is the context / problem?",
+    "decisionPlaceholder": "What is the decision and its consequences?",
+    "context": "Context",
+    "decision": "Decision",
+    "status": "Status"
+  },
+  "needs": {
+    "selectNeed": "Select a need from the list to view details."
+  },
+  "risks": {
+    "selectRisk": "Select a risk from the list to view details."
+  },
+  "issues": {
+    "selectIssue": "Select an issue from the list to view details."
   },
   "settings": {
     "preset": "Preset",

@@ -474,7 +474,7 @@ export default function IssueList(): JSX.Element {
               textAlign: "center",
             }}
           >
-            {t("editor.selectRequirement")}
+            {t("issues.selectIssue")}
           </p>
         )}
       </div>

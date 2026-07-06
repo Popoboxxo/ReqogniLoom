@@ -14,7 +14,8 @@ interface NeedFormProps {
 }
 
 export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, onNeedsChanged }: NeedFormProps): JSX.Element {
-    const [formData, setFormData] = useState<Partial<StakeholderNeed>>({});
+  const { t } = useTranslation();
+  const [formData, setFormData] = useState<Partial<StakeholderNeed>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isDeriving, setIsDeriving] = useState(false);
   const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
@@ -93,7 +94,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
           padding: 'var(--space-8)',
         }}
       >
-        Select a need from the list to view details
+        {t("needs.selectNeed")}
       </p>
     );
   }

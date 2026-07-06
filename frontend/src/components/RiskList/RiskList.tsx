@@ -559,7 +559,7 @@ export default function RiskList(): JSX.Element {
               textAlign: "center",
             }}
           >
-            {t("editor.selectRequirement")}
+            {t("risks.selectRisk")}
           </p>
         )}
       </div>

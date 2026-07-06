@@ -76,7 +76,8 @@
     "cancel": "Abbrechen",
     "create": "Erstellen",
     "copy": "Kopieren",
-    "dismiss": "Verwerfen"
+    "dismiss": "Verwerfen",
+    "clear": "Zurücksetzen"
   },
   "admin": {
     "attributeVisibility": "Attributkonfiguration",
@@ -193,6 +194,7 @@
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",
     "empty": "Keine Baselines vorhanden.",
+    "selectBaseline": "Wählen Sie eine Baseline aus der Liste.",
     "create": "Neue Baseline",
     "id": "ID",
     "scope": "Scope",
@@ -207,6 +209,41 @@
     "created": "Erstellt",
     "noArtifacts": "Keine Artefakte vorhanden",
     "artifactRequired": "Bitte ein Artefakt auswählen."
+  },
+  "glossary": {
+    "searchPlaceholder": "Glossar durchsuchen...",
+    "noTerms": "Keine Begriffe gefunden.",
+    "loading": "Begriffe werden geladen...",
+    "term": "Begriff",
+    "termRequired": "Begriff ist erforderlich.",
+    "abbreviation": "Abkürzung",
+    "definition": "Definition",
+    "definitionRequired": "Definition ist erforderlich.",
+    "synonyms": "Synonyme (kommagetrennt)",
+    "global": "Global",
+    "all": "Alle",
+    "workspace": "Workspace",
+    "addTerm": "Begriff hinzufügen",
+    "editTerm": "Begriff bearbeiten",
+    "newTerm": "Neuer Begriff",
+    "deleteConfirm": "Diesen Begriff wirklich löschen?"
+  },
+  "adr": {
+    "titlePlaceholder": "ADR-Titel",
+    "contextPlaceholder": "Was ist der Kontext / das Problem?",
+    "decisionPlaceholder": "Was ist die Entscheidung und ihre Konsequenzen?",
+    "context": "Kontext",
+    "decision": "Entscheidung",
+    "status": "Status"
+  },
+  "needs": {
+    "selectNeed": "Wählen Sie einen Bedarf aus der Liste, um Details anzuzeigen."
+  },
+  "risks": {
+    "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen."
+  },
+  "issues": {
+    "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen."
   },
   "settings": {
     "preset": "Preset",

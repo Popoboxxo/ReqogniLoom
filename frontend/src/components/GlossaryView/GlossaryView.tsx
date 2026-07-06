@@ -68,7 +68,7 @@ export default function GlossaryView(): JSX.Element {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm(t("actions.confirmDelete") || "Are you sure?")) {
+    if (confirm(t("glossary.deleteConfirm"))) {
       try {
         await glossaryApi.delete(id);
         loadTerms();
@@ -142,7 +142,7 @@ export default function GlossaryView(): JSX.Element {
         </h1>
         <button onClick={() => { resetForm(); setIsFormOpen(true); }} style={btnStyle}>
           <PlusCircle size={18} />
-          <span>{t("actions.create", "Add Term")}</span>
+          <span>{t("glossary.addTerm")}</span>
         </button>
       </div>
 
@@ -156,30 +156,30 @@ export default function GlossaryView(): JSX.Element {
           boxShadow: "var(--shadow-card)",
         }}>
           <h2 style={{ margin: "0 0 var(--space-4) 0", fontSize: "var(--font-size-lg)" }}>
-            {editingId ? t("actions.edit", "Edit") : t("actions.create", "New Term")}
+            {editingId ? t("glossary.editTerm") : t("glossary.addTerm")}
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
             <div>
               <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
-                Term *
+                {t("glossary.term")} *
               </label>
               <input required style={inputStyle} value={formData.term} onChange={e => setFormData({...formData, term: e.target.value})} disabled={!!editingId} />
             </div>
             <div>
               <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
-                Abbreviation
+                {t("glossary.abbreviation")}
               </label>
               <input style={inputStyle} value={formData.abbreviation} onChange={e => setFormData({...formData, abbreviation: e.target.value})} />
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
-                Definition *
+                {t("glossary.definition")} *
               </label>
               <textarea required rows={3} style={{...inputStyle, resize: "vertical"}} value={formData.definition} onChange={e => setFormData({...formData, definition: e.target.value})} />
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={{ display: "block", marginBottom: "var(--space-1)", fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
-                Synonyms (comma separated)
+                {t("glossary.synonyms")}
               </label>
               <input style={inputStyle} value={formData.synonyms} onChange={e => setFormData({...formData, synonyms: e.target.value})} />
             </div>
@@ -200,7 +200,7 @@ export default function GlossaryView(): JSX.Element {
           <Search style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "var(--color-text-muted)" }} size={18} />
           <input
             style={{ ...inputStyle, paddingLeft: "36px" }}
-            placeholder="Search glossary..."
+            placeholder={t("glossary.searchPlaceholder")}
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
           />
@@ -220,7 +220,7 @@ export default function GlossaryView(): JSX.Element {
                 borderRight: mode !== "global" ? "1px solid var(--color-border)" : "none",
               }}
             >
-              {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              {mode === "all" ? t("glossary.all") : mode === "workspace" ? t("glossary.workspace") : t("glossary.global")}
             </button>
           ))}
         </div>
@@ -228,9 +228,9 @@ export default function GlossaryView(): JSX.Element {
 
       <div style={{ flex: 1, overflowY: "auto" }}>
         {loading ? (
-          <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-muted)" }}>Loading...</div>
+          <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-muted)" }}>{t("glossary.loading")}</div>
         ) : filteredTerms.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-muted)" }}>No terms found.</div>
+          <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-muted)" }}>{t("glossary.noTerms")}</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
             {filteredTerms.map(term => (
@@ -253,7 +253,7 @@ export default function GlossaryView(): JSX.Element {
                     )}
                     {term.workspace_id === null && (
                       <span style={{ background: "var(--color-warning-soft)", color: "var(--color-warning)", padding: "2px 6px", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-xs)", fontWeight: 600 }}>
-                        GLOBAL
+                        {t("glossary.global")}
                       </span>
                     )}
                   </div>

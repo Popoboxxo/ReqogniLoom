@@ -319,14 +319,14 @@ export default function AdrList(): JSX.Element {
               required
               autoFocus
               disabled={isSubmitting}
-              placeholder="ADR title"
+              placeholder={t("adr.titlePlaceholder")}
               style={inputStyle}
             />
           </div>
 
           <div>
             <label htmlFor="adr-context" style={labelStyle}>
-              {t("editor.context", "Context")}
+              {t("adr.context")}
             </label>
             <textarea
               id="adr-context"
@@ -335,7 +335,7 @@ export default function AdrList(): JSX.Element {
               onChange={(e) => setContext(e.target.value)}
               disabled={isSubmitting}
               rows={4}
-              placeholder="What is the context / problem?"
+              placeholder={t("adr.contextPlaceholder")}
               style={{
                 ...inputStyle,
                 fontFamily: "inherit",
@@ -346,7 +346,7 @@ export default function AdrList(): JSX.Element {
 
           <div>
             <label htmlFor="adr-decision" style={labelStyle}>
-              {t("editor.decision", "Decision")}
+              {t("adr.decision")}
             </label>
             <textarea
               id="adr-decision"
@@ -355,7 +355,7 @@ export default function AdrList(): JSX.Element {
               onChange={(e) => setDecision(e.target.value)}
               disabled={isSubmitting}
               rows={4}
-              placeholder="What is the decision and its consequences?"
+              placeholder={t("adr.decisionPlaceholder")}
               style={{
                 ...inputStyle,
                 fontFamily: "inherit",
@@ -366,7 +366,7 @@ export default function AdrList(): JSX.Element {
 
           <div>
             <label htmlFor="adr-status" style={labelStyle}>
-              {t("editor.status", "Status")}
+              {t("adr.status")}
             </label>
             <select
               id="adr-status"

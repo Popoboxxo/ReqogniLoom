@@ -748,7 +748,7 @@ export default function BaselinesView(): JSX.Element {
               textAlign: "center",
             }}
           >
-            {t("baselines.selectBaseline", "Select a baseline from the list")}
+            {t("baselines.selectBaseline")}
           </p>
         )}
       </div>
