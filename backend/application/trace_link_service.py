@@ -92,6 +92,56 @@ class TraceLinkService(ServiceBase):
 
         raise NotFoundError(f"Entity {entity_id} not found")
 
+    def _check_se_semantics(
+        self,
+        source_artifact_id: UUID,
+        target_artifact_id: UUID,
+        link_type: str,
+    ) -> None:
+        """Enforce SE endpoint semantics in se_mode workspaces (finding F1).
+
+        Resolution failures (missing artifact/preset config, unit-test
+        contexts) skip enforcement — same permissive fallback pattern as
+        ArchitectureElementInvariantValidator.for_workspace().
+
+        Raises:
+            ValidationError: If the workspace runs in se_mode and the
+                link violates the SE endpoint matrix.
+        """
+        from traceability.types import check_se_link_semantics
+
+        try:
+            from persistence.models import Artifact
+            from presets.models import WorkspacePresetConfig
+
+            source = Artifact.objects.filter(id=source_artifact_id).first()
+            target = Artifact.objects.filter(id=target_artifact_id).first()
+            if source is None or target is None:
+                return  # existence errors are raised downstream
+
+            config = WorkspacePresetConfig.objects.filter(
+                workspace_id=source.workspace_id
+            ).first()
+            if config is None or config.terminology_profile != "se_mode":
+                return  # dev_mode / unconfigured: no SE rigor
+
+            error = check_se_link_semantics(
+                link_type, source.artifact_type, target.artifact_type
+            )
+        except ValidationError:
+            raise
+        except Exception:
+            logger.debug(
+                "SE semantics check skipped for %s -> %s",
+                source_artifact_id,
+                target_artifact_id,
+                exc_info=True,
+            )
+            return
+
+        if error is not None:
+            raise ValidationError(error)
+
     def create_trace_link(
         self,
         source_id: UUID,
@@ -130,6 +180,10 @@ class TraceLinkService(ServiceBase):
         # Resolve Requirement/ArchitectureElement IDs to Artifact IDs
         resolved_source = self._resolve_artifact_id(source_id)
         resolved_target = self._resolve_artifact_id(target_id)
+
+        # SE endpoint semantics (se_mode workspaces only, permissive for
+        # non-core artifact types — see docs/se/workspace_modes_er_model.md F1).
+        self._check_se_semantics(resolved_source, resolved_target, link_type)
 
         # REQ-L1-044 I4: allocated-to must not target an ancestor of the
         # source (Extended rigor only, gated inside the validator).

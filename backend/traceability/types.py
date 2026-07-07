@@ -56,6 +56,104 @@ class LinkType(str, Enum):
 VALID_LINK_TYPES: frozenset[str] = LinkType.values()
 
 # ---------------------------------------------------------------------------
+# SE endpoint semantics (SE-mode rigor, see docs/se/workspace_modes_er_model.md)
+#
+# In se_mode workspaces the link_type string alone is not enough: SE discipline
+# constrains WHICH artifact types a link may connect (e.g. "verifies" is only
+# valid from a TestCase towards a Requirement/ArchitectureElement).
+#
+# Matrix values:
+#   set of (source_type, target_type) pairs — "*" is a wildcard side.
+#   SAME_TYPE sentinel — both endpoints must share the same artifact type.
+#   Link types absent from the matrix are unrestricted (traces, realizes,
+#   uses-term — deliberately generic).
+#
+# Artifact types outside the core set (e.g. ICD or import artifacts) are NOT
+# constrained: enforcement is permissive by design so that existing data and
+# seeds keep working.
+# ---------------------------------------------------------------------------
+
+_REQ = "Requirement"
+_ARCH = "ArchitectureElement"
+_TC = "TestCase"
+_SN = "StakeholderNeed"
+_DIAG = "Diagram"
+
+#: Core artifact types the SE matrix constrains. Anything else passes.
+SE_CORE_ARTIFACT_TYPES: frozenset[str] = frozenset(
+    {_REQ, _ARCH, _TC, _SN, _DIAG}
+)
+
+#: Sentinel: both endpoints must have the same artifact type.
+SAME_TYPE = "same-type"
+
+SE_LINK_SEMANTICS: dict[str, object] = {
+    LinkType.DERIVES_FROM.value: {(_REQ, _REQ), (_REQ, _SN), (_SN, _SN)},
+    LinkType.SATISFIES.value: {(_ARCH, _REQ), (_REQ, _SN)},
+    LinkType.VERIFIES.value: {(_TC, _REQ), (_TC, _ARCH)},
+    LinkType.IMPLEMENTS.value: {(_ARCH, _REQ)},
+    LinkType.REFINES.value: {(_REQ, _REQ), (_ARCH, _ARCH)},
+    LinkType.ALLOCATED_TO.value: {(_REQ, _ARCH), (_ARCH, _ARCH)},
+    LinkType.DOCUMENTS.value: {(_DIAG, "*")},
+    LinkType.PARENT_CHILD.value: SAME_TYPE,
+    LinkType.COPY_OF.value: SAME_TYPE,
+}
+
+
+def normalize_artifact_type(artifact_type: str | None) -> str:
+    """Strip sub-type tags: ``"TestCase:unit"`` → ``"TestCase"``."""
+    if not artifact_type:
+        return ""
+    return artifact_type.split(":", 1)[0]
+
+
+def check_se_link_semantics(
+    link_type: str, source_type: str | None, target_type: str | None
+) -> Optional[str]:
+    """Validate SE endpoint semantics for a link (se_mode rigor).
+
+    Args:
+        link_type: One of VALID_LINK_TYPES.
+        source_type: Artifact.artifact_type of the source endpoint.
+        target_type: Artifact.artifact_type of the target endpoint.
+
+    Returns:
+        None if the combination is SE-conform (or unconstrained),
+        otherwise a human-readable error message.
+    """
+    rule = SE_LINK_SEMANTICS.get(link_type)
+    if rule is None:
+        return None  # unrestricted link type
+
+    src = normalize_artifact_type(source_type)
+    tgt = normalize_artifact_type(target_type)
+
+    # Permissive default: non-core artifact types are never constrained.
+    if src not in SE_CORE_ARTIFACT_TYPES or tgt not in SE_CORE_ARTIFACT_TYPES:
+        return None
+
+    if rule == SAME_TYPE:
+        if src == tgt:
+            return None
+        return (
+            f"SE mode: '{link_type}' links require both endpoints to be the "
+            f"same artifact type (got {src} -> {tgt})."
+        )
+
+    pairs = rule  # set of (source, target) pairs, "*" = wildcard
+    for pair_src, pair_tgt in pairs:  # type: ignore[union-attr]
+        if pair_src in ("*", src) and pair_tgt in ("*", tgt):
+            return None
+
+    allowed = ", ".join(
+        sorted(f"{s}->{t}" for s, t in pairs)  # type: ignore[union-attr]
+    )
+    return (
+        f"SE mode: '{link_type}' is not valid from {src} to {tgt}. "
+        f"Allowed: {allowed}."
+    )
+
+# ---------------------------------------------------------------------------
 # Direction enum for queries
 # ---------------------------------------------------------------------------
 
@@ -209,6 +307,11 @@ class VCRMMatrix:
 __all__ = [
     "LinkType",
     "VALID_LINK_TYPES",
+    "SE_LINK_SEMANTICS",
+    "SE_CORE_ARTIFACT_TYPES",
+    "SAME_TYPE",
+    "check_se_link_semantics",
+    "normalize_artifact_type",
     "Direction",
     "NeighborResult",
     "TransitiveResult",

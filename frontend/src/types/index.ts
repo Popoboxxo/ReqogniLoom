@@ -152,6 +152,7 @@ export interface ArchitectureElement {
 // TraceLink (mirrors TraceLinkSerializer)
 // ---------------------------------------------------------------------------
 
+// Harmonized with backend/traceability/types.py::LinkType (12 types)
 export type LinkType =
   | "parent-child"
   | "derives-from"
@@ -160,7 +161,11 @@ export type LinkType =
   | "implements"
   | "refines"
   | "documents"
-  | "allocated-to";
+  | "realizes"
+  | "traces"
+  | "copy-of"
+  | "allocated-to"
+  | "uses-term";
 
 export interface TraceLink {
   id: UUID;

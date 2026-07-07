@@ -510,7 +510,7 @@ admin-ui:
 rules-preset: ''
 speech-mode: short
 dod-preset: spec-driven
-tier-preset: Cheap
+tier-preset: Normal
 se-focus: false
 memory:
   enabled: true
@@ -529,49 +529,6 @@ lifecycle-triggers:
 hooks:
   lifecycle-check:
     enabled: true
-model-overrides:
-  Opencode:
-    orchestrator: opencode-go/minimax-m3
-    developer: opencode-go/minimax-m3
-    code-reviewer: opencode-go/minimax-m3
-    api-specialist: opencode-go/minimax-m3
-    requirements: opencode-go/minimax-m3
-    validator: opencode-go/minimax-m3
-    documenter: opencode-go/minimax-m3
-    git: opencode-go/minimax-m3
-    release: opencode-go/minimax-m3
-    meta-feedback: opencode-go/minimax-m3
-    ideation: opencode-go/minimax-m3
-    agent-meta-manager: opencode-go/minimax-m3
-    feature: opencode-go/minimax-m3
-    agent-meta-scout: opencode-go/minimax-m3
-    se-requirements: opencode-go/minimax-m3
-    se-architect: opencode-go/minimax-m3
-    se-interface-mgr: opencode-go/minimax-m3
-    se-critic: opencode-go/minimax-m3
-    se-validator: opencode-go/minimax-m3
-    se-verifier: opencode-go/minimax-m3
-    se-integration-and-test-manager: opencode-go/minimax-m3
-    se-termination: opencode-go/minimax-m3
-    bug-feature-analyzer: opencode-go/minimax-m3
-    concept-reviewer: opencode-go/minimax-m3
-    se-test-engineer: opencode-go/minimax-m3
-    se-testreviewer: opencode-go/minimax-m3
-    ui-ux-designer: opencode-go/minimax-m3
-    log-analyzer: opencode-go/minimax-m3
-    feedback: opencode-go/minimax-m3
-    docker: opencode-go/minimax-m3
-    effort-estimator: opencode-go/minimax-m3
-    explorer: opencode-go/minimax-m3
-    export-manager: opencode-go/minimax-m3
-    performance-optimizer: opencode-go/minimax-m3
-    devops-engineer: opencode-go/minimax-m3
-    junior-developer: opencode-go/minimax-m3
-    tester: opencode-go/minimax-m3
-    se-developer: opencode-go/minimax-m3
-    se-junior-developer: opencode-go/minimax-m3
-  Claude:
-    senior-developer: claude-fable-5
 agent-prompts:
   default: legacy
   modes:
@@ -583,3 +540,6 @@ provider-options:
   Copilot: {}
   Gemini: {}
   Opencode: {}
+model-overrides:
+  Claude:
+    senior-developer: claude-opus-4-8

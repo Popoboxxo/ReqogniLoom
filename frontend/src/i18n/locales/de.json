@@ -188,6 +188,8 @@
     "sourceRequired": "Bitte ein Quell-Artefakt auswählen.",
     "targetRequired": "Bitte ein Ziel-Artefakt auswählen.",
     "sameEndpoints": "Quelle und Ziel müssen unterschiedlich sein.",
+    "seModeHint": "SE-Modus: Link-Typen werden nach SE-Semantik gefiltert (Quelle → Ziel).",
+    "seNoValidType": "SE-Modus: Zwischen den gewählten Artefakttypen ist kein Link-Typ zulässig.",
     "submit": "Erstellen",
     "submitting": "Erstellt..."
   },

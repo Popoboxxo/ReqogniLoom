@@ -17,6 +17,7 @@ import { architectureApi } from "../../api/architecture";
 import { testcasesApi } from "../../api/testcases";
 import { artifactsApi } from "../../api/artifacts";
 import { ModalDialogBase, SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
+import { allowedSeLinkTypes } from "../../utils/seLinkSemantics";
 import type {
   Artifact,
   LinkType,
@@ -36,7 +37,9 @@ interface TraceLinksListProps {
   titles: Record<string, string>;
 }
 
-// Canonical link_type order (REQ-L2-RF-006 — predictable section order)
+// Canonical link_type order (REQ-L2-RF-006 — predictable section order).
+// Harmonized with the backend LinkType enum; uses-term is glossary-managed
+// and deliberately excluded from manual link creation.
 const LINK_TYPE_ORDER: LinkType[] = [
   "parent-child",
   "derives-from",
@@ -44,6 +47,11 @@ const LINK_TYPE_ORDER: LinkType[] = [
   "verifies",
   "implements",
   "refines",
+  "allocated-to",
+  "documents",
+  "realizes",
+  "traces",
+  "copy-of",
 ];
 
 function formatId(id: string): string {
@@ -206,6 +214,10 @@ export function TraceLinksForm(): JSX.Element {
     linkType: "satisfies",
   });
 
+  // SE mode: filter link types by endpoint semantics (finding F1,
+  // docs/se/workspace_modes_er_model.md). dev_mode keeps the full list.
+  const isSeMode = activeWorkspace?.terminology_profile === "se_mode";
+
   // Load trace links and resolve titles
   const loadList = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) {
@@ -268,6 +280,35 @@ export function TraceLinksForm(): JSX.Element {
     };
   }, [loadList]);
 
+  const artifactTypeById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of artifacts) map[a.id] = a.artifact_type;
+    return map;
+  }, [artifacts]);
+
+  const availableLinkTypes = useMemo<LinkType[]>(() => {
+    if (!isSeMode) return LINK_TYPE_ORDER;
+    return allowedSeLinkTypes(
+      LINK_TYPE_ORDER,
+      artifactTypeById[formData.sourceId],
+      artifactTypeById[formData.targetId]
+    );
+  }, [isSeMode, artifactTypeById, formData.sourceId, formData.targetId]);
+
+  // Keep the selected link type valid when SE filtering narrows the list.
+  useEffect(() => {
+    if (availableLinkTypes.length === 0) return;
+    if (!availableLinkTypes.includes(formData.linkType)) {
+      setFormData((prev) => ({ ...prev, linkType: availableLinkTypes[0] }));
+    }
+  }, [availableLinkTypes, formData.linkType]);
+
+  const seNoValidType =
+    isSeMode &&
+    formData.sourceId !== "" &&
+    formData.targetId !== "" &&
+    availableLinkTypes.length === 0;
+
   const resetForm = useCallback((): void => {
     setFormData({ sourceId: "", targetId: "", linkType: "satisfies" });
     setFormError(null);
@@ -288,6 +329,10 @@ export function TraceLinksForm(): JSX.Element {
       }
       if (formData.sourceId === formData.targetId) {
         setFormError(t("traceability.sameEndpoints"));
+        return;
+      }
+      if (seNoValidType) {
+        setFormError(t("traceability.seNoValidType"));
         return;
       }
 
@@ -324,7 +369,7 @@ export function TraceLinksForm(): JSX.Element {
         setIsSubmitting(false);
       }
     },
-    [activeWorkspace, formData, t, resetForm, loadList]
+    [activeWorkspace, formData, seNoValidType, t, resetForm, loadList]
   );
 
   const handleCancel = useCallback((): void => {
@@ -425,16 +470,33 @@ export function TraceLinksForm(): JSX.Element {
                 linkType: e.target.value as LinkType,
               }))
             }
-            disabled={isSubmitting}
+            disabled={isSubmitting || seNoValidType}
             style={SHARED_STYLES.input}
             required
           >
-            {LINK_TYPE_ORDER.map((lt) => (
+            {availableLinkTypes.map((lt) => (
               <option key={lt} value={lt}>
                 {lt}
               </option>
             ))}
           </select>
+
+          {isSeMode && (
+            <p
+              data-testid="tracelink-se-hint"
+              style={{
+                marginTop: "var(--space-2)",
+                fontSize: "var(--font-size-sm)",
+                color: seNoValidType
+                  ? "var(--color-danger)"
+                  : "var(--color-text-muted)",
+              }}
+            >
+              {seNoValidType
+                ? t("traceability.seNoValidType")
+                : t("traceability.seModeHint")}
+            </p>
+          )}
         </div>
       </ModalDialogBase>
 
