@@ -428,36 +428,16 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
           <button
             data-testid="save-btn"
+            className="btn-primary"
             onClick={() => void handleSave()}
             disabled={isSaving}
-            style={{
-              background: 'var(--color-primary)',
-              color: 'white',
-              border: 'none',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-2) var(--space-6)',
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 600,
-              cursor: isSaving ? 'not-allowed' : 'pointer',
-              opacity: isSaving ? 0.7 : 1,
-              transition: 'var(--transition-fast)',
-            }}
           >
             {isSaving ? t('actions.saving') : t('actions.save')}
           </button>
           <button
             data-testid="view-diff-btn"
+            className={showDiff ? 'btn-primary' : 'btn-secondary'}
             onClick={() => setShowDiff(!showDiff)}
-            style={{
-              background: showDiff ? 'var(--color-primary)' : 'transparent',
-              color: showDiff ? 'white' : 'var(--color-primary)',
-              border: '1px solid var(--color-primary)',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-2) var(--space-4)',
-              fontSize: 'var(--font-size-sm)',
-              cursor: 'pointer',
-              fontWeight: 500,
-            }}
           >
             {showDiff ? t('editor.hideDiff') : t('editor.viewDiff')}
           </button>

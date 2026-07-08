@@ -75,32 +75,30 @@ export function MarkdownPreview({
   return (
     <div>
       <div
+        role="tablist"
         style={{
-          display: "flex",
-          gap: "0.5rem",
-          marginBottom: "0.5rem",
+          display: "inline-flex",
+          marginBottom: "var(--space-2)",
           alignItems: "center",
         }}
       >
         <button
           type="button"
+          role="tab"
+          className="btn-tab"
+          aria-selected={!isPreview}
           data-testid="md-edit-btn"
           onClick={() => setIsPreview(false)}
-          style={{
-            fontWeight: !isPreview ? "bold" : "normal",
-            cursor: "pointer",
-          }}
         >
           {t("editor.editMode")}
         </button>
         <button
           type="button"
+          role="tab"
+          className="btn-tab"
+          aria-selected={isPreview}
           data-testid="md-preview-btn"
           onClick={() => setIsPreview(true)}
-          style={{
-            fontWeight: isPreview ? "bold" : "normal",
-            cursor: "pointer",
-          }}
         >
           {t("editor.previewMode")}
         </button>
@@ -110,9 +108,9 @@ export function MarkdownPreview({
         <div
           style={{
             border: "1px solid var(--color-border)",
-            borderRadius: "4px",
-            padding: "0.75rem",
-            minHeight: "120px",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-3)",
+            minHeight: "140px",
             background: "var(--color-surface-raised)",
             color: "var(--color-text)",
           }}
@@ -127,13 +125,14 @@ export function MarkdownPreview({
           rows={6}
           style={{
             width: "100%",
-            padding: "0.5rem",
+            padding: "var(--space-3)",
             fontSize: "0.95rem",
-            fontFamily: "monospace",
+            fontFamily: "var(--font-mono, monospace)",
             border: "1px solid var(--color-border)",
-            borderRadius: "4px",
+            borderRadius: "var(--radius-md)",
             boxSizing: "border-box",
             resize: "vertical",
+            minHeight: "140px",
             background: "var(--color-surface-raised)",
             color: "var(--color-text)",
           }}

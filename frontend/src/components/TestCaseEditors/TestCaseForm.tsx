@@ -1,0 +1,118 @@
+import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { testcasesApi, type TestCase } from '../../api/testcases';
+import { VersionBadge } from '../shared/VersionBadge';
+import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
+
+interface TestCaseFormProps {
+  testCase: TestCase | null;
+  onSaved: () => void;
+  onDeleted?: () => void;
+}
+
+const STATUS_OPTIONS = ['draft', 'active', 'deprecated'];
+
+export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps): JSX.Element {
+  const { t } = useTranslation();
+  const [formData, setFormData] = useState<Partial<TestCase>>({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (testCase) setFormData({ ...testCase });
+    else setFormData({});
+  }, [testCase]);
+
+  const handleChange = (field: keyof TestCase, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    if (!testCase) return;
+    setIsSaving(true);
+    try {
+      await testcasesApi.update(testCase.id, {
+        title: formData.title,
+        description: formData.description,
+        status: formData.status,
+      });
+      onSaved();
+    } catch (err) {
+      console.error(err);
+      alert(t('testcases.saveFailed'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!testCase) return;
+    if (window.confirm(t('testcases.deleteConfirm'))) {
+      try {
+        await testcasesApi.delete(testCase.id);
+        onDeleted?.();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  if (!testCase) {
+    return (
+      <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+        {t('testcases.selectTestCase')}
+      </p>
+    );
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
+    padding: 'var(--space-3)', fontFamily: 'var(--font-sans)', fontSize: 'var(--font-size-base)',
+    marginBottom: 'var(--space-4)', color: 'var(--color-text)', background: 'var(--color-surface)',
+    boxSizing: 'border-box',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontWeight: 500, color: 'var(--color-text)', display: 'block', marginBottom: 'var(--space-1)',
+  };
+
+  return (
+    <div style={{
+      background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)',
+      padding: 'var(--space-6)', flex: 1, display: 'flex', gap: 'var(--space-6)', alignItems: 'flex-start',
+    }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
+          <div>
+            <span style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: '99px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+              {testCase.status}
+            </span>
+            {testCase.version && <VersionBadge version={testCase.version} />}
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <button onClick={handleDelete} className="btn-danger">{t('actions.delete')}</button>
+            <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+              {isSaving ? t('actions.saving') : t('actions.save')}
+            </button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+          <div>
+            <label style={labelStyle}>{t('editor.title')}</label>
+            <input type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>{t('editor.description')}</label>
+            <MarkdownPreview value={formData.description || ''} onChange={(v) => handleChange('description', v)} />
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>{t('editor.status')}</label>
+              <select value={formData.status || 'draft'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
+                {STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

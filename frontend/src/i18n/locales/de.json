@@ -77,7 +77,9 @@
     "create": "Erstellen",
     "copy": "Kopieren",
     "dismiss": "Verwerfen",
-    "clear": "Zurücksetzen"
+    "clear": "Zurücksetzen",
+    "derive": "Ableiten",
+    "deriving": "Leitet ab..."
   },
   "admin": {
     "attributeVisibility": "Attributkonfiguration",
@@ -132,6 +134,7 @@
     "hideDiff": "Diff verbergen"
   },
   "arch": {
+    "deriveRequirement": "Anforderung ableiten",
     "elementType": "Element-Typ",
     "elementType.component": "Komponente",
     "elementType.interface": "Schnittstelle",
@@ -239,13 +242,50 @@
     "status": "Status"
   },
   "needs": {
-    "selectNeed": "Wählen Sie einen Bedarf aus der Liste, um Details anzuzeigen."
+    "selectNeed": "Wählen Sie einen Bedarf aus der Liste, um Details anzuzeigen.",
+    "createFailed": "Bedarf konnte nicht erstellt werden.",
+    "saveFailed": "Bedarf konnte nicht gespeichert werden.",
+    "deleteConfirm": "Diesen Bedarf löschen?",
+    "priorityNone": "Keine",
+    "deriveStarting": "KI-Ableitung wird gestartet...",
+    "deriveStarted": "Task gestartet: {{taskId}}. Warte auf Abschluss...",
+    "deriveSuccess": "Systemanforderungen erfolgreich abgeleitet!",
+    "deriveFailed": "Ableitung fehlgeschlagen.",
+    "deriveArchOptional": "Architekturelement zuweisen (optional)"
+  },
+  "adrs": {
+    "selectAdr": "Wählen Sie eine ADR aus der Liste, um Details anzuzeigen.",
+    "createFailed": "ADR konnte nicht erstellt werden.",
+    "saveFailed": "ADR konnte nicht gespeichert werden.",
+    "deleteConfirm": "Diese ADR löschen?",
+    "context": "Kontext",
+    "consequences": "Konsequenzen"
   },
   "risks": {
-    "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen."
+    "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen.",
+    "createFailed": "Risiko konnte nicht erstellt werden.",
+    "saveFailed": "Risiko konnte nicht gespeichert werden.",
+    "deleteConfirm": "Dieses Risiko löschen?",
+    "severity": "Schweregrad",
+    "probability": "Wahrscheinlichkeit",
+    "impact": "Auswirkung",
+    "category": "Kategorie",
+    "owner": "Verantwortlicher",
+    "mitigationStrategy": "Maßnahmen"
   },
   "issues": {
-    "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen."
+    "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",
+    "createFailed": "Problem konnte nicht erstellt werden.",
+    "saveFailed": "Problem konnte nicht gespeichert werden.",
+    "deleteConfirm": "Dieses Problem löschen?",
+    "severity": "Schweregrad",
+    "category": "Kategorie",
+    "tags": "Tags"
+  },
+  "testcases": {
+    "selectTestCase": "Wählen Sie einen Testfall aus der Liste, um Details anzuzeigen.",
+    "createFailed": "Testfall konnte nicht erstellt werden.",
+    "saveFailed": "Testfall konnte nicht gespeichert werden."
   },
   "settings": {
     "preset": "Preset",

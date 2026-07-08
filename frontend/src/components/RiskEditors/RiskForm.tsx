@@ -1,0 +1,157 @@
+import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { Risk } from '../../types';
+import { risksApi } from '../../api/risks';
+import { VersionBadge } from '../shared/VersionBadge';
+
+interface RiskFormProps {
+  risk: Risk | null;
+  onSaved: () => void;
+  onDeleted: () => void;
+}
+
+const SEVERITY_OPTIONS = ['low', 'medium', 'high'];
+const PROBABILITY_OPTIONS = ['low', 'medium', 'high'];
+const IMPACT_OPTIONS = ['low', 'medium', 'high'];
+const STATUS_OPTIONS = ['Identified', 'Monitored', 'Mitigated', 'Accepted', 'Closed'];
+const CATEGORY_OPTIONS = ['technical', 'operational', 'organizational', 'business'];
+
+export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Element {
+  const { t } = useTranslation();
+  const [formData, setFormData] = useState<Partial<Risk>>({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (risk) setFormData({ ...risk });
+    else setFormData({});
+  }, [risk]);
+
+  const handleChange = (field: keyof Risk, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const saveFields = () => {
+    if (!risk) return {};
+    const fields: Record<string, any> = {};
+    for (const key of ['title', 'description', 'severity', 'probability', 'impact', 'status', 'category', 'owner', 'mitigation_strategy'] as const) {
+      if (key in formData) fields[key] = formData[key];
+    }
+    return fields;
+  };
+
+  const handleSave = async () => {
+    if (!risk) return;
+    setIsSaving(true);
+    try {
+      await risksApi.update(risk.id, saveFields() as any);
+      onSaved();
+    } catch (err) {
+      console.error(err);
+      alert(t('risks.saveFailed'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!risk) return;
+    if (window.confirm(t('risks.deleteConfirm'))) {
+      try { await risksApi.delete(risk.id); onDeleted(); }
+      catch (err) { console.error(err); }
+    }
+  };
+
+  if (!risk) {
+    return (
+      <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-lg)', textAlign: 'center', padding: 'var(--space-8)' }}>
+        {t('risks.selectRisk')}
+      </p>
+    );
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
+    padding: 'var(--space-3)', fontFamily: 'var(--font-sans)', fontSize: 'var(--font-size-base)',
+    marginBottom: 'var(--space-4)', color: 'var(--color-text)', background: 'var(--color-surface)',
+    boxSizing: 'border-box',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontWeight: 500, color: 'var(--color-text)', display: 'block', marginBottom: 'var(--space-1)',
+  };
+
+  return (
+    <div style={{
+      background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)',
+      padding: 'var(--space-6)', flex: 1, display: 'flex', gap: 'var(--space-6)', alignItems: 'flex-start',
+    }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
+          <div>
+            <span style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: '99px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+              {risk.status}
+            </span>
+            {risk.version && <VersionBadge version={risk.version} />}
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <button onClick={handleDelete} className="btn-danger">{t('actions.delete')}</button>
+            <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+              {isSaving ? t('actions.saving') : t('actions.save')}
+            </button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+          <div>
+            <label style={labelStyle}>{t('editor.title')}</label>
+            <input type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>{t('editor.description')}</label>
+            <textarea value={formData.description || ''} onChange={(e) => handleChange('description', e.target.value)} rows={4} style={inputStyle} />
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>{t('risks.severity')}</label>
+              <select value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value)} style={inputStyle}>
+                {SEVERITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>{t('risks.probability')}</label>
+              <select value={formData.probability || 'medium'} onChange={(e) => handleChange('probability', e.target.value)} style={inputStyle}>
+                {PROBABILITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>{t('risks.impact')}</label>
+              <select value={formData.impact || 'medium'} onChange={(e) => handleChange('impact', e.target.value)} style={inputStyle}>
+                {IMPACT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>{t('editor.status')}</label>
+              <select value={formData.status || 'Identified'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
+                {STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>{t('risks.category')}</label>
+              <select value={formData.category || 'technical'} onChange={(e) => handleChange('category', e.target.value)} style={inputStyle}>
+                {CATEGORY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>{t('risks.owner')}</label>
+            <input type="text" value={formData.owner || ''} onChange={(e) => handleChange('owner', e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>{t('risks.mitigationStrategy')}</label>
+            <textarea value={formData.mitigation_strategy || ''} onChange={(e) => handleChange('mitigation_strategy', e.target.value)} rows={3} style={inputStyle} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -285,7 +285,7 @@ class StakeholderNeedSerializer(PresetAwareSerializerMixin, serializers.Serializ
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
-    parent_id = serializers.UUIDField(required=False, allow_null=True)
+    parent_id = serializers.UUIDField(required=False, allow_null=True, read_only=True)
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
@@ -296,7 +296,7 @@ class StakeholderNeedSerializer(PresetAwareSerializerMixin, serializers.Serializ
         allow_null=True,
         help_text="MoSCoW priority",
     )
-    uid = serializers.CharField(read_only=True)
+    uid = serializers.CharField(read_only=True, allow_null=True)
     suspect = serializers.BooleanField(read_only=True)
     version = serializers.IntegerField(read_only=True)
     change_reason = serializers.CharField(write_only=True, required=False, allow_blank=True)

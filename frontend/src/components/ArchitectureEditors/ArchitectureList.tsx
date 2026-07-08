@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ArchitectureElement } from '../../types';
-import { getAsilColor, getAsilBadgeStyle } from '../../utils/asilUtils';
+import { getAsilBadgeStyle } from '../../utils/asilUtils';
 
 interface ArchitectureListProps {
   /**
@@ -102,6 +102,8 @@ function buildHierarchy(elements: ArchitectureElement[]): TreeNode[] {
 interface TreeItemProps {
   element: TreeNode;
   isSelected: boolean;
+  /** Currently selected element id — needed to highlight nested children. */
+  selectedId?: string;
   depth: number;
   onSelect: (id: string) => void;
   onAddChild: (parentId: string) => void;
@@ -112,6 +114,7 @@ interface TreeItemProps {
 function TreeItem({
   element,
   isSelected,
+  selectedId,
   depth,
   onSelect,
   onAddChild,
@@ -124,7 +127,6 @@ function TreeItem({
   const indent = depth * 16; // 16px per level
 
   const elementTypeColor = getElementTypeColor(element.element_type);
-  const asilColor = getAsilColor(element.asil_level ?? null);
   const asilBadge = getAsilBadgeStyle(element.asil_level ?? null);
 
   return (
@@ -283,7 +285,8 @@ function TreeItem({
             <TreeItem
               key={child.id}
               element={child}
-              isSelected={isSelected === child.id}
+              isSelected={selectedId === child.id}
+              selectedId={selectedId}
               depth={depth + 1}
               onSelect={onSelect}
               onAddChild={onAddChild}
@@ -303,13 +306,14 @@ function TreeItem({
  * Displays hierarchical list of architecture elements with
  * tree expand/collapse, type badges, and ASIL indicators.
  */
+// onReparent stays in ArchitectureListProps for callers; drag&drop reparenting
+// is not implemented in this list yet, so it is not destructured here.
 export function ArchitectureList({
   elements,
   selectedId,
   onSelect,
   onAddChild,
   onDelete,
-  onReparent,
 }: ArchitectureListProps): JSX.Element {
   // Build tree hierarchy
   const hierarchy = buildHierarchy(elements);
@@ -321,6 +325,7 @@ export function ArchitectureList({
           key={root.id}
           element={root}
           isSelected={selectedId === root.id}
+          selectedId={selectedId}
           depth={0}
           onSelect={onSelect}
           onAddChild={onAddChild}

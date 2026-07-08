@@ -77,7 +77,9 @@
     "create": "Create",
     "copy": "Copy",
     "dismiss": "Dismiss",
-    "clear": "Clear"
+    "clear": "Clear",
+    "derive": "Derive",
+    "deriving": "Deriving..."
   },
   "admin": {
     "attributeVisibility": "Attribute Configuration",
@@ -132,6 +134,7 @@
     "hideDiff": "Hide Diff"
   },
   "arch": {
+    "deriveRequirement": "Derive requirement",
     "elementType": "Element Type",
     "elementType.component": "Component",
     "elementType.interface": "Interface",
@@ -239,13 +242,50 @@
     "status": "Status"
   },
   "needs": {
-    "selectNeed": "Select a need from the list to view details."
+    "selectNeed": "Select a need from the list to view details.",
+    "createFailed": "Failed to create need.",
+    "saveFailed": "Failed to save need.",
+    "deleteConfirm": "Delete this need?",
+    "priorityNone": "None",
+    "deriveStarting": "Starting AI derivation task...",
+    "deriveStarted": "Task started: {{taskId}}. Waiting for completion...",
+    "deriveSuccess": "System requirements derived successfully!",
+    "deriveFailed": "Derivation failed.",
+    "deriveArchOptional": "Assign architecture element (optional)"
+  },
+  "adrs": {
+    "selectAdr": "Select an ADR from the list to view details.",
+    "createFailed": "Failed to create ADR.",
+    "saveFailed": "Failed to save ADR.",
+    "deleteConfirm": "Delete this ADR?",
+    "context": "Context",
+    "consequences": "Consequences"
   },
   "risks": {
-    "selectRisk": "Select a risk from the list to view details."
+    "selectRisk": "Select a risk from the list to view details.",
+    "createFailed": "Failed to create risk.",
+    "saveFailed": "Failed to save risk.",
+    "deleteConfirm": "Delete this risk?",
+    "severity": "Severity",
+    "probability": "Probability",
+    "impact": "Impact",
+    "category": "Category",
+    "owner": "Owner",
+    "mitigationStrategy": "Mitigation Strategy"
   },
   "issues": {
-    "selectIssue": "Select an issue from the list to view details."
+    "selectIssue": "Select an issue from the list to view details.",
+    "createFailed": "Failed to create issue.",
+    "saveFailed": "Failed to save issue.",
+    "deleteConfirm": "Delete this issue?",
+    "severity": "Severity",
+    "category": "Category",
+    "tags": "Tags"
+  },
+  "testcases": {
+    "selectTestCase": "Select a test case from the list to view details.",
+    "createFailed": "Failed to create test case.",
+    "saveFailed": "Failed to save test case."
   },
   "settings": {
     "preset": "Preset",

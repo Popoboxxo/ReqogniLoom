@@ -200,7 +200,7 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         try:
             workspace_id = kwargs["workspace_pk"]
             items = self.service.list_by_workspace(get_auth_context(request), workspace_id)
-            serialized = [StakeholderNeedSerializer(_dto_from_orm(item)).data for item in items]
+            serialized = [StakeholderNeedSerializer(item.to_dict()).data for item in items]
             
             return self._paginate(request, serialized)
         except NotFoundError as e:
@@ -214,7 +214,7 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             item = self.service.get(get_auth_context(request), kwargs["pk"])
-            return Response(StakeholderNeedSerializer(_dto_from_orm(item)).data)
+            return Response(StakeholderNeedSerializer(item.to_dict()).data)
         except NotFoundError:
             return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
@@ -236,13 +236,19 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Drop kwargs the service does not accept: workspace_id is passed
+        # explicitly (would raise "multiple values"), parent_id/change_reason
+        # are not part of StakeholderNeedService.create().
+        payload = dict(ser.validated_data)
+        for f in ("workspace_id", "parent_id", "change_reason"):
+            payload.pop(f, None)
         try:
             item = self.service.create(
                 ctx=get_auth_context(request),
                 workspace_id=workspace_id,
-                **ser.validated_data,
+                **payload,
             )
-            return Response(StakeholderNeedSerializer(_dto_from_orm(item)).data, status=status.HTTP_201_CREATED)
+            return Response(StakeholderNeedSerializer(item.to_dict()).data, status=status.HTTP_201_CREATED)
         except ValidationError as e:
             return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
         except NotFoundError as e:
@@ -265,7 +271,7 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         data = dict(ser.validated_data)
         change_reason = data.pop("change_reason", "")
         # Remove fields that should not be updated via kwargs
-        for f in ["id", "workspace_id", "uid", "suspect", "version", "created_at", "updated_at"]:
+        for f in ["id", "workspace_id", "parent_id", "uid", "suspect", "version", "created_at", "updated_at"]:
             data.pop(f, None)
             
         try:
@@ -275,7 +281,7 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
                 change_reason=change_reason,
                 **data,
             )
-            return Response(StakeholderNeedSerializer(_dto_from_orm(item)).data)
+            return Response(StakeholderNeedSerializer(item.to_dict()).data)
         except ValidationError as e:
             return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
         except NotFoundError:
@@ -457,7 +463,6 @@ class RequirementViewSet(BaseEntityViewSet):
                 category=data.get("category", ""),
                 parent_id=data.get("parent_id"),
                 type=data.get("type", "SyReq"),
-                moscow_priority=data.get("moscow_priority"),
                 complexity_fibonacci=data.get("complexity_fibonacci"),
                 verification_method=data.get("verification_method"),
                 uid=data.get("uid"),
@@ -498,7 +503,6 @@ class RequirementViewSet(BaseEntityViewSet):
                 status=data.get("status"),
                 change_reason=data.get("change_reason"),
                 type=data.get("type"),
-                moscow_priority=data.get("moscow_priority"),
                 complexity_fibonacci=data.get("complexity_fibonacci"),
                 verification_method=data.get("verification_method"),
                 uid=data.get("uid"),

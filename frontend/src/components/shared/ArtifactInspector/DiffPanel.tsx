@@ -22,34 +22,56 @@
 import { useTranslation } from "react-i18next";
 import { requirementsApi } from "../../../api/requirements";
 import { architectureApi } from "../../../api/architecture";
+import { stakeholderNeedApi } from "../../../api/stakeholder-need";
+import { adrsApi } from "../../../api/adrs";
+import { risksApi } from "../../../api/risks";
+import { issuesApi } from "../../../api/issues";
+import { testcasesApi } from "../../../api/testcases";
+import { icdsApi } from "../../../api/icds";
+import type { ArtifactDiffResult, ArtifactVersion } from "../../../types";
 import { ArtifactDiff, type DiffEntityType } from "../../ArtifactDiff/ArtifactDiff";
 import { DIFF_SUPPORTED_KINDS, type ArtifactKind } from "./types";
 import styles from "./DiffPanel.module.css";
 
 // ---------------------------------------------------------------------------
-// Real fetcher dispatch — requirement + architecture only.
+// Fetcher dispatch — every kind the backend exposes a `/diff/` endpoint for.
 // ---------------------------------------------------------------------------
 
-function diffFetcherFor(kind: ArtifactKind) {
-  if (kind === "requirement") {
-    return (id: string, from: number, to: number) =>
-      requirementsApi.diff(id, from, to);
-  }
-  if (kind === "architecture") {
-    return (id: string, from: number, to: number) =>
-      architectureApi.diff(id, from, to);
-  }
-  throw new Error(`Unsupported diff kind: ${kind}`);
+type DiffFetcher = (id: string, from: number, to: number) => Promise<ArtifactDiffResult>;
+type VersionsFetcher = (id: string) => Promise<ArtifactVersion[]>;
+
+const DIFF_FETCHERS: Partial<Record<ArtifactKind, DiffFetcher>> = {
+  requirement: (id, from, to) => requirementsApi.diff(id, from, to),
+  architecture: (id, from, to) => architectureApi.diff(id, from, to),
+  stakeholderNeed: (id, from, to) => stakeholderNeedApi.diff(id, from, to),
+  adr: (id, from, to) => adrsApi.diff(id, from, to),
+  risk: (id, from, to) => risksApi.diff(id, from, to),
+  issue: (id, from, to) => issuesApi.diff(id, from, to),
+  testCase: (id, from, to) => testcasesApi.diff(id, from, to),
+  icd: (id, from, to) => icdsApi.diff(id, from, to),
+};
+
+const VERSIONS_FETCHERS: Partial<Record<ArtifactKind, VersionsFetcher>> = {
+  requirement: (id) => requirementsApi.versions(id),
+  architecture: (id) => architectureApi.versions(id),
+  stakeholderNeed: (id) => stakeholderNeedApi.versions(id),
+  adr: (id) => adrsApi.versions(id),
+  risk: (id) => risksApi.versions(id),
+  issue: (id) => issuesApi.versions(id),
+  testCase: (id) => testcasesApi.versions(id),
+  icd: (id) => icdsApi.versions(id),
+};
+
+function diffFetcherFor(kind: ArtifactKind): DiffFetcher {
+  const fetcher = DIFF_FETCHERS[kind];
+  if (!fetcher) throw new Error(`Unsupported diff kind: ${kind}`);
+  return fetcher;
 }
 
-function versionsFetcherFor(kind: ArtifactKind) {
-  if (kind === "requirement") {
-    return (id: string) => requirementsApi.versions(id);
-  }
-  if (kind === "architecture") {
-    return (id: string) => architectureApi.versions(id);
-  }
-  throw new Error(`Unsupported versions kind: ${kind}`);
+function versionsFetcherFor(kind: ArtifactKind): VersionsFetcher {
+  const fetcher = VERSIONS_FETCHERS[kind];
+  if (!fetcher) throw new Error(`Unsupported versions kind: ${kind}`);
+  return fetcher;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,15 +92,13 @@ export interface DiffPanelProps {
 // ---------------------------------------------------------------------------
 
 /**
- * Maps the 10-value ArtifactKind to the 2-value DiffEntityType that
- * `ArtifactDiff` accepts. Returns null when the kind is not yet
- * supported — the panel renders the empty state in that case.
+ * Maps an ArtifactKind to the DiffEntityType that `ArtifactDiff` accepts.
+ * `DiffEntityType` is an alias of `ArtifactKind`, so this is the identity
+ * for backend-supported kinds and null otherwise — the panel renders the
+ * empty state when null.
  */
 function mapKindToDiffEntityType(kind: ArtifactKind): DiffEntityType | null {
-  if (!DIFF_SUPPORTED_KINDS.has(kind)) return null;
-  if (kind === "requirement") return "requirement";
-  if (kind === "architecture") return "architecture";
-  return null;
+  return DIFF_SUPPORTED_KINDS.has(kind) ? kind : null;
 }
 
 

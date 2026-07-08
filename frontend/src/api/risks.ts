@@ -61,34 +61,22 @@ export const risksApi = {
   },
 
   // -----------------------------------------------------------------------
-  // Diff / Versions — stubs (UI standards §4.5 / §11 Backend gaps)
+  // Diff / Versions — backend-backed (GET /api/v1/risks/{id}/{diff,versions}/)
   // -----------------------------------------------------------------------
 
   /**
    * Field-level diff between two Risk versions. Signature mirrors
    * `requirementsApi.diff` / `architectureApi.diff` so the DiffPanel can
    * swap fetchers per kind without changing the call site.
-   * TODO(backend): wire to GET /api/v1/risks/{id}/diff/ (not exposed yet).
    */
   diff(id: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {
-    return Promise.reject(
-      new Error(
-        `Not Implemented: Risk /diff/ endpoint for ${id} (from v${fromVersion} to v${toVersion}) — see UI standards §11.`
-      )
+    return apiClient.get<ArtifactDiffResult>(
+      `/risks/${id}/diff/?from_version=${fromVersion}&to_version=${toVersion}`
     );
   },
 
-  /**
-   * Version list for a Risk. The backend does not expose a `/versions/`
-   * endpoint for Risks. DiffPanel will short-circuit to its empty state
-   * for Risks in the meantime.
-   * TODO(backend): wire to GET /api/v1/risks/{id}/versions/.
-   */
+  /** Version list for a Risk. */
   versions(id: UUID): Promise<ArtifactVersion[]> {
-    return Promise.reject(
-      new Error(
-        `Not Implemented: Risk /versions/ endpoint for ${id} — see UI standards §11.`
-      )
-    );
+    return apiClient.get<ArtifactVersion[]>(`/risks/${id}/versions/`);
   },
 };

@@ -117,7 +117,6 @@ class RequirementService(ServiceBase):
         category: str = "",
         parent_id: Optional[UUID] = None,
         type: str = "SyReq",
-        moscow_priority: Optional[str] = None,
         complexity_fibonacci: Optional[int] = None,
         verification_method: Optional[str] = None,
         uid: Optional[str] = None,
@@ -125,8 +124,9 @@ class RequirementService(ServiceBase):
         """Create a Requirement with initial workflow state.
 
         REQ-L2-AS-003: creates Requirement + initialises WorkflowState.
-        REQ-L3-RF003-005: Accepts SE mask fields (type, moscow_priority,
+        REQ-L3-RF003-005: Accepts SE mask fields (type,
         complexity_fibonacci, verification_method).
+        Note: moscow_priority lives on StakeholderNeed (migration 0020).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
         """
         self._set_tenant_context(ctx)

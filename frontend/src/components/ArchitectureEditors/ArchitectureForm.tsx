@@ -100,16 +100,6 @@ function DeleteConfirmationDialog({
   onCancel,
 }: DeleteConfirmationDialogProps): JSX.Element {
   const { t } = useTranslation();
-  const dangerButtonStyle: React.CSSProperties = {
-    background: 'var(--color-danger)',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: 'var(--radius-md)',
-    padding: 'var(--space-2) var(--space-4)',
-    fontSize: 'var(--font-size-sm)',
-    fontWeight: 600,
-    cursor: 'pointer',
-  };
 
   return (
     <div
@@ -144,22 +134,10 @@ function DeleteConfirmationDialog({
           {t('arch.deleteConfirm')}: <strong style={{ color: 'var(--color-text)' }}>{elementName}</strong>?
         </p>
         <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center', marginTop: 'var(--space-4)' }}>
-          <button data-testid="confirm-delete-btn" onClick={onConfirm} style={dangerButtonStyle}>
+          <button data-testid="confirm-delete-btn" className="btn-danger" onClick={onConfirm}>
             {t('actions.delete')}
           </button>
-          <button
-            onClick={onCancel}
-            style={{
-              background: 'var(--color-surface-raised)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-2) var(--space-4)',
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
+          <button className="btn-secondary" onClick={onCancel}>
             {t('actions.cancel')}
           </button>
         </div>
@@ -308,28 +286,6 @@ export function ArchitectureForm({
     setShowDeleteDialog(false);
     onDelete(element.id);
   }, [element.id, onDelete]);
-
-  const primaryButtonStyle: React.CSSProperties = {
-    background: 'var(--color-primary)',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: 'var(--radius-md)',
-    padding: 'var(--space-2) var(--space-4)',
-    fontSize: 'var(--font-size-sm)',
-    fontWeight: 600,
-    cursor: 'pointer',
-  };
-
-  const dangerButtonStyle: React.CSSProperties = {
-    background: 'var(--color-danger)',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: 'var(--radius-md)',
-    padding: 'var(--space-2) var(--space-4)',
-    fontSize: 'var(--font-size-sm)',
-    fontWeight: 600,
-    cursor: 'pointer',
-  };
 
   return (
     <div>
@@ -523,38 +479,25 @@ export function ArchitectureForm({
       >
         <button
           data-testid="arch-save-btn"
+          className="btn-primary"
           onClick={() => void handleSave()}
           disabled={isSaving}
-          style={{
-            ...primaryButtonStyle,
-            opacity: isSaving ? 0.6 : 1,
-            cursor: isSaving ? 'not-allowed' : 'pointer',
-          }}
         >
           {isSaving ? t('actions.saving') : t('actions.save')}
         </button>
         <button
           data-testid="arch-delete-btn"
+          className="btn-danger"
           onClick={() => setShowDeleteDialog(true)}
-          style={dangerButtonStyle}
         >
           {t('actions.delete')}
         </button>
         <button
           data-testid="arch-view-diff-btn"
+          className={showDiff ? 'btn-primary' : 'btn-secondary'}
           onClick={() => setShowDiff(!showDiff)}
-          style={{
-            background: showDiff ? 'var(--color-primary)' : 'transparent',
-            color: showDiff ? 'white' : 'var(--color-primary)',
-            border: '1px solid var(--color-primary)',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--space-2) var(--space-4)',
-            fontSize: 'var(--font-size-sm)',
-            cursor: 'pointer',
-            fontWeight: 500,
-          }}
         >
-          {showDiff ? 'Hide Diff' : 'View Diff'}
+          {showDiff ? t('editor.hideDiff') : t('editor.viewDiff')}
         </button>
       </div>
 

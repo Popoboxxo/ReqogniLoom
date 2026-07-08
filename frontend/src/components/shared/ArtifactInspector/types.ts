@@ -96,18 +96,24 @@ export interface BaselineSummary {
 }
 
 /**
- * Narrow subset of the 10 ArtifactKind values for which the backend
- * actually exposes a `/diff/` endpoint today. Used by DiffPanel to
- * decide whether to render the "unsupported" empty state. The
- * `/versions/` endpoint is broader (requirement, architecture,
- * testCase) and the empty state collapses 404 + no-history into one
- * branch, so the VersionPanel does not need a matching constant.
+ * Subset of the 10 ArtifactKind values for which the backend exposes a
+ * `/diff/` (and matching `/versions/`) endpoint. Used by DiffPanel and
+ * VersionPanel to decide whether to render the "unsupported"/empty state.
  *
- * Source: `docs/UI_STANDARDS.md` §11 (Backend gaps column).
+ * Backend coverage (GET /api/v1/<kind>/<id>/{diff,versions}/):
+ *   requirement, architecture, stakeholderNeed (/needs/), adr, risk,
+ *   issue, testCase (/testcases/), icd.
+ * Not yet backend-backed: diagram, glossary.
  */
 export const DIFF_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
   "requirement",
   "architecture",
+  "stakeholderNeed",
+  "adr",
+  "risk",
+  "issue",
+  "testCase",
+  "icd",
 ]);
 
 /** The 8 link types — exported as a stable list for chip rendering. */

@@ -26,18 +26,41 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { requirementsApi } from "../../../api/requirements";
 import { architectureApi } from "../../../api/architecture";
+import { stakeholderNeedApi } from "../../../api/stakeholder-need";
+import { adrsApi } from "../../../api/adrs";
+import { risksApi } from "../../../api/risks";
+import { issuesApi } from "../../../api/issues";
+import { testcasesApi } from "../../../api/testcases";
+import { icdsApi } from "../../../api/icds";
 import type { ArtifactVersion } from "../../../types";
-import { type ArtifactKind, type BaselineSummary, type VersionRef } from "./types";
+import {
+  DIFF_SUPPORTED_KINDS,
+  type ArtifactKind,
+  type BaselineSummary,
+  type VersionRef,
+} from "./types";
 import styles from "./VersionPanel.module.css";
 
 // ---------------------------------------------------------------------------
-// API dispatch — only requirement + architecture expose /versions/ today.
+// API dispatch — every kind the backend exposes a `/versions/` endpoint for.
+// The supported set mirrors DIFF_SUPPORTED_KINDS (same backend coverage).
 // ---------------------------------------------------------------------------
 
-const VERSION_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
-  "requirement",
-  "architecture",
-]);
+const VERSION_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = DIFF_SUPPORTED_KINDS;
+
+/** Maps an ArtifactKind to its `versions(id)` fetcher. */
+const VERSIONS_FETCHERS: Partial<
+  Record<ArtifactKind, (id: string) => Promise<ArtifactVersion[]>>
+> = {
+  requirement: (id) => requirementsApi.versions(id),
+  architecture: (id) => architectureApi.versions(id),
+  stakeholderNeed: (id) => stakeholderNeedApi.versions(id),
+  adr: (id) => adrsApi.versions(id),
+  risk: (id) => risksApi.versions(id),
+  issue: (id) => issuesApi.versions(id),
+  testCase: (id) => testcasesApi.versions(id),
+  icd: (id) => icdsApi.versions(id),
+};
 
 function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise<VersionRef[]> {
   const map = (v: ArtifactVersion): VersionRef => ({
@@ -47,13 +70,9 @@ function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise
     baselineIds: [],
   });
 
-  if (kind === "requirement") {
-    return requirementsApi.versions(String(artifactId)).then((list) => list.map(map));
-  }
-  if (kind === "architecture") {
-    return architectureApi.versions(String(artifactId)).then((list) => list.map(map));
-  }
-  return Promise.resolve([]);
+  const fetcher = VERSIONS_FETCHERS[kind];
+  if (!fetcher) return Promise.resolve([]);
+  return fetcher(String(artifactId)).then((list) => list.map(map));
 }
 
 // ---------------------------------------------------------------------------

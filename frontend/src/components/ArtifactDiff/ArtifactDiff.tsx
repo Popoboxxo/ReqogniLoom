@@ -38,6 +38,7 @@ import type {
   UUID,
 } from "../../types";
 import type { ArtifactKind } from "../shared/ArtifactInspector/types";
+import { DIFF_SUPPORTED_KINDS } from "../shared/ArtifactInspector/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,11 +54,12 @@ import type { ArtifactKind } from "../shared/ArtifactInspector/types";
  */
 export type DiffEntityType = ArtifactKind;
 
-/** The two kinds the backend currently exposes a `/diff/` endpoint for. */
-const RICH_DIFF_KINDS: ReadonlySet<ArtifactKind> = new Set([
-  "requirement",
-  "architecture",
-]);
+/**
+ * Kinds the backend exposes a `/diff/` endpoint for. All of them return
+ * the same field-level `ArtifactDiffResult`, so they share the rich
+ * renderer. Mirrors DIFF_SUPPORTED_KINDS (single source of truth).
+ */
+const RICH_DIFF_KINDS: ReadonlySet<ArtifactKind> = DIFF_SUPPORTED_KINDS;
 
 /** Header label per kind. Kept here so the title text is co-located. */
 const ENTITY_LABELS: Record<ArtifactKind, string> = {
@@ -245,27 +247,55 @@ export function ArtifactDiff({
   onClose,
 }: ArtifactDiffProps): JSX.Element {
   const [versions, setVersions] = useState<ArtifactVersion[]>([]);
-  const [fromVersion, setFromVersion] = useState(0);
-  const [toVersion, setToVersion] = useState(currentVersion);
+  // `null` until the version list has loaded — prevents a premature diff
+  // fetch with a meaningless from=0/to=currentVersion pair before the user
+  // has real options to select from.
+  const [fromVersion, setFromVersion] = useState<number | null>(null);
+  const [toVersion, setToVersion] = useState<number | null>(null);
   const [diffResult, setDiffResult] = useState<ArtifactDiffResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load available versions
+  // Versions sorted ascending by version number — used for both the option
+  // lists and the initial from/to selection.
+  const sortedVersions = [...versions].sort((a, b) => a.version - b.version);
+  const maxVersion =
+    sortedVersions.length > 0 ? sortedVersions[sortedVersions.length - 1].version : null;
+
+  // Load available versions and seed the initial from/to selection.
   useEffect(() => {
     let cancelled = false;
     versionsFetcher(entityId)
       .then((v) => {
-        if (!cancelled) setVersions(v);
+        if (cancelled) return;
+        setVersions(v);
+        if (v.length === 0) return;
+        const sorted = [...v].sort((a, b) => a.version - b.version);
+        const last = sorted[sorted.length - 1].version;
+        // Default "to" is the current version when present, else the latest.
+        const to = sorted.some((x) => x.version === currentVersion)
+          ? currentVersion
+          : last;
+        // Default "from" is the highest version strictly below "to" so the
+        // initial diff is a valid forward comparison; falls back to the
+        // lowest version (only meaningful when a single version exists).
+        const below = sorted.filter((x) => x.version < to);
+        const from = below.length > 0 ? below[below.length - 1].version : sorted[0].version;
+        setFromVersion(from);
+        setToVersion(to);
       })
       .catch((err) => {
         if (!cancelled) setError(String(err));
       });
     return () => { cancelled = true; };
-  }, [entityId, versionsFetcher]);
+  }, [entityId, versionsFetcher, currentVersion]);
 
-  // Fetch diff when versions change
+  // Fetch diff only once both endpoints are chosen (guards the premature
+  // from=0 fetch and any backwards from >= to selection).
   const fetchDiff = useCallback(async () => {
+    if (fromVersion === null || toVersion === null || fromVersion >= toVersion) {
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -281,6 +311,24 @@ export function ArtifactDiff({
   useEffect(() => {
     fetchDiff();
   }, [fetchDiff]);
+
+  // "From" cannot be the latest version (nothing sits above it); "To" is
+  // restricted to versions strictly greater than the current "From".
+  const fromOptions = sortedVersions.filter(
+    (v) => maxVersion === null || v.version < maxVersion
+  );
+  const toOptions = sortedVersions.filter(
+    (v) => fromVersion === null || v.version > fromVersion
+  );
+
+  // Keep "To" valid when the user moves "From" forward past it.
+  const handleFromChange = (next: number): void => {
+    setFromVersion(next);
+    if (toVersion !== null && toVersion <= next) {
+      const above = sortedVersions.find((v) => v.version > next);
+      if (above) setToVersion(above.version);
+    }
+  };
 
   const selectStyle: React.CSSProperties = {
     padding: "4px 8px",
@@ -349,11 +397,11 @@ export function ArtifactDiff({
           From:
           <select
             data-testid="diff-from-version"
-            value={fromVersion}
-            onChange={(e) => setFromVersion(Number(e.target.value))}
+            value={fromVersion ?? ""}
+            onChange={(e) => handleFromChange(Number(e.target.value))}
             style={{ ...selectStyle, marginLeft: "8px" }}
           >
-            {versions.map((v) => (
+            {fromOptions.map((v) => (
               <option key={v.version} value={v.version}>
                 {v.label}
               </option>
@@ -367,11 +415,11 @@ export function ArtifactDiff({
           To:
           <select
             data-testid="diff-to-version"
-            value={toVersion}
+            value={toVersion ?? ""}
             onChange={(e) => setToVersion(Number(e.target.value))}
             style={{ ...selectStyle, marginLeft: "8px" }}
           >
-            {versions.map((v) => (
+            {toOptions.map((v) => (
               <option key={v.version} value={v.version}>
                 {v.label}
               </option>

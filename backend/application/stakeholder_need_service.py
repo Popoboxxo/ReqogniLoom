@@ -4,7 +4,8 @@ StakeholderNeedService — Stakeholder Need CRUD.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -29,25 +30,38 @@ class StakeholderNeedDTO:
     """Read-oriented DTO returned by StakeholderNeedService methods."""
     id: UUID
     workspace_id: UUID
+    parent_id: Optional[UUID]
     title: str
     description: str
     category: str
     status: str
     moscow_priority: Optional[str]
+    uid: Optional[str]
+    suspect: bool
     version: int
+    created_at: datetime
+    modified_at: datetime
 
     @classmethod
     def from_orm(cls, need: StakeholderNeed) -> "StakeholderNeedDTO":
         return cls(
             id=need.id,
             workspace_id=need.artifact.workspace_id,
+            parent_id=need.artifact.parent_id,
             title=need.title,
             description=need.description,
             category=need.category,
             status=need.status,
             moscow_priority=need.moscow_priority,
+            uid=need.uid,
+            suspect=need.suspect,
             version=need.version,
+            created_at=need.created_at,
+            modified_at=need.modified_at,
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class StakeholderNeedService(ServiceBase):

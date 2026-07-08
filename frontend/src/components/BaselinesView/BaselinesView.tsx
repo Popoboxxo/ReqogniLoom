@@ -421,11 +421,10 @@ export default function BaselinesView(): JSX.Element {
                     style={{
                       display: "block",
                       color: "var(--color-text)",
-                      fontFamily: "monospace",
                       fontSize: "var(--font-size-sm)",
                     }}
                   >
-                    {bl.id.slice(0, 8)}…
+                    {bl.name || `${bl.id.slice(0, 8)}…`}
                   </strong>
                   <span
                     style={{
@@ -598,11 +597,18 @@ export default function BaselinesView(): JSX.Element {
                   {state.artifacts.length === 0 ? (
                     <option value="">{t("baselines.noArtifacts")}</option>
                   ) : (
-                    state.artifacts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.artifact_type} — {a.id.slice(0, 8)}…
-                      </option>
-                    ))
+                    state.artifacts.map((a) => {
+                      // The /artifacts/ payload currently exposes only the ID
+                      // (no title/name field). Read them defensively so the
+                      // label upgrades automatically once the backend adds them.
+                      const named = a as Artifact & { title?: string; name?: string };
+                      const label = named.title ?? named.name ?? `${a.id.slice(0, 8)}…`;
+                      return (
+                        <option key={a.id} value={a.id}>
+                          {a.artifact_type} — {label}
+                        </option>
+                      );
+                    })
                   )}
                 </select>
               </>
@@ -676,10 +682,10 @@ export default function BaselinesView(): JSX.Element {
                 color: "var(--color-text)",
                 marginTop: 0,
                 marginBottom: "var(--space-4)",
-                fontFamily: "monospace",
               }}
+              title={selectedBaseline.id}
             >
-              {selectedBaseline.id.slice(0, 8)}…
+              {selectedBaseline.name || `${selectedBaseline.id.slice(0, 8)}…`}
             </h2>
 
             <dl

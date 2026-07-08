@@ -21,8 +21,8 @@
  *   IF-RF-INT-003     → Artifact selection passed to editors via Router state
  */
 
-import { Suspense, lazy, useCallback } from "react";
-import { Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Suspense, lazy } from "react";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { AuthGate } from "./AuthGate";
@@ -51,12 +51,10 @@ const TraceabilityView = lazy(
 const BaselinesView = lazy(
   () => import("../BaselinesView/BaselinesView")
 );
-const AdrList = lazy(() => import("../AdrList/AdrList"));
-const RiskList = lazy(() => import("../RiskList/RiskList"));
-const IssueList = lazy(() => import("../IssueList/IssueList"));
-const TestcaseList = lazy(() =>
-  import("../TestCases/TestcaseList").then((m) => ({ default: m.TestcaseList }))
-);
+const AdrEditors = lazy(() => import("../AdrEditors/AdrEditors"));
+const RiskEditors = lazy(() => import("../RiskEditors/RiskEditors"));
+const IssueEditors = lazy(() => import("../IssueEditors/IssueEditors"));
+const TestCaseEditors = lazy(() => import("../TestCaseEditors/TestCaseEditors"));
 const TestRunsList = lazy(() =>
   import("../TestRuns/TestRunsList").then((m) => ({ default: m.TestRunsList }))
 );
@@ -111,13 +109,14 @@ function AppShell(): JSX.Element {
               <Route path="/architecture/:id" element={<ArchitectureEditors />} />
               <Route path="/traceability" element={<TraceabilityView />} />
               <Route path="/baselines" element={<BaselinesView />} />
-              <Route path="/adrs" element={<AdrList />} />
-              <Route path="/adrs/:id" element={<AdrList />} />
-              <Route path="/risks" element={<RiskList />} />
-              <Route path="/risks/:id" element={<RiskList />} />
-              <Route path="/issues" element={<IssueList />} />
-              <Route path="/issues/:id" element={<IssueList />} />
-              <Route path="/testcases" element={<TestcaseList />} />
+              <Route path="/adrs" element={<AdrEditors />} />
+              <Route path="/adrs/:id" element={<AdrEditors />} />
+              <Route path="/risks" element={<RiskEditors />} />
+              <Route path="/risks/:id" element={<RiskEditors />} />
+              <Route path="/issues" element={<IssueEditors />} />
+              <Route path="/issues/:id" element={<IssueEditors />} />
+              <Route path="/testcases" element={<TestCaseEditors />} />
+              <Route path="/testcases/:id" element={<TestCaseEditors />} />
               <Route path="/test-runs" element={<TestRunsList />} />
               <Route path="/import" element={<CsvImport />} />
               <Route path="/icds" element={<IcdView />} />

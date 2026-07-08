@@ -217,9 +217,15 @@ pytest mcp_server/tests/test_e2e_sse_transport.py -v
 # Single test by name
 pytest -k "test_login_success" -v
 
+# Reuse existing test database to speed up subsequent test runs (Recommended)
+pytest --keepdb
+
 # With Django check
 python manage.py check && pytest -q
 ```
+
+> **Warning:** It is highly discouraged to run `pytest` against the actual development database, as tests will truncate tables and delete your data. `pytest` automatically creates a separate `test_reqflow` database. Use `--keepdb` to persist this test database between runs.
+> For End-to-End Tests (Playwright), the tests *do* run against the actual development environment.
 
 **Status:** ~1,400 tests passing (last verified 2026-06-28 on `feat/se-implementation`).
 

@@ -23,7 +23,7 @@
  * - EntityTypeProvider for context-aware field rendering
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData } from './useRequirementData';
@@ -35,7 +35,10 @@ import { attributeVisibilityApi } from '../../api';
 import { SplitView } from '../SplitView/SplitView';
 import { RequirementList } from './RequirementList';
 import { RequirementForm } from './RequirementForm';
-import type { UUID, RequirementType } from '../../types';
+import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
+import { RightSidebar } from '../shared/ArtifactInspector';
+import type { VersionRef } from '../shared/ArtifactInspector';
+import type { RequirementType } from '../../types';
 
 /**
  * RequirementEditors — main view with SplitView (list | detail)
@@ -160,6 +163,16 @@ export default function RequirementEditors(): JSX.Element {
       setIsExportingPdf(false);
     }
   }, [activeWorkspace]);
+
+  const currentVersion: VersionRef | undefined = useMemo(() => {
+    if (!requirement) return undefined;
+    return {
+      version: requirement.version,
+      label: `v${requirement.version}`,
+      createdAt: requirement.updated_at ?? requirement.created_at,
+      baselineIds: [],
+    };
+  }, [requirement]);
 
   // Loading state
   if (isLoading) {
@@ -350,23 +363,46 @@ export default function RequirementEditors(): JSX.Element {
    * Right panel: Requirement detail form
    */
   const rightPanel = requirement ? (
-    <EntityTypeProvider
-      entityType="requirement"
-      entitySubType={(requirement.type || 'SyReq') as RequirementType}
-      visibleFields={attributeVisibility}
-      requiredFields={requiredFields}
-    >
-      <RequirementForm
-        requirement={requirement}
-        upstreamLinks={upstreamLinks}
-        downstreamLinks={downstreamLinks}
-        linkedTitles={linkedTitles}
-        linkedRoutes={linkedRoutes}
-        requirements={requirements}
-        workspaceId={activeWorkspace!.id}
-        onSaved={refresh}
-      />
-    </EntityTypeProvider>
+    <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
+      <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+      <EntityTypeProvider
+        entityType="requirement"
+        entitySubType={(requirement.type || 'SyReq') as RequirementType}
+        visibleFields={attributeVisibility}
+        requiredFields={requiredFields}
+      >
+        <RequirementForm
+          requirement={requirement}
+          upstreamLinks={upstreamLinks}
+          downstreamLinks={downstreamLinks}
+          linkedTitles={linkedTitles}
+          linkedRoutes={linkedRoutes}
+          requirements={requirements}
+          workspaceId={activeWorkspace!.id}
+          onSaved={refresh}
+        />
+      </EntityTypeProvider>
+
+      {/* TraceLink management incl. "Ableiten" (REQ-L2-RF-006) — restored
+          after the SplitView refactor dropped this panel. The read-only
+          trace view lives in the ArtifactInspector inside RequirementForm. */}
+      {activeWorkspace && (
+        <ReqTraceLinkPanel
+          workspaceId={activeWorkspace.id}
+          requirementId={requirement.id}
+          requirements={requirements}
+          onLinksChanged={refresh}
+        />
+      )}
+      </div>
+      {currentVersion && (
+        <RightSidebar
+          kind="requirement"
+          artifactId={requirement.id}
+          currentVersion={currentVersion}
+        />
+      )}
+    </div>
   ) : (
     <p
       style={{
@@ -387,9 +423,6 @@ export default function RequirementEditors(): JSX.Element {
       leftMinWidth={260}
       leftMaxWidthPercent={70}
       moduleType="requirements"
-      onDividerMove={(widthPixels) => {
-        // localStorage is handled internally by SplitView
-      }}
     />
   );
 }
