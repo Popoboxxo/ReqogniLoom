@@ -22,6 +22,8 @@ import { SplitView } from "../SplitView/SplitView";
 import { ArchitectureList } from "./ArchitectureList";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
+import { requirementsApi } from "../../api/requirements";
+import { tracelinksApi } from "../../api/tracelinks";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
@@ -32,10 +34,6 @@ import type {
 } from "../../types";
 
 // (Style helpers and dialog moved to ArchitectureForm component)
-
-// ---------------------------------------------------------------------------
-// ArchTraceLinkPanel has been extracted to ./ArchTraceLinkPanel.tsx (Fix B-TR-001).
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // ArchitectureEditors — main view with SplitView integration
@@ -74,19 +72,63 @@ export default function ArchitectureEditors(): JSX.Element {
     };
   }, [element]);
 
+  // Inline create + search state
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [listSearch, setListSearch] = useState('');
+
   // Delete-confirmation target from list context menu
   const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
 
+  // "Ableiten": create a Requirement allocated to the selected element
+  // (SE: Req --allocated-to--> ArchitectureElement).
+  const [showDeriveForm, setShowDeriveForm] = useState(false);
+  const [deriveTitle, setDeriveTitle] = useState("");
+  const [isDeriving, setIsDeriving] = useState(false);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
+
+  const handleDeriveRequirement = useCallback(async (): Promise<void> => {
+    if (!element || !activeWorkspace) return;
+    if (!deriveTitle.trim()) {
+      setDeriveError(t("traceability.deriveTitleRequired"));
+      return;
+    }
+    setIsDeriving(true);
+    setDeriveError(null);
+    try {
+      const created = await requirementsApi.create({
+        workspace_id: activeWorkspace.id,
+        title: deriveTitle.trim(),
+      });
+      await tracelinksApi.create({
+        source_id: created.id,
+        target_id: element.id,
+        link_type: "allocated-to",
+      });
+      setShowDeriveForm(false);
+      setDeriveTitle("");
+      navigate(`/requirements/${created.id}`);
+    } catch (err: unknown) {
+      console.error(err);
+      const apiErr = err as { error?: { message?: string } };
+      setDeriveError(apiErr?.error?.message ?? t("needs.deriveFailed"));
+    } finally {
+      setIsDeriving(false);
+    }
+  }, [element, activeWorkspace, deriveTitle, t, navigate]);
+
   const handleCreate = useCallback(
-    async (parentId?: string): Promise<void> => {
+    async (parentId?: string, customTitle?: string): Promise<void> => {
       if (!activeWorkspace) return;
       try {
         const created = await architectureApi.create({
           workspace_id: activeWorkspace.id,
-          title: t("arch.newElementTitle"),
+          title: customTitle || t("arch.newElementTitle"),
           element_type: "component",
           parent_id: parentId ?? undefined,
         });
+        setShowCreateForm(false);
+        setNewTitle('');
         refresh();
         navigate(`/architecture/${created.id}`);
       } catch (err: unknown) {
@@ -95,6 +137,11 @@ export default function ArchitectureEditors(): JSX.Element {
     },
     [activeWorkspace, t, refresh, navigate]
   );
+
+  const handleInlineCreate = useCallback(async () => {
+    if (!newTitle.trim()) return;
+    await handleCreate(undefined, newTitle.trim());
+  }, [newTitle, handleCreate]);
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
@@ -154,6 +201,16 @@ export default function ArchitectureEditors(): JSX.Element {
     );
   }
 
+  // Filter elements by search
+  const filteredElements = useMemo(() => {
+    if (!listSearch.trim()) return elements;
+    const q = listSearch.trim().toLowerCase();
+    return elements.filter((el) =>
+      el.title.toLowerCase().includes(q) ||
+      (el.uid && el.uid.toLowerCase().includes(q))
+    );
+  }, [elements, listSearch]);
+
   // Build list panel with header
   const listPanel = (
     <div
@@ -163,47 +220,107 @@ export default function ArchitectureEditors(): JSX.Element {
         height: "100%",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "var(--space-4)",
-          paddingBottom: "var(--space-3)",
-          borderBottom: "1px solid var(--color-border)",
-        }}
-      >
-        <h3
+      <div style={{ marginBottom: 'var(--space-3)' }}>
+        <div
           style={{
-            margin: 0,
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 700,
-            color: "var(--color-text)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "var(--space-3)",
           }}
         >
-          {t("nav.architecture")}
-        </h3>
-        <button
-          data-testid="create-arch-btn"
-          onClick={() => void handleCreate()}
+          <h3
+            style={{
+              margin: 0,
+              fontSize: "var(--font-size-lg)",
+              fontWeight: 700,
+              color: "var(--color-text)",
+            }}
+          >
+            {t("nav.architecture")}
+          </h3>
+          <button
+            data-testid="create-arch-btn"
+            onClick={() => setShowCreateForm(true)}
+            style={{
+              background: "var(--color-primary)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            + {t("actions.new")}
+          </button>
+        </div>
+
+        {/* Search input */}
+        <input
+          type="text"
+          value={listSearch}
+          onChange={(e) => setListSearch(e.target.value)}
+          placeholder={t('editor.searchPlaceholder', 'Search...')}
           style={{
-            background: "var(--color-primary)",
-            color: "#ffffff",
-            border: "none",
+            width: "100%",
+            padding: "var(--space-2) var(--space-3)",
             borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-4)",
+            border: "1px solid var(--color-border)",
             fontSize: "var(--font-size-sm)",
-            fontWeight: 600,
-            cursor: "pointer",
+            background: "var(--color-surface)",
+            color: "var(--color-text)",
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
+
+      {/* Inline create form */}
+      {showCreateForm && (
+        <form
+          onSubmit={(e) => { e.preventDefault(); void handleInlineCreate(); }}
+          style={{
+            display: 'flex', flexDirection: 'column', gap: 'var(--space-2)',
+            padding: 'var(--space-3)', marginBottom: 'var(--space-3)',
+            background: 'var(--color-surface-raised)',
+            border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
           }}
         >
-          + {t("actions.new")}
-        </button>
-      </div>
+          <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
+            {t('editor.title', 'Title')}
+          </label>
+          <input
+            type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
+            placeholder={t('arch.newElementTitle')}
+            style={{
+              padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)',
+              background: 'var(--color-surface)', color: 'var(--color-text)',
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+            <button type="button" onClick={() => { setShowCreateForm(false); setNewTitle(''); }}
+              style={{
+                background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
+                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
+              }}
+            >{t('cancel', 'Cancel')}</button>
+            <button type="submit" disabled={!newTitle.trim()}
+              style={{
+                background: 'var(--color-primary)', color: 'white', border: 'none',
+                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
+                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
+              }}
+            >{t('create', 'Create')}</button>
+          </div>
+        </form>
+      )}
 
       <div style={{ flex: 1, overflow: "auto" }}>
         <ArchitectureList
-          elements={elements}
+          elements={filteredElements}
           selectedId={selectedId}
           onSelect={(id) => navigate(`/architecture/${id}`)}
           onAddChild={(parentId) => void handleCreate(parentId)}
@@ -254,56 +371,116 @@ export default function ArchitectureEditors(): JSX.Element {
               />
             </EntityTypeProvider>
 
-            {/* TraceLink panel */}
+            {/* TraceLink panel — carries the e2e test-id since the old
+                placeholder aside ("See the Inspector sidebar") was removed:
+                the linked-requirements management lives HERE, the read-only
+                trace view lives in the ArtifactInspector. */}
             {(activeWorkspace?.id || element.workspace_id) && (
-              <TraceLinkPanel
-                workspaceId={activeWorkspace?.id ?? element.workspace_id}
-                artifactId={element.id}
-              />
+              <div data-testid="arch-linked-reqs-panel">
+                <TraceLinkPanel
+                  workspaceId={activeWorkspace?.id ?? element.workspace_id}
+                  artifactId={element.id}
+                />
+              </div>
             )}
-          </div>
 
-          {/* Removed: replaced by ArtifactInspector (REQ-L1-095).
-              The inline linked-requirements panel is replaced by the shared
-              <RightSidebar kind="architecture" /> which renders the
-              VersionPanel, DiffPanel and TracePanel in one persistent
-              shell (UI standards §3 / §4 / §11). The original test-id
-              is preserved as a small no-op compat shim so the existing
-              e2e selector (architecture-editor.spec.ts:62) keeps finding
-              the element. */}
-          <aside
-            data-testid="arch-linked-reqs-panel"
-            aria-hidden="false"
-            style={{
-              minWidth: "200px",
-              maxWidth: "240px",
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-card)",
-              padding: "var(--space-4)",
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            <h4
-              style={{
-                margin: 0,
-                marginBottom: "var(--space-2)",
-                fontSize: "var(--font-size-base)",
-                fontWeight: 700,
-                color: "var(--color-text)",
-              }}
-            >
-              {t("arch.linkedRequirements")}
-            </h4>
-            <p style={{ margin: 0 }}>
-              {t(
-                "arch.linkedRequirementsMovedToInspector",
-                "See the Inspector sidebar →"
+            {/* Derive requirement allocated to this element */}
+            <div style={{ marginTop: "var(--space-4)" }}>
+              {!showDeriveForm ? (
+                <button
+                  data-testid="arch-derive-req-btn"
+                  className="btn-secondary"
+                  onClick={() => setShowDeriveForm(true)}
+                >
+                  {t("arch.deriveRequirement")}
+                </button>
+              ) : (
+                <form
+                  data-testid="arch-derive-req-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleDeriveRequirement();
+                  }}
+                  style={{
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-4)",
+                    background: "var(--color-surface-raised)",
+                  }}
+                >
+                  <label
+                    htmlFor="arch-derive-title"
+                    style={{
+                      fontWeight: 600,
+                      display: "block",
+                      marginBottom: "var(--space-1)",
+                      fontSize: "var(--font-size-sm)",
+                      color: "var(--color-text)",
+                    }}
+                  >
+                    {t("traceability.deriveTitle")} *
+                  </label>
+                  <input
+                    id="arch-derive-title"
+                    data-testid="arch-derive-title-input"
+                    type="text"
+                    value={deriveTitle}
+                    onChange={(e) => setDeriveTitle(e.target.value)}
+                    autoFocus
+                    disabled={isDeriving}
+                    style={{
+                      width: "100%",
+                      border: "1px solid var(--color-border)",
+                      borderRadius: "var(--radius-md)",
+                      padding: "var(--space-2) var(--space-3)",
+                      marginBottom: "var(--space-3)",
+                      background: "var(--color-surface)",
+                      color: "var(--color-text)",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {deriveError && (
+                    <p
+                      style={{
+                        color: "var(--color-danger)",
+                        fontSize: "var(--font-size-sm)",
+                        margin: "0 0 var(--space-2) 0",
+                      }}
+                    >
+                      {deriveError}
+                    </p>
+                  )}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "var(--space-2)",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => {
+                        setShowDeriveForm(false);
+                        setDeriveError(null);
+                      }}
+                      disabled={isDeriving}
+                    >
+                      {t("actions.cancel")}
+                    </button>
+                    <button
+                      type="submit"
+                      data-testid="arch-derive-submit-btn"
+                      className="btn-primary"
+                      disabled={isDeriving}
+                    >
+                      {isDeriving ? t("actions.deriving") : t("actions.derive")}
+                    </button>
+                  </div>
+                </form>
               )}
-            </p>
-          </aside>
+            </div>
+          </div>
 
           {/* New unified right sidebar (REQ-L2-RF-034). */}
           <RightSidebar

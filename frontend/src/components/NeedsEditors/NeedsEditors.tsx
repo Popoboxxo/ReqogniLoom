@@ -12,6 +12,7 @@
  */
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { NeedList } from './NeedList';
 import { NeedForm } from './NeedForm';
@@ -23,12 +24,14 @@ import { stakeholderNeedApi } from '../../api/stakeholder-need';
 import { attributeVisibilityApi } from '../../api';
 
 export default function NeedsEditors(): JSX.Element {
+  const { t } = useTranslation();
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
-  const { needs, need, refresh } = useNeedData(selectedId);
+  const { needs, need, isLoading, error, refresh } = useNeedData(selectedId);
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
     moscow_priority: true,
@@ -53,6 +56,7 @@ export default function NeedsEditors(): JSX.Element {
   const handleCreateNew = async () => {
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
+    setCreateError(null);
     try {
       const resp = await stakeholderNeedApi.create(activeWorkspace.id, { title: newTitle.trim() });
       setNewTitle('');
@@ -61,7 +65,8 @@ export default function NeedsEditors(): JSX.Element {
       navigate(`/needs/${resp.id}`);
     } catch (e) {
       console.error(e);
-      alert('Failed to create need');
+      const msg = (e as { error?: { message?: string } })?.error?.message ?? t('needs.createFailed');
+      setCreateError(msg);
     }
   };
 
@@ -74,18 +79,43 @@ export default function NeedsEditors(): JSX.Element {
     refresh();
   };
 
+  // Page-level loading / error states — only gate the full view on the
+  // initial load (no data yet). Once the list is populated, keep it visible
+  // while the detail pane reloads (UI standards §1.4).
+  if (isLoading && needs.length === 0) {
+    return (
+      <p role="status" style={{ padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+        {t('loading', 'Laden...')}
+      </p>
+    );
+  }
+
+  if (error && needs.length === 0) {
+    return (
+      <div role="alert" style={{ padding: 'var(--space-8)' }}>
+        <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
+          {error.message}
+        </p>
+        <button className="btn-secondary" onClick={refresh}>
+          {t('actions.reload', 'Erneut versuchen')}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <SplitView
       leftPanel={
         <NeedList
           needs={needs}
           selectedId={selectedId}
-          onCreateNew={() => setShowCreate(true)}
+          onCreateNew={() => { setCreateError(null); setShowCreate(true); }}
           showCreateForm={showCreate}
-          setShowCreateForm={setShowCreate}
+          setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
           newTitle={newTitle}
           setNewTitle={setNewTitle}
           onSubmitCreate={handleCreateNew}
+          createError={createError}
         />
       }
       rightPanel={

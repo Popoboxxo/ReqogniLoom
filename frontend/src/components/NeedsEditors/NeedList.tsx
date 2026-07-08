@@ -14,6 +14,7 @@ interface NeedListProps {
   newTitle?: string;
   setNewTitle?: (val: string) => void;
   onSubmitCreate?: () => void;
+  createError?: string | null;
 }
 
 function getStatusBadgeStyle(status: string): React.CSSProperties {
@@ -94,7 +95,8 @@ export function NeedList({
   setShowCreateForm,
   newTitle,
   setNewTitle,
-  onSubmitCreate
+  onSubmitCreate,
+  createError
 }: NeedListProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -157,6 +159,7 @@ export function NeedList({
       <button
         data-testid="create-need-btn"
         onClick={onCreateNew}
+        disabled={showCreateForm}
         style={{
           marginBottom: 'var(--space-3)',
           background: 'var(--color-primary)',
@@ -165,12 +168,13 @@ export function NeedList({
           borderRadius: 'var(--radius-md)',
           padding: 'var(--space-2) var(--space-4)',
           fontSize: 'var(--font-size-sm)',
-          cursor: 'pointer',
+          cursor: showCreateForm ? 'not-allowed' : 'pointer',
+          opacity: showCreateForm ? 0.6 : 1,
           transition: 'var(--transition-fast)',
           fontWeight: 600,
         }}
       >
-        {showCreateForm ? t('actions.creating', 'Creating...') : `+ ${t('actions.new', 'New')}`}
+        + {t('actions.new', 'New')}
       </button>
       
       {showCreateForm && setShowCreateForm && setNewTitle && onSubmitCreate && (
@@ -208,6 +212,11 @@ export function NeedList({
               color: 'var(--color-text)',
             }}
           />
+          {createError && (
+            <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}>
+              {createError}
+            </p>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
             <button
               type="button"
@@ -287,9 +296,9 @@ export function NeedList({
                 onMouseEnter={() => setHoveredId(need.id)}
                 onMouseLeave={() => setHoveredId(null)}
               >
-                <a 
+                <a
                   href={`/needs/${need.id}`}
-                  onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', `/needs/${need.id}`); window.dispatchEvent(new PopStateEvent('popstate')); }}
+                  onClick={(e) => { e.preventDefault(); navigate(`/needs/${need.id}`); }}
                   style={{
                     flex: 1,
                     display: 'flex',

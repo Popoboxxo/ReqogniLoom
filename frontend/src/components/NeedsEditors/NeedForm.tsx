@@ -1,9 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { StakeholderNeed } from '../../types';
+import { useNavigate } from 'react-router-dom';
+import type { ArchitectureElement, StakeholderNeed } from '../../types';
+import { WORKFLOW_STATES } from '../../types';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
+import { requirementsApi } from '../../api/requirements';
+import { architectureApi } from '../../api/architecture';
+import { tracelinksApi } from '../../api/tracelinks';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { VersionBadge } from '../shared/VersionBadge';
+import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 
 interface NeedFormProps {
   need: StakeholderNeed | null;
@@ -15,27 +21,91 @@ interface NeedFormProps {
 
 export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, onNeedsChanged }: NeedFormProps): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [formData, setFormData] = useState<Partial<StakeholderNeed>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeriving, setIsDeriving] = useState(false);
   const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
+
+  // Manual "Ableiten": create a Requirement derived from this need, with an
+  // optional architecture allocation (SE: Req --derives-from--> Need,
+  // Req --allocated-to--> ArchitectureElement).
+  const [showDeriveForm, setShowDeriveForm] = useState(false);
+  const [deriveTitle, setDeriveTitle] = useState('');
+  const [deriveArchId, setDeriveArchId] = useState('');
+  const [isManualDeriving, setIsManualDeriving] = useState(false);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
+  const [archElements, setArchElements] = useState<ArchitectureElement[]>([]);
+
+  useEffect(() => {
+    if (!showDeriveForm || !need) return;
+    let cancelled = false;
+    architectureApi
+      .listAll(need.workspace_id)
+      .then((els) => { if (!cancelled) setArchElements(els); })
+      .catch(() => { if (!cancelled) setArchElements([]); });
+    return () => { cancelled = true; };
+  }, [showDeriveForm, need]);
+
+  const handleManualDerive = async () => {
+    if (!need) return;
+    if (!deriveTitle.trim()) {
+      setDeriveError(t('traceability.deriveTitleRequired'));
+      return;
+    }
+    setIsManualDeriving(true);
+    setDeriveError(null);
+    try {
+      const created = await requirementsApi.create({
+        workspace_id: need.workspace_id,
+        title: deriveTitle.trim(),
+      });
+      await tracelinksApi.create({
+        source_id: created.id,
+        target_id: need.artifact_id,
+        link_type: 'derives-from',
+      });
+      if (deriveArchId) {
+        await tracelinksApi.create({
+          source_id: created.id,
+          target_id: deriveArchId,
+          link_type: 'allocated-to',
+        });
+      }
+      setShowDeriveForm(false);
+      setDeriveTitle('');
+      setDeriveArchId('');
+      if (onNeedsChanged) onNeedsChanged();
+      navigate(`/requirements/${created.id}`);
+    } catch (err) {
+      console.error(err);
+      const apiErr = err as { error?: { message?: string } };
+      setDeriveError(apiErr?.error?.message ?? t('needs.deriveFailed'));
+    } finally {
+      setIsManualDeriving(false);
+    }
+  };
 
   const handleDerive = async () => {
     if (!need) return;
     setIsDeriving(true);
-    setDerivationStatus("Starting AI Derivation task...");
+    setDerivationStatus(t('needs.deriveStarting'));
     try {
       const res = await stakeholderNeedApi.deriveRequirements(need.id);
-      setDerivationStatus(`Task started: ${res.task_id}. Polling for completion...`);
-      
+      setDerivationStatus(t('needs.deriveStarted', { taskId: res.task_id }));
+
       setTimeout(() => {
-        setDerivationStatus("System Requirements derived successfully!");
+        setDerivationStatus(t('needs.deriveSuccess'));
         setIsDeriving(false);
         if (onNeedsChanged) onNeedsChanged();
       }, 3000);
     } catch (err) {
       console.error(err);
-      setDerivationStatus("Derivation failed.");
+      setDerivationStatus(t('needs.deriveFailed'));
       setIsDeriving(false);
     }
   };
@@ -46,15 +116,23 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
     } else {
       setFormData({});
     }
+    // Reset transient action state when switching to a different need.
+    setConfirmDelete(false);
+    setSaveError(null);
+    setDeleteError(null);
   }, [need]);
 
   const handleChange = (field: keyof StakeholderNeed, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear any pending error once the user starts editing (UI standards §5.4).
+    if (saveError) setSaveError(null);
+    if (deleteError) setDeleteError(null);
   };
 
   const handleSave = async () => {
     if (!need) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       await stakeholderNeedApi.update(need.id, {
         title: formData.title,
@@ -66,7 +144,8 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
       onSaved();
     } catch (err) {
       console.error(err);
-      alert('Failed to save');
+      const msg = (err as { error?: { message?: string } })?.error?.message ?? t('needs.saveFailed');
+      setSaveError(msg);
     } finally {
       setIsSaving(false);
     }
@@ -74,13 +153,20 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
 
   const handleDelete = async () => {
     if (!need) return;
-    if (window.confirm('Delete this need?')) {
-      try {
-        await stakeholderNeedApi.delete(need.id);
-        onDeleted();
-      } catch (err) {
-        console.error(err);
-      }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await stakeholderNeedApi.delete(need.id);
+      onDeleted();
+    } catch (err) {
+      console.error(err);
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        t('needs.deleteFailed', 'Löschen fehlgeschlagen. Bitte erneut versuchen.');
+      setDeleteError(msg);
+      setConfirmDelete(false);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -139,29 +225,71 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             <span style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', fontFamily: 'monospace', marginRight: 'var(--space-2)' }}>
               {need.uid}
             </span>
-            <span style={{ 
-              fontSize: '0.8rem', 
-              padding: '4px 8px', 
+            <span style={{
+              fontSize: '0.8rem',
+              padding: '4px 8px',
               borderRadius: '99px',
-              background: 'rgba(255,255,255,0.1)',
+              background: 'var(--color-surface-raised)',
+              border: '1px solid var(--color-border)',
               color: 'var(--color-text)',
             }}>
               {need.status}
             </span>
             {need.version && <VersionBadge version={need.version} />}
           </div>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <button onClick={handleDelete} className="btn-danger" style={{ padding: "4px 8px", fontSize: "0.85rem" }}>Delete</button>
-            <button onClick={handleSave} className="btn-primary" style={{ padding: "4px 8px", fontSize: "0.85rem" }} disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save Changes'}
+          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+            {!confirmDelete ? (
+              <button
+                data-testid="need-delete-btn"
+                onClick={() => setConfirmDelete(true)}
+                className="btn-danger"
+              >
+                {t('actions.delete')}
+              </button>
+            ) : (
+              <>
+                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+                  {t('actions.deleteConfirmPrompt', 'Löschen?')}
+                </span>
+                <button
+                  data-testid="need-confirm-delete-btn"
+                  onClick={handleDelete}
+                  className="btn-danger"
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? t('actions.deleting', 'Löschen...') : t('actions.confirmDelete', 'Ja, löschen')}
+                </button>
+                <button
+                  data-testid="need-cancel-delete-btn"
+                  onClick={() => setConfirmDelete(false)}
+                  className="btn-ghost"
+                  disabled={isDeleting}
+                >
+                  {t('actions.cancel')}
+                </button>
+              </>
+            )}
+            <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
+              {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
         </div>
 
+        {saveError && (
+          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+            {saveError}
+          </p>
+        )}
+        {deleteError && (
+          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+            {deleteError}
+          </p>
+        )}
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
             <label style={labelStyle}>
-              Title
+              {t('editor.title')}
             </label>
             <input
               type="text"
@@ -171,22 +299,40 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             />
           </div>
 
-          <div>
+          <div style={{ marginBottom: 'var(--space-4)' }}>
             <label style={labelStyle}>
-              Description
+              {t('editor.description')}
             </label>
-            <textarea
+            <MarkdownPreview
               value={formData.description || ''}
-              onChange={(e) => handleChange('description', e.target.value)}
-              rows={8}
-              style={{ ...inputStyle, resize: 'vertical' }}
+              onChange={(v) => handleChange('description', v)}
             />
           </div>
 
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
+              <label htmlFor="need-status" style={labelStyle}>
+                {t('editor.workflowState', 'Status')}
+              </label>
+              <select
+                id="need-status"
+                data-testid="need-status"
+                value={formData.status || ''}
+                onChange={(e) => handleChange('status', e.target.value)}
+                style={inputStyle}
+              >
+                {(formData.status && !WORKFLOW_STATES.includes(formData.status)
+                  ? [formData.status, ...WORKFLOW_STATES]
+                  : WORKFLOW_STATES
+                ).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ flex: 1 }}>
               <label style={labelStyle}>
-                Category
+                {t('editor.category')}
               </label>
               <input
                 type="text"
@@ -200,14 +346,14 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
               {attributeVisibility.moscow_priority !== false && (
                 <>
                   <label style={labelStyle}>
-                    MoSCoW Priority
+                    {t('editor.moscowPriority')}
                   </label>
                   <select
                     value={formData.moscow_priority || ''}
                     onChange={(e) => handleChange('moscow_priority', e.target.value || null)}
                     style={inputStyle}
                   >
-                    <option value="">None</option>
+                    <option value="">{t('needs.priorityNone')}</option>
                     <option value="Must">Must</option>
                     <option value="Should">Should</option>
                     <option value="Could">Could</option>
@@ -219,9 +365,9 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
           </div>
         </div>
 
-        <TraceLinkPanel 
-          workspaceId={need.workspace_id} 
-          artifactId={need.artifact_id} 
+        <TraceLinkPanel
+          workspaceId={need.workspace_id}
+          artifactId={need.artifact_id}
           onDerive={handleDerive}
           isDeriving={isDeriving}
         />
@@ -230,6 +376,80 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             {derivationStatus}
           </div>
         )}
+
+        {/* Manual derive: Requirement from this need + optional architecture
+            allocation — same flow as in the requirements mask. */}
+        <div style={{ marginTop: 'var(--space-4)' }}>
+          {!showDeriveForm ? (
+            <button
+              data-testid="need-derive-btn"
+              className="btn-secondary"
+              onClick={() => setShowDeriveForm(true)}
+            >
+              {t('traceability.derive')}
+            </button>
+          ) : (
+            <form
+              data-testid="need-derive-form"
+              onSubmit={(e) => { e.preventDefault(); void handleManualDerive(); }}
+              style={{
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                padding: 'var(--space-4)',
+                background: 'var(--color-surface-raised)',
+              }}
+            >
+              <label style={labelStyle}>{t('traceability.deriveTitle')} *</label>
+              <input
+                type="text"
+                data-testid="need-derive-title-input"
+                value={deriveTitle}
+                onChange={(e) => setDeriveTitle(e.target.value)}
+                autoFocus
+                disabled={isManualDeriving}
+                style={inputStyle}
+              />
+              <label style={labelStyle}>{t('needs.deriveArchOptional')}</label>
+              <select
+                data-testid="need-derive-arch-select"
+                value={deriveArchId}
+                onChange={(e) => setDeriveArchId(e.target.value)}
+                disabled={isManualDeriving}
+                style={inputStyle}
+              >
+                <option value="">{t('needs.priorityNone')}</option>
+                {archElements.map((el) => (
+                  <option key={el.id} value={el.id}>
+                    {el.title}
+                  </option>
+                ))}
+              </select>
+              {deriveError && (
+                <p style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-2) 0' }}>
+                  {deriveError}
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => { setShowDeriveForm(false); setDeriveError(null); }}
+                  disabled={isManualDeriving}
+                >
+                  {t('actions.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  data-testid="need-derive-submit-btn"
+                  className="btn-primary"
+                  disabled={isManualDeriving}
+                >
+                  {isManualDeriving ? t('actions.deriving', 'Ableiten...') : t('traceability.derive')}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );
