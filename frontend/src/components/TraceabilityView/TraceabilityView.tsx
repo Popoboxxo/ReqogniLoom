@@ -22,8 +22,17 @@ import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
 import { artifactsApi } from "../../api/artifacts";
 import { testcasesApi } from "../../api/testcases";
+import { risksApi } from "../../api/risks";
+import { issuesApi } from "../../api/issues";
+import { adrsApi } from "../../api/adrs";
+import { stakeholderNeedApi } from "../../api/stakeholder-need";
+import { icdsApi } from "../../api/icds";
 import { workspacesApi } from "../../api/workspaces";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import {
+  ALL_LINK_TYPES,
+  getLinkTypeLabel,
+} from "../../constants/traceLinkLabels";
 import type {
   ArchitectureElement,
   Artifact,
@@ -49,15 +58,9 @@ const INITIAL_STATE: TraceabilityState = {
   error: null,
 };
 
-// Canonical link_type order (REQ-L2-RF-006 — predictable section order)
-const LINK_TYPE_ORDER: LinkType[] = [
-  "parent-child",
-  "derives-from",
-  "satisfies",
-  "verifies",
-  "implements",
-  "refines",
-];
+// Canonical link_type order (REQ-L2-RF-006 — predictable section order).
+// Sourced from the shared label map so all 12 backend link types are covered.
+const LINK_TYPE_ORDER: string[] = ALL_LINK_TYPES;
 
 interface CreateFormData {
   source_id: string;
@@ -99,7 +102,7 @@ function groupByLinkType(links: TraceLink[]): Record<string, TraceLink[]> {
 function orderedGroupKeys(grouped: Record<string, TraceLink[]>): string[] {
   const known = LINK_TYPE_ORDER.filter((k) => grouped[k]);
   const unknown = Object.keys(grouped)
-    .filter((k) => !LINK_TYPE_ORDER.includes(k as LinkType))
+    .filter((k) => !LINK_TYPE_ORDER.includes(k))
     .sort();
   return [...known, ...unknown];
 }
@@ -140,12 +143,33 @@ export default function TraceabilityView(): JSX.Element {
         //   resolve to titles the same way Requirement/Architecture do).
         // - artifacts populate the create-form selects (artifact UUIDs are
         //   the actual TraceLink endpoint identifiers).
-        const [linksResp, reqResp, archResp, tcResp, artifactsResp] = await Promise.all([
+        // Title resolution spans every artifact type a TraceLink can reach
+        // (REQ-L1-035). Non-Artifact-backed types (risk, issue, adr, need,
+        // icd) are fetched too so endpoints never fall back to a raw UUID.
+        // Each side fetch tolerates 404/failure via a catch → empty results.
+        const emptyPage = { results: [] as unknown[] };
+        const [
+          linksResp,
+          reqResp,
+          archResp,
+          tcResp,
+          artifactsResp,
+          riskResp,
+          issueResp,
+          adrResp,
+          needResp,
+          icdResp,
+        ] = await Promise.all([
           tracelinksApi.list(activeWorkspace.id),
           requirementsApi.list(activeWorkspace.id),
           architectureApi.list(activeWorkspace.id),
           testcasesApi.list(activeWorkspace.id),
           artifactsApi.list(activeWorkspace.id),
+          risksApi.list(activeWorkspace.id).catch(() => emptyPage),
+          issuesApi.list(activeWorkspace.id).catch(() => emptyPage),
+          adrsApi.list(activeWorkspace.id).catch(() => emptyPage),
+          stakeholderNeedApi.listByWorkspace(activeWorkspace.id).catch(() => emptyPage),
+          icdsApi.list(activeWorkspace.id).catch(() => emptyPage),
         ]);
         if (cancelled) return;
 
@@ -158,6 +182,21 @@ export default function TraceabilityView(): JSX.Element {
         }
         for (const tc of tcResp.results) {
           titles[tc.id] = tc.title || t("editor.untitled");
+        }
+        for (const rk of riskResp.results as { id: UUID; title?: string }[]) {
+          titles[rk.id] = rk.title || t("editor.untitled");
+        }
+        for (const is of issueResp.results as { id: UUID; title?: string }[]) {
+          titles[is.id] = is.title || t("editor.untitled");
+        }
+        for (const ad of adrResp.results as { id: UUID; title?: string }[]) {
+          titles[ad.id] = ad.title || t("editor.untitled");
+        }
+        for (const nd of needResp.results as { id: UUID; title?: string }[]) {
+          titles[nd.id] = nd.title || t("editor.untitled");
+        }
+        for (const ic of icdResp.results as { id: UUID; name?: string }[]) {
+          titles[ic.id] = ic.name || t("editor.untitled");
         }
 
         setState({
@@ -522,7 +561,7 @@ export default function TraceabilityView(): JSX.Element {
             >
               {LINK_TYPE_ORDER.map((lt) => (
                 <option key={lt} value={lt}>
-                  {lt}
+                  {getLinkTypeLabel(lt)}
                 </option>
               ))}
             </select>
@@ -641,7 +680,7 @@ export default function TraceabilityView(): JSX.Element {
                       color: "var(--color-text)",
                     }}
                   >
-                    {linkType}
+                    {getLinkTypeLabel(linkType)}
                   </h3>
                   <span
                     style={{
@@ -697,7 +736,7 @@ export default function TraceabilityView(): JSX.Element {
                           fontWeight: 500,
                         }}
                       >
-                        {link.link_type}
+                        {getLinkTypeLabel(link.link_type)}
                       </span>
                       <span
                         aria-hidden="true"

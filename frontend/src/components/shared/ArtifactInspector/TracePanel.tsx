@@ -29,6 +29,8 @@ import { useNavigate } from "react-router-dom";
 import { tracelinksApi } from "../../../api/tracelinks";
 import { useWorkspace } from "../../../context/WorkspaceContext";
 import type { TraceLink } from "../../../types";
+import { getLinkTypeLabel } from "../../../constants/traceLinkLabels";
+import { getArtifactRoute } from "../../../utils/artifactRoutes";
 import {
   ALL_LINK_TYPES,
   type ArtifactKind,
@@ -67,18 +69,49 @@ function mapTraceLink(
   if (!linkType) return null;
 
   const otherId = isSource ? link.target_id : link.source_id;
+  // The TraceLink wire format does not carry the linked artifact's type or
+  // title, so resolve a short-ID fallback and let getArtifactRoute default
+  // gracefully. Real name resolution requires an API change (see file TODO).
+  const otherKind = resolveLinkedKind(link, isSource);
   return {
     id: link.id,
     direction: isSource ? "outbound" : "inbound",
     linkType,
     otherArtifact: {
       id: otherId,
-      title: otherId,
-      kind: "requirement", // TODO: resolve real kind once API exposes it
-      route: `/requirements/${otherId}`,
+      title: `${otherId.slice(0, 8)}…`,
+      kind: otherKind,
+      route: getArtifactRoute(otherKind, otherId),
     },
     createdAt: link.created_at,
   };
+}
+
+/**
+ * Best-effort artifact kind for a linked endpoint. The TraceLink wire format
+ * exposes no per-endpoint type, so fall back to "requirement" until the API
+ * surfaces source_type/target_type.
+ */
+function resolveLinkedKind(
+  link: TraceLink,
+  _isSource: boolean
+): ArtifactKind {
+  const typed = link as TraceLink & {
+    source_type?: string;
+    target_type?: string;
+  };
+  const rawType = _isSource ? typed.target_type : typed.source_type;
+  switch (rawType) {
+    case "ArchitectureElement":
+      return "architecture";
+    case "TestCase":
+      return "testCase";
+    case "StakeholderNeed":
+      return "stakeholderNeed";
+    case "Requirement":
+    default:
+      return "requirement";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +270,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
               onClick={(): void => toggleFilter(lt)}
               onKeyDown={(e): void => onChipKeyDown(e, idx)}
             >
-              {lt}
+              {getLinkTypeLabel(lt)}
             </button>
           );
         })}
@@ -262,7 +295,7 @@ export function TracePanel({ kind, artifactId }: TracePanelProps): JSX.Element {
           className={styles.rowButton}
           onClick={(): void => navigate(link.otherArtifact.route)}
         >
-          <span className={styles.linkType}>{link.linkType}</span>
+          <span className={styles.linkType}>{getLinkTypeLabel(link.linkType)}</span>
           <span className={styles.artifactTitle}>{link.otherArtifact.title}</span>
         </button>
       </li>

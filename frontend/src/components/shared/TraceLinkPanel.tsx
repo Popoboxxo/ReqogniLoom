@@ -7,16 +7,7 @@ import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
 import { testcasesApi } from "../../api/testcases";
 import { resolveArtifactRef, type ArtifactRef } from "../../api/artifactRefs";
-
-const ALL_LINK_TYPES: LinkType[] = [
-  "parent-child",
-  "derives-from",
-  "satisfies",
-  "verifies",
-  "implements",
-  "refines",
-  "allocated-to",
-];
+import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -37,17 +28,6 @@ const labelStyle: React.CSSProperties = {
   marginBottom: "var(--space-1)",
   color: "var(--color-text)",
   fontSize: "var(--font-size-sm)",
-};
-
-const primaryBtn: React.CSSProperties = {
-  background: "var(--color-primary)",
-  color: "#ffffff",
-  border: "none",
-  borderRadius: "var(--radius-md)",
-  padding: "var(--space-2) var(--space-4)",
-  fontSize: "var(--font-size-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
 };
 
 interface TraceLinkPanelProps {
@@ -198,7 +178,7 @@ export function TraceLinkPanel({
             borderRadius: "var(--radius-full)",
           }}
         >
-          {trace.link_type}
+          {getLinkTypeLabel(trace.link_type)}
         </span>
         {route ? (
           <button
@@ -271,35 +251,20 @@ export function TraceLinkPanel({
                 onClick={onDerive}
                 disabled={isDeriving}
                 style={{
-                  ...primaryBtn,
                   background: "linear-gradient(135deg, #4f6ef7, #8e2de2)",
                 }}
               >
                 ✨ {isDeriving ? t("actions.deriving", "Ableiten...") : t("actions.derive", "Ableiten")}
               </button>
             )}
-            <button
-              onClick={handleOpenForm}
-              style={primaryBtn}
-            >
+            <button className="btn-primary" onClick={handleOpenForm}>
               {t("actions.newLink", "Neuen Link erstellen")}
             </button>
             <a
               href="/traceability"
+              className="btn-secondary"
               onClick={(e) => { e.preventDefault(); navigate('/traceability'); }}
-              style={{
-                background: "transparent",
-                color: "var(--color-primary)",
-                border: "1px solid var(--color-primary)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                cursor: "pointer",
-                fontWeight: 500,
-                textDecoration: "none",
-                display: "flex",
-                alignItems: "center",
-              }}
+              style={{ textDecoration: "none" }}
             >
               {t("actions.showAll", "Alle anzeigen")}
             </a>
@@ -355,7 +320,7 @@ export function TraceLinkPanel({
           >
             {ALL_LINK_TYPES.map((lt) => (
               <option key={lt} value={lt}>
-                {lt}
+                {getLinkTypeLabel(lt)}
               </option>
             ))}
           </select>
@@ -369,28 +334,16 @@ export function TraceLinkPanel({
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
             <button
               type="button"
+              className="btn-ghost"
               onClick={() => setShowForm(false)}
               disabled={isSubmitting}
-              style={{
-                background: "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                cursor: "pointer",
-              }}
             >
               {t("actions.cancel")}
             </button>
             <button
               type="submit"
+              className="btn-primary"
               disabled={isSubmitting || !targetId}
-              style={{
-                ...primaryBtn,
-                opacity: isSubmitting || !targetId ? 0.6 : 1,
-                cursor: isSubmitting || !targetId ? "not-allowed" : "pointer",
-              }}
             >
               {isSubmitting ? t("actions.saving", "Saving...") : t("traceability.submit", "Create Link")}
             </button>

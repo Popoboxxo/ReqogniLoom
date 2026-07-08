@@ -23,6 +23,7 @@ import { requirementsApi } from '../../api/requirements';
 import { tracelinksApi } from '../../api/tracelinks';
 import { testcasesApi } from '../../api/testcases';
 import { architectureApi } from '../../api/architecture';
+import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../constants/traceLinkLabels';
 import type {
   Requirement,
   TraceLink,
@@ -31,16 +32,6 @@ import type {
   TestCase,
   ArchitectureElement,
 } from '../../types';
-
-const REQ_LINK_TYPES: LinkType[] = [
-  'parent-child',
-  'derives-from',
-  'satisfies',
-  'verifies',
-  'implements',
-  'refines',
-  'allocated-to',
-];
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -61,17 +52,6 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 'var(--space-1)',
   color: 'var(--color-text)',
   fontSize: 'var(--font-size-sm)',
-};
-
-const primaryBtn: React.CSSProperties = {
-  background: 'var(--color-primary)',
-  color: '#ffffff',
-  border: 'none',
-  borderRadius: 'var(--radius-md)',
-  padding: 'var(--space-2) var(--space-4)',
-  fontSize: 'var(--font-size-sm)',
-  fontWeight: 600,
-  cursor: 'pointer',
 };
 
 interface ReqTraceLinkPanelProps {
@@ -331,35 +311,25 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             <button
               type="button"
               data-testid="req-tracelink-derive-btn"
+              className="btn-primary"
               onClick={openDeriveForm}
-              style={primaryBtn}
             >
               {t('traceability.derive')}
             </button>
             <button
               type="button"
               data-testid="req-tracelink-create-btn"
+              className="btn-primary"
               onClick={openForm}
-              style={primaryBtn}
             >
               {t('traceability.create')}
             </button>
             <button
               type="button"
               data-testid="req-tracelink-viewall-btn"
+              className="btn-secondary"
               onClick={() => navigate('/traceability')}
               title={t('nav.traceability')}
-              style={{
-                background: 'transparent',
-                color: 'var(--color-primary)',
-                border: '1px solid var(--color-primary)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)',
-                cursor: 'pointer',
-                fontWeight: 500,
-                transition: 'var(--transition-fast)',
-              }}
             >
               {t('traceability.viewAll')}
             </button>
@@ -419,9 +389,9 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             disabled={isSubmitting}
             style={inputStyle}
           >
-            {REQ_LINK_TYPES.map((lt) => (
+            {ALL_LINK_TYPES.map((lt) => (
               <option key={lt} value={lt}>
-                {lt}
+                {getLinkTypeLabel(lt)}
               </option>
             ))}
           </select>
@@ -449,30 +419,17 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             <button
               type="button"
               data-testid="req-tracelink-cancel-btn"
+              className="btn-secondary"
               onClick={cancelForm}
               disabled={isSubmitting}
-              style={{
-                background: 'var(--color-surface-raised)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)',
-                fontWeight: 600,
-                cursor: isSubmitting ? 'not-allowed' : 'pointer',
-              }}
             >
               {t('actions.cancel')}
             </button>
             <button
               type="submit"
               data-testid="req-tracelink-submit-btn"
+              className="btn-primary"
               disabled={isSubmitting}
-              style={{
-                ...primaryBtn,
-                opacity: isSubmitting ? 0.6 : 1,
-                cursor: isSubmitting ? 'not-allowed' : 'pointer',
-              }}
             >
               {isSubmitting ? t('traceability.submitting') : t('traceability.submit')}
             </button>
@@ -538,30 +495,17 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             <button
               type="button"
               data-testid="req-derive-cancel-btn"
+              className="btn-secondary"
               onClick={cancelDeriveForm}
               disabled={isDeriving}
-              style={{
-                background: 'var(--color-surface-raised)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)',
-                fontWeight: 600,
-                cursor: isDeriving ? 'not-allowed' : 'pointer',
-              }}
             >
               {t('actions.cancel')}
             </button>
             <button
               type="submit"
               data-testid="req-derive-submit-btn"
+              className="btn-primary"
               disabled={isDeriving}
-              style={{
-                ...primaryBtn,
-                opacity: isDeriving ? 0.6 : 1,
-                cursor: isDeriving ? 'not-allowed' : 'pointer',
-              }}
             >
               {isDeriving ? t('traceability.submitting') : t('traceability.submit')}
             </button>
@@ -643,7 +587,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                     marginRight: 'var(--space-2)',
                   }}
                 >
-                  {link.link_type}
+                  {getLinkTypeLabel(link.link_type)}
                 </span>
                 <span>{targetTitle || link.target_id.slice(0, 8)}</span>
                 <button
