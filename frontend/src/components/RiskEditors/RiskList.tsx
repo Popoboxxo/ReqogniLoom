@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
+import { getStatusBadgeStyle, ACTIVE_CARD_BG } from '../../utils/statusBadge';
 import type { Risk } from '../../types';
 import { WORKFLOW_STATES } from '../../types';
 
@@ -15,19 +16,6 @@ interface RiskListProps {
   setNewTitle?: (val: string) => void;
   onSubmitCreate?: () => void;
   createError?: string | null;
-}
-
-function getStatusBadgeStyle(status: string): React.CSSProperties {
-  const base: React.CSSProperties = {
-    borderRadius: 'var(--radius-full)', fontSize: 'var(--font-size-sm)',
-    padding: '2px 8px', fontWeight: 500, whiteSpace: 'nowrap',
-  };
-  switch (status) {
-    case 'Approved': return { ...base, background: 'var(--color-badge-approved)', color: 'var(--color-badge-approved-text)' };
-    case 'Monitored': return { ...base, background: '#bee3f8', color: '#2c5282' };
-    case 'Accepted': case 'Closed': return { ...base, background: '#fed7d7', color: '#9b2c2c' };
-    default: return { ...base, background: 'var(--color-badge-draft)', color: 'var(--color-badge-draft-text)' };
-  }
 }
 
 type SortKey = 'default' | 'title' | 'status' | 'updated';
@@ -154,7 +142,7 @@ export function RiskList({
             return (
               <li key={it.id} onMouseEnter={() => setHoveredId(it.id)} onMouseLeave={() => setHoveredId(null)}
                 style={{
-                  background: isActive ? '#eef2ff' : isHovered ? 'var(--color-surface-raised)' : 'var(--color-surface)',
+                  background: isActive ? ACTIVE_CARD_BG : isHovered ? 'var(--color-surface-raised)' : 'var(--color-surface)',
                   borderRadius: 'var(--radius-md)', boxShadow: isHovered || isActive ? 'var(--shadow-card)' : 'var(--shadow-sm)',
                   padding: 'var(--space-3) var(--space-4)', marginBottom: 'var(--space-2)',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',

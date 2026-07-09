@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
+import { getStatusBadgeStyle, ACTIVE_CARD_BG } from '../../utils/statusBadge';
 import type { TestCase } from '../../api/testcases';
 import { WORKFLOW_STATES } from '../../types';
 
@@ -15,21 +16,6 @@ interface TestCaseListProps {
   setNewTitle?: (val: string) => void;
   onSubmitCreate?: () => void;
   createError?: string | null;
-}
-
-const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  draft: { bg: 'rgba(100,116,139,0.15)', color: '#64748b' },
-  active: { bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
-  deprecated: { bg: 'rgba(239,68,68,0.15)', color: '#ef4444' },
-};
-
-function getStatusBadgeStyle(status: string): React.CSSProperties {
-  const colors = STATUS_COLORS[status] ?? STATUS_COLORS.draft;
-  return {
-    borderRadius: 'var(--radius-full)', fontSize: 'var(--font-size-sm)',
-    padding: '2px 8px', fontWeight: 500, whiteSpace: 'nowrap',
-    background: colors.bg, color: colors.color,
-  };
 }
 
 type SortKey = 'default' | 'title' | 'status' | 'updated';
@@ -156,7 +142,7 @@ export function TestCaseList({
             return (
               <li key={it.id} onMouseEnter={() => setHoveredId(it.id)} onMouseLeave={() => setHoveredId(null)}
                 style={{
-                  background: isActive ? '#eef2ff' : isHovered ? 'var(--color-surface-raised)' : 'var(--color-surface)',
+                  background: isActive ? ACTIVE_CARD_BG : isHovered ? 'var(--color-surface-raised)' : 'var(--color-surface)',
                   borderRadius: 'var(--radius-md)', boxShadow: isHovered || isActive ? 'var(--shadow-card)' : 'var(--shadow-sm)',
                   padding: 'var(--space-3) var(--space-4)', marginBottom: 'var(--space-2)',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',

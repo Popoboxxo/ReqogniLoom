@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
+import { getStatusBadgeStyle, ACTIVE_CARD_BG } from '../../utils/statusBadge';
 import type { StakeholderNeed } from '../../types';
 import { WORKFLOW_STATES } from '../../types';
 
@@ -15,43 +16,6 @@ interface NeedListProps {
   setNewTitle?: (val: string) => void;
   onSubmitCreate?: () => void;
   createError?: string | null;
-}
-
-function getStatusBadgeStyle(status: string): React.CSSProperties {
-  const base: React.CSSProperties = {
-    borderRadius: 'var(--radius-full)',
-    fontSize: 'var(--font-size-sm)',
-    padding: '2px 8px',
-    fontWeight: 500,
-    whiteSpace: 'nowrap',
-  };
-  switch (status) {
-    case 'approved':
-      return {
-        ...base,
-        background: 'var(--color-badge-approved)',
-        color: 'var(--color-badge-approved-text)',
-      };
-    case 'review':
-      return {
-        ...base,
-        background: '#bee3f8',
-        color: '#2c5282',
-      };
-    case 'rejected':
-    case 'deprecated':
-      return {
-        ...base,
-        background: '#fed7d7',
-        color: '#9b2c2c',
-      };
-    default:
-      return {
-        ...base,
-        background: 'var(--color-badge-draft)',
-        color: 'var(--color-badge-draft-text)',
-      };
-  }
 }
 
 type NeedSortKey = 'default' | 'title' | 'status' | 'updated';
@@ -271,7 +235,7 @@ export function NeedList({
 
             const cardStyle: React.CSSProperties = {
               background: isActive
-                ? '#eef2ff'
+                ? ACTIVE_CARD_BG
                 : isHovered
                 ? 'var(--color-surface-raised)'
                 : 'var(--color-surface)',
