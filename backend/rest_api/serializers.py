@@ -578,6 +578,7 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="Open",
     )
     tags = serializers.JSONField(required=False, default=list)
+    version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
