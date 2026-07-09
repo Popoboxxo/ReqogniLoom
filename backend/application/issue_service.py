@@ -160,6 +160,7 @@ class IssueService(ServiceBase):
         due_date=None,
         tags: Optional[List[str]] = None,
         status: str = "Open",
+        uid: Optional[str] = None,
     ) -> Issue:
         """Create an Issue with initial workflow state (REQ-L3-ISSUE-001).
 
@@ -199,6 +200,7 @@ class IssueService(ServiceBase):
             due_date=due_date,
             tags=tags or [],
             status=status,
+            uid=uid,
             created_by=str(ctx.user_id),
         )
 

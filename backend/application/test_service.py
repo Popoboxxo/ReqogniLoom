@@ -65,6 +65,7 @@ class TestService(ServiceBase):
         description: str = "",
         test_type: str = "Unit",
         steps: Optional[list] = None,
+        uid: Optional[str] = None,
     ) -> TestCase:
         """Create a TestCase with initial WorkflowState.
 
@@ -99,6 +100,7 @@ class TestService(ServiceBase):
             title=title,
             description=description,
             steps=steps or [],
+            uid=uid,
         )
         # Store test_type in description metadata (no dedicated field in schema)
         # We tag the artifact_type with test_type for differentiation

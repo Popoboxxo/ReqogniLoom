@@ -52,6 +52,7 @@ class TestRunService(ServiceBase):
         ctx: AuthContext,
         ci_job_id: str = "",
         test_case_ids: Optional[List[UUID]] = None,
+        uid: Optional[str] = None,
     ) -> TestRun:
         """Create a TestRun with optional initial TestCase results.
 
@@ -74,6 +75,7 @@ class TestRunService(ServiceBase):
             workspace=workspace,
             started_at=datetime.now(timezone.utc),
             ci_job_id=ci_job_id,
+            uid=uid,
         )
 
         # Create initial 'not_run' results for each test_case_id

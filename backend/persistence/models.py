@@ -679,6 +679,12 @@ class TestCase(TenantScopedModel):
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     steps = models.JSONField(default=list, blank=True)
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
     suspect = models.BooleanField(
         default=False,
         help_text="SN-30: Indicates if this test case needs review due to upstream changes.",
@@ -686,6 +692,9 @@ class TestCase(TenantScopedModel):
 
     class Meta:
         db_table = "pl_testcase"
+        indexes = [
+            models.Index(fields=["uid"], name="idx_testcase_uid_btree"),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -765,6 +774,12 @@ class TestRun(TenantScopedModel):
     __test__ = False
 
     name = models.CharField(max_length=255)
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="test_runs"
     )
@@ -786,6 +801,9 @@ class TestRun(TenantScopedModel):
         db_table = "pl_test_run"
         verbose_name = "Test Run"
         verbose_name_plural = "Test Runs"
+        indexes = [
+            models.Index(fields=["uid"], name="idx_test_run_uid_btree"),
+        ]
 
     def __str__(self) -> str:
         return f"TestRun:{self.name}:{self.status}"

@@ -173,6 +173,7 @@ class RiskService(ServiceBase):
         owner: str = "",
         mitigation_strategy: str = "",
         status: str = "Identified",
+        uid: Optional[str] = None,
     ) -> Risk:
         """Create a Risk with automatic score calculation (REQ-L3-RISK-001/002/007).
 
@@ -213,6 +214,7 @@ class RiskService(ServiceBase):
             owner=owner,
             mitigation_strategy=mitigation_strategy,
             status=status,
+            uid=uid,
             created_by=str(ctx.user_id),
         )
         # Calculate score before save (ADR-L3-RISK-01)

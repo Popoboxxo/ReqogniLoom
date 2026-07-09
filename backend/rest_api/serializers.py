@@ -386,6 +386,7 @@ class TestCaseSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     workspace_id = serializers.UUIDField(required=True)
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
+    uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.CharField(max_length=64, default="draft")
     suspect = serializers.BooleanField(required=False, default=False)
     version = serializers.IntegerField(read_only=True)
@@ -478,6 +479,7 @@ class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     description = serializers.CharField(allow_blank=True, default="")
     context = serializers.CharField(allow_blank=True, default="")
     consequences = serializers.CharField(allow_blank=True, default="")
+    uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.ChoiceField(
         choices=["Draft", "In Review", "Approved", "Rejected", "Superseded"],
         default="Draft",
@@ -510,6 +512,7 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     )
     owner = serializers.CharField(allow_blank=True, default="")
     mitigation_strategy = serializers.CharField(allow_blank=True, default="")
+    uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.ChoiceField(
         choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
         default="Identified",
@@ -525,6 +528,7 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     name = serializers.CharField(max_length=255)
+    uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.CharField(read_only=True)
     ci_job_id = serializers.CharField(allow_blank=True, default="")
     started_at = serializers.DateTimeField(read_only=True)
@@ -573,6 +577,7 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["defect", "improvement", "documentation", "question"],
         default="defect",
     )
+    uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.ChoiceField(
         choices=["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
         default="Open",

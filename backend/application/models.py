@@ -207,6 +207,12 @@ class Adr(models.Model):
     description = models.TextField(max_length=10000)
     context = models.TextField(max_length=5000, blank=True)
     consequences = models.TextField(max_length=5000, blank=True)
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
     status = models.CharField(
         max_length=32, choices=Status.choices, default=Status.DRAFT
     )
@@ -220,6 +226,7 @@ class Adr(models.Model):
         indexes = [
             models.Index(fields=["workspace_id", "status"], name="idx_adr_ws_status"),
             models.Index(fields=["tenant_id", "workspace_id"], name="idx_adr_tenant_ws"),
+            models.Index(fields=["uid"], name="idx_adr_uid_btree"),
         ]
 
     def __str__(self) -> str:
@@ -289,6 +296,12 @@ class Risk(models.Model):
     )
     owner = models.CharField(max_length=255, blank=True)
     mitigation_strategy = models.TextField(blank=True)
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
     status = models.CharField(
         max_length=32, choices=RiskStatus.choices, default=RiskStatus.IDENTIFIED
     )
@@ -304,6 +317,7 @@ class Risk(models.Model):
             models.Index(fields=["tenant_id", "workspace_id"], name="idx_risk_tenant_ws"),
             models.Index(fields=["workspace_id", "severity"], name="idx_risk_ws_severity"),
             models.Index(fields=["workspace_id", "risk_score"], name="idx_risk_ws_score"),
+            models.Index(fields=["uid"], name="idx_risk_uid_btree"),
         ]
 
     def compute_score(self) -> int:
@@ -369,6 +383,12 @@ class Issue(models.Model):
     assignee_changed_date = models.DateTimeField(null=True, blank=True)
     due_date = models.DateTimeField(null=True, blank=True)
     tags = models.JSONField(default=list)
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Unique identifier (read-only, auto-generated)",
+    )
     status = models.CharField(
         max_length=32, choices=IssueStatus.choices, default=IssueStatus.OPEN
     )
@@ -388,6 +408,7 @@ class Issue(models.Model):
             models.Index(
                 fields=["workspace_id", "assignee_id"], name="idx_issue_ws_assignee"
             ),
+            models.Index(fields=["uid"], name="idx_issue_uid_btree"),
         ]
 
     def __str__(self) -> str:

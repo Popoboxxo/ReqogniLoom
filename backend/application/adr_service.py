@@ -140,6 +140,7 @@ class AdrService(ServiceBase):
         context: str = "",
         consequences: str = "",
         status: str = "Draft",
+        uid: Optional[str] = None,
     ) -> Adr:
         """Create an ADR with initial workflow state (REQ-L3-ADR-001).
 
@@ -168,6 +169,7 @@ class AdrService(ServiceBase):
             context=context,
             consequences=consequences,
             status=status,
+            uid=uid,
             created_by=str(ctx.user_id),
         )
 
