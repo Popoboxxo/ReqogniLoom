@@ -154,6 +154,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
 }) => {
   const { t } = useTranslation();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [listSearch, setListSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -338,29 +339,84 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     </span>
                   </div>
                 </div>
-                {/* Delete button */}
-                <button
-                  data-testid="req-delete-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(req.id);
-                  }}
-                  style={{
-                    marginLeft: 'var(--space-4)',
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--color-danger)',
-                    cursor: 'pointer',
-                    fontSize: 'var(--font-size-base)',
-                    fontWeight: 700,
-                    padding: 0,
-                    minWidth: '24px',
-                    textAlign: 'center',
-                  }}
-                  title={t('actions.delete')}
-                >
-                  ×
-                </button>
+                {/* Delete button — two-step inline confirmation */}
+                {confirmDeleteId === req.id ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 'var(--space-2)',
+                      alignItems: 'center',
+                      marginLeft: 'var(--space-4)',
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      data-testid="req-confirm-delete-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmDeleteId(null);
+                        onDelete(req.id);
+                      }}
+                      style={{
+                        background: 'var(--color-danger)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '2px 8px',
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={t('actions.confirmDelete', 'Ja, löschen')}
+                    >
+                      {t('actions.confirmDelete', 'Ja, löschen')}
+                    </button>
+                    <button
+                      data-testid="req-cancel-delete-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmDeleteId(null);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        color: 'var(--color-text)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '2px 8px',
+                        fontSize: 'var(--font-size-xs)',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={t('actions.cancel')}
+                    >
+                      {t('actions.cancel')}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    data-testid="req-delete-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDeleteId(req.id);
+                    }}
+                    style={{
+                      marginLeft: 'var(--space-4)',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--color-danger)',
+                      cursor: 'pointer',
+                      fontSize: 'var(--font-size-base)',
+                      fontWeight: 700,
+                      padding: 0,
+                      minWidth: '24px',
+                      textAlign: 'center',
+                    }}
+                    title={t('actions.delete')}
+                  >
+                    ×
+                  </button>
+                )}
               </li>
             );
           })}

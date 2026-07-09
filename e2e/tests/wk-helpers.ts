@@ -366,7 +366,9 @@ export async function transitionTestRunViaUI(
   await item.click();
   await page.locator('[data-testid="testrun-close-btn"]').waitFor({ timeout: 8000 });
   if (toStatus === 'closed' || toStatus === 'failed' || toStatus === 'passed' || toStatus === 'partial') {
+    // Two-step inline confirmation replaced the window.confirm dialog.
     await page.locator('[data-testid="testrun-close-btn"]').click();
+    await page.locator('[data-testid="testrun-confirm-close-btn"]').click();
     await expect(page.locator('[data-testid="testrun-close-btn"]')).toHaveCount(0, { timeout: 8000 });
   }
   await page.waitForLoadState('networkidle');

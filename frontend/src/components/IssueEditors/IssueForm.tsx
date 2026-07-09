@@ -17,19 +17,30 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
   const { t } = useTranslation();
   const [formData, setFormData] = useState<Partial<Issue>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (issue) setFormData({ ...issue });
     else setFormData({});
+    // Reset transient action state when switching to a different issue.
+    setConfirmDelete(false);
+    setSaveError(null);
+    setDeleteError(null);
   }, [issue]);
 
   const handleChange = (field: keyof Issue, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    if (saveError) setSaveError(null);
+    if (deleteError) setDeleteError(null);
   };
 
   const handleSave = async () => {
     if (!issue) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       await issuesApi.update(issue.id, {
         title: formData.title,
@@ -42,7 +53,8 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
       onSaved();
     } catch (err) {
       console.error(err);
-      alert(t('issues.saveFailed'));
+      const msg = (err as { error?: { message?: string } })?.error?.message ?? t('issues.saveFailed');
+      setSaveError(msg);
     } finally {
       setIsSaving(false);
     }
@@ -50,9 +62,20 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
 
   const handleDelete = async () => {
     if (!issue) return;
-    if (window.confirm(t('issues.deleteConfirm'))) {
-      try { await issuesApi.delete(issue.id); onDeleted(); }
-      catch (err) { console.error(err); }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await issuesApi.delete(issue.id);
+      onDeleted();
+    } catch (err) {
+      console.error(err);
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        t('issues.deleteFailed', 'Löschen fehlgeschlagen. Bitte erneut versuchen.');
+      setDeleteError(msg);
+      setConfirmDelete(false);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -86,13 +109,39 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
               {issue.status}
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <button onClick={handleDelete} className="btn-danger">{t('actions.delete')}</button>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+            {!confirmDelete ? (
+              <button data-testid="issue-delete-btn" onClick={() => setConfirmDelete(true)} className="btn-danger">
+                {t('actions.delete')}
+              </button>
+            ) : (
+              <>
+                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+                  {t('actions.deleteConfirmPrompt', 'Löschen?')}
+                </span>
+                <button data-testid="issue-confirm-delete-btn" onClick={handleDelete} className="btn-danger" disabled={isDeleting}>
+                  {isDeleting ? t('actions.deleting', 'Löschen...') : t('actions.confirmDelete', 'Ja, löschen')}
+                </button>
+                <button data-testid="issue-cancel-delete-btn" onClick={() => setConfirmDelete(false)} className="btn-ghost" disabled={isDeleting}>
+                  {t('actions.cancel')}
+                </button>
+              </>
+            )}
             <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
         </div>
+        {saveError && (
+          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+            {saveError}
+          </p>
+        )}
+        {deleteError && (
+          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+            {deleteError}
+          </p>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
             <label style={labelStyle}>{t('editor.title')}</label>

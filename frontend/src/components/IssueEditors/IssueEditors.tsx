@@ -14,34 +14,62 @@ export default function IssueEditors(): JSX.Element {
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
-  const { items, item, refresh } = useIssueData(selectedId);
+  const { items, item, isLoading, error, refresh } = useIssueData(selectedId);
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const handleCreateNew = async () => {
     if (!activeWorkspace) return;
     if (!newTitle.trim()) return;
+    setCreateError(null);
     try {
       const resp = await issuesApi.create({ workspace_id: activeWorkspace.id, title: newTitle.trim() });
       setNewTitle(''); setShowCreate(false); refresh();
       navigate(`/issues/${resp.id}`);
     } catch (e) {
       console.error(e);
-      alert(t('issues.createFailed'));
+      const msg = (e as { error?: { message?: string } })?.error?.message ?? t('issues.createFailed');
+      setCreateError(msg);
     }
   };
 
   const handleSaved = () => { refresh(); };
   const handleDeleted = () => { navigate('/issues'); refresh(); };
 
+  // Page-level loading / error states — only gate the full view on the
+  // initial load (no data yet), keeping the list visible on detail reloads.
+  if (isLoading && items.length === 0) {
+    return (
+      <p role="status" style={{ padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+        {t('loading', 'Laden...')}
+      </p>
+    );
+  }
+
+  if (error && items.length === 0) {
+    return (
+      <div role="alert" style={{ padding: 'var(--space-8)' }}>
+        <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
+          {error.message}
+        </p>
+        <button className="btn-secondary" onClick={refresh}>
+          {t('actions.reload', 'Erneut versuchen')}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <SplitView
       leftPanel={
         <IssueList
           items={items} selectedId={selectedId}
-          onCreateNew={() => setShowCreate(true)}
-          showCreateForm={showCreate} setShowCreateForm={setShowCreate}
+          onCreateNew={() => { setCreateError(null); setShowCreate(true); }}
+          showCreateForm={showCreate}
+          setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
           newTitle={newTitle} setNewTitle={setNewTitle} onSubmitCreate={handleCreateNew}
+          createError={createError}
         />
       }
       rightPanel={
@@ -53,6 +81,7 @@ export default function IssueEditors(): JSX.Element {
         </div>
       }
       initialLeftWidth={350}
+      moduleType="issues"
     />
   );
 }

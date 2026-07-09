@@ -16,19 +16,30 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
   const { t } = useTranslation();
   const [formData, setFormData] = useState<Partial<TestCase>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (testCase) setFormData({ ...testCase });
     else setFormData({});
+    // Reset transient action state when switching to a different test case.
+    setConfirmDelete(false);
+    setSaveError(null);
+    setDeleteError(null);
   }, [testCase]);
 
   const handleChange = (field: keyof TestCase, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    if (saveError) setSaveError(null);
+    if (deleteError) setDeleteError(null);
   };
 
   const handleSave = async () => {
     if (!testCase) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       await testcasesApi.update(testCase.id, {
         title: formData.title,
@@ -38,7 +49,8 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
       onSaved();
     } catch (err) {
       console.error(err);
-      alert(t('testcases.saveFailed'));
+      const msg = (err as { error?: { message?: string } })?.error?.message ?? t('testcases.saveFailed');
+      setSaveError(msg);
     } finally {
       setIsSaving(false);
     }
@@ -46,13 +58,20 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
 
   const handleDelete = async () => {
     if (!testCase) return;
-    if (window.confirm(t('testcases.deleteConfirm'))) {
-      try {
-        await testcasesApi.delete(testCase.id);
-        onDeleted?.();
-      } catch (err) {
-        console.error(err);
-      }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await testcasesApi.delete(testCase.id);
+      onDeleted?.();
+    } catch (err) {
+      console.error(err);
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        t('testcases.deleteFailed', 'Löschen fehlgeschlagen. Bitte erneut versuchen.');
+      setDeleteError(msg);
+      setConfirmDelete(false);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -87,13 +106,39 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
             </span>
             {testCase.version && <VersionBadge version={testCase.version} />}
           </div>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <button onClick={handleDelete} className="btn-danger">{t('actions.delete')}</button>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+            {!confirmDelete ? (
+              <button data-testid="tc-delete-btn" onClick={() => setConfirmDelete(true)} className="btn-danger">
+                {t('actions.delete')}
+              </button>
+            ) : (
+              <>
+                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+                  {t('actions.deleteConfirmPrompt', 'Löschen?')}
+                </span>
+                <button data-testid="tc-confirm-delete-btn" onClick={handleDelete} className="btn-danger" disabled={isDeleting}>
+                  {isDeleting ? t('actions.deleting', 'Löschen...') : t('actions.confirmDelete', 'Ja, löschen')}
+                </button>
+                <button data-testid="tc-cancel-delete-btn" onClick={() => setConfirmDelete(false)} className="btn-ghost" disabled={isDeleting}>
+                  {t('actions.cancel')}
+                </button>
+              </>
+            )}
             <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
         </div>
+        {saveError && (
+          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+            {saveError}
+          </p>
+        )}
+        {deleteError && (
+          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+            {deleteError}
+          </p>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
             <label style={labelStyle}>{t('editor.title')}</label>

@@ -130,7 +130,6 @@ export default function RequirementEditors(): JSX.Element {
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
       if (!activeWorkspace) return;
-      if (!window.confirm(t('editor.deleteConfirm'))) return;
       try {
         await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id });
         navigate('/requirements');
@@ -138,7 +137,7 @@ export default function RequirementEditors(): JSX.Element {
         console.error('Delete failed:', err);
       }
     },
-    [t, activeWorkspace, deleteRequirement, navigate]
+    [activeWorkspace, deleteRequirement, navigate]
   );
 
   /**

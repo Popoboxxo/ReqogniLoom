@@ -14,6 +14,7 @@ interface TestCaseListProps {
   newTitle?: string;
   setNewTitle?: (val: string) => void;
   onSubmitCreate?: () => void;
+  createError?: string | null;
 }
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -51,7 +52,7 @@ function sortItems(list: TestCase[], sortKey: SortKey): TestCase[] {
 }
 
 export function TestCaseList({
-  items, selectedId, onCreateNew, showCreateForm, setShowCreateForm, newTitle, setNewTitle, onSubmitCreate,
+  items, selectedId, onCreateNew, showCreateForm, setShowCreateForm, newTitle, setNewTitle, onSubmitCreate, createError,
 }: TestCaseListProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -120,6 +121,11 @@ export function TestCaseList({
               background: 'var(--color-surface)', color: 'var(--color-text)',
             }}
           />
+          {createError && (
+            <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}>
+              {createError}
+            </p>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
             <button type="button" onClick={() => setShowCreateForm(false)}
               style={{

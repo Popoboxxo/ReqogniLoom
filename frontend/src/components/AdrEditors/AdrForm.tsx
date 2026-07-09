@@ -17,19 +17,30 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
   const { t } = useTranslation();
   const [formData, setFormData] = useState<Partial<Adr>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (adr) setFormData({ ...adr });
     else setFormData({});
+    // Reset transient action state when switching to a different ADR.
+    setConfirmDelete(false);
+    setSaveError(null);
+    setDeleteError(null);
   }, [adr]);
 
   const handleChange = (field: keyof Adr, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    if (saveError) setSaveError(null);
+    if (deleteError) setDeleteError(null);
   };
 
   const handleSave = async () => {
     if (!adr) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       await adrsApi.update(adr.id, {
         title: formData.title,
@@ -41,7 +52,8 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
       onSaved();
     } catch (err) {
       console.error(err);
-      alert(t('adrs.saveFailed'));
+      const msg = (err as { error?: { message?: string } })?.error?.message ?? t('adrs.saveFailed');
+      setSaveError(msg);
     } finally {
       setIsSaving(false);
     }
@@ -49,13 +61,20 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
 
   const handleDelete = async () => {
     if (!adr) return;
-    if (window.confirm(t('adrs.deleteConfirm'))) {
-      try {
-        await adrsApi.delete(adr.id);
-        onDeleted();
-      } catch (err) {
-        console.error(err);
-      }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await adrsApi.delete(adr.id);
+      onDeleted();
+    } catch (err) {
+      console.error(err);
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        t('adrs.deleteFailed', 'Löschen fehlgeschlagen. Bitte erneut versuchen.');
+      setDeleteError(msg);
+      setConfirmDelete(false);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -91,13 +110,39 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
             </span>
             {adr.version && <VersionBadge version={adr.version} />}
           </div>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <button onClick={handleDelete} className="btn-danger">{t('actions.delete')}</button>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+            {!confirmDelete ? (
+              <button data-testid="adr-delete-btn" onClick={() => setConfirmDelete(true)} className="btn-danger">
+                {t('actions.delete')}
+              </button>
+            ) : (
+              <>
+                <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
+                  {t('actions.deleteConfirmPrompt', 'Löschen?')}
+                </span>
+                <button data-testid="adr-confirm-delete-btn" onClick={handleDelete} className="btn-danger" disabled={isDeleting}>
+                  {isDeleting ? t('actions.deleting', 'Löschen...') : t('actions.confirmDelete', 'Ja, löschen')}
+                </button>
+                <button data-testid="adr-cancel-delete-btn" onClick={() => setConfirmDelete(false)} className="btn-ghost" disabled={isDeleting}>
+                  {t('actions.cancel')}
+                </button>
+              </>
+            )}
             <button onClick={handleSave} className="btn-primary" disabled={isSaving}>
               {isSaving ? t('actions.saving') : t('actions.save')}
             </button>
           </div>
         </div>
+        {saveError && (
+          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+            {saveError}
+          </p>
+        )}
+        {deleteError && (
+          <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', marginBottom: 'var(--space-4)' }}>
+            {deleteError}
+          </p>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
             <label style={labelStyle}>{t('editor.title')}</label>

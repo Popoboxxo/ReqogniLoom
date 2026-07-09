@@ -14,6 +14,7 @@ interface IssueListProps {
   newTitle?: string;
   setNewTitle?: (val: string) => void;
   onSubmitCreate?: () => void;
+  createError?: string | null;
 }
 
 function getStatusBadgeStyle(status: string): React.CSSProperties {
@@ -52,7 +53,7 @@ function sortItems(list: Issue[], sortKey: SortKey): Issue[] {
 }
 
 export function IssueList({
-  items, selectedId, onCreateNew, showCreateForm, setShowCreateForm, newTitle, setNewTitle, onSubmitCreate,
+  items, selectedId, onCreateNew, showCreateForm, setShowCreateForm, newTitle, setNewTitle, onSubmitCreate, createError,
 }: IssueListProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -120,6 +121,11 @@ export function IssueList({
               background: 'var(--color-surface)', color: 'var(--color-text)',
             }}
           />
+          {createError && (
+            <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}>
+              {createError}
+            </p>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
             <button type="button" onClick={() => setShowCreateForm(false)}
               style={{

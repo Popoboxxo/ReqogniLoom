@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { testRunsApi } from "../../api/test-runs";
 import { SplitView } from "../SplitView/SplitView";
+import { VersionBadge } from "../shared/VersionBadge";
 import type { TestRun } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -68,17 +69,23 @@ function TestRunDetailEditor({
 }: TestRunDetailEditorProps): JSX.Element {
   const { t } = useTranslation();
   const [isClosing, setIsClosing] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
 
   const handleClose = async (): Promise<void> => {
-    if (!window.confirm(t("testRuns.closeConfirm", "Close this test run?")))
-      return;
     setIsClosing(true);
+    setCloseError(null);
     try {
       await testRunsApi.close(testRun.id);
       await onRefresh();
       onClose();
     } catch (err) {
       console.error("Failed to close test run:", err);
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        t("testRuns.closeFailed", "Test-Run konnte nicht geschlossen werden.");
+      setCloseError(msg);
+      setConfirmClose(false);
     } finally {
       setIsClosing(false);
     }
@@ -113,6 +120,9 @@ function TestRunDetailEditor({
           }}
         >
           <StatusBadge status={testRun.status} />
+          {typeof testRun.version === "number" && (
+            <VersionBadge version={testRun.version} />
+          )}
           {testRun.ci_job_id && (
             <span
               style={{
@@ -237,31 +247,91 @@ function TestRunDetailEditor({
         )}
       </div>
 
+      {/* Close error */}
+      {closeError && (
+        <p
+          role="alert"
+          style={{
+            color: "var(--color-danger)",
+            fontSize: "var(--font-size-sm)",
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          {closeError}
+        </p>
+      )}
+
       {/* Actions */}
-      <div style={{ display: "flex", gap: "var(--space-2)" }}>
-        {testRun.status === "in_progress" && (
-          <button
-            type="button"
-            data-testid="testrun-close-btn"
-            onClick={() => void handleClose()}
-            disabled={isClosing}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              cursor: isClosing ? "not-allowed" : "pointer",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              opacity: isClosing ? 0.6 : 1,
-            }}
-          >
-            {isClosing
-              ? t("actions.closing", "Closing...")
-              : t("testRuns.closeRun", "Close Run")}
-          </button>
-        )}
+      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+        {testRun.status === "in_progress" &&
+          (!confirmClose ? (
+            <button
+              type="button"
+              data-testid="testrun-close-btn"
+              onClick={() => setConfirmClose(true)}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                background: "var(--color-primary)",
+                color: "white",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                cursor: "pointer",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+              }}
+            >
+              {t("testRuns.closeRun", "Close Run")}
+            </button>
+          ) : (
+            <>
+              <span
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                {t("testRuns.closeConfirm", "Close this test run?")}
+              </span>
+              <button
+                type="button"
+                data-testid="testrun-confirm-close-btn"
+                onClick={() => void handleClose()}
+                disabled={isClosing}
+                style={{
+                  padding: "var(--space-2) var(--space-4)",
+                  background: "var(--color-primary)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  cursor: isClosing ? "not-allowed" : "pointer",
+                  fontSize: "var(--font-size-sm)",
+                  fontWeight: 600,
+                  opacity: isClosing ? 0.6 : 1,
+                }}
+              >
+                {isClosing
+                  ? t("actions.closing", "Closing...")
+                  : t("actions.confirm", "Confirm")}
+              </button>
+              <button
+                type="button"
+                data-testid="testrun-cancel-close-btn"
+                onClick={() => setConfirmClose(false)}
+                disabled={isClosing}
+                style={{
+                  padding: "var(--space-2) var(--space-4)",
+                  background: "transparent",
+                  color: "var(--color-text-muted)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  cursor: isClosing ? "not-allowed" : "pointer",
+                  fontSize: "var(--font-size-sm)",
+                }}
+              >
+                {t("actions.cancel")}
+              </button>
+            </>
+          ))}
         <button
           type="button"
           data-testid="testrun-detail-close-btn"
@@ -292,6 +362,7 @@ export function TestRunsList(): JSX.Element {
   const { activeWorkspace } = useWorkspace();
   const [items, setItems] = useState<TestRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<TestRun | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -301,11 +372,16 @@ export function TestRunsList(): JSX.Element {
   const loadList = async (): Promise<void> => {
     if (!activeWorkspace) return;
     setIsLoading(true);
+    setLoadError(null);
     try {
       const resp = await testRunsApi.list(activeWorkspace.id);
       setItems(resp.results);
     } catch (err) {
       console.error("Failed to load test runs:", err);
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        t("testRuns.loadFailed", "Test-Runs konnten nicht geladen werden.");
+      setLoadError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -324,7 +400,14 @@ export function TestRunsList(): JSX.Element {
     testRunsApi
       .get(selectedId)
       .then((run) => setSelectedRun(run))
-      .catch((err) => console.error("Failed to load test run detail:", err));
+      .catch((err) => {
+        console.error("Failed to load test run detail:", err);
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          t("testRuns.detailLoadFailed", "Test-Run konnte nicht geladen werden.");
+        setLoadError(msg);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   const resetCreateForm = (): void => {
@@ -526,6 +609,37 @@ export function TestRunsList(): JSX.Element {
               </button>
             </div>
           </form>
+        )}
+
+        {/* Load error */}
+        {loadError && (
+          <div role="alert" style={{ marginBottom: "var(--space-3)" }}>
+            <p
+              style={{
+                color: "var(--color-danger)",
+                fontSize: "var(--font-size-sm)",
+                marginBottom: "var(--space-2)",
+              }}
+            >
+              {loadError}
+            </p>
+            <button
+              type="button"
+              data-testid="testrun-retry-btn"
+              onClick={() => void loadList()}
+              style={{
+                padding: "var(--space-2) var(--space-3)",
+                background: "transparent",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                cursor: "pointer",
+                fontSize: "var(--font-size-sm)",
+              }}
+            >
+              {t("actions.reload", "Erneut versuchen")}
+            </button>
+          </div>
         )}
 
         {/* List */}
