@@ -111,6 +111,7 @@ export interface TestCase {
   status: string;
   suspect?: boolean;
   version: number;
+  uid?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -210,6 +211,7 @@ export interface Adr {
   consequences: string;
   status: AdrStatus;
   version: number;
+  uid?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -238,6 +240,7 @@ export interface Risk {
   mitigation_strategy: string;
   status: RiskStatus;
   version: number;
+  uid?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -260,6 +263,7 @@ export interface Issue {
   status: IssueStatus;
   tags: string[];
   version: number;
+  uid?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -474,6 +478,7 @@ export interface TestRun {
   finished_at: ISODateTime | null;
   result_summary: TestRunResultSummary;
   version: number;
+  uid?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

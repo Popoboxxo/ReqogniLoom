@@ -114,12 +114,21 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
               {risk.status}
             </span>
             {risk.version && <VersionBadge version={risk.version} />}
-            <span
-              style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
-              title="Short ID (first 8 chars of UUID)"
-            >
-              {risk.id.slice(0, 8)}
-            </span>
+            {risk.uid ? (
+              <span
+                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
+                title="Unique Identifier"
+              >
+                {risk.uid}
+              </span>
+            ) : (
+              <span
+                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all', opacity: 0.6 }}
+                title="Short ID (UUID prefix, no semantic uid assigned yet)"
+              >
+                {risk.id.slice(0, 8)}
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             {!confirmDelete ? (

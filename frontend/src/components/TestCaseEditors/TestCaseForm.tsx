@@ -105,12 +105,21 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
               {testCase.status}
             </span>
             {testCase.version && <VersionBadge version={testCase.version} />}
-            <span
-              style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
-              title="Short ID (first 8 chars of UUID)"
-            >
-              {testCase.id.slice(0, 8)}
-            </span>
+            {testCase.uid ? (
+              <span
+                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
+                title="Unique Identifier"
+              >
+                {testCase.uid}
+              </span>
+            ) : (
+              <span
+                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all', opacity: 0.6 }}
+                title="Short ID (UUID prefix, no semantic uid assigned yet)"
+              >
+                {testCase.id.slice(0, 8)}
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             {!confirmDelete ? (

@@ -108,12 +108,21 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
               {adr.status}
             </span>
             {adr.version && <VersionBadge version={adr.version} />}
-            <span
-              style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
-              title="Short ID (first 8 chars of UUID)"
-            >
-              {adr.id.slice(0, 8)}
-            </span>
+            {adr.uid ? (
+              <span
+                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all' }}
+                title="Unique Identifier"
+              >
+                {adr.uid}
+              </span>
+            ) : (
+              <span
+                style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)', userSelect: 'all', opacity: 0.6 }}
+                title="Short ID (UUID prefix, no semantic uid assigned yet)"
+              >
+                {adr.id.slice(0, 8)}
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             {!confirmDelete ? (

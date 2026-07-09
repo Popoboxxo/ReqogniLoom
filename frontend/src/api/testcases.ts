@@ -27,6 +27,7 @@ export interface TestCase {
   description: string;
   status: string;
   version: number;
+  uid?: string;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
