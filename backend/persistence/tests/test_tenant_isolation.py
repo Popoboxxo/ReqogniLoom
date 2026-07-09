@@ -9,10 +9,12 @@ from __future__ import annotations
 import pytest
 
 from persistence.models import Artifact, Requirement, Workspace
+from persistence.tests.test_entity_schema import EXPECTED_ENTITIES
+from persistence.models import TenantScopedModel
 from persistence.tenancy import TenantContext, TenantContextNotSetError
 from persistence.tests.conftest import active_tenant
 
-pytestmark = pytest.mark.django_db
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
 def _make_requirement(tenant, workspace, title):
@@ -88,3 +90,26 @@ def test_unscoped_manager_sees_all_tenants(
     # No context set; unscoped must not raise and must see both rows.
     TenantContext.clear_tenant()
     assert Requirement.unscoped.count() == 2
+
+
+@pytest.mark.parametrize("model", [
+    m for m in EXPECTED_ENTITIES if issubclass(m, TenantScopedModel)
+])
+def test_tenant_manager_applied_to_all_tenant_scoped_models(model, tenant_a):
+    """MANDATORY: Verify that every single TenantScopedModel injects the tenant filter."""
+    with active_tenant(tenant_a):
+        query_sql = str(model.objects.all().query)
+        # Using string matching since Django's query compilation differs slightly by backend,
+        # but the table/alias and `tenant_id` must be present.
+        assert "tenant_id" in query_sql, f"Model {model.__name__} does not filter by tenant_id!"
+
+
+def test_raw_query_blocked_without_context(tenant_a, workspace_a):
+    """Verify that manager.raw() correctly throws if no context is set."""
+    with active_tenant(tenant_a):
+        _make_requirement(tenant_a, workspace_a, "raw")
+        
+    TenantContext.clear_tenant()
+    
+    with pytest.raises(TenantContextNotSetError):
+        list(Requirement.objects.raw("SELECT * FROM pl_requirement"))

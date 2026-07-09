@@ -505,7 +505,8 @@ class RequirementViewSet(BaseEntityViewSet):
                 type=data.get("type"),
                 complexity_fibonacci=data.get("complexity_fibonacci"),
                 verification_method=data.get("verification_method"),
-                uid=data.get("uid"),
+                # uid is read-only via REST: never forward from PATCH data
+                # (would overwrite stored uid with None). Set only via service/MCP.
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -978,7 +979,8 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
                 element_type=data.get("element_type"),
                 asil_level=data.get("asil_level"),
                 make_or_buy=data.get("make_or_buy"),
-                uid=data.get("uid"),
+                # uid is read-only via REST: never forward from PATCH data
+                # (would overwrite stored uid with None). Set only via service/MCP.
                 **update_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
@@ -1551,6 +1553,7 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "workspace_id": str(req.artifact.workspace_id) if hasattr(req, "artifact") else None,
         "title": req.title,
         "description": getattr(req, "description", ""),
+        "uid": getattr(req, "uid", None),
         "category": getattr(req, "category", ""),
         "status": getattr(req, "status", "draft"),
         "version": req.version,
@@ -1602,6 +1605,7 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
         "workspace_id": str(el.artifact.workspace_id) if hasattr(el, "artifact") else None,
         "title": el.title,
         "description": getattr(el, "description", ""),
+        "uid": getattr(el, "uid", None),
         "element_type": getattr(el, "element_type", ""),
         "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
         "level": level,

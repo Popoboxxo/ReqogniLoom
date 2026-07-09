@@ -6,7 +6,7 @@
  *          REQ-003 (skalierbare Listen-Toolbar — Suche/Filter/Sortierung)
  *
  * Left-sidebar tree panel for the Architecture editor (Phase 1 MVP per
- * docs/DESIGN_TREE_VIEW_L0_L4_HIERARCHY.md):
+ * docs/architecture/DESIGN_TREE_VIEW_L0_L4_HIERARCHY.md):
  *   - Transforms the flat /api/v1/architecture/ list (parent_id relation)
  *     into a client-side tree
  *   - Expand/Collapse per node, level badges L0-L4 (design-doc colors)

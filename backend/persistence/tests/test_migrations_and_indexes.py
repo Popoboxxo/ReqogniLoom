@@ -15,7 +15,10 @@ import pytest
 from django.core.management import call_command
 from django.db import connection
 
-pytestmark = pytest.mark.django_db
+from persistence import models as m
+from persistence.tests.conftest import active_tenant
+
+pytestmark = pytest.mark.django_db(transaction=True)
 
 _IS_POSTGRES = connection.vendor == "postgresql"
 _pg_only = pytest.mark.skipif(not _IS_POSTGRES, reason="PostgreSQL-only assertion")
@@ -64,3 +67,19 @@ def test_rls_enabled_on_tenant_tables():
     assert "pl_requirement" in rls_tables
     assert "pl_artifact" in rls_tables
     assert "pl_tracelink" in rls_tables
+
+
+@_pg_only
+def test_rls_blocks_raw_query_without_set_local(tenant_a, workspace_a):
+    """REQ-L2-PL-010: Verify RLS physically blocks raw SQL SELECTs outside context."""
+    with active_tenant(tenant_a):
+        art = m.Artifact.objects.create(tenant=tenant_a, workspace=workspace_a, artifact_type="x")
+        m.Requirement.objects.create(tenant=tenant_a, artifact=art, title="rls-test")
+
+    # Outside the context manager, TenantContext is cleared. 
+    # A raw cursor query bypasses the TenantManager, so it must be blocked by Postgres RLS.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM pl_requirement WHERE title = 'rls-test'")
+        rows = cursor.fetchall()
+    
+    assert len(rows) == 0, "RLS failed to block direct SQL access without SET LOCAL app.current_tenant"

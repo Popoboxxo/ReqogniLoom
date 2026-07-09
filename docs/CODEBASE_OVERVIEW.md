@@ -21,6 +21,11 @@ ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Sup
 - **Layer 4 (Frontend):** React-SPA
 - **Cross-Cutting:** SeMetrics (Read Model), ResilienceOrchestrator
 
+**Weiterführende Architektur-Dokumente:**
+- [Backend Data Model](architecture/BACKEND_DATAMODEL_DESIGN.md)
+- [Design Tree View L0-L4 Hierarchy](architecture/DESIGN_TREE_VIEW_L0_L4_HIERARCHY.md)
+- [UI Style Guide](architecture/UI_STYLE_GUIDE.md)
+
 ---
 
 ## Backend-App-Struktur
