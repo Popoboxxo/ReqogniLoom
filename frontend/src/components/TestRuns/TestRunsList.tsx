@@ -111,6 +111,17 @@ function TestRunDetailEditor({
           {typeof testRun.version === "number" && (
             <VersionBadge version={testRun.version} />
           )}
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontSize: "0.75rem",
+              color: "var(--color-text-muted)",
+              userSelect: "all",
+            }}
+            title="Short ID (first 8 chars of UUID)"
+          >
+            {testRun.id.slice(0, 8)}
+          </span>
           {testRun.ci_job_id && (
             <span
               style={{

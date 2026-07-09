@@ -259,6 +259,7 @@ export interface Issue {
   category: IssueCategory;
   status: IssueStatus;
   tags: string[];
+  version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
