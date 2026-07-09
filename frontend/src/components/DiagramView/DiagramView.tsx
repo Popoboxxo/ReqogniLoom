@@ -24,12 +24,13 @@
  * owns the Version / Diff / Trace panels.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { diagramsApi } from "../../api/diagrams";
 import { CanvasEditor } from "../canvas/CanvasEditor";
+import { SplitView } from "../SplitView/SplitView";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import type {
@@ -95,12 +96,6 @@ export default function DiagramView(): JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
 
-  // Split-pane resize state (REQ-002)
-  const [leftPanelWidth, setLeftPanelWidth] = useState(280);
-  const isDraggingRef = useRef(false);
-  const dragStartXRef = useRef(0);
-  const dragStartWidthRef = useRef(0);
-
   const loadList = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
     setIsLoading(true);
@@ -134,40 +129,6 @@ export default function DiagramView(): JSX.Element {
     [id, loadList, navigate, t],
   );
 
-  // Split-pane resize handlers
-  const handleDividerMouseDown = (e: React.MouseEvent): void => {
-    isDraggingRef.current = true;
-    dragStartXRef.current = e.clientX;
-    dragStartWidthRef.current = leftPanelWidth;
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent): void => {
-      if (!isDraggingRef.current) return;
-      const delta = e.clientX - dragStartXRef.current;
-      const newWidth = Math.max(280, dragStartWidthRef.current + delta);
-      setLeftPanelWidth(newWidth);
-    };
-
-    const handleMouseUp = (): void => {
-      if (!isDraggingRef.current) return;
-      isDraggingRef.current = false;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, []);
-
   if (isLoading) {
     return <p role="status">{t("loading", "Loading...")}</p>;
   }
@@ -175,23 +136,16 @@ export default function DiagramView(): JSX.Element {
   return (
     <div
       style={{
-        display: "flex",
         height: "100%",
-        overflow: "hidden",
         fontFamily: "var(--font-sans)",
         color: "var(--color-text)",
       }}
     >
-      {/* Diagram list (left panel) */}
-      <div
-        style={{
-          width: `${leftPanelWidth}px`,
-          minWidth: "280px",
-          maxWidth: "70%",
-          overflow: "auto",
-          padding: "var(--space-4)",
-        }}
-      >
+      <SplitView
+        moduleType="diagrams"
+        leftMinWidth={280}
+        leftPanel={
+          <>
         <div
           style={{
             display: "flex",
@@ -315,44 +269,10 @@ export default function DiagramView(): JSX.Element {
             })}
           </ul>
         )}
-      </div>
-
-      {/* Divider for split-pane resize */}
-      <div
-        onMouseDown={handleDividerMouseDown}
-        data-testid="diagram-editor-divider"
-        style={{
-          width: "4px",
-          backgroundColor: "var(--color-border)",
-          cursor: "col-resize",
-          userSelect: "none",
-          transition: isDraggingRef.current
-            ? "none"
-            : "background-color var(--transition-fast)",
-          flexShrink: 0,
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLDivElement).style.backgroundColor =
-            "var(--color-border-hover)";
-        }}
-        onMouseLeave={(e) => {
-          if (!isDraggingRef.current) {
-            (e.currentTarget as HTMLDivElement).style.backgroundColor =
-              "var(--color-border)";
-          }
-        }}
-      />
-
-      {/* Detail / create form (right panel) */}
-      <div
-        style={{
-          flex: 1,
-          overflow: "auto",
-          padding: "var(--space-4)",
-          background: "var(--color-surface)",
-        }}
-      >
-        {showCreate ? (
+          </>
+        }
+        rightPanel={
+          showCreate ? (
           <DiagramCreateForm
             onCreated={async (newId) => {
               setShowCreate(false);
@@ -378,8 +298,9 @@ export default function DiagramView(): JSX.Element {
           >
             {t("diagrams.selectDiagram", "Select a diagram from the list")}
           </p>
-        )}
-      </div>
+          )
+        }
+      />
     </div>
   );
 }

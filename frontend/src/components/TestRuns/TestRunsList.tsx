@@ -9,10 +9,11 @@
  * Resizable divider between panels (REQ-002 Masken-Standardisierung).
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { testRunsApi } from "../../api/test-runs";
+import { SplitView } from "../SplitView/SplitView";
 import type { TestRun } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -297,12 +298,6 @@ export function TestRunsList(): JSX.Element {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  // Split-pane resize state
-  const [leftPanelWidth, setLeftPanelWidth] = useState(260);
-  const isDraggingRef = useRef(false);
-  const dragStartXRef = useRef(0);
-  const dragStartWidthRef = useRef(0);
-
   const loadList = async (): Promise<void> => {
     if (!activeWorkspace) return;
     setIsLoading(true);
@@ -366,40 +361,6 @@ export function TestRunsList(): JSX.Element {
     }
   };
 
-  // Split-pane resize handlers
-  const handleDividerMouseDown = (e: React.MouseEvent): void => {
-    isDraggingRef.current = true;
-    dragStartXRef.current = e.clientX;
-    dragStartWidthRef.current = leftPanelWidth;
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent): void => {
-      if (!isDraggingRef.current) return;
-      const delta = e.clientX - dragStartXRef.current;
-      const newWidth = Math.max(260, dragStartWidthRef.current + delta);
-      setLeftPanelWidth(newWidth);
-    };
-
-    const handleMouseUp = (): void => {
-      if (!isDraggingRef.current) return;
-      isDraggingRef.current = false;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, []);
-
   if (!activeWorkspace) {
     return <p>{t("workspace.selectPrompt")}</p>;
   }
@@ -409,18 +370,12 @@ export function TestRunsList(): JSX.Element {
   }
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Left panel: Test Runs list */}
-      <div
-        style={{
-          width: `${leftPanelWidth}px`,
-          minWidth: "260px",
-          maxWidth: "70%",
-          overflow: "auto",
-          padding: "var(--space-4)",
-          borderRight: "1px solid var(--color-border)",
-        }}
-      >
+    <div style={{ height: "100%" }}>
+      <SplitView
+        moduleType="testruns"
+        leftMinWidth={260}
+        leftPanel={
+          <>
         <div
           style={{
             display: "flex",
@@ -648,37 +603,10 @@ export function TestRunsList(): JSX.Element {
             })}
           </ul>
         )}
-      </div>
-
-      {/* Divider for split-pane resize */}
-      <div
-        onMouseDown={handleDividerMouseDown}
-        data-testid="testrun-list-divider"
-        style={{
-          width: "4px",
-          backgroundColor: "var(--color-border)",
-          cursor: "col-resize",
-          userSelect: "none",
-          transition: isDraggingRef.current
-            ? "none"
-            : "background-color var(--transition-fast)",
-          flexShrink: 0,
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLDivElement).style.backgroundColor =
-            "var(--color-border-hover)";
-        }}
-        onMouseLeave={(e) => {
-          if (!isDraggingRef.current) {
-            (e.currentTarget as HTMLDivElement).style.backgroundColor =
-              "var(--color-border)";
-          }
-        }}
-      />
-
-      {/* Right panel: Detail editor */}
-      <div style={{ flex: 1, overflow: "auto", padding: "var(--space-4)" }}>
-        {selectedRun ? (
+          </>
+        }
+        rightPanel={
+          selectedRun ? (
           <TestRunDetailEditor
             key={selectedRun.id}
             testRun={selectedRun}
@@ -696,8 +624,9 @@ export function TestRunsList(): JSX.Element {
           >
             {t("testRuns.selectPrompt", "Select a test run to view details")}
           </p>
-        )}
-      </div>
+          )
+        }
+      />
     </div>
   );
 }

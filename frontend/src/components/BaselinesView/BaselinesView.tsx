@@ -19,7 +19,7 @@
  *   IF-RF-EXT-OUT-001 → GET /api/v1/artifacts/ (artifact picker for create form)
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   baselinesApi,
@@ -29,6 +29,7 @@ import {
 } from "../../api/baselines";
 import { artifactsApi } from "../../api/artifacts";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { SplitView } from "../SplitView/SplitView";
 import type { Artifact } from "../../types";
 
 interface BaselinesState {
@@ -81,12 +82,6 @@ export default function BaselinesView(): JSX.Element {
   const [scopePreviewError, setScopePreviewError] = useState<string | null>(
     null
   );
-
-  // Split-pane resize state (REQ-002)
-  const [leftPanelWidth, setLeftPanelWidth] = useState(300);
-  const isDraggingRef = useRef(false);
-  const dragStartXRef = useRef(0);
-  const dragStartWidthRef = useRef(0);
 
   const load = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) {
@@ -229,40 +224,6 @@ export default function BaselinesView(): JSX.Element {
     [load, selectedId, t]
   );
 
-  // Split-pane resize handlers
-  const handleDividerMouseDown = (e: React.MouseEvent): void => {
-    isDraggingRef.current = true;
-    dragStartXRef.current = e.clientX;
-    dragStartWidthRef.current = leftPanelWidth;
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent): void => {
-      if (!isDraggingRef.current) return;
-      const delta = e.clientX - dragStartXRef.current;
-      const newWidth = Math.max(280, dragStartWidthRef.current + delta);
-      setLeftPanelWidth(newWidth);
-    };
-
-    const handleMouseUp = (): void => {
-      if (!isDraggingRef.current) return;
-      isDraggingRef.current = false;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, []);
-
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -324,23 +285,16 @@ export default function BaselinesView(): JSX.Element {
     <div
       data-testid="baselines-view"
       style={{
-        display: "flex",
         height: "100%",
-        overflow: "hidden",
         fontFamily: "var(--font-sans)",
         color: "var(--color-text)",
       }}
     >
-      {/* Baseline list (left panel) */}
-      <div
-        style={{
-          width: `${leftPanelWidth}px`,
-          minWidth: "280px",
-          maxWidth: "70%",
-          overflow: "auto",
-          padding: "var(--space-4)",
-        }}
-      >
+      <SplitView
+        moduleType="baselines"
+        leftMinWidth={280}
+        leftPanel={
+          <>
         <div
           style={{
             display: "flex",
@@ -439,44 +393,10 @@ export default function BaselinesView(): JSX.Element {
             })}
           </ul>
         )}
-      </div>
-
-      {/* Divider for split-pane resize */}
-      <div
-        onMouseDown={handleDividerMouseDown}
-        data-testid="baseline-editor-divider"
-        style={{
-          width: "4px",
-          backgroundColor: "var(--color-border)",
-          cursor: "col-resize",
-          userSelect: "none",
-          transition: isDraggingRef.current
-            ? "none"
-            : "background-color var(--transition-fast)",
-          flexShrink: 0,
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLDivElement).style.backgroundColor =
-            "var(--color-border-hover)";
-        }}
-        onMouseLeave={(e) => {
-          if (!isDraggingRef.current) {
-            (e.currentTarget as HTMLDivElement).style.backgroundColor =
-              "var(--color-border)";
-          }
-        }}
-      />
-
-      {/* Detail / create form (right panel) */}
-      <div
-        style={{
-          flex: 1,
-          overflow: "auto",
-          padding: "var(--space-4)",
-          background: "var(--color-surface)",
-        }}
-      >
-        {showForm ? (
+          </>
+        }
+        rightPanel={
+          showForm ? (
           <div data-testid="create-baseline-form" style={{ maxWidth: "560px" }}>
             <h3
               style={{
@@ -756,8 +676,9 @@ export default function BaselinesView(): JSX.Element {
           >
             {t("baselines.selectBaseline")}
           </p>
-        )}
-      </div>
+          )
+        }
+      />
     </div>
   );
 }
