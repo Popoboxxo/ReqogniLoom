@@ -10,6 +10,38 @@
 import { apiClient, getList } from "./client";
 import type { TraceLink, PaginatedResponse, UUID } from "../types";
 
+/** A single artifact reachable in an impact analysis (REQ-L2-TE-019). */
+export interface ImpactNode {
+  artifact_id: UUID;
+  artifact_type: string;
+  title: string;
+  uid: string | null;
+  link_type: string;
+  depth: number;
+  path: UUID[];
+}
+
+/** A single trace path between two artifacts (REQ-L2-TE-019). */
+export interface TracePath {
+  nodes: UUID[];
+  length: number;
+}
+
+/** Cycle-detection result for a workspace (REQ-L2-TE-019). */
+export interface CyclesResponse {
+  cycles: UUID[][];
+  count: number;
+}
+
+export type ImpactDirection = "outgoing" | "incoming" | "both";
+
+export interface ImpactParams {
+  direction?: ImpactDirection;
+  maxDepth?: number;
+  linkTypes?: string[];
+  limit?: number;
+}
+
 export const tracelinksApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<TraceLink>> {
     return getList<TraceLink>("/tracelinks/", {
@@ -37,5 +69,34 @@ export const tracelinksApi = {
 
   delete(id: UUID): Promise<void> {
     return apiClient.delete(`/tracelinks/${id}/`);
+  },
+
+  /** Impact analysis: all artifacts reachable from an artifact (REQ-L2-TE-019). */
+  impact(artifactId: UUID, params: ImpactParams = {}): Promise<ImpactNode[]> {
+    const query = new URLSearchParams({ artifact_id: artifactId });
+    if (params.direction) query.set("direction", params.direction);
+    if (params.maxDepth != null) query.set("max_depth", String(params.maxDepth));
+    if (params.limit != null) query.set("limit", String(params.limit));
+    if (params.linkTypes && params.linkTypes.length > 0) {
+      query.set("link_types", params.linkTypes.join(","));
+    }
+    return apiClient.get<ImpactNode[]>(`/tracelinks/impact/?${query.toString()}`);
+  },
+
+  /** Shortest path(s) between two artifacts (REQ-L2-TE-019). */
+  path(sourceId: UUID, targetId: UUID, maxDepth?: number): Promise<TracePath[]> {
+    const query = new URLSearchParams({
+      source_id: sourceId,
+      target_id: targetId,
+    });
+    if (maxDepth != null) query.set("max_depth", String(maxDepth));
+    return apiClient.get<TracePath[]>(`/tracelinks/path/?${query.toString()}`);
+  },
+
+  /** Cycles detected in a workspace trace graph (REQ-L2-TE-019). */
+  cycles(workspaceId: UUID): Promise<CyclesResponse> {
+    return apiClient.get<CyclesResponse>(
+      `/tracelinks/cycles/?workspace_id=${workspaceId}`
+    );
   },
 };

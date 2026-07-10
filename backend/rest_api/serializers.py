@@ -408,6 +408,27 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True)
 
 
+class ImpactNodeSerializer(serializers.Serializer):
+    """Serializer for a traceability impact-analysis node (REQ-L2-TE-019)."""
+
+    artifact_id = serializers.UUIDField(read_only=True)
+    artifact_type = serializers.CharField(read_only=True)
+    title = serializers.CharField(read_only=True, allow_blank=True)
+    uid = serializers.CharField(read_only=True, allow_null=True)
+    link_type = serializers.CharField(read_only=True)
+    depth = serializers.IntegerField(read_only=True)
+    path = serializers.ListField(
+        child=serializers.UUIDField(), read_only=True
+    )
+
+
+class TracePathSerializer(serializers.Serializer):
+    """Serializer for a single traceability path (REQ-L2-TE-019)."""
+
+    nodes = serializers.ListField(child=serializers.UUIDField(), read_only=True)
+    length = serializers.IntegerField(read_only=True)
+
+
 class BaselineDeltaEntrySerializer(serializers.Serializer):
     """Serializer for a single captured Baseline delta entry (REQ-L2-BL-012).
 

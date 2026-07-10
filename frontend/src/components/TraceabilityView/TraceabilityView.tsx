@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { tracelinksApi } from "../../api/tracelinks";
+import type { ImpactDirection, ImpactNode } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
 import { artifactsApi } from "../../api/artifacts";
@@ -46,6 +47,7 @@ interface TraceabilityState {
   links: TraceLink[];
   titles: Record<UUID, string>;
   artifacts: Artifact[];
+  cycles: UUID[][];
   isLoading: boolean;
   error: string | null;
 }
@@ -54,6 +56,7 @@ const INITIAL_STATE: TraceabilityState = {
   links: [],
   titles: {},
   artifacts: [],
+  cycles: [],
   isLoading: true,
   error: null,
 };
@@ -117,6 +120,14 @@ export default function TraceabilityView(): JSX.Element {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  // Impact-analysis panel state (REQ-L2-TE-019).
+  const [impactArtifact, setImpactArtifact] = useState<string>("");
+  const [impactDirection, setImpactDirection] =
+    useState<ImpactDirection>("outgoing");
+  const [impactNodes, setImpactNodes] = useState<ImpactNode[]>([]);
+  const [impactLoading, setImpactLoading] = useState<boolean>(false);
+  const [impactError, setImpactError] = useState<string | null>(null);
+  const [impactRan, setImpactRan] = useState<boolean>(false);
 
   useEffect(() => {
     if (!activeWorkspace) {
@@ -124,6 +135,7 @@ export default function TraceabilityView(): JSX.Element {
         links: [],
         titles: {},
         artifacts: [],
+        cycles: [],
         isLoading: false,
         error: null,
       });
@@ -148,6 +160,7 @@ export default function TraceabilityView(): JSX.Element {
         // icd) are fetched too so endpoints never fall back to a raw UUID.
         // Each side fetch tolerates 404/failure via a catch → empty results.
         const emptyPage = { results: [] as unknown[] };
+        const emptyCycles = { cycles: [] as UUID[][], count: 0 };
         const [
           linksResp,
           reqResp,
@@ -159,6 +172,7 @@ export default function TraceabilityView(): JSX.Element {
           adrResp,
           needResp,
           icdResp,
+          cyclesResp,
         ] = await Promise.all([
           tracelinksApi.list(activeWorkspace.id),
           requirementsApi.list(activeWorkspace.id),
@@ -170,6 +184,7 @@ export default function TraceabilityView(): JSX.Element {
           adrsApi.list(activeWorkspace.id).catch(() => emptyPage),
           stakeholderNeedApi.listByWorkspace(activeWorkspace.id).catch(() => emptyPage),
           icdsApi.list(activeWorkspace.id).catch(() => emptyPage),
+          tracelinksApi.cycles(activeWorkspace.id).catch(() => emptyCycles),
         ]);
         if (cancelled) return;
 
@@ -203,6 +218,7 @@ export default function TraceabilityView(): JSX.Element {
           links: linksResp.results,
           titles,
           artifacts: artifactsResp.results,
+          cycles: cyclesResp.cycles,
           isLoading: false,
           error: null,
         });
@@ -215,6 +231,7 @@ export default function TraceabilityView(): JSX.Element {
             links: [],
             titles: {},
             artifacts: [],
+            cycles: [],
             isLoading: false,
             error: null,
           });
@@ -227,6 +244,7 @@ export default function TraceabilityView(): JSX.Element {
           links: [],
           titles: {},
           artifacts: [],
+          cycles: [],
           isLoading: false,
           error: msg,
         });
@@ -277,6 +295,29 @@ export default function TraceabilityView(): JSX.Element {
       console.error("PDF export failed:", err);
     } finally {
       setIsExportingPdf(false);
+    }
+  }
+
+  async function runImpact(): Promise<void> {
+    if (!impactArtifact) return;
+    setImpactLoading(true);
+    setImpactError(null);
+    try {
+      const nodes = await tracelinksApi.impact(impactArtifact, {
+        direction: impactDirection,
+        maxDepth: 10,
+      });
+      setImpactNodes(nodes);
+      setImpactRan(true);
+    } catch (err: unknown) {
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        String(err);
+      setImpactError(msg);
+      setImpactNodes([]);
+      setImpactRan(true);
+    } finally {
+      setImpactLoading(false);
     }
   }
 
@@ -441,6 +482,260 @@ export default function TraceabilityView(): JSX.Element {
           </div>
         )}
       </div>
+
+      {state.cycles.length > 0 && (
+        <div
+          role="alert"
+          data-testid="cycle-warning"
+          style={{
+            background: "var(--color-surface)",
+            border: "1px solid var(--color-danger)",
+            borderLeft: "4px solid var(--color-danger)",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-4)",
+            marginBottom: "var(--space-6)",
+          }}
+        >
+          <strong style={{ color: "var(--color-danger)" }}>
+            ⚠ {t("traceability.cycleWarning")} ({state.cycles.length})
+          </strong>
+          <ul
+            style={{
+              margin: "var(--space-2) 0 0",
+              paddingLeft: "var(--space-5)",
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            {state.cycles.map((cycle, i) => (
+              <li key={i} data-testid="cycle-item">
+                {cycle
+                  .map((id) => renderEndpoint(id, state.titles))
+                  .join(" → ")}{" "}
+                → {renderEndpoint(cycle[0], state.titles)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <section
+        data-testid="impact-panel"
+        style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-lg)",
+          padding: "var(--space-4) var(--space-5)",
+          marginBottom: "var(--space-6)",
+          boxShadow: "var(--shadow-card)",
+        }}
+      >
+        <h3
+          style={{
+            margin: "0 0 var(--space-3)",
+            fontSize: "var(--font-size-lg)",
+            fontWeight: 600,
+            color: "var(--color-text)",
+          }}
+        >
+          {t("traceability.impactTitle")}
+        </h3>
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-3)",
+            alignItems: "flex-end",
+            flexWrap: "wrap",
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text)",
+              flex: "1 1 260px",
+            }}
+          >
+            <span>{t("traceability.impactArtifact")}</span>
+            <select
+              data-testid="impact-artifact-select"
+              value={impactArtifact}
+              onChange={(e) => setImpactArtifact(e.target.value)}
+              disabled={!hasArtifacts || impactLoading}
+              style={{
+                padding: "var(--space-2)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-base)",
+              }}
+            >
+              <option value="">
+                {hasArtifacts ? "—" : t("traceability.noArtifacts")}
+              </option>
+              {state.artifacts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {artifactLabel(a, state.titles)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+              fontSize: "var(--font-size-sm)",
+              color: "var(--color-text)",
+            }}
+          >
+            <span>{t("traceability.impactDirection")}</span>
+            <select
+              data-testid="impact-direction-select"
+              value={impactDirection}
+              onChange={(e) =>
+                setImpactDirection(e.target.value as ImpactDirection)
+              }
+              disabled={impactLoading}
+              style={{
+                padding: "var(--space-2)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                fontSize: "var(--font-size-base)",
+              }}
+            >
+              <option value="outgoing">
+                {t("traceability.impactDirOutgoing")}
+              </option>
+              <option value="incoming">
+                {t("traceability.impactDirIncoming")}
+              </option>
+              <option value="both">{t("traceability.impactDirBoth")}</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            data-testid="impact-run-btn"
+            onClick={runImpact}
+            disabled={!impactArtifact || impactLoading}
+            style={{
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-base)",
+              fontWeight: 500,
+              background: "var(--color-primary)",
+              color: "var(--color-on-primary, #fff)",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              cursor:
+                !impactArtifact || impactLoading ? "not-allowed" : "pointer",
+            }}
+          >
+            {impactLoading
+              ? t("traceability.impactRunning")
+              : t("traceability.impactRun")}
+          </button>
+        </div>
+
+        {impactError && (
+          <p
+            role="alert"
+            data-testid="impact-error"
+            style={{
+              color: "var(--color-danger)",
+              fontSize: "var(--font-size-sm)",
+              marginTop: "var(--space-3)",
+            }}
+          >
+            {impactError}
+          </p>
+        )}
+
+        {impactRan && !impactError && (
+          <div style={{ marginTop: "var(--space-4)" }}>
+            {impactNodes.length === 0 ? (
+              <p
+                data-testid="impact-empty"
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-muted)",
+                  margin: 0,
+                }}
+              >
+                {t("traceability.impactEmpty")}
+              </p>
+            ) : (
+              <ul
+                data-testid="impact-result-list"
+                style={{ listStyle: "none", margin: 0, padding: 0 }}
+              >
+                {impactNodes.map((node) => (
+                  <li
+                    key={`${node.artifact_id}-${node.depth}`}
+                    data-testid="impact-node"
+                    data-depth={node.depth}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "var(--space-2)",
+                      padding: "var(--space-2) 0",
+                      paddingLeft: `calc(${node.depth} * var(--space-5))`,
+                      borderBottom: "1px solid var(--color-border)",
+                      fontSize: "var(--font-size-base)",
+                      color: "var(--color-text)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "var(--font-size-xs)",
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
+                      {t("traceability.impactDepth")} {node.depth}
+                    </span>
+                    <span
+                      data-testid="impact-node-type"
+                      style={{
+                        fontSize: "var(--font-size-xs)",
+                        background: "var(--color-surface-raised)",
+                        padding: "2px 8px",
+                        borderRadius: "var(--radius-full)",
+                        color: "var(--color-text-muted)",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {node.artifact_type}
+                    </span>
+                    <span style={{ fontWeight: 500 }}>
+                      {node.title || formatId(node.artifact_id)}
+                    </span>
+                    {node.uid && (
+                      <span
+                        style={{
+                          fontSize: "var(--font-size-xs)",
+                          color: "var(--color-text-muted)",
+                        }}
+                      >
+                        {node.uid}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        fontSize: "var(--font-size-xs)",
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
+                      via {getLinkTypeLabel(node.link_type)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </section>
 
       {showCreateForm && (
         <form

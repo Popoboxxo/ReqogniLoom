@@ -194,7 +194,18 @@
     "seModeHint": "SE-Modus: Link-Typen werden nach SE-Semantik gefiltert (Quelle → Ziel).",
     "seNoValidType": "SE-Modus: Zwischen den gewählten Artefakttypen ist kein Link-Typ zulässig.",
     "submit": "Erstellen",
-    "submitting": "Erstellt..."
+    "submitting": "Erstellt...",
+    "cycleWarning": "Zyklus/Zyklen im Trace-Graph erkannt",
+    "impactTitle": "Impact-Analyse",
+    "impactArtifact": "Artefakt",
+    "impactDirection": "Richtung",
+    "impactDirOutgoing": "Downstream (ausgehend)",
+    "impactDirIncoming": "Upstream (eingehend)",
+    "impactDirBoth": "Beide",
+    "impactRun": "Impact anzeigen",
+    "impactRunning": "Analysiere...",
+    "impactEmpty": "Keine erreichbaren Artefakte.",
+    "impactDepth": "Tiefe"
   },
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",

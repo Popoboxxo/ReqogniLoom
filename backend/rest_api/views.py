@@ -75,6 +75,7 @@ from rest_api.serializers import (
     ArchitectureElementSerializer,
     AttributeVisibilityConfigSerializer,
     BaselineSerializer,
+    ImpactNodeSerializer,
     IssueSerializer,
     RequirementSerializer,
     RiskSerializer,
@@ -84,6 +85,7 @@ from rest_api.serializers import (
     TestRunSerializer,
     TestRunResultSerializer,
     TraceLinkSerializer,
+    TracePathSerializer,
     WorkflowDefinitionSerializer,
     WorkspaceSerializer,
     GlossaryTermSerializer,
@@ -1261,6 +1263,171 @@ class TraceLinkViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # -----------------------------------------------------------------------
+    # Read-model graph queries (REQ-L2-TE-019) — recursive CTE endpoints.
+    # -----------------------------------------------------------------------
+
+    @action(detail=False, methods=["get"], url_path="impact")
+    def impact(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/tracelinks/impact/?artifact_id=<uuid>[&direction=&max_depth=&link_types=&limit=]
+
+        Returns all artifacts reachable from *artifact_id* via TraceLinks.
+        """
+        from traceability.service import (
+            DEFAULT_LIMIT,
+            DEFAULT_MAX_DEPTH,
+            MAX_DEPTH_CAP,
+            MAX_LIMIT,
+            impact_analysis,
+        )
+
+        lang = detect_lang(request)
+        artifact_id_str = request.query_params.get("artifact_id")
+        if not artifact_id_str:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="artifact_id is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        direction = request.query_params.get("direction", "outgoing")
+        if direction not in ("outgoing", "incoming", "both"):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="direction must be outgoing|incoming|both"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            max_depth = int(request.query_params.get("max_depth", DEFAULT_MAX_DEPTH))
+            limit = int(request.query_params.get("limit", DEFAULT_LIMIT))
+        except ValueError:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="max_depth and limit must be integers"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if max_depth > MAX_DEPTH_CAP:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=f"max_depth must be <= {MAX_DEPTH_CAP}"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        limit = min(max(limit, 1), MAX_LIMIT)
+        link_types_raw = request.query_params.get("link_types")
+        link_types = (
+            [lt.strip() for lt in link_types_raw.split(",") if lt.strip()]
+            if link_types_raw
+            else None
+        )
+
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            svc._set_tenant_context(ctx)
+            resolved_id = svc._resolve_artifact_id(UUID(artifact_id_str))
+            nodes = impact_analysis(
+                artifact_id=resolved_id,
+                workspace_id=None,
+                tenant_id=ctx.tenant_id,
+                link_types=link_types,
+                direction=direction,
+                max_depth=max_depth,
+                limit=limit,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("TraceLinkViewSet.impact: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        serialized = [ImpactNodeSerializer(n.to_dict()).data for n in nodes]
+        response = Response(serialized)
+        if len(nodes) >= limit:
+            response["X-Result-Truncated"] = "true"
+        return response
+
+    @action(detail=False, methods=["get"], url_path="path")
+    def path(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/tracelinks/path/?source_id=<uuid>&target_id=<uuid>[&max_depth=]
+
+        Returns the shortest path(s) between two artifacts, or 404 if none.
+        """
+        from traceability.service import DEFAULT_MAX_DEPTH, MAX_DEPTH_CAP, find_path
+
+        lang = detect_lang(request)
+        source_id_str = request.query_params.get("source_id")
+        target_id_str = request.query_params.get("target_id")
+        if not source_id_str or not target_id_str:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="source_id and target_id are required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            max_depth = int(request.query_params.get("max_depth", DEFAULT_MAX_DEPTH))
+        except ValueError:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="max_depth must be an integer"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if max_depth > MAX_DEPTH_CAP:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=f"max_depth must be <= {MAX_DEPTH_CAP}"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            svc._set_tenant_context(ctx)
+            resolved_source = svc._resolve_artifact_id(UUID(source_id_str))
+            resolved_target = svc._resolve_artifact_id(UUID(target_id_str))
+            paths = find_path(
+                source_id=resolved_source,
+                target_id=resolved_target,
+                workspace_id=None,
+                tenant_id=ctx.tenant_id,
+                max_depth=max_depth,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("TraceLinkViewSet.path: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        if paths is None:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message="No path between the given artifacts"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serialized = [TracePathSerializer(p.to_dict()).data for p in paths]
+        return Response(serialized)
+
+    @action(detail=False, methods=["get"], url_path="cycles")
+    def cycles(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/tracelinks/cycles/?workspace_id=<uuid>[&limit=]
+
+        Returns cycles detected in the workspace trace graph (list of id lists).
+        """
+        from traceability.service import detect_cycles
+
+        lang = detect_lang(request)
+        workspace_id_str = request.query_params.get("workspace_id")
+        if not workspace_id_str:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            svc._set_tenant_context(ctx)
+            cycles = detect_cycles(
+                workspace_id=UUID(workspace_id_str),
+                tenant_id=ctx.tenant_id,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("TraceLinkViewSet.cycles: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        return Response({"cycles": cycles, "count": len(cycles)})
 
 
 # ---------------------------------------------------------------------------

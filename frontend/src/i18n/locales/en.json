@@ -194,7 +194,18 @@
     "seModeHint": "SE mode: link types are filtered by SE semantics (source → target).",
     "seNoValidType": "SE mode: no link type is valid between the selected artifact types.",
     "submit": "Create",
-    "submitting": "Creating..."
+    "submitting": "Creating...",
+    "cycleWarning": "Cycle(s) detected in the trace graph",
+    "impactTitle": "Impact Analysis",
+    "impactArtifact": "Artifact",
+    "impactDirection": "Direction",
+    "impactDirOutgoing": "Downstream (outgoing)",
+    "impactDirIncoming": "Upstream (incoming)",
+    "impactDirBoth": "Both",
+    "impactRun": "Show Impact",
+    "impactRunning": "Analyzing...",
+    "impactEmpty": "No reachable artifacts.",
+    "impactDepth": "Depth"
   },
   "baselines": {
     "placeholder": "Baselines — in progress.",
