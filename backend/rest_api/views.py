@@ -75,6 +75,7 @@ from rest_api.serializers import (
     ArtifactSerializer,
     ArchitectureElementSerializer,
     AttributeVisibilityConfigSerializer,
+    BaselineDiffSerializer,
     BaselineSerializer,
     ImpactNodeSerializer,
     IssueSerializer,
@@ -1525,6 +1526,187 @@ class TraceLinkViewSet(BaseEntityViewSet):
 
 
 # ---------------------------------------------------------------------------
+# TraceabilityViewSet (read-model graph queries) — REQ-L2-TE-019
+# ---------------------------------------------------------------------------
+
+
+class TraceabilityViewSet(viewsets.GenericViewSet):
+    """Read-only traceability graph queries (REQ-L2-TE-019).
+
+    Exposes the same impact / path / cycles read-model queries as the
+    ``/tracelinks/`` actions under a dedicated ``/traceability/`` namespace.
+    The ``/tracelinks/`` CRUD ViewSet keeps its own impact/path/cycles actions
+    for backward compatibility.
+    """
+
+    serializer_class = ImpactNodeSerializer
+
+    def _svc(self) -> TraceLinkService:
+        return TraceLinkService()
+
+    @action(detail=False, methods=["get"], url_path="impact")
+    def impact(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/traceability/impact/?artifact_id=<uuid>[&direction=&max_depth=&link_types=&limit=]
+
+        Returns all artifacts reachable from *artifact_id* via TraceLinks.
+        """
+        from traceability.service import (
+            DEFAULT_LIMIT,
+            DEFAULT_MAX_DEPTH,
+            MAX_DEPTH_CAP,
+            MAX_LIMIT,
+            impact_analysis,
+        )
+
+        lang = detect_lang(request)
+        artifact_id_str = request.query_params.get("artifact_id")
+        if not artifact_id_str:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="artifact_id is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        direction = request.query_params.get("direction", "outgoing")
+        if direction not in ("outgoing", "incoming", "both"):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="direction must be outgoing|incoming|both"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            max_depth = int(request.query_params.get("max_depth", DEFAULT_MAX_DEPTH))
+            limit = int(request.query_params.get("limit", DEFAULT_LIMIT))
+        except ValueError:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="max_depth and limit must be integers"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if max_depth > MAX_DEPTH_CAP:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=f"max_depth must be <= {MAX_DEPTH_CAP}"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        limit = min(max(limit, 1), MAX_LIMIT)
+        link_types_raw = request.query_params.get("link_types")
+        link_types = (
+            [lt.strip() for lt in link_types_raw.split(",") if lt.strip()]
+            if link_types_raw
+            else None
+        )
+
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            svc._set_tenant_context(ctx)
+            resolved_id = svc._resolve_artifact_id(UUID(artifact_id_str))
+            nodes = impact_analysis(
+                artifact_id=resolved_id,
+                workspace_id=None,
+                tenant_id=ctx.tenant_id,
+                link_types=link_types,
+                direction=direction,
+                max_depth=max_depth,
+                limit=limit,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("TraceabilityViewSet.impact: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        serialized = [ImpactNodeSerializer(n.to_dict()).data for n in nodes]
+        response = Response(serialized)
+        if len(nodes) >= limit:
+            response["X-Result-Truncated"] = "true"
+        return response
+
+    @action(detail=False, methods=["get"], url_path="path")
+    def path(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/traceability/path/?source_id=<uuid>&target_id=<uuid>[&max_depth=]
+
+        Returns the shortest path(s) between two artifacts, or 404 if none.
+        """
+        from traceability.service import DEFAULT_MAX_DEPTH, MAX_DEPTH_CAP, find_path
+
+        lang = detect_lang(request)
+        source_id_str = request.query_params.get("source_id")
+        target_id_str = request.query_params.get("target_id")
+        if not source_id_str or not target_id_str:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="source_id and target_id are required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            max_depth = int(request.query_params.get("max_depth", DEFAULT_MAX_DEPTH))
+        except ValueError:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="max_depth must be an integer"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if max_depth > MAX_DEPTH_CAP:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=f"max_depth must be <= {MAX_DEPTH_CAP}"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            svc._set_tenant_context(ctx)
+            resolved_source = svc._resolve_artifact_id(UUID(source_id_str))
+            resolved_target = svc._resolve_artifact_id(UUID(target_id_str))
+            paths = find_path(
+                source_id=resolved_source,
+                target_id=resolved_target,
+                workspace_id=None,
+                tenant_id=ctx.tenant_id,
+                max_depth=max_depth,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("TraceabilityViewSet.path: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        if paths is None:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message="No path between the given artifacts"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serialized = [TracePathSerializer(p.to_dict()).data for p in paths]
+        return Response(serialized)
+
+    @action(detail=False, methods=["get"], url_path="cycles")
+    def cycles(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/traceability/cycles/?workspace_id=<uuid>[&limit=]
+
+        Returns cycles detected in the workspace trace graph (list of id lists).
+        """
+        from traceability.service import detect_cycles
+
+        lang = detect_lang(request)
+        workspace_id_str = request.query_params.get("workspace_id")
+        if not workspace_id_str:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            svc._set_tenant_context(ctx)
+            cycles = detect_cycles(
+                workspace_id=UUID(workspace_id_str),
+                tenant_id=ctx.tenant_id,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("TraceabilityViewSet.cycles: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        return Response({"cycles": cycles, "count": len(cycles)})
+
+
+# ---------------------------------------------------------------------------
 # BaselineViewSet (Extended-preset gate)
 # ---------------------------------------------------------------------------
 
@@ -1631,6 +1813,84 @@ class BaselineViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(BaselineSerializer(_baseline_to_dict(item)).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path="diff")
+    def diff(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/baselines/diff/?baseline_a=<uuid>&baseline_b=<uuid>
+
+        Field-level structural diff between two baselines of the same scope
+        (REQ-L2-BL-003, REQ-L2-BL-012). Both baselines must be non-equal and
+        belong to the caller's tenant.
+        """
+        self._check_preset(request)
+        lang = detect_lang(request)
+
+        a_str = request.query_params.get("baseline_a")
+        b_str = request.query_params.get("baseline_b")
+        if not a_str or not b_str:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b are required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            a_id = UUID(a_str)
+            b_id = UUID(b_str)
+        except (ValueError, TypeError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b must be valid UUIDs"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if a_id == b_id:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="baseline_a and baseline_b must differ"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            # Tenant-scoping: resolving each baseline via the tenant-scoped
+            # store raises NotFoundError for baselines outside the caller's
+            # tenant before the diff runs (REQ-L2-TE-011).
+            svc.get_baseline(a_id, ctx)
+            svc.get_baseline(b_id, ctx)
+            result = svc.diff_baselines(a_id, b_id, ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("BaselineViewSet.diff: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        items: list[dict[str, Any]] = []
+        for item_id in result.added:
+            items.append({"item_id": item_id, "entity_type": "item", "status": "added", "field_changes": None})
+        for item_id in result.removed:
+            items.append({"item_id": item_id, "entity_type": "item", "status": "removed", "field_changes": None})
+        for changed in result.changed:
+            field_changes = None
+            if changed.field_changes:
+                field_changes = [
+                    {"field_name": name, "old_value": delta.get("old"), "new_value": delta.get("new")}
+                    for name, delta in changed.field_changes.items()
+                ]
+            items.append({
+                "item_id": changed.id,
+                "entity_type": "item",
+                "status": "changed",
+                "field_changes": field_changes,
+            })
+
+        payload = {
+            "baseline_a_id": str(a_id),
+            "baseline_b_id": str(b_id),
+            "summary": {
+                "added": len(result.added),
+                "removed": len(result.removed),
+                "changed": len(result.changed),
+            },
+            "items": items,
+        }
+        return Response(BaselineDiffSerializer(payload).data)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         # Baselines are immutable once created
@@ -3725,6 +3985,7 @@ __all__ = [
     "ArchitectureElementViewSet",
     "TestCaseViewSet",
     "TraceLinkViewSet",
+    "TraceabilityViewSet",
     "BaselineViewSet",
     "WorkflowDefinitionViewSet",
     "WorkspaceViewSet",

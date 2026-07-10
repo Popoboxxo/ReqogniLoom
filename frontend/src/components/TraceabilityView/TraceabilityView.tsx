@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { tracelinksApi } from "../../api/tracelinks";
+import { traceabilityApi } from "../../api/traceability";
 import type { ImpactDirection, ImpactNode } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
@@ -184,7 +185,7 @@ export default function TraceabilityView(): JSX.Element {
           adrsApi.list(activeWorkspace.id).catch(() => emptyPage),
           stakeholderNeedApi.listByWorkspace(activeWorkspace.id).catch(() => emptyPage),
           icdsApi.list(activeWorkspace.id).catch(() => emptyPage),
-          tracelinksApi.cycles(activeWorkspace.id).catch(() => emptyCycles),
+          traceabilityApi.cycles(activeWorkspace.id).catch(() => emptyCycles),
         ]);
         if (cancelled) return;
 
@@ -303,7 +304,7 @@ export default function TraceabilityView(): JSX.Element {
     setImpactLoading(true);
     setImpactError(null);
     try {
-      const nodes = await tracelinksApi.impact(impactArtifact, {
+      const nodes = await traceabilityApi.impact(impactArtifact, {
         direction: impactDirection,
         maxDepth: 10,
       });

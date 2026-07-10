@@ -58,6 +58,55 @@ export interface ScopePreview {
   sample: ScopePreviewItem[];
 }
 
+/**
+ * REQ-L2-BL-012: one field-level change of a captured entity between two
+ * baselines. ``old_value`` / ``new_value`` are arbitrary JSON values.
+ */
+export interface FieldChange {
+  field_name: string;
+  old_value: unknown;
+  new_value: unknown;
+}
+
+/**
+ * REQ-L2-BL-003: one item in a baseline diff. ``status`` is added/removed/
+ * changed. ``field_changes`` is present only for changed items that carry a
+ * full-state snapshot on both baselines; ``null`` otherwise.
+ */
+export interface DiffItem {
+  item_id: string;
+  entity_type: string;
+  status: "added" | "removed" | "changed";
+  field_changes: FieldChange[] | null;
+}
+
+/** REQ-L2-BL-003: field-level structural diff between two baselines. */
+export interface BaselineDiff {
+  baseline_a_id: UUID;
+  baseline_b_id: UUID;
+  summary: {
+    added: number;
+    removed: number;
+    changed: number;
+  };
+  items: DiffItem[];
+}
+
+/**
+ * REQ-L2-BL-003: compare two baselines of the same scope and return the
+ * field-level diff. Wraps GET /api/v1/baselines/diff/.
+ */
+export async function compareBaselines(
+  baselineAId: UUID,
+  baselineBId: UUID
+): Promise<BaselineDiff> {
+  const query = new URLSearchParams({
+    baseline_a: baselineAId,
+    baseline_b: baselineBId,
+  });
+  return apiClient.get<BaselineDiff>(`/baselines/diff/?${query.toString()}`);
+}
+
 export const baselinesApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<Baseline>> {
     return getList<Baseline>("/baselines/", {
@@ -82,6 +131,11 @@ export const baselinesApi = {
 
   delete(id: UUID): Promise<void> {
     return apiClient.delete(`/baselines/${id}/`);
+  },
+
+  /** REQ-L2-BL-003: field-level diff between two baselines of the same scope. */
+  compare(baselineAId: UUID, baselineBId: UUID): Promise<BaselineDiff> {
+    return compareBaselines(baselineAId, baselineBId);
   },
 
   /**

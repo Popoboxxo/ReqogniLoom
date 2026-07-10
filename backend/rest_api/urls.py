@@ -63,6 +63,7 @@ from rest_api.views import (
     SearchViewSet,
     TestCaseViewSet,
     TestRunViewSet,
+    TraceabilityViewSet,
     TraceLinkViewSet,
     WorkflowDefinitionViewSet,
     WorkspaceViewSet,
@@ -79,6 +80,7 @@ router.register(r"needs", StakeholderNeedViewSet, basename="need")
 router.register(r"architecture", ArchitectureElementViewSet, basename="architecture")
 router.register(r"testcases", TestCaseViewSet, basename="testcase")
 router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
+router.register(r"traceability", TraceabilityViewSet, basename="traceability")
 router.register(r"baselines", BaselineViewSet, basename="baseline")
 router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")

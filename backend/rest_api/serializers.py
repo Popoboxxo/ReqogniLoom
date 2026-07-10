@@ -526,6 +526,48 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     )
 
 
+class FieldChangeSerializer(serializers.Serializer):
+    """One field-level change within a changed baseline item (REQ-L2-BL-012).
+
+    ``old_value`` / ``new_value`` are arbitrary JSON scalars/structures taken
+    from the captured entity state, so they are serialized as JSON.
+    """
+
+    field_name = serializers.CharField(read_only=True)
+    old_value = serializers.JSONField(read_only=True, allow_null=True)
+    new_value = serializers.JSONField(read_only=True, allow_null=True)
+
+
+class DiffItemSerializer(serializers.Serializer):
+    """A single item in a baseline diff (REQ-L2-BL-003, REQ-L2-BL-012).
+
+    ``status`` is one of ``added`` | ``removed`` | ``changed``. ``field_changes``
+    is present only for ``changed`` items that carry a full-state snapshot on
+    both baselines; it is ``null`` for added/removed items and for legacy
+    changed items where only the version number differs.
+    """
+
+    item_id = serializers.CharField(read_only=True)
+    entity_type = serializers.CharField(read_only=True, allow_blank=True)
+    status = serializers.CharField(read_only=True)
+    field_changes = FieldChangeSerializer(
+        many=True, read_only=True, required=False, allow_null=True
+    )
+
+
+class BaselineDiffSerializer(serializers.Serializer):
+    """Field-level structural diff between two baselines (REQ-L2-BL-003).
+
+    Flattens ``DiffResult`` (added/removed/changed) into a single ``items``
+    list carrying a per-item ``status`` plus a ``summary`` of the counts.
+    """
+
+    baseline_a_id = serializers.UUIDField(read_only=True)
+    baseline_b_id = serializers.UUIDField(read_only=True)
+    summary = serializers.DictField(child=serializers.IntegerField(), read_only=True)
+    items = DiffItemSerializer(many=True, read_only=True)
+
+
 class WorkflowDefinitionSerializer(
     PresetAwareSerializerMixin, serializers.Serializer
 ):
@@ -831,6 +873,9 @@ __all__ = [
     "TraceLinkSerializer",
     "BaselineSerializer",
     "BaselineDeltaEntrySerializer",
+    "FieldChangeSerializer",
+    "DiffItemSerializer",
+    "BaselineDiffSerializer",
     "WorkflowDefinitionSerializer",
     "WorkspaceSerializer",
     "AdrSerializer",

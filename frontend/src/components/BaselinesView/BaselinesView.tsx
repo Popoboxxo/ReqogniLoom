@@ -25,7 +25,9 @@ import {
   baselinesApi,
   type Baseline,
   type BaselineDeltaEntry,
+  type BaselineDiff,
   type BaselineScope,
+  type DiffItem,
   type ScopePreview,
 } from "../../api/baselines";
 import { artifactsApi } from "../../api/artifacts";
@@ -89,6 +91,15 @@ export default function BaselinesView(): JSX.Element {
   const [detail, setDetail] = useState<Baseline | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // REQ-L2-BL-003: baseline compare (field-level diff). ``showCompare`` swaps
+  // the right panel to the compare form + result. Two baselines of the same
+  // scope are picked, then compared via GET /baselines/diff/.
+  const [showCompare, setShowCompare] = useState(false);
+  const [compareAId, setCompareAId] = useState<string>("");
+  const [compareBId, setCompareBId] = useState<string>("");
+  const [diff, setDiff] = useState<BaselineDiff | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) {
@@ -263,6 +274,47 @@ export default function BaselinesView(): JSX.Element {
     [load, selectedId, t]
   );
 
+  const handleCompare = useCallback(async (): Promise<void> => {
+    if (!compareAId || !compareBId) {
+      setDiffError(t("baselines.compareSelectBoth", "Select two baselines."));
+      return;
+    }
+    if (compareAId === compareBId) {
+      setDiffError(
+        t("baselines.compareSameBaseline", "Select two different baselines.")
+      );
+      return;
+    }
+    setDiffLoading(true);
+    setDiffError(null);
+    try {
+      const result = await baselinesApi.compare(compareAId, compareBId);
+      setDiff(result);
+    } catch (err: unknown) {
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        String(err);
+      setDiffError(msg);
+      setDiff(null);
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [compareAId, compareBId, t]);
+
+  const openCompare = useCallback((): void => {
+    setShowForm(false);
+    setShowCompare(true);
+    setSelectedId(null);
+    setDiff(null);
+    setDiffError(null);
+  }, []);
+
+  const closeCompare = useCallback((): void => {
+    setShowCompare(false);
+    setDiff(null);
+    setDiffError(null);
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -352,23 +404,52 @@ export default function BaselinesView(): JSX.Element {
           >
             {t("nav.baselines")} ({state.baselines.length})
           </h3>
-          <button
-            data-testid="create-baseline-btn"
-            onClick={() => setShowForm((v) => !v)}
-            style={{
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "var(--transition-fast)",
-            }}
-          >
-            {showForm ? t("actions.cancel") : `+ ${t("baselines.create")}`}
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button
+              data-testid="compare-baseline-btn"
+              onClick={() => (showCompare ? closeCompare() : openCompare())}
+              disabled={state.baselines.length < 2}
+              style={{
+                background: showCompare
+                  ? "var(--color-surface-raised)"
+                  : "transparent",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                cursor:
+                  state.baselines.length < 2 ? "not-allowed" : "pointer",
+                opacity: state.baselines.length < 2 ? 0.6 : 1,
+                transition: "var(--transition-fast)",
+              }}
+            >
+              {showCompare
+                ? t("actions.cancel")
+                : t("baselines.compare", "Compare")}
+            </button>
+            <button
+              data-testid="create-baseline-btn"
+              onClick={() => {
+                setShowCompare(false);
+                setShowForm((v) => !v);
+              }}
+              style={{
+                background: "var(--color-primary)",
+                color: "white",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "var(--transition-fast)",
+              }}
+            >
+              {showForm ? t("actions.cancel") : `+ ${t("baselines.create")}`}
+            </button>
+          </div>
         </div>
 
         {state.baselines.length === 0 ? (
@@ -435,7 +516,19 @@ export default function BaselinesView(): JSX.Element {
           </>
         }
         rightPanel={
-          showForm ? (
+          showCompare ? (
+            <BaselineComparePanel
+              baselines={state.baselines}
+              aId={compareAId}
+              bId={compareBId}
+              onChangeA={setCompareAId}
+              onChangeB={setCompareBId}
+              onCompare={() => void handleCompare()}
+              diff={diff}
+              loading={diffLoading}
+              error={diffError}
+            />
+          ) : showForm ? (
           <div data-testid="create-baseline-form" style={{ maxWidth: "560px" }}>
             <h3
               style={{
@@ -955,4 +1048,400 @@ const entriesSectionStyle: React.CSSProperties = {
 const mutedTextStyle: React.CSSProperties = {
   fontSize: "var(--font-size-sm)",
   color: "var(--color-text-muted)",
+};
+
+// ---------------------------------------------------------------------------
+// REQ-L2-BL-003: baseline compare panel (field-level diff)
+// ---------------------------------------------------------------------------
+
+interface BaselineComparePanelProps {
+  baselines: Baseline[];
+  aId: string;
+  bId: string;
+  onChangeA: (id: string) => void;
+  onChangeB: (id: string) => void;
+  onCompare: () => void;
+  diff: BaselineDiff | null;
+  loading: boolean;
+  error: string | null;
+}
+
+function baselineOptionLabel(bl: Baseline): string {
+  const name = bl.name || `${bl.id.slice(0, 8)}…`;
+  return `${name} (${bl.scope})`;
+}
+
+/** Colour token for a diff status badge. */
+function statusColor(status: DiffItem["status"]): string {
+  if (status === "added") return "var(--color-success)";
+  if (status === "removed") return "var(--color-danger)";
+  return "var(--color-warning)";
+}
+
+const compareSelectStyle: React.CSSProperties = {
+  width: "100%",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-base)",
+  background: "var(--color-surface)",
+  color: "var(--color-text)",
+};
+
+/**
+ * Renders the baseline-compare form (pick two baselines) and the resulting
+ * field-level diff (REQ-L2-BL-003). Summary counts are always shown; changed
+ * items with field-level snapshots expand to a Before/After table.
+ */
+function BaselineComparePanel({
+  baselines,
+  aId,
+  bId,
+  onChangeA,
+  onChangeB,
+  onCompare,
+  diff,
+  loading,
+  error,
+}: BaselineComparePanelProps): JSX.Element {
+  const { t } = useTranslation();
+  const disabled = !aId || !bId || aId === bId || loading;
+
+  return (
+    <div data-testid="baseline-compare-panel" style={{ maxWidth: "680px" }}>
+      <h3
+        style={{
+          fontSize: "var(--font-size-lg)",
+          fontWeight: 700,
+          marginTop: 0,
+          marginBottom: "var(--space-4)",
+          color: "var(--color-text)",
+        }}
+      >
+        {t("baselines.compareTitle", "Compare baselines")}
+      </h3>
+
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-3)",
+          alignItems: "flex-end",
+          flexWrap: "wrap",
+          marginBottom: "var(--space-4)",
+        }}
+      >
+        <label
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-1)",
+            flex: "1 1 220px",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text)",
+          }}
+        >
+          <span>{t("baselines.compareA", "Baseline A (from)")}</span>
+          <select
+            data-testid="compare-select-a"
+            value={aId}
+            onChange={(e) => onChangeA(e.target.value)}
+            style={compareSelectStyle}
+          >
+            <option value="">—</option>
+            {baselines.map((bl) => (
+              <option key={bl.id} value={bl.id}>
+                {baselineOptionLabel(bl)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-1)",
+            flex: "1 1 220px",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text)",
+          }}
+        >
+          <span>{t("baselines.compareB", "Baseline B (to)")}</span>
+          <select
+            data-testid="compare-select-b"
+            value={bId}
+            onChange={(e) => onChangeB(e.target.value)}
+            style={compareSelectStyle}
+          >
+            <option value="">—</option>
+            {baselines.map((bl) => (
+              <option key={bl.id} value={bl.id}>
+                {baselineOptionLabel(bl)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          data-testid="compare-run-btn"
+          onClick={onCompare}
+          disabled={disabled}
+          style={{
+            background: "var(--color-primary)",
+            color: "white",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-2) var(--space-5)",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 600,
+            cursor: disabled ? "not-allowed" : "pointer",
+            opacity: disabled ? 0.6 : 1,
+          }}
+        >
+          {loading
+            ? t("baselines.comparing", "Comparing…")
+            : t("baselines.compareRun", "Compare")}
+        </button>
+      </div>
+
+      {error && (
+        <p
+          role="alert"
+          data-testid="compare-error"
+          style={{
+            color: "var(--color-danger)",
+            fontSize: "var(--font-size-sm)",
+            margin: "0 0 var(--space-3) 0",
+          }}
+        >
+          {error}
+        </p>
+      )}
+
+      {diff && !loading && (
+        <div data-testid="compare-result">
+          <div
+            data-testid="compare-summary"
+            style={{
+              display: "flex",
+              gap: "var(--space-3)",
+              marginBottom: "var(--space-4)",
+              flexWrap: "wrap",
+            }}
+          >
+            <SummaryBadge
+              label={t("baselines.added", "Added")}
+              count={diff.summary.added}
+              color="var(--color-success)"
+              testid="compare-summary-added"
+            />
+            <SummaryBadge
+              label={t("baselines.removed", "Removed")}
+              count={diff.summary.removed}
+              color="var(--color-danger)"
+              testid="compare-summary-removed"
+            />
+            <SummaryBadge
+              label={t("baselines.changed", "Changed")}
+              count={diff.summary.changed}
+              color="var(--color-warning)"
+              testid="compare-summary-changed"
+            />
+          </div>
+
+          {diff.items.length === 0 ? (
+            <p data-testid="compare-empty" style={mutedTextStyle}>
+              {t("baselines.compareNoChanges", "No differences between the baselines.")}
+            </p>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+              {diff.items.map((item) => (
+                <DiffItemRow key={`${item.status}-${item.item_id}`} item={item} />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface SummaryBadgeProps {
+  label: string;
+  count: number;
+  color: string;
+  testid: string;
+}
+
+function SummaryBadge({
+  label,
+  count,
+  color,
+  testid,
+}: SummaryBadgeProps): JSX.Element {
+  return (
+    <span
+      data-testid={testid}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "var(--space-2)",
+        padding: "var(--space-2) var(--space-3)",
+        borderRadius: "var(--radius-md)",
+        border: `1px solid ${color}`,
+        fontSize: "var(--font-size-sm)",
+        fontWeight: 600,
+        color: "var(--color-text)",
+      }}
+    >
+      <span style={{ color }}>{count}</span>
+      {label}
+    </span>
+  );
+}
+
+/** A single diff item: added/removed as a row, changed as a collapsible table. */
+function DiffItemRow({ item }: { item: DiffItem }): JSX.Element {
+  const { t } = useTranslation();
+  const hasFieldChanges =
+    item.status === "changed" &&
+    item.field_changes != null &&
+    item.field_changes.length > 0;
+
+  const header = (
+    <>
+      <span
+        data-testid="diff-item-status"
+        style={{
+          fontSize: "var(--font-size-xs)",
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          color: statusColor(item.status),
+        }}
+      >
+        {item.status}
+      </span>
+      <span
+        style={{
+          fontSize: "var(--font-size-sm)",
+          color: "var(--color-text-muted)",
+        }}
+      >
+        {item.entity_type}
+      </span>
+      <code
+        style={{
+          fontFamily: "monospace",
+          fontSize: "var(--font-size-sm)",
+          color: "var(--color-text)",
+        }}
+      >
+        {item.item_id.slice(0, 8)}…
+      </code>
+    </>
+  );
+
+  const rowStyle: React.CSSProperties = {
+    padding: "var(--space-3)",
+    marginBottom: "var(--space-2)",
+    background: "var(--color-surface)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-md)",
+  };
+
+  if (!hasFieldChanges) {
+    return (
+      <li data-testid="diff-item" data-status={item.status} style={rowStyle}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-3)",
+          }}
+        >
+          {header}
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li data-testid="diff-item" data-status={item.status} style={rowStyle}>
+      <details>
+        <summary
+          data-testid="diff-item-toggle"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-3)",
+            cursor: "pointer",
+          }}
+        >
+          {header}
+          <span style={{ ...mutedTextStyle, marginLeft: "auto" }}>
+            {t("baselines.fieldChangesCount", {
+              count: item.field_changes?.length ?? 0,
+              defaultValue: "{{count}} field(s)",
+            })}
+          </span>
+        </summary>
+        <table
+          data-testid="diff-field-table"
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            marginTop: "var(--space-3)",
+            fontSize: "var(--font-size-sm)",
+          }}
+        >
+          <thead>
+            <tr>
+              <th style={diffThStyle}>{t("baselines.field", "Field")}</th>
+              <th style={diffThStyle}>{t("baselines.before", "Before")}</th>
+              <th style={diffThStyle}>{t("baselines.after", "After")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(item.field_changes ?? []).map((fc) => (
+              <tr key={fc.field_name} data-testid="diff-field-row">
+                <td style={diffTdStyle}>{fc.field_name}</td>
+                <td
+                  style={{ ...diffTdStyle, color: "var(--color-danger)" }}
+                  data-testid="diff-field-old"
+                >
+                  {formatStateValue(fc.old_value)}
+                </td>
+                <td
+                  style={{ ...diffTdStyle, color: "var(--color-success)" }}
+                  data-testid="diff-field-new"
+                >
+                  {formatStateValue(fc.new_value)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </li>
+  );
+}
+
+const diffThStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "var(--space-2)",
+  borderBottom: "1px solid var(--color-border)",
+  color: "var(--color-text-muted)",
+  fontWeight: 600,
+  fontSize: "var(--font-size-xs)",
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const diffTdStyle: React.CSSProperties = {
+  padding: "var(--space-2)",
+  borderBottom: "1px solid var(--color-border)",
+  wordBreak: "break-word",
+  verticalAlign: "top",
 };
