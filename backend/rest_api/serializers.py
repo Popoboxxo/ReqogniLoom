@@ -464,6 +464,21 @@ class ImpactNodeSerializer(serializers.Serializer):
     )
 
 
+class SimilarRequirementSerializer(serializers.Serializer):
+    """Serializer for a similarity-search hit (REQ-L2-VS-004).
+
+    Read-only projection of SimilarRequirementDTO: identity plus the cosine
+    similarity_score (1 - cosine_distance, higher = more similar).
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    uid = serializers.CharField(read_only=True, allow_null=True)
+    title = serializers.CharField(read_only=True, allow_blank=True)
+    category = serializers.CharField(read_only=True, allow_blank=True)
+    status = serializers.CharField(read_only=True)
+    similarity_score = serializers.FloatField(read_only=True)
+
+
 class TracePathSerializer(serializers.Serializer):
     """Serializer for a single traceability path (REQ-L2-TE-019)."""
 

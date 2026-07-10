@@ -561,5 +561,14 @@
       "create": "Trace-Link hinzufügen",
       "viewAll": "Vollständigen Graph anzeigen"
     }
+  },
+  "requirements": {
+    "similar": {
+      "heading": "Ähnliche Anforderungen",
+      "findButton": "Ähnliche finden",
+      "noEmbedding": "Kein Embedding vorhanden — Ähnlichkeitssuche nicht möglich.",
+      "unavailable": "Ähnlichkeitssuche ist vorübergehend nicht verfügbar.",
+      "empty": "Keine ähnlichen Anforderungen gefunden."
+    }
   }
 }

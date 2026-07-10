@@ -14,6 +14,7 @@ import type {
   UUID,
   ArtifactDiffResult,
   ArtifactVersion,
+  SimilarRequirement,
 } from "../types";
 
 export const requirementsApi = {
@@ -105,6 +106,22 @@ export const requirementsApi = {
     return apiClient.post<{ requirement: Requirement; trace_link_ids: UUID[] }>(
       `/requirements/${id}/derive/`,
       data
+    );
+  },
+
+  /**
+   * REQ-L2-VS-004: fetch the top-N requirements most similar to the given one
+   * by semantic (cosine) similarity over pgvector embeddings.
+   *
+   * The backend returns 400 when the query requirement has no embedding yet,
+   * and 503 when pgvector is unavailable — callers should surface these.
+   */
+  getSimilarRequirements(
+    requirementId: UUID,
+    limit = 10
+  ): Promise<SimilarRequirement[]> {
+    return apiClient.get<SimilarRequirement[]>(
+      `/requirements/similar/?requirement_id=${requirementId}&limit=${limit}`
     );
   },
 };

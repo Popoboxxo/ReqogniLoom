@@ -111,6 +111,20 @@ export interface Requirement {
 }
 
 // ---------------------------------------------------------------------------
+// SimilarRequirement (REQ-L2-VS-004 — mirrors SimilarRequirementSerializer)
+// ---------------------------------------------------------------------------
+
+export interface SimilarRequirement {
+  id: UUID;
+  uid?: string | null;
+  title: string;
+  category: string;
+  status: string;
+  /** Cosine similarity in [~-1, 1]; higher means more similar. */
+  similarity_score: number;
+}
+
+// ---------------------------------------------------------------------------
 // TestCase (mirrors TestCaseSerializer)
 // ---------------------------------------------------------------------------
 

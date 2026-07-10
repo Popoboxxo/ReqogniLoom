@@ -31,6 +31,12 @@ import uuid
 
 from django.db import models
 
+# REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
+# (see requirements.txt) and the ``vector`` Postgres extension (provisioned by
+# the pgvector/pgvector:pg16 image). Imported at module load because the
+# Requirement.embedding field references VectorField/HnswIndex directly.
+from pgvector.django import HnswIndex, VectorField
+
 from persistence.tenancy import TenantManager, UnscopedManager
 
 
@@ -548,9 +554,30 @@ class Requirement(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this requirement needs review due to upstream changes.",
     )
+    embedding = VectorField(
+        dimensions=1536,
+        null=True,
+        blank=True,
+        help_text=(
+            "REQ-L2-VS-004: Semantic embedding (1536-dim, OpenAI "
+            "text-embedding-3-small compatible) for cosine similarity search. "
+            "Best-effort: NULL when no embedding provider is configured."
+        ),
+    )
 
     class Meta:
         db_table = "pl_requirement"
+        indexes = [
+            # REQ-L2-VS-004: HNSW approximate-nearest-neighbour index for
+            # cosine-distance similarity queries (embedding <=> query_vector).
+            HnswIndex(
+                name="pl_req_embedding_hnsw",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title

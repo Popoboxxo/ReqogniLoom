@@ -36,6 +36,7 @@ import { SplitView } from '../SplitView/SplitView';
 import { RequirementList } from './RequirementList';
 import { RequirementForm } from './RequirementForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
+import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import type { RequirementType } from '../../types';
@@ -393,6 +394,12 @@ export default function RequirementEditors(): JSX.Element {
           onLinksChanged={refresh}
         />
       )}
+
+      {/* REQ-L2-VS-004: semantic similarity search */}
+      <SimilarRequirementsPanel
+        requirementId={requirement.id}
+        onSelect={(id) => navigate(`/requirements/${id}`)}
+      />
       </div>
       {currentVersion && (
         <RightSidebar

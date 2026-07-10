@@ -78,8 +78,10 @@ from application.artifact_service import ArtifactService, TreeNodeDTO  # noqa: F
 # COMP-AS-002
 from application.requirement_service import (  # noqa: F401
     DecompositionResultDTO,
+    PgVectorUnavailableError,
     RequirementDTO,
     RequirementService,
+    SimilarRequirementDTO,
 )
 
 # COMP-AS-003
@@ -178,12 +180,14 @@ __all__ = [
     "TreeNodeDTO",
     "RequirementDTO",
     "DecompositionResultDTO",
+    "SimilarRequirementDTO",
     # Exceptions
     "PermissionDeniedError",
     "NotFoundError",
     "ValidationError",
     "OptimisticLockError",
     "LlmNotConfiguredError",
+    "PgVectorUnavailableError",
     # Base (for Steps 2+3 inheritance)
     "ServiceBase",
     # Registry (for extension)

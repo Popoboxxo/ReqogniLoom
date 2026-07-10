@@ -63,6 +63,7 @@ from application.services import (
     RiskService,
     IssueService,
     GlossaryService,
+    PgVectorUnavailableError,
 )
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
@@ -79,6 +80,7 @@ from rest_api.serializers import (
     IssueSerializer,
     RequirementSerializer,
     RiskSerializer,
+    SimilarRequirementSerializer,
     StakeholderNeedSerializer,
     StandardPagination,
     TestCaseSerializer,
@@ -698,6 +700,78 @@ class RequirementViewSet(BaseEntityViewSet):
         except Exception as exc:
             logger.exception("RequirementViewSet.allocation_coverage: unhandled exception")
             return _service_error_response(exc, lang)
+
+    @action(detail=False, methods=["get"], url_path="similar")
+    def similar(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/requirements/similar/ — semantic similarity search.
+
+        Query params:
+            requirement_id (required): UUID of the query requirement.
+            limit (optional): max results, clamped 1..50 (default 10).
+            workspace_id (optional): restrict results to a workspace.
+
+        REQ-L2-VS-004: Returns the top-N requirements most similar to the query
+        requirement by cosine distance over pgvector embeddings. Returns 503
+        when pgvector (package or ``vector`` extension) is unavailable.
+        """
+        lang = detect_lang(request)
+
+        requirement_id_str = request.query_params.get("requirement_id")
+        if not requirement_id_str:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="requirement_id is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            requirement_id = UUID(requirement_id_str)
+        except (ValueError, TypeError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="requirement_id must be a valid UUID"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            limit = int(request.query_params.get("limit", "10"))
+        except (ValueError, TypeError):
+            limit = 10
+
+        workspace_id = None
+        workspace_id_str = request.query_params.get("workspace_id")
+        if workspace_id_str:
+            try:
+                workspace_id = UUID(workspace_id_str)
+            except (ValueError, TypeError):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            ctx = get_auth_context(request)
+            results = self._svc().find_similar_requirements(
+                requirement_id=requirement_id,
+                ctx=ctx,
+                limit=limit,
+                workspace_id=workspace_id,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except PgVectorUnavailableError as exc:
+            return Response(
+                build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        serialized = [SimilarRequirementSerializer(r).data for r in results]
+        return Response(serialized)
 
 
 # ---------------------------------------------------------------------------

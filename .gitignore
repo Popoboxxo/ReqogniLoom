@@ -8,6 +8,11 @@ e2e/test-results/
 
 .continue
 
+# Environment variables — NEVER commit .env with real secrets
+.env
+.env.local
+.env.*.local
+
 
 # --- agent-meta managed (do not edit) ---
 .claude/agent-memory-local/

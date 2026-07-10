@@ -31,6 +31,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.db.models import F
+from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import Artifact, Requirement, Tenant, Workspace
 from persistence.transactions import TransactionContextManager, atomic_transaction
 
@@ -47,6 +48,15 @@ logger = logging.getLogger(__name__)
 
 # Sentinel to distinguish "not provided" from "set to None" in update calls.
 _UNSET = object()
+
+
+class PgVectorUnavailableError(RuntimeError):
+    """Raised when pgvector (package or ``vector`` extension) is unavailable.
+
+    REQ-L2-VS-004: similarity search depends on pgvector. When the Python
+    package is missing or the DB extension is not installed, the REST layer
+    maps this to HTTP 503 (service unavailable) rather than a 500.
+    """
 
 # ---------------------------------------------------------------------------
 # DTOs
@@ -85,6 +95,18 @@ class DecompositionResultDTO:
     parent_id: UUID
     children: List[RequirementDTO] = field(default_factory=list)
     trace_link_ids: List[UUID] = field(default_factory=list)
+
+
+@dataclass
+class SimilarRequirementDTO:
+    """A single similarity-search hit (REQ-L2-VS-004)."""
+
+    id: UUID
+    uid: Optional[str]
+    title: str
+    category: str
+    status: str
+    similarity_score: float
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +203,9 @@ class RequirementService(ServiceBase):
                 "for req=%s",
                 requirement.id,
             )
+
+        # REQ-L2-VS-004: best-effort semantic embedding for similarity search.
+        self._generate_and_store_embedding(requirement)
 
         self._audit(ctx=ctx, operation="create", entity_type="Requirement", entity_id=requirement.id)
         self._emit_event(
@@ -295,6 +320,12 @@ class RequirementService(ServiceBase):
         Requirement.objects.filter(id=requirement.id).update(version=F("version") + 1)
         requirement.refresh_from_db(fields=["version"])
 
+        # REQ-L2-VS-004: refresh the embedding only when embedding-relevant text
+        # (title/description) changed, to avoid needless LLM calls on metadata-
+        # only updates. Best-effort — never fails the update.
+        if title is not None or description is not None:
+            self._generate_and_store_embedding(requirement)
+
         self._audit(
             ctx=ctx,
             operation="update",
@@ -371,6 +402,115 @@ class RequirementService(ServiceBase):
                 artifact__workspace_id=workspace_id
             )
         )
+
+    # ---------- Semantic similarity (REQ-L2-VS-004) ----------
+
+    @staticmethod
+    def _generate_and_store_embedding(requirement: Requirement) -> None:
+        """Best-effort: generate and persist the requirement's embedding.
+
+        REQ-L2-VS-004. Uses a bare ``.update()`` so it neither bumps the
+        version nor emits a domain event. Never raises: the embedding is
+        supplementary to full-text search, so a provider/network failure must
+        not fail the surrounding create/update transaction.
+        """
+        try:
+            from llm_adapter.embedding_service import (
+                generate_embedding,
+                get_embedding_text,
+            )
+
+            embedding = generate_embedding(get_embedding_text(requirement))
+            if embedding is not None:
+                Requirement.objects.filter(id=requirement.id).update(
+                    embedding=embedding
+                )
+        except Exception as exc:  # noqa: BLE0001 — best-effort
+            logger.debug(
+                "RequirementService: embedding generation skipped for req=%s: %s",
+                requirement.id,
+                exc,
+            )
+
+    def find_similar_requirements(
+        self,
+        requirement_id: UUID,
+        ctx: AuthContext,
+        limit: int = 10,
+        workspace_id: Optional[UUID] = None,
+    ) -> List[SimilarRequirementDTO]:
+        """Return the top-N requirements most similar to *requirement_id*.
+
+        REQ-L2-VS-004: cosine-distance nearest-neighbour search over the
+        pgvector ``embedding`` column, tenant-scoped and excluding the query
+        requirement itself.
+
+        Args:
+            requirement_id: Query requirement (must have a non-null embedding).
+            ctx: AuthContext for tenant scoping.
+            limit: Max results (clamped to 1..50, default 10).
+            workspace_id: Optional workspace filter.
+
+        Returns:
+            Ordered list of SimilarRequirementDTO (closest first).
+
+        Raises:
+            NotFoundError: Query requirement does not exist.
+            ValidationError: Query requirement has no embedding.
+            PgVectorUnavailableError: pgvector package/extension unavailable.
+        """
+        self._set_tenant_context(ctx)
+
+        req = Requirement.objects.select_related("artifact").filter(
+            id=requirement_id
+        ).first()
+        if req is None:
+            raise NotFoundError(f"Requirement {requirement_id} not found")
+        if req.embedding is None:
+            raise ValidationError(
+                "Requirement has no embedding — similarity search not possible"
+            )
+
+        try:
+            from pgvector.django import CosineDistance
+        except ImportError as exc:
+            raise PgVectorUnavailableError(
+                "pgvector package not installed — similarity search unavailable"
+            ) from exc
+
+        safe_limit = max(1, min(int(limit or 10), 50))
+
+        queryset = Requirement.objects.filter(
+            tenant_id=ctx.tenant_id, embedding__isnull=False
+        )
+        if workspace_id is not None:
+            queryset = queryset.filter(artifact__workspace_id=workspace_id)
+        queryset = (
+            queryset.exclude(id=req.id)
+            .select_related("artifact")
+            .annotate(distance=CosineDistance("embedding", req.embedding))
+            .order_by("distance")[:safe_limit]
+        )
+
+        try:
+            rows = list(queryset)
+        except (ProgrammingError, OperationalError) as exc:
+            raise PgVectorUnavailableError(
+                "pgvector extension not available — similarity search unavailable"
+            ) from exc
+
+        return [
+            SimilarRequirementDTO(
+                id=row.id,
+                uid=row.uid,
+                title=row.title,
+                category=row.category,
+                status=row.status,
+                # Cosine distance in [0, 2]; similarity = 1 - distance.
+                similarity_score=round(1.0 - float(row.distance), 6),
+            )
+            for row in rows
+        ]
 
     # ---------- Decomposition (REQ-L2-AS-024) ----------
 
@@ -562,4 +702,6 @@ __all__ = [
     "RequirementService",
     "RequirementDTO",
     "DecompositionResultDTO",
+    "SimilarRequirementDTO",
+    "PgVectorUnavailableError",
 ]

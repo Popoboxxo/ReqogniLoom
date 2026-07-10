@@ -1,0 +1,61 @@
+# Docker Compose Override for Development
+#
+# Usage: Place this file in the project root. `docker compose up` will automatically
+# merge this with docker-compose.yml, providing dev conveniences without modifying
+# the production base configuration.
+#
+# For production deployment, delete or rename this file so only docker-compose.yml is used.
+
+version: "3.9"
+
+services:
+  postgres:
+    # Development: lower resource limits OK
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-reqflow}  # Weak password OK for dev
+
+  redis:
+    # Development: no persistence needed
+
+  backend:
+    # Development: Use dev server and hot-reload
+    environment:
+      DEBUG: ${DEBUG:-True}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+    volumes:
+      # Hot-reload: mount source code
+      - ./backend:/app
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  celery:
+    # Development: verbose logging
+    environment:
+      DEBUG: ${DEBUG:-True}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+    volumes:
+      # Hot-reload: mount source code
+      - ./backend:/app
+    command: >
+      sh -c "celery -A reqflow worker --loglevel=debug"
+
+  frontend:
+    # Development: Use dev server with Vite hot module replacement
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    volumes:
+      # Hot-reload: mount source code
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - backend

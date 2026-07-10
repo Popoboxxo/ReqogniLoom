@@ -561,5 +561,14 @@
       "create": "Add trace link",
       "viewAll": "View full graph"
     }
+  },
+  "requirements": {
+    "similar": {
+      "heading": "Similar Requirements",
+      "findButton": "Find Similar",
+      "noEmbedding": "No embedding available — similarity search not possible.",
+      "unavailable": "Similarity search is temporarily unavailable.",
+      "empty": "No similar requirements found."
+    }
   }
 }

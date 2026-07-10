@@ -324,6 +324,255 @@ In Cursor, go to **Settings > Features > MCP**:
 4. **URL**: `http://localhost:8000/mcp/sse/`
 5. **Headers**: Add a header `X-API-Key` with your API Key value.
 
+## Production Deployment
+
+ReqFlow is designed for self-hosted deployment on Linux/Unix servers using Docker Compose. This section covers hardening the stack for production use.
+
+### Prerequisites
+
+- Docker >= 24.0 and Docker Compose >= 2.20
+- A Linux server (amd64) or macOS
+- 8+ GB available RAM
+- HTTPS reverse proxy (nginx, Traefik, etc.) or cloud load balancer
+
+### Quick Start
+
+1. **Clone and prepare:**
+
+   ```bash
+   git clone <repository-url>
+   cd ai-native-reqflow-POC
+   cp .env.example .env
+   ```
+
+2. **Configure .env** — critical for production:
+
+   ```bash
+   # Generate a strong Django SECRET_KEY:
+   python3 -c "import secrets; print(secrets.token_hex(50))"
+   
+   # Edit .env and fill ALL CHANGE-ME fields:
+   vim .env
+   ```
+
+   Key variables:
+   - `SECRET_KEY` — generate with Python (above)
+   - `DEBUG=False` — disable debug mode (default in .env.example)
+   - `ALLOWED_HOSTS` — your server hostname(s)
+   - `DB_PASSWORD` — strong password (32+ chars, random)
+   - `LLM_PROVIDER` — leave as `mock` for core features without AI
+
+3. **Build and start:**
+
+   ```bash
+   docker-compose build
+   docker-compose up -d
+   ```
+
+4. **Initialize database:**
+
+   ```bash
+   # Run migrations
+   docker-compose exec backend python manage.py migrate
+   
+   # Seed demo admin user (or create manually)
+   docker-compose exec backend python manage.py seed_demo
+   ```
+
+5. **Verify all services:**
+
+   ```bash
+   docker-compose ps
+   # All should show: Up (healthy) or Up
+   ```
+
+### Architecture
+
+**Services:**
+- **postgres** — pgvector/pgvector:pg16-alpine (PostgreSQL with pgvector extension)
+- **redis** — redis:7-alpine (Celery message broker + caching)
+- **backend** — Django REST API (:8000)
+- **celery** — Async task worker (depends on redis and postgres)
+- **frontend** — React + Nginx (:3000)
+
+**Data Persistence:**
+- `postgres_data` named volume — automatically managed by Docker
+- (Optional) Redis persistence — configure in redis service if needed
+
+### Reverse Proxy Setup (nginx example)
+
+```nginx
+# /etc/nginx/sites-available/reqflow
+upstream backend {
+    server localhost:8000;
+}
+
+upstream frontend {
+    server localhost:3000;
+}
+
+server {
+    listen 80;
+    server_name your-domain.com;
+    
+    # Redirect HTTP → HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+    
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+    
+    # Frontend (React)
+    location / {
+        proxy_pass http://frontend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    # Backend API
+    location /api/ {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+    
+    # MCP Server
+    location /mcp/ {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # For SSE (Server-Sent Events):
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+    
+    # Admin interface
+    location /admin/ {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### Environment-Specific Configuration
+
+**For Development:**
+
+By default, `docker-compose.yml` is production-focused. To restore development conveniences:
+
+```bash
+# docker-compose.override.yml is automatically merged by Docker Compose
+# It enables hot-reload, dev server, and weak defaults
+# (it's already included in the repository)
+
+docker-compose up
+# Stack runs in dev mode with hot-reload
+```
+
+**For Production:**
+
+Delete or rename `docker-compose.override.yml` and ensure only `docker-compose.yml` is used:
+
+```bash
+rm docker-compose.override.yml
+docker-compose up -d
+```
+
+### PostgreSQL with pgvector
+
+The postgres service uses `pgvector/pgvector:pg16-alpine` image, which includes the pgvector extension for vector-based semantic search. The migration system automatically enables the extension on first run.
+
+No manual setup is required.
+
+### Monitoring & Logs
+
+```bash
+# Check all services
+docker-compose ps
+
+# View logs
+docker-compose logs -f backend      # Django logs
+docker-compose logs -f celery       # Async task logs
+docker-compose logs -f postgres     # Database logs
+docker-compose logs -f redis        # Cache/broker logs
+docker-compose logs -f frontend     # Frontend server logs
+
+# Follow all logs
+docker-compose logs -f
+```
+
+### Backup & Restore
+
+**Backup database:**
+
+```bash
+docker-compose exec postgres pg_dump -U reqflow reqflow > backup.sql
+```
+
+**Restore database:**
+
+```bash
+docker-compose exec -T postgres psql -U reqflow reqflow < backup.sql
+```
+
+### Scaling Considerations
+
+- **Multiple Celery workers:** Copy the `celery` service and rename each (celery-1, celery-2, etc.)
+- **External Redis:** Configure `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` to point to external Redis
+- **External PostgreSQL:** Configure `DB_HOST`, `DB_USER`, `DB_PASSWORD` to point to managed RDS/Cloud SQL
+- **Load balancing:** Use Traefik, Kubernetes, or cloud load balancers in front of `docker-compose up`
+
+### Security Checklist
+
+- [ ] `.env` file with strong `SECRET_KEY` and `DB_PASSWORD`
+- [ ] `.env` added to `.gitignore` (do NOT commit secrets)
+- [ ] `DEBUG=False` in production
+- [ ] `ALLOWED_HOSTS` set to your actual hostnames
+- [ ] HTTPS enforced via reverse proxy or load balancer
+- [ ] SSH key pair for server access (no password login)
+- [ ] Firewall rules restrict ports (only 80/443 from internet, 5432/6379 from internal only)
+- [ ] Regular backups of `postgres_data` volume
+- [ ] Log aggregation configured (optional but recommended)
+
+### Troubleshooting Deployment
+
+```bash
+# Check if stack is healthy
+docker-compose ps
+# Look for: Up (healthy)
+
+# View error logs
+docker-compose logs --tail 50
+
+# Restart a service
+docker-compose restart backend
+
+# Rebuild and restart all
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+
+# Reset database (⚠️ WARNING: Deletes all data)
+docker-compose down
+docker volume rm ai-native-reqflow-poc_postgres_data
+docker-compose up -d
+docker-compose exec backend python manage.py migrate
+```
+
 ### Troubleshooting Tests
 
 ```bash
