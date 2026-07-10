@@ -1,5 +1,7 @@
 # Datenarchitektur-Strategie ReqFlow
 
+> Stand: Juli 2026 — nach Batches A–C implementiert
+>
 > Architektur-Entscheidungsdokument (Senior Engineering). Status: **Entwurf zur Entscheidung**.
 > Autor: senior-developer · Datum: 2026-07-10 · Branch: `feat/se-implementation`
 > Scope: reine Analyse, keine Code-Änderung. Verbindliche Entscheidung durch Tech-Lead ausstehend.
@@ -314,6 +316,8 @@ Bruchteil des Aufwands ebenfalls löst.
 
 ### Klare Empfehlung: **Option A — Pragmatische Postgres-Evolution**
 
+*Siehe auch: [Implementierungsstand (Juli 2026)](#7a-implementierungsstand-juli-2026) — Batches A–C wurden umgesetzt.*
+
 Begründung:
 1. **Die Probleme sind Modellierungs-, keine Technologiefragen.** Reconstruction scheitert nicht,
    weil Postgres es nicht kann, sondern weil kein Zustand gespeichert wird. Traces sind nicht
@@ -386,6 +390,97 @@ Begründung:
 | pgvector-Performance bei selektiven Tenant-Filtern | niedrig | mittel | pgvector ≥0.8 (iterative Index-Scans); HNSW-Parameter tunen; bei Bedarf partitionieren |
 | Rekursive CTE zum Performance-Hotspot | niedrig | mittel | `EXPLAIN ANALYZE`-Monitoring; Closure-Tabelle (Phase 3) als vorbereiteter Fallback |
 | Dual-Audit-Umstellung verliert Legacy-Reads | niedrig | niedrig | `AuditLogEntry` read-only behalten, nur Schreibpfad kappen |
+
+---
+
+## 7a. Implementierungsstand (Juli 2026)
+
+Diese Architektur-Analyse wurde in **Batches A–C** implementiert. Nachfolgend Übersicht des
+IST-Zustands, Abweichungen vom ursprünglichen Plan und ausstehende Items.
+
+### Status-Übersicht
+
+| Req-ID | Feature | Batch | Status | Abweichungen |
+|---|---|---|---|---|
+| REQ-L2-BL-012 | Baseline Full-State-Snapshot | A | ✅ implementiert | Kein REST Diff-Endpoint (Backend ready, ViewSet-Action ausstehend) |
+| REQ-L2-TE-019 | TraceLink Read-Model + CTE | B | ✅ implementiert | URL `/tracelinks/` statt `/traceability/`; Duplex-Cycle-Detection (CTE + Tarjan) |
+| REQ-L2-AS-037 | JSONB Custom Fields | C | ✅ implementiert | Frontend-Editor nur in 2/5 Forms (Requirement, Architecture — StakeholderNeed/TestCase ausstehend) |
+| REQ-L2-VS-004 | pgvector Embeddings | E | ⏸️ **BLOCKED** | Pending: docker-compose/Dockerfile infra changes |
+
+### Batch A: Baseline Full-State-Snapshot (d49860b)
+
+**Implementiert:**
+- `BaselineDeltaIndexEntry.state:JSONField(null=True)` für serialisierten Artefakt-Zustand.
+- Migration `0005` (backward-compatible, kein Backfill nötig).
+- `backend/baseline/state_capture.py`: batched entity serialization (max 5–7 DB-Queries, unabhängig von Item-Count).
+- `DeltaIndexBuilder.build()` ruft `capture_states()` auf, übergeben an Store.
+- `DiffEngine` emittiert `field_changes` für geänderte Items, Fallback zu Version-Vergleich für Legacy-Baselines (state=null).
+- REST-API: `BaselineDeltaEntrySerializer` mit state als read-only Feld; Frontend zeigt Field-Werte pro Delta-Entry an.
+
+**Abweichung:**
+- Kein REST-Endpoint für End-to-End-Field-Diff (Backend-DiffEngine ist bereit; ViewSet-Action `@action` fehlt). Markiert als Follow-up.
+
+### Batch B: TraceLink Read-Model + CTE (d74f9f5)
+
+**Kontext-Überraschung:**
+- `backend/traceability/` war NICHT leer — enthielt bereits vollständigen TraceabilityEngine (query_engine.py, trace_link_manager.py mit Tarjan-Zyklenerkennung, services.py, CRUD).
+
+**Implementiert:**
+- `backend/traceability/service.py` mit 3 CTE-basierten Funktionen:
+  - `impact_analysis()` → gerichtete Downstream-Traversierung mit `ImpactNode`-Hierarchie.
+  - `find_path()` → kürzester Pfad zwischen zwei Artefakten.
+  - `detect_cycles()` → Zyklenerkennung via CTE `UNION ... WHERE cycle`.
+- 3 neue `@action`-Endpoints auf existierendem `TraceLinkViewSet`:
+  - `GET /api/v1/tracelinks/impact/?artifact_id=...&direction=...`
+  - `GET /api/v1/tracelinks/path/?source_id=...&target_id=...`
+  - `GET /api/v1/tracelinks/cycles/`
+- CTE depth hard-capped auf 20, Limit-Default 200 (max 1000), `X-Result-Truncated`-Header.
+- Frontend: Cycle-Warning-Banner + Depth-indented Impact-Panel.
+
+**Abweichungen:**
+- URL `/tracelinks/` (nicht `/traceability/`) — Entscheidung zur Erweiterung existierender ViewSet pro Constraint.
+- `detect_cycles` läuft parallel zur besteheneden `TraceLinkManager.validate_graph_integrity` (Tarjan). Redundanz erkannt, Konsolidierung optional.
+
+### Batch C: JSONB Custom Fields (24ef7bc)
+
+**Implementiert:**
+- `Artifact.custom_fields:JSONField(default=dict)` mit GIN-Index (`pl_artifact_custom_fields_gin`, Migration `0023`).
+- `backend/persistence/custom_fields.py`: Validierung (max 50 Keys, String-Keys, max 128 Chars, Wert-Typen: str/int/float/bool/None).
+- `CustomFieldsSerializerMixin` in 5 Serializern (Requirement, ArchElement, StakeholderNeed, TestCase, Artifact).
+- Wiring durch 5 Application-Services.
+- Frontend: `CustomFieldsEditor.tsx` (Key–Value–Type-Rows), `CustomFieldsDisplay.tsx` (Read-Only-Table), integriert in RequirementForm und ArchitectureForm.
+
+**Abweichung:**
+- Frontend-Editor NICHT in StakeholderNeed- und TestCase-Forms (Backend vollständig wired). Optional als Phase-2-Nachbessering.
+
+### Batch E: pgvector (BLOCKED)
+
+- **Status:** ⏸️ Pending Infra-Approval (docker-compose, Dockerfile, pgvector-Extension-Setup).
+- **Plan:** Embedding-Spalte auf `Requirement`, HNSW-Index, RLS-Filter, Async-Embedding via Celery.
+- **Trigger:** User-Bestätigung für Container-Änderungen.
+
+### Key Decisions — Abweichung vom ursprünglichen Plan
+
+1. **Traceability-URL:** Erwiterung von `TraceLinkViewSet` statt neue `@viewset`-Klasse; minimiert API-Surface, renutzt Authentifizierung/RLS.
+2. **Batch A State-Feld Placement:** State auf `BaselineDeltaIndexEntry` (nicht neue Tabelle), spart eine Join; Migration null-safe.
+3. **Custom Fields auf `Artifact`, nicht Individual-Entitäten:** Konzept empfohlen, implementiert konsistent — alle 5 Entitäten profitieren durch one-to-one-Beziehung.
+4. **Duplex-Cycle-Detection:** `detect_cycles()` (CTE) + bestehende Tarjan-Implementierung nebeneinander. Ausstehend: Prüfung auf Konsolidierung (kein Performance-Nachteil erkannt).
+
+### Migration & Deployment-Hinweise
+
+```bash
+# Phase 1–3 Migrationen ausführen
+docker-compose exec backend python manage.py migrate
+
+# Baseline-Legacy (state=null) in UI als "state-less, nicht rekonstruierbar" flaggen
+# — Alt-Baselines bleiben lesbar, aber Reconstruction-Feature ist neu.
+
+# Traceability-Endpoints jetzt verfügbar
+# — /api/v1/tracelinks/impact/, /path/, /cycles/ (siehe OpenAPI-Spezifikation)
+
+# Custom Fields per RequirementForm/ArchitectureForm nutzbar
+# — Backend akzeptiert beliebige custom_fields, Validierung prüft JSON-Schema
+```
 
 ---
 
