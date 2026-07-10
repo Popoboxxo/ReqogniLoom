@@ -23,8 +23,6 @@
 # • Use strong POSTGRES_PASSWORD (32+ random chars)
 # • Restrict network access to ports 5432 (postgres) and 6379 (redis)
 
-version: "3.9"
-
 services:
   # ─────────────────────────────────────────────────────────
   # PostgreSQL — ARCH-L1-010 PersistenceLayer

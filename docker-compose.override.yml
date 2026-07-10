@@ -6,16 +6,11 @@
 #
 # For production deployment, delete or rename this file so only docker-compose.yml is used.
 
-version: "3.9"
-
 services:
   postgres:
     # Development: lower resource limits OK
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-reqflow}  # Weak password OK for dev
-
-  redis:
-    # Development: no persistence needed
 
   backend:
     # Development: Use dev server and hot-reload
