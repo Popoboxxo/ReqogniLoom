@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { testcasesApi, type TestCase } from '../../api/testcases';
+import type { CustomFields } from '../../types';
 import { VersionBadge } from '../shared/VersionBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
+import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 
 interface TestCaseFormProps {
   testCase: TestCase | null;
@@ -45,6 +47,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
         title: formData.title,
         description: formData.description,
         status: formData.status,
+        custom_fields: formData.custom_fields,
       });
       onSaved();
     } catch (err) {
@@ -171,6 +174,18 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
               </select>
             </div>
           </div>
+        </div>
+
+        {/* SECTION: Custom Fields */}
+        <div style={{ marginBottom: 'var(--space-6)', marginTop: 'var(--space-6)' }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+            {t('customFields.section')}
+          </h3>
+          <CustomFieldsEditor
+            value={testCase.custom_fields}
+            onChange={(newFields) => handleChange('custom_fields', newFields)}
+            disabled={isSaving}
+          />
         </div>
       </div>
     </div>

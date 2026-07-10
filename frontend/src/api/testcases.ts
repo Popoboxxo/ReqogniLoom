@@ -14,6 +14,7 @@ import { apiClient, getList } from "./client";
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
+  CustomFields,
   ISODateTime,
   PaginatedResponse,
   UUID,
@@ -28,6 +29,7 @@ export interface TestCase {
   status: string;
   version: number;
   uid?: string;
+  custom_fields?: CustomFields;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -52,7 +54,7 @@ export const testcasesApi = {
 
   update(
     id: UUID,
-    data: Partial<Pick<TestCase, "title" | "description" | "status">>
+    data: Partial<Pick<TestCase, "title" | "description" | "status" | "custom_fields">>
   ): Promise<TestCase> {
     return apiClient.patch<TestCase>(`/testcases/${id}/`, data);
   },

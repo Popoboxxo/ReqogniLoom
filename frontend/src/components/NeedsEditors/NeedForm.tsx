@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import type { ArchitectureElement, StakeholderNeed } from '../../types';
+import type { ArchitectureElement, StakeholderNeed, CustomFields } from '../../types';
 import { WORKFLOW_STATES } from '../../types';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
 import { requirementsApi } from '../../api/requirements';
@@ -10,6 +10,7 @@ import { tracelinksApi } from '../../api/tracelinks';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { VersionBadge } from '../shared/VersionBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
+import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 
 interface NeedFormProps {
   need: StakeholderNeed | null;
@@ -140,6 +141,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
         category: formData.category,
         moscow_priority: formData.moscow_priority,
         status: formData.status,
+        custom_fields: formData.custom_fields,
       });
       onSaved();
     } catch (err) {
@@ -363,6 +365,18 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
               )}
             </div>
           </div>
+        </div>
+
+        {/* SECTION: Custom Fields */}
+        <div style={{ marginBottom: 'var(--space-6)', marginTop: 'var(--space-6)' }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+            {t('customFields.section')}
+          </h3>
+          <CustomFieldsEditor
+            value={need.custom_fields}
+            onChange={(newFields) => handleChange('custom_fields', newFields)}
+            disabled={isSaving}
+          />
         </div>
 
         <TraceLinkPanel
