@@ -468,6 +468,7 @@ class RequirementViewSet(BaseEntityViewSet):
                 complexity_fibonacci=data.get("complexity_fibonacci"),
                 verification_method=data.get("verification_method"),
                 uid=data.get("uid"),
+                custom_fields=data.get("custom_fields"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -494,6 +495,11 @@ class RequirementViewSet(BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        # REQ-L2-AS-037: only forward custom_fields when the client actually
+        # sent it, so an unrelated PATCH does not wipe existing custom_fields.
+        extra_kwargs: dict[str, Any] = {}
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
             item = self._svc().update_requirement(
@@ -509,6 +515,7 @@ class RequirementViewSet(BaseEntityViewSet):
                 verification_method=data.get("verification_method"),
                 # uid is read-only via REST: never forward from PATCH data
                 # (would overwrite stored uid with None). Set only via service/MCP.
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -842,6 +849,7 @@ class ArtifactViewSet(BaseEntityViewSet):
                 artifact_type=data.get("artifact_type", "generic"),
                 ctx=ctx,
                 parent_id=data.get("parent_id"),
+                custom_fields=data.get("custom_fields"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -858,6 +866,10 @@ class ArtifactViewSet(BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
+        # REQ-L2-AS-037: only forward custom_fields when explicitly provided.
+        extra_kwargs: dict[str, Any] = {}
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
             item = self._svc().update_artifact(
@@ -865,6 +877,7 @@ class ArtifactViewSet(BaseEntityViewSet):
                 ctx=ctx,
                 artifact_type=data.get("artifact_type"),
                 parent_id=data.get("parent_id"),
+                **extra_kwargs,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -946,6 +959,7 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
                 asil_level=data.get("asil_level"),
                 make_or_buy=data.get("make_or_buy"),
                 uid=data.get("uid"),
+                custom_fields=data.get("custom_fields"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -972,6 +986,9 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
             if "parent_id" in data:
                 # Distinguish "omitted" from "set to null (detach)"
                 update_kwargs["parent_id"] = data["parent_id"]
+            # REQ-L2-AS-037: only forward custom_fields when explicitly provided.
+            if "custom_fields" in data:
+                update_kwargs["custom_fields"] = data["custom_fields"]
             item = self._svc().update_architecture_element(
                 arch_el_id=UUID(pk),
                 ctx=ctx,
@@ -1130,7 +1147,7 @@ class TestCaseViewSet(BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            item = self._svc().create_test_case(workspace_id=UUID(str(data["workspace_id"])), title=data["title"], ctx=ctx, description=data.get("description", ""))
+            item = self._svc().create_test_case(workspace_id=UUID(str(data["workspace_id"])), title=data["title"], ctx=ctx, description=data.get("description", ""), custom_fields=data.get("custom_fields"))
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -1143,9 +1160,12 @@ class TestCaseViewSet(BaseEntityViewSet):
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
         data = ser.validated_data
+        extra_kwargs: dict[str, Any] = {}
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
-            item = self._svc().update_test_case(test_case_id=UUID(pk), ctx=ctx, title=data.get("title"), description=data.get("description"))
+            item = self._svc().update_test_case(test_case_id=UUID(pk), ctx=ctx, title=data.get("title"), description=data.get("description"), **extra_kwargs)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -1723,10 +1743,24 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "uid": getattr(req, "uid", None),
         "category": getattr(req, "category", ""),
         "status": getattr(req, "status", "draft"),
+        "custom_fields": _artifact_custom_fields(req),
         "version": req.version,
         "created_at": req.created_at,
         "updated_at": req.modified_at,
     }
+
+
+def _artifact_custom_fields(entity: Any) -> dict:
+    """Return the custom_fields map from an entity's backing Artifact.
+
+    REQ-L2-AS-037: custom_fields lives on Artifact; every artifact-backed
+    entity exposes it via its OneToOne ``artifact`` relation. Missing/NULL
+    normalizes to an empty dict so the API contract stays stable.
+    """
+    artifact = getattr(entity, "artifact", None)
+    if artifact is None:
+        return getattr(entity, "custom_fields", None) or {}
+    return getattr(artifact, "custom_fields", None) or {}
 
 
 def _tree_node_to_dict(node: Any) -> dict[str, Any]:
@@ -1748,6 +1782,7 @@ def _artifact_to_dict(art: Any) -> dict[str, Any]:
         "workspace_id": str(art.workspace_id) if hasattr(art, "workspace_id") else None,
         "artifact_type": getattr(art, "artifact_type", ""),
         "parent_id": str(art.parent_id) if getattr(art, "parent_id", None) else None,
+        "custom_fields": getattr(art, "custom_fields", None) or {},
         "version": art.version,
         "created_at": art.created_at,
         "updated_at": art.modified_at,
@@ -1776,6 +1811,7 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
         "element_type": getattr(el, "element_type", ""),
         "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
         "level": level,
+        "custom_fields": _artifact_custom_fields(el),
         "version": el.version,
         "created_at": el.created_at,
         "updated_at": el.modified_at,
@@ -1791,6 +1827,7 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
         "description": getattr(tc, "description", ""),
         "uid": getattr(tc, "uid", None),
         "status": getattr(tc, "status", "draft"),
+        "custom_fields": _artifact_custom_fields(tc),
         "version": tc.version,
         "created_at": tc.created_at,
         "updated_at": tc.modified_at,

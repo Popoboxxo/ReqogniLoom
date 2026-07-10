@@ -23,6 +23,8 @@ import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { VersionBadge } from '../shared/VersionBadge';
 import { architectureApi } from '../../api/architecture';
 import { extractErrorMessage } from '../../api/client';
+import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
+import type { CustomFields } from '../../types';
 import { ASIL_LEVEL_OPTIONS, MAKE_OR_BUY_OPTIONS } from '../../utils/asilUtils';
 import type { ArchitectureElement, ASILLevel, MakeOrBuyDecision, ElementType } from '../../types';
 
@@ -199,6 +201,8 @@ export function ArchitectureForm({
   const [asilLevel, setAsilLevel] = useState<ASILLevel>(element.asil_level ?? null);
   const [makeOrBuy, setMakeOrBuy] = useState<MakeOrBuyDecision>(element.make_or_buy ?? null);
   const [changeReason, setChangeReason] = useState(element.change_reason ?? '');
+  // REQ-L2-AS-037: user-defined custom fields (stored on the backing Artifact).
+  const [customFields, setCustomFields] = useState<CustomFields>(element.custom_fields ?? {});
 
   // UI state
   const [isSaving, setIsSaving] = useState(false);
@@ -215,6 +219,7 @@ export function ArchitectureForm({
     setAsilLevel(element.asil_level ?? null);
     setMakeOrBuy(element.make_or_buy ?? null);
     setChangeReason(element.change_reason ?? '');
+    setCustomFields(element.custom_fields ?? {});
   }, [element.id]);
 
   // Client-side cycle guard
@@ -257,6 +262,8 @@ export function ArchitectureForm({
         parent_id: parentId === '' ? null : parentId,
         asil_level: asilLevel,
         make_or_buy: makeOrBuy,
+        // REQ-L2-AS-037: always send custom_fields (backend validates the map).
+        custom_fields: customFields,
       };
       if (isExtendedPreset && changeReason.trim()) {
         payload.change_reason = changeReason.trim();
@@ -278,6 +285,7 @@ export function ArchitectureForm({
     asilLevel,
     makeOrBuy,
     changeReason,
+    customFields,
     isExtendedPreset,
     onSaved,
   ]);
@@ -457,6 +465,16 @@ export function ArchitectureForm({
         value={description}
         onChange={setDescription}
       />
+
+      {/* Custom Fields (REQ-L2-AS-037) */}
+      <div style={{ marginTop: 'var(--space-5)', marginBottom: 'var(--space-3)' }}>
+        <label style={labelStyle}>{t('customFields.section')}</label>
+        <CustomFieldsEditor
+          value={element.custom_fields}
+          onChange={setCustomFields}
+          disabled={isSaving}
+        />
+      </div>
 
       {/* Change reason — extended preset only */}
       {isExtendedPreset && (

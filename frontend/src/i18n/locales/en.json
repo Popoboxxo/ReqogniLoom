@@ -3,6 +3,18 @@
     "title": "ReqFlow",
     "placeholder": "AI-native Requirements Management — implementation in progress."
   },
+  "customFields": {
+    "section": "Custom Fields",
+    "empty": "No custom fields yet. Add a field to get started.",
+    "addField": "Add field",
+    "key": "Key",
+    "value": "Value",
+    "type": "Type",
+    "typeString": "Text",
+    "typeNumber": "Number",
+    "typeBoolean": "Boolean",
+    "remove": "Remove field"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "needs": "Stakeholder Needs",

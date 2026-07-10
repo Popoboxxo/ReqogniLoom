@@ -33,10 +33,14 @@ from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, TestCase, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
+from application.artifact_service import _clean_custom_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
 
 logger = logging.getLogger(__name__)
+
+# Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}".
+_UNSET = object()
 
 # Allowed execution status values (REQ-L2-AS-005)
 VALID_EXECUTION_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
@@ -66,6 +70,7 @@ class TestService(ServiceBase):
         test_type: str = "Unit",
         steps: Optional[list] = None,
         uid: Optional[str] = None,
+        custom_fields: Optional[dict] = None,
     ) -> TestCase:
         """Create a TestCase with initial WorkflowState.
 
@@ -92,6 +97,7 @@ class TestService(ServiceBase):
             tenant=tenant,
             workspace=workspace,
             artifact_type="TestCase",
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         test_case = TestCase.objects.create(
@@ -141,6 +147,7 @@ class TestService(ServiceBase):
         title: Optional[str] = None,
         description: Optional[str] = None,
         steps: Optional[list] = None,
+        custom_fields: object = _UNSET,
     ) -> TestCase:
         """Update a TestCase."""
         self._set_tenant_context(ctx)
@@ -158,6 +165,11 @@ class TestService(ServiceBase):
             test_case.description = description
         if steps is not None:
             test_case.steps = steps
+
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        if custom_fields is not _UNSET:
+            test_case.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            test_case.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         test_case.save()
         # Atomic version increment (REQ-L3-PL001-002): mirrors the fix applied to

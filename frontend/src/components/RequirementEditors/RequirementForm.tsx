@@ -29,10 +29,12 @@ import {
   VerificationMethod,
   UUID,
   TraceLink,
+  CustomFields,
   REQ_CATEGORIES,
   WORKFLOW_STATES,
 } from '../../types';
 import { requirementsApi } from '../../api/requirements';
+import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { VersionBadge } from '../shared/VersionBadge';
@@ -86,6 +88,10 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   );
   const [verificationMethod, setVerificationMethod] = useState<VerificationMethod | ''>(
     requirement.verification_method || ''
+  );
+  // REQ-L2-AS-037: user-defined custom fields (stored on the backing Artifact).
+  const [customFields, setCustomFields] = useState<CustomFields>(
+    requirement.custom_fields || {}
   );
 
   // UI state
@@ -155,6 +161,9 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         updateData.verification_method = verificationMethod || null;
       }
 
+      // REQ-L2-AS-037: always send custom_fields (backend validates the map).
+      updateData.custom_fields = customFields;
+
       await requirementsApi.update(requirement.id, updateData);
       onSaved();
     } catch (err: unknown) {
@@ -175,6 +184,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     type,
     complexityFibonacci,
     verificationMethod,
+    customFields,
     onSaved,
   ]);
 
@@ -414,6 +424,18 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               </div>
             )}
           </div>
+        </div>
+
+        {/* SECTION: Custom Fields (REQ-L2-AS-037) */}
+        <div style={{ marginBottom: 'var(--space-6)' }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+            {t('customFields.section')}
+          </h3>
+          <CustomFieldsEditor
+            value={requirement.custom_fields}
+            onChange={setCustomFields}
+            disabled={isSaving}
+          />
         </div>
 
         {/* SECTION: Change Control */}

@@ -441,6 +441,16 @@ class Artifact(TenantScopedModel):
         Workspace, on_delete=models.CASCADE, related_name="artifacts"
     )
     artifact_type = models.CharField(max_length=64)
+    custom_fields = models.JSONField(
+        null=True,
+        default=dict,
+        blank=True,
+        help_text=(
+            "REQ-L2-AS-037: User-defined custom attributes as a flat key-value "
+            "map. Keys: strings. Values: str, int, float, bool, or null. "
+            "A GIN index (pl_artifact_custom_fields_gin) backs JSONB queries."
+        ),
+    )
 
     class Meta:
         db_table = "pl_artifact"

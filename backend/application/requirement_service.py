@@ -40,6 +40,7 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from application.artifact_service import _clean_custom_fields
 from application.models import DomainEventOutbox
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ class RequirementService(ServiceBase):
         complexity_fibonacci: Optional[int] = None,
         verification_method: Optional[str] = None,
         uid: Optional[str] = None,
+        custom_fields: Optional[dict] = None,
     ) -> Requirement:
         """Create a Requirement with initial workflow state.
 
@@ -147,6 +149,7 @@ class RequirementService(ServiceBase):
             workspace=workspace,
             artifact_type="Requirement",
             parent_id=parent_id,
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         requirement = Requirement.objects.create(
@@ -229,6 +232,7 @@ class RequirementService(ServiceBase):
         verification_method: object = _UNSET,
         uid: object = _UNSET,
         suspect: Optional[bool] = None,
+        custom_fields: object = _UNSET,
     ) -> Requirement:
         """Update a Requirement, enforcing change_reason policy.
 
@@ -270,7 +274,12 @@ class RequirementService(ServiceBase):
             requirement.verification_method = verification_method
         if uid is not _UNSET:
             requirement.uid = uid
-        
+
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        if custom_fields is not _UNSET:
+            requirement.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            requirement.artifact.save(update_fields=["custom_fields", "modified_at"])
+
         # SN-30: If title, description, or status changed, we will propagate suspect
         changed_critical = any(x is not None for x in [title, description, status])
 

@@ -31,6 +31,7 @@ from auth_tenancy.context import AuthContext
 from persistence.models import ArchitectureElement, Artifact, ElementType, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
+from application.artifact_service import _clean_custom_fields
 from application.base import NotFoundError, OptimisticLockError, ServiceBase, ValidationError
 from application.models import DomainEventOutbox
 from application.validators import ArchitectureElementInvariantValidator
@@ -84,6 +85,7 @@ class ArchitectureService(ServiceBase):
         asil_level: Optional[str] = None,
         make_or_buy: Optional[str] = None,
         uid: Optional[str] = None,
+        custom_fields: Optional[dict] = None,
     ) -> ArchitectureElement:
         """Create an ArchitectureElement with initial version=1.
 
@@ -110,6 +112,7 @@ class ArchitectureService(ServiceBase):
             tenant=tenant,
             workspace=workspace,
             artifact_type="ArchitectureElement",
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         # REQ-L1-044: hierarchy invariants I1/I3, rigor-gated via workspace preset.
@@ -174,6 +177,7 @@ class ArchitectureService(ServiceBase):
         asil_level: Optional[str] = _UNSET,
         make_or_buy: Optional[str] = _UNSET,
         uid: Optional[str] = _UNSET,
+        custom_fields: object = _UNSET,
     ) -> ArchitectureElement:
         """Update an ArchitectureElement with optimistic locking.
 
@@ -224,6 +228,12 @@ class ArchitectureService(ServiceBase):
         if uid is not _UNSET:
             arch_el.uid = uid
             changed_fields["uid"] = uid
+
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact, not on the
+        # ArchitectureElement row — persist it separately from changed_fields.
+        if custom_fields is not _UNSET:
+            arch_el.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            arch_el.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         # REQ-L1-044: invariant checks (I1-I3) before re-parenting
         if parent_id is not _UNSET:

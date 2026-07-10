@@ -44,6 +44,26 @@ from application.models import DomainEventOutbox
 
 logger = logging.getLogger(__name__)
 
+# Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}".
+_UNSET = object()
+
+
+def _clean_custom_fields(value: object) -> dict:
+    """Validate + normalize custom_fields at the service boundary (REQ-L2-AS-037).
+
+    Defense in depth: the REST serializer validates first, but the service is
+    the single write entry point (ADR-01) and may be called by MCP/import too.
+    Raises :class:`application.base.ValidationError` on invalid input.
+    """
+    from django.core.exceptions import ValidationError as DjangoValidationError
+
+    from persistence.custom_fields import validate_custom_fields
+
+    try:
+        return validate_custom_fields(value)
+    except DjangoValidationError as exc:
+        raise ValidationError(exc.messages[0] if exc.messages else str(exc))
+
 
 # ---------------------------------------------------------------------------
 # DTOs
@@ -137,10 +157,12 @@ class ArtifactService(ServiceBase):
         artifact_type: str,
         ctx: AuthContext,
         parent_id: Optional[UUID] = None,
+        custom_fields: Optional[dict] = None,
     ) -> Artifact:
         """Create a new Artifact, validating parent cycle if supplied.
 
         REQ-L2-AS-001, REQ-L2-AS-018 (ACID).
+        REQ-L2-AS-037: optional user-defined custom_fields (validated flat map).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -165,6 +187,7 @@ class ArtifactService(ServiceBase):
             workspace=workspace,
             artifact_type=artifact_type,
             parent_id=parent_id,
+            custom_fields=_clean_custom_fields(custom_fields),
         )
 
         self._audit(
@@ -189,10 +212,13 @@ class ArtifactService(ServiceBase):
         ctx: AuthContext,
         parent_id: Optional[UUID] = None,
         artifact_type: Optional[str] = None,
+        custom_fields: object = _UNSET,
     ) -> Artifact:
-        """Update parent or type; validates cycle if parent changes.
+        """Update parent, type or custom_fields; validates cycle if parent changes.
 
         REQ-L2-AS-001.
+        REQ-L2-AS-037: custom_fields replaces the stored map when provided
+        (``_UNSET`` sentinel distinguishes "omitted" from "cleared to {}").
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -207,6 +233,9 @@ class ArtifactService(ServiceBase):
 
         if artifact_type is not None:
             artifact.artifact_type = artifact_type
+
+        if custom_fields is not _UNSET:
+            artifact.custom_fields = _clean_custom_fields(custom_fields)
 
         artifact.save()
         self._audit(ctx=ctx, operation="update", entity_type="Artifact", entity_id=artifact.id)

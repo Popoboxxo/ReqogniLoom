@@ -14,6 +14,7 @@ from django.db.models import F
 from persistence.models import Artifact, StakeholderNeed, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
+from application.artifact_service import _clean_custom_fields
 from application.base import (
     NotFoundError,
     ServiceBase,
@@ -41,6 +42,7 @@ class StakeholderNeedDTO:
     version: int
     created_at: datetime
     modified_at: datetime
+    custom_fields: dict = None  # REQ-L2-AS-037: user-defined attributes
 
     @classmethod
     def from_orm(cls, need: StakeholderNeed) -> "StakeholderNeedDTO":
@@ -58,6 +60,7 @@ class StakeholderNeedDTO:
             version=need.version,
             created_at=need.created_at,
             modified_at=need.modified_at,
+            custom_fields=getattr(need.artifact, "custom_fields", None) or {},
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -80,6 +83,7 @@ class StakeholderNeedService(ServiceBase):
         category: str = "",
         status: str = "draft",
         moscow_priority: str | None = None,
+        custom_fields: dict | None = None,
     ) -> StakeholderNeedDTO:
         try:
             workspace = Workspace.objects.get(id=workspace_id, tenant_id=ctx.tenant_id)
@@ -98,6 +102,7 @@ class StakeholderNeedService(ServiceBase):
             artifact_type="StakeholderNeed",
             tenant_id=ctx.tenant_id,
             created_by_id=ctx.user_id,
+            custom_fields=_clean_custom_fields(custom_fields),
         )
         need = StakeholderNeed.objects.create(
             artifact=artifact,
@@ -146,6 +151,7 @@ class StakeholderNeedService(ServiceBase):
         status: str | Any = _UNSET,
         moscow_priority: str | Any = _UNSET,
         change_reason: str = "",
+        custom_fields: Any = _UNSET,
     ) -> StakeholderNeedDTO:
         try:
             need = StakeholderNeed.objects.select_related("artifact__workspace").get(
@@ -176,6 +182,12 @@ class StakeholderNeedService(ServiceBase):
         if moscow_priority is not _UNSET:
             need.moscow_priority = moscow_priority
             changes["moscow_priority"] = moscow_priority
+
+        # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
+        if custom_fields is not _UNSET:
+            need.artifact.custom_fields = _clean_custom_fields(custom_fields)
+            need.artifact.save(update_fields=["custom_fields", "modified_at"])
+            changes["custom_fields"] = True
 
         if changes:
             need.version = F("version") + 1

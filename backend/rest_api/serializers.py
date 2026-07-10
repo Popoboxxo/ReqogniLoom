@@ -198,12 +198,48 @@ class PresetAwareSerializerMixin:
 
 
 # ---------------------------------------------------------------------------
+# Custom fields mixin (REQ-L2-AS-037)
+# ---------------------------------------------------------------------------
+
+
+class CustomFieldsSerializerMixin:
+    """Adds a writable ``custom_fields`` field with flat-map validation.
+
+    REQ-L2-AS-037: custom_fields lives on the shared Artifact node but is
+    exposed on every artifact-backed entity serializer so it can be read and
+    written through the entity's own endpoint. Validation is delegated to
+    :func:`persistence.custom_fields.validate_custom_fields` (single source of
+    truth — no duplicate rules per serializer).
+    """
+
+    custom_fields = serializers.JSONField(
+        required=False,
+        help_text=(
+            "User-defined custom attributes as a flat key-value map "
+            "(REQ-L2-AS-037). Values: string, number, boolean or null."
+        ),
+    )
+
+    def validate_custom_fields(self, value: Any) -> dict:
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from persistence.custom_fields import validate_custom_fields
+
+        try:
+            return validate_custom_fields(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages[0] if exc.messages else str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Entity Serializers — COMP-RA-002 (REQ-L3-RA002-001)
 # All serializers use statically typed fields; no raw dict passed downstream.
 # ---------------------------------------------------------------------------
 
 
-class ArtifactSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class ArtifactSerializer(
+    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for Artifact entity (REQ-L2-RA-001).
 
     Uses Serializer (not ModelSerializer) because Artifact is a pure
@@ -219,7 +255,9 @@ class ArtifactSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
 
 
-class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class RequirementSerializer(
+    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for Requirement entity (REQ-L2-RA-001, REQ-L3-RF003-005).
 
     REQ-L3-RF003-005: Type-dependent fields (complexity_fibonacci,
@@ -277,7 +315,9 @@ class RequirementSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         return data
 
 
-class StakeholderNeedSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class StakeholderNeedSerializer(
+    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for StakeholderNeed entity.
     
     Represents the user's problem space and needs.
@@ -305,7 +345,7 @@ class StakeholderNeedSerializer(PresetAwareSerializerMixin, serializers.Serializ
 
 
 class ArchitectureElementSerializer(
-    PresetAwareSerializerMixin, serializers.Serializer
+    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
 ):
     """Serializer for ArchitectureElement entity (REQ-L2-RA-001, REQ-L3-RF004-004).
 
@@ -379,7 +419,9 @@ class ArchitectureElementSerializer(
         return attrs
 
 
-class TestCaseSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+class TestCaseSerializer(
+    CustomFieldsSerializerMixin, PresetAwareSerializerMixin, serializers.Serializer
+):
     """Serializer for TestCase entity (REQ-L2-RA-001)."""
 
     id = serializers.UUIDField(read_only=True)
@@ -787,6 +829,7 @@ __all__ = [
     "GlossaryTermVersionSerializer",
     "StandardPagination",
     "PresetAwareSerializerMixin",
+    "CustomFieldsSerializerMixin",
     "build_error_response",
     "get_error_message",
     "detect_lang",

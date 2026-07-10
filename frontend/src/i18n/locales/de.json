@@ -3,6 +3,18 @@
     "title": "ReqFlow",
     "placeholder": "KI-natives Anforderungsmanagement — Implementierung in Bearbeitung."
   },
+  "customFields": {
+    "section": "Benutzerdefinierte Felder",
+    "empty": "Keine benutzerdefinierten Felder. Feld hinzufügen, um zu beginnen.",
+    "addField": "Feld hinzufügen",
+    "key": "Schlüssel",
+    "value": "Wert",
+    "type": "Typ",
+    "typeString": "Text",
+    "typeNumber": "Zahl",
+    "typeBoolean": "Boolean",
+    "remove": "Feld entfernen"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "needs": "Bedarfe",

@@ -57,6 +57,15 @@ export interface WorkspaceWithMetrics extends Workspace {
 // Requirement (mirrors RequirementSerializer)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Custom Fields (REQ-L2-AS-037) — user-defined flat key-value attributes,
+// stored on the shared Artifact and exposed on every artifact-backed entity.
+// ---------------------------------------------------------------------------
+
+export type CustomFieldValue = string | number | boolean | null;
+
+export type CustomFields = Record<string, CustomFieldValue>;
+
 export type RequirementType = 'SyReq' | 'SWReq' | 'HWReq';
 export type MoscowPriority = 'Must' | 'Should' | 'Could' | "Won't";
 export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
@@ -75,6 +84,7 @@ export interface StakeholderNeed {
   moscow_priority?: MoscowPriority;
   suspect?: boolean;
   change_reason?: string;
+  custom_fields?: CustomFields;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -95,6 +105,7 @@ export interface Requirement {
   verification_method?: VerificationMethod;
   suspect?: boolean;
   change_reason?: string;
+  custom_fields?: CustomFields;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -112,6 +123,7 @@ export interface TestCase {
   suspect?: boolean;
   version: number;
   uid?: string;
+  custom_fields?: CustomFields;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -145,6 +157,7 @@ export interface ArchitectureElement {
   make_or_buy?: MakeOrBuyDecision;
   suspect?: boolean;
   change_reason?: string;
+  custom_fields?: CustomFields;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -186,6 +199,7 @@ export interface Artifact {
   workspace_id: UUID;
   artifact_type: string;
   parent_id: UUID | null;
+  custom_fields?: CustomFields;
   version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;

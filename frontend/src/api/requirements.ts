@@ -72,13 +72,14 @@ export const requirementsApi = {
     title: string;
     description?: string;
     category?: string;
+    custom_fields?: Requirement["custom_fields"];
   }): Promise<Requirement> {
     return apiClient.post<Requirement>("/requirements/", data);
   },
 
   update(
     id: UUID,
-    data: Partial<Pick<Requirement, "title" | "description" | "category" | "status" | "change_reason" | "type" | "moscow_priority" | "complexity_fibonacci" | "verification_method">>
+    data: Partial<Pick<Requirement, "title" | "description" | "category" | "status" | "change_reason" | "type" | "moscow_priority" | "complexity_fibonacci" | "verification_method" | "custom_fields">>
   ): Promise<Requirement> {
     return apiClient.patch<Requirement>(`/requirements/${id}/`, data);
   },

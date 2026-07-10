@@ -87,6 +87,7 @@ export const architectureApi = {
         | "parent_id"
         | "asil_level"
         | "make_or_buy"
+        | "custom_fields"
       >
     > & { change_reason?: string }
   ): Promise<ArchitectureElement> {
