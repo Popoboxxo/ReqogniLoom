@@ -1,0 +1,39 @@
+when:
+  - event: push
+    branch: main
+
+steps:
+  # ─────────────────────────────────────────────────────────
+  # Backend Image bauen und pushen
+  # ─────────────────────────────────────────────────────────
+  build-and-push-backend:
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      registry: codeberg.org
+      repo: codeberg.org/dduchrow/reqflow-backend
+      tags: latest
+      dockerfile: backend/Dockerfile
+      context: backend
+      # Die Logindaten für die Codeberg Container Registry
+      username: dduchrow
+      # Das Passwort (Token) muss als Secret in Woodpecker hinterlegt werden!
+      password:
+        from_secret: cb_registry_token
+
+  # ─────────────────────────────────────────────────────────
+  # Frontend Image bauen und pushen
+  # ─────────────────────────────────────────────────────────
+  build-and-push-frontend:
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      registry: codeberg.org
+      repo: codeberg.org/dduchrow/reqflow-frontend
+      tags: latest
+      dockerfile: frontend/Dockerfile
+      context: frontend
+      # Für das Frontend benötigen wir Build-Argumente (falls vorhanden)
+      # build_args:
+      #   - VITE_API_BASE_URL=https://api.deine-domain.de
+      username: dduchrow
+      password:
+        from_secret: cb_registry_token

@@ -156,6 +156,17 @@ export default function ArchitectureEditors(): JSX.Element {
     [refresh, navigate]
   );
 
+  // Filter elements by search. Must be declared before any early return so
+  // the hook order stays stable across renders (React hooks invariant).
+  const filteredElements = useMemo(() => {
+    if (!listSearch.trim()) return elements;
+    const q = listSearch.trim().toLowerCase();
+    return elements.filter((el) =>
+      el.title.toLowerCase().includes(q) ||
+      (el.uid && el.uid.toLowerCase().includes(q))
+    );
+  }, [elements, listSearch]);
+
   if (isLoading) {
     return (
       <p
@@ -200,16 +211,6 @@ export default function ArchitectureEditors(): JSX.Element {
       </div>
     );
   }
-
-  // Filter elements by search
-  const filteredElements = useMemo(() => {
-    if (!listSearch.trim()) return elements;
-    const q = listSearch.trim().toLowerCase();
-    return elements.filter((el) =>
-      el.title.toLowerCase().includes(q) ||
-      (el.uid && el.uid.toLowerCase().includes(q))
-    );
-  }, [elements, listSearch]);
 
   // Build list panel with header
   const listPanel = (

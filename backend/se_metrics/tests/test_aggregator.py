@@ -18,6 +18,7 @@ Tests verify:
 """
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, List, Optional
@@ -25,6 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from persistence.tenancy import TenantContext
 from se_metrics.aggregator import MetricsAggregator, DEFAULT_TIMEFRAME, _parse_timeframe_days
 from se_metrics.types import (
     MetricsResult,
