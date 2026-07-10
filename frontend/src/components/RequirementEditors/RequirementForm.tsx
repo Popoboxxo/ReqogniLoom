@@ -248,10 +248,31 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               color: 'var(--color-text-muted)',
             }}
           >
-            {requirement.uid && (
-              <div>
-                <span style={{ fontWeight: 600 }}>UID:</span> {requirement.uid}
-              </div>
+            {requirement.uid ? (
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
+                  color: 'var(--color-text-muted)',
+                  userSelect: 'all',
+                }}
+                title="Unique Identifier"
+              >
+                {requirement.uid}
+              </span>
+            ) : (
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
+                  color: 'var(--color-text-muted)',
+                  userSelect: 'all',
+                  opacity: 0.6,
+                }}
+                title="Short ID (UUID prefix, no semantic uid assigned yet)"
+              >
+                {requirement.id.slice(0, 8)}
+              </span>
             )}
             <VersionBadge version={requirement.version || '1'} />
           </div>

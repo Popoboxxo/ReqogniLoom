@@ -150,6 +150,7 @@ class TestRequirementViewSetRouting:
         req.artifact.workspace_id = uuid.uuid4()
         req.title = "Test"
         req.description = ""
+        req.uid = "SYS-REQ-042"
         req.category = ""
         req.status = "draft"
         req.version = 1
@@ -206,6 +207,35 @@ class TestRequirementViewSetRouting:
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200
 
+    def test_partial_update_response_includes_uid(self) -> None:
+        """Regression: PATCH response must expose stored uid (_dto_from_orm)."""
+        data = {"title": "Updated"}
+        factory = APIRequestFactory()
+        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = RequirementViewSet.as_view({"patch": "partial_update"})
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()):
+            response = view(req, pk=str(uuid.uuid4()))
+        assert response.status_code == 200
+        assert response.data["uid"] == "SYS-REQ-042"
+
+    def test_partial_update_does_not_forward_uid(self) -> None:
+        """Regression: PATCH must not forward uid (read-only) to service.
+
+        Serializer marks uid read_only, so data.get("uid") would be None and
+        overwrite the stored uid with NULL. The view must omit uid entirely.
+        """
+        data = {"title": "Updated"}
+        factory = APIRequestFactory()
+        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = RequirementViewSet.as_view({"patch": "partial_update"})
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = view(req, pk=str(uuid.uuid4()))
+        assert response.status_code == 200
+        assert "uid" not in svc_mock.update_requirement.call_args.kwargs
+
     def test_destroy_returns_204(self) -> None:
         svc = MagicMock()
         svc.delete_requirement.return_value = None
@@ -246,6 +276,7 @@ class TestArchitectureElementViewSetRouting:
         el.artifact.workspace_id = uuid.uuid4()
         el.title = "Arch"
         el.description = ""
+        el.uid = "ARCH-007"
         el.element_type = "component"
         el.version = 2
         el.created_at = None
@@ -269,6 +300,43 @@ class TestArchitectureElementViewSetRouting:
         assert response.status_code == 200
         call_kwargs = svc_mock.update_architecture_element.call_args.kwargs
         assert call_kwargs["expected_version"] == 1
+
+    def test_partial_update_response_includes_uid(self) -> None:
+        """Regression: PATCH response must expose stored uid (_arch_to_dict)."""
+        pk = uuid.uuid4()
+        data = {"title": "Updated", "expected_version": 1}
+        factory = APIRequestFactory()
+        req = factory.patch(f"/api/v1/architecture/{pk}/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = ArchitectureElementViewSet.as_view({"patch": "partial_update"})
+        with patch(
+            "rest_api.views.ArchitectureElementViewSet._svc",
+            return_value=self._svc_mock(),
+        ):
+            response = view(req, pk=str(pk))
+        assert response.status_code == 200
+        assert response.data["uid"] == "ARCH-007"
+
+    def test_partial_update_does_not_forward_uid(self) -> None:
+        """Regression: PATCH must not forward uid (read-only) to service.
+
+        data.get("uid") is always None (read-only serializer field); forwarding
+        it would overwrite the stored uid with NULL. The view must omit uid.
+        """
+        pk = uuid.uuid4()
+        data = {"title": "Updated", "expected_version": 1}
+        factory = APIRequestFactory()
+        req = factory.patch(f"/api/v1/architecture/{pk}/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = ArchitectureElementViewSet.as_view({"patch": "partial_update"})
+        svc_mock = self._svc_mock()
+        with patch(
+            "rest_api.views.ArchitectureElementViewSet._svc",
+            return_value=svc_mock,
+        ):
+            response = view(req, pk=str(pk))
+        assert response.status_code == 200
+        assert "uid" not in svc_mock.update_architecture_element.call_args.kwargs
 
 
 # ---------------------------------------------------------------------------

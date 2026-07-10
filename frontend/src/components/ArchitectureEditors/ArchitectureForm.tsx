@@ -319,7 +319,27 @@ export function ArchitectureForm({
             marginBottom: 'var(--space-4)',
           }}
         >
-          {element.uid && <ReadOnlyField label="UID" value={element.uid} />}
+          {element.uid ? (
+            <ReadOnlyField label="UID" value={element.uid} />
+          ) : (
+            <div style={{ marginBottom: 'var(--space-4)' }}>
+              <label style={labelStyle}>UID</label>
+              <div
+                style={{
+                  ...readOnlyStyle,
+                  marginBottom: 0,
+                  padding: 'var(--space-2) var(--space-3)',
+                  color: 'var(--color-text-muted)',
+                  fontSize: 'var(--font-size-sm)',
+                  fontFamily: 'monospace',
+                  opacity: 0.6,
+                }}
+                title="Short ID (UUID prefix, no semantic uid assigned yet)"
+              >
+                {element.id.slice(0, 8)}
+              </div>
+            </div>
+          )}
           <div>
             <label style={labelStyle}>Version</label>
             <VersionBadge version={element.version || 1} />
