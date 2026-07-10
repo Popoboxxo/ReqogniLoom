@@ -1,4 +1,4 @@
-agent-meta-version: 0.65.1
+agent-meta-version: 0.67.0
 test-repo:
   enabled: false
   path: ''
