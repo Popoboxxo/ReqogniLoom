@@ -32,8 +32,10 @@ from typing import Any
 from icd.contract_validator import ValidationResult
 from icd.icd_manager import (
     IcdCreateDTO,
+    IcdPgVectorUnavailableError,
     IcdResult,
     IcdUpdateDTO,
+    SimilarIcdDTO,
     get_manager,
 )
 from icd.models import IcdVersion
@@ -155,6 +157,34 @@ def get_icd_versions(workspace_id: uuid.UUID) -> list[IcdVersion]:
 
 
 # ---------------------------------------------------------------------------
+# REQ-L2-VS-004: semantic similarity search
+# ---------------------------------------------------------------------------
+
+
+def find_similar_icds(
+    icd_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    limit: int = 10,
+) -> list[SimilarIcdDTO]:
+    """Return the ICDs most semantically similar to *icd_id*.
+
+    IF-L1-037. Cosine-distance nearest-neighbour search over the current
+    IcdVersion embeddings, tenant-scoped and excluding the query ICD.
+
+    Raises:
+        Icd.DoesNotExist: The query ICD does not exist.
+        ValueError: The query ICD's current version has no embedding.
+        IcdPgVectorUnavailableError: pgvector package/extension unavailable.
+
+    req_id: REQ-L2-VS-004
+    leaf_id: COMP-ICD-001
+    """
+    return get_manager().find_similar_icds(
+        icd_id=icd_id, tenant_id=tenant_id, limit=limit
+    )
+
+
+# ---------------------------------------------------------------------------
 # Re-exports for downstream consumers
 # ---------------------------------------------------------------------------
 
@@ -165,10 +195,13 @@ __all__ = [
     "validate_compatibility",
     "get_icd_history",
     "get_icd_versions",
+    "find_similar_icds",
     # DTOs re-exported for caller convenience
     "IcdCreateDTO",
     "IcdUpdateDTO",
     "IcdResult",
+    "SimilarIcdDTO",
+    "IcdPgVectorUnavailableError",
     "ValidationResult",
     # Model re-exported for type hints
     "IcdVersion",

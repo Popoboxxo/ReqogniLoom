@@ -36,6 +36,7 @@ import { SplitView } from "../SplitView/SplitView";
 import { VersionBadge } from "../shared/VersionBadge";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
+import { SimilarIcdsPanel } from "./SimilarIcdsPanel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -720,6 +721,7 @@ export default function IcdView(): JSX.Element {
           <IcdDetailPane
             detail={selectedDetail}
             artifactLabel={artifactLabel}
+            onSelectIcd={(id) => navigate(`/icds/${id}`)}
             showNewVersion={showNewVersion}
             setShowNewVersion={setShowNewVersion}
             formError={formError}
@@ -764,6 +766,7 @@ export default function IcdView(): JSX.Element {
 interface IcdDetailPaneProps {
   detail: IcdDetail;
   artifactLabel: (id: string) => string;
+  onSelectIcd: (id: string) => void;
   showNewVersion: boolean;
   setShowNewVersion: React.Dispatch<React.SetStateAction<boolean>>;
   formError: string | null;
@@ -787,6 +790,7 @@ interface IcdDetailPaneProps {
 function IcdDetailPane({
   detail,
   artifactLabel,
+  onSelectIcd,
   showNewVersion,
   setShowNewVersion,
   formError,
@@ -1057,6 +1061,9 @@ function IcdDetailPane({
               values={detail.invariants}
             />
           </div>
+
+          {/* REQ-L2-VS-004: semantic similarity search over ICD contracts. */}
+          <SimilarIcdsPanel icdId={detail.id} onSelect={onSelectIcd} />
         </div>
 
         {/* Removed: replaced by ArtifactInspector (REQ-L1-095).

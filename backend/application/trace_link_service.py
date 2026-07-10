@@ -31,6 +31,7 @@ ADR-L3-AS005-03: polymorphic source_type/target_type.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import List, Optional
 from uuid import UUID
 
@@ -40,6 +41,17 @@ from application.base import NotFoundError, ServiceBase, ValidationError
 from traceability.types import VALID_LINK_TYPES  # REQ-L1-030: single source of truth
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SimilarTraceLinkDTO:
+    """A single trace-link similarity-search hit (REQ-L2-VS-004)."""
+
+    id: UUID
+    source_id: UUID
+    target_id: UUID
+    link_type: str
+    similarity_score: float
 
 
 class TraceLinkService(ServiceBase):
@@ -218,6 +230,9 @@ class TraceLinkService(ServiceBase):
                 ) from exc
             raise
 
+        # REQ-L2-VS-004: best-effort semantic embedding for similarity search.
+        self._generate_and_store_embedding(result)
+
         self._audit(
             ctx=ctx,
             operation="create",
@@ -225,6 +240,105 @@ class TraceLinkService(ServiceBase):
             entity_id=result.id if hasattr(result, "id") else source_id,
         )
         return result
+
+    # ---------- Semantic similarity (REQ-L2-VS-004) ----------
+
+    @staticmethod
+    def _generate_and_store_embedding(trace_link) -> None:
+        """Best-effort: generate and persist the trace link's embedding.
+
+        REQ-L2-VS-004. Uses a bare ``.update()`` so it neither bumps the
+        version nor emits a domain event. Never raises: the embedding is
+        supplementary, so a provider/network failure must not fail the
+        surrounding create transaction. Mirrors
+        RequirementService._generate_and_store_embedding.
+        """
+        try:
+            from persistence.models import TraceLink
+            from llm_adapter.embedding_service import (
+                generate_embedding,
+                get_tracelink_embedding_text,
+            )
+
+            if not getattr(trace_link, "id", None):
+                return
+            embedding = generate_embedding(get_tracelink_embedding_text(trace_link))
+            if embedding is not None:
+                TraceLink.objects.filter(id=trace_link.id).update(embedding=embedding)
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            logger.debug(
+                "TraceLinkService: embedding generation skipped for link=%s: %s",
+                getattr(trace_link, "id", None),
+                exc,
+            )
+
+    def find_similar_trace_links(
+        self,
+        trace_link_id: UUID,
+        ctx: AuthContext,
+        limit: int = 10,
+    ) -> List[SimilarTraceLinkDTO]:
+        """Return the top-N trace links most similar to *trace_link_id*.
+
+        REQ-L2-VS-004: cosine-distance nearest-neighbour search over the
+        pgvector ``embedding`` column, tenant-scoped and excluding the query
+        link itself. Mirrors RequirementService.find_similar_requirements.
+
+        Raises:
+            NotFoundError: Query trace link does not exist.
+            ValidationError: Query trace link has no embedding.
+            PgVectorUnavailableError: pgvector package/extension unavailable.
+        """
+        from django.db.utils import OperationalError, ProgrammingError
+        from persistence.models import TraceLink
+        from application.requirement_service import PgVectorUnavailableError
+
+        self._set_tenant_context(ctx)
+
+        link = TraceLink.objects.filter(id=trace_link_id).first()
+        if link is None:
+            raise NotFoundError(f"TraceLink {trace_link_id} not found")
+        if link.embedding is None:
+            raise ValidationError(
+                "TraceLink has no embedding — similarity search not possible"
+            )
+
+        try:
+            from pgvector.django import CosineDistance
+        except ImportError as exc:
+            raise PgVectorUnavailableError(
+                "pgvector package not installed — similarity search unavailable"
+            ) from exc
+
+        safe_limit = max(1, min(int(limit or 10), 50))
+
+        queryset = (
+            TraceLink.objects.filter(
+                tenant_id=ctx.tenant_id, embedding__isnull=False
+            )
+            .exclude(id=link.id)
+            .annotate(distance=CosineDistance("embedding", link.embedding))
+            .order_by("distance")[:safe_limit]
+        )
+
+        try:
+            rows = list(queryset)
+        except (ProgrammingError, OperationalError) as exc:
+            raise PgVectorUnavailableError(
+                "pgvector extension not available — similarity search unavailable"
+            ) from exc
+
+        return [
+            SimilarTraceLinkDTO(
+                id=row.id,
+                source_id=row.source_id,
+                target_id=row.target_id,
+                link_type=row.link_type,
+                # Cosine distance in [0, 2]; similarity = 1 - distance.
+                similarity_score=round(1.0 - float(row.distance), 6),
+            )
+            for row in rows
+        ]
 
     # ---------- IF-AS-INT-001 / 004 / 005 ----------
 
@@ -538,5 +652,6 @@ class TraceLinkService(ServiceBase):
 
 __all__ = [
     "TraceLinkService",
+    "SimilarTraceLinkDTO",
     "VALID_LINK_TYPES",
 ]

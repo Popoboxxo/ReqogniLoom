@@ -19,11 +19,13 @@ import { artifactsApi } from "../../api/artifacts";
 import { ModalDialogBase, SHARED_STYLES } from "../RequirementsList/ModalDialogBase";
 import { allowedSeLinkTypes } from "../../utils/seLinkSemantics";
 import type {
+  ApiError,
   Artifact,
   LinkType,
   TraceLink,
   Requirement,
   ArchitectureElement,
+  SimilarTraceLink,
 } from "../../types";
 
 interface TraceLinkFormState {
@@ -32,9 +34,21 @@ interface TraceLinkFormState {
   linkType: LinkType;
 }
 
+// REQ-L2-VS-004: state of the per-item "Find Similar" panel.
+type SimilarState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "no-embedding" }
+  | { status: "unavailable" }
+  | { status: "error"; message: string }
+  | { status: "ready"; results: SimilarTraceLink[] };
+
 interface TraceLinksListProps {
   items: TraceLink[];
   titles: Record<string, string>;
+  similarFor: string | null;
+  similarState: SimilarState;
+  onFindSimilar: (link: TraceLink) => void;
 }
 
 // Canonical link_type order (REQ-L2-RF-006 — predictable section order).
@@ -87,7 +101,123 @@ function orderedGroupKeys(grouped: Record<string, TraceLink[]>): string[] {
   return [...known, ...unknown];
 }
 
-function TraceLinksList({ items, titles }: TraceLinksListProps): JSX.Element {
+/** REQ-L2-VS-004: inline results of a per-item trace-link similarity search. */
+function SimilarTraceLinksResults({
+  state,
+  titles,
+}: {
+  state: SimilarState;
+  titles: Record<string, string>;
+}): JSX.Element | null {
+  const { t } = useTranslation();
+
+  if (state.status === "idle") return null;
+
+  const noteStyle: React.CSSProperties = {
+    margin: "var(--space-2) 0 0 0",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-text-muted)",
+  };
+
+  if (state.status === "loading") {
+    return (
+      <p data-testid="similar-tracelinks-loading" style={noteStyle}>
+        {t("loading", "Loading…")}
+      </p>
+    );
+  }
+  if (state.status === "no-embedding") {
+    return (
+      <p data-testid="similar-tracelinks-no-embedding" style={noteStyle}>
+        {t(
+          "traceability.similar.noEmbedding",
+          "No embedding available — similarity search not possible."
+        )}
+      </p>
+    );
+  }
+  if (state.status === "unavailable") {
+    return (
+      <p data-testid="similar-tracelinks-unavailable" style={noteStyle}>
+        {t(
+          "traceability.similar.unavailable",
+          "Similarity search is temporarily unavailable."
+        )}
+      </p>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <p
+        role="alert"
+        data-testid="similar-tracelinks-error"
+        style={{ ...noteStyle, color: "var(--color-danger)" }}
+      >
+        {state.message}
+      </p>
+    );
+  }
+  if (state.results.length === 0) {
+    return (
+      <p data-testid="similar-tracelinks-empty" style={noteStyle}>
+        {t("traceability.similar.empty", "No similar trace links found.")}
+      </p>
+    );
+  }
+  // Top-5 similar trace links.
+  return (
+    <ul
+      data-testid="similar-tracelinks-results"
+      style={{
+        listStyle: "none",
+        margin: "var(--space-2) 0 0 0",
+        padding: 0,
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-1)",
+      }}
+    >
+      {state.results.slice(0, 5).map((hit) => (
+        <li
+          key={hit.id}
+          data-testid={`similar-tracelink-${hit.id}`}
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "var(--space-2)",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
+            padding: "var(--space-1) var(--space-2)",
+            background: "var(--color-surface-raised)",
+            borderRadius: "var(--radius-md)",
+          }}
+        >
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {renderEndpoint(hit.source_id, titles)} → {hit.link_type} →{" "}
+            {renderEndpoint(hit.target_id, titles)}
+          </span>
+          <span style={{ flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+            {`${Math.round(hit.similarity_score * 100)}%`}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function TraceLinksList({
+  items,
+  titles,
+  similarFor,
+  similarState,
+  onFindSimilar,
+}: TraceLinksListProps): JSX.Element {
   const { t } = useTranslation();
   const grouped = useMemo(() => groupByLinkType(items), [items]);
   const groupKeys = useMemo(() => orderedGroupKeys(grouped), [grouped]);
@@ -153,39 +283,70 @@ function TraceLinksList({ items, titles }: TraceLinksListProps): JSX.Element {
                     padding: "var(--space-3) var(--space-4)",
                     borderBottom: "1px solid var(--color-border)",
                     display: "flex",
-                    alignItems: "center",
-                    gap: "var(--space-3)",
+                    flexDirection: "column",
+                    gap: "var(--space-2)",
                     fontSize: "var(--font-size-base)",
                     color: "var(--color-text)",
                   }}
                 >
-                  <span data-testid="tracelink-source">{renderEndpoint(link.source_id, titles)}</span>
-                  <span
-                    aria-hidden="true"
-                    style={{ color: "var(--color-text-muted)", fontWeight: 500 }}
-                  >
-                    →
-                  </span>
-                  <span
-                    data-testid="tracelink-type"
+                  <div
                     style={{
-                      fontSize: "var(--font-size-sm)",
-                      background: "#eef",
-                      padding: "2px 8px",
-                      borderRadius: "var(--radius-full)",
-                      color: "#2c5282",
-                      fontWeight: 500,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "var(--space-3)",
                     }}
                   >
-                    {link.link_type}
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    style={{ color: "var(--color-text-muted)", fontWeight: 500 }}
-                  >
-                    →
-                  </span>
-                  <span data-testid="tracelink-target">{renderEndpoint(link.target_id, titles)}</span>
+                    <span data-testid="tracelink-source">{renderEndpoint(link.source_id, titles)}</span>
+                    <span
+                      aria-hidden="true"
+                      style={{ color: "var(--color-text-muted)", fontWeight: 500 }}
+                    >
+                      →
+                    </span>
+                    <span
+                      data-testid="tracelink-type"
+                      style={{
+                        fontSize: "var(--font-size-sm)",
+                        background: "#eef",
+                        padding: "2px 8px",
+                        borderRadius: "var(--radius-full)",
+                        color: "#2c5282",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {link.link_type}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      style={{ color: "var(--color-text-muted)", fontWeight: 500 }}
+                    >
+                      →
+                    </span>
+                    <span data-testid="tracelink-target">{renderEndpoint(link.target_id, titles)}</span>
+                    <button
+                      type="button"
+                      data-testid={`tracelink-find-similar-${link.id}`}
+                      onClick={() => onFindSimilar(link)}
+                      disabled={
+                        similarFor === link.id && similarState.status === "loading"
+                      }
+                      style={{
+                        marginLeft: "auto",
+                        background: "transparent",
+                        color: "var(--color-primary)",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: "var(--radius-md)",
+                        padding: "2px 10px",
+                        fontSize: "var(--font-size-sm)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {t("traceability.similar.findButton", "Find Similar")}
+                    </button>
+                  </div>
+                  {similarFor === link.id && (
+                    <SimilarTraceLinksResults state={similarState} titles={titles} />
+                  )}
                 </li>
               ))}
             </ul>
@@ -213,6 +374,36 @@ export function TraceLinksForm(): JSX.Element {
     targetId: "",
     linkType: "satisfies",
   });
+
+  // REQ-L2-VS-004: per-item semantic similarity search.
+  const [similarFor, setSimilarFor] = useState<string | null>(null);
+  const [similarState, setSimilarState] = useState<SimilarState>({
+    status: "idle",
+  });
+
+  const handleFindSimilar = useCallback(
+    async (link: TraceLink): Promise<void> => {
+      setSimilarFor(link.id);
+      setSimilarState({ status: "loading" });
+      try {
+        const results = await tracelinksApi.getSimilar(link.id, 5);
+        setSimilarState({ status: "ready", results });
+      } catch (err: unknown) {
+        const code = (err as Partial<ApiError>)?.error?.code;
+        if (code === "VALIDATION_ERROR") {
+          setSimilarState({ status: "no-embedding" });
+        } else if (code === "SERVICE_UNAVAILABLE") {
+          setSimilarState({ status: "unavailable" });
+        } else {
+          const msg =
+            (err as { error?: { message?: string } })?.error?.message ??
+            String(err);
+          setSimilarState({ status: "error", message: msg });
+        }
+      }
+    },
+    []
+  );
 
   // SE mode: filter link types by endpoint semantics (finding F1,
   // docs/se/workspace_modes_er_model.md). dev_mode keeps the full list.
@@ -500,7 +691,13 @@ export function TraceLinksForm(): JSX.Element {
         </div>
       </ModalDialogBase>
 
-      <TraceLinksList items={items} titles={titles} />
+      <TraceLinksList
+        items={items}
+        titles={titles}
+        similarFor={similarFor}
+        similarState={similarState}
+        onFindSimilar={handleFindSimilar}
+      />
     </div>
   );
 }

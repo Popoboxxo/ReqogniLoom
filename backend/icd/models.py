@@ -21,6 +21,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from django.db import models
+from pgvector.django import HnswIndex, VectorField
 
 from persistence.models import TenantScopedModel
 from persistence.tenancy import TenantManager, UnscopedManager
@@ -129,6 +130,17 @@ class IcdVersion(TenantScopedModel):
     preconditions = models.JSONField(default=list, blank=True)
     postconditions = models.JSONField(default=list, blank=True)
     invariants = models.JSONField(default=list, blank=True)
+    embedding = VectorField(
+        dimensions=1536,
+        null=True,
+        blank=True,
+        help_text=(
+            "REQ-L2-VS-004: Semantic embedding (1536-dim, OpenAI "
+            "text-embedding-3-small compatible) for cosine similarity search. "
+            "Set at creation time only — IcdVersion is immutable (DB trigger). "
+            "Best-effort: NULL when no embedding provider is configured."
+        ),
+    )
 
     objects = TenantManager()
     unscoped = UnscopedManager()
@@ -149,6 +161,15 @@ class IcdVersion(TenantScopedModel):
             models.Index(
                 fields=["icd", "-created_at"],
                 name="idx_icd_version_icd_cat",
+            ),
+            # REQ-L2-VS-004: HNSW approximate-nearest-neighbour index for
+            # cosine-distance similarity queries (embedding <=> query_vector).
+            HnswIndex(
+                name="icd_version_embedding_hnsw",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
             ),
         ]
 

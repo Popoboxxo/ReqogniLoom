@@ -26,7 +26,9 @@ from icd.services import (
     create_icd,
     update_icd,
     get_icd_history,
+    find_similar_icds,
     IcdCreateDTO,
+    IcdPgVectorUnavailableError,
     IcdUpdateDTO,
 )
 from persistence.models import Tenant, User
@@ -378,3 +380,61 @@ class IcdViewSet(ViewSet):
                 build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    # -- similar -----------------------------------------------------------
+
+    @action(detail=True, methods=["get"], url_path="similar")
+    def similar(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/icds/<pk>/similar/?limit=10 — semantic similarity search.
+
+        REQ-L2-VS-004: Returns the top-N ICDs most similar to <pk> by cosine
+        distance over the current IcdVersion's pgvector embedding. Returns 400
+        when the ICD has no embedding, 503 when pgvector is unavailable.
+        """
+        lang = detect_lang(request)
+        try:
+            limit = int(request.query_params.get("limit", "10"))
+        except (ValueError, TypeError):
+            limit = 10
+
+        try:
+            ctx = get_auth_context(request)
+            results = find_similar_icds(
+                icd_id=UUID(pk),
+                tenant_id=ctx.tenant_id,
+                limit=limit,
+            )
+        except Icd.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except IcdPgVectorUnavailableError as exc:
+            return Response(
+                build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            [
+                {
+                    "icd_id": str(hit.icd_id),
+                    "version_id": str(hit.version_id),
+                    "name": hit.name,
+                    "interface_type": hit.interface_type,
+                    "version_number": hit.version_number,
+                    "similarity_score": hit.similarity_score,
+                }
+                for hit in results
+            ]
+        )

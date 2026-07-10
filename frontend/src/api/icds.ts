@@ -30,6 +30,7 @@ import type {
   ArtifactDiffResult,
   ArtifactVersion,
   PaginatedResponse,
+  SimilarIcd,
   UUID,
   ISODateTime,
 } from "../types";
@@ -227,5 +228,15 @@ export const icdsApi = {
   /** Version list for an ICD. */
   versions(id: UUID): Promise<ArtifactVersion[]> {
     return apiClient.get<ArtifactVersion[]>(`/icds/${id}/versions/`);
+  },
+
+  /**
+   * REQ-L2-VS-004: fetch the top-N ICDs most similar to the given one by
+   * semantic (cosine) similarity over the current version's pgvector
+   * embedding. The backend returns 400 when the ICD has no embedding yet and
+   * 503 when pgvector is unavailable — callers should surface these.
+   */
+  getSimilar(id: UUID, limit = 10): Promise<SimilarIcd[]> {
+    return apiClient.get<SimilarIcd[]>(`/icds/${id}/similar/?limit=${limit}`);
   },
 };

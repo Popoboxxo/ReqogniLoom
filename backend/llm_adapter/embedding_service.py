@@ -44,6 +44,69 @@ def get_embedding_text(requirement) -> str:
     return f"{title}\n\n{description}".strip()
 
 
+def get_icd_version_embedding_text(icd_version) -> str:
+    """Combine an IcdVersion's contract fields into embedding input.
+
+    REQ-L2-VS-004. Duck-typed: accepts any object exposing the IcdVersion
+    contract attributes (ORM instance or DTO). Includes the parent ICD name
+    when the relation is available so structurally similar interfaces cluster.
+    """
+    parts: List[str] = []
+
+    icd_name = None
+    if getattr(icd_version, "icd_id", None):
+        icd = getattr(icd_version, "icd", None)
+        icd_name = getattr(icd, "name", None) if icd is not None else None
+    if icd_name:
+        parts.append(f"Interface: {icd_name}")
+
+    parts.append(f"Type: {getattr(icd_version, 'interface_type', '') or ''}")
+    parts.append(
+        f"Description: {getattr(icd_version, 'semantic_description', '') or ''}"
+    )
+
+    preconditions = getattr(icd_version, "preconditions", None)
+    if preconditions:
+        parts.append(f"Preconditions: {' '.join(str(p) for p in preconditions)}")
+    postconditions = getattr(icd_version, "postconditions", None)
+    if postconditions:
+        parts.append(f"Postconditions: {' '.join(str(p) for p in postconditions)}")
+    invariants = getattr(icd_version, "invariants", None)
+    if invariants:
+        parts.append(f"Invariants: {' '.join(str(p) for p in invariants)}")
+
+    return "\n".join(p for p in parts if p).strip()
+
+
+def get_tracelink_embedding_text(tracelink) -> str:
+    """Combine a TraceLink's endpoints and type into embedding input.
+
+    REQ-L2-VS-004. Resolves source/target Artifact titles via the OneToOne
+    relations (``requirement`` / ``architecture_element``, matching the
+    related_name declared on the persistence models). Falls back to the raw
+    endpoint IDs when no title is resolvable (best-effort, never raises for a
+    missing relation).
+    """
+    def _endpoint_title(artifact, artifact_id) -> str:
+        if artifact is not None:
+            req = getattr(artifact, "requirement", None)
+            if req is not None and getattr(req, "title", None):
+                return req.title
+            arch = getattr(artifact, "architecture_element", None)
+            if arch is not None and getattr(arch, "title", None):
+                return arch.title
+        return str(artifact_id)
+
+    source_title = _endpoint_title(
+        getattr(tracelink, "source", None), getattr(tracelink, "source_id", "")
+    )
+    target_title = _endpoint_title(
+        getattr(tracelink, "target", None), getattr(tracelink, "target_id", "")
+    )
+    link_type = getattr(tracelink, "link_type", "") or ""
+    return f"{link_type}: {source_title} → {target_title}".strip()
+
+
 def generate_embedding(text: str) -> Optional[List[float]]:
     """Generate an embedding for *text* via the configured provider.
 
@@ -119,5 +182,7 @@ __all__ = [
     "EMBEDDING_DIMENSIONS",
     "OPENAI_EMBEDDING_MODEL",
     "get_embedding_text",
+    "get_icd_version_embedding_text",
+    "get_tracelink_embedding_text",
     "generate_embedding",
 ]

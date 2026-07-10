@@ -8,7 +8,12 @@
  */
 
 import { apiClient, getList } from "./client";
-import type { TraceLink, PaginatedResponse, UUID } from "../types";
+import type {
+  TraceLink,
+  PaginatedResponse,
+  SimilarTraceLink,
+  UUID,
+} from "../types";
 
 /** A single artifact reachable in an impact analysis (REQ-L2-TE-019). */
 export interface ImpactNode {
@@ -97,6 +102,18 @@ export const tracelinksApi = {
   cycles(workspaceId: UUID): Promise<CyclesResponse> {
     return apiClient.get<CyclesResponse>(
       `/tracelinks/cycles/?workspace_id=${workspaceId}`
+    );
+  },
+
+  /**
+   * REQ-L2-VS-004: fetch the top-N trace links most similar to the given one
+   * by semantic (cosine) similarity over pgvector embeddings. The backend
+   * returns 400 when the link has no embedding yet and 503 when pgvector is
+   * unavailable — callers should surface these.
+   */
+  getSimilar(tracelinkId: UUID, limit = 10): Promise<SimilarTraceLink[]> {
+    return apiClient.get<SimilarTraceLink[]>(
+      `/tracelinks/similar/?tracelink_id=${tracelinkId}&limit=${limit}`
     );
   },
 };

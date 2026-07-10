@@ -692,6 +692,17 @@ class TraceLink(TenantScopedModel):
         Artifact, on_delete=models.CASCADE, related_name="incoming_links"
     )
     link_type = models.CharField(max_length=64)
+    embedding = VectorField(
+        dimensions=1536,
+        null=True,
+        blank=True,
+        help_text=(
+            "REQ-L2-VS-004: Semantic embedding (1536-dim, OpenAI "
+            "text-embedding-3-small compatible) for cosine similarity search "
+            "over trace links. Best-effort: NULL when no embedding provider is "
+            "configured."
+        ),
+    )
 
     class Meta:
         db_table = "pl_tracelink"
@@ -699,6 +710,15 @@ class TraceLink(TenantScopedModel):
             # REQ-L3-PL005-001: composite index for TraceLink graph queries.
             models.Index(
                 fields=["source", "target"], name="idx_tracelink_graph"
+            ),
+            # REQ-L2-VS-004: HNSW approximate-nearest-neighbour index for
+            # cosine-distance similarity queries (embedding <=> query_vector).
+            HnswIndex(
+                name="pl_tracelink_embedding_hnsw",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
             ),
         ]
 

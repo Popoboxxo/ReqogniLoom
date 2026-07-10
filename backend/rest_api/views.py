@@ -82,6 +82,7 @@ from rest_api.serializers import (
     RequirementSerializer,
     RiskSerializer,
     SimilarRequirementSerializer,
+    SimilarTraceLinkSerializer,
     StakeholderNeedSerializer,
     StandardPagination,
     TestCaseSerializer,
@@ -1358,6 +1359,59 @@ class TraceLinkViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["get"], url_path="similar")
+    def similar(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/tracelinks/similar/?tracelink_id=<uuid>&limit=10
+
+        REQ-L2-VS-004: Returns the top-N trace links most similar to the query
+        link by cosine distance over pgvector embeddings. Returns 400 when the
+        link has no embedding, 503 when pgvector is unavailable.
+        """
+        lang = detect_lang(request)
+
+        tracelink_id_str = request.query_params.get("tracelink_id")
+        if not tracelink_id_str:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="tracelink_id is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            tracelink_id = UUID(tracelink_id_str)
+        except (ValueError, TypeError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="tracelink_id must be a valid UUID"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            limit = int(request.query_params.get("limit", "10"))
+        except (ValueError, TypeError):
+            limit = 10
+
+        try:
+            ctx = get_auth_context(request)
+            results = self._svc().find_similar_trace_links(
+                trace_link_id=tracelink_id,
+                ctx=ctx,
+                limit=limit,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except PgVectorUnavailableError as exc:
+            return Response(
+                build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        serialized = [SimilarTraceLinkSerializer(r).data for r in results]
+        return Response(serialized)
 
     # -----------------------------------------------------------------------
     # Read-model graph queries (REQ-L2-TE-019) — recursive CTE endpoints.

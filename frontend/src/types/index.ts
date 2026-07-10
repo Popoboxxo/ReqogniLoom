@@ -124,6 +124,27 @@ export interface SimilarRequirement {
   similarity_score: number;
 }
 
+/** A single ICD similarity-search hit (REQ-L2-VS-004). */
+export interface SimilarIcd {
+  icd_id: UUID;
+  version_id: UUID;
+  name: string;
+  interface_type: string;
+  version_number: number;
+  /** Cosine similarity in [~-1, 1]; higher means more similar. */
+  similarity_score: number;
+}
+
+/** A single trace-link similarity-search hit (REQ-L2-VS-004). */
+export interface SimilarTraceLink {
+  id: UUID;
+  source_id: UUID;
+  target_id: UUID;
+  link_type: string;
+  /** Cosine similarity in [~-1, 1]; higher means more similar. */
+  similarity_score: number;
+}
+
 // ---------------------------------------------------------------------------
 // TestCase (mirrors TestCaseSerializer)
 // ---------------------------------------------------------------------------
