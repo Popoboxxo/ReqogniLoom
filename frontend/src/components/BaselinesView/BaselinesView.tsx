@@ -24,6 +24,7 @@ import { useTranslation } from "react-i18next";
 import {
   baselinesApi,
   type Baseline,
+  type BaselineDeltaEntry,
   type BaselineScope,
   type ScopePreview,
 } from "../../api/baselines";
@@ -82,6 +83,12 @@ export default function BaselinesView(): JSX.Element {
   const [scopePreviewError, setScopePreviewError] = useState<string | null>(
     null
   );
+  // REQ-L2-BL-012: full baseline detail (with captured entries + state) is
+  // fetched lazily when a baseline is selected. The list response only carries
+  // the header, so ``entries`` come from GET /baselines/{id}/.
+  const [detail, setDetail] = useState<Baseline | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) {
@@ -171,6 +178,38 @@ export default function BaselinesView(): JSX.Element {
       cancelled = true;
     };
   }, [showForm, activeWorkspace, formScope, formArtifactId]);
+
+  // REQ-L2-BL-012: load the full baseline detail (captured entries + state)
+  // whenever a baseline is selected and the create form is not open.
+  useEffect(() => {
+    if (showForm || !selectedId) {
+      setDetail(null);
+      setDetailError(null);
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    void (async () => {
+      try {
+        const d = await baselinesApi.get(selectedId);
+        if (!cancelled) setDetail(d);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const msg =
+            (err as { error?: { message?: string } })?.error?.message ??
+            String(err);
+          setDetailError(msg);
+          setDetail(null);
+        }
+      } finally {
+        if (!cancelled) setDetailLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, showForm]);
 
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
@@ -645,6 +684,13 @@ export default function BaselinesView(): JSX.Element {
               </dd>
             </dl>
 
+            {/* REQ-L2-BL-012: captured items with their full-state snapshot. */}
+            <BaselineEntriesSection
+              entries={detail?.entries ?? null}
+              loading={detailLoading}
+              error={detailError}
+            />
+
             <button
               type="button"
               data-testid="baseline-delete-btn"
@@ -700,4 +746,213 @@ const detailValueStyle: React.CSSProperties = {
   color: "var(--color-text)",
   fontSize: "var(--font-size-base)",
   wordBreak: "break-all",
+};
+
+// ---------------------------------------------------------------------------
+// REQ-L2-BL-012: captured entries section
+// ---------------------------------------------------------------------------
+
+interface BaselineEntriesSectionProps {
+  entries: BaselineDeltaEntry[] | null;
+  loading: boolean;
+  error: string | null;
+}
+
+/** Human-readable label for a captured entry, derived from its state. */
+function entryLabel(entry: BaselineDeltaEntry): string {
+  const s = entry.state;
+  if (s && typeof s === "object") {
+    const title = (s.title ?? s.term ?? s.name) as string | undefined;
+    if (title) return title;
+    if (entry.entity_type === "trace_link") {
+      const linkType = (s.link_type as string | undefined) ?? "trace";
+      return `${linkType} link`;
+    }
+  }
+  return `${entry.item_id.slice(0, 8)}…`;
+}
+
+/**
+ * Renders the list of captured items for a baseline. When an entry carries a
+ * full-state snapshot (REQ-L2-BL-012) its field values are shown; legacy
+ * entries with a null state degrade to the version number only.
+ */
+function BaselineEntriesSection({
+  entries,
+  loading,
+  error,
+}: BaselineEntriesSectionProps): JSX.Element {
+  const { t } = useTranslation();
+
+  const heading = (
+    <h3
+      style={{
+        fontSize: "var(--font-size-base)",
+        fontWeight: 700,
+        color: "var(--color-text)",
+        marginTop: 0,
+        marginBottom: "var(--space-3)",
+      }}
+    >
+      {t("baselines.capturedItems", "Captured items")}
+      {entries ? ` (${entries.length})` : ""}
+    </h3>
+  );
+
+  if (loading) {
+    return (
+      <section data-testid="baseline-entries" style={entriesSectionStyle}>
+        {heading}
+        <p style={mutedTextStyle}>{t("loading", "Loading…")}</p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section data-testid="baseline-entries" style={entriesSectionStyle}>
+        {heading}
+        <p role="alert" style={{ ...mutedTextStyle, color: "var(--color-danger)" }}>
+          {error}
+        </p>
+      </section>
+    );
+  }
+
+  if (!entries || entries.length === 0) {
+    return (
+      <section data-testid="baseline-entries" style={entriesSectionStyle}>
+        {heading}
+        <p data-testid="baseline-entries-empty" style={mutedTextStyle}>
+          {t("baselines.noCapturedItems", "No captured items.")}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section data-testid="baseline-entries" style={entriesSectionStyle}>
+      {heading}
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {entries.map((entry) => (
+          <li
+            key={entry.item_id}
+            data-testid="baseline-entry-item"
+            style={{
+              padding: "var(--space-3)",
+              marginBottom: "var(--space-2)",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
+                marginBottom: entry.state ? "var(--space-2)" : 0,
+              }}
+            >
+              <span
+                data-testid="baseline-entry-type"
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  fontWeight: 600,
+                  color: "var(--color-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {entry.entity_type}
+              </span>
+              <strong
+                style={{
+                  flex: 1,
+                  color: "var(--color-text)",
+                  fontSize: "var(--font-size-sm)",
+                }}
+              >
+                {entryLabel(entry)}
+              </strong>
+              <span
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                v{entry.version}
+              </span>
+            </div>
+
+            {entry.state ? (
+              <dl
+                data-testid="baseline-entry-state"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "160px 1fr",
+                  rowGap: "var(--space-1)",
+                  columnGap: "var(--space-3)",
+                  margin: 0,
+                }}
+              >
+                {Object.entries(entry.state).map(([key, value]) => (
+                  <div key={key} style={{ display: "contents" }}>
+                    <dt
+                      style={{
+                        fontSize: "var(--font-size-sm)",
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
+                      {key}
+                    </dt>
+                    <dd
+                      style={{
+                        margin: 0,
+                        fontSize: "var(--font-size-sm)",
+                        color: "var(--color-text)",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {formatStateValue(value)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p
+                data-testid="baseline-entry-legacy"
+                style={{ ...mutedTextStyle, margin: 0 }}
+              >
+                {t(
+                  "baselines.legacyEntry",
+                  "No detailed state available (legacy baseline)."
+                )}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Render a JSON state value as a compact string. */
+function formatStateValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "—" : value.map((v) => String(v)).join(", ");
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return String(value);
+}
+
+const entriesSectionStyle: React.CSSProperties = {
+  marginBottom: "var(--space-6)",
+};
+
+const mutedTextStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
 };

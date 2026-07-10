@@ -82,6 +82,7 @@ class DiffEngine:
         changed: list[ChangedItem] = []
 
         all_ids = index_a.keys() | index_b.keys()
+        changed_ids: list[str] = []
         for item_id in all_ids:
             in_a = item_id in index_a
             in_b = item_id in index_b
@@ -90,14 +91,26 @@ class DiffEngine:
             elif in_a and not in_b:
                 removed.append(item_id)
             elif in_a and in_b and index_a[item_id] != index_b[item_id]:
-                changed.append(
-                    ChangedItem(
-                        id=item_id,
-                        old_version=index_a[item_id],
-                        new_version=index_b[item_id],
-                    )
-                )
+                changed_ids.append(item_id)
             # Same item, same version → not in any category (unchanged)
+
+        # Step 5: Field-level diff for changed items (REQ-L2-BL-012).
+        # Load stored state for the changed ids from both baselines (two
+        # batched queries) and compute per-field changes where both sides have
+        # a snapshot; legacy null-state entries degrade to version-only diffs.
+        states_a = self._load_states(baseline_a_id, changed_ids)
+        states_b = self._load_states(baseline_b_id, changed_ids)
+        for item_id in changed_ids:
+            changed.append(
+                ChangedItem(
+                    id=item_id,
+                    old_version=index_a[item_id],
+                    new_version=index_b[item_id],
+                    field_changes=_field_diff(
+                        states_a.get(item_id), states_b.get(item_id)
+                    ),
+                )
+            )
 
         # Sort for deterministic output
         added.sort()
@@ -105,6 +118,24 @@ class DiffEngine:
         changed.sort(key=lambda c: c.id)
 
         return DiffResult(added=added, removed=removed, changed=changed)
+
+    def _load_states(
+        self, baseline_id: uuid.UUID, item_ids: list[str]
+    ) -> dict[str, Optional[dict]]:
+        """Load stored states for the given item ids, tolerating older stores.
+
+        Falls back to an empty mapping if the store predates ``load_states``
+        (keeps mocked/stub stores in tests working).
+        """
+        if not item_ids:
+            return {}
+        loader = getattr(self._store, "load_states", None)
+        if loader is None:
+            return {}
+        try:
+            return loader(baseline_id, item_ids)
+        except Exception:  # pragma: no cover - defensive
+            return {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -134,6 +165,33 @@ class DiffEngine:
 
         if a.scope != b.scope:
             raise ScopeMismatchError()
+
+
+def _field_diff(
+    state_a: Optional[dict],
+    state_b: Optional[dict],
+) -> Optional[dict]:
+    """Return a per-field diff of two captured states (REQ-L2-BL-012).
+
+    Args:
+        state_a: State snapshot from baseline A (older). None for legacy entries.
+        state_b: State snapshot from baseline B (newer). None for legacy entries.
+
+    Returns:
+        ``{field: {"old": <a>, "new": <b>}}`` for every field that differs, or
+        ``None`` when either side lacks a snapshot (caller falls back to the
+        version-number delta).
+    """
+    if not isinstance(state_a, dict) or not isinstance(state_b, dict):
+        return None
+
+    changes: dict[str, dict] = {}
+    for key in state_a.keys() | state_b.keys():
+        old_val = state_a.get(key)
+        new_val = state_b.get(key)
+        if old_val != new_val:
+            changes[key] = {"old": old_val, "new": new_val}
+    return changes
 
 
 # Module-level singleton — lazily initialized

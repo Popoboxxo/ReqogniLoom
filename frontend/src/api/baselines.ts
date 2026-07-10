@@ -13,6 +13,25 @@ import type { PaginatedResponse, UUID, ISODateTime } from "../types";
 
 export type BaselineScope = "document" | "project" | "global";
 
+/**
+ * REQ-L2-BL-012: full field-level snapshot of a captured entity at baseline
+ * creation time. Keys depend on ``artifact_type`` (requirement,
+ * architecture_element, stakeholder_need, test_case, trace_link,
+ * glossary_term, …). ``null`` for legacy entries created before the feature.
+ */
+export type BaselineEntryState = Record<string, unknown> | null;
+
+/**
+ * REQ-L2-BL-012: one captured item within a baseline. Present only on the
+ * detail response (GET /baselines/{id}/), not on the list response.
+ */
+export interface BaselineDeltaEntry {
+  item_id: string;
+  version: number;
+  entity_type: string;
+  state: BaselineEntryState;
+}
+
 export interface Baseline {
   id: UUID;
   workspace_id: UUID;
@@ -22,6 +41,8 @@ export interface Baseline {
   artifact_id: UUID | null;
   version: number;
   created_at: ISODateTime;
+  /** REQ-L2-BL-012: captured items — only on the detail response. */
+  entries?: BaselineDeltaEntry[];
 }
 
 export interface ScopePreviewItem {

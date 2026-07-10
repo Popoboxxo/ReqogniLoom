@@ -1677,8 +1677,14 @@ def _neighbor_to_dict(
 
 
 def _baseline_to_dict(bl: Any) -> dict[str, Any]:
-    """Convert BaselineSummary / BaselineDetail dataclass to dict."""
-    return {
+    """Convert BaselineSummary / BaselineDetail dataclass to dict.
+
+    ``BaselineDetail`` carries ``entries`` (delta index tuples, each with an
+    optional full-state ``state`` snapshot, REQ-L2-BL-012); ``BaselineSummary``
+    does not. Entries are included only when present so the list endpoint stays
+    lightweight.
+    """
+    result: dict[str, Any] = {
         "id": str(bl.baseline_id),
         "workspace_id": str(bl.workspace_id),
         "name": getattr(bl, "name", ""),
@@ -1688,6 +1694,18 @@ def _baseline_to_dict(bl: Any) -> dict[str, Any]:
         "version": getattr(bl, "version", 1),
         "created_at": bl.created_at,
     }
+    entries = getattr(bl, "entries", None)
+    if entries is not None:
+        result["entries"] = [
+            {
+                "item_id": e.item_id,
+                "version": e.version,
+                "entity_type": e.entity_type,
+                "state": getattr(e, "state", None),
+            }
+            for e in entries
+        ]
+    return result
 
 
 def _workspace_to_dict(ws: Any) -> dict[str, Any]:

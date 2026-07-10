@@ -60,6 +60,7 @@ class BaselineStore:
         delta_index: list[DeltaIndexTuple],
         metadata: BaselineMetadata,
         tenant_id: uuid.UUID,
+        states: Optional[dict[str, dict]] = None,
     ) -> uuid.UUID:
         """Persist a complete Baseline atomically.
 
@@ -71,6 +72,9 @@ class BaselineStore:
             delta_index: Ordered list of (item_id, version, entity_type) tuples.
             metadata: Baseline header fields (name, scope, workspace_id, …).
             tenant_id: Active tenant primary key for row-level isolation.
+            states: Optional ``{item_id: state_dict}`` full-state snapshots
+                captured at creation time (REQ-L2-BL-012). Missing keys persist
+                a null state (legacy-compatible).
 
         Returns:
             The UUID of the newly created BaselineSnapshot.
@@ -79,6 +83,8 @@ class BaselineStore:
             DuplicateBaselineNameError: If name already exists in workspace.
         """
         from django.db import transaction
+
+        states = states or {}
 
         created_at = metadata.created_at or datetime.now(tz=timezone.utc)
 
@@ -113,6 +119,7 @@ class BaselineStore:
                     item_id=t.item_id,
                     version=t.version,
                     entity_type=t.entity_type,
+                    state=states.get(t.item_id),
                 )
                 for t in delta_index
             ]
@@ -147,6 +154,30 @@ class BaselineStore:
             baseline_id=baseline_id
         ).values_list("item_id", "version", "entity_type")
         return list(entries)
+
+    def load_states(
+        self, baseline_id: uuid.UUID, item_ids: Optional[list[str]] = None
+    ) -> dict[str, Optional[dict]]:
+        """Return ``{item_id: state}`` for a baseline (REQ-L2-BL-012).
+
+        Used by DiffEngine to build field-level diffs. When ``item_ids`` is
+        given, only those entries are loaded (single batched query); otherwise
+        all entries of the baseline are returned. Legacy entries yield a
+        ``None`` state.
+
+        Args:
+            baseline_id: UUID of the target baseline.
+            item_ids: Optional subset of item ids to restrict the query.
+
+        Returns:
+            Mapping from item_id to its stored state dict (or ``None``).
+        """
+        qs = BaselineDeltaIndexEntry.objects.filter(baseline_id=baseline_id)
+        if item_ids is not None:
+            if not item_ids:
+                return {}
+            qs = qs.filter(item_id__in=item_ids)
+        return {row[0]: row[1] for row in qs.values_list("item_id", "state")}
 
     # ------------------------------------------------------------------
     # IF-BL-INT-004: lookup_item_version (called by VersionReconstructor)
@@ -206,10 +237,12 @@ class BaselineStore:
 
         raw_entries = BaselineDeltaIndexEntry.objects.filter(
             baseline_id=baseline_id
-        ).values_list("item_id", "version", "entity_type")
+        ).values_list("item_id", "version", "entity_type", "state")
 
         entries = [
-            DeltaIndexTuple(item_id=r[0], version=r[1], entity_type=r[2])
+            DeltaIndexTuple(
+                item_id=r[0], version=r[1], entity_type=r[2], state=r[3]
+            )
             for r in raw_entries
         ]
 

@@ -303,6 +303,12 @@ class DeltaIndexBuilder:
             document_id=document_id,
         )
 
+        # Step 3b: Full-state capture (REQ-L2-BL-012) — batched, no N+1.
+        # Failure here must not abort baseline creation: the delta index (the
+        # authoritative record) is always persisted; state is an additive
+        # enrichment. On error we fall back to null state (legacy behaviour).
+        states = self._capture_states(delta_index, tenant_id)
+
         # Step 4: Persist atomically via BaselineStore (IF-BL-INT-001)
         metadata = BaselineMetadata(
             workspace_id=workspace_id,
@@ -316,7 +322,28 @@ class DeltaIndexBuilder:
             delta_index=delta_index,
             metadata=metadata,
             tenant_id=tenant_id,
+            states=states,
         )
+
+    @staticmethod
+    def _capture_states(delta_index, tenant_id):
+        """Best-effort full-state capture (REQ-L2-BL-012).
+
+        Returns an empty mapping on any failure so baseline creation stays
+        robust — a missing state degrades to the legacy null-state behaviour.
+        """
+        try:
+            from baseline.state_capture import capture_states
+
+            return capture_states(delta_index, tenant_id)
+        except Exception:  # pragma: no cover - defensive
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Baseline state capture failed; persisting null state.",
+                exc_info=True,
+            )
+            return {}
 
     # ------------------------------------------------------------------
     # Internal helpers

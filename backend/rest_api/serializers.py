@@ -408,11 +408,29 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True)
 
 
+class BaselineDeltaEntrySerializer(serializers.Serializer):
+    """Serializer for a single captured Baseline delta entry (REQ-L2-BL-012).
+
+    ``state`` is the full field-level entity snapshot taken at baseline creation
+    time. It is ``null`` for legacy entries created before the snapshot feature
+    — the frontend degrades gracefully to the version number in that case.
+    """
+
+    item_id = serializers.CharField(read_only=True)
+    version = serializers.IntegerField(read_only=True)
+    entity_type = serializers.CharField(read_only=True)
+    state = serializers.JSONField(read_only=True, allow_null=True)
+
+
 class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for Baseline entity (REQ-L2-RA-001).
 
     ``name`` is optional on create; the view generates a timestamp-based
     default when the UI does not supply one.
+
+    ``entries`` is only present on the detail (retrieve/create) response — the
+    list endpoint returns summaries without entries (lazy loading). Each entry
+    may carry a full-state ``state`` snapshot (REQ-L2-BL-012).
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -425,6 +443,9 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
+    entries = BaselineDeltaEntrySerializer(
+        many=True, read_only=True, required=False
+    )
 
 
 class WorkflowDefinitionSerializer(
@@ -731,6 +752,7 @@ __all__ = [
     "TestCaseSerializer",
     "TraceLinkSerializer",
     "BaselineSerializer",
+    "BaselineDeltaEntrySerializer",
     "WorkflowDefinitionSerializer",
     "WorkspaceSerializer",
     "AdrSerializer",

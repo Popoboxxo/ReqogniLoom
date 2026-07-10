@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -24,12 +24,17 @@ from typing import Optional
 class DeltaIndexTuple:
     """A single (item_id, version, entity_type) entry in a Delta Index.
 
-    COMP-BL-001, REQ-L2-BL-001 — no payload stored here.
+    COMP-BL-001, REQ-L2-BL-001 — the index itself carries no payload; ``state``
+    is an optional full-state snapshot attached on retrieval (REQ-L2-BL-012).
+    It is ``None`` for legacy entries created before the snapshot feature and
+    is not populated during scope resolution (state capture happens in a
+    dedicated batch pass, see ``baseline.state_capture``).
     """
 
     item_id: str
     version: int
-    entity_type: str = "item"  # "item" | "icd" | "trace_link"
+    entity_type: str = "item"  # "item" | "icd" | "trace_link" | "glossary_term"
+    state: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -59,12 +64,19 @@ class BaselineMetadata:
 class ChangedItem:
     """Represents an item present in both baselines with a version change.
 
-    COMP-BL-002, REQ-L2-BL-003.
+    COMP-BL-002, REQ-L2-BL-003, REQ-L2-BL-012.
+
+    ``field_changes`` holds a per-field diff of the captured state, e.g.
+    ``{"title": {"old": "A", "new": "B"}}``. It is populated only when BOTH
+    baselines stored a full-state snapshot for the item (REQ-L2-BL-012). When
+    either side is a legacy entry with no state, it stays ``None`` and callers
+    fall back to the version-number delta.
     """
 
     id: str
     old_version: int
     new_version: int
+    field_changes: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -92,6 +104,7 @@ class DiffResult:
                     "id": c.id,
                     "old_version": c.old_version,
                     "new_version": c.new_version,
+                    "field_changes": c.field_changes,
                 }
                 for c in self.changed
             ],

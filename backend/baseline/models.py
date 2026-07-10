@@ -148,6 +148,20 @@ class BaselineDeltaIndexEntry(models.Model):
     # Discriminator for entity kind
     entity_type = models.CharField(max_length=32, default="item")
 
+    # Full entity state captured at Baseline creation time (REQ-L2-BL-012).
+    # Enables field-level reconstruction and diffing of a Baseline's contents
+    # without depending on the audit log. Nullable so that legacy entries
+    # created before this feature remain valid with a NULL state (no backfill,
+    # no data loss). New entries always populate it via BaselineStore.
+    state = models.JSONField(
+        null=True,
+        default=None,
+        help_text=(
+            "Full entity state at baseline creation time. Null for legacy "
+            "entries created before this feature."
+        ),
+    )
+
     class Meta:
         db_table = "bl_delta_index_entry"
         constraints = [
