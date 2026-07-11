@@ -467,6 +467,12 @@ class TestUpdateRequirement:
                 "application.requirement_service.Requirement.objects.filter",
                 return_value=mock_filter_qs,
             ),
+            # REQ-L2-VS-004 added a best-effort embedding refresh that also runs
+            # Requirement.objects.filter(...).update(...). Because this test uses
+            # a single shared mock for objects.filter, that second update would
+            # be counted here and break assert_called_once(). Neutralize the
+            # embedding path so the assertion isolates the version increment.
+            patch.object(svc, "_generate_and_store_embedding"),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
