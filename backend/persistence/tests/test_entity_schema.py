@@ -10,7 +10,7 @@ import uuid
 import time
 
 import pytest
-from django.db.models import ProtectedError
+from django.db.models import F, ProtectedError
 
 from baseline.models import BaselineSnapshot
 from persistence import models as m
@@ -77,13 +77,18 @@ def test_audit_modified_at_updates(tenant_a, workspace_a):
         old_version = artifact.version
         
         time.sleep(0.01) # Ensure modified_at has a chance to change
-        
+
         artifact.artifact_type = "y"
-        # The app should ideally use F('version') + 1 but for the sake of triggering update
-        # if the framework doesn't do it automatically, the test will correctly fail here
         artifact.save()
+        # REQ-L3-PL001-002 / AuditableModel contract: ``version`` is NOT
+        # auto-incremented by ``save()``; writers bump it explicitly via
+        # ``F('version') + 1`` inside their atomic block (COMP-PL-003, e.g.
+        # RequirementService.update_requirement). Adding auto-increment to
+        # save() would double-count for those writers, so we exercise the
+        # documented writer pattern here.
+        m.Artifact.objects.filter(pk=artifact.pk).update(version=F("version") + 1)
         artifact.refresh_from_db()
-        
+
     assert artifact.created_at == created_at
     assert artifact.modified_at > old_modified_at
     assert artifact.version == old_version + 1
