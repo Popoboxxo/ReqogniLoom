@@ -229,6 +229,75 @@ class MockLlmProvider(LlmCapabilityInterface):
             ],
         )
 
+    def complete(
+        self,
+        prompt: str,
+        *,
+        purpose: str = "",
+        context: Optional[dict] = None,
+    ) -> str:
+        """Return deterministic mock JSON matching the AI-derivation flows.
+
+        REQ-L2-AI-002: The mock never performs network I/O. The returned string
+        is always valid JSON whose shape matches the ``purpose`` the caller
+        declares, so :class:`AiDerivationService` can be exercised end-to-end
+        without a real provider.
+
+        Args:
+            prompt: The (already formatted) prompt text. Ignored by the mock.
+            purpose: One of ``need_to_sysreq``, ``sysreq_to_arch_assign`` or
+                ``sysreq_decompose_next_level``.
+            context: Optional structured hints. Recognised keys:
+                ``n`` (int) and ``arch_element_ids`` (list of id strings).
+
+        Returns:
+            A JSON-encoded string appropriate for the declared purpose.
+        """
+        import json
+
+        self._simulate()
+        ctx = context or {}
+
+        if purpose == "need_to_sysreq":
+            count = max(1, int(ctx.get("n", 3)))
+            return json.dumps(
+                [
+                    {
+                        "title": f"Derived system requirement {i + 1}",
+                        "description": "The system shall satisfy the stakeholder need.",
+                        "rationale": "Derived from the stakeholder need by the mock provider.",
+                    }
+                    for i in range(count)
+                ]
+            )
+
+        if purpose == "sysreq_to_arch_assign":
+            arch_ids = list(ctx.get("arch_element_ids", []))
+            # Suggest the first available element (empty list if none provided).
+            return json.dumps(arch_ids[:1])
+
+        if purpose == "sysreq_decompose_next_level":
+            arch_ids = list(ctx.get("arch_element_ids", []))
+            first = arch_ids[0] if arch_ids else None
+            return json.dumps(
+                [
+                    {
+                        "title": "Decomposed requirement 1",
+                        "description": "The subsystem shall refine the parent requirement.",
+                        "rationale": "Refinement produced by the mock provider.",
+                        "suggested_arch_element_id": first,
+                    },
+                    {
+                        "title": "Decomposed requirement 2",
+                        "description": "The subsystem shall cover a second concern.",
+                        "rationale": "Refinement produced by the mock provider.",
+                        "suggested_arch_element_id": None,
+                    },
+                ]
+            )
+
+        return json.dumps([])
+
 
 # ---------------------------------------------------------------------------
 # Stub provider base — common HTTP plumbing for real providers
@@ -262,6 +331,31 @@ class _BaseHttpProvider(LlmCapabilityInterface):
             f"{self.__class__.__name__}._request() not implemented. "
             "Install the provider SDK and override this method."
         )
+
+    def complete(
+        self,
+        prompt: str,
+        *,
+        purpose: str = "",
+        context: Optional[dict] = None,
+    ) -> str:
+        """Return the raw completion text for a free-form prompt (REQ-L2-AI-002).
+
+        Real providers derive the completion from ``self._chat`` (defined by the
+        concrete OpenAI/Ollama/Azure subclasses). ``purpose`` and ``context`` are
+        hints for deterministic mocks only and are ignored here.
+
+        Raises:
+            NotImplementedError: If the concrete provider does not expose a
+                ``_chat`` transport helper.
+        """
+        chat = getattr(self, "_chat", None)
+        if chat is None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not support free-form completion."
+            )
+        text, _token_usage = chat(prompt)
+        return text
 
 
 # ---------------------------------------------------------------------------

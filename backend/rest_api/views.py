@@ -326,6 +326,37 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
             logger.exception("StakeholderNeedViewSet.derive: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @action(detail=True, methods=["post"], url_path="derive-requirements")
+    def derive_requirements(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/needs/{pk}/derive-requirements/ — AI-derive requirement drafts.
+
+        REQ-L2-AI-001 / REQ-L2-AI-002: Explicit, user-triggered Draft/Accept flow.
+        Returns proposed system requirements without persisting anything. Body
+        may contain ``{"n": <int>}`` to control how many drafts to request.
+        """
+        lang = detect_lang(request)
+        try:
+            n = int(request.data.get("n", 3)) if isinstance(request.data, dict) else 3
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="'n' must be an integer"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            result = AiDerivationService().derive_requirements_from_need(
+                get_auth_context(request), pk, n=n
+            )
+            return Response(result, status=status.HTTP_200_OK)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("StakeholderNeedViewSet.derive_requirements: unhandled exception")
+            return _service_error_response(exc, lang)
+
     @action(detail=True, methods=["get"], url_path="diff")
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/needs/{pk}/diff/?from_version=0&to_version=2
@@ -635,6 +666,55 @@ class RequirementViewSet(BaseEntityViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=True, methods=["post"], url_path="suggest-architecture")
+    def suggest_architecture(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/requirements/{pk}/suggest-architecture/ — AI arch suggestion.
+
+        REQ-L2-AI-001 / REQ-L2-AI-002: Draft/Accept flow. Suggests architecture
+        elements that could satisfy this (still unassigned) requirement without
+        persisting anything. Returns 400 if the requirement is already assigned.
+        """
+        lang = detect_lang(request)
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            result = AiDerivationService().suggest_architecture_for_requirement(
+                get_auth_context(request), pk
+            )
+            return Response(result, status=status.HTTP_200_OK)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("RequirementViewSet.suggest_architecture: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    @action(detail=True, methods=["post"], url_path="decompose-next-level")
+    def decompose_next_level(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/requirements/{pk}/decompose-next-level/ — AI decomposition.
+
+        REQ-L2-AI-001 / REQ-L2-AI-002: Draft/Accept flow. Proposes next-level
+        requirement drafts (optionally tagged with a suggested architecture
+        element) without persisting anything. Returns 400 if the requirement has
+        no allocated architecture element.
+        """
+        lang = detect_lang(request)
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            result = AiDerivationService().decompose_requirement_next_level(
+                get_auth_context(request), pk
+            )
+            return Response(result, status=status.HTTP_200_OK)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("RequirementViewSet.decompose_next_level: unhandled exception")
+            return _service_error_response(exc, lang)
 
     @action(detail=True, methods=["get"], url_path="allocation")
     def allocation_coverage(self, request: Request, pk: str, **kwargs: Any) -> Response:
