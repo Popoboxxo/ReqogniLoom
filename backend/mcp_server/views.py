@@ -168,13 +168,14 @@ class McpSseTransportView(CorsMixin, View):
         import time
 
         def _sse_generator():
-            # Retrieve the API key from the initial GET request headers
-            api_key = ""
-            auth = request.META.get("HTTP_AUTHORIZATION", "")
-            if auth.startswith("Bearer "):
-                api_key = auth[7:]
-            else:
-                api_key = request.META.get("HTTP_X_API_KEY", "")
+            # Retrieve the API key from the initial GET request headers or query
+            api_key = request.GET.get("api_key", "")
+            if not api_key:
+                auth = request.META.get("HTTP_AUTHORIZATION", "")
+                if auth.startswith("Bearer "):
+                    api_key = auth[7:]
+                else:
+                    api_key = request.META.get("HTTP_X_API_KEY", "")
 
             endpoint = "/api/v1/mcp/"
             if api_key:
