@@ -1068,6 +1068,104 @@ class LlmSettings(TenantScopedModel):
         return f"LlmSettings(provider={self.provider})"
 
 
+# ---------------------------------------------------------------------------
+# Prompt templates (REQ-L2-PT-001) — tenant-scoped singleton
+# ---------------------------------------------------------------------------
+
+# Read-only default prompt content. Kept at module level so the data migration
+# can seed identical values without importing model behaviour.
+DEFAULT_NEED_TO_SYSREQ = (
+    "Given the following stakeholder need, generate {n} system-level "
+    "requirements. Each requirement must be specific, measurable, and testable. "
+    "Return a JSON array of objects with fields: title (string), description "
+    "(string), rationale (string).\n\nStakeholder Need:\nTitle: {need_title}\n"
+    "Description: {need_description}"
+)
+
+DEFAULT_SYSREQ_TO_ARCH_ASSIGN = (
+    "Given the following system requirement and the available architecture "
+    "elements, suggest which architecture elements should be responsible for "
+    "implementing it. Return a JSON array of architecture element IDs from the "
+    "provided list.\n\nSystem Requirement:\n{req_title}: {req_description}\n\n"
+    "Available Architecture Elements:\n{arch_elements_json}"
+)
+
+DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL = (
+    "Decompose the following system requirement into more detailed requirements "
+    "for the next architecture level. Requirements may be assigned to different "
+    "architecture elements. Return a JSON array of objects with fields: title "
+    "(string), description (string), rationale (string), "
+    "suggested_arch_element_id (string or null).\n\nParent Requirement:\n"
+    "{req_title}: {req_description}\n\nArchitecture Elements at this level:\n"
+    "{arch_elements_json}"
+)
+
+# Canonical slot registry — maps slot name → default content.
+PROMPT_TEMPLATE_DEFAULTS: dict[str, str] = {
+    "need_to_sysreq": DEFAULT_NEED_TO_SYSREQ,
+    "sysreq_to_arch_assign": DEFAULT_SYSREQ_TO_ARCH_ASSIGN,
+    "sysreq_decompose_next_level": DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL,
+}
+
+
+class PromptTemplate(TenantScopedModel):
+    """Per-tenant editable LLM prompt templates (REQ-L2-PT-001).
+
+    Singleton per tenant (unique constraint on ``tenant``). Each field is a
+    prompt "slot" whose factory default is stored in ``PROMPT_TEMPLATE_DEFAULTS``.
+    ``reset_slot`` / ``reset_all`` restore the default content for a slot.
+    """
+
+    #: Read-only default constants (mirrors module-level defaults for callers
+    #: that hold a model instance).
+    DEFAULTS = PROMPT_TEMPLATE_DEFAULTS
+
+    need_to_sysreq = models.TextField(
+        default=DEFAULT_NEED_TO_SYSREQ,
+        help_text="Prompt: stakeholder need -> system requirements.",
+    )
+    sysreq_to_arch_assign = models.TextField(
+        default=DEFAULT_SYSREQ_TO_ARCH_ASSIGN,
+        help_text="Prompt: system requirement -> architecture assignment.",
+    )
+    sysreq_decompose_next_level = models.TextField(
+        default=DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL,
+        help_text="Prompt: decompose system requirement to the next level.",
+    )
+
+    class Meta:
+        db_table = "pl_prompt_template"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"], name="uq_prompt_template_tenant"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"PromptTemplate(tenant={self.tenant_id})"
+
+    def get_slot(self, slot_name: str) -> str:
+        """Return the current content for ``slot_name``.
+
+        Raises:
+            KeyError: If ``slot_name`` is not a known prompt slot.
+        """
+        if slot_name not in PROMPT_TEMPLATE_DEFAULTS:
+            raise KeyError(slot_name)
+        return getattr(self, slot_name)
+
+    def reset_slot(self, slot_name: str) -> None:
+        """Restore ``slot_name`` to its factory default (not saved)."""
+        if slot_name not in PROMPT_TEMPLATE_DEFAULTS:
+            raise KeyError(slot_name)
+        setattr(self, slot_name, PROMPT_TEMPLATE_DEFAULTS[slot_name])
+
+    def reset_all(self) -> None:
+        """Restore every slot to its factory default (not saved)."""
+        for slot_name, default in PROMPT_TEMPLATE_DEFAULTS.items():
+            setattr(self, slot_name, default)
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
