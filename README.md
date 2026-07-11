@@ -934,19 +934,21 @@ Detailed requirement and architecture specifications: [`docs/se/`](docs/se/)
 | **v1.1 — Session 2026-06-27** | 2026-06-27 | 1,130 pytest / 111 E2E tests; 9 L1 REQs decomposed (SE-Phases 1-6); 6 leaf REQs in Pipeline B (3 implemented); 3 continue REQs for v2.0 (ReqIF, Comments, RAG) |
 | **v1.0 — Greenfield** | 2026-06-25 | 1,042 pytest tests; 16 L2 subsystems; 12 L2 architectures terminal; full SE-Kaskade L0→L2 |
 
-## AI-Driven E2E Test Execution
+## AI-Readable E2E Test Output
 
-ReqFlow utilizes Playwright for end-to-end testing, and provides a specialized workflow designed for **autonomous AI agents** (like agent-meta). Because LLM context windows are limited, standard test outputs are too noisy. We provide an AI-optimized test runner that generates minimal, highly readable logs.
+ReqFlow utilizes Playwright for end-to-end testing and provides two scripts that produce compact, AI-readable output. Because LLM context windows are limited, standard test outputs are too noisy. These scripts generate minimal, highly readable logs that a developer can paste into an AI assistant for failure analysis.
 
-### How the AI executes tests
-The AI uses its terminal execution capability (e.g. `run_command`) to run E2E tests and directly consume the output:
+**These scripts are always triggered manually by the developer — never run autonomously by AI agents.**
+
+### Available scripts
 1. **Single Test / Module Execution:**
-   The AI runs `npm run test:e2e:ai -- tests/<name>.spec.ts`. 
-   This utilizes the `--reporter=line` or `--reporter=list` flag. It provides a compact pass/fail list.
+   `npm run test:e2e:ai -- tests/<name>.spec.ts`
+   Uses the `--reporter=line` flag and provides a compact pass/fail list.
 2. **Failure Analysis:**
-   Playwright automatically appends the DOM-Snapshot and stacktrace to the terminal output for failed tests. The AI reads this directly from its tool-response context, identifies the broken selector or state, and can propose or implement a fix immediately.
+   Playwright appends the DOM snapshot and stacktrace to the output for failed tests. The developer can hand this output to an AI assistant to identify a broken selector or state and propose a fix.
 3. **Mass-Execution (Whole Suite):**
-   When verifying the entire system, the AI runs `npm run test:e2e:ai-mass`. This uses the `dot` reporter and pipes only failures to a summary file, ensuring the AI is only notified about regressions without exceeding context limits.
+   `npm run test:e2e:ai-mass`
+   Uses the `dot` reporter for a condensed summary, surfacing only regressions without flooding the output.
 
 ## License
 
