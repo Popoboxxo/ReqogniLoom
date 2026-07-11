@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import uuid
 from typing import Any
 
 from django.core.management.base import BaseCommand
@@ -32,6 +33,14 @@ from presets.models import WorkspacePresetConfig
 _DEMO_TENANT_SLUG = "demo"
 _DEMO_TENANT_NAME = "Demo Tenant"
 _DEMO_WORKSPACE_NAME = "Demo Workspace"
+# Stable, deterministic id for the demo workspace so external clients (notably
+# the Playwright E2E suite in e2e/helpers/auth.ts, which hard-codes
+# SEEDED_WORKSPACE_ID) always target the exact workspace this command seeds.
+# Without a fixed id, get_or_create assigns a random UUID on every fresh
+# database, which makes list endpoints return an empty (still-valid) result
+# while write/create and preset-gated endpoints 404 because the referenced
+# workspace does not exist.
+_DEMO_WORKSPACE_ID = uuid.UUID("6d20f0b9-d2cf-46a0-b916-79f8b417210f")
 _DEMO_ADMIN_USERNAME = "admin"
 _DEMO_ADMIN_EMAIL = "admin@demo.local"
 _DEFAULT_ADMIN_PASSWORD = "admin12345"
@@ -111,7 +120,7 @@ class Command(BaseCommand):
         workspace, _created = Workspace.objects.get_or_create(
             tenant=tenant,
             name=_DEMO_WORKSPACE_NAME,
-            defaults={"preset": {"name": "extended"}},
+            defaults={"id": _DEMO_WORKSPACE_ID, "preset": {"name": "extended"}},
         )
         # Ensure WorkspacePresetConfig matches the workspace.preset JSONField so
         # FeatureGateService uses the correct tier instead of defaulting to minimal.
