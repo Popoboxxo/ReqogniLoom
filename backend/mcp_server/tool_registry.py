@@ -224,6 +224,7 @@ class ToolRegistry:
         # delegates role assignment to AuthorizationService
         # (COMP-AT-002) so the RBAC matrix remains the single
         # source of truth.
+        from mcp_server.tools.ai_derivation import AiDerivationToolGroup
         from mcp_server.tools.generic import GenericCrudToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from application.adr_service import AdrService
@@ -250,6 +251,7 @@ class ToolRegistry:
             "issue": GenericCrudToolGroup("issue", IssueService),
             "glossary": GenericCrudToolGroup("glossary", GlossaryService),
             "prompt_template": PromptTemplateToolGroup(),
+            "ai_derivation": AiDerivationToolGroup(),
         })
 
     def list_tools(self, api_key: str) -> list[Dict[str, Any]]:
