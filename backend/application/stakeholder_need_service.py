@@ -90,12 +90,6 @@ class StakeholderNeedService(ServiceBase):
         except Workspace.DoesNotExist:
             raise NotFoundError(f"Workspace {workspace_id} not found.")
 
-        # Pre-flight check for change reason
-        if self.preset_policy_service:
-            if self.preset_policy_service.is_change_reason_required(
-                workspace, "stakeholder_need", "create", None
-            ):
-                raise ValidationError("change_reason is required by preset policy.")
 
         artifact = Artifact.objects.create(
             workspace=workspace,
@@ -161,10 +155,9 @@ class StakeholderNeedService(ServiceBase):
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 
         if self.preset_policy_service:
-            if self.preset_policy_service.is_change_reason_required(
-                need.artifact.workspace, "stakeholder_need", "update", change_reason
-            ):
-                raise ValidationError("change_reason is required by preset policy.")
+            if self.preset_policy_service.is_change_reason_required(str(need.artifact.workspace_id)):
+                if not change_reason:
+                    raise ValidationError("change_reason is required by preset policy.")
 
         changes = {}
         if title is not _UNSET:
@@ -216,10 +209,9 @@ class StakeholderNeedService(ServiceBase):
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 
         if self.preset_policy_service:
-            if self.preset_policy_service.is_change_reason_required(
-                need.artifact.workspace, "stakeholder_need", "delete", change_reason
-            ):
-                raise ValidationError("change_reason is required by preset policy.")
+            if self.preset_policy_service.is_change_reason_required(str(need.artifact.workspace_id)):
+                if not change_reason:
+                    raise ValidationError("change_reason is required by preset policy.")
 
         workspace_id = need.artifact.workspace_id
         # Artifact cascades to StakeholderNeed
