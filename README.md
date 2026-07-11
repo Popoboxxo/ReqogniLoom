@@ -170,6 +170,24 @@ All containers should show `Up (healthy)` or `Up`.
 
 ReqFlow has **1,400+ tests** across 4 layers. Run them based on what you need to verify.
 
+### Quick Reference (Makefile)
+
+The root `Makefile` provides single-command targets that run against the **running dev stack**
+(`docker-compose up -d` first). This is the primary entry point for the normal development loop.
+
+```bash
+make test            # Backend (pytest) + Frontend (vitest) — the standard dev check. NO E2E.
+make test-backend    # Backend unit + integration tests only (pytest)
+make test-frontend   # Frontend unit tests only (vitest)
+make test-e2e        # Playwright E2E — SEPARATE, MANUAL ONLY (see warning below)
+```
+
+> **`make test` never runs E2E.** Playwright is intentionally excluded from `make test` (not even
+> as a dependency). Unit + integration tests are fast and safe to run on every change; E2E is slow,
+> resource-intensive, and must be triggered explicitly. See [End-to-End Tests](#end-to-end-tests-playwright).
+
+The sections below document each layer manually (without Docker/Make) for fine-grained control.
+
 ### Prerequisites
 
 ```bash
@@ -241,9 +259,19 @@ npm test                     # run tests (Vitest)
 
 ### End-to-End Tests (Playwright)
 
+> **⚠️ Separate, opt-in test layer.** E2E tests are **not** part of `make test` and never run
+> automatically. They drive a real browser against the full running stack, take minutes to complete,
+> and consume significant CPU/RAM. Run them **only** when you deliberately want to verify UI flows —
+> e.g. before a release or after touching UI-critical code.
+
 Wir nutzen Playwright im Frontend für robuste UI-Tests und zur Bereitstellung eines MCP-Servers (Model Context Protocol), damit LLMs die UI testen können. Die UI ist mit über 400 `data-testid`-Attributen extrem LLM-freundlich aufgebaut.
 
+**Prerequisite:** the full stack must be running (`docker-compose up -d`).
+
 ```bash
+make test-e2e                # full suite via Makefile (installs deps + runs Playwright)
+
+# Or manually:
 cd e2e
 npm install                  # first time only
 npx playwright test          # full suite (~3 min)
