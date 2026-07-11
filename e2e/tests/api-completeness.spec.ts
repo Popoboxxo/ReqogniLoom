@@ -1,11 +1,21 @@
 // REQ-L0-012 — REST API Completeness: full CRUD for all core entities
 // Pure API tests — no browser required
 import { test, expect } from '@playwright/test';
-import { getAuthToken, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { getAuthToken, setWorkspacePreset, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
 test.describe('[REQ-L0-012] REST API Completeness', () => {
+  // The REQ-L0-002 preset switcher test mutates the seeded workspace's preset
+  // (extended → minimal → extended) and its cleanup is not reliable across
+  // test isolation. Baseline endpoints are preset-gated and return 404 in the
+  // minimal preset (presets/registry.py: minimal.features.baselines = False),
+  // so GET /api/v1/baselines/ only returns 200 when baselines are enabled.
+  // Pin the preset to extended so this suite has a deterministic starting
+  // state regardless of file order (see helpers/auth.ts setWorkspacePreset).
+  test.beforeEach(async () => {
+    await setWorkspacePreset('extended');
+  });
   // -------------------------------------------------------------------------
   // Requirements CRUD
   // -------------------------------------------------------------------------
