@@ -75,6 +75,20 @@ vi.mock("../api/testcases", () => ({
   },
 }));
 
+// Stub the shared ArtifactInspector so the RightSidebar shell is countable.
+// Preserves the rest of the barrel (VersionPanel, types, ...) via importActual
+// and only replaces RightSidebar with a marker. This lets the test assert that
+// the Inspector is rendered exactly ONCE at container level (REQ-TBD:
+// remove duplicate ArtifactInspector rendering in editor components).
+vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
+  const actual =
+    await importActual<typeof import("../components/shared/ArtifactInspector")>();
+  return {
+    ...actual,
+    RightSidebar: () => <div data-testid="artifact-inspector" />,
+  };
+});
+
 // Must import AFTER vi.mock
 import RequirementEditors from "../components/RequirementEditors/RequirementEditors";
 import { requirementsApi } from "../api/requirements";
@@ -174,5 +188,26 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
       expect(divider).toBeInTheDocument();
       expect(divider).toHaveStyle("cursor: col-resize");
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // REQ-TBD — ArtifactInspector must render exactly ONCE
+  //
+  // Regression guard: RequirementEditors (container) AND RequirementForm
+  // (detail form) both used to render the shared RightSidebar, producing two
+  // Inspector bars side by side in the requirements mask. The Inspector must
+  // live at the container level only.
+  // -------------------------------------------------------------------------
+
+  it("renders the ArtifactInspector exactly once — no duplicate RightSidebar (REQ-TBD)", async () => {
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    // Wait until the detail form has loaded the requirement (title field).
+    await waitFor(() => {
+      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+    });
+
+    // Exactly one Inspector instance — not zero (missing), not two (duplicate).
+    expect(screen.getAllByTestId("artifact-inspector")).toHaveLength(1);
   });
 });

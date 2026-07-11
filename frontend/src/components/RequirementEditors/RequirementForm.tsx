@@ -19,7 +19,7 @@
  * IF-RF-EXT-OUT-001 → PATCH /api/v1/requirements/
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEntityType } from '../../context/EntityTypeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -38,8 +38,6 @@ import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { VersionBadge } from '../shared/VersionBadge';
-import { RightSidebar } from '../shared/ArtifactInspector';
-import type { VersionRef } from '../shared/ArtifactInspector';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
 
 /**
@@ -98,20 +96,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
-
-  // Feed the ArtifactInspector with the current version
-  // (REQ-L2-RF-035). The actual /versions/ list is fetched inside
-  // VersionPanel; we only hand it the current row to anchor the
-  // diff baseline (UI standards §4.1).
-  const currentVersion: VersionRef = useMemo(
-    () => ({
-      version: requirement.version,
-      label: `v${requirement.version}`,
-      createdAt: requirement.updated_at ?? requirement.created_at,
-      baselineIds: [],
-    }),
-    [requirement.version, requirement.created_at, requirement.updated_at]
-  );
 
   /**
    * Validate form data before saving.
@@ -499,15 +483,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         )}
 
       </div>
-
-      {/* ArtifactInspector RightSidebar (REQ-L1-095).
-          Replaces the inline TraceLinkPanel with a unified shell that
-          renders VersionPanel + DiffPanel + TracePanel. */}
-      <RightSidebar
-        kind="requirement"
-        artifactId={requirement.id}
-        currentVersion={currentVersion}
-      />
     </div>
   );
 };
