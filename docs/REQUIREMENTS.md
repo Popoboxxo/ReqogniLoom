@@ -130,3 +130,58 @@ einen definierten Fallback.
 
 **Traceability:** REQ-L2-VS-001 (Semantische Vektorsuche), REQ-L2-VS-002 (Embedding-Pipeline), REQ-L2-PL-005 (PerformanceOptimizationLayer)
 **Rationale:** REQ-L2-VS-001 und VS-002 definieren das Systemverhalten; REQ-L2-VS-004 konkretisiert die Datenmodell- und Infrastrukturebene, ohne die höherstufige Spezifikation zu ersetzen.
+
+---
+
+### REQ-L2-AI-001: AI Derivation Service — Draft/Accept-Infrastruktur
+
+Alle KI-gestützten Ableitungsflows MÜSSEN als ApplicationService-Methoden implementiert, über REST und MCP exponiert werden; Ergebnisse sind stets Entwürfe und werden nur nach expliziter User-Bestätigung persistiert — automatische Übernahme ist verboten.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3a — Infrastruktur und Draft/Accept-Pattern.
+
+---
+
+### REQ-L2-AI-002: AI Derivation Flows — Konkrete Ableitungsschritte
+
+Das System MUSS drei nutzerseitig auslösbare KI-Flows bereitstellen: (1) StakeholderNeed → n SystemRequirement-Entwürfe, (2) SystemRequirement → Vorschlag zur ArchitectureElement-Zuordnung, (3) SystemRequirement (mit Architektur) → Dekomposition auf Level n+1, wobei Ergebnisse mehrere ArchitectureElements umspannen können.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3a — spezifische Flow-Implementierungen; setzt REQ-L2-AI-001 voraus.
+
+---
+
+### REQ-L2-TE-020: ADR ↔ ArchitectureElement TraceLink
+
+Das System MUSS einen TraceLink-Typ zwischen ADR und ArchitectureElement unterstützen (Erweiterung der bestehenden 8 Typen oder neuer Typ); UI-Integration in AdrEditor und ArchitectureEditor; REST und MCP exponiert.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** should
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3b.
+
+---
+
+### REQ-L2-LLM-001: LlmSettings — Mandanten-konfigurierbarer LLM-Provider
+
+Das System MUSS ein Singleton-Modell `LlmSettings` pro Mandant bereitstellen (Felder: provider, base_url, api_key verschlüsselt/write-only, model als Freitext) mit Fallback auf Umgebungsvariablen; REST-Zugriff nur für Admin-Rolle; api_key niemals in GET-Antworten; Admin-UI im Settings-Bereich.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3c.
+
+---
+
+### REQ-L2-PT-001: PromptTemplate — Admin-editierbare Prompt-Slots
+
+Das System MUSS ein Modell `PromptTemplate` mit den Slots `need_to_sysreq`, `sysreq_to_arch_assign` und `sysreq_decompose_next_level` bereitstellen; jeder Slot hat einen unveränderlichen Default-Prompt (Seed-Migration), kann vom Admin überschrieben und auf Default zurückgesetzt werden; Derivation-Flows (REQ-L2-AI-002) verwenden diese Slots; REST und MCP exponiert; Admin-UI im Settings-Bereich.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3d.
