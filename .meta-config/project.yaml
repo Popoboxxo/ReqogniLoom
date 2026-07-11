@@ -233,6 +233,9 @@ variables:
 
     - NICHT DRF-View direkt auf persistence.models zugreifen (immer via application/services)
 
+    - NIEMALS Playwright E2E-Tests automatisch ausführen (npx playwright test, npm run
+    e2e, npm run test:e2e) — nur auf explizite User-Anforderung; kein DoD-Gate
+
     '
   CODE_QUALITY_RULES: '- TypeScript strict mode (tsconfig.json: strict: true, noImplicitAny)
 
