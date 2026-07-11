@@ -730,7 +730,15 @@ class TestDiffResultSerialization:
         assert set(d.keys()) == {"added", "removed", "changed"}
         assert d["added"] == ["a", "b"]
         assert d["removed"] == ["c"]
-        assert d["changed"][0] == {"id": "d", "old_version": 1, "new_version": 2}
+        # REQ-L2-BL-012 added a per-field ``field_changes`` key to each changed
+        # item (field-level diff of the captured state). It is None here because
+        # no state snapshot was attached to this ChangedItem.
+        assert d["changed"][0] == {
+            "id": "d",
+            "old_version": 1,
+            "new_version": 2,
+            "field_changes": None,
+        }
 
 
 # ---------------------------------------------------------------------------
