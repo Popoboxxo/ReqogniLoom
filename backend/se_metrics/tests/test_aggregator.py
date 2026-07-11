@@ -91,6 +91,22 @@ class TestParseTimeframeDays:
 class TestMetricsAggregator:
     """MetricsAggregator integration tests with mocked sources."""
 
+    @pytest.fixture(autouse=True)
+    def _tenant_context(self):
+        """Establish a tenant context for each test.
+
+        ``MetricsAggregator.compute()`` calls ``TenantContext.get_tenant()``
+        to propagate the active tenant to its worker threads (REQ-L3-PL002-002).
+        In production the AuthAndTenancy layer sets this before the request
+        reaches the aggregator; these tests must play that caller role. All
+        DB-touching sources (``_fetch_*``) are mocked, so any tenant id works.
+        """
+        TenantContext.set_tenant(uuid.uuid4())
+        try:
+            yield
+        finally:
+            TenantContext.clear_tenant()
+
     def _make_aggregator(self):
         return MetricsAggregator()
 
