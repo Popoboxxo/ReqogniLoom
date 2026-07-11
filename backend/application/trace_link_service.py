@@ -95,12 +95,6 @@ class TraceLinkService(ServiceBase):
         arch = ArchitectureElement.objects.filter(id=entity_id).first()
         if arch is not None:
             return UUID(str(arch.artifact_id))
-            
-        # 4. Diagram -> Artifact
-        from persistence.models import Diagram
-        diag = Diagram.objects.filter(id=entity_id).first()
-        if diag is not None:
-            return UUID(str(diag.artifact_id))
 
         raise NotFoundError(f"Entity {entity_id} not found")
 
