@@ -18,17 +18,15 @@ import json
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
-import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
-from auth_tenancy.models import ROLE_ADMIN, ROLE_VIEWER, UserRole
+from auth_tenancy.models import ROLE_ADMIN, ROLE_VIEWER
 from auth_tenancy.services import AuthorizationService
 
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
-    ValidationError,
 )
 
 from mcp_server.protocol_handler import ProtocolHandler

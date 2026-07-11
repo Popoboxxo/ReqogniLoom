@@ -120,7 +120,9 @@ class JsonRpcValidator:
             return "INVALID_REQUEST"
         if not isinstance(frame.get("method"), str) or not frame["method"]:
             return "INVALID_REQUEST"
-        if "id" not in frame:
+        # notifications don't have an id, but for our simple implementation we accept them
+        # if method is notifications/initialized, id is not required
+        if frame["method"] != "notifications/initialized" and "id" not in frame:
             return "INVALID_REQUEST"
         return None
 
@@ -350,11 +352,35 @@ class ProtocolHandler:
             adapter.write_response(response)
             return response
 
-        tool_name: str = frame["method"]
+        method: str = frame["method"]
         params: Dict[str, Any] = frame.get("params") or {}
+        
+        # 1. Handle MCP lifecycle methods without API key validation (ping, initialize)
+        if method == "ping":
+            response = ErrorFormatter.format_jsonrpc_result(request_id, {})
+            adapter.write_response(response)
+            return response
+            
+        if method == "initialize":
+            response = ErrorFormatter.format_jsonrpc_result(request_id, {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "ReqFlow",
+                    "version": "1.0.0"
+                }
+            })
+            adapter.write_response(response)
+            return response
+            
+        if method == "notifications/initialized":
+            # Just ignore and return empty (or don't return anything)
+            # Since our adapter write_response might expect something, we return dummy
+            return {}
 
         # API-key extraction (ADR-L3-MC001-03 / REQ-L2-MC-006)
-        # Try headers first, fall back to params
         effective_headers: Dict[str, str] = {}
         if headers:
             effective_headers = headers
@@ -371,14 +397,36 @@ class ProtocolHandler:
             adapter.write_response(response)
             return response
 
-        # Strip internal api_key from params before dispatching to tool group
+        # Strip internal api_key from params before dispatching
         clean_params = {k: v for k, v in params.items() if k != "api_key"}
+
+        # 2. Handle standard MCP methods (tools/list, tools/call)
+        if method == "tools/list":
+            try:
+                tools_list = self._registry.list_tools(api_key=api_key)
+                response = ErrorFormatter.format_jsonrpc_result(request_id, {"tools": tools_list})
+            except Exception as exc:
+                logger.exception("Error listing tools")
+                response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR", str(exc))
+            adapter.write_response(response)
+            return response
+
+        tool_name = method
+        tool_args = clean_params
+
+        if method == "tools/call":
+            tool_name = clean_params.get("name", "")
+            tool_args = clean_params.get("arguments", {})
+            if not tool_name:
+                response = ErrorFormatter.format_jsonrpc_error(request_id, "INVALID_REQUEST", "Missing tool name in tools/call")
+                adapter.write_response(response)
+                return response
 
         # Dispatch to ToolRegistry (IF-MC-INT-001)
         try:
             result: ToolResult = self._registry.dispatch_request(
                 tool_name=tool_name,
-                params=clean_params,
+                params=tool_args,
                 api_key=api_key,
             )
         except Exception as exc:
@@ -391,7 +439,18 @@ class ProtocolHandler:
 
         # Serialise ToolResult (IF-MC-EXT-OUT-001)
         if result.success:
-            response = ErrorFormatter.format_jsonrpc_result(request_id, result.data)
+            # Wrap the result in MCP standard content blocks if it was a standard call
+            if method == "tools/call":
+                import json
+                text_content = result.data if isinstance(result.data, str) else json.dumps(result.data, indent=2)
+                response_data = {
+                    "content": [
+                        {"type": "text", "text": text_content}
+                    ]
+                }
+            else:
+                response_data = result.data
+            response = ErrorFormatter.format_jsonrpc_result(request_id, response_data)
         else:
             response = ErrorFormatter.format_jsonrpc_error(
                 request_id,

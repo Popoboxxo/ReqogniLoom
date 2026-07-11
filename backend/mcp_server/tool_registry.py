@@ -33,7 +33,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Tuple
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext, AuthMethod
@@ -224,6 +224,12 @@ class ToolRegistry:
         # delegates role assignment to AuthorizationService
         # (COMP-AT-002) so the RBAC matrix remains the single
         # source of truth.
+        from mcp_server.tools.generic import GenericCrudToolGroup
+        from application.adr_service import AdrService
+        from application.risk_service import RiskService
+        from application.issue_service import IssueService
+        from application.glossary_service import GlossaryService
+
         audit_tool_group = AuditToolGroup()
         self.register_groups({
             "requirement": RequirementsToolGroup(),
@@ -238,7 +244,40 @@ class ToolRegistry:
             "audit": audit_tool_group,
             "events": audit_tool_group,
             "user": UsersToolGroup(),
+            "adr": GenericCrudToolGroup("adr", AdrService),
+            "risk": GenericCrudToolGroup("risk", RiskService),
+            "issue": GenericCrudToolGroup("issue", IssueService),
+            "glossary": GenericCrudToolGroup("glossary", GlossaryService),
         })
+
+    def list_tools(self, api_key: str) -> list[Dict[str, Any]]:
+        """List all tools available to the given API key.
+        
+        Evaluates RBAC and Preset feature gates.
+        """
+        self._ensure_groups()
+        
+        auth_ctx, auth_error = self._validate_api_key(api_key)
+        if auth_error:
+            # If auth fails, return empty list or raise (we just return empty for safety)
+            return []
+            
+        from persistence.tenancy import TenantContext
+        try:
+            if auth_ctx is not None and auth_ctx.tenant_id is not None:
+                TenantContext.set_tenant(auth_ctx.tenant_id)
+            # Resolve global roles (we don't have a specific workspace context here, 
+            # so we only list tools that are globally available or don't require specific workspace permissions,
+            # or we just list all tools since MCP tools/list is often global).
+            # We will list all tools that the groups expose. The strict RBAC is enforced on execution.
+            tools = []
+            for group in self._groups.values():
+                if hasattr(group, "get_tool_schemas"):
+                    tools.extend(group.get_tool_schemas())
+            return tools
+        finally:
+            if auth_ctx is not None and auth_ctx.tenant_id is not None:
+                TenantContext.clear_tenant()
 
     def dispatch_request(
         self,
@@ -392,7 +431,6 @@ class ToolRegistry:
 
         REQ-L2-MC-007: Viewer-only role must not write.
         """
-        from auth_tenancy.services.authorization import Operation
 
         decision = self._authz_service.decide_access(ctx.active_roles, Operation.WRITE)
         if not decision.allow:

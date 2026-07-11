@@ -9,7 +9,6 @@ from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
-    optional_uuid,
     require_param,
     require_uuid,
 )
@@ -84,7 +83,6 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         change_reason = params.get("change_reason", "Update via MCP")
         
         # Use Unset magic value if not provided
-        from application.stakeholder_need_service import _UNSET
         
         kwargs = {}
         for f in ["title", "description", "category", "status", "moscow_priority"]:

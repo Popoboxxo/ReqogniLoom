@@ -27,14 +27,10 @@ import pytest
 from auth_tenancy.context import AuthContext, AuthMethod
 
 from application.base import (
-    LlmNotConfiguredError,
     NotFoundError,
     PermissionDeniedError,
-    ValidationError,
 )
-from application.services import VALID_LINK_TYPES
 
-from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.requirements import RequirementsToolGroup
 from mcp_server.tools.architecture import ArchitectureToolGroup
 from mcp_server.tools.tests import TestToolGroup

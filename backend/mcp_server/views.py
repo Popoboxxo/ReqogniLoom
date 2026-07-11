@@ -101,7 +101,7 @@ class McpHttpTransportView(CorsMixin, View):
                 body=request.body,
                 headers=headers,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("Unhandled exception in McpHttpTransportView")
             error_body = {
                 "jsonrpc": "2.0",
@@ -155,81 +155,86 @@ class McpHttpTransportView(CorsMixin, View):
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class McpSseTransportView(CorsMixin, View):
-    """SSE transport endpoint — serves a single MCP response as a SSE event.
-
-    Clients connecting to this endpoint POST a JSON-RPC request; the response
-    is sent as a ``data:`` SSE event. Long-lived SSE streaming would require
-    an async server (out of scope for synchronous Django).
+class McpMessagesView(CorsMixin, View):
+    """MCP standard HTTP POST endpoint for SSE sessions.
+    
+    Accepts JSON-RPC POST requests, returns 202 Accepted, and pushes the
+    result to the SSE stream via Redis.
     """
-
-    def get(self, request: HttpRequest, *args, **kwargs) -> StreamingHttpResponse:
-        """Standard MCP SSE connection establishment."""
-        import time
-
-        def _sse_generator():
-            # Retrieve the API key from the initial GET request headers or query
-            api_key = request.GET.get("api_key", "")
-            if not api_key:
-                auth = request.META.get("HTTP_AUTHORIZATION", "")
-                if auth.startswith("Bearer "):
-                    api_key = auth[7:]
-                else:
-                    api_key = request.META.get("HTTP_X_API_KEY", "")
-
-            endpoint = "/api/v1/mcp/"
-            if api_key:
-                endpoint += f"?api_key={api_key}"
-
-            # Standard MCP client expects an 'endpoint' event with the POST URL
-            yield "event: endpoint\n"
-            yield f"data: {endpoint}\n\n"
+    def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        session_id = request.GET.get("session_id")
+        if not session_id:
+            return HttpResponse("Missing session_id", status=400)
             
-            # Keep the connection open for the client
-            try:
-                while True:
-                    time.sleep(15)
-                    yield ": keepalive\n\n"
-            except GeneratorExit:
-                pass
-
-        response = StreamingHttpResponse(
-            _sse_generator(),
-            content_type="text/event-stream",
-            status=200,
-        )
-        return self._add_cors_headers(request, response)
-
-    def post(self, request: HttpRequest, *args, **kwargs) -> StreamingHttpResponse:
-        """Handle a single MCP tool call over SSE."""
         handler = _get_handler()
         headers = _extract_django_headers(request)
+        
+        # In a production system, this should be a Celery task.
+        # For simplicity and to avoid Celery dependencies here, we use a thread.
+        import threading
+        from mcp_server.sse_pubsub import publish_mcp_message
+        
+        def _process():
+            try:
+                response_frame = handler.handle_http_request(
+                    body=request.body,
+                    headers=headers,
+                )
+                publish_mcp_message(session_id, response_frame)
+            except Exception:
+                logger.exception("Error processing MCP message background task")
+                publish_mcp_message(session_id, {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"error_code": "INTERNAL_ERROR", "message": "Internal server error."}
+                })
+                
+        threading.Thread(target=_process).start()
+        return HttpResponse(status=202)
 
-        try:
-            response_frame = handler.handle_http_request(
-                body=request.body,
-                headers=headers,
-            )
-        except Exception as exc:
-            logger.exception("Unhandled exception in McpSseTransportView")
-            response_frame = {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"error_code": "INTERNAL_ERROR", "message": "Internal server error."},
-            }
 
-        def _sse_generator():
-            yield f"data: {json.dumps(response_frame)}\n\n"
+@method_decorator(csrf_exempt, name="dispatch")
+class McpSseTransportView(CorsMixin, View):
+    """SSE transport endpoint — serves a continuous stream for MCP."""
+
+    async def get(self, request: HttpRequest, *args, **kwargs) -> StreamingHttpResponse:
+        """Standard MCP SSE connection establishment."""
+        import uuid
+        from mcp_server.sse_pubsub import async_sse_generator
+        
+        session_id = str(uuid.uuid4())
+        
+        # Retrieve the API key from the initial GET request headers or query
+        api_key = request.GET.get("api_key", "")
+        if not api_key:
+            auth = request.META.get("HTTP_AUTHORIZATION", "")
+            if auth.startswith("Bearer "):
+                api_key = auth[7:]
+            else:
+                api_key = request.META.get("HTTP_X_API_KEY", "")
+
+        # The POST endpoint for this session
+        endpoint = f"/mcp/messages/?session_id={session_id}"
+        if api_key:
+            endpoint += f"&api_key={api_key}"
 
         response = StreamingHttpResponse(
-            _sse_generator(),
+            async_sse_generator(session_id, endpoint),
             content_type="text/event-stream",
             status=200,
         )
-        return self._add_cors_headers(request, response)
-
+        # CorsMixin is synchronous, so we add headers manually here
+        origin = request.headers.get("Origin", "*")
+        response["Access-Control-Allow-Origin"] = origin
+        response["Access-Control-Allow-Credentials"] = "true"
+        response["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
+        response["Cache-Control"] = "no-cache"
+        response["Connection"] = "keep-alive"
+        return response
 
 __all__ = [
     "McpHttpTransportView",
     "McpSseTransportView",
+    "McpMessagesView",
 ]

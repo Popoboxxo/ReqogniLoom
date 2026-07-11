@@ -72,22 +72,6 @@ from audit.services import query
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 
 # MCP e2e fixtures (auto-imported via conftest_e2e.py).
-from mcp_server.tests.conftest_e2e import (
-    admin_client,
-    e2e_api_key_admin,
-    e2e_preset,
-    e2e_tenant,
-    e2e_user_admin,
-    e2e_user_member,
-    e2e_user_viewer,
-    e2e_userrole_admin,
-    e2e_userrole_member,
-    e2e_userrole_viewer,
-    e2e_api_key_viewer,
-    e2e_workspace,
-    mock_llm_configured,
-    viewer_client,
-)
 
 # JSON-RPC helpers.
 from mcp_server.tests.helpers import (

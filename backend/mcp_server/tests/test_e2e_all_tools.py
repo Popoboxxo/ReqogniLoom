@@ -43,7 +43,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from django.test import Client
@@ -57,26 +57,16 @@ from persistence.models import (
     Tenant,
     TestCase,
     TestRun,
-    TestRunResult,
-    TraceLink,
     User,
     Workspace,
 )
 
 # Auth & tenancy — to seed UserRoles, ApiKeys and read role constants.
 from auth_tenancy.models import (
-    ApiKey,
     ROLE_ADMIN,
-    ROLE_EDITOR,
-    ROLE_VIEWER,
     UserRole,
     ItemPermission,
     ITEM_PERMISSION_READ,
-    ITEM_PERMISSION_WRITE,
-)
-from auth_tenancy.services.authentication import (
-    generate_api_key_plaintext,
-    hash_api_key,
 )
 
 # Application models — DLQ + audit entry types live outside the
@@ -88,31 +78,10 @@ from audit.models import AuditEntry
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 
 # MCP e2e fixtures (auto-imported via conftest_e2e.py).
-from mcp_server.tests.conftest_e2e import (
-    admin_client,
-    invalid_client,
-    member_client,
-    viewer_client,
-    e2e_api_key_admin,
-    e2e_api_key_invalid,
-    e2e_api_key_member,
-    e2e_api_key_viewer,
-    e2e_preset,
-    e2e_tenant,
-    e2e_user_admin,
-    e2e_user_member,
-    e2e_user_viewer,
-    e2e_userrole_admin,
-    e2e_userrole_member,
-    e2e_userrole_viewer,
-    e2e_workspace,
-    mock_llm_configured,
-)
 
 # JSON-RPC helpers — see mcp_server/tests/helpers.py.
 from mcp_server.tests.helpers import (
     extract_error_code,
-    extract_error_message,
     extract_result,
     make_jsonrpc_frame,
     post_mcp,

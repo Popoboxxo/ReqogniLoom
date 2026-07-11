@@ -17,18 +17,14 @@ Covers:
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
 from unittest.mock import MagicMock
 
-import pytest
 
 from mcp_server.protocol_handler import (
-    ERROR_CODES,
     ErrorFormatter,
     HttpTransportAdapter,
     JsonRpcValidator,
     ProtocolHandler,
-    StdioTransportAdapter,
     ToolResult,
 )
 

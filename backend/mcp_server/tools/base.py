@@ -13,7 +13,7 @@ Provides:
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -118,6 +118,32 @@ class BaseToolGroup(ABC):
 
     # Subclasses must define: {"tool.name": "_method_name"}
     _TOOL_MAP: Dict[str, str] = {}
+    
+    # Subclasses can define schema mapping: {"tool.name": {...schema dict...}}
+    _TOOL_SCHEMAS: List[Dict[str, Any]] = []
+
+    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+        """Return the MCP JSON schemas for all tools in this group."""
+        if self._TOOL_SCHEMAS:
+            return self._TOOL_SCHEMAS
+        
+        # Fallback for groups without explicit schemas
+        return [
+            {
+                "name": name,
+                "description": f"Execute {name}",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "kwargs": {
+                            "type": "object",
+                            "description": "Additional parameters for the tool."
+                        }
+                    }
+                }
+            }
+            for name in self._TOOL_MAP.keys()
+        ]
 
     def execute_tool(
         self,

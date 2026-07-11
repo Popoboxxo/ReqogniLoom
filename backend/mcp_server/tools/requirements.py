@@ -32,7 +32,6 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict, Optional
-from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 
@@ -47,7 +46,6 @@ from application.services import (
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
-    ParameterError,
     optional_uuid,
     require_param,
     require_uuid,
@@ -93,6 +91,92 @@ class RequirementsToolGroup(BaseToolGroup):
         "requirement.validate": "_handle_validate",
         "requirement.derive": "_handle_derive",
     }
+    
+    _TOOL_SCHEMAS = [
+        {
+            "name": "requirement.get",
+            "description": "Fetch a single requirement by ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the requirement."}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "requirement.query",
+            "description": "List requirements with optional workspace filter.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."}
+                }
+            }
+        },
+        {
+            "name": "requirement.create",
+            "description": "Create a new requirement.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "category": {"type": "string"}
+                },
+                "required": ["workspace_id", "title"]
+            }
+        },
+        {
+            "name": "requirement.update",
+            "description": "Update an existing requirement.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "category": {"type": "string"},
+                    "status": {"type": "string"}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "requirement.decompose",
+            "description": "AI decomposition of a requirement.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "requirement.validate",
+            "description": "AI validation of a requirement.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "requirement.derive",
+            "description": "Derive a requirement.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"}
+                },
+                "required": ["id"]
+            }
+        }
+    ]
 
     def __init__(self, service: Optional[RequirementService] = None) -> None:
         self._service = service or RequirementService()

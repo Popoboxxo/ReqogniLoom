@@ -16,27 +16,21 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
-import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
 
 from application.base import (
-    NotFoundError,
     PermissionDeniedError,
-    ValidationError,
 )
 
 from auth_tenancy.models import (
     ITEM_PERMISSION_READ,
     ITEM_PERMISSION_WRITE,
-    ItemPermission,
 )
 from auth_tenancy.services import ItemPermissionService
 from auth_tenancy.services.item_permission import PermissionDecision
 
-from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.permissions import PermissionsToolGroup
-from mcp_server.tools.base import ParameterError
 
 
 # ---------------------------------------------------------------------------
@@ -553,7 +547,6 @@ class TestPermissionsToolGroupWiring:
 def _build_registry(*, roles=("admin",), service: MagicMock | None = None):
     """Build a ToolRegistry with mocked auth + the real PermissionsToolGroup."""
     from auth_tenancy.context import IdentityClaims
-    from auth_tenancy.errors import AuthenticationFailed
     from mcp_server.tool_registry import ToolRegistry
 
     auth_svc = MagicMock()
@@ -580,7 +573,6 @@ def _build_registry(*, roles=("admin",), service: MagicMock | None = None):
 
 def _post(handler, method, params, *, request_id: int = 1, api_key: str = VALID_API_KEY):
     import json
-    from mcp_server.protocol_handler import ProtocolHandler
 
     body = json.dumps({
         "jsonrpc": "2.0",

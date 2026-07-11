@@ -34,7 +34,6 @@ from datetime import datetime, timezone
 from unittest.mock import ANY, MagicMock, patch
 from uuid import UUID
 
-import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed

@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
-import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
 
@@ -32,7 +31,6 @@ from application.base import (
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.admin import AdminToolGroup
-from mcp_server.tools.base import ParameterError
 
 
 # ---------------------------------------------------------------------------

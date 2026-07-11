@@ -26,7 +26,6 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
-import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
@@ -34,7 +33,6 @@ from auth_tenancy.errors import AuthenticationFailed
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
-    ValidationError,
 )
 from application.dlq_service import _DlqSnapshot
 

@@ -29,22 +29,6 @@ import pytest
 from django.test import Client
 
 from auth_tenancy.models import UserRole
-from mcp_server.tests.conftest_e2e import (
-    admin_client,
-    e2e_api_key_admin,
-    e2e_preset,
-    e2e_tenant,
-    e2e_user_admin,
-    e2e_user_member,
-    e2e_user_viewer,
-    e2e_userrole_admin,
-    e2e_userrole_member,
-    e2e_userrole_viewer,
-    e2e_api_key_viewer,
-    e2e_workspace,
-    mock_llm_configured,
-    viewer_client,
-)
 from mcp_server.tests.helpers import make_jsonrpc_request
 from persistence.models import Workspace
 

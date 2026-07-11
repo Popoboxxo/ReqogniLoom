@@ -13,7 +13,7 @@ Reference:
 """
 from django.urls import path
 
-from mcp_server.views import McpHttpTransportView, McpSseTransportView
+from mcp_server.views import McpHttpTransportView, McpSseTransportView, McpMessagesView
 
 urlpatterns = [
     # HTTP transport (IF-MC-EXT-IN-001 over HTTP)
@@ -21,4 +21,6 @@ urlpatterns = [
     # SSE transport (IF-MC-EXT-IN-001 over SSE)
     path("sse/", McpSseTransportView.as_view(), name="mcp-sse"),
     path("sse", McpSseTransportView.as_view(), name="mcp-sse-no-slash"),
+    # SSE message endpoint
+    path("messages/", McpMessagesView.as_view(), name="mcp-messages"),
 ]

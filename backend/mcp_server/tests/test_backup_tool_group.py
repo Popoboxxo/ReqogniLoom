@@ -23,7 +23,6 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
-import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
@@ -33,7 +32,6 @@ from admin_ops.services import BackupNotFoundError
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
-    ValidationError,
 )
 
 from mcp_server.protocol_handler import ProtocolHandler
