@@ -26,6 +26,7 @@ Note on ResilienceOrchestrator (IF-L1-050, ADR-LA-04):
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 import warnings
@@ -38,6 +39,8 @@ from llm_adapter.interface import (
     LlmDecompositionResult,
     LlmResult,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Error codes (shared across modules)
@@ -72,14 +75,15 @@ class ProviderConfig:
     timeout: int = 30
     api_key: str = ""
     api_base_url: Optional[str] = None
+    model_name: str = ""
     azure_deployment: Optional[str] = None
     azure_api_version: Optional[str] = None
     mock_delay: float = 0.0
     mock_error_rate: float = 0.0
 
 
-def _read_config() -> ProviderConfig:
-    """Read ProviderConfig from environment variables.
+def _read_env_config() -> ProviderConfig:
+    """Read ProviderConfig purely from environment variables.
 
     Returns:
         Populated ProviderConfig instance.
@@ -89,11 +93,54 @@ def _read_config() -> ProviderConfig:
         timeout=int(os.environ.get("LLM_TIMEOUT", "30")),
         api_key=os.environ.get("LLM_API_KEY", ""),
         api_base_url=os.environ.get("LLM_API_BASE_URL") or None,
+        model_name=os.environ.get("LLM_MODEL_NAME", ""),
         azure_deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT") or None,
         azure_api_version=os.environ.get("AZURE_OPENAI_API_VERSION") or None,
         mock_delay=float(os.environ.get("MOCK_LLM_DELAY", "0.0")),
         mock_error_rate=float(os.environ.get("MOCK_LLM_ERROR_RATE", "0.0")),
     )
+
+
+def _apply_db_settings(cfg: ProviderConfig) -> ProviderConfig:
+    """Overlay persisted LlmSettings (REQ-L2-LLM-001) onto an env-based config.
+
+    Behaviour:
+      - If a LlmSettings row exists for the active tenant, its ``provider`` wins
+        (it always has a value — default ``mock``).
+      - ``api_key`` / ``base_url`` / ``model_name`` override the env value only
+        when the stored value is non-empty; otherwise the env fallback stays.
+      - Any failure (no active tenant context, DB unavailable, no row) is
+        swallowed and the untouched env config is returned — the environment
+        remains the source of truth when settings are not configured.
+    """
+    try:
+        from persistence.models import LlmSettings
+
+        row = LlmSettings.objects.first()
+        if row is None:
+            return cfg
+
+        cfg.provider_name = row.provider or cfg.provider_name
+        if row.api_key:
+            cfg.api_key = row.api_key
+        if row.base_url:
+            cfg.api_base_url = row.base_url
+        if row.model_name:
+            cfg.model_name = row.model_name
+        return cfg
+    except Exception:  # noqa: BLE001 — settings are best-effort; env is the fallback.
+        logger.debug("LlmSettings lookup skipped; falling back to environment.")
+        return cfg
+
+
+def _read_config() -> ProviderConfig:
+    """Resolve the effective ProviderConfig (DB settings over env fallback).
+
+    REQ-L2-LLM-001: when a LlmSettings row exists for the active tenant its
+    values are used; otherwise the configuration is read from environment
+    variables (the pre-existing behaviour).
+    """
+    return _apply_db_settings(_read_env_config())
 
 
 # ---------------------------------------------------------------------------

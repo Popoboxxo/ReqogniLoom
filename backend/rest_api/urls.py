@@ -47,6 +47,7 @@ from rest_api.diagram_views import DiagramViewSet
 from rest_api.icd_views import IcdViewSet
 from rest_api.metrics_views import MetricsViewSet
 from rest_api.preference_views import UserPreferenceView
+from rest_api.settings_views import LlmSettingsView
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
@@ -150,6 +151,12 @@ urlpatterns = [
         "users/me/preferences/",
         UserPreferenceView.as_view(),
         name="user-preferences",
+    ),
+    # LLM configuration (REQ-L2-LLM-001) — tenant-scoped singleton, admin-only.
+    path(
+        "llm-settings/",
+        LlmSettingsView.as_view(),
+        name="llm-settings",
     ),
     # Canvas strokes (REQ-L1-056, IF-L1-058/060) — diagram sub-resource.
     path(

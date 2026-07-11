@@ -22,6 +22,7 @@ import { PermissionsSection } from "./PermissionsSection";
 import { BackupRestoreSection } from "./BackupRestoreSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
 import { AiPromptsSection } from "./AiPromptsSection";
+import { LlmSettingsSection } from "./LlmSettingsSection";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -401,8 +402,11 @@ export default function WorkspaceSettings(): JSX.Element {
         <BackupRestoreSection />
       )}
 
+      {/* LLM Provider configuration (REQ-L2-LLM-001) — admin only */}
+      <LlmSettingsSection />
+
       {/* Feature-flagged: AI Configuration */}
-      <AiPromptsSection 
+      <AiPromptsSection
         workspace={activeWorkspace} 
         onSavePrompts={async (prompts) => {
           setSaveError(null);

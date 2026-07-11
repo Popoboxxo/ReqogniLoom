@@ -1004,6 +1004,70 @@ class GlossaryTermVersion(TenantScopedModel):
         unique_together = (("term_fk", "term_version"),)
 
 
+# ---------------------------------------------------------------------------
+# LLM configuration (REQ-L2-LLM-001) — tenant-scoped singleton
+# ---------------------------------------------------------------------------
+
+
+class LlmProvider(models.TextChoices):
+    """Supported LLM providers (REQ-L2-LLM-001).
+
+    ``mock`` is the safe default and requires no external credentials.
+    """
+
+    ANTHROPIC = "anthropic", "Anthropic"
+    OPENAI = "openai", "OpenAI"
+    OLLAMA = "ollama", "Ollama"
+    MOCK = "mock", "Mock"
+
+
+class LlmSettings(TenantScopedModel):
+    """Per-tenant LLM provider configuration (REQ-L2-LLM-001).
+
+    Singleton per tenant: a unique constraint on ``tenant`` guarantees at most
+    one row. The row is created lazily via ``get_or_create`` in the REST layer
+    and seeded for existing tenants by the accompanying data migration.
+
+    ``api_key`` holds the raw provider secret. It is never exposed through the
+    REST serializer (write-only); readers only learn whether a key is set.
+    """
+
+    provider = models.CharField(
+        max_length=32,
+        choices=LlmProvider.choices,
+        default=LlmProvider.MOCK,
+        help_text="Active LLM provider. Defaults to the credential-free mock.",
+    )
+    base_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Optional base URL override (e.g. for a local Ollama server).",
+    )
+    api_key = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Provider API key. Never returned via the REST API.",
+    )
+    model_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Free-text model identifier (e.g. 'claude-3-opus-20240229').",
+    )
+
+    class Meta:
+        db_table = "pl_llm_settings"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"], name="uq_llm_settings_tenant"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"LlmSettings(provider={self.provider})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -1032,4 +1096,6 @@ __all__ = [
     "TestRunResult",
     "GlossaryTerm",
     "GlossaryTermVersion",
+    "LlmProvider",
+    "LlmSettings",
 ]
