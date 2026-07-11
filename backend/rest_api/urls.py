@@ -47,7 +47,11 @@ from rest_api.diagram_views import DiagramViewSet
 from rest_api.icd_views import IcdViewSet
 from rest_api.metrics_views import MetricsViewSet
 from rest_api.preference_views import UserPreferenceView
-from rest_api.settings_views import LlmSettingsView
+from rest_api.settings_views import (
+    LlmSettingsView,
+    PromptTemplateResetView,
+    PromptTemplateView,
+)
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
@@ -157,6 +161,18 @@ urlpatterns = [
         "llm-settings/",
         LlmSettingsView.as_view(),
         name="llm-settings",
+    ),
+    # LLM prompt templates (REQ-L2-PT-001) — tenant-scoped singleton, admin-only.
+    # reset/ must precede the singleton route so it is not shadowed.
+    path(
+        "prompt-templates/reset/",
+        PromptTemplateResetView.as_view(),
+        name="prompt-templates-reset",
+    ),
+    path(
+        "prompt-templates/",
+        PromptTemplateView.as_view(),
+        name="prompt-templates",
     ),
     # Canvas strokes (REQ-L1-056, IF-L1-058/060) — diagram sub-resource.
     path(

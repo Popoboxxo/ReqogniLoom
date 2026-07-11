@@ -23,6 +23,7 @@ import { BackupRestoreSection } from "./BackupRestoreSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
 import { AiPromptsSection } from "./AiPromptsSection";
 import { LlmSettingsSection } from "./LlmSettingsSection";
+import { PromptTemplateSection } from "./PromptTemplateSection";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -404,6 +405,9 @@ export default function WorkspaceSettings(): JSX.Element {
 
       {/* LLM Provider configuration (REQ-L2-LLM-001) — admin only */}
       <LlmSettingsSection />
+
+      {/* AI Prompt Templates (REQ-L2-PT-001) — admin only */}
+      <PromptTemplateSection />
 
       {/* Feature-flagged: AI Configuration */}
       <AiPromptsSection

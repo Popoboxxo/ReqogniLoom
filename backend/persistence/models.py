@@ -1196,4 +1196,9 @@ __all__ = [
     "GlossaryTermVersion",
     "LlmProvider",
     "LlmSettings",
+    "PromptTemplate",
+    "PROMPT_TEMPLATE_DEFAULTS",
+    "DEFAULT_NEED_TO_SYSREQ",
+    "DEFAULT_SYSREQ_TO_ARCH_ASSIGN",
+    "DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL",
 ]

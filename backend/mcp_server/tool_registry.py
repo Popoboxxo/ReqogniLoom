@@ -225,6 +225,7 @@ class ToolRegistry:
         # (COMP-AT-002) so the RBAC matrix remains the single
         # source of truth.
         from mcp_server.tools.generic import GenericCrudToolGroup
+        from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -248,6 +249,7 @@ class ToolRegistry:
             "risk": GenericCrudToolGroup("risk", RiskService),
             "issue": GenericCrudToolGroup("issue", IssueService),
             "glossary": GenericCrudToolGroup("glossary", GlossaryService),
+            "prompt_template": PromptTemplateToolGroup(),
         })
 
     def list_tools(self, api_key: str) -> list[Dict[str, Any]]:
