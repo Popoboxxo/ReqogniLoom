@@ -63,6 +63,7 @@ class TestValidLinkTypes:
         "copy-of",
         "allocated-to",  # REQ-L1-042
         "uses-term",
+        "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
     }
 
     def test_all_ten_types_present(self):
@@ -476,8 +477,39 @@ class TestResolveArtifactId:
         arch_filter.assert_called_once_with(id=arch_id)
         assert result == artifact_id
 
+    def test_adr_id_resolves_to_artifact_id(self):
+        """REQ-L2-TE-020: An ADR ID resolves to its backing Artifact ID."""
+        svc = TraceLinkService()
+        adr_id = uuid.uuid4()
+        artifact_id = uuid.uuid4()
+        mock_adr = MagicMock()
+        mock_adr.artifact_id = artifact_id
+
+        with (
+            patch(
+                "persistence.models.Artifact.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.Requirement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.Adr.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_adr)),
+            ) as adr_filter,
+        ):
+            result = svc._resolve_artifact_id(adr_id)
+
+        adr_filter.assert_called_once_with(id=adr_id)
+        assert result == artifact_id
+
     def test_unknown_id_raises_not_found_error(self):
-        """An ID matching none of the three tables raises NotFoundError."""
+        """An ID matching none of the tables raises NotFoundError."""
         svc = TraceLinkService()
         unknown_id = uuid.uuid4()
 
@@ -492,6 +524,10 @@ class TestResolveArtifactId:
             ),
             patch(
                 "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.Adr.objects.filter",
                 return_value=MagicMock(first=MagicMock(return_value=None)),
             ),
         ):

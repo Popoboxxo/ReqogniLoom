@@ -35,9 +35,6 @@ from application.models import Adr, DomainEventOutbox
 
 logger = logging.getLogger(__name__)
 
-# Supported TraceLink types for ADRs (REQ-L3-ADR-005)
-ADR_LINK_TYPES = frozenset({"addresses", "supersedes", "related-to"})
-
 
 # ---------------------------------------------------------------------------
 # DTOs
@@ -161,7 +158,27 @@ class AdrService(ServiceBase):
 
         AdrValidator.validate_create(title=title, description=description, status=status)
 
+        # REQ-L2-TE-020: create the backing Artifact first so the ADR can
+        # participate in the Artifact-to-Artifact TraceLink graph. Mirrors
+        # RequirementService.create_requirement's Artifact pattern.
+        from persistence.models import Artifact, Tenant, Workspace
+
+        tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
+        if tenant is None:
+            raise NotFoundError(f"Tenant {ctx.tenant_id} not found")
+
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="Adr",
+        )
+
         adr = Adr.objects.create(
+            artifact=artifact,
             workspace_id=workspace_id,
             tenant_id=ctx.tenant_id,
             title=title,
@@ -282,8 +299,12 @@ class AdrService(ServiceBase):
             raise NotFoundError(f"ADR {adr_id} not found")
 
         workspace_id = adr.workspace_id
+        # REQ-L2-TE-020: capture the backing Artifact before deleting the ADR.
+        artifact = adr.artifact
 
-        # Cascade TraceLink deletion (IF-AS-INT-002)
+        # Cascade TraceLink deletion (IF-AS-INT-002). Resolves adr_id to its
+        # backing artifact_id internally, so it must run before the ADR/Artifact
+        # rows are removed.
         try:
             self._trace_link_service.cascade_delete_trace_links(adr_id, ctx)
         except Exception:
@@ -293,6 +314,12 @@ class AdrService(ServiceBase):
             )
 
         adr.delete()
+
+        # Remove the backing Artifact (no reverse cascade from ADR -> Artifact).
+        # Any remaining Artifact-scoped TraceLinks are cleaned up by the DB-level
+        # CASCADE on pl_tracelink.source/target.
+        if artifact is not None:
+            artifact.delete()
 
         self._audit(ctx=ctx, operation="delete", entity_type="Adr", entity_id=adr_id)
         self._emit_event(
@@ -433,46 +460,17 @@ class AdrService(ServiceBase):
         return adr
 
     # ---------- TraceLink management (REQ-L3-ADR-005, IF-AS-INT-002) ----------
-
-    def create_tracelink(
-        self,
-        adr_id: UUID,
-        target_id: UUID,
-        link_type: str,
-        ctx: AuthContext,
-    ):
-        """Create a TraceLink from an ADR to another artifact (REQ-L3-ADR-005).
-
-        Args:
-            adr_id: UUID of the source ADR.
-            target_id: UUID of the target artifact.
-            link_type: One of {"addresses", "supersedes", "related-to"}.
-            ctx: Resolved AuthContext.
-
-        Returns:
-            Created TraceLink ORM instance.
-        """
-        self._set_tenant_context(ctx)
-        if link_type not in ADR_LINK_TYPES:
-            raise ValidationError(
-                f"Invalid ADR link type '{link_type}'; "
-                f"must be one of {sorted(ADR_LINK_TYPES)}"
-            )
-
-        adr = Adr.objects.filter(id=adr_id, tenant_id=ctx.tenant_id).first()
-        if adr is None:
-            raise NotFoundError(f"ADR {adr_id} not found")
-
-        return self._trace_link_service.create_trace_link(
-            source_id=adr_id,
-            target_id=target_id,
-            link_type=link_type,
-            ctx=ctx,
-        )
+    #
+    # ADR TraceLinks are created through the generic TraceLinkService.create_trace_link
+    # flow (source=ADR id, target=ArchitectureElement id, link_type="decides").
+    # TraceLinkService._resolve_artifact_id maps the ADR id to its backing
+    # Artifact id (REQ-L2-TE-020). The former AdrService.create_tracelink /
+    # ADR_LINK_TYPES helper was dead code: its link types ("addresses",
+    # "supersedes", "related-to") were never members of VALID_LINK_TYPES, so
+    # every call failed downstream.
 
 
 __all__ = [
     "AdrService",
     "AdrDTO",
-    "ADR_LINK_TYPES",
 ]

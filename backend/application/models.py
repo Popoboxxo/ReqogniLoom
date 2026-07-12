@@ -201,6 +201,20 @@ class Adr(models.Model):
         SUPERSEDED = "Superseded"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # REQ-L2-TE-020: OneToOne backing Artifact so ADRs participate in the
+    # TraceLink graph (which stores Artifact-to-Artifact edges). Nullable to
+    # keep the schema migration additive and backward-compatible with ADR rows
+    # created before this field existed; new ADRs always receive an Artifact
+    # via AdrService.create_adr. on_delete=CASCADE means deleting the backing
+    # Artifact also deletes this ADR (mirrors Requirement/ArchitectureElement).
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="adr",
+        null=True,
+        blank=True,
+        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+    )
     workspace_id = models.UUIDField(db_index=True)
     tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=200)

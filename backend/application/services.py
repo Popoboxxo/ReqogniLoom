@@ -214,7 +214,6 @@ __all__ = [
     # Step-3 services (COMP-AS-013..015)
     "AdrService",
     "AdrDTO",
-    "ADR_LINK_TYPES",
     "RiskService",
     "RiskDTO",
     "RISK_LINK_TYPES",

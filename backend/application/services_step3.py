@@ -15,7 +15,6 @@ Import paths::
     from application.services_step3 import (
         AdrService,
         AdrDTO,
-        ADR_LINK_TYPES,
         RiskService,
         RiskDTO,
         RISK_LINK_TYPES,
@@ -39,7 +38,7 @@ Architecture:
 from __future__ import annotations
 
 # COMP-AS-013
-from application.adr_service import ADR_LINK_TYPES, AdrDTO, AdrService  # noqa: F401
+from application.adr_service import AdrDTO, AdrService  # noqa: F401
 
 # COMP-AS-014
 from application.risk_service import RISK_LINK_TYPES, RiskDTO, RiskService  # noqa: F401
@@ -60,7 +59,6 @@ __all__ = [
     # COMP-AS-013
     "AdrService",
     "AdrDTO",
-    "ADR_LINK_TYPES",
     # COMP-AS-014
     "RiskService",
     "RiskDTO",

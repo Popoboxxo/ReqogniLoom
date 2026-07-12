@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch, call
 import pytest
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
-from application.adr_service import AdrService, AdrDTO, AdrValidator, ADR_LINK_TYPES
+from application.adr_service import AdrService, AdrDTO, AdrValidator
 from application.models import Adr
 
 pytestmark = pytest.mark.django_db
@@ -121,6 +121,9 @@ class TestCreateAdr:
 
         with (
             patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
             patch("application.adr_service.AdrService._set_tenant_context"),
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit") as mock_audit,
@@ -128,6 +131,9 @@ class TestCreateAdr:
             patch("application.adr_service.AdrService._make_event", return_value=MagicMock()),
             patch("workflow.services.initialize_workflow_states") as mock_wf,
         ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
             mock_mgr.create.return_value = created_adr
 
             result = svc.create_adr(
@@ -136,6 +142,9 @@ class TestCreateAdr:
                 description="Command Query Responsibility Segregation",
                 ctx=ctx,
             )
+
+        # REQ-L2-TE-020: backing Artifact is created before the ADR row.
+        mock_artifact.create.assert_called_once()
 
         mock_mgr.create.assert_called_once()
         mock_wf.assert_called_once()
@@ -183,6 +192,9 @@ class TestCreateAdr:
 
         with (
             patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
             patch("application.adr_service.AdrService._set_tenant_context"),
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
@@ -193,6 +205,9 @@ class TestCreateAdr:
                 side_effect=RuntimeError("no definition"),
             ),
         ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
             mock_mgr.create.return_value = created_adr
             result = svc.create_adr(
                 workspace_id=WS_ID,
@@ -383,70 +398,164 @@ class TestGetAndListAdrs:
 
 
 # ---------------------------------------------------------------------------
-# create_tracelink
+# REQ-L2-TE-020: Artifact backing + ADR <-> ArchitectureElement TraceLinks
+# DB-integration tests (real Postgres via docker-compose test DB).
 # ---------------------------------------------------------------------------
 
 
-class TestCreateTracelink:
-    def test_valid_link_type_delegates_to_trace_link_service(self):
-        """create_tracelink with valid link_type calls TraceLinkService."""
-        mock_tls = MagicMock()
-        mock_tls.create_trace_link.return_value = MagicMock(id=uuid.uuid4())
-        svc = AdrService(trace_link_service=mock_tls)
-        ctx = _make_ctx(tenant_id=TENANT_ID)
-        target_id = uuid.uuid4()
+@pytest.fixture
+def te020_tenant():
+    from persistence.models import Tenant
 
-        with (
-            patch("application.adr_service.Adr.objects") as mock_mgr,
-            patch("application.adr_service.AdrService._set_tenant_context"),
-        ):
-            mock_mgr.filter.return_value.first.return_value = _make_adr()
-            svc.create_tracelink(
-                adr_id=ADR_ID,
-                target_id=target_id,
-                link_type="addresses",
-                ctx=ctx,
-            )
+    return Tenant.objects.create(name="te020-tenant", slug="te020-tenant")
 
-        mock_tls.create_trace_link.assert_called_once_with(
-            source_id=ADR_ID,
-            target_id=target_id,
-            link_type="addresses",
-            ctx=ctx,
+
+@pytest.fixture
+def te020_user(te020_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="te020-user", email="te020@example.com", tenant=te020_tenant
+    )
+
+
+@pytest.fixture
+def te020_workspace(te020_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(te020_tenant.id)
+    try:
+        return Workspace.objects.create(tenant=te020_tenant, name="te020-workspace")
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def te020_ctx(te020_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=te020_user.id,
+        tenant_id=te020_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="te020-tenant",
+    )
+
+
+@pytest.mark.django_db
+class TestAdrArtifactBackingAndTraceLinks:
+    """REQ-L2-TE-020: ADR gets a backing Artifact and can be linked to an
+    ArchitectureElement via a 'decides' TraceLink."""
+
+    def test_create_adr_creates_backing_artifact(self, te020_ctx, te020_workspace):
+        from persistence.models import Artifact
+
+        svc = AdrService()
+        adr = svc.create_adr(
+            workspace_id=te020_workspace.id,
+            title="Adopt hexagonal architecture",
+            description="Ports and adapters everywhere.",
+            ctx=te020_ctx,
         )
 
-    def test_invalid_link_type_raises_validation_error(self):
-        """create_tracelink with unknown link type raises ValidationError."""
+        assert adr.artifact_id is not None
+        artifact = Artifact.objects.filter(id=adr.artifact_id).first()
+        assert artifact is not None
+        assert artifact.artifact_type == "Adr"
+        assert str(artifact.workspace_id) == str(te020_workspace.id)
+
+    def test_decides_tracelink_adr_to_architecture_element(
+        self, te020_ctx, te020_workspace
+    ):
+        from application.architecture_service import ArchitectureService
+        from application.trace_link_service import TraceLinkService
+        from persistence.models import TraceLink
+        from traceability.types import LinkType
+
+        adr = AdrService().create_adr(
+            workspace_id=te020_workspace.id,
+            title="Use event sourcing",
+            description="Append-only event log.",
+            ctx=te020_ctx,
+        )
+        arch_el = ArchitectureService().create_architecture_element(
+            workspace_id=te020_workspace.id,
+            title="EventStore Component",
+            ctx=te020_ctx,
+        )
+
+        link_svc = TraceLinkService()
+        link = link_svc.create_trace_link(
+            source_id=adr.id,
+            target_id=arch_el.id,
+            link_type=LinkType.DECIDES.value,
+            ctx=te020_ctx,
+        )
+
+        # The link stores Artifact endpoints, resolved from the entity IDs.
+        assert link.link_type == LinkType.DECIDES.value
+        assert str(link.source_id) == str(adr.artifact_id)
+        assert str(link.target_id) == str(arch_el.artifact_id)
+        assert TraceLink.objects.filter(id=link.id).exists()
+
+    def test_query_trace_links_from_both_endpoints(self, te020_ctx, te020_workspace):
+        from application.architecture_service import ArchitectureService
+        from application.trace_link_service import TraceLinkService
+        from traceability.types import LinkType
+
+        adr = AdrService().create_adr(
+            workspace_id=te020_workspace.id,
+            title="Choose Postgres",
+            description="Relational store.",
+            ctx=te020_ctx,
+        )
+        arch_el = ArchitectureService().create_architecture_element(
+            workspace_id=te020_workspace.id,
+            title="Persistence Layer",
+            ctx=te020_ctx,
+        )
+
+        link_svc = TraceLinkService()
+        link_svc.create_trace_link(
+            source_id=adr.id,
+            target_id=arch_el.id,
+            link_type=LinkType.DECIDES.value,
+            ctx=te020_ctx,
+        )
+
+        # Downstream from the ADR: the ArchitectureElement is reachable.
+        from_adr = link_svc.query_trace_links(
+            entity_id=adr.id, direction="downstream", ctx=te020_ctx
+        )
+        assert any(
+            str(r.entity_id) == str(arch_el.artifact_id) for r in from_adr
+        )
+
+        # Upstream from the ArchitectureElement: the ADR is reachable.
+        from_arch = link_svc.query_trace_links(
+            entity_id=arch_el.id, direction="upstream", ctx=te020_ctx
+        )
+        assert any(
+            str(r.entity_id) == str(adr.artifact_id) for r in from_arch
+        )
+
+    def test_delete_adr_removes_backing_artifact(self, te020_ctx, te020_workspace):
+        from persistence.models import Artifact
+
         svc = AdrService()
-        ctx = _make_ctx()
+        adr = svc.create_adr(
+            workspace_id=te020_workspace.id,
+            title="Deprecate SOAP",
+            description="Move to REST.",
+            ctx=te020_ctx,
+        )
+        artifact_id = adr.artifact_id
+        assert Artifact.objects.filter(id=artifact_id).exists()
 
-        with (
-            patch("application.adr_service.AdrService._set_tenant_context"),
-        ):
-            with pytest.raises(ValidationError, match="Invalid ADR link type"):
-                svc.create_tracelink(
-                    adr_id=ADR_ID,
-                    target_id=uuid.uuid4(),
-                    link_type="invalid-type",
-                    ctx=ctx,
-                )
+        svc.delete_adr(adr.id, te020_ctx)
 
-    def test_all_valid_link_types_accepted(self):
-        """All ADR_LINK_TYPES are accepted without raising."""
-        for lt in ADR_LINK_TYPES:
-            mock_tls = MagicMock()
-            mock_tls.create_trace_link.return_value = MagicMock()
-            svc = AdrService(trace_link_service=mock_tls)
-            ctx = _make_ctx(tenant_id=TENANT_ID)
-
-            with (
-                patch("application.adr_service.Adr.objects") as mock_mgr,
-                patch("application.adr_service.AdrService._set_tenant_context"),
-            ):
-                mock_mgr.filter.return_value.first.return_value = _make_adr()
-                svc.create_tracelink(
-                    adr_id=ADR_ID,
-                    target_id=uuid.uuid4(),
-                    link_type=lt,
-                    ctx=ctx,
-                )
+        assert not Adr.objects.filter(id=adr.id).exists()
+        assert not Artifact.objects.filter(id=artifact_id).exists()

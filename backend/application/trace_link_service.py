@@ -74,7 +74,8 @@ class TraceLinkService(ServiceBase):
           1. If *entity_id* is already an Artifact ID, return it unchanged.
           2. If it matches a Requirement, return Requirement.artifact_id.
           3. If it matches an ArchitectureElement, return its artifact_id.
-          4. Otherwise raise NotFoundError.
+          4. If it matches an ADR, return Adr.artifact_id (REQ-L2-TE-020).
+          5. Otherwise raise NotFoundError.
         """
         from persistence.models import (
             ArchitectureElement,
@@ -95,6 +96,15 @@ class TraceLinkService(ServiceBase):
         arch = ArchitectureElement.objects.filter(id=entity_id).first()
         if arch is not None:
             return UUID(str(arch.artifact_id))
+
+        # 4. ADR -> Artifact (REQ-L2-TE-020). Adr lives in the application app
+        # and is not tenant-scoped, so it is imported locally to avoid a
+        # circular import (adr_service imports TraceLinkService).
+        from application.models import Adr
+
+        adr = Adr.objects.filter(id=entity_id).first()
+        if adr is not None and adr.artifact_id is not None:
+            return UUID(str(adr.artifact_id))
 
         raise NotFoundError(f"Entity {entity_id} not found")
 

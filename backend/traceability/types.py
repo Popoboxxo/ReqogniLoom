@@ -46,6 +46,8 @@ class LinkType(str, Enum):
     ALLOCATED_TO = "allocated-to"
     # REQ-L1-044 Semantic Glossary Link
     USES_TERM = "uses-term"
+    # REQ-L2-TE-020 ADR decision link (ADR -> ArchitectureElement):
+    DECIDES = "decides"
 
     @classmethod
     def values(cls) -> frozenset[str]:
