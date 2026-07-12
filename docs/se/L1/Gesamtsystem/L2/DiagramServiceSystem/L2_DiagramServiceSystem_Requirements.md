@@ -233,6 +233,59 @@ muss in <2s für Diagramme mit bis zu 100 Knoten/Kanten abschließen.
 
 ---
 
+### REQ-L2-DS-008: Canvas — Rechteck-Werkzeug
+
+Der Benutzer MUSS auf dem Canvas-Editor ein Rechteck-Werkzeug auswählen und durch Klicken-und-Ziehen ein Rechteck-Objekt (fabric.Rect) zeichnen können. Das gezeichnete Rechteck MUSS als eigenständiges selektierbares Objekt auf dem Canvas verbleiben (nicht als Pfad-Stroke), die aktuell gewählte Farbe und Strichbreite übernehmen und nach dem Zeichnen über das Auswahl-Werkzeug verschoben, skaliert und gelöscht werden können.
+
+**Implementation State:** Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-12. Canvas-Diagramm-Feature-Erweiterung (ehem. REQ-L2-CV-001).
+
+---
+
+### REQ-L2-DS-009: Canvas — Ellipsen-Werkzeug
+
+Der Benutzer MUSS auf dem Canvas-Editor ein Ellipsen-Werkzeug auswählen und durch Klicken-und-Ziehen eine Ellipse (fabric.Ellipse) zeichnen können. Das gezeichnete Objekt MUSS als eigenständiges selektierbares Objekt auf dem Canvas verbleiben, die aktuell gewählte Farbe und Strichbreite übernehmen und nach dem Zeichnen über das Auswahl-Werkzeug verschoben, skaliert und gelöscht werden können.
+
+**Implementation State:** Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-12. Canvas-Diagramm-Feature-Erweiterung (ehem. REQ-L2-CV-002).
+
+---
+
+### REQ-L2-DS-010: Canvas — Text-Label-Werkzeug
+
+Der Benutzer MUSS auf dem Canvas-Editor ein Text-Werkzeug auswählen, durch Klick an einer Position ein `fabric.Textbox`-Objekt platzieren und dessen Inhalt durch Doppelklick inline bearbeiten können. Das Text-Label MUSS die aktuell gewählte Farbe übernehmen, frei verschiebbar und löschbar sein und nach Verlassen des Bearbeitungsmodus als selektierbares Objekt auf dem Canvas verbleiben.
+
+**Implementation State:** Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-12. Canvas-Diagramm-Feature-Erweiterung (ehem. REQ-L2-CV-003).
+
+---
+
+### REQ-L2-DS-011: Canvas — Verbindungslinien (Pfeile) zwischen Objekten
+
+Der Benutzer MUSS auf dem Canvas-Editor ein Verbindungslinien-Werkzeug auswählen und zwei bestehende Canvas-Objekte durch Klick auf deren Mittelpunkt mit einer gerichteten Pfeillinie (fabric.Line + Pfeilspitze) verbinden können. Die Verbindungslinie MUSS beim Verschieben eines der verbundenen Objekte automatisch nachgeführt werden (Center-to-Center-Anker). Der sichtbare Linienverlauf MUSS an der Bounding-Box der verbundenen Objekte enden (Bounding-Box-Clipping), sodass die Pfeillinie nicht in das verbundene Objekt eindringt.
+
+**Implementation State:** Implemented
+**Domain:** software
+**Priority:** should
+**Remarks:** Neu aufgenommen 2026-07-12. Canvas-Diagramm-Feature-Erweiterung (ehem. REQ-L2-CV-004). Center-to-Center-Anker und Bounding-Box-Clipping sind Pflicht; Snap-to-Port ist Could.
+
+---
+
+### REQ-L2-DS-012: Canvas — Persistenz-Migration auf fabric.js-Canvas-JSON
+
+Das System MUSS die Canvas-Persistenz vom bisherigen Stroke-Array-Format auf das vollständige fabric.js-Canvas-JSON (`canvas.toJSON()`) umstellen. Das Backend MUSS ein additives Feld `canvas_json` (JSONField, nullable) am Canvas-Modell neben dem bestehenden `strokes`-Feld bereitstellen — ohne destructive Migration. Beim Laden MUSS das Frontend `canvas_json` bevorzugen und bei `canvas_json = null` das alte Stroke-Array als Fallback laden und rendern (Rückwärtskompatibilität). Die Auto-Save-Funktion MUSS `canvas_json` via `PUT /canvas-strokes/` schreiben.
+
+**Implementation State:** Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-12. Canvas-Diagramm-Feature-Erweiterung (ehem. REQ-L2-CV-005). Additive Migration — bestehende Stroke-Daten dürfen nicht verloren gehen.
+
 ## Traceability-Matrix: REQ-L2-DS → REQ-L1
 
 | REQ-L2-DS | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -244,6 +297,11 @@ muss in <2s für Diagramme mit bis zu 100 Knoten/Kanten abschließen.
 | REQ-L2-DS-005 | REQ-L1-027 | — |
 | REQ-L2-DS-006 | REQ-L1-056 | — |
 | REQ-L2-DS-007 | REQ-L1-057 | — |
+| REQ-L2-DS-008 | REQ-L1-056 | — |
+| REQ-L2-DS-009 | REQ-L1-056 | — |
+| REQ-L2-DS-010 | REQ-L1-056 | — |
+| REQ-L2-DS-011 | REQ-L1-056 | — |
+| REQ-L2-DS-012 | REQ-L1-056 | — |
 
 ---
 
@@ -251,7 +309,7 @@ muss in <2s für Diagramme mit bis zu 100 Knoten/Kanten abschließen.
 
 | Metrik | Wert |
 |--------|------|
-| Anzahl REQ-L2-DS | 7 |
+| Anzahl REQ-L2-DS | 12 |
 | Mandatory | 0 |
 | Desired | 7 |
 | Optional | 0 |
@@ -278,4 +336,9 @@ muss in <2s für Diagramme mit bis zu 100 Knoten/Kanten abschließen.
 | REQ-L2-DS-005 | REQ-L1-027 |
 | REQ-L2-DS-006 | REQ-L1-056 |
 | REQ-L2-DS-007 | REQ-L1-057 |
+| REQ-L2-DS-008 | REQ-L1-056 |
+| REQ-L2-DS-009 | REQ-L1-056 |
+| REQ-L2-DS-010 | REQ-L1-056 |
+| REQ-L2-DS-011 | REQ-L1-056 |
+| REQ-L2-DS-012 | REQ-L1-056 |
 
