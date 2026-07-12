@@ -29,6 +29,7 @@ import { useTranslation } from 'react-i18next';
 import { useRequirementData } from './useRequirementData';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
 import { workspacesApi } from '../../api/workspaces';
+import { requirementsApi } from '../../api/requirements';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { EntityTypeProvider } from '../../context/EntityTypeContext';
 import { attributeVisibilityApi } from '../../api';
@@ -71,6 +72,11 @@ export default function RequirementEditors(): JSX.Element {
 
   // PDF export state
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+
+  // REQ-008: AI-derive state for Anforderungen view
+  const [isAiDeriving, setIsAiDeriving] = useState(false);
+  const [aiDeriveStatus, setAiDeriveStatus] = useState<string | null>(null);
+  const [aiDeriveIsError, setAiDeriveIsError] = useState(false);
 
   // Dynamic attribute configurations
   const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
@@ -163,6 +169,33 @@ export default function RequirementEditors(): JSX.Element {
       setIsExportingPdf(false);
     }
   }, [activeWorkspace]);
+
+  /**
+   * REQ-008: AI-assisted decomposition of the selected requirement to
+   * next-level drafts via POST /requirements/{id}/decompose-next-level/.
+   */
+  const handleAiDerive = useCallback(async (): Promise<void> => {
+    if (!requirement) return;
+    setIsAiDeriving(true);
+    setAiDeriveIsError(false);
+    setAiDeriveStatus(t('needs.deriveStarting'));
+    try {
+      const result = await requirementsApi.aiDecomposeNextLevel(requirement.id);
+      const count = result.drafts?.length ?? 0;
+      setAiDeriveStatus(
+        count > 0
+          ? t('needs.deriveSuccess')
+          : t('needs.deriveSuccess')
+      );
+      refresh();
+    } catch (err: unknown) {
+      const apiErr = err as { error?: { message?: string } };
+      setAiDeriveIsError(true);
+      setAiDeriveStatus(apiErr?.error?.message ?? t('needs.deriveFailed'));
+    } finally {
+      setIsAiDeriving(false);
+    }
+  }, [requirement, t, refresh]);
 
   const currentVersion: VersionRef | undefined = useMemo(() => {
     if (!requirement) return undefined;
@@ -392,7 +425,22 @@ export default function RequirementEditors(): JSX.Element {
           requirementId={requirement.id}
           requirements={requirements}
           onLinksChanged={refresh}
+          onAiDerive={handleAiDerive}
+          isAiDeriving={isAiDeriving}
         />
+      )}
+      {aiDeriveStatus && (
+        <div
+          role={aiDeriveIsError ? 'alert' : 'status'}
+          data-testid="req-ai-derive-status"
+          style={{
+            marginTop: 'var(--space-2)',
+            fontSize: 'var(--font-size-sm)',
+            color: aiDeriveIsError ? 'var(--color-danger)' : 'var(--color-text)',
+          }}
+        >
+          {aiDeriveStatus}
+        </div>
       )}
 
       {/* REQ-L2-VS-004: semantic similarity search */}

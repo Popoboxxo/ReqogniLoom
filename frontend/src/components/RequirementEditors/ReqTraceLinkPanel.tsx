@@ -60,6 +60,10 @@ interface ReqTraceLinkPanelProps {
   requirementId: UUID;
   requirements: Requirement[];
   onLinksChanged: () => void;
+  /** REQ-008: optional AI-derive callback — when provided renders the ✨ Ableiten button */
+  onAiDerive?: () => void;
+  /** REQ-008: loading state for the AI-derive button */
+  isAiDeriving?: boolean;
 }
 
 /**
@@ -70,6 +74,8 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
   requirementId,
   requirements,
   onLinksChanged,
+  onAiDerive,
+  isAiDeriving = false,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -309,6 +315,18 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         </h4>
         {!showForm && !showDeriveForm && (
           <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            {onAiDerive && (
+              <button
+                type="button"
+                data-testid="req-ai-derive-btn"
+                className="btn-primary"
+                onClick={onAiDerive}
+                disabled={isAiDeriving}
+                style={{ background: 'linear-gradient(135deg, #4f6ef7, #8e2de2)' }}
+              >
+                ✨ {isAiDeriving ? t('actions.deriving', 'Leitet ab...') : t('actions.derive', 'Ableiten')}
+              </button>
+            )}
             <button
               type="button"
               data-testid="req-tracelink-create-btn"

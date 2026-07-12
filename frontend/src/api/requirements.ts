@@ -111,6 +111,30 @@ export const requirementsApi = {
   },
 
   /**
+   * REQ-008: AI-assisted decomposition of a requirement to next-level drafts.
+   *
+   * Calls POST /api/v1/requirements/{id}/decompose-next-level/ which returns
+   * proposed child requirement drafts without persisting them (Draft/Accept
+   * pattern, REQ-L2-AI-001). Requires at least one allocated-to arch element.
+   */
+  aiDecomposeNextLevel(
+    id: UUID
+  ): Promise<{
+    drafts: Array<{
+      title: string;
+      description: string;
+      rationale: string;
+      suggested_arch_element_id: string | null;
+    }>;
+    parent_requirement_id: string;
+  }> {
+    return apiClient.post(
+      `/requirements/${id}/decompose-next-level/`,
+      {}
+    );
+  },
+
+  /**
    * REQ-L2-VS-004: fetch the top-N requirements most similar to the given one
    * by semantic (cosine) similarity over pgvector embeddings.
    *

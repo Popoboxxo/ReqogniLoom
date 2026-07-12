@@ -50,6 +50,11 @@ vi.mock("../api/requirements", () => ({
     get: vi.fn(),
     versions: vi.fn().mockResolvedValue([]),
     diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
+    // REQ-008: AI decompose endpoint mock
+    aiDecomposeNextLevel: vi.fn().mockResolvedValue({
+      drafts: [],
+      parent_requirement_id: "req-001",
+    }),
   },
 }));
 
@@ -198,6 +203,21 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
   // Inspector bars side by side in the requirements mask. The Inspector must
   // live at the container level only.
   // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // REQ-008 — AI-derive button in Anforderungen view
+  // -------------------------------------------------------------------------
+
+  it("renders AI-derive button (✨ Ableiten) in RequirementEditors (REQ-008)", async () => {
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("req-title")).toBeInTheDocument();
+    });
+
+    // AI-derive button must be present in the ReqTraceLinkPanel header
+    expect(screen.getByTestId("req-ai-derive-btn")).toBeInTheDocument();
+  });
 
   it("renders the ArtifactInspector exactly once — no duplicate RightSidebar (REQ-TBD)", async () => {
     renderEditor(MOCK_REQUIREMENT.id);

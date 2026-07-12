@@ -32,6 +32,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeriving, setIsDeriving] = useState(false);
   const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
+  const [derivationIsError, setDerivationIsError] = useState(false);
 
   // Manual "Ableiten": create a Requirement derived from this need, with an
   // optional architecture allocation (SE: Req --derives-from--> Need,
@@ -95,19 +96,23 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
   const handleDerive = async () => {
     if (!need) return;
     setIsDeriving(true);
+    setDerivationIsError(false);
     setDerivationStatus(t('needs.deriveStarting'));
     try {
       const res = await stakeholderNeedApi.deriveRequirements(need.id);
       setDerivationStatus(t('needs.deriveStarted', { taskId: res.task_id }));
 
       setTimeout(() => {
+        setDerivationIsError(false);
         setDerivationStatus(t('needs.deriveSuccess'));
         setIsDeriving(false);
         if (onNeedsChanged) onNeedsChanged();
       }, 3000);
     } catch (err) {
       console.error(err);
-      setDerivationStatus(t('needs.deriveFailed'));
+      const apiErr = err as { error?: { message?: string } };
+      setDerivationIsError(true);
+      setDerivationStatus(apiErr?.error?.message ?? t('needs.deriveFailed'));
       setIsDeriving(false);
     }
   };
@@ -387,7 +392,15 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
           isDeriving={isDeriving}
         />
         {derivationStatus && (
-          <div style={{ marginTop: 'var(--space-2)', fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
+          <div
+            role={derivationIsError ? 'alert' : 'status'}
+            data-testid="need-derive-status"
+            style={{
+              marginTop: 'var(--space-2)',
+              fontSize: 'var(--font-size-sm)',
+              color: derivationIsError ? 'var(--color-danger)' : 'var(--color-text)',
+            }}
+          >
             {derivationStatus}
           </div>
         )}
