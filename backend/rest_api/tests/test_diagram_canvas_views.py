@@ -108,6 +108,7 @@ def _build_export_result(
     stroke_data: dict | None = None,
     svg: str = '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
     version_number: int = 1,
+    canvas_json: dict | None = None,
 ) -> MagicMock:
     """Build a mock CanvasExportResult."""
     result = MagicMock()
@@ -116,6 +117,7 @@ def _build_export_result(
     result.svg = svg
     result.version = MagicMock()
     result.version.version_number = version_number
+    result.canvas_json = canvas_json
     return result
 
 
@@ -338,6 +340,117 @@ class TestCanvasStrokeViewPut:
         response = view(request, pk=str(FAKE_DIAGRAM_ID))
 
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# CanvasStrokeView — canvas_json (REQ-L2-CV-005)
+# ---------------------------------------------------------------------------
+
+
+SAMPLE_CANVAS_JSON = {
+    "version": "5.3.0",
+    "objects": [{"type": "rect", "left": 10, "top": 10, "width": 100, "height": 50}],
+    "background": "#ffffff",
+}
+
+
+class TestCanvasStrokeViewCanvasJson:
+    """REQ-L2-CV-005: canvas_json is accepted on write and returned on read."""
+
+    @patch("rest_api.diagram_canvas_views.get_canvas_diagram")
+    @patch("rest_api.diagram_canvas_views.canvas_auto_save")
+    @patch("rest_api.diagram_canvas_views._resolve_user")
+    @patch("rest_api.diagram_canvas_views._resolve_tenant")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_put_with_canvas_json_passes_through_and_returns_it(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_tenant: MagicMock,
+        mock_user: MagicMock,
+        mock_save: MagicMock,
+        mock_get_canvas: MagicMock,
+    ) -> None:
+        """PUT with canvas_json forwards it to the service and echoes it back."""
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_tenant.return_value = MagicMock()
+        mock_user.return_value = MagicMock()
+        saved_diagram = MagicMock()
+        saved_diagram.id = FAKE_DIAGRAM_ID
+        mock_save.return_value = saved_diagram
+        mock_get_canvas.return_value = _build_export_result(
+            canvas_json=SAMPLE_CANVAS_JSON,
+        )
+
+        payload = {**STROKE_DATA_PAYLOAD, "canvas_json": SAMPLE_CANVAS_JSON}
+        request = _make_request("put", data=payload)
+        view = CanvasStrokeView.as_view()
+        response = view(request, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 200
+        assert response.data["canvas_json"] == SAMPLE_CANVAS_JSON
+        # canvas_json is threaded through to the service via stroke_data
+        assert mock_save.call_args.kwargs["stroke_data"]["canvas_json"] == (
+            SAMPLE_CANVAS_JSON
+        )
+
+    @patch("rest_api.diagram_canvas_views.get_canvas_diagram")
+    @patch("rest_api.diagram_canvas_views.canvas_auto_save")
+    @patch("rest_api.diagram_canvas_views._resolve_user")
+    @patch("rest_api.diagram_canvas_views._resolve_tenant")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_put_without_canvas_json_is_backward_compatible(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_tenant: MagicMock,
+        mock_user: MagicMock,
+        mock_save: MagicMock,
+        mock_get_canvas: MagicMock,
+    ) -> None:
+        """PUT with only strokes (old format) still works; canvas_json is None."""
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_tenant.return_value = MagicMock()
+        mock_user.return_value = MagicMock()
+        saved_diagram = MagicMock()
+        saved_diagram.id = FAKE_DIAGRAM_ID
+        mock_save.return_value = saved_diagram
+        mock_get_canvas.return_value = _build_export_result(canvas_json=None)
+
+        request = _make_request("put", data=STROKE_DATA_PAYLOAD)
+        view = CanvasStrokeView.as_view()
+        response = view(request, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 200
+        assert response.data["canvas_json"] is None
+        assert "canvas_json" not in mock_save.call_args.kwargs["stroke_data"]
+
+    @patch("rest_api.diagram_canvas_views.get_canvas_diagram")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_get_returns_canvas_json_field(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_get_canvas: MagicMock,
+    ) -> None:
+        """GET response includes the canvas_json field (REQ-L2-CV-005)."""
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_get_canvas.return_value = _build_export_result(
+            canvas_json=SAMPLE_CANVAS_JSON,
+        )
+
+        request = _make_request("get")
+        view = CanvasStrokeView.as_view()
+        response = view(request, pk=str(FAKE_DIAGRAM_ID))
+
+        assert response.status_code == 200
+        assert response.data["canvas_json"] == SAMPLE_CANVAS_JSON
 
 
 # ---------------------------------------------------------------------------

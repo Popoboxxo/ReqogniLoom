@@ -450,6 +450,122 @@ class TestGetCanvas:
 
 
 # ---------------------------------------------------------------------------
+# REQ-L2-CV-005: canvas_json — additive full-canvas persistence
+# ---------------------------------------------------------------------------
+
+SAMPLE_CANVAS_JSON = {
+    "version": "5.3.0",
+    "objects": [
+        {"type": "rect", "left": 10, "top": 10, "width": 100, "height": 50},
+        {"type": "circle", "left": 200, "top": 80, "radius": 25},
+    ],
+    "background": "#ffffff",
+}
+
+
+class TestCanvasJsonPersistence:
+    """REQ-L2-CV-005: canvas_json is stored alongside strokes (backward-compatible)."""
+
+    def test_backward_compat_strokes_only_leaves_canvas_json_null(
+        self, canvas_editor, tenant_a, workspace_a
+    ):
+        """Old format (strokes only, no canvas_json) still works; field stays None."""
+        with active_tenant(tenant_a):
+            diagram = canvas_editor.handle_stroke_update(
+                diagram_id=None,
+                stroke_data=VALID_CANVAS_STROKES,
+                tenant=tenant_a,
+            )
+
+        assert diagram.current_version.canvas_json is None
+
+    def test_canvas_json_populates_new_field(
+        self, canvas_editor, tenant_a, workspace_a
+    ):
+        """canvas_json in the payload is persisted on the new DiagramVersion field."""
+        stroke_data = {**VALID_CANVAS_STROKES, "canvas_json": SAMPLE_CANVAS_JSON}
+
+        with active_tenant(tenant_a):
+            diagram = canvas_editor.handle_stroke_update(
+                diagram_id=None,
+                stroke_data=stroke_data,
+                tenant=tenant_a,
+            )
+
+        assert diagram.current_version.canvas_json == SAMPLE_CANVAS_JSON
+
+    def test_canvas_json_excluded_from_stroke_payload(
+        self, canvas_editor, tenant_a, workspace_a
+    ):
+        """Stroke payload format stays stable — canvas_json is not embedded in it."""
+        stroke_data = {**VALID_CANVAS_STROKES, "canvas_json": SAMPLE_CANVAS_JSON}
+
+        with active_tenant(tenant_a):
+            diagram = canvas_editor.handle_stroke_update(
+                diagram_id=None,
+                stroke_data=stroke_data,
+                tenant=tenant_a,
+            )
+
+        payload = json.loads(diagram.current_version.payload)
+        assert "canvas_json" not in payload
+        assert "strokes" in payload
+
+    def test_get_canvas_returns_canvas_json(
+        self, canvas_editor, tenant_a, workspace_a
+    ):
+        """get_canvas surfaces the stored canvas_json in the export result."""
+        stroke_data = {**VALID_CANVAS_STROKES, "canvas_json": SAMPLE_CANVAS_JSON}
+
+        with active_tenant(tenant_a):
+            diagram = canvas_editor.handle_stroke_update(
+                diagram_id=None,
+                stroke_data=stroke_data,
+                tenant=tenant_a,
+            )
+            result = canvas_editor.get_canvas(diagram.id)
+
+        assert result.canvas_json == SAMPLE_CANVAS_JSON
+
+    def test_get_canvas_canvas_json_none_for_legacy(
+        self, canvas_editor, tenant_a, workspace_a
+    ):
+        """get_canvas returns canvas_json=None for versions created without it."""
+        with active_tenant(tenant_a):
+            diagram = canvas_editor.handle_stroke_update(
+                diagram_id=None,
+                stroke_data=VALID_CANVAS_STROKES,
+                tenant=tenant_a,
+            )
+            result = canvas_editor.get_canvas(diagram.id)
+
+        assert result.canvas_json is None
+
+    def test_update_adds_canvas_json_new_version_only(
+        self, canvas_editor, tenant_a, workspace_a
+    ):
+        """Updating with canvas_json stores it on the new version; v1 stays None."""
+        from diagram.models import DiagramVersion
+
+        with active_tenant(tenant_a):
+            diagram = canvas_editor.handle_stroke_update(
+                diagram_id=None,
+                stroke_data=VALID_CANVAS_STROKES,
+                tenant=tenant_a,
+            )
+            canvas_editor.handle_stroke_update(
+                diagram_id=diagram.id,
+                stroke_data={**VALID_CANVAS_STROKES, "canvas_json": SAMPLE_CANVAS_JSON},
+                tenant=tenant_a,
+            )
+
+        v1 = DiagramVersion.unscoped.get(diagram_id=diagram.id, version_number=1)
+        v2 = DiagramVersion.unscoped.get(diagram_id=diagram.id, version_number=2)
+        assert v1.canvas_json is None
+        assert v2.canvas_json == SAMPLE_CANVAS_JSON
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
