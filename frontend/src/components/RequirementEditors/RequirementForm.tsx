@@ -36,7 +36,6 @@ import {
 import { requirementsApi } from '../../api/requirements';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { MarkdownPreview } from './MarkdownPreview';
-import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { VersionBadge } from '../shared/VersionBadge';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
 
@@ -95,7 +94,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   // UI state
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [showDiff, setShowDiff] = useState(false);
 
   /**
    * Validate form data before saving.
@@ -452,6 +450,9 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
         )}
 
         {/* Action buttons */}
+        {/* Action buttons — diff is now served by the ArtifactInspector
+            right sidebar (REQ-001, REQ-L2-RF-036). The inline ArtifactDiff
+            toggle was removed to eliminate the duplicate diff panel. */}
         <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
           <button
             data-testid="save-btn"
@@ -461,26 +462,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
           >
             {isSaving ? t('actions.saving') : t('actions.save')}
           </button>
-          <button
-            data-testid="view-diff-btn"
-            className={showDiff ? 'btn-primary' : 'btn-secondary'}
-            onClick={() => setShowDiff(!showDiff)}
-          >
-            {showDiff ? t('editor.hideDiff') : t('editor.viewDiff')}
-          </button>
         </div>
-
-        {/* Artifact Diff View */}
-        {showDiff && (
-          <ArtifactDiff
-            entityId={requirement.id}
-            entityType="requirement"
-            currentVersion={requirement.version}
-            diffFetcher={requirementsApi.diff}
-            versionsFetcher={requirementsApi.versions}
-            onClose={() => setShowDiff(false)}
-          />
-        )}
 
       </div>
     </div>
