@@ -794,8 +794,8 @@ export function SidebarNavigation(): JSX.Element {
                   }}
                 >
                   {isCreating
-                    ? t("workspace.create.creating") || "..."
-                    : t("workspace.create.submit") || "Create"}
+                    ? t("workspaceCreate.creating")
+                    : t("workspaceCreate.submit")}
                 </button>
                 <button
                   type="button"
