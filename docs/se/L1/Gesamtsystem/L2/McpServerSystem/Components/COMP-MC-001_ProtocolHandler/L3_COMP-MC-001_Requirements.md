@@ -41,10 +41,10 @@ Transport-Protokoll-Abstraktion (stdio, SSE, HTTP), JSON-RPC-Frame-Validierung, 
 ### REQ-L3-MC001-001: Transport-Protokoll-Unterstuetzung
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** `McpSseTransportView` verarbeitet SSE asynchron über Redis.
+**Test Status:** Covered
+**Remarks:** HTTP POST 202 Accepted ist standardkonform umgesetzt.
 
 
 Der ProtocolHandler SHALL MCP-Anfragen ueber alle drei Transportprotokolle stdio, SSE und HTTP empfangen und beantworten. Das verwendete Transportprotokoll SHALL fuer die nachgelagerten Komponenten vollstaendig transparent sein; der interne Dispatch-Aufruf (IF-MC-INT-001) DARF KEINE transportspezifischen Informationen enthalten.
@@ -63,9 +63,9 @@ Der ProtocolHandler SHALL MCP-Anfragen ueber alle drei Transportprotokolle stdio
 
 
 **Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
+**Review Findings:** Standardkonforme `protocol_handler.py` verarbeitet `initialize`, `tools/list` und `tools/call`.
+**Test Status:** Covered
+**Remarks:** Vollständige JSON-RPC Fehlerbehandlung integriert.
 
 
 Der ProtocolHandler SHALL eingehende JSON-RPC-Frames gegen das MCP-Protokollschema validieren, bevor ein Dispatch erfolgt. Frames mit fehlendem `method`-Feld, ungueltiger `id`, fehlerhaftem JSON oder unbekanntem MCP-Methoden-Typ SHALL mit einem strukturierten Fehler gemaess REQ-L2-MC-011 abgelehnt werden, ohne dass die ToolRegistry involviert wird.
@@ -83,10 +83,10 @@ Der ProtocolHandler SHALL eingehende JSON-RPC-Frames gegen das MCP-Protokollsche
 ### REQ-L3-MC001-003: API-Key-Extraktion und -Weiterleitung
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** API Key Extraktion in View Layer implementiert, wird via AuthContext übergeben.
+**Test Status:** Covered
+**Remarks:** Auth-Prüfung erfolgt vor Dispatch in ToolRegistry.
 
 
 Der ProtocolHandler SHALL den API-Key aus dem eingehenden MCP-Request extrahieren und ihn als Teil des Dispatch-Aufrufs (IF-MC-INT-001) an die ToolRegistry uebergeben. Fehlt der API-Key im Request, SHALL der ProtocolHandler die Anfrage mit Fehler `AUTH_FAILED` unmittelbar ablehnen, ohne Dispatch.

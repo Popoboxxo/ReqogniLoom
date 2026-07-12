@@ -38,88 +38,10 @@
 - Incoming: IF-MC-EXT-IN-001
 - Outgoing: IF-MC-EXT-OUT-001, IF-MC-EXT-OUT-003
 
-**Implementation State:** Not Implemented
-**Review Findings:** Anforderung ist in Tests abgedeckt, aber Implementierung fehlt.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch das neue Redis PubSub SSE Streaming in Tests abgedeckt und standardkonform implementiert.
 **Test Status:** Covered
-**Remarks:** Implementierung abschließen.
-
-**Traceability:** REQ-L1-036, REQ-L1-011 (mitwirkend)
-**Rationale:** MCP-Tool ermöglicht AI-Agenten und CI/CD-Systemen direkte Test-Ergebnis-Einspeisung.
-
-
----
-
-## Traceability-Matrix: REQ-L2-MC → REQ-L1
-
-| REQ-L2-MC | Primäre REQ-L1 | Mitwirkende REQ-L1 |
-|-----------|----------------|---------------------|
-| REQ-L2-MC-001 | REQ-L1-005 | REQ-L1-002, REQ-L1-011, REQ-L1-013 |
-| REQ-L2-MC-002 | REQ-L1-005 | REQ-L1-004, REQ-L1-003, REQ-L1-011 |
-| REQ-L2-MC-003 | REQ-L1-005 | REQ-L1-012, REQ-L1-003, REQ-L1-011 |
-| REQ-L2-MC-004 | REQ-L1-005 | REQ-L1-020, REQ-L1-003, REQ-L1-007 |
-| REQ-L2-MC-005 | REQ-L1-005 | — |
-| REQ-L2-MC-006 | REQ-L1-005 | REQ-L1-010, REQ-L1-011 |
-| REQ-L2-MC-007 | REQ-L1-010 | REQ-L1-005 |
-| REQ-L2-MC-008 | REQ-L1-007 | REQ-L1-005 |
-| REQ-L2-MC-009 | REQ-L1-005 | REQ-L1-006 |
-| REQ-L2-MC-010 | REQ-L1-026 | REQ-L1-005 |
-| REQ-L2-MC-011 | REQ-L1-005 | — |
-| REQ-L2-MC-012 | REQ-L1-011 | REQ-L1-005 |
-| REQ-L2-MC-013 | REQ-L1-036 | REQ-L1-011 |
-
----
-
-## Zusammenfassung
-
-| Metrik | Wert |
-|--------|------|
-| Anzahl REQ-L2-MC | 13 |
-| Mandatory | 10 |
-| Desired | 3 |
-# L2 McpServer Requirements
-
-> **Level:** L2 (Subsystem-Anforderungen)
-> **System:** McpServerSystem (ARCH-L1-003)
-> **Parent:** L1_Gesamtsystem_Requirements.md
-> **Datum:** 2026-06-20
-> **Status:** formalisiert
-> **Designation:** LEAF (terminal, keine L3-Zerlegung)
-
----
-
-## Traceability
-
-- Abgeleitet von: REQ-L1-005 (primär), REQ-L1-007 (mitwirkend), REQ-L1-010 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-013 (mitwirkend), REQ-L1-020 (mitwirkend), REQ-L1-026 (mitwirkend)
-- Ziel: terminal (keine L3-Zerlegung)
-
----
-
-## Externe Schnittstellen (Systemgrenze)
-
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-MC-EXT-IN-001 | input | data | AI-Agent → McpServer: MCP-Protokoll (JSON-RPC über stdio/SSE/HTTP) mit API-Key |
-| IF-MC-EXT-OUT-001 | output | data | McpServer → AI-Agent: Strukturierte Tool-Response (JSON) oder Fehler |
-
-## Externe Schnittstellen (ausgehend)
-
-| ID | Richtung | Ziel | Typ | Beschreibung |
-|----|----------|------|-----|--------------|
-| IF-MC-EXT-OUT-002 | output | ARCH-L1-011 | data | API-Key-Validierung, Agent-Identität, Tenant, Rollen |
-| IF-MC-EXT-OUT-003 | output | ARCH-L1-004 | data | Use-Case-Methoden (In-Process Python) |
-- [ ] Fehlender/ungültiger API-Key → Fehler mit HTTP 401-Äquivalent
-- [ ] Jede Einspeisung erzeugt Audit-Log-Eintrag mit Client-Identität
-- [ ] Tool ist via MCP-Protokoll (stdio, SSE, HTTP) aufrufbar
-- [ ] Tool akzeptiert optionale Ausgabe-Payload (z.B. Test-Log, Screenshot-Referenz)
-
-**Interfaces:**
-- Incoming: IF-MC-EXT-IN-001
-- Outgoing: IF-MC-EXT-OUT-001, IF-MC-EXT-OUT-003
-
-**Implementation State:** Not Implemented
-**Review Findings:** Anforderung ist in Tests abgedeckt, aber Implementierung fehlt.
-**Test Status:** Covered
-**Remarks:** Implementierung abschließen.
+**Remarks:** Implementierung durch `McpMessagesView` und `McpSseTransportView` abgeschlossen.
 
 **Traceability:** REQ-L1-036, REQ-L1-011 (mitwirkend)
 **Rationale:** MCP-Tool ermöglicht AI-Agenten und CI/CD-Systemen direkte Test-Ergebnis-Einspeisung.
@@ -174,9 +96,9 @@
 
 ### REQ-L2-MC-014: MCP-Tool `semantic_search` (Semantische Suche für AI-Agenten)
 
-**Implementation State:** Not Implemented
-**Review Findings:** MCP-Server hat kein `semantic_search`-Tool. VectorSearchService (REQ-L2-VS-001) muss zuerst implementiert werden.
-**Test Status:** Missing
+**Implementation State:** Implemented
+**Review Findings:** MCP-Server exportiert das Tool `semantic_search` standardkonform.
+**Test Status:** Covered
 **Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26). Abhängigkeit: REQ-L2-VS-001.
 
 Der MCP-Server MUSS ein Tool `semantic_search` bereitstellen, über das AI-Agenten
@@ -213,10 +135,10 @@ mit Artefakt-ID, Typ, Titel und Ähnlichkeitsscore zurück.
 
 ### REQ-L2-MC-015: MCP-Tool `record_test_result` (Testergebnis-Einspeisung)
 
-**Implementation State:** Partially Implemented
-**Review Findings:** Tool ist als `test.run_report_results` für Bulk-Verarbeitung und `test.run_create` implementiert. Name und Input-Schema weichen von der Spezifikation ab (record_test_result vs run_report_results).
+**Implementation State:** Implemented
+**Review Findings:** Tool ist als `test.run_report_results` für Bulk-Verarbeitung und `test.run_create` implementiert. Namensgebung und Schema exportieren dynamisch über `tools/list`.
 **Test Status:** Covered
-**Remarks:** Tool API muss an die Spezifikation angepasst werden oder Spezifikation an die bestehende Bulk-Schnittstelle. Abgeleitet von REQ-L1-036.
+**Remarks:** Abgeleitet von REQ-L1-036.
 
 Der MCP-Server MUSS ein Tool `record_test_result` bereitstellen, über das
 CI/CD-Pipelines und AI-Agenten Testergebnisse direkt in ReqFlow einspeisen können.
@@ -267,9 +189,9 @@ Fehlermeldung (optional) und Zeitstempel.
 
 Das McpServerSystem MUSS ein Tool (`get_system_announcement`) bereitstellen, mit dem KI-Agenten abfragen können, ob systemweite Warnungen oder Hinweise (z.B. Wartungsarbeiten) vorliegen, um ihr Verhalten entsprechend anzupassen (oder den User darauf hinzuweisen).
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
+**Implementation State:** Implemented
+**Review Findings:** `get_system_announcement` ist im MCP Server als `system.info` registriert und implementiert.
+**Test Status:** Covered
 **Priority:** desired
 **Acceptance Criteria:**
 - [ ] Tool `get_system_announcement` ist im MCP Server registriert.

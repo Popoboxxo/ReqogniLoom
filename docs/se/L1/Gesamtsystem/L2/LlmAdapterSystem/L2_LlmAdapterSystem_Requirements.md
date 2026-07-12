@@ -278,3 +278,18 @@ Der LlmAdapter SHALL LLM-Langläufer-Operationen (`decompose_requirement`, `chec
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-Llm → REQ-L2-LA, Template-Standardisierung*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-LA-001 | REQ-L1-013, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend) |
+| REQ-L2-LA-002 | REQ-L1-013 |
+| REQ-L2-LA-003 | REQ-L1-013 |
+| REQ-L2-LA-004 | REQ-L1-013 |
+| REQ-L2-LA-005 | REQ-L1-013, REQ-L1-026 (mitwirkend) |
+| REQ-L2-LA-006 | REQ-L1-011, REQ-L1-013 (mitwirkend) |
+| REQ-L2-LA-007 | REQ-L1-013 |
+| REQ-L2-LA-008 | REQ-L1-013 (primär), REQ-L1-026 (mitwirkend) |
+

@@ -870,3 +870,28 @@ Das AuthAndTenancySystem MUSS die Geschäftslogik für Personal Access Tokens ka
 ---
 
 *Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-03*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-AT-001 | REQ-L1-006, REQ-L1-010 |
+| REQ-L2-AT-002 | REQ-L1-005, REQ-L1-010 |
+| REQ-L2-AT-003 | REQ-L1-010 |
+| REQ-L2-AT-004 | REQ-L1-010, REQ-L1-007 (mitwirkend) |
+| REQ-L2-AT-005 | REQ-L1-010, REQ-L1-002 (mitwirkend), REQ-L1-009 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-012 (mitwirkend) |
+| REQ-L2-AT-006 | REQ-L1-010 |
+| REQ-L2-AT-007 | REQ-L1-006, REQ-L1-005, REQ-L1-010 |
+| REQ-L2-AT-008 | REQ-L1-015 |
+| REQ-L2-AT-009 | REQ-L1-005, REQ-L1-010 |
+| REQ-L2-AT-010 | REQ-L1-006, REQ-L1-016 (mitwirkend) |
+| REQ-L2-AT-011 | REQ-L1-033 (AC1 |
+| REQ-L2-AT-012 | REQ-L1-033 (AC1, REQ-L1-010 (mitwirkend) |
+| REQ-L2-AT-013 | REQ-L1-033 (AC1), REQ-L1-006 (mitwirkend) |
+| REQ-L2-AT-014 | REQ-L1-033 (AC4) |
+| REQ-L2-AT-015 | REQ-L1-033 (AC6) |
+| REQ-L2-AT-016 | REQ-L1-033 (AC2 |
+| REQ-L2-AT-017 | REQ-L1-039, REQ-L1-010 (mitwirkend) |
+| REQ-L2-AT-018 | REQ-L1-039, REQ-L1-026 (mitwirkend — Performance) |
+

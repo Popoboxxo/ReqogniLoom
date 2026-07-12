@@ -102,3 +102,13 @@ Der CredentialAuthenticationService SHALL ausschließlich über `User.set_passwo
 *Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-25*
 *Als-gebaut-Spiegelung von PasswordAuthenticationService*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-AT004-001 | REQ-L2-AT-011, REQ-L2-AT-016 |
+| REQ-L3-AT004-002 | REQ-L2-AT-012 |
+| REQ-L3-AT004-003 | REQ-L2-AT-014 |
+

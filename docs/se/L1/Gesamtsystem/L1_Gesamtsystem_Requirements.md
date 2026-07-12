@@ -126,9 +126,9 @@ dass jede schreibende Operation im Audit-Log erfasst wird.
 **Rationale:** MCP ist die primäre Schnittstelle für AI-Agenten; vollständiger
 Read/Write-Zugriff ist Voraussetzung für alle primären AI-Workflows.
 **Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
+**Review Findings:** MCP Server unterstützt jetzt vollständigen asynchronen Standard (SSE via Redis PubSub) und exportiert alle Tools dynamisch.
+**Test Status:** Covered
+**Remarks:** GenericCrudToolGroup deckt alle UI-Paritätslücken (Issue, Risk, etc.) ab.
 
 **Domain:** software
 **Priorität:** mandatory
@@ -667,6 +667,9 @@ alle Schnittstellen betrifft und für die Zielgruppe
 #### L2-MCP-01: Requirements-Tool-Gruppe (6 Tools)
 
 Das MCP-Subsystem muss die Tools requirement.get, requirement.query,
+requirement.create, requirement.update, requirement.decompose, requirement.validate
+und requirement.derive bereitstellen. Die Tool-Schaltstellen müssen den MCP
+Standard-Methoden (tools/list, tools/call) entsprechen.
 requirement.create, requirement.update, requirement.decompose und
 requirement.validate implementieren, wobei requirement.validate nur bei
 aktiviertem LLM-Provider ausführbar ist und graceful einen Fehler zurückgibt,
@@ -683,6 +686,7 @@ mit vollständigem Audit-Log für jede schreibende Operation.
 
 **Rationale:** Architektur-Tools sind neu in Runde 4 und die Grundlage für
 Architecture-Requirements-Alignment-Workflows.
+**Implementation State:** Implemented
 
 #### L2-MCP-03: Test-Tool-Gruppe (5 Tools)
 
@@ -691,12 +695,17 @@ test.update und test.link implementieren, sodass Test-Agenten Coverage-Analysen
 durchführen und Test-Status nach Ausführung schreiben können.
 
 **Rationale:** Test-Tools ermöglichen automatisierte Coverage-Analyse als AI-Workflow.
+**Implementation State:** Implemented
 
 #### L2-MCP-04: Übergreifende Tools (4 Tools)
 
 Das MCP-Subsystem muss traceability.query, artifact.search, artifact.get_tree
-und workspace.get_context implementieren, wobei workspace.get_context als
-primärer Orientierungspunkt für AI-Agenten beim Sitzungsstart dient.
+und system.info bereitstellen.
+
+#### L2-MCP-05: GenericCrud-Tool-Gruppe (UI-Parität)
+
+Das MCP-Subsystem muss dynamisch CRUD-Tools für ADRs, Risks, Issues und das Glossary bereitstellen,
+um vollständige Parität mit der REST-API zu gewährleisten. Dies erfolgt standardkonform via `tools/call`.
 
 **Rationale:** Übergreifende Tools vermeiden redundante Einzel-Calls und sind
 der Einstiegspunkt für Agenten ohne Vorwissen über den Workspace-Zustand.
@@ -2440,4 +2449,86 @@ The system MUST render the unified ArtifactInspector (REQ-L1-089) on the detail 
 
 **Traceability:** REQ-L0-062, REQ-L0-017 (ICDs), REQ-L0-018 (ADRs/Risks/Issues), REQ-L0-042 (Ontology variety)
 **Derived L2:** REQ-L2-RF-034..037 (each panel is the unit of adoption)
+
+## Master Traceability Matrix
+
+| REQ-L1 | Abgeleitet von REQ-L0 |
+|---------|----------------------|
+| REQ-L1-001 | REQ-L0-002, REQ-L0-003 |
+| REQ-L1-002 | REQ-L0-002, REQ-L0-005 |
+| REQ-L1-003 | REQ-L0-003 |
+| REQ-L1-004 | REQ-L0-003 |
+| REQ-L1-005 | REQ-L0-001, REQ-L0-012 |
+| REQ-L1-006 | REQ-L0-001, REQ-L0-012 |
+| REQ-L1-007 | REQ-L0-002 |
+| REQ-L1-008 | REQ-L0-004 |
+| REQ-L1-009 | REQ-L0-005 |
+| REQ-L1-010 | REQ-L0-005 |
+| REQ-L1-011 | REQ-L0-011 |
+| REQ-L1-012 | REQ-L0-003 |
+| REQ-L1-013 | REQ-L0-007 |
+| REQ-L1-014 | REQ-L0-010 |
+| REQ-L1-015 | REQ-L0-008 |
+| REQ-L1-016 | REQ-L0-009 |
+| REQ-L1-017 | REQ-L0-012 |
+| REQ-L1-018 | REQ-L0-006 |
+| REQ-L1-019 | REQ-L0-012 |
+| REQ-L1-020 | REQ-L0-001 |
+| REQ-L1-021 | REQ-L0-013 |
+| REQ-L1-022 | REQ-L0-014 |
+| REQ-L1-023 | REQ-L0-015 |
+| REQ-L1-024 | REQ-L0-012, REQ-L0-014 |
+| REQ-L1-027 | REQ-L0-016 |
+| REQ-L1-028 | REQ-L0-017 |
+| REQ-L1-029 | REQ-L0-018 |
+| REQ-L1-030 | REQ-L0-019 |
+| REQ-L1-031 | REQ-L0-020 |
+| REQ-L1-032 | REQ-L0-021 |
+| REQ-L1-033 | REQ-L0-022 |
+| REQ-L1-034 | REQ-L0-023 |
+| REQ-L1-035 | REQ-L0-024 |
+| REQ-L1-036 | REQ-L0-024 |
+| REQ-L1-037 | REQ-L0-025 |
+| REQ-L1-038 | REQ-L0-026 |
+| REQ-L1-039 | REQ-L0-027 |
+| REQ-L1-040 | REQ-L0-028 |
+| REQ-L1-041 | REQ-L0-028 |
+| REQ-L1-042 | REQ-L0-029 |
+| REQ-L1-056 | REQ-L0-036 |
+| REQ-L1-057 | REQ-L0-037 |
+| REQ-L1-058 | REQ-L0-003, REQ-L0-017 |
+| REQ-L1-059 | REQ-L0-017 |
+| REQ-L1-060 | REQ-L0-003 |
+| REQ-L1-061 | REQ-L0-003 |
+| REQ-L1-062 | REQ-L0-003, REQ-L0-017 |
+| REQ-L1-063 | REQ-L0-003 |
+| REQ-L1-064 | REQ-L0-038 |
+| REQ-L1-065 | REQ-L0-040 |
+| REQ-L1-066 | REQ-L0-038 |
+| REQ-L1-067 | REQ-L0-039 |
+| REQ-L1-068 | REQ-L0-041 |
+| REQ-L1-069 | REQ-L0-046 |
+| REQ-L1-070 | REQ-L0-043 |
+| REQ-L1-071 | REQ-L0-042 |
+| REQ-L1-072 | REQ-L0-044 |
+| REQ-L1-073 | REQ-L0-045 |
+| REQ-L1-074 | REQ-L0-046 |
+| REQ-L1-075 | REQ-L0-041 |
+| REQ-L1-076 | REQ-L0-047 |
+| REQ-L1-077 | REQ-L0-047 |
+| REQ-L1-078 | REQ-L0-048 |
+| REQ-L1-079 | REQ-L0-049 |
+| REQ-L1-080 | REQ-L0-049, REQ-L0-046 |
+| REQ-L1-086 | REQ-L0-055 |
+| REQ-L1-088 | REQ-L0-056 |
+| REQ-L1-085 | REQ-L0-060 |
+| REQ-L1-086 | REQ-L0-060 |
+| REQ-L1-087 | REQ-L0-061 |
+| REQ-L1-089 | REQ-L0-062, REQ-L0-009 (i18n), REQ-L0-017 (ICD), REQ-L0-018 (ADR/Risk/Issue) |
+| REQ-L1-090 | REQ-L0-062, REQ-L0-004 (Baselines), REQ-L0-017 (ICDs) |
+| REQ-L1-091 | REQ-L0-062, REQ-L0-028 (Visual Diffing), REQ-L0-017 (ICDs) |
+| REQ-L1-092 | REQ-L0-062, REQ-L0-003 (Traceability), REQ-L0-030 (Suspect), REQ-L0-035 (Cross-Level) |
+| REQ-L1-093 | REQ-L0-062, REQ-L0-009 (i18n) |
+| REQ-L1-094 | REQ-L0-062, REQ-L0-009 (i18n) |
+| REQ-L1-095 | REQ-L0-062, REQ-L0-017 (ICDs), REQ-L0-018 (ADRs/Risks/Issues), REQ-L0-042 (Ontology variety) |
 

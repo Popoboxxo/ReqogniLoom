@@ -158,3 +158,14 @@ Der DiagramManager SHALL eine chronologische Liste aller Versionen eines gegeben
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-DM-001 | REQ-L2-DS-001 |
+| REQ-L3-DM-002 | REQ-L2-DS-001 |
+| REQ-L3-DM-003 | REQ-L2-DS-001 |
+| REQ-L3-DM-004 | REQ-L2-DS-001 |
+

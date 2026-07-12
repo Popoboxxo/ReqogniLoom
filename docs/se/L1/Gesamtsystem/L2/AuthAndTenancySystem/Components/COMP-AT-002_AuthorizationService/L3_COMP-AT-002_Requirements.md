@@ -107,3 +107,13 @@ Der AuthorizationService SHALL CRUD-Operationen für Rollenzuweisungen auf Works
 ---
 
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-AT002-001 | REQ-L2-AT-003 |
+| REQ-L3-AT002-002 | REQ-L2-AT-004 |
+| REQ-L3-AT002-003 | REQ-L2-AT-006 |
+

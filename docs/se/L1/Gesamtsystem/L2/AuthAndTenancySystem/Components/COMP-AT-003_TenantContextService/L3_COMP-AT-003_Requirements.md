@@ -116,3 +116,14 @@ Der TenantContextService SHALL den erzeugten `TenantContext` über die interne S
 ---
 
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-AT003-001 | REQ-L2-AT-008 |
+| REQ-L3-AT003-002 | REQ-L2-AT-008 |
+| REQ-L3-AT003-003 | REQ-L2-AT-005 |
+| REQ-L3-AT003-004 | REQ-L2-AT-005, REQ-L2-AT-008 |
+

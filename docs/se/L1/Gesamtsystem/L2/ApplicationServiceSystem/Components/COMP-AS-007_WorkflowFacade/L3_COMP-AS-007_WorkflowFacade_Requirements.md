@@ -229,3 +229,17 @@ Der WorkflowFacade MAY Workflow-Definitionen und Preset-Regeln bis zu 5 Minuten 
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-WF-001 | REQ-L2-AppSvc-012 |
+| REQ-L3-WF-002 | REQ-L2-AppSvc-012 |
+| REQ-L3-WF-003 | REQ-L2-AppSvc-019 |
+| REQ-L3-WF-004 | REQ-L2-AppSvc-020 |
+| REQ-L3-WF-005 | REQ-L2-AppSvc-012 |
+| REQ-L3-WF-006 | REQ-L2-AppSvc-018 |
+| REQ-L3-WF-007 | REQ-L2-AppSvc-023 |
+

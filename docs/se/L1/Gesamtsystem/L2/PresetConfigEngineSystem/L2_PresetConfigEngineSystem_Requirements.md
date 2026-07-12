@@ -437,3 +437,24 @@ Im Extended-Preset KANN die PresetConfigEngine benutzerdefinierte Presets erlaub
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-Preset → REQ-L2-PC, Template-Standardisierung*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-PC-001 | REQ-L1-007 |
+| REQ-L2-PC-002 | REQ-L1-007, REQ-L1-002 (mitwirkend), REQ-L1-008 (mitwirkend) |
+| REQ-L2-PC-003 | REQ-L1-007 |
+| REQ-L2-PC-004 | REQ-L1-007, REQ-L1-002 (mitwirkend) |
+| REQ-L2-PC-005 | REQ-L1-007, REQ-L1-008 (mitwirkend) |
+| REQ-L2-PC-006 | REQ-L1-007, REQ-L1-009 (mitwirkend) |
+| REQ-L2-PC-007 | REQ-L1-007, REQ-L1-009 (mitwirkend), REQ-L1-011 (mitwirkend) |
+| REQ-L2-PC-008 | REQ-L1-007 |
+| REQ-L2-PC-009 | REQ-L1-014 |
+| REQ-L2-PC-010 | REQ-L1-014 |
+| REQ-L2-PC-011 | REQ-L1-007 |
+| REQ-L2-PC-012 | REQ-L1-007 |
+| REQ-L2-PC-013 | REQ-L1-026 (mitwirkend) |
+| REQ-L2-PC-014 | REQ-L1-007 |
+

@@ -667,3 +667,23 @@ Der RestApiAdapter MUSS REST-Routen bereitstellen, um projektübergreifende (glo
 ---
 
 *Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-RA-001 | REQ-L1-006 |
+| REQ-L2-RA-002 | REQ-L1-006 |
+| REQ-L2-RA-003 | REQ-L1-026, REQ-L1-006 (mitwirkend) |
+| REQ-L2-RA-004 | REQ-L1-016 |
+| REQ-L2-RA-005 | REQ-L1-006, REQ-L1-010 (mitwirkend) |
+| REQ-L2-RA-006 | REQ-L1-010 |
+| REQ-L2-RA-007 | REQ-L1-011 (mitwirkend) |
+| REQ-L2-RA-008 | REQ-L1-007 (mitwirkend) |
+| REQ-L2-RA-009 | REQ-L1-006 |
+| REQ-L2-RA-010 | REQ-L1-006 |
+| REQ-L2-RA-011 | REQ-L1-015 (mitwirkend) |
+| REQ-L2-RA-012 | REQ-L1-006 |
+| REQ-L2-RA-013 | REQ-L1-026 (primär), REQ-L1-006 (mitwirkend) |
+

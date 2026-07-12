@@ -77,3 +77,11 @@ Der McpArtifactProvider SHALL eingehende `artifact.get` Anfragen vom McpServer e
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-MAP-001 | REQ-L2-DS-005 |
+

@@ -373,3 +373,20 @@ Empfohlene Implementierung: `django-db-geventpool` oder `pgbouncer` (technologie
 **Test Status:** Missing
 **Remarks:** Sollte implementiert werden.
 
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-PL-001 | REQ-L1-015 |
+| REQ-L2-PL-002 | REQ-L1-025 |
+| REQ-L2-PL-003 | REQ-L1-026, REQ-L1-001 (mitwirkend), REQ-L1-003 (mitwirkend), REQ-L1-020 (mitwirkend) |
+| REQ-L2-PL-004 | REQ-L1-001..015 (alle mit Persistenzbedarf) |
+| REQ-L2-PL-005 | REQ-L1-011, REQ-L1-002 (mitwirkend), REQ-L1-009 (mitwirkend) |
+| REQ-L2-PL-006 | REQ-L1-018 (mitwirkend) |
+| REQ-L2-PL-007 | REQ-L1-026 (mitwirkend) |
+| REQ-L2-PL-008 | REQ-L1-026, REQ-L1-003 (mitwirkend), REQ-L1-020 (mitwirkend) |
+| REQ-L2-PL-009 | REQ-L1-025, REQ-L1-001 (mitwirkend) |
+| REQ-L2-PL-010 | REQ-L1-015 |
+

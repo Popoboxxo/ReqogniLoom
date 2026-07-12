@@ -126,16 +126,12 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 
 #### ARCH-L1-003 — McpServer (MCP-Schnittstelle)
 
-**Domain:** software
-**Responsibility:** Nativer MCP-Protokoll-Handler (stdio/sse/HTTP-Transport je nach Client). Implementiert 20 Tools in vier Gruppen (Requirements, Architecture, Tests, Übergreifend). Greift — wie der REST-Adapter — direkt auf `ApplicationService` zu, nicht über die REST API. Schreibende Operationen werden mit Agent-Client-Identität und API-Key im AuditLog erfasst.
+**Responsibility:** Nativer MCP-Protokoll-Handler (stdio/sse/HTTP-Transport je nach Client). Implementiert über 40 Tools in fünf Gruppen (Requirements, Architecture, Tests, Übergreifend, GenericCrud). Der SSE-Transport erfolgt asynchron via Redis PubSub, um den HTTP 202 Accepted Standard zu erfüllen. Greift — wie der REST-Adapter — direkt auf `ApplicationService` zu, nicht über die REST API. Schreibende Operationen werden mit Agent-Client-Identität und API-Key im AuditLog erfasst.
 
-**Externe Interfaces (eingehend):**
+**Interfaces:**
 - AI-Agent → MCP-Protokoll (Tool-Aufrufe)
-
-**Interne Interfaces (ausgehend):**
-- ARCH-L1-003 → ARCH-L1-011: API-Key-Validierung, Auth-Kontext
-- ARCH-L1-003 → ARCH-L1-004: Use-Case-Methoden (In-Process Python)
-- ARCH-L1-003 → ARCH-L1-008: Preset-Abfrage
+- ARCH-L1-003 → ARCH-L1-004: In-Process-Aufrufe der Use-Case-Methoden
+- ARCH-L1-003 → ARCH-L1-011: API-Key-Validierung
 
 **Zugeordnete REQ-L1:** REQ-L1-005 (MCP Server)
 **Mitwirkend bei:** REQ-L1-010 (RBAC), REQ-L1-011 (MCP-Audit-Trail), REQ-L1-013 (LLM-Capability-Aufrufe via ApplicationService), REQ-L1-020 (artifact.search-Tool)

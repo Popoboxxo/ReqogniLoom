@@ -145,3 +145,11 @@ Der DataSerializer MUSS das Erstellen und Aktualisieren von Artefakten polymorph
 ---
 
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RA002-005 | Abgeleitet von REQ-L2-RA-019 |
+

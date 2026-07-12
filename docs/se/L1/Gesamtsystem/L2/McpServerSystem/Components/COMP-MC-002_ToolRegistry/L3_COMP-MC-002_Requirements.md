@@ -44,10 +44,10 @@ Tool-Discovery, -Registrierung und -Routing; Preset-basierte Tool-Sichtbarkeit; 
 ### REQ-L3-MC002-001: API-Key-Validierung und Auth-Kontext-Aufbau
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** API-Key-Validierung und Rollenaufbau finden standardkonform in Views und AuthenticationServices statt.
+**Test Status:** Covered
+**Remarks:** Kontext wird sicher via AuthContext propagiert.
 
 
 Die ToolRegistry SHALL fuer jeden eingehenden Dispatch-Aufruf den API-Key an AuthAndTenancy (IF-MC-EXT-OUT-002) zur Validierung weiterleiten. Bei gueltiger Validierung SHALL ein Auth-Kontext (Agent-Identitaet, Tenant-ID, Rollen) aufgebaut und allen nachgelagerten `execute_tool`-Aufrufen mitgegeben werden. Bei ungueltiger Validierung SHALL die ToolRegistry einen `AUTH_FAILED`-Fehler zurueckgeben, ohne die Tool-Gruppe zu involvieren.
@@ -65,10 +65,10 @@ Die ToolRegistry SHALL fuer jeden eingehenden Dispatch-Aufruf den API-Key an Aut
 ### REQ-L3-MC002-002: RBAC-Pruefung vor schreibenden Operationen
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** AuthorizationService blockiert unzureichend berechtigte Anfragen (PERMISSON_DENIED).
+**Test Status:** Covered
+**Remarks:** Erfolgt sicher vor Dispatch an ApplicationService.
 
 
 Die ToolRegistry SHALL vor jedem `execute_tool`-Aufruf fuer schreibende Operationen (create, update, link, decompose) pruefen, ob die Rolle im Auth-Kontext die Operation erlaubt. Bei unzureichender Berechtigung SHALL ein `PERMISSION_DENIED`-Fehler zurueckgegeben werden, ohne die Tool-Gruppe aufzurufen. Lesende Operationen (get, query, search) DUERFEN NICHT durch RBAC blockiert werden.
@@ -86,10 +86,10 @@ Die ToolRegistry SHALL vor jedem `execute_tool`-Aufruf fuer schreibende Operatio
 ### REQ-L3-MC002-003: Preset-basierter Tool-Filter
 
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Implementation State:** Implemented
+**Review Findings:** ToolRegistry beachtet Presets dynamisch bei `tools/list` und lehnt nicht-aktive per `FEATURE_NOT_ENABLED` ab.
+**Test Status:** Covered
+**Remarks:** Schemagenerierung ist dynamisch gekoppelt.
 
 
 Die ToolRegistry SHALL vor jedem `execute_tool`-Aufruf das aktive Preset des Workspaces ueber PresetConfigEngine (IF-MC-EXT-OUT-004) abfragen. Tools, die im aktiven Preset nicht aktiviert sind, SHALL mit Fehler `FEATURE_NOT_ENABLED` abgelehnt werden. Die Preset-Konfiguration SOLL gecacht werden und nicht bei jedem Aufruf neu abgefragt werden muessen.

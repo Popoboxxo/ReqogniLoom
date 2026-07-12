@@ -260,3 +260,18 @@ Der ImportService SHALL Importe mit bis zu 10.000 Zeilen handhaben:
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-IMP-001 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-002 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-003 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-004 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-005 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-006 | REQ-L2-AppSvc-019 |
+| REQ-L3-IMP-007 | REQ-L2-AppSvc-022 |
+| REQ-L3-IMP-008 | REQ-L2-AppSvc-023 |
+

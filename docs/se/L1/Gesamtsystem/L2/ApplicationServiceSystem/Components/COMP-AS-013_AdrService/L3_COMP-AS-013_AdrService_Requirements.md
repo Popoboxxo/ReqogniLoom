@@ -306,3 +306,12 @@ Der AdrService SHALL alle ADR-Payloads gegen ein formales Schema validieren:
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-ADR-006 | REQ-L2-AppSvc-022 |
+| REQ-L3-ADR-007 | REQ-L2-AppSvc-026 (DomainEventBus) |
+

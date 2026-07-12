@@ -570,3 +570,25 @@ MUSS Admin-Berechtigung und Captcha-Bestätigung erfordern.
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-BL-010..011 aus REQ-L1-045, REQ-L1-046)*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-BL-001 | REQ-L1-008, REQ-L1-003 (mitwirkend) |
+| REQ-L2-BL-002 | REQ-L1-008 |
+| REQ-L2-BL-003 | REQ-L1-008 |
+| REQ-L2-BL-004 | REQ-L1-008, REQ-L1-007 (mitwirkend) |
+| REQ-L2-BL-005 | REQ-L1-008 |
+| REQ-L2-BL-006 | REQ-L1-008 |
+| REQ-L2-BL-007 | REQ-L1-008, REQ-L1-025 (mitwirkend) |
+| REQ-L2-BL-008 | REQ-L1-026, REQ-L1-008 (mitwirkend) |
+| REQ-L2-BL-009 | REQ-L1-008, REQ-L1-011 (mitwirkend |
+| REQ-L2-BL-004 | REQ-L1-008, REQ-L1-007 (mitwirkend) |
+| REQ-L2-BL-005 | REQ-L1-008 |
+| REQ-L2-BL-006 | REQ-L1-008 |
+| REQ-L2-BL-007 | REQ-L1-008, REQ-L1-025 (mitwirkend) |
+| REQ-L2-BL-008 | REQ-L1-026, REQ-L1-008 (mitwirkend) |
+| REQ-L2-BL-009 | REQ-L1-008, REQ-L1-011 (mitwirkend |
+

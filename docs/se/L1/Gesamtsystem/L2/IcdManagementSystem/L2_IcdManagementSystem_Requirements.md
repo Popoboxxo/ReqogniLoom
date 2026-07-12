@@ -205,3 +205,16 @@ Das IcdManagementSystem SHALL erkannte Breaking-Change-Events in das AuditLog sc
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
 *Handoff: HOFF-20260621-002 | Parent: REQ-L1-028 | Architektur-Referenz: ARCH-L1-014*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-ICD-001 | REQ-L1-028 |
+| REQ-L2-ICD-002 | REQ-L1-028 |
+| REQ-L2-ICD-003 | REQ-L1-028 |
+| REQ-L2-ICD-004 | REQ-L1-028 |
+| REQ-L2-ICD-005 | REQ-L1-028 |
+| REQ-L2-ICD-006 | REQ-L1-028 |
+

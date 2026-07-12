@@ -10,7 +10,7 @@
 
 ## 1. Verantwortlichkeit
 
-Nativer MCP-Protokoll-Handler fuer AI-Agenten. Exponiert 20 Tools in vier Gruppen ueber drei Transportprotokolle (stdio, SSE, HTTP). Greift direkt auf ApplicationService zu — nicht ueber REST. Erfasst Agent-Client-Identitaet und API-Key fuer Audit-Zwecke.
+Nativer MCP-Protokoll-Handler fuer AI-Agenten. Exponiert über 40 Tools in fünf Gruppen (inkl. dynamisch generierter UI-Paritäts-Tools). Der Transport erfolgt u.a. via asynchronem SSE-Streaming über Redis PubSub, um MCP-Standardkonformität (HTTP 202) zu garantieren. Greift direkt auf ApplicationService zu — nicht ueber REST. Erfasst Agent-Client-Identitaet und API-Key fuer Audit-Zwecke.
 
 ---
 
@@ -40,6 +40,7 @@ Nativer MCP-Protokoll-Handler fuer AI-Agenten. Exponiert 20 Tools in vier Gruppe
 | COMP-MC-004 | ArchitectureToolGroup | 5 Architecture-Tools: architecture.get/query/create/update/link | software |
 | COMP-MC-005 | TestToolGroup | 5 Test-Tools: test.get/query/create/update/link | software |
 | COMP-MC-006 | CrossCuttingToolGroup | 4 uebergreifende Tools: traceability.query, artifact.search, artifact.get_tree, workspace.get_context | software |
+| COMP-MC-007 | GenericCrudToolGroup | Dynamisch registrierte CRUD-Tools für ADRs, Risks, Issues und Glossary für 100% UI-Parität | software |
 
 ### Interne Schnittstellen
 

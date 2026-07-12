@@ -239,3 +239,13 @@ Hybrid-Suche verbessert die Präzision bei Anfragen mit spezifischen Schlüsselb
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-VS-001..003 vollständig ausgearbeitet)*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-VS-001 | REQ-L1-038 |
+| REQ-L2-VS-002 | REQ-L1-038 |
+| REQ-L2-VS-003 | REQ-L1-038 |
+

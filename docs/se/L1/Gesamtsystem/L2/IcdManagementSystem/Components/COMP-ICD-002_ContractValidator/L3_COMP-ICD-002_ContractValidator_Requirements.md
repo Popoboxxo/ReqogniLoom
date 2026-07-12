@@ -67,3 +67,12 @@ Die Komponente ContractValidator SHALL beim Aufruf von `validate_contract` (IF-I
 ---
 
 *Erstellt durch se-requirements-Agent | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-ICD-002-001 | REQ-L2-ICD-002 |
+| REQ-L3-ICD-002-002 | REQ-L2-ICD-003 |
+

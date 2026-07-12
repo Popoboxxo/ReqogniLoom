@@ -304,3 +304,19 @@ Die WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das überge
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-Workflow → REQ-L2-WE, Template-Standardisierung*
 *Designation: subsystem (Leaf-AE) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-WE-001 | REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-010 (mitwirkend), REQ-L1-012 (mitwirkend) |
+| REQ-L2-WE-002 | REQ-L1-009, REQ-L1-007 (mitwirkend) |
+| REQ-L2-WE-003 | REQ-L1-009, REQ-L1-011 (mitwirkend), REQ-L1-025 (mitwirkend) |
+| REQ-L2-WE-004 | REQ-L1-009, REQ-L1-007 (mitwirkend) |
+| REQ-L2-WE-005 | REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-012 (mitwirkend), REQ-L1-025 (mitwirkend) |
+| REQ-L2-WE-006 | REQ-L1-015, REQ-L1-009 (mitwirkend) |
+| REQ-L2-WE-007 | REQ-L1-007, REQ-L1-009 (mitwirkend) |
+| REQ-L2-WE-008 | REQ-L1-026, REQ-L1-009 (mitwirkend) |
+| REQ-L2-WE-009 | REQ-L1-009, REQ-L1-010 (mitwirkend) |
+

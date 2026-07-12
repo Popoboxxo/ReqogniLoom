@@ -121,3 +121,14 @@ Der AuthenticationService SHALL alle Authentifizierungsfehler im einheitlichen F
 ---
 
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-AT001-001 | REQ-L2-AT-001, REQ-L2-AT-007 |
+| REQ-L3-AT001-002 | REQ-L2-AT-002, REQ-L2-AT-009 |
+| REQ-L3-AT001-003 | REQ-L2-AT-009 |
+| REQ-L3-AT001-004 | REQ-L2-AT-010 |
+

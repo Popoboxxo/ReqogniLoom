@@ -373,3 +373,12 @@ Der IssueService SHALL folgende Query-Operationen unterstützen:
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-ISSUE-009 | REQ-L2-AppSvc-022 |
+| REQ-L3-ISSUE-010 | REQ-L2-AppSvc-026 |
+

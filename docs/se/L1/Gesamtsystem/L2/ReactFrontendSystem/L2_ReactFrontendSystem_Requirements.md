@@ -935,3 +935,28 @@ The ReactFrontendSystem MUST implement a reusable `TracePanel` component that di
 ---
 
 *Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-RF-001 | REQ-L1-016 |
+| REQ-L2-RF-002 | REQ-L1-017 |
+| REQ-L2-RF-003 | REQ-L1-017, REQ-L1-002 (mitwirkend) |
+| REQ-L2-RF-004 | REQ-L1-017, REQ-L1-004 (mitwirkend) |
+| REQ-L2-RF-005 | REQ-L1-017, REQ-L1-001 (mitwirkend) |
+| REQ-L2-RF-006 | REQ-L1-017, REQ-L1-003 (mitwirkend) |
+| REQ-L2-RF-007 | REQ-L1-007 (mitwirkend) |
+| REQ-L2-RF-008 | REQ-L1-014 (mitwirkend) |
+| REQ-L2-RF-009 | REQ-L1-026 (mitwirkend) |
+| REQ-L2-RF-010 | REQ-L1-017, REQ-L1-006 (mitwirkend) |
+| REQ-L2-RF-011 | REQ-L1-016 (mitwirkend), REQ-L1-017 |
+| REQ-L2-RF-012 | REQ-L1-017, REQ-L1-007 (mitwirkend), REQ-L1-014 (mitwirkend) |
+| REQ-L2-RF-014 | REQ-L1-040 |
+| REQ-L2-RF-015 | REQ-L1-041 |
+| REQ-L2-RF-034 | REQ-L1-089, REQ-L1-093, REQ-L1-094 |
+| REQ-L2-RF-035 | REQ-L1-090, REQ-L1-094 |
+| REQ-L2-RF-036 | REQ-L1-091, REQ-L1-093, REQ-L1-094 |
+| REQ-L2-RF-037 | REQ-L1-092, REQ-L1-094 |
+

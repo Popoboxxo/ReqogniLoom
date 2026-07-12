@@ -104,3 +104,14 @@ Die Komponente IcdManager SHALL den Endpunkt `get_icd_versions` (IF-L1-038) bere
 ---
 
 *Erstellt durch se-requirements-Agent | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-ICD-001-001 | REQ-L2-ICD-001 |
+| REQ-L3-ICD-001-002 | REQ-L2-ICD-001, REQ-L2-ICD-003 |
+| REQ-L3-ICD-001-003 | REQ-L2-ICD-004 |
+| REQ-L3-ICD-001-004 | REQ-L2-ICD-005 |
+

@@ -260,3 +260,18 @@ Der PresetPolicyService SHALL bei Policy-Violations Fehler mit strukturierter Na
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-PPL-001 | REQ-L2-AppSvc-020 |
+| REQ-L3-PPL-002 | REQ-L2-AppSvc-020 |
+| REQ-L3-PPL-003 | REQ-L2-AppSvc-020 |
+| REQ-L3-PPL-004 | REQ-L2-AppSvc-020 |
+| REQ-L3-PPL-005 | REQ-L2-AppSvc-023 |
+| REQ-L3-PPL-006 | REQ-L2-AppSvc-020 |
+| REQ-L3-PPL-007 | REQ-L2-AppSvc-020 |
+| REQ-L3-PPL-008 | REQ-L2-AppSvc-020 |
+

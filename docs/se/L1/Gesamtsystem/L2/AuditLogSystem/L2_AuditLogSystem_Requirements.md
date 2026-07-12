@@ -307,3 +307,19 @@ v1: Operation-Level-Granularität. **Feld-Level-Diffs** sind explizit v2.
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-AuditLog → REQ-L2-AL, Template-Standardisierung*
 *Designation: subsystem (Leaf) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-AL-001 | REQ-L1-011, REQ-L1-002 (mitwirkend), REQ-L1-009 (mitwirkend) |
+| REQ-L2-AL-002 | REQ-L1-011, REQ-L1-005 (mitwirkend) |
+| REQ-L2-AL-003 | REQ-L1-011 |
+| REQ-L2-AL-004 | REQ-L1-025 (mitwirkend) |
+| REQ-L2-AL-005 | REQ-L1-011 |
+| REQ-L2-AL-006 | REQ-L1-015 (mitwirkend) |
+| REQ-L2-AL-007 | REQ-L1-026 (mitwirkend) |
+| REQ-L2-AL-008 | REQ-L1-026 (primär), REQ-L1-011 (mitwirkend) |
+| REQ-L2-AL-009 | REQ-L1-011 (primär) |
+

@@ -52,3 +52,11 @@ Die Komponente AuditLogger SHALL bei jedem Aufruf von `log_breaking_change` (IF-
 ---
 
 *Erstellt durch se-requirements-Agent | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-ICD-004-001 | REQ-L2-ICD-006 |
+

@@ -100,3 +100,14 @@ Die PolicyEngine SHALL bei Ausschöpfung aller Retries oder bei fatalen Fehlern 
 **Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L2-RO-002, REQ-L2-RO-003
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RO-002-01 | REQ-L2-RO-002 |
+| REQ-L3-RO-002-02 | REQ-L2-RO-003 |
+| REQ-L3-RO-002-03 | REQ-L2-RO-002, REQ-L2-RO-003 |
+| REQ-L3-RO-002-04 | REQ-L2-RO-002, REQ-L2-RO-003 |
+

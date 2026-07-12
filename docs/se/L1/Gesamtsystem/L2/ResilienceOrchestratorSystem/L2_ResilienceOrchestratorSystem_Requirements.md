@@ -205,3 +205,16 @@ Das ResilienceOrchestratorSystem SHALL Degradation-Events, Retry-Logs und Status
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
 *Handoff: HOFF-20260621-002 | Parent: REQ-L1-032 | Architektur-Referenz: ARCH-L1-016*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-RO-001 | REQ-L1-032 |
+| REQ-L2-RO-002 | REQ-L1-032 |
+| REQ-L2-RO-003 | REQ-L1-032 |
+| REQ-L2-RO-004 | REQ-L1-032 |
+| REQ-L2-RO-005 | REQ-L1-032 |
+| REQ-L2-RO-006 | REQ-L1-032 |
+

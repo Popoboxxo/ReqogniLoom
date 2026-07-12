@@ -1083,3 +1083,42 @@ Der ApplicationService MUSS CRUD-Operationen für KI-Prompts auf Workspace-Ebene
 **Implementation State:** Backlog
 **Review Findings:** Neu.
 **Test Status:** Missing
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-AS-001 | REQ-L1-001 |
+| REQ-L2-AS-002 | REQ-L1-001 |
+| REQ-L2-AS-003 | REQ-L1-002 |
+| REQ-L2-AS-004 | REQ-L1-004 |
+| REQ-L2-AS-005 | REQ-L1-012 |
+| REQ-L2-AS-006 | REQ-L1-019 |
+| REQ-L2-AS-007 | REQ-L1-019, REQ-L1-014 (mitwirkend) |
+| REQ-L2-AS-008 | REQ-L1-020 |
+| REQ-L2-AS-009 | REQ-L1-020 |
+| REQ-L2-AS-010 | REQ-L1-003 |
+| REQ-L2-AS-011 | REQ-L1-008 |
+| REQ-L2-AS-012 | REQ-L1-009 |
+| REQ-L2-AS-013 | REQ-L1-013 |
+| REQ-L2-AS-014 | REQ-L1-021 |
+| REQ-L2-AS-015 | REQ-L1-022 |
+| REQ-L2-AS-016 | REQ-L1-023 |
+| REQ-L2-AS-017 | REQ-L1-024 |
+| REQ-L2-AS-018 | REQ-L1-025 |
+| REQ-L2-AS-019 | REQ-L1-011 |
+| REQ-L2-AS-020 | REQ-L1-007 |
+| REQ-L2-AS-021 | REQ-L1-010 |
+| REQ-L2-AS-022 | REQ-L1-015 |
+| REQ-L2-AS-023 | REQ-L1-026 |
+| REQ-L2-AS-024 | REQ-L1-002, REQ-L1-013 (mitwirkend) |
+| REQ-L2-AS-025 | REQ-L1-012 |
+| REQ-L2-AS-026 | REQ-L1-029 |
+| REQ-L2-AS-027 | REQ-L1-029 |
+| REQ-L2-AS-028 | REQ-L1-029 |
+| REQ-L2-AS-029 | REQ-L1-026 (Performance), REQ-L1-011 (Audit) |
+| REQ-L2-AS-030 | REQ-L1-035, REQ-L1-012 (mitwirkend) |
+| REQ-L2-AS-031 | REQ-L1-036, REQ-L1-011 (mitwirkend) |
+| REQ-L2-AS-032 | REQ-L1-040, REQ-L1-011 (mitwirkend) |
+

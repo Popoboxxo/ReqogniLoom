@@ -121,3 +121,11 @@ Die ArchitectureEditors-Komponente MUSS das Eingabeformular um domänenspezifisc
 
 ---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RF004-004 | Abgeleitet von REQ-L2-RF-025 |
+

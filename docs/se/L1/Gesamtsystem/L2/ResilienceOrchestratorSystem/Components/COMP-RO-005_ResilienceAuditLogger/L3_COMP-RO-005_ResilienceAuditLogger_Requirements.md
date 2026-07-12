@@ -83,3 +83,13 @@ Der ResilienceAuditLogger SHALL sicherstellen, dass die Verarbeitung und Weiterl
 **Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L2-RO-006
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RO-005-01 | REQ-L2-RO-006 |
+| REQ-L3-RO-005-02 | REQ-L2-RO-006 |
+| REQ-L3-RO-005-03 | REQ-L2-RO-006 |
+

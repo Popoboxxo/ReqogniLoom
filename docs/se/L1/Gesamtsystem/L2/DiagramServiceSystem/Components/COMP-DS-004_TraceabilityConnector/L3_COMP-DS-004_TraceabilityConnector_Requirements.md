@@ -77,3 +77,11 @@ Der TraceabilityConnector SHALL eine Anforderung zur Erstellung eines TraceLinks
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-TC-001 | REQ-L2-DS-004 |
+

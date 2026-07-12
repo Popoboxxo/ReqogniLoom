@@ -66,3 +66,12 @@ Der DegradationManager SHALL jedes ausgelöste Degradation-Event über IF-RO-INT
 **Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L2-RO-005
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RO-004-01 | REQ-L2-RO-005 |
+| REQ-L3-RO-004-02 | REQ-L2-RO-005 |
+

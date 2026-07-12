@@ -259,3 +259,18 @@ Bei Export-Fehlern (z.B. Datenbank-Timeout, ungültiger Scope) SHALL der ExportS
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-EXP-001 | REQ-L2-AppSvc-006, REQ-L2-AppSvc-007 |
+| REQ-L3-EXP-002 | REQ-L2-AppSvc-006, REQ-L2-AppSvc-007 |
+| REQ-L3-EXP-003 | REQ-L2-AppSvc-006 |
+| REQ-L3-EXP-004 | REQ-L2-AppSvc-016 |
+| REQ-L3-EXP-005 | REQ-L2-AppSvc-006 |
+| REQ-L3-EXP-006 | REQ-L2-AppSvc-011 |
+| REQ-L3-EXP-007 | REQ-L2-AppSvc-023 |
+| REQ-L3-EXP-008 | REQ-L2-AppSvc-006 |
+

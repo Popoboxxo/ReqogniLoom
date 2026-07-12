@@ -265,3 +265,17 @@ muss in <2s für Diagramme mit bis zu 100 Knoten/Kanten abschließen.
 *Erweitert durch se-architect-Agent | 2026-06-30 (REQ-L2-DS-006 Canvas, REQ-L2-DS-007 Mermaid)*
 *Handoff: HOFF-20260621-002 | Parent: REQ-L1-027 | Architektur-Referenz: ARCH-L1-013*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-DS-001 | REQ-L1-027 |
+| REQ-L2-DS-002 | REQ-L1-027 |
+| REQ-L2-DS-003 | REQ-L1-027 |
+| REQ-L2-DS-004 | REQ-L1-027 |
+| REQ-L2-DS-005 | REQ-L1-027 |
+| REQ-L2-DS-006 | REQ-L1-056 |
+| REQ-L2-DS-007 | REQ-L1-057 |
+

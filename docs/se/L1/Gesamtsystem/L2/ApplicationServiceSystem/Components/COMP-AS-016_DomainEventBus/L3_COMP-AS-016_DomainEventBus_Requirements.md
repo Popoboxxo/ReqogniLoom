@@ -367,3 +367,20 @@ Diese Metriken sind Prometheus-kompatibel und über `/metrics`-Endpoint abrufbar
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-DEB-001 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-002 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-003 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-004 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-005 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-006 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-007 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-008 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-009 | REQ-L2-AppSvc-022 |
+| REQ-L3-DEB-010 | REQ-L2-AppSvc-026 |
+

@@ -290,3 +290,19 @@ Bei Suche-Fehlern (z.B. ungültige tsquery, Datenbank-Timeout) SHALL der SearchS
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-SEARCH-001 | REQ-L2-AppSvc-008 |
+| REQ-L3-SEARCH-002 | REQ-L2-AppSvc-008 |
+| REQ-L3-SEARCH-003 | REQ-L2-AppSvc-008 |
+| REQ-L3-SEARCH-004 | REQ-L2-AppSvc-009 |
+| REQ-L3-SEARCH-005 | REQ-L2-AppSvc-009, REQ-L2-AppSvc-022 |
+| REQ-L3-SEARCH-006 | REQ-L2-AppSvc-008 |
+| REQ-L3-SEARCH-007 | REQ-L2-AppSvc-008 |
+| REQ-L3-SEARCH-008 | REQ-L2-AppSvc-008 |
+| REQ-L3-SEARCH-009 | REQ-L2-AppSvc-008 |
+

@@ -567,3 +567,25 @@ Die TraceabilityEngine MUSS den neuen Link-Typ `allocated-to` (Requirement → A
 **Implementation State:** Backlog
 **Review Findings:** Nicht implementiert.
 **Test Status:** Missing
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-TE-001 | REQ-L1-003, REQ-L1-015 (mitwirkend) |
+| REQ-L2-TE-002 | REQ-L1-001 |
+| REQ-L2-TE-003 | REQ-L1-003, REQ-L1-025 (mitwirkend) |
+| REQ-L2-TE-004 | REQ-L1-003, REQ-L1-026 (mitwirkend) |
+| REQ-L2-TE-005 | REQ-L1-003, REQ-L1-026 (mitwirkend) |
+| REQ-L2-TE-006 | REQ-L1-012, REQ-L1-003 (mitwirkend) |
+| REQ-L2-TE-007 | REQ-L1-004 (mitwirkend), REQ-L1-012 (mitwirkend) |
+| REQ-L2-TE-008 | REQ-L1-008 (mitwirkend) |
+| REQ-L2-TE-009 | REQ-L1-003, REQ-L1-025 (mitwirkend) |
+| REQ-L2-TE-010 | REQ-L1-011 (mitwirkend), REQ-L1-003 (mitwirkend) |
+| REQ-L2-TE-011 | REQ-L1-015, REQ-L1-003 (mitwirkend) |
+| REQ-L2-TE-012 | REQ-L1-026, REQ-L1-003 (mitwirkend) |
+| REQ-L2-TE-013 | REQ-L1-003 (primär), REQ-L1-012 (mitwirkend) |
+| REQ-L2-TE-014 | REQ-L1-030 |
+| REQ-L2-TE-015 | REQ-L1-030 |
+

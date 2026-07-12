@@ -413,3 +413,23 @@ Das SeMetricsSystem MUSS sicherstellen, dass bei einem Cache-Miss für einen Wor
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
 *Handoff: HOFF-20260621-002 | Parent: REQ-L1-031 | Architektur-Referenz: ARCH-L1-015*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-SM-001 | REQ-L1-031 |
+| REQ-L2-SM-002 | REQ-L1-031 |
+| REQ-L2-SM-003 | REQ-L1-031, REQ-L1-011 (mitwirkend) |
+| REQ-L2-SM-004 | REQ-L1-031, REQ-L1-003 (mitwirkend) |
+| REQ-L2-SM-005 | REQ-L1-031, REQ-L1-009 (mitwirkend) |
+| REQ-L2-SM-006 | REQ-L1-031, REQ-L1-029 (mitwirkend) |
+| REQ-L2-SM-007 | REQ-L1-031 |
+| REQ-L2-SM-008 | REQ-L1-031 |
+| REQ-L2-SM-009 | REQ-L1-031, REQ-L1-026 (mitwirkend) |
+| REQ-L2-SM-010 | REQ-L1-031, REQ-L1-015 (mitwirkend) |
+| REQ-L2-SM-011 | REQ-L1-031, REQ-L1-026 (mitwirkend) |
+| REQ-L2-SM-012 | REQ-L1-031, REQ-L1-006 (mitwirkend) |
+| REQ-L2-SM-013 | REQ-L1-026 (primär), REQ-L1-031 (mitwirkend) |
+

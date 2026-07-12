@@ -164,3 +164,12 @@ Der Export MUSS mit gängigen SE-Tools (DOORS Next, Polarion) kompatibel sein.
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-RQ-001..002 vollständig ausgearbeitet)*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-RQ-001 | REQ-L1-034 |
+| REQ-L2-RQ-002 | REQ-L1-034 |
+

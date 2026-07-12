@@ -22,10 +22,10 @@ Die abgeleiteten L1-System-Anforderungen befinden sich in:
 
 ### REQ-L0-001 — SN-01: Maschinenlesbarer Anforderungskontext für AI-Agenten
 
-**Implementation State:** Not Implemented
-**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
-**Test Status:** Missing
-**Remarks:** REQ-ID taucht im Codebase nicht auf.
+**Implementation State:** Implemented
+**Reviewbefunde:** MCP Server wurde vollständig standardkonform implementiert inkl. dynamischer `tools/list` Schemagenerierung.
+**Test Status:** Covered
+**Remarks:** Der Zugriff erfolgt über stdio, HTTP POST oder asynchron via SSE Streaming.
 
 AI-Agenten (Coding-Agenten, Orchestratoren, CI/CD-Pipelines) benötigen strukturierten,
 maschinenlesbaren Zugriff auf Anforderungen, Architektur und Tests — ohne Text-Parsing
@@ -222,10 +222,10 @@ Non-Functional-Anforderung; MCP-Schreibzugriff ohne Audit-Log wäre ein Sicherhe
 
 ### REQ-L0-012 — SN-12: REST API und MCP Server als gleichrangige, vollständige Schnittstellen
 
-**Implementation State:** Not Implemented
-**Reviewbefunde:** Keine direkte Implementierung im Code referenziert.
-**Test Status:** Missing
-**Remarks:** REQ-ID taucht im Codebase nicht auf.
+**Implementation State:** Implemented
+**Reviewbefunde:** GenericCrudToolGroup implementiert vollständige UI-Parität für CRUD-Operationen aller Artefakte.
+**Test Status:** Covered
+**Remarks:** Alle Endpunkte (ADR, Risk, Issue, Glossary, etc.) sind via REST und als MCP Tools via `tools/call` verfügbar.
 
 Entwickler und AI-Agenten müssen alle CRUD-Operationen auf allen Artefakttypen
 sowohl über REST als auch über MCP vollständig durchführen können — keine

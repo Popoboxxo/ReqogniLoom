@@ -98,3 +98,14 @@ Der CircuitBreaker SHALL nach Ablauf eines Recovery-Timeouts vom `Open`- in den 
 **Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Traceability:** REQ-L2-RO-004
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RO-003-01 | REQ-L2-RO-004 |
+| REQ-L3-RO-003-02 | REQ-L2-RO-004 |
+| REQ-L3-RO-003-03 | REQ-L2-RO-004 |
+| REQ-L3-RO-003-04 | REQ-L2-RO-004 |
+

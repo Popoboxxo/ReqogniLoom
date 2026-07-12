@@ -230,3 +230,13 @@ Push-Notifications (WebSocket/SSE) SOLLTEN implementiert werden, sind aber nicht
 ---
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-CM-001..003 vollständig ausgearbeitet)*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-CM-001 | REQ-L1-037 |
+| REQ-L2-CM-002 | REQ-L1-037 |
+| REQ-L2-CM-003 | REQ-L1-037 |
+

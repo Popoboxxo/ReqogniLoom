@@ -166,3 +166,12 @@ Ist der Begriff im Projekt-Glossar (oder im globalen Glossar) vorhanden, MUSS di
 - [ ] Unbekannte @Begriffe bleiben als normaler Text stehen.
 
 **Traceability:** Abgeleitet von REQ-L2-RF-032
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RF003-005 | Abgeleitet von REQ-L2-RF-025 |
+| REQ-L3-RF003-006 | Abgeleitet von REQ-L2-RF-032 |
+
