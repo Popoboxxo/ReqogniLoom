@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Issue } from '../../types';
 import { issuesApi } from '../../api/issues';
 import { VersionBadge } from '../shared/VersionBadge';
+import { TagInput } from '../shared/tag-input';
 
 interface IssueFormProps {
   issue: Issue | null;
@@ -190,8 +191,12 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
           </div>
           <div>
             <label style={labelStyle}>{t('issues.tags')}</label>
-            <input type="text" value={(formData.tags || []).join(', ')} onChange={(e) => handleChange('tags', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
-              placeholder="tag1, tag2, tag3" style={inputStyle} />
+            <TagInput
+              data-testid="issue-tags-input"
+              tags={formData.tags ?? []}
+              onChange={(tags) => handleChange('tags', tags)}
+              placeholder={t('issues.tagsPlaceholder', 'tag1, tag2 ...')}
+            />
           </div>
         </div>
       </div>

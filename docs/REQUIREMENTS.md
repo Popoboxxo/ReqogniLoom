@@ -13,3 +13,4 @@
 | REQ-007 | UI/UX | Splitter-Fix und Badge-Kürzel | Splitter-Hitbox auf min. 8px verbreitern (Anforderungen, Diagramme). Element-Typ-Badges auf Kürzel reduzieren (SysRec→SR, Component→C etc.) in Baum-Ansichten. | Active |
 | REQ-008 | Functional | KI-Ableitungs-Button | KI-Ableitungs-Button in Bedarfe muss Ergebnis anzeigen (kein stilles Versagen): Fehler rot mit role="alert", Erfolg in normaler Textfarbe. Anforderungen-View erhält den gleichen AI-Derivation-Button wie Bedarfe (✨ Ableiten via decompose-next-level). | Active |
 | REQ-009 | Functional | Validation-Fehlermeldungen | Beim Speichern in Anforderungen werden alle Validierungsfehler mit Feldname und Beschreibung angezeigt, nicht nur "validation failed". | Active |
+| REQ-010 | Functional | Tags-Implementierung (Probleme) | Tags in der Probleme-Ansicht müssen funktionsfähig sein: hinzufügen (Enter/Komma), entfernen (X-Klick), speichern und nach Reload anzeigen. | Active |
