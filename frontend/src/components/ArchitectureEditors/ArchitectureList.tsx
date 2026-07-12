@@ -11,7 +11,7 @@
  * req_id: REQ-L3-RF004-003, REQ-L1-084
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ArchitectureElement } from '../../types';
 import { getAsilBadgeStyle } from '../../utils/asilUtils';
@@ -108,6 +108,9 @@ interface TreeItemProps {
   onSelect: (id: string) => void;
   onAddChild: (parentId: string) => void;
   onDelete: (element: ArchitectureElement) => void;
+  /** Ids collapsed by the user; lifted to the list so "collapse all" can reset them in one shot. */
+  collapsedIds: ReadonlySet<string>;
+  onToggleExpand: (id: string) => void;
   children?: TreeNode[];
 }
 
@@ -119,12 +122,14 @@ function TreeItem({
   onSelect,
   onAddChild,
   onDelete,
+  collapsedIds,
+  onToggleExpand,
   children = [],
 }: TreeItemProps): JSX.Element {
   const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(true);
+  const isExpanded = !collapsedIds.has(element.id);
   const hasChildren = children.length > 0;
-  const indent = depth * 16; // 16px per level
+  const indent = depth * 14; // 14px per level — keeps deep trees compact
 
   const elementTypeColor = getElementTypeColor(element.element_type);
   const asilBadge = getAsilBadgeStyle(element.asil_level ?? null);
@@ -140,15 +145,15 @@ function TreeItem({
           gap: 'var(--space-2)',
           paddingLeft: `${indent}px`,
           paddingRight: 'var(--space-2)',
-          paddingTop: 'var(--space-2)',
-          paddingBottom: 'var(--space-2)',
-          marginBottom: 'var(--space-1)',
+          paddingTop: 'var(--space-1)',
+          paddingBottom: 'var(--space-1)',
           background: isSelected ? 'var(--color-primary)' : 'transparent',
           color: isSelected ? '#ffffff' : 'var(--color-text)',
-          borderRadius: 'var(--radius-md)',
+          borderRadius: 'var(--radius-sm)',
           cursor: 'pointer',
           transition: 'var(--transition-fast)',
           fontSize: 'var(--font-size-sm)',
+          lineHeight: 1.3,
         }}
         onMouseEnter={(e) => {
           if (!isSelected) {
@@ -166,26 +171,27 @@ function TreeItem({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setIsExpanded(!isExpanded);
+              onToggleExpand(element.id);
             }}
             style={{
               border: 'none',
               background: 'transparent',
               cursor: 'pointer',
-              fontSize: 'var(--font-size-sm)',
+              fontSize: 'var(--font-size-xs)',
               color: 'inherit',
               padding: 0,
-              width: '20px',
-              height: '20px',
+              width: '16px',
+              height: '16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              flexShrink: 0,
             }}
           >
             {isExpanded ? '▼' : '▶'}
           </button>
         )}
-        {!hasChildren && <span style={{ width: '20px' }} />}
+        {!hasChildren && <span style={{ width: '16px', flexShrink: 0 }} />}
 
         {/* Element type badge */}
         <span
@@ -193,13 +199,13 @@ function TreeItem({
             display: 'inline-block',
             background: elementTypeColor,
             color: '#ffffff',
-            padding: '2px 6px',
+            padding: '1px 5px',
             borderRadius: 'var(--radius-full)',
             fontSize: 'var(--font-size-xs)',
             fontWeight: 600,
             whiteSpace: 'nowrap',
-            minWidth: '60px',
             textAlign: 'center',
+            flexShrink: 0,
           }}
         >
           {element.element_type}
@@ -291,6 +297,8 @@ function TreeItem({
               onSelect={onSelect}
               onAddChild={onAddChild}
               onDelete={onDelete}
+              collapsedIds={collapsedIds}
+              onToggleExpand={onToggleExpand}
               children={child.children}
             />
           ))}
@@ -315,11 +323,67 @@ export function ArchitectureList({
   onAddChild,
   onDelete,
 }: ArchitectureListProps): JSX.Element {
+  const { t } = useTranslation();
   // Build tree hierarchy
-  const hierarchy = buildHierarchy(elements);
+  const hierarchy = useMemo(() => buildHierarchy(elements), [elements]);
+  const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(new Set());
+
+  const parentIds = useMemo(
+    () => new Set(elements.filter((el) => el.parent_id).map((el) => el.parent_id as string)),
+    [elements]
+  );
+
+  const toggleExpand = (id: string): void => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   return (
     <div style={{ overflow: 'auto', height: '100%' }}>
+      {parentIds.size > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 'var(--space-2)',
+            marginBottom: 'var(--space-1)',
+          }}
+        >
+          <button
+            onClick={() => setCollapsedIds(new Set())}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--color-text-muted)',
+              padding: '2px 4px',
+            }}
+          >
+            {t('actions.expandAll', 'Alle ausklappen')}
+          </button>
+          <button
+            onClick={() => setCollapsedIds(parentIds)}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--color-text-muted)',
+              padding: '2px 4px',
+            }}
+          >
+            {t('actions.collapseAll', 'Alle einklappen')}
+          </button>
+        </div>
+      )}
       {hierarchy.map((root) => (
         <TreeItem
           key={root.id}
@@ -330,6 +394,8 @@ export function ArchitectureList({
           onSelect={onSelect}
           onAddChild={onAddChild}
           onDelete={onDelete}
+          collapsedIds={collapsedIds}
+          onToggleExpand={toggleExpand}
           children={root.children}
         />
       ))}

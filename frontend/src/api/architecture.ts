@@ -29,6 +29,7 @@ export const architectureApi = {
     const all: ArchitectureElement[] = [];
     let resp = await getList<ArchitectureElement>("/architecture/", {
       workspace_id: workspaceId,
+      page_size: "100",
     });
     for (const el of resp.results) {
       if (!seen.has(el.id)) {

@@ -1339,6 +1339,60 @@ class TestCaseViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/testcases/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-L2-AS-032 / REQ-L1-040: Structured field-level diff.
+        Delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            test_case = self._svc().get_test_case(UUID(pk), ctx)
+            artifact_id = test_case.artifact_id
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(request.query_params.get("to_version", str(test_case.version)))
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.diff(
+                artifact_id=UUID(str(artifact_id)),
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/testcases/{pk}/versions/ — list available versions."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            test_case = self._svc().get_test_case(UUID(pk), ctx)
+            artifact_id = test_case.artifact_id
+
+            diff_svc = ArtifactDiffService()
+            result = diff_svc.list_versions(
+                artifact_id=UUID(str(artifact_id)),
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
 
 # ---------------------------------------------------------------------------
 # TraceLinkViewSet

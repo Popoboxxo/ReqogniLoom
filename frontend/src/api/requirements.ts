@@ -33,6 +33,7 @@ export const requirementsApi = {
     const all: Requirement[] = [];
     let resp = await getList<Requirement>("/requirements/", {
       workspace_id: workspaceId,
+      page_size: "100",
     });
     for (const r of resp.results) {
       if (!seen.has(r.id)) {

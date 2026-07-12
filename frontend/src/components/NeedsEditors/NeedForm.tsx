@@ -8,6 +8,7 @@ import { requirementsApi } from '../../api/requirements';
 import { architectureApi } from '../../api/architecture';
 import { tracelinksApi } from '../../api/tracelinks';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
+import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { VersionBadge } from '../shared/VersionBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
@@ -394,75 +395,20 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
         {/* Manual derive: Requirement from this need + optional architecture
             allocation — same flow as in the requirements mask. */}
         <div style={{ marginTop: 'var(--space-4)' }}>
-          {!showDeriveForm ? (
-            <button
-              data-testid="need-derive-btn"
-              className="btn-secondary"
-              onClick={() => setShowDeriveForm(true)}
-            >
-              {t('traceability.derive')}
-            </button>
-          ) : (
-            <form
-              data-testid="need-derive-form"
-              onSubmit={(e) => { e.preventDefault(); void handleManualDerive(); }}
-              style={{
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-4)',
-                background: 'var(--color-surface-raised)',
-              }}
-            >
-              <label style={labelStyle}>{t('traceability.deriveTitle')} *</label>
-              <input
-                type="text"
-                data-testid="need-derive-title-input"
-                value={deriveTitle}
-                onChange={(e) => setDeriveTitle(e.target.value)}
-                autoFocus
-                disabled={isManualDeriving}
-                style={inputStyle}
-              />
-              <label style={labelStyle}>{t('needs.deriveArchOptional')}</label>
-              <select
-                data-testid="need-derive-arch-select"
-                value={deriveArchId}
-                onChange={(e) => setDeriveArchId(e.target.value)}
-                disabled={isManualDeriving}
-                style={inputStyle}
-              >
-                <option value="">{t('needs.priorityNone')}</option>
-                {archElements.map((el) => (
-                  <option key={el.id} value={el.id}>
-                    {el.title}
-                  </option>
-                ))}
-              </select>
-              {deriveError && (
-                <p style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-2) 0' }}>
-                  {deriveError}
-                </p>
-              )}
-              <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  onClick={() => { setShowDeriveForm(false); setDeriveError(null); }}
-                  disabled={isManualDeriving}
-                >
-                  {t('actions.cancel')}
-                </button>
-                <button
-                  type="submit"
-                  data-testid="need-derive-submit-btn"
-                  className="btn-primary"
-                  disabled={isManualDeriving}
-                >
-                  {isManualDeriving ? t('actions.deriving', 'Ableiten...') : t('traceability.derive')}
-                </button>
-              </div>
-            </form>
-          )}
+          <DeriveRequirementForm
+            isOpen={showDeriveForm}
+            onOpen={() => setShowDeriveForm(true)}
+            onCancel={() => { setShowDeriveForm(false); setDeriveError(null); }}
+            onSubmit={(e) => { e.preventDefault(); void handleManualDerive(); }}
+            title={deriveTitle}
+            onTitleChange={setDeriveTitle}
+            architectureElements={archElements}
+            architectureElementId={deriveArchId}
+            onArchitectureElementChange={setDeriveArchId}
+            isSubmitting={isManualDeriving}
+            error={deriveError}
+            testIdPrefix="need"
+          />
         </div>
       </div>
     </div>

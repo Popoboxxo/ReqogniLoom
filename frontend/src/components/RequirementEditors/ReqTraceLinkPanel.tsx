@@ -23,6 +23,7 @@ import { requirementsApi } from '../../api/requirements';
 import { tracelinksApi } from '../../api/tracelinks';
 import { testcasesApi } from '../../api/testcases';
 import { architectureApi } from '../../api/architecture';
+import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../constants/traceLinkLabels';
 import type {
   Requirement,
@@ -310,14 +311,6 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
             <button
               type="button"
-              data-testid="req-tracelink-derive-btn"
-              className="btn-primary"
-              onClick={openDeriveForm}
-            >
-              {t('traceability.derive')}
-            </button>
-            <button
-              type="button"
               data-testid="req-tracelink-create-btn"
               className="btn-primary"
               onClick={openForm}
@@ -437,82 +430,6 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
         </form>
       )}
 
-      {showDeriveForm && (
-        <form onSubmit={(e) => void submitDerive(e)} style={{ marginBottom: 'var(--space-4)' }}>
-          <label style={labelStyle}>{t('traceability.deriveTitle')}</label>
-          <input
-            data-testid="req-derive-title-input"
-            type="text"
-            value={deriveTitle}
-            onChange={(e) => setDeriveTitle(e.target.value)}
-            disabled={isDeriving}
-            placeholder={t('traceability.deriveTitlePlaceholder')}
-            style={inputStyle}
-          />
-
-          <label style={labelStyle}>{t('traceability.deriveArchitectureElement')}</label>
-          <select
-            data-testid="req-derive-architecture-select"
-            value={deriveArchitectureElementId}
-            onChange={(e) => setDeriveArchitectureElementId(e.target.value)}
-            disabled={isDeriving}
-            style={inputStyle}
-          >
-            {architectureElements.length === 0 ? (
-              <option>{t('traceability.noArtifacts')}</option>
-            ) : (
-              <>
-                <option value="">{t('editor.selectOption')} --</option>
-                {architectureElements.map((ae) => (
-                  <option key={ae.id} value={ae.id}>
-                    {ae.title || t('editor.untitled')}
-                  </option>
-                ))}
-              </>
-            )}
-          </select>
-
-          {deriveError && (
-            <p
-              role="alert"
-              style={{
-                color: 'var(--color-danger)',
-                fontSize: 'var(--font-size-sm)',
-                margin: 0,
-              }}
-            >
-              {deriveError}
-            </p>
-          )}
-
-          <div
-            style={{
-              display: 'flex',
-              gap: 'var(--space-2)',
-              justifyContent: 'flex-end',
-            }}
-          >
-            <button
-              type="button"
-              data-testid="req-derive-cancel-btn"
-              className="btn-secondary"
-              onClick={cancelDeriveForm}
-              disabled={isDeriving}
-            >
-              {t('actions.cancel')}
-            </button>
-            <button
-              type="submit"
-              data-testid="req-derive-submit-btn"
-              className="btn-primary"
-              disabled={isDeriving}
-            >
-              {isDeriving ? t('traceability.submitting') : t('traceability.submit')}
-            </button>
-          </div>
-        </form>
-      )}
-
       {isLoading && (
         <p
           role="status"
@@ -611,6 +528,26 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           })}
         </ul>
       )}
+
+      {/* Derive a new Requirement from this one, allocated to an architecture
+          element — same trigger/form shell as Needs and Architecture. */}
+      <div style={{ marginTop: 'var(--space-4)' }}>
+        <DeriveRequirementForm
+          isOpen={showDeriveForm}
+          onOpen={openDeriveForm}
+          onCancel={cancelDeriveForm}
+          onSubmit={(e) => void submitDerive(e)}
+          title={deriveTitle}
+          onTitleChange={setDeriveTitle}
+          architectureElements={architectureElements}
+          architectureElementId={deriveArchitectureElementId}
+          onArchitectureElementChange={setDeriveArchitectureElementId}
+          architectureRequired
+          isSubmitting={isDeriving}
+          error={deriveError}
+          testIdPrefix="req"
+        />
+      </div>
     </div>
   );
 };

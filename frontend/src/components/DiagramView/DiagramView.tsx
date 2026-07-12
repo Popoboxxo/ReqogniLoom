@@ -34,9 +34,11 @@ import { SplitView } from "../SplitView/SplitView";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import type {
+  CanvasStroke,
   Diagram,
   DiagramDetail,
   DiagramType,
+  FabricCanvasJson,
   PayloadFormat,
 } from "../../types";
 
@@ -63,8 +65,8 @@ const DEFAULT_CONTENT: Record<PayloadFormat, string> = {
     null,
     2,
   ),
-  // canvas_stroke diagrams use the CanvasEditor UI — no text content
-  canvas_stroke: "",
+  // canvas_stroke diagrams use the CanvasEditor UI — initial empty canvas
+  canvas_stroke: '{"strokes": []}',
 };
 
 interface FormState {
@@ -533,6 +535,12 @@ function DiagramDetailView({
   const [renderedSvg, setRenderedSvg] = useState<string>("");
   const [renderError, setRenderError] = useState<string>("");
 
+  // Persisted canvas state (REQ-L2-CV-005): fetched before mounting the
+  // CanvasEditor so a saved model is restored instead of an empty surface.
+  const [canvasJson, setCanvasJson] = useState<FabricCanvasJson | undefined>(undefined);
+  const [canvasStrokes, setCanvasStrokes] = useState<CanvasStroke[] | undefined>(undefined);
+  const [isCanvasLoading, setIsCanvasLoading] = useState(false);
+
   // Current-version ref for the ArtifactInspector (REQ-L2-RF-035).
   // The Diagram backend exposes version_number + created_at; we hand
   // VersionPanel the current row so the diff baseline is anchored
@@ -566,6 +574,33 @@ function DiagramDetailView({
 
   const canRenderVisual = detail?.payload_format === "mermaid";
   const activeSource = isEditing ? editContent : (detail?.content ?? "");
+
+  // Load the persisted Fabric serialization for canvas diagrams (IF-L1-060).
+  useEffect(() => {
+    setCanvasJson(undefined);
+    setCanvasStrokes(undefined);
+    if (detail?.payload_format !== "canvas_stroke") return;
+
+    let cancelled = false;
+    setIsCanvasLoading(true);
+    diagramsApi
+      .fetchCanvasStrokes(diagramId)
+      .then((resp) => {
+        if (cancelled) return;
+        setCanvasJson(resp.canvas_json ?? undefined);
+        setCanvasStrokes(resp.strokes);
+      })
+      .catch((err) => {
+        // A missing canvas payload is fine — start with an empty surface.
+        console.warn("No persisted canvas state", err);
+      })
+      .finally(() => {
+        if (!cancelled) setIsCanvasLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [diagramId, detail?.payload_format]);
 
   // Client-side Mermaid rendering for the Visual view.
   useEffect(() => {
@@ -782,15 +817,26 @@ function DiagramDetailView({
         {detail.payload_format === "canvas_stroke" ? (
           <div
             data-testid="diagram-canvas-section"
-            style={{ minHeight: "520px", display: "flex", flexDirection: "column" }}
+            style={{
+              height: "calc(100vh - 260px)",
+              minHeight: "560px",
+              display: "flex",
+              flexDirection: "column",
+            }}
           >
-            <CanvasEditor
-              diagramId={diagramId}
-              onAutoSave={(strokes) => {
-                // Optimistically mark diagram as having saved content
-                console.debug("Canvas auto-saved", strokes.length, "strokes");
-              }}
-            />
+            {isCanvasLoading ? (
+              <p role="status">{t("loading", "Loading...")}</p>
+            ) : (
+              <CanvasEditor
+                diagramId={diagramId}
+                initialCanvasJson={canvasJson}
+                initialStrokes={canvasStrokes}
+                onAutoSave={(strokes) => {
+                  // Optimistically mark diagram as having saved content
+                  console.debug("Canvas auto-saved", strokes.length, "strokes");
+                }}
+              />
+            )}
           </div>
         ) : (
           <>

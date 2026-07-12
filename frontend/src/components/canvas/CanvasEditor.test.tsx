@@ -289,11 +289,11 @@ describe("CanvasEditor — Auto-Save trigger", () => {
     expect(wrapper).toContainElement(canvas);
   });
 
-  it("status bar shows tool name", async () => {
+  it("status bar shows tool name (select is the default tool)", async () => {
     render(<CanvasEditor diagramId="test-diagram-id" />);
 
     const statusBar = screen.getByTestId("canvas-status-bar");
-    expect(statusBar).toHaveTextContent("pen");
+    expect(statusBar).toHaveTextContent("select");
   });
 
   it("changes tool name in status bar when select tool is chosen", () => {

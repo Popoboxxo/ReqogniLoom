@@ -253,6 +253,9 @@ class DiagramValidator:
         elif payload_format == PayloadFormat.JSON:
             _validate_json(diagram_type, content)
         elif payload_format == PayloadFormat.CANVAS_STROKE:
+            # Empty content is valid for canvas — treated as empty canvas
+            if not content or not content.strip():
+                return
             # Parse JSON content and validate as canvas stroke data
             try:
                 stroke_data = json.loads(content) if isinstance(content, str) else content

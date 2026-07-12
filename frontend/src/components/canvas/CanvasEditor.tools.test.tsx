@@ -99,6 +99,11 @@ vi.mock("fabric", () => {
       self.y2 = points[3];
     }
   }
+  class Shadow {
+    constructor(props: AnyProps = {}) {
+      Object.assign(this, props);
+    }
+  }
   class PencilBrush {
     color = "#000000";
     width = 2;
@@ -169,7 +174,7 @@ vi.mock("fabric", () => {
     }
   }
 
-  return { Canvas, PencilBrush, Rect, Ellipse, Textbox, Triangle, Path, Line };
+  return { Canvas, PencilBrush, Rect, Ellipse, Textbox, Triangle, Path, Line, Shadow };
 });
 
 // Grab the latest canvas instance once the async init has run.
@@ -269,9 +274,136 @@ describe("CanvasEditor — connector follow (REQ-L2-CV-004)", () => {
     // Source center is now (60, 60); the "from" endpoint must follow, clipped to edge (70, 70).
     expect(line.x1).toBe(70);
     expect(line.y1).toBe(70);
-    // The "to" endpoint stays put (target unmoved).
-    expect(line.x2).toBe(110);
-    expect(line.y2).toBe(110);
+    // The "to" endpoint is re-clipped onto the target edge facing the new
+    // source position: target center (110, 110) minus half-extent 10.
+    expect(line.x2).toBe(100);
+    expect(line.y2).toBe(100);
+  });
+});
+
+describe("CanvasEditor — drag-to-connect traces (REQ-L2-CV-004)", () => {
+  beforeEach(() => {
+    hoisted.instances.length = 0;
+    vi.clearAllMocks();
+  });
+
+  it("creates a connector with arrowhead by dragging from source to target", async () => {
+    const fabric = await import("fabric");
+    render(<CanvasEditor diagramId="d1" />);
+    const canvas = await latestCanvas();
+
+    const source = new fabric.Rect({
+      left: 0, top: 0, width: 20, height: 20, selectable: true,
+      data: { id: "A", type: "rect" },
+    }) as unknown as AnyProps;
+    const target = new fabric.Rect({
+      left: 100, top: 100, width: 20, height: 20, selectable: true,
+      data: { id: "B", type: "rect" },
+    }) as unknown as AnyProps;
+    canvas._objects.push(source, target);
+
+    fireEvent.click(screen.getByTestId("canvas-tool-connector"));
+
+    // Press on the source node, drag to the target node, release.
+    canvas._target = source;
+    canvas._pointer = { x: 10, y: 10 };
+    canvas.trigger("mouse:down", { e: {} });
+
+    canvas._pointer = { x: 110, y: 110 };
+    canvas._target = target;
+    canvas.trigger("mouse:move", { e: {} });
+    canvas.trigger("mouse:up", { e: {} });
+
+    const connectors = canvas.getObjects().filter((o) => o.data?.type === "connector");
+    expect(connectors).toHaveLength(1);
+    expect(connectors[0].data.fromId).toBe("A");
+    expect(connectors[0].data.toId).toBe("B");
+    // Endpoints are clipped to the bounding-box edges of both nodes.
+    expect(connectors[0].x1).toBe(20);
+    expect(connectors[0].y1).toBe(20);
+    expect(connectors[0].x2).toBe(100);
+    expect(connectors[0].y2).toBe(100);
+
+    const heads = canvas.getObjects().filter((o) => o.data?.type === "arrowHead");
+    expect(heads).toHaveLength(1);
+    expect(heads[0].data.connectorId).toBe(connectors[0].data.id);
+
+    // The live preview line must be gone after the gesture completes.
+    const previews = canvas.getObjects().filter((o) => o.data?.type === "connectorPreview");
+    expect(previews).toHaveLength(0);
+  });
+
+  it("does not create a connector when released over empty canvas", async () => {
+    const fabric = await import("fabric");
+    render(<CanvasEditor diagramId="d1" />);
+    const canvas = await latestCanvas();
+
+    const source = new fabric.Rect({
+      left: 0, top: 0, width: 20, height: 20, selectable: true,
+      data: { id: "A", type: "rect" },
+    }) as unknown as AnyProps;
+    canvas._objects.push(source);
+
+    fireEvent.click(screen.getByTestId("canvas-tool-connector"));
+
+    canvas._target = source;
+    canvas._pointer = { x: 10, y: 10 };
+    canvas.trigger("mouse:down", { e: {} });
+
+    canvas._target = null;
+    canvas._pointer = { x: 200, y: 200 };
+    canvas.trigger("mouse:move", { e: {} });
+    canvas.trigger("mouse:up", { e: {} });
+
+    expect(canvas.getObjects().filter((o) => o.data?.type === "connector")).toHaveLength(0);
+    expect(canvas.getObjects().filter((o) => o.data?.type === "connectorPreview")).toHaveLength(0);
+  });
+});
+
+describe("CanvasEditor — node labels", () => {
+  beforeEach(() => {
+    hoisted.instances.length = 0;
+    vi.clearAllMocks();
+  });
+
+  it("adds a centered editable label on double-click of a shape", async () => {
+    const fabric = await import("fabric");
+    render(<CanvasEditor diagramId="d1" />);
+    const canvas = await latestCanvas();
+
+    const shape = new fabric.Rect({
+      left: 0, top: 0, width: 100, height: 60,
+      data: { id: "S1", type: "rect" },
+    }) as unknown as AnyProps;
+    canvas._objects.push(shape);
+
+    canvas.trigger("mouse:dblclick", { target: shape });
+
+    const labels = canvas.getObjects().filter((o) => o.data?.type === "label");
+    expect(labels).toHaveLength(1);
+    expect(labels[0].data.labelFor).toBe("S1");
+    expect(labels[0].left).toBe(50);
+    expect(labels[0].top).toBe(30);
+  });
+
+  it("re-centers the label when its shape moves", async () => {
+    const fabric = await import("fabric");
+    render(<CanvasEditor diagramId="d1" />);
+    const canvas = await latestCanvas();
+
+    const shape = new fabric.Rect({
+      left: 0, top: 0, width: 100, height: 60,
+      data: { id: "S1", type: "rect" },
+    }) as unknown as AnyProps;
+    canvas._objects.push(shape);
+    canvas.trigger("mouse:dblclick", { target: shape });
+
+    shape.set({ left: 200, top: 100 });
+    canvas.trigger("object:moving", { target: shape });
+
+    const label = canvas.getObjects().find((o) => o.data?.type === "label") as AnyProps;
+    expect(label.left).toBe(250);
+    expect(label.top).toBe(130);
   });
 });
 

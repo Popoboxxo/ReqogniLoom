@@ -22,6 +22,7 @@ import { SplitView } from "../SplitView/SplitView";
 import { ArchitectureList } from "./ArchitectureList";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
+import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
 import { RightSidebar } from "../shared/ArtifactInspector";
@@ -387,99 +388,21 @@ export default function ArchitectureEditors(): JSX.Element {
 
             {/* Derive requirement allocated to this element */}
             <div style={{ marginTop: "var(--space-4)" }}>
-              {!showDeriveForm ? (
-                <button
-                  data-testid="arch-derive-req-btn"
-                  className="btn-secondary"
-                  onClick={() => setShowDeriveForm(true)}
-                >
-                  {t("arch.deriveRequirement")}
-                </button>
-              ) : (
-                <form
-                  data-testid="arch-derive-req-form"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void handleDeriveRequirement();
-                  }}
-                  style={{
-                    border: "1px solid var(--color-border)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-4)",
-                    background: "var(--color-surface-raised)",
-                  }}
-                >
-                  <label
-                    htmlFor="arch-derive-title"
-                    style={{
-                      fontWeight: 600,
-                      display: "block",
-                      marginBottom: "var(--space-1)",
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text)",
-                    }}
-                  >
-                    {t("traceability.deriveTitle")} *
-                  </label>
-                  <input
-                    id="arch-derive-title"
-                    data-testid="arch-derive-title-input"
-                    type="text"
-                    value={deriveTitle}
-                    onChange={(e) => setDeriveTitle(e.target.value)}
-                    autoFocus
-                    disabled={isDeriving}
-                    style={{
-                      width: "100%",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: "var(--radius-md)",
-                      padding: "var(--space-2) var(--space-3)",
-                      marginBottom: "var(--space-3)",
-                      background: "var(--color-surface)",
-                      color: "var(--color-text)",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                  {deriveError && (
-                    <p
-                      style={{
-                        color: "var(--color-danger)",
-                        fontSize: "var(--font-size-sm)",
-                        margin: "0 0 var(--space-2) 0",
-                      }}
-                    >
-                      {deriveError}
-                    </p>
-                  )}
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "var(--space-2)",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      onClick={() => {
-                        setShowDeriveForm(false);
-                        setDeriveError(null);
-                      }}
-                      disabled={isDeriving}
-                    >
-                      {t("actions.cancel")}
-                    </button>
-                    <button
-                      type="submit"
-                      data-testid="arch-derive-submit-btn"
-                      className="btn-primary"
-                      disabled={isDeriving}
-                    >
-                      {isDeriving ? t("actions.deriving") : t("actions.derive")}
-                    </button>
-                  </div>
-                </form>
-              )}
+              <DeriveRequirementForm
+                isOpen={showDeriveForm}
+                onOpen={() => setShowDeriveForm(true)}
+                onCancel={() => { setShowDeriveForm(false); setDeriveError(null); }}
+                onSubmit={(e) => { e.preventDefault(); void handleDeriveRequirement(); }}
+                title={deriveTitle}
+                onTitleChange={setDeriveTitle}
+                architectureElements={[]}
+                architectureElementId=""
+                onArchitectureElementChange={() => {}}
+                showArchitectureField={false}
+                isSubmitting={isDeriving}
+                error={deriveError}
+                testIdPrefix="arch"
+              />
             </div>
           </div>
 
