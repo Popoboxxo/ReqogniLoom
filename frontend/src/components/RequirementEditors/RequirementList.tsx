@@ -1,32 +1,91 @@
 /**
- * REQ-L3-RF003-005: RequirementList Component
- *
- * Renders a searchable/filterable list of requirements with:
- * - Type badge (StReq, SyReq, etc.)
- * - Status badge
- * - Search/Filter/Sort via ListToolbar
- * - Click to select
- * - Delete button
+ * REQ-003: RequirementList — refactored to WorkspaceTree for unified navigation.
+ * REQ-L3-RF003-005: RequirementList Component.
  *
  * leaf_id: COMP-RF-003-RequirementList
- * req_id: REQ-L3-RF003-001, REQ-L3-RF003-004
+ * req_id: REQ-003, REQ-L3-RF003-001, REQ-L3-RF003-004
  *
- * Interfaces implemented:
- * IF-RF-INT-001 ← Activation from NavigationShell
- * IF-RF-INT-003 ← artifact_id URL params
- * IF-RF-EXT-OUT-001 → GET/DELETE /api/v1/requirements/
+ * Uses the shared WorkspaceTree component (REQ-003) for consistent compact
+ * tree rows across all artifact views. Requirements with parent_id are
+ * rendered hierarchically with expand/collapse support.
+ *
+ * Search + filter + sort remain in ListToolbar; WorkspaceTree receives the
+ * already-filtered/sorted list with showSearch=false.
+ *
+ * TODO (future): wire delete via WorkspaceTree context menu once that feature
+ * is added in a later iteration. Currently, delete happens via the form's
+ * delete button; the inline two-step confirm overlay in this component is
+ * kept as a fallback but not triggered from the tree rows.
  */
 
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
-import { getStatusBadgeStyle, ACTIVE_CARD_BG } from '../../utils/statusBadge';
+import { WorkspaceTree } from '../shared/WorkspaceTree';
+import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import { Requirement, RequirementType, UUID } from '../../types';
 import { REQ_CATEGORIES, WORKFLOW_STATES } from '../../types';
 
-/**
- * Props for RequirementList component.
- */
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getTypeColor(type?: RequirementType): string {
+  switch (type) {
+    case 'SyReq': return '#10B981';
+    case 'SWReq': return '#8B5CF6';
+    case 'HWReq': return '#F59E0B';
+    default:      return '#6B7280';
+  }
+}
+
+/** Map a Requirement to a WorkspaceTreeNode with optional parent hierarchy. */
+function reqToNode(req: Requirement): WorkspaceTreeNode {
+  const badge = req.type
+    ? { text: req.type, bg: getTypeColor(req.type), color: 'white' }
+    : undefined;
+  return {
+    id: req.id,
+    name: (req.suspect ? '⚠ ' : '') + (req.title || 'Untitled'),
+    parentId: req.parent_id ?? null,
+    badge,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sorting
+// ---------------------------------------------------------------------------
+
+type ReqSortKey = 'default' | 'title' | 'status' | 'updated';
+
+function sortRequirements(list: Requirement[], sortKey: ReqSortKey): Requirement[] {
+  const sorted = [...list];
+  switch (sortKey) {
+    case 'title':
+      sorted.sort((a, b) => a.title.localeCompare(b.title));
+      break;
+    case 'status':
+      sorted.sort((a, b) => {
+        const ai = WORKFLOW_STATES.indexOf(a.status);
+        const bi = WORKFLOW_STATES.indexOf(b.status);
+        const av = ai === -1 ? WORKFLOW_STATES.length : ai;
+        const bv = bi === -1 ? WORKFLOW_STATES.length : bi;
+        return av - bv || a.title.localeCompare(b.title);
+      });
+      break;
+    case 'updated':
+      sorted.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      break;
+    default:
+      break;
+  }
+  return sorted;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 interface RequirementListProps {
   requirements: Requirement[];
   selectedId?: string;
@@ -37,73 +96,8 @@ interface RequirementListProps {
 }
 
 /**
- * Get badge color for requirement type.
- */
-function getTypeColor(type?: RequirementType): string {
-  switch (type) {
-    case 'SyReq':
-      return '#10B981'; // Green
-    case 'SWReq':
-      return '#8B5CF6'; // Purple
-    case 'HWReq':
-      return '#F59E0B'; // Amber
-    default:
-      return '#6B7280'; // Gray
-  }
-}
-
-/**
- * Sorting key type for requirements list.
- */
-type ReqSortKey = 'default' | 'title' | 'status' | 'updated';
-
-/**
- * Sort requirements based on the selected key.
- */
-function sortRequirements(
-  list: Requirement[],
-  sortKey: ReqSortKey
-): Requirement[] {
-  const sorted = [...list];
-  switch (sortKey) {
-    case 'title':
-      sorted.sort((a, b) =>
-        a.title.localeCompare(b.title)
-      );
-      break;
-    case 'status':
-      sorted.sort((a: Requirement, b: Requirement) => {
-        const ai = WORKFLOW_STATES.indexOf(a.status);
-        const bi = WORKFLOW_STATES.indexOf(b.status);
-        const av = ai === -1 ? WORKFLOW_STATES.length : ai;
-        const bv = bi === -1 ? WORKFLOW_STATES.length : bi;
-        return av - bv || a.title.localeCompare(b.title);
-      });
-      break;
-    case 'updated':
-      sorted.sort((a, b) =>
-        b.updated_at.localeCompare(a.updated_at)
-      );
-      break;
-    default:
-      break;
-  }
-  return sorted;
-}
-
-/**
- * Calculate the depth of a requirement in the hierarchy for visual indentation.
- */
-function getDepth(reqId: string, reqList: Requirement[], visited = new Set<string>()): number {
-  if (visited.has(reqId)) return 0; // prevent cycle
-  const req = reqList.find((r) => r.id === reqId);
-  if (!req || !req.parent_id) return 0;
-  visited.add(reqId);
-  return 1 + getDepth(req.parent_id, reqList, visited);
-}
-
-/**
- * RequirementList — Left panel component showing filterable list of requirements.
+ * RequirementList — Left panel with filterable list of requirements.
+ * (REQ-003) Uses WorkspaceTree for uniform compact-row navigation.
  */
 export const RequirementList: React.FC<RequirementListProps> = ({
   requirements,
@@ -114,36 +108,34 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   isCreating = false,
 }) => {
   const { t } = useTranslation();
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [listSearch, setListSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortKey, setSortKey] = useState<ReqSortKey>('default');
 
-  // Compute visible requirements after search/filter/sort
   const visibleRequirements = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     const filtered = requirements.filter((req) => {
       if (q && !req.title.toLowerCase().includes(q) && !req.id.toLowerCase().includes(q)) {
         return false;
       }
-      if (categoryFilter && req.category !== categoryFilter) {
-        return false;
-      }
-      if (statusFilter && req.status !== statusFilter) {
-        return false;
-      }
+      if (categoryFilter && req.category !== categoryFilter) return false;
+      if (statusFilter && req.status !== statusFilter) return false;
       return true;
     });
     return sortRequirements(filtered, sortKey);
   }, [requirements, listSearch, categoryFilter, statusFilter, sortKey]);
 
+  const treeNodes = useMemo(
+    () => visibleRequirements.map(reqToNode),
+    [visibleRequirements],
+  );
+
   const hasActiveListControls = Boolean(listSearch || categoryFilter || statusFilter);
 
   return (
     <div>
-      {/* Toolbar: Search, Filter, Sort */}
       <ListToolbar
         testIdPrefix="req-list"
         searchValue={listSearch}
@@ -204,185 +196,62 @@ export const RequirementList: React.FC<RequirementListProps> = ({
         {isCreating ? t('actions.creating') : `+ ${t('actions.new')}`}
       </button>
 
-      {/* Empty state */}
-      {requirements.length === 0 ? (
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>
-          {t('editor.empty')}
-        </p>
-      ) : visibleRequirements.length === 0 ? (
-        <p
-          data-testid="req-list-no-matches"
-          style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}
+      {/* Delete confirmation overlay (two-step) */}
+      {confirmDeleteId && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 'var(--space-2)',
+            alignItems: 'center',
+            padding: 'var(--space-2) var(--space-3)',
+            marginBottom: 'var(--space-2)',
+            background: 'var(--color-surface-raised)',
+            border: '1px solid var(--color-danger)',
+            borderRadius: 'var(--radius-md)',
+          }}
         >
-          {t('editor.noMatches')}
-        </p>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {visibleRequirements.map((req) => {
-            const isActive = req.id === selectedId;
-            const isHovered = hoveredId === req.id;
-            const depth = getDepth(req.id, requirements);
-
-            const cardStyle: React.CSSProperties = {
-              background: isActive
-                ? ACTIVE_CARD_BG
-                : isHovered
-                ? 'var(--color-surface-raised)'
-                : 'var(--color-surface)',
-              borderRadius: 'var(--radius-md)',
-              boxShadow: isHovered || isActive ? 'var(--shadow-card)' : 'var(--shadow-sm)',
-              padding: 'var(--space-3) var(--space-4)',
-              marginBottom: 'var(--space-2)',
-              marginLeft: `calc(${depth} * var(--space-4))`,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start',
-              cursor: 'pointer',
-              color: 'var(--color-primary)',
-              transition: 'var(--transition-fast)',
-              wordWrap: 'break-word',
-              wordBreak: 'break-word',
-              margin: `0 0 var(--space-2) calc(${depth} * var(--space-4))`,
-            };
-
-            return (
-              <li key={req.id} style={cardStyle}>
-                <div
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 'var(--space-2)',
-                  }}
-                  onMouseEnter={() => setHoveredId(req.id)}
-                  onMouseLeave={() => setHoveredId(null)}
-                  onClick={() => onSelect(req.id)}
-                >
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 'var(--font-size-base)',
-                      color: 'var(--color-text)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    {req.suspect && <span title="Needs review due to upstream changes">⚠️</span>}
-                    {req.title || t('editor.untitled')}
-                  </span>
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 'var(--space-2)',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    {/* Type badge */}
-                    {req.type && (
-                      <span
-                        style={{
-                          background: getTypeColor(req.type),
-                          color: 'white',
-                          padding: '2px 8px',
-                          borderRadius: 'var(--radius-full)',
-                          fontSize: 'var(--font-size-xs)',
-                          fontWeight: 600,
-                        }}
-                      >
-                        {req.type}
-                      </span>
-                    )}
-                    {/* Status badge */}
-                    <span style={getStatusBadgeStyle(req.status)}>
-                      {req.status}
-                    </span>
-                  </div>
-                </div>
-                {/* Delete button — two-step inline confirmation */}
-                {confirmDeleteId === req.id ? (
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 'var(--space-2)',
-                      alignItems: 'center',
-                      marginLeft: 'var(--space-4)',
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      data-testid="req-confirm-delete-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmDeleteId(null);
-                        onDelete(req.id);
-                      }}
-                      style={{
-                        background: 'var(--color-danger)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '2px 8px',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                      title={t('actions.confirmDelete', 'Ja, löschen')}
-                    >
-                      {t('actions.confirmDelete', 'Ja, löschen')}
-                    </button>
-                    <button
-                      data-testid="req-cancel-delete-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmDeleteId(null);
-                      }}
-                      style={{
-                        background: 'transparent',
-                        color: 'var(--color-text)',
-                        border: '1px solid var(--color-border)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '2px 8px',
-                        fontSize: 'var(--font-size-xs)',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                      title={t('actions.cancel')}
-                    >
-                      {t('actions.cancel')}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    data-testid="req-delete-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConfirmDeleteId(req.id);
-                    }}
-                    style={{
-                      marginLeft: 'var(--space-4)',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--color-danger)',
-                      cursor: 'pointer',
-                      fontSize: 'var(--font-size-base)',
-                      fontWeight: 700,
-                      padding: 0,
-                      minWidth: '24px',
-                      textAlign: 'center',
-                    }}
-                    title={t('actions.delete')}
-                  >
-                    ×
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+          <span
+            style={{ flex: 1, fontSize: 'var(--font-size-sm)', color: 'var(--color-text)' }}
+          >
+            {t('actions.confirmDeletePrompt', 'Delete this requirement?')}
+          </span>
+          <button
+            data-testid="req-confirm-delete-btn"
+            onClick={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null); }}
+            style={{
+              background: 'var(--color-danger)', color: 'white', border: 'none',
+              borderRadius: 'var(--radius-md)', padding: '2px 8px',
+              fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {t('actions.confirmDelete', 'Ja, löschen')}
+          </button>
+          <button
+            data-testid="req-cancel-delete-btn"
+            onClick={() => setConfirmDeleteId(null)}
+            style={{
+              background: 'transparent', color: 'var(--color-text)',
+              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
+              padding: '2px 8px', fontSize: 'var(--font-size-xs)', cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {t('actions.cancel')}
+          </button>
+        </div>
       )}
+
+      {/* Unified tree navigation — REQ-003 */}
+      <WorkspaceTree
+        data-testid="req-list-tree"
+        nodes={treeNodes}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        showSearch={false}
+        emptyLabel={t('editor.empty')}
+        noMatchesLabel={t('editor.noMatches')}
+      />
     </div>
   );
 };

@@ -19,7 +19,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
-import { ArchitectureList } from "./ArchitectureList";
+import { WorkspaceTree } from "../shared/WorkspaceTree";
+import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
@@ -157,8 +158,8 @@ export default function ArchitectureEditors(): JSX.Element {
     [refresh, navigate]
   );
 
-  // Filter elements by search. Must be declared before any early return so
-  // the hook order stays stable across renders (React hooks invariant).
+  // Filter elements by search and convert to WorkspaceTreeNode[] (REQ-003).
+  // Must be declared before any early return for stable hook order.
   const filteredElements = useMemo(() => {
     if (!listSearch.trim()) return elements;
     const q = listSearch.trim().toLowerCase();
@@ -167,6 +168,15 @@ export default function ArchitectureEditors(): JSX.Element {
       (el.uid && el.uid.toLowerCase().includes(q))
     );
   }, [elements, listSearch]);
+
+  const archTreeNodes = useMemo((): WorkspaceTreeNode[] =>
+    filteredElements.map((el) => ({
+      id: el.id,
+      name: el.title || t('editor.untitled'),
+      parentId: el.parent_id ?? null,
+      level: el.level != null ? `L${el.level}` : 'L0',
+    })),
+  [filteredElements, t]);
 
   if (isLoading) {
     return (
@@ -320,14 +330,23 @@ export default function ArchitectureEditors(): JSX.Element {
         </form>
       )}
 
+      {/* WorkspaceTree — unified navigation panel (REQ-003).
+          showLevelBadge shows L0-L4 colored badges per design doc §6.
+          onAddChild surfaces the "+ child" button on each tree row.
+          showSearch=false: search is handled by the input above.
+          TODO: drag-and-drop reparenting (was in ArchitectureList) —
+          to be added in a future iteration via WorkspaceTree D&D extension. */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        <ArchitectureList
-          elements={filteredElements}
+        <WorkspaceTree
+          data-testid="arch-tree"
+          nodes={archTreeNodes}
           selectedId={selectedId}
           onSelect={(id) => navigate(`/architecture/${id}`)}
           onAddChild={(parentId) => void handleCreate(parentId)}
-          onDelete={(el) => setDeleteTarget(el)}
-          onReparent={() => refresh()}
+          showLevelBadge={true}
+          showSearch={false}
+          emptyLabel={t('editor.empty')}
+          noMatchesLabel={t('editor.noMatches')}
         />
       </div>
     </div>

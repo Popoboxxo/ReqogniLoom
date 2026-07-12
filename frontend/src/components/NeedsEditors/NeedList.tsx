@@ -1,8 +1,19 @@
-import React, { useState, useMemo } from 'react';
+/**
+ * NeedList — left-panel navigation for stakeholder needs (REQ-003).
+ *
+ * Refactored to use the shared WorkspaceTree component for a consistent
+ * compact tree-row style across all artifact views (REQ-003).
+ *
+ * Search + status filter + sort remain in ListToolbar; WorkspaceTree
+ * receives the already-filtered list and renders it as compact tree rows.
+ */
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
-import { getStatusBadgeStyle, ACTIVE_CARD_BG } from '../../utils/statusBadge';
+import { getStatusBadgeStyle } from '../../utils/statusBadge';
+import { WorkspaceTree } from '../shared/WorkspaceTree';
+import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import type { StakeholderNeed } from '../../types';
 import { WORKFLOW_STATES } from '../../types';
 
@@ -22,7 +33,7 @@ type NeedSortKey = 'default' | 'title' | 'status' | 'updated';
 
 function sortNeeds(
   list: StakeholderNeed[],
-  sortKey: NeedSortKey
+  sortKey: NeedSortKey,
 ): StakeholderNeed[] {
   const sorted = [...list];
   switch (sortKey) {
@@ -51,20 +62,34 @@ function sortNeeds(
   return sorted;
 }
 
-export function NeedList({ 
-  needs, 
-  selectedId, 
+/** Map a StakeholderNeed to a WorkspaceTreeNode (flat — no hierarchy). */
+function needToNode(need: StakeholderNeed): WorkspaceTreeNode {
+  const style = getStatusBadgeStyle(need.status);
+  return {
+    id: need.id,
+    name: need.title || 'Untitled',
+    parentId: null,
+    badge: {
+      text: need.status,
+      bg: style.background as string,
+      color: style.color as string,
+    },
+  };
+}
+
+export function NeedList({
+  needs,
+  selectedId,
   onCreateNew,
   showCreateForm,
   setShowCreateForm,
   newTitle,
   setNewTitle,
   onSubmitCreate,
-  createError
+  createError,
 }: NeedListProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortKey, setSortKey] = useState<NeedSortKey>('default');
@@ -72,16 +97,23 @@ export function NeedList({
   const visibleNeeds = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
     const filtered = needs.filter((need) => {
-      if (q && !need.title.toLowerCase().includes(q) && !(need.uid && need.uid.toLowerCase().includes(q))) {
+      if (
+        q &&
+        !need.title.toLowerCase().includes(q) &&
+        !(need.uid && need.uid.toLowerCase().includes(q))
+      ) {
         return false;
       }
-      if (statusFilter && need.status !== statusFilter) {
-        return false;
-      }
+      if (statusFilter && need.status !== statusFilter) return false;
       return true;
     });
     return sortNeeds(filtered, sortKey);
   }, [needs, listSearch, statusFilter, sortKey]);
+
+  const treeNodes = useMemo(
+    () => visibleNeeds.map(needToNode),
+    [visibleNeeds],
+  );
 
   const hasActiveListControls = Boolean(listSearch || statusFilter);
 
@@ -140,7 +172,7 @@ export function NeedList({
       >
         + {t('actions.new', 'New')}
       </button>
-      
+
       {showCreateForm && setShowCreateForm && setNewTitle && onSubmitCreate && (
         <form
           onSubmit={(e) => {
@@ -158,7 +190,9 @@ export function NeedList({
             borderRadius: 'var(--radius-md)',
           }}
         >
-          <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
+          <label
+            style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}
+          >
             {t('editor.title', 'Title')}
           </label>
           <input
@@ -177,7 +211,10 @@ export function NeedList({
             }}
           />
           {createError && (
-            <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}>
+            <p
+              role="alert"
+              style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}
+            >
               {createError}
             </p>
           )}
@@ -186,13 +223,13 @@ export function NeedList({
               type="button"
               onClick={() => setShowCreateForm(false)}
               style={{
-                background: "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                cursor: "pointer",
+                background: 'transparent',
+                color: 'var(--color-text)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-md)',
+                padding: 'var(--space-2) var(--space-4)',
+                fontSize: 'var(--font-size-sm)',
+                cursor: 'pointer',
               }}
             >
               {t('cancel', 'Cancel')}
@@ -201,13 +238,13 @@ export function NeedList({
               type="submit"
               disabled={!(newTitle || '').trim()}
               style={{
-                background: "var(--color-primary)",
-                color: "white",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                cursor: "pointer",
+                background: 'var(--color-primary)',
+                color: 'white',
+                border: 'none',
+                borderRadius: 'var(--radius-md)',
+                padding: 'var(--space-2) var(--space-4)',
+                fontSize: 'var(--font-size-sm)',
+                cursor: 'pointer',
               }}
             >
               {t('create', 'Create')}
@@ -216,97 +253,16 @@ export function NeedList({
         </form>
       )}
 
-      {needs.length === 0 ? (
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>
-          {t('editor.empty', 'No needs available.')}
-        </p>
-      ) : visibleNeeds.length === 0 ? (
-        <p
-          data-testid="need-list-no-matches"
-          style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}
-        >
-          {t('editor.noMatches', 'No matches found.')}
-        </p>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {visibleNeeds.map((need) => {
-            const isActive = need.id === selectedId;
-            const isHovered = hoveredId === need.id;
-
-            const cardStyle: React.CSSProperties = {
-              background: isActive
-                ? ACTIVE_CARD_BG
-                : isHovered
-                ? 'var(--color-surface-raised)'
-                : 'var(--color-surface)',
-              borderRadius: 'var(--radius-md)',
-              boxShadow: isHovered || isActive ? 'var(--shadow-card)' : 'var(--shadow-sm)',
-              padding: 'var(--space-3) var(--space-4)',
-              marginBottom: 'var(--space-2)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start',
-              cursor: 'pointer',
-              color: 'var(--color-primary)',
-              transition: 'var(--transition-fast)',
-              wordWrap: 'break-word',
-              wordBreak: 'break-word',
-            };
-
-            return (
-              <li 
-                key={need.id} 
-                style={cardStyle}
-                onMouseEnter={() => setHoveredId(need.id)}
-                onMouseLeave={() => setHoveredId(null)}
-              >
-                <a
-                  href={`/needs/${need.id}`}
-                  onClick={(e) => { e.preventDefault(); navigate(`/needs/${need.id}`); }}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 'var(--space-2)',
-                    textDecoration: 'none',
-                    color: 'inherit',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 'var(--font-size-base)',
-                      color: 'var(--color-text)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    {need.title || t('editor.untitled')}
-                  </span>
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 'var(--space-2)',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    {need.uid && (
-                       <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
-                         {need.uid}
-                       </span>
-                    )}
-                    <span style={getStatusBadgeStyle(need.status)}>
-                      {need.status}
-                    </span>
-                  </div>
-                </a>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* Unified tree navigation — REQ-003 */}
+      <WorkspaceTree
+        data-testid="need-list-tree"
+        nodes={treeNodes}
+        selectedId={selectedId}
+        onSelect={(id) => navigate(`/needs/${id}`)}
+        showSearch={false}
+        emptyLabel={t('editor.empty', 'No needs available.')}
+        noMatchesLabel={t('editor.noMatches', 'No matches found.')}
+      />
     </div>
   );
 }
