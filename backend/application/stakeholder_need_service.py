@@ -20,7 +20,6 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
-from application.models import DomainEventOutbox
 
 logger = logging.getLogger(__name__)
 
@@ -109,11 +108,13 @@ class StakeholderNeedService(ServiceBase):
             created_by_id=ctx.user_id,
         )
 
-        DomainEventOutbox.publish(
-            ctx.tenant_id,
-            "StakeholderNeedCreated",
-            str(need.id),
-            {"workspace_id": str(workspace.id), "title": need.title},
+        self._emit_event(
+            self._make_event(
+                event_type="StakeholderNeedCreated",
+                entity_id=need.id,
+                workspace_id=workspace.id,
+                payload={"title": need.title},
+            )
         )
         return StakeholderNeedDTO.from_orm(need)
 
@@ -188,11 +189,13 @@ class StakeholderNeedService(ServiceBase):
             need.save()
             need.refresh_from_db()
 
-            DomainEventOutbox.publish(
-                ctx.tenant_id,
-                "StakeholderNeedUpdated",
-                str(need.id),
-                {"changes": list(changes.keys()), "change_reason": change_reason},
+            self._emit_event(
+                self._make_event(
+                    event_type="StakeholderNeedUpdated",
+                    entity_id=need.id,
+                    workspace_id=need.artifact.workspace_id,
+                    payload={"changes": list(changes.keys()), "change_reason": change_reason},
+                )
             )
 
         return StakeholderNeedDTO.from_orm(need)
@@ -217,11 +220,13 @@ class StakeholderNeedService(ServiceBase):
         # Artifact cascades to StakeholderNeed
         need.artifact.delete()
 
-        DomainEventOutbox.publish(
-            ctx.tenant_id,
-            "StakeholderNeedDeleted",
-            str(need_id),
-            {"workspace_id": str(workspace_id), "change_reason": change_reason},
+        self._emit_event(
+            self._make_event(
+                event_type="StakeholderNeedDeleted",
+                entity_id=need_id,
+                workspace_id=workspace_id,
+                payload={"change_reason": change_reason},
+            )
         )
 
     def derive_requirements_async(self, ctx: AuthContext, need_id: UUID | str) -> Dict[str, Any]:

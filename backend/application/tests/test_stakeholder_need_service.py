@@ -21,13 +21,19 @@ from application.stakeholder_need_service import StakeholderNeedService
 pytestmark = pytest.mark.django_db
 
 
-# Patch DomainEventOutbox at module level for all tests
+# Patch the DomainEventBus at module level for all tests.
+#
+# StakeholderNeedService emits domain events via the inherited
+# ServiceBase._emit_event -> get_event_bus().publish() path (Transactional
+# Outbox). Mocking the bus prevents transaction.on_commit side-effects while
+# letting tests assert that the correct event was emitted.
 @pytest.fixture(autouse=True)
-def mock_domain_event_outbox():
-    """Mock DomainEventOutbox.publish to prevent database calls in tests."""
-    with patch('application.stakeholder_need_service.DomainEventOutbox') as mock:
-        mock.publish = MagicMock()
-        yield mock
+def mock_event_bus():
+    """Mock the DomainEventBus so _emit_event does not hit the outbox."""
+    with patch("application.base.get_event_bus") as mock_get_bus:
+        bus = MagicMock()
+        mock_get_bus.return_value = bus
+        yield bus
 
 
 # ---------------------------------------------------------------------------
@@ -346,3 +352,153 @@ class TestDeleteStakeholderNeed:
             )
 
             artifact.delete.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# DomainEvent emission (regression: DomainEventOutbox.publish() misuse)
+# ---------------------------------------------------------------------------
+
+
+class TestStakeholderNeedEventEmission:
+    """Regression tests for the DomainEventOutbox.publish() misuse.
+
+    DomainEventOutbox is a Django ORM model (Transactional Outbox record), NOT
+    a service — it has no publish() method. The service must emit events via the
+    inherited ServiceBase._emit_event(self._make_event(...)) path (the same
+    pattern used by RequirementService).
+
+    Each test drives the REAL service method (create/update/delete). If the bug
+    is reintroduced (a direct DomainEventOutbox.publish(...) call), the ORM model
+    raises AttributeError and these tests fail.
+    """
+
+    def _emitted_event_types(self, mock_event_bus):
+        """Return the list of event_type values passed to bus.publish()."""
+        return [call.args[0].event_type for call in mock_event_bus.publish.call_args_list]
+
+    def test_create_emits_stakeholder_need_created_event(self, mock_event_bus):
+        """create() emits a StakeholderNeedCreated event via the event bus."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+
+        workspace = MagicMock()
+        workspace.id = WS_ID
+        workspace.tenant_id = TENANT_ID
+
+        with (
+            patch(
+                "application.stakeholder_need_service.Workspace.objects.get",
+                return_value=workspace,
+            ),
+            patch(
+                "application.stakeholder_need_service.Artifact.objects.create"
+            ) as mock_artifact_create,
+            patch(
+                "application.stakeholder_need_service.StakeholderNeed.objects.create"
+            ) as mock_need_create,
+        ):
+            artifact = MagicMock()
+            artifact.workspace_id = WS_ID
+            mock_artifact_create.return_value = artifact
+
+            need = MagicMock()
+            need.id = NEED_ID
+            need.title = "Test Need"
+            need.artifact = artifact
+            need.version = 1
+            mock_need_create.return_value = need
+
+            ctx = _make_ctx(tenant_id=TENANT_ID)
+
+            # Must not raise AttributeError (the DomainEventOutbox bug).
+            svc.create(
+                ctx=ctx,
+                workspace_id=WS_ID,
+                title="Test Need",
+                description="A test stakeholder need",
+            )
+
+        mock_event_bus.publish.assert_called_once()
+        assert self._emitted_event_types(mock_event_bus) == ["StakeholderNeedCreated"]
+
+    def test_update_emits_stakeholder_need_updated_event(self, mock_event_bus):
+        """update() emits a StakeholderNeedUpdated event when fields change."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+
+        need = MagicMock()
+        artifact = MagicMock()
+        artifact.workspace_id = WS_ID
+        artifact.id = uuid.uuid4()
+        need.artifact = artifact
+        need.id = NEED_ID
+        need.title = "Old Title"
+        need.description = ""
+        need.category = ""
+        need.status = "draft"
+        need.moscow_priority = None
+        need.version = 1
+
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        ctx.user = MagicMock()
+
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
+        ) as mock_select:
+            mock_query = MagicMock()
+            mock_query.get.return_value = need
+            mock_select.return_value = mock_query
+
+            # Must not raise AttributeError (the DomainEventOutbox bug).
+            svc.update(ctx=ctx, need_id=NEED_ID, title="New Title")
+
+        mock_event_bus.publish.assert_called_once()
+        assert self._emitted_event_types(mock_event_bus) == ["StakeholderNeedUpdated"]
+
+    def test_update_without_changes_emits_no_event(self, mock_event_bus):
+        """update() with no field changes emits no event."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+
+        need = MagicMock()
+        artifact = MagicMock()
+        artifact.workspace_id = WS_ID
+        need.artifact = artifact
+        need.id = NEED_ID
+        need.version = 1
+
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        ctx.user = MagicMock()
+
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
+        ) as mock_select:
+            mock_query = MagicMock()
+            mock_query.get.return_value = need
+            mock_select.return_value = mock_query
+
+            svc.update(ctx=ctx, need_id=NEED_ID)  # no fields provided
+
+        mock_event_bus.publish.assert_not_called()
+
+    def test_delete_emits_stakeholder_need_deleted_event(self, mock_event_bus):
+        """delete() emits a StakeholderNeedDeleted event via the event bus."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+
+        need = MagicMock()
+        artifact = MagicMock()
+        artifact.workspace_id = WS_ID
+        need.artifact = artifact
+        need.id = NEED_ID
+
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
+        ) as mock_select:
+            mock_query = MagicMock()
+            mock_query.get.return_value = need
+            mock_select.return_value = mock_query
+
+            # Must not raise AttributeError (the DomainEventOutbox bug).
+            svc.delete(ctx=ctx, need_id=NEED_ID)
+
+        mock_event_bus.publish.assert_called_once()
+        assert self._emitted_event_types(mock_event_bus) == ["StakeholderNeedDeleted"]
