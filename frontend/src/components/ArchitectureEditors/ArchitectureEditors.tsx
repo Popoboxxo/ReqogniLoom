@@ -45,7 +45,7 @@ import type {
  * ARCH-L1-001 ReactFrontend — ArchitectureEditors (COMP-RF-004).
  *
  * Refactored to use SplitView component (REQ-L1-084) for generic
- * split-panel layout. Extracts ArchitectureList (left) and
+ * split-panel layout. Uses WorkspaceTree (left, REQ-003) and
  * ArchitectureForm (right) for cleaner composition.
  *
  * Dynamic field visibility via EntityTypeProvider + ASIL/Make-or-Buy
@@ -334,8 +334,7 @@ export default function ArchitectureEditors(): JSX.Element {
           showLevelBadge shows L0-L4 colored badges per design doc §6.
           onAddChild surfaces the "+ child" button on each tree row.
           showSearch=false: search is handled by the input above.
-          TODO: drag-and-drop reparenting (was in ArchitectureList) —
-          to be added in a future iteration via WorkspaceTree D&D extension. */}
+          won't do: drag-and-drop reparenting — hierarchy view not needed (user decision 2026-07-13). */}
       <div style={{ flex: 1, overflow: "auto" }}>
         <WorkspaceTree
           data-testid="arch-tree"
