@@ -28,8 +28,10 @@ _UNSET = object()
 @dataclass
 class StakeholderNeedDTO:
     """Read-oriented DTO returned by StakeholderNeedService methods."""
+
     id: UUID
     workspace_id: UUID
+    artifact_id: UUID  # REQ-001: required by diff/versions endpoints in views.py
     parent_id: Optional[UUID]
     title: str
     description: str
@@ -48,6 +50,7 @@ class StakeholderNeedDTO:
         return cls(
             id=need.id,
             workspace_id=need.artifact.workspace_id,
+            artifact_id=need.artifact_id,  # REQ-001: expose FK for diff/versions lookup
             parent_id=need.artifact.parent_id,
             title=need.title,
             description=need.description,

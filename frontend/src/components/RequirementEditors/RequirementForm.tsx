@@ -66,7 +66,7 @@ interface RequirementFormProps {
 export const RequirementForm: React.FC<RequirementFormProps> = ({
   requirement,
   requirements: _requirements,
-  workspaceId,
+  workspaceId: _workspaceId,  // retained for API compatibility; not consumed here
   onSaved,
 }) => {
   const { t } = useTranslation();
