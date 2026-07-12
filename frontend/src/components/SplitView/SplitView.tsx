@@ -323,31 +323,27 @@ export const SplitView = React.forwardRef<
           {leftPanel}
         </div>
 
-        {/* Divider */}
+        {/* Divider — REQ-007: 12px hitbox, 2px visual center line via gradient */}
         <div
           ref={dividerRef}
           data-testid="splitview-divider"
           className={`splitview-divider ${dividerClassName || ''}`}
           onMouseDown={handleDividerMouseDown}
           style={{
-            flex: '0 0 1px',
-            background: 'var(--color-border)',
+            flex: '0 0 12px',
+            background: 'linear-gradient(90deg, transparent 5px, var(--color-border) 5px, var(--color-border) 7px, transparent 7px)',
             cursor: 'col-resize',
             transition: isDraggingRef.current ? 'none' : 'background 0.2s ease',
             userSelect: 'none',
           }}
           onMouseEnter={(e) => {
             if (!isDraggingRef.current) {
-              e.currentTarget.style.background = 'var(--color-primary)';
-              e.currentTarget.style.width = '3px';
-              e.currentTarget.style.marginLeft = '-1px';
+              e.currentTarget.style.background = 'linear-gradient(90deg, transparent 4px, var(--color-primary) 4px, var(--color-primary) 8px, transparent 8px)';
             }
           }}
           onMouseLeave={(e) => {
             if (!isDraggingRef.current) {
-              e.currentTarget.style.background = 'var(--color-border)';
-              e.currentTarget.style.width = '1px';
-              e.currentTarget.style.marginLeft = '0';
+              e.currentTarget.style.background = 'linear-gradient(90deg, transparent 5px, var(--color-border) 5px, var(--color-border) 7px, transparent 7px)';
             }
           }}
         />

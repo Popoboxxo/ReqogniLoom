@@ -21,7 +21,7 @@
 import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
-import { WorkspaceTree } from '../shared/WorkspaceTree';
+import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
 import { Requirement, RequirementType, UUID } from '../../types';
 import { REQ_CATEGORIES, WORKFLOW_STATES } from '../../types';
@@ -42,7 +42,7 @@ function getTypeColor(type?: RequirementType): string {
 /** Map a Requirement to a WorkspaceTreeNode with optional parent hierarchy. */
 function reqToNode(req: Requirement): WorkspaceTreeNode {
   const badge = req.type
-    ? { text: req.type, bg: getTypeColor(req.type), color: 'white' }
+    ? { text: getTypeBadgeAbbreviation(req.type), bg: getTypeColor(req.type), color: 'white' }
     : undefined;
   return {
     id: req.id,

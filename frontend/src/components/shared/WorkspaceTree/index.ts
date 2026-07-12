@@ -3,5 +3,5 @@
  *
  * Export surface for all views that use the unified tree module.
  */
-export { WorkspaceTree } from './workspace-tree';
+export { WorkspaceTree, getTypeBadgeAbbreviation } from './workspace-tree';
 export type { WorkspaceTreeNode, WorkspaceTreeProps } from './workspace-tree';

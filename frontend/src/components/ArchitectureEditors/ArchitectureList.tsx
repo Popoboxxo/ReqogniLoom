@@ -15,6 +15,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ArchitectureElement } from '../../types';
 import { getAsilBadgeStyle } from '../../utils/asilUtils';
+import { getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
 
 interface ArchitectureListProps {
   /**
@@ -208,7 +209,7 @@ function TreeItem({
             flexShrink: 0,
           }}
         >
-          {element.element_type}
+          {getTypeBadgeAbbreviation(element.element_type)}
         </span>
 
         {/* Title */}

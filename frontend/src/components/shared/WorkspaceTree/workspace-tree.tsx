@@ -48,6 +48,49 @@ function levelBadgeColor(levelStr: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Type badge abbreviation map — REQ-007
+// ---------------------------------------------------------------------------
+
+/** Maps verbose type/element strings to short badge labels (REQ-007). */
+const TYPE_BADGE_ABBREVIATION: Readonly<Record<string, string>> = {
+  // Requirement types (backend values)
+  SyReq: 'SR',
+  SWReq: 'SW',
+  HWReq: 'HW',
+  // Requirement types (long-form display names)
+  SysRec: 'SR',
+  Stakeholder: 'SH',
+  Hardware: 'HW',
+  Software: 'SW',
+  Interface: 'IF',
+  Performance: 'PF',
+  Safety: 'SA',
+  Security: 'SEC',
+  // Architecture element types (backend values)
+  component: 'C',
+  interface: 'IF',
+  subsystem: 'SS',
+  layer: 'LY',
+  module: 'MOD',
+  // Architecture element types (display names)
+  System: 'SYS',
+  Subsystem: 'SS',
+  Component: 'C',
+  Function: 'FN',
+} as const;
+
+/**
+ * Returns a short badge abbreviation for the given type string.
+ * Falls back to the original string if no mapping exists.
+ *
+ * @param type - Raw type or element_type string from the API.
+ * @returns Short abbreviation, e.g. 'SR', 'C', 'SS'.
+ */
+export function getTypeBadgeAbbreviation(type: string): string {
+  return (TYPE_BADGE_ABBREVIATION as Record<string, string>)[type] ?? type;
+}
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
