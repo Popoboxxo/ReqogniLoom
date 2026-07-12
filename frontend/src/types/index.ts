@@ -574,7 +574,14 @@ export type CanvasElementType =
   | "arrow"
   | "connector";
 
-export type CanvasTool = "pen" | "select" | "eraser";
+export type CanvasTool =
+  | "pen"
+  | "select"
+  | "eraser"
+  | "rect"
+  | "ellipse"
+  | "text"
+  | "connector";
 
 export interface CanvasPoint {
   x: number;
@@ -613,6 +620,24 @@ export interface CanvasStrokeData {
   strokes: CanvasStroke[];
   width?: number;
   height?: number;
+  /**
+   * Full Fabric.js canvas serialization (REQ-L2-CV-005). Produced by
+   * canvas.toJSON(["data"]) and carries all object types incl. custom
+   * connector anchor metadata under each object's `data` property.
+   * Sent alongside `strokes` for backward compatibility.
+   */
+  canvas_json?: FabricCanvasJson;
+}
+
+/**
+ * Minimal shape of a Fabric.js canvas serialization. Fabric emits many more
+ * keys; only `objects` is load-bearing for the backward-compatible load path.
+ */
+export interface FabricCanvasJson {
+  objects: Array<Record<string, unknown>>;
+  version?: string;
+  background?: string;
+  [key: string]: unknown;
 }
 
 export interface CanvasStrokeResponse {
@@ -622,6 +647,8 @@ export interface CanvasStrokeResponse {
   height: number;
   svg: string;
   version_number: number | null;
+  /** Fabric.js serialization when persisted via the toJSON path (REQ-L2-CV-005). */
+  canvas_json?: FabricCanvasJson | null;
 }
 
 // ---------------------------------------------------------------------------

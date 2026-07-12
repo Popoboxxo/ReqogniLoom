@@ -56,6 +56,27 @@
   background: var(--color-primary-dark);
 }
 
+/* Shape / text / connector tool buttons (REQ-L2-CV-001..004).
+   Reuse .toolButton sizing; align the glyph fonts consistently. */
+.shapeTool {
+  font-size: var(--font-size-base);
+  line-height: 1;
+}
+
+.shapeTool:hover {
+  background: var(--color-border);
+}
+
+.shapeTool.toolButtonActive {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.shapeTool.toolButtonActive:hover {
+  background: var(--color-primary-dark);
+}
+
 .colorPicker {
   width: 32px;
   height: 32px;
