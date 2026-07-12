@@ -57,6 +57,9 @@ vi.mock("fabric", () => ({
     width: 2,
     globalCompositeOperation: "source-over",
   })),
+  Path: vi.fn().mockImplementation(() => ({
+    set: vi.fn(),
+  })),
 }));
 
 // Mock i18n

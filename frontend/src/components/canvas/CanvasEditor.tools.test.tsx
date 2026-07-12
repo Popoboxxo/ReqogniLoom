@@ -266,9 +266,9 @@ describe("CanvasEditor — connector follow (REQ-L2-CV-004)", () => {
     source.set({ left: 50, top: 50 });
     canvas.trigger("object:moving", { target: source });
 
-    // Source center is now (60, 60); the "from" endpoint must follow.
-    expect(line.x1).toBe(60);
-    expect(line.y1).toBe(60);
+    // Source center is now (60, 60); the "from" endpoint must follow, clipped to edge (70, 70).
+    expect(line.x1).toBe(70);
+    expect(line.y1).toBe(70);
     // The "to" endpoint stays put (target unmoved).
     expect(line.x2).toBe(110);
     expect(line.y2).toBe(110);
