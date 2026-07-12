@@ -221,6 +221,17 @@
     "impactEmpty": "Keine erreichbaren Artefakte.",
     "impactDepth": "Tiefe"
   },
+  "createTraceLinkDialog": {
+    "title": "Trace-Link erstellen",
+    "searchLabel": "Elemente suchen",
+    "searchPlaceholder": "Nach Titel filtern…",
+    "typeFilterLabel": "Nach Typ filtern",
+    "typeAll": "Alle",
+    "typeRequirement": "Anforderung",
+    "typeArchitecture": "Architektur",
+    "typeTestCase": "Testfall",
+    "typeAdr": "ADR"
+  },
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",
     "empty": "Keine Baselines vorhanden.",

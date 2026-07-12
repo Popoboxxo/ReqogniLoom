@@ -221,6 +221,17 @@
     "impactEmpty": "No reachable artifacts.",
     "impactDepth": "Depth"
   },
+  "createTraceLinkDialog": {
+    "title": "Create Trace Link",
+    "searchLabel": "Search elements",
+    "searchPlaceholder": "Filter by title…",
+    "typeFilterLabel": "Filter by type",
+    "typeAll": "All",
+    "typeRequirement": "Requirement",
+    "typeArchitecture": "Architecture",
+    "typeTestCase": "Test Case",
+    "typeAdr": "ADR"
+  },
   "baselines": {
     "placeholder": "Baselines — in progress.",
     "empty": "No baselines available.",

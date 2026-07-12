@@ -35,10 +35,10 @@ import {
   ALL_LINK_TYPES,
   getLinkTypeLabel,
 } from "../../constants/traceLinkLabels";
+import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog";
 import type {
   ArchitectureElement,
   Artifact,
-  LinkType,
   Requirement,
   TraceLink,
   UUID,
@@ -66,17 +66,6 @@ const INITIAL_STATE: TraceabilityState = {
 // Sourced from the shared label map so all 12 backend link types are covered.
 const LINK_TYPE_ORDER: string[] = ALL_LINK_TYPES;
 
-interface CreateFormData {
-  source_id: string;
-  target_id: string;
-  link_type: LinkType;
-}
-
-const INITIAL_FORM: CreateFormData = {
-  source_id: "",
-  target_id: "",
-  link_type: "satisfies",
-};
 
 function formatId(id: UUID): string {
   return `${id.slice(0, 8)}…`;
@@ -115,10 +104,8 @@ export default function TraceabilityView(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   const [state, setState] = useState<TraceabilityState>(INITIAL_STATE);
-  const [showCreateForm, setShowCreateForm] = useState<boolean>(false);
-  const [formData, setFormData] = useState<CreateFormData>(INITIAL_FORM);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
+  const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   // Impact-analysis panel state (REQ-L2-TE-019).
@@ -261,21 +248,6 @@ export default function TraceabilityView(): JSX.Element {
   const grouped = useMemo(() => groupByLinkType(state.links), [state.links]);
   const groupKeys = useMemo(() => orderedGroupKeys(grouped), [grouped]);
 
-  // ---------------------------------------------------------------------------
-  // Create-form handlers
-  // ---------------------------------------------------------------------------
-
-  function openCreateForm(): void {
-    setFormData(INITIAL_FORM);
-    setFormError(null);
-    setShowCreateForm(true);
-  }
-
-  function cancelCreateForm(): void {
-    setShowCreateForm(false);
-    setFormError(null);
-  }
-
   async function handleExportPdf(): Promise<void> {
     if (!activeWorkspace) return;
     setIsExportingPdf(true);
@@ -319,60 +291,6 @@ export default function TraceabilityView(): JSX.Element {
       setImpactRan(true);
     } finally {
       setImpactLoading(false);
-    }
-  }
-
-  async function submitCreateForm(
-    e: React.FormEvent<HTMLFormElement>
-  ): Promise<void> {
-    e.preventDefault();
-    if (!activeWorkspace) return;
-
-    if (!formData.source_id) {
-      setFormError(t("traceability.sourceRequired"));
-      return;
-    }
-    if (!formData.target_id) {
-      setFormError(t("traceability.targetRequired"));
-      return;
-    }
-    if (formData.source_id === formData.target_id) {
-      setFormError(t("traceability.sameEndpoints"));
-      return;
-    }
-
-    setIsSubmitting(true);
-    setFormError(null);
-    try {
-      await tracelinksApi.create({
-        source_id: formData.source_id,
-        target_id: formData.target_id,
-        link_type: formData.link_type,
-      });
-      setShowCreateForm(false);
-      setFormData(INITIAL_FORM);
-      setReloadKey((k) => k + 1);
-    } catch (err: unknown) {
-      // Prefer backend message + first detail; fallback to stringified error.
-      const apiErr = err as {
-        error?: {
-          message?: string;
-          details?: { field?: string; errors?: string[] }[];
-        };
-      };
-      const baseMsg = apiErr?.error?.message;
-      const firstDetail = apiErr?.error?.details?.[0];
-      const detailMsg = firstDetail
-        ? `${firstDetail.field ?? ""}: ${(firstDetail.errors ?? []).join(", ")}`
-        : "";
-      const msg = baseMsg
-        ? detailMsg
-          ? `${baseMsg} — ${detailMsg}`
-          : baseMsg
-        : String(err);
-      setFormError(msg);
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -441,47 +359,46 @@ export default function TraceabilityView(): JSX.Element {
         >
           {t("nav.traceability")}
         </h2>
-        {!showCreateForm && (
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            <button
-              type="button"
-              data-testid="export-pdf-btn"
-              onClick={handleExportPdf}
-              disabled={!activeWorkspace || isExportingPdf}
-              style={{
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-base)",
-                fontWeight: 500,
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                cursor: activeWorkspace ? "pointer" : "not-allowed",
-                opacity: isExportingPdf ? 0.6 : 1,
-              }}
-            >
-              {isExportingPdf ? "Exporting…" : "Export PDF"}
-            </button>
-            <button
-              type="button"
-              data-testid="tracelink-create-btn"
-              onClick={openCreateForm}
-              disabled={!activeWorkspace}
-              style={{
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-base)",
-                fontWeight: 500,
-                background: "var(--color-primary)",
-                color: "var(--color-on-primary, #fff)",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                cursor: activeWorkspace ? "pointer" : "not-allowed",
-              }}
-            >
-              {t("traceability.create")}
-            </button>
-          </div>
-        )}
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <button
+            type="button"
+            data-testid="export-pdf-btn"
+            onClick={handleExportPdf}
+            disabled={!activeWorkspace || isExportingPdf}
+            style={{
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-base)",
+              fontWeight: 500,
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
+              cursor: activeWorkspace ? "pointer" : "not-allowed",
+              opacity: isExportingPdf ? 0.6 : 1,
+            }}
+          >
+            {isExportingPdf ? "Exporting…" : "Export PDF"}
+          </button>
+          {/* REQ-005: unified CreateTraceLinkDialog replaces the old inline form */}
+          <button
+            type="button"
+            data-testid="tracelink-create-btn"
+            onClick={() => setShowCreateDialog(true)}
+            disabled={!activeWorkspace}
+            style={{
+              padding: "var(--space-2) var(--space-4)",
+              fontSize: "var(--font-size-base)",
+              fontWeight: 500,
+              background: "var(--color-primary)",
+              color: "var(--color-on-primary, #fff)",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              cursor: activeWorkspace ? "pointer" : "not-allowed",
+            }}
+          >
+            {t("traceability.create")}
+          </button>
+        </div>
       </div>
 
       {state.cycles.length > 0 && (
@@ -738,191 +655,14 @@ export default function TraceabilityView(): JSX.Element {
         )}
       </section>
 
-      {showCreateForm && (
-        <form
-          data-testid="tracelink-create-form"
-          onSubmit={submitCreateForm}
-          style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-lg)",
-            padding: "var(--space-5)",
-            marginBottom: "var(--space-6)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-3)",
-            boxShadow: "var(--shadow-card)",
-            maxWidth: "640px",
-          }}
-        >
-          <label
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-1)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text)",
-            }}
-          >
-            <span>{t("traceability.source")}</span>
-            <select
-              data-testid="tracelink-source-select"
-              value={formData.source_id}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, source_id: e.target.value }))
-              }
-              disabled={!hasArtifacts || isSubmitting}
-              required
-              style={{
-                padding: "var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                fontSize: "var(--font-size-base)",
-              }}
-            >
-              <option value="">
-                {hasArtifacts ? "—" : t("traceability.noArtifacts")}
-              </option>
-              {state.artifacts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {artifactLabel(a, state.titles)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-1)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text)",
-            }}
-          >
-            <span>{t("traceability.target")}</span>
-            <select
-              data-testid="tracelink-target-select"
-              value={formData.target_id}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, target_id: e.target.value }))
-              }
-              disabled={!hasArtifacts || isSubmitting}
-              required
-              style={{
-                padding: "var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                fontSize: "var(--font-size-base)",
-              }}
-            >
-              <option value="">
-                {hasArtifacts ? "—" : t("traceability.noArtifacts")}
-              </option>
-              {state.artifacts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {artifactLabel(a, state.titles)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-1)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text)",
-            }}
-          >
-            <span>{t("traceability.linkType")}</span>
-            <select
-              data-testid="tracelink-type-select"
-              value={formData.link_type}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  link_type: e.target.value as LinkType,
-                }))
-              }
-              disabled={isSubmitting}
-              required
-              style={{
-                padding: "var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                fontSize: "var(--font-size-base)",
-              }}
-            >
-              {LINK_TYPE_ORDER.map((lt) => (
-                <option key={lt} value={lt}>
-                  {getLinkTypeLabel(lt)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {formError && (
-            <p
-              role="alert"
-              data-testid="tracelink-form-error"
-              style={{
-                color: "var(--color-danger)",
-                fontSize: "var(--font-size-sm)",
-                margin: 0,
-              }}
-            >
-              {formError}
-            </p>
-          )}
-
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-2)",
-              justifyContent: "flex-end",
-            }}
-          >
-            <button
-              type="button"
-              data-testid="tracelink-cancel-btn"
-              onClick={cancelCreateForm}
-              disabled={isSubmitting}
-              style={{
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-base)",
-                background: "var(--color-surface-raised)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-              }}
-            >
-              {t("actions.cancel")}
-            </button>
-            <button
-              type="submit"
-              data-testid="tracelink-submit-btn"
-              disabled={isSubmitting || !hasArtifacts}
-              style={{
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-base)",
-                fontWeight: 500,
-                background: "var(--color-primary)",
-                color: "var(--color-on-primary, #fff)",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                cursor:
-                  isSubmitting || !hasArtifacts ? "not-allowed" : "pointer",
-              }}
-            >
-              {isSubmitting
-                ? t("traceability.submitting")
-                : t("traceability.submit")}
-            </button>
-          </div>
-        </form>
+      {/* REQ-005: unified CreateTraceLinkDialog (global mode — no fixed sourceId) */}
+      {activeWorkspace && (
+        <CreateTraceLinkDialog
+          workspaceId={activeWorkspace.id}
+          isOpen={showCreateDialog}
+          onClose={() => setShowCreateDialog(false)}
+          onCreated={() => { setShowCreateDialog(false); setReloadKey((k) => k + 1); }}
+        />
       )}
 
       {state.links.length === 0 ? (

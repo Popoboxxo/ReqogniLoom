@@ -1,35 +1,12 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { TraceLink, LinkType, UUID, Requirement, ArchitectureElement, TestCase, Adr } from "../../types";
+import { TraceLink, UUID } from "../../types";
 import { tracelinksApi } from "../../api/tracelinks";
-import { requirementsApi } from "../../api/requirements";
-import { architectureApi } from "../../api/architecture";
-import { testcasesApi } from "../../api/testcases";
-import { adrsApi } from "../../api/adrs";
 import { resolveArtifactRef, type ArtifactRef } from "../../api/artifactRefs";
-import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
+import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
+import { CreateTraceLinkDialog } from "./CreateTraceLinkDialog";
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  fontSize: "var(--font-size-base)",
-  padding: "var(--space-2) var(--space-3)",
-  marginBottom: "var(--space-2)",
-  boxSizing: "border-box",
-  background: "var(--color-surface)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--color-text)",
-  fontFamily: "var(--font-sans)",
-};
-
-const labelStyle: React.CSSProperties = {
-  fontWeight: 600,
-  display: "block",
-  marginBottom: "var(--space-1)",
-  color: "var(--color-text)",
-  fontSize: "var(--font-size-sm)",
-};
 
 interface TraceLinkPanelProps {
   workspaceId: string;
@@ -48,17 +25,8 @@ export function TraceLinkPanel({
   const navigate = useNavigate();
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  
-  const [targetId, setTargetId] = useState<string>("");
-  const [linkType, setLinkType] = useState<LinkType>("derives-from");
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const [requirements, setRequirements] = useState<Requirement[]>([]);
-  const [architectureElements, setArchitectureElements] = useState<ArchitectureElement[]>([]);
-  const [testCases, setTestCases] = useState<TestCase[]>([]);
-  const [adrs, setAdrs] = useState<Adr[]>([]);
+  // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
+  const [showDialog, setShowDialog] = useState(false);
   const [refsById, setRefsById] = useState<Record<UUID, ArtifactRef>>({});
 
   const loadLinks = async () => {
@@ -120,57 +88,11 @@ export function TraceLinkPanel({
     }
   };
 
-  const loadOptions = async () => {
-    try {
-      const [reqs, archs, tcs, adrList] = await Promise.all([
-        requirementsApi.listAll(workspaceId).catch(() => []),
-        architectureApi.listAll(workspaceId).catch(() => []),
-        testcasesApi.list(workspaceId).then(r => r.results).catch(() => []),
-        adrsApi.list(workspaceId).then(r => r.results).catch(() => []),
-      ]);
-      setRequirements(reqs);
-      setArchitectureElements(archs);
-      setTestCases(tcs);
-      setAdrs(adrList);
-    } catch (err) {
-      console.error("Failed to load target options", err);
-    }
-  };
-
   useEffect(() => {
     if (workspaceId && artifactId) {
       loadLinks();
     }
   }, [workspaceId, artifactId]);
-
-  const handleOpenForm = () => {
-    loadOptions();
-    setShowForm(true);
-  };
-
-  const submitForm = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!targetId) {
-      setSubmitError(t("traceability.targetRequired", "Target artifact is required"));
-      return;
-    }
-    setIsSubmitting(true);
-    setSubmitError(null);
-    try {
-      await tracelinksApi.create({
-        source_id: artifactId,
-        target_id: targetId,
-        link_type: linkType,
-      });
-      setShowForm(false);
-      setTargetId("");
-      loadLinks();
-    } catch (err: any) {
-      setSubmitError(err?.error?.message || String(err));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const handleDelete = async (linkId: UUID) => {
     try {
@@ -251,11 +173,6 @@ export function TraceLinkPanel({
     );
   };
 
-  const otherRequirements = requirements.filter((r) => r.id !== artifactId);
-  const otherArchitectureElements = architectureElements.filter((a) => a.id !== artifactId);
-  const otherTestCases = testCases.filter((t) => t.id !== artifactId);
-  const otherAdrs = adrs.filter((a) => a.id !== artifactId);
-
   return (
     <div
       style={{
@@ -276,124 +193,48 @@ export function TraceLinkPanel({
         }}
       >
         <h3 style={{ margin: 0, fontSize: "1.1rem" }}>{t("tracelinks.panelTitle", "Trace Links")}</h3>
-        {!showForm && (
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            {onDerive && (
-              <button
-                className="btn-primary"
-                onClick={onDerive}
-                disabled={isDeriving}
-                style={{
-                  background: "linear-gradient(135deg, #4f6ef7, #8e2de2)",
-                }}
-              >
-                ✨ {isDeriving ? t("actions.deriving", "Ableiten...") : t("actions.derive", "Ableiten")}
-              </button>
-            )}
-            <button className="btn-primary" onClick={handleOpenForm}>
-              {t("actions.newLink", "Neuen Link erstellen")}
-            </button>
-            <a
-              href="/traceability"
-              className="btn-secondary"
-              onClick={(e) => { e.preventDefault(); navigate('/traceability'); }}
-              style={{ textDecoration: "none" }}
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          {onDerive && (
+            <button
+              className="btn-primary"
+              onClick={onDerive}
+              disabled={isDeriving}
+              style={{
+                background: "linear-gradient(135deg, #4f6ef7, #8e2de2)",
+              }}
             >
-              {t("actions.showAll", "Alle anzeigen")}
-            </a>
-          </div>
-        )}
+              ✨ {isDeriving ? t("actions.deriving", "Ableiten...") : t("actions.derive", "Ableiten")}
+            </button>
+          )}
+          {/* REQ-005: unified CreateTraceLinkDialog opens as modal (no layout shift) */}
+          <button
+            className="btn-primary"
+            data-testid="trace-link-panel-open-dialog"
+            onClick={() => setShowDialog(true)}
+          >
+            {t("actions.newLink", "Neuen Link erstellen")}
+          </button>
+          <a
+            href="/traceability"
+            className="btn-secondary"
+            onClick={(e) => { e.preventDefault(); navigate('/traceability'); }}
+            style={{ textDecoration: "none" }}
+          >
+            {t("actions.showAll", "Alle anzeigen")}
+          </a>
+        </div>
       </div>
 
-      {showForm && (
-        <form onSubmit={submitForm} style={{ marginBottom: "var(--space-4)", padding: "var(--space-4)", background: "var(--color-surface-raised)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border)" }}>
-          <label style={labelStyle}>{t("traceability.target")}</label>
-          <select
-            value={targetId}
-            onChange={(e) => setTargetId(e.target.value)}
-            disabled={isSubmitting}
-            style={inputStyle}
-          >
-            <option value="">{t("editor.selectOption", "Select Option")} --</option>
-            {otherRequirements.length > 0 && (
-              <optgroup label={t("traceability.requirementsGroup", "Requirements")}>
-                {otherRequirements.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.title || "Untitled"}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {otherArchitectureElements.length > 0 && (
-              <optgroup label={t("traceability.architectureGroup", "Architecture")}>
-                {otherArchitectureElements.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.title || "Untitled"}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {otherTestCases.length > 0 && (
-              <optgroup label={t("traceability.testCasesGroup", "Test Cases")}>
-                {otherTestCases.map((tc) => (
-                  <option key={tc.id} value={tc.id}>
-                    {tc.title || "Untitled"}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {otherAdrs.length > 0 && (
-              <optgroup label={t("traceability.adrsGroup", "ADRs")}>
-                {otherAdrs.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.title || "Untitled"}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+      {/* Unified create dialog (REQ-005) */}
+      <CreateTraceLinkDialog
+        workspaceId={workspaceId}
+        sourceId={artifactId}
+        isOpen={showDialog}
+        onClose={() => setShowDialog(false)}
+        onCreated={() => { setShowDialog(false); loadLinks(); }}
+      />
 
-          <label style={labelStyle}>{t("traceability.linkType")}</label>
-          <select
-            value={linkType}
-            onChange={(e) => setLinkType(e.target.value as LinkType)}
-            disabled={isSubmitting}
-            style={inputStyle}
-          >
-            {ALL_LINK_TYPES.map((lt) => (
-              <option key={lt} value={lt}>
-                {getLinkTypeLabel(lt)}
-              </option>
-            ))}
-          </select>
-
-          {submitError && (
-            <p style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: "var(--space-2) 0" }}>
-              {submitError}
-            </p>
-          )}
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => setShowForm(false)}
-              disabled={isSubmitting}
-            >
-              {t("actions.cancel")}
-            </button>
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={isSubmitting || !targetId}
-            >
-              {isSubmitting ? t("actions.saving", "Saving...") : t("traceability.submit", "Create Link")}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {loading && !showForm && (
+      {loading && (
         <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>{t("loading")}</p>
       )}
 
