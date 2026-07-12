@@ -38,12 +38,12 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from diagram.manager import DiagramManager, DiagramResult
 from diagram.models import Diagram, DiagramType, DiagramVersion, PayloadFormat
 from diagram.traceability_connector import TraceabilityConnector
-from diagram.validator import DiagramValidator, ValidationResult
+from diagram.validator import DiagramValidator
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +65,8 @@ class CanvasExportResult:
     stroke_data: dict
     svg: str
     version: Optional[DiagramVersion] = None
+    # Optional full canvas JSON (e.g. fabric.js). None for legacy versions.
+    canvas_json: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -278,8 +280,16 @@ class CanvasEditor:
                 f"Canvas stroke validation failed: {result.error_msg}"
             )
 
+        # REQ-L2-CV-005: canvas_json is an optional additive companion to the
+        # stroke payload. Keep the persisted stroke payload format stable by
+        # excluding canvas_json from it; store canvas_json on its own field.
+        canvas_json = stroke_data.get("canvas_json")
+        stroke_payload = {
+            key: value for key, value in stroke_data.items() if key != "canvas_json"
+        }
+
         # Serialise stroke data to JSON string for persistence
-        payload_json = json.dumps(stroke_data, ensure_ascii=False)
+        payload_json = json.dumps(stroke_payload, ensure_ascii=False)
 
         if diagram_id is None:
             # IF-DS-INT-005: create new canvas diagram
@@ -291,6 +301,7 @@ class CanvasEditor:
                 tenant=tenant,
                 created_by=user,
                 target_id=target_id,
+                canvas_json=canvas_json,
             )
         else:
             # IF-DS-INT-005: update existing canvas diagram (new version)
@@ -300,6 +311,7 @@ class CanvasEditor:
                 content=payload_json,
                 modified_by=user,
                 target_id=target_id,
+                canvas_json=canvas_json,
             )
             diagram = Diagram.objects.get(id=diagram_id)
 
@@ -415,11 +427,15 @@ class CanvasEditor:
         # Generate SVG from stroke data
         svg = _generate_svg(stroke_data)
 
+        # REQ-L2-CV-005: surface the optional canvas_json field (None for legacy).
+        canvas_json = result.version.canvas_json if result.version else None
+
         return CanvasExportResult(
             diagram_id=diagram_id,
             stroke_data=stroke_data,
             svg=svg,
             version=result.version,
+            canvas_json=canvas_json,
         )
 
 

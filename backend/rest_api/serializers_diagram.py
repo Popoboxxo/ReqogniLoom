@@ -81,6 +81,9 @@ class CanvasStrokeDataSerializer(serializers.Serializer):
     strokes = CanvasStrokeElementSerializer(many=True)
     width = serializers.IntegerField(required=False, default=800)
     height = serializers.IntegerField(required=False, default=600)
+    # REQ-L2-CV-005: optional full canvas JSON (e.g. fabric.js). Additive —
+    # legacy clients that send only strokes remain valid.
+    canvas_json = serializers.JSONField(required=False, allow_null=True)
 
 
 class CanvasStrokeResponseSerializer(serializers.Serializer):
@@ -92,6 +95,8 @@ class CanvasStrokeResponseSerializer(serializers.Serializer):
     height = serializers.IntegerField()
     svg = serializers.CharField()
     version_number = serializers.IntegerField(allow_null=True)
+    # REQ-L2-CV-005: optional full canvas JSON (None for legacy versions).
+    canvas_json = serializers.JSONField(required=False, allow_null=True)
 
 
 # ---------------------------------------------------------------------------

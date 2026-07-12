@@ -89,6 +89,7 @@ class DiagramManager:
         description: str = "",
         created_by: Optional[object] = None,
         target_id: Optional[uuid.UUID] = None,
+        canvas_json: Optional[dict] = None,
     ) -> Diagram:
         """Create a new Diagram and its initial DiagramVersion (v1).
 
@@ -135,6 +136,7 @@ class DiagramManager:
             version_number=1,
             payload_format=payload_format,
             payload=content,
+            canvas_json=canvas_json,
             tenant=tenant,
             created_by=created_by,
             modified_by=created_by,
@@ -178,6 +180,7 @@ class DiagramManager:
         content: str,
         modified_by: Optional[object] = None,
         target_id: Optional[uuid.UUID] = None,
+        canvas_json: Optional[dict] = None,
     ) -> DiagramVersion:
         """Create a new DiagramVersion (N+1); old versions remain unchanged.
 
@@ -220,6 +223,7 @@ class DiagramManager:
             version_number=next_number,
             payload_format=payload_format,
             payload=content,
+            canvas_json=canvas_json,
             tenant=diagram.tenant,
             created_by=modified_by,
             modified_by=modified_by,

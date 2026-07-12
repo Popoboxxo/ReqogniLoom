@@ -131,6 +131,7 @@ class CanvasStrokeView(APIView):
                     if export_result.version
                     else None
                 ),
+                "canvas_json": export_result.canvas_json,
             }
 
             serializer = CanvasStrokeResponseSerializer(response_data)
@@ -198,6 +199,7 @@ class CanvasStrokeView(APIView):
                     if export_result.version
                     else None
                 ),
+                "canvas_json": export_result.canvas_json,
             }
 
             resp_serializer = CanvasStrokeResponseSerializer(response_data)
@@ -275,6 +277,7 @@ class CanvasStrokeView(APIView):
                     if export_result.version
                     else None
                 ),
+                "canvas_json": export_result.canvas_json,
             }
 
             resp_serializer = CanvasStrokeResponseSerializer(response_data)
