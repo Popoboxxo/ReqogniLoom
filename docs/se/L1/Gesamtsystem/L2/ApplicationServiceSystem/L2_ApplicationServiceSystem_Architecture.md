@@ -39,7 +39,7 @@ Zentrale Domain-Service-Fassade fuer alle Use-Cases. Orchestriert die untergeord
 
 | Komp-ID | Name | Verantwortlichkeit | Domain |
 |---------|------|--------------------|--------|
-| COMP-AS-001 | ArtifactService | Artifact-Hierarchie-CRUD, Zyklus-Pruefung, Tree-Queries via PostgreSQL Recursive CTE | software |
+| COMP-AS-001 | ArtifactService | Artifact-Hierarchie-CRUD, Zyklus-Pruefung, Tree-Queries via PostgreSQL Recursive CTE; dynamische Custom-Attribute (JSONB, GIN-Index) mit Typschema-Validierung | software |
 | COMP-AS-002 | RequirementService | Requirement-CRUD, Decomposition-Orchestrierung, LLM-Validation, GitHub-Integration | software |
 | COMP-AS-003 | ArchitectureService | ArchitectureElement-CRUD, automatische Versions-Inkrementierung (Optimistic Locking) | software |
 | COMP-AS-004 | TestService | TestCase-CRUD, Test-Execution-Status-Management, Coverage-Berechnung | software |
@@ -204,6 +204,7 @@ flowchart TD
 | REQ-L1-029 | COMP-AS-014 |
 | REQ-L1-029 | COMP-AS-015 |
 | REQ-L2-AS-026 | COMP-AS-016 |
+| REQ-L2-AS-039 | COMP-AS-001 |
 
 ---
 

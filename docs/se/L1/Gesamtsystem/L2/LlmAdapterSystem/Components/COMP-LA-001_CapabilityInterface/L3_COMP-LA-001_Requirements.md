@@ -17,6 +17,7 @@ Stabile abstrakte Schnittstelle (`LlmCapabilityInterface`) mit drei Operationen;
 |--------|-----------------------------|
 | REQ-L2-LA-001 | LLM-Capability-Interface mit Provider-Abstraktion |
 | REQ-L2-LA-004 | Standardisiertes LLM-Ergebnisformat |
+| REQ-L2-LA-010 | PromptTemplate — Admin-editierbare Prompt-Slots |
 
 ## Interne Schnittstellen
 
@@ -91,6 +92,17 @@ Die CapabilityInterface-Komponente SHALL ausschliesslich abstrakte Typen und Dat
 - [ ] Module dependency tree of `capability_interface` contains no provider SDK imports
 - [ ] `import capability_interface` succeeds in an environment without any provider SDK installed
 - [ ] Static analysis (e.g., `import-linter`) passes without provider-library violations
+
+---
+
+### REQ-L3-LA001-004: PromptTemplate-Erweiterung im Interface
+
+Die CapabilityInterface-Komponente SHALL Methoden-Signaturen für `decompose_requirement` und `check_consistency` so erweitern, dass kontextspezifische PromptTemplates als Argumente (`prompt_template: str`) entgegengenommen werden können, anstatt sie hart in den Provider-Klassen zu verdrahten.
+
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `LlmCapabilityInterface.decompose_requirement` akzeptiert optionalen `prompt_template` Parameter.
+- [ ] Provider-Implementierungen verwenden diesen Parameter zur Formatierung des finalen LLM-Prompts.
 
 ---
 

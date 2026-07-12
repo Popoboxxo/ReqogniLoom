@@ -915,21 +915,7 @@ function makeObjectId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-/**
- * Bounding-box center of a Fabric object. Prefers getBoundingRect() and falls
- * back to left/top + width/height for lightweight/mocked objects.
- */
-function boundingCenter(obj: Record<string, unknown>): { x: number; y: number } {
-  if (typeof obj.getBoundingRect === "function") {
-    const r = (obj.getBoundingRect as () => { left: number; top: number; width: number; height: number })();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  }
-  const left = (obj.left as number) ?? 0;
-  const top = (obj.top as number) ?? 0;
-  const width = (obj.width as number) ?? 0;
-  const height = (obj.height as number) ?? 0;
-  return { x: left + width / 2, y: top + height / 2 };
-}
+
 
 /**
  * Bounding-box rect of a Fabric object. Prefers getBoundingRect(true) and falls

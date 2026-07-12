@@ -568,6 +568,43 @@ Die TraceabilityEngine MUSS den neuen Link-Typ `allocated-to` (Requirement → A
 **Review Findings:** Nicht implementiert.
 **Test Status:** Missing
 
+---
+
+### REQ-L2-TE-019: TraceLink Read-Model mit rekursiven CTE-Abfragen
+
+Die `traceability/models.py`-Schicht MUSS ein Read-Modell für Traceability-Abfragen bereitstellen. Dieses Read-Modell MUSS drei dedizierte Query-Methoden via rekursiver PostgreSQL-CTEs implementieren: (a) Impact-Analyse (welche Artefakte sind betroffen, wenn sich X ändert?), (b) Vorwärts- und Rückwärtspfadsuche über den TraceLink-Graphen, (c) Zykluserkennung im Trace-Graphen. Alle drei Methoden MÜSSEN über einen REST-Endpunkt und ein MCP-Tool aufrufbar sein.
+
+**Implementation State:** Not Implemented
+**Review Findings:** `traceability/models.py` ist ein leerer Stub ohne Read-Modell. Impact-Analyse, Pfadsuche und Zykluserkennung fehlen vollständig.
+**Test Status:** Missing
+**Remarks:** Neu aufgenommen 2026-07-10.
+
+**Domain:** software
+**Priority:** must
+**Acceptance Criteria:**
+- [ ] `TraceabilityReadService.impact(artifact_id, max_depth=5)` gibt alle transitiv betroffenen Artefakte zurück (rekursive CTE, Tiefenlimit konfigurierbar)
+- [ ] `TraceabilityReadService.path(source_id, target_id, direction)` gibt den kürzesten Pfad zwischen zwei Artefakten zurück (`direction` ∈ {forward, backward, both})
+- [ ] `TraceabilityReadService.detect_cycles(workspace_id)` gibt alle zyklischen TraceLink-Ketten zurück; bei einem zyklusfreien Graphen ist das Ergebnis leer
+- [ ] REST-Endpunkt `GET /workspaces/{id}/traceability/impact/{artifact_id}` liefert Impact-Analyse als JSON
+- [ ] MCP-Tool `traceability.impact` und `traceability.path` sind registriert und nutzbar
+- [ ] Alle drei Methoden sind performant bei bis zu 10.000 TraceLinks (p95 < 500 ms)
+
+**Traceability:** REQ-L1-003
+**Rationale:** Ohne Read-Modell und CTE-basierte Graphabfragen ist Impact-Analyse und Zykluserkennung nur durch ineffiziente ORM-Iterationen möglich, die bei realen Trace-Graphen versagen.
+
+---
+
+### REQ-L2-TE-020: ADR ↔ ArchitectureElement TraceLink
+
+Das System MUSS einen TraceLink-Typ zwischen ADR und ArchitectureElement unterstützen (Erweiterung der bestehenden 8 Typen oder neuer Typ); UI-Integration in AdrEditor und ArchitectureEditor; REST und MCP exponiert.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** should
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3b.
+
+**Traceability:** REQ-L1-003
+
 
 ## Master Traceability Matrix
 
@@ -588,4 +625,9 @@ Die TraceabilityEngine MUSS den neuen Link-Typ `allocated-to` (Requirement → A
 | REQ-L2-TE-013 | REQ-L1-003 (primär), REQ-L1-012 (mitwirkend) |
 | REQ-L2-TE-014 | REQ-L1-030 |
 | REQ-L2-TE-015 | REQ-L1-030 |
+| REQ-L2-TE-016 | REQ-L1-043 |
+| REQ-L2-TE-017 | REQ-L1-047 |
+| REQ-L2-TE-018 | REQ-L1-060 |
+| REQ-L2-TE-019 | REQ-L1-003 |
+| REQ-L2-TE-020 | REQ-L1-003 |
 

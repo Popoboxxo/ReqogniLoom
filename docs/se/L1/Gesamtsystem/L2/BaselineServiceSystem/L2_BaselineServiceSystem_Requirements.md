@@ -569,6 +569,29 @@ MUSS Admin-Berechtigung und Captcha-Bestätigung erfordern.
 
 ---
 
+### REQ-L2-BL-012: Baseline Full-State-Snapshot in BaselineDeltaIndexEntry
+
+Der BaselineService MUSS das vollständige Entity-Zustandsbild (alle persistierten Felder) zum Zeitpunkt der Baseline-Erstellung in einem `state`-JSONField innerhalb von `BaselineDeltaIndexEntry` speichern. Das Feld ist nach dem ersten Schreiben unveränderlich (Immutability gemäß IcdVersion-Pattern). Der `VersionReconstructor` nutzt dieses Feld bevorzugt für die Zustandsrekonstruktion; ein History-Lookup ist nur als Fallback erlaubt. Dies überschreibt teilweise REQ-L2-BL-001 (Payload-Verbot in Baseline).
+
+**Implementation State:** Not Implemented
+**Review Findings:** BaselineDeltaIndexEntry speichert derzeit nur die Versionsnummer (int) — vollständige Baseline-Rekonstruktion ist ohne separaten History-Lookup nicht möglich.
+**Test Status:** Missing
+**Remarks:** Neu aufgenommen 2026-07-10.
+
+**Domain:** software
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `BaselineDeltaIndexEntry.state` (JSONField, nullable, default=None) existiert und wird bei der Baseline-Erstellung mit dem vollständigen Entity-Payload befüllt
+- [ ] Das `state`-Feld ist nach dem ersten Schreiben unveränderlich (Django-Signal oder Model-Override verhindert Überschreiben)
+- [ ] `VersionReconstructor.reconstruct(item_id, baseline_id)` liest bevorzugt aus `state`, fällt bei `state=None` auf History-Tabelle zurück
+- [ ] Bestehende Baselines mit `state=None` bleiben gültig (Rückwärtskompatibilität gesichert)
+- [ ] Integrationstest: Baseline erstellen → Entity ändern → Rekonstruktion liefert Zustand zum Baseline-Zeitpunkt ohne History-Query
+
+**Traceability:** REQ-L1-008
+**Rationale:** Ohne vollständigen Entity-Zustand im Snapshot ist Baseline-Rekonstruktion auf die History-Tabelle angewiesen. Bei großen Workspaces erzeugt das inakzeptable Latenz und N+1-Query-Probleme.
+
+---
+
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-BL-010..011 aus REQ-L1-045, REQ-L1-046)*
 
 
@@ -584,11 +607,7 @@ MUSS Admin-Berechtigung und Captcha-Bestätigung erfordern.
 | REQ-L2-BL-006 | REQ-L1-008 |
 | REQ-L2-BL-007 | REQ-L1-008, REQ-L1-025 (mitwirkend) |
 | REQ-L2-BL-008 | REQ-L1-026, REQ-L1-008 (mitwirkend) |
-| REQ-L2-BL-009 | REQ-L1-008, REQ-L1-011 (mitwirkend |
-| REQ-L2-BL-004 | REQ-L1-008, REQ-L1-007 (mitwirkend) |
-| REQ-L2-BL-005 | REQ-L1-008 |
-| REQ-L2-BL-006 | REQ-L1-008 |
-| REQ-L2-BL-007 | REQ-L1-008, REQ-L1-025 (mitwirkend) |
-| REQ-L2-BL-008 | REQ-L1-026, REQ-L1-008 (mitwirkend) |
-| REQ-L2-BL-009 | REQ-L1-008, REQ-L1-011 (mitwirkend |
-
+| REQ-L2-BL-009 | REQ-L1-008, REQ-L1-011 (mitwirkend) |
+| REQ-L2-BL-010 | REQ-L1-045 |
+| REQ-L2-BL-011 | REQ-L1-046 |
+| REQ-L2-BL-012 | REQ-L1-008 |

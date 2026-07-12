@@ -247,6 +247,26 @@ Der LlmAdapter SHALL LLM-Langläufer-Operationen (`decompose_requirement`, `chec
 
 ---
 
+### REQ-L2-LA-009: LlmSettings — Mandanten-konfigurierbarer LLM-Provider
+
+Das System MUSS ein Singleton-Modell `LlmSettings` pro Mandant bereitstellen (Felder: provider, base_url, api_key verschlüsselt/write-only, model als Freitext) mit Fallback auf Umgebungsvariablen; REST-Zugriff nur für Admin-Rolle; api_key niemals in GET-Antworten; Admin-UI im Settings-Bereich.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3c.
+
+---
+
+### REQ-L2-LA-010: PromptTemplate — Admin-editierbare Prompt-Slots
+
+Das System MUSS ein Modell `PromptTemplate` mit den Slots `need_to_sysreq`, `sysreq_to_arch_assign` und `sysreq_decompose_next_level` bereitstellen; jeder Slot hat einen unveränderlichen Default-Prompt (Seed-Migration), kann vom Admin überschrieben und auf Default zurückgesetzt werden; Derivation-Flows (REQ-L2-AI-002) verwenden diese Slots; REST und MCP exponiert; Admin-UI im Settings-Bereich.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3d.
+
 ## Traceability-Matrix: REQ-L2-LA → REQ-L1
 
 | REQ-L2-LA | Primäre REQ-L1 | Mitwirkende REQ-L1 |
@@ -259,6 +279,8 @@ Der LlmAdapter SHALL LLM-Langläufer-Operationen (`decompose_requirement`, `chec
 | REQ-L2-LA-006 | REQ-L1-011 | REQ-L1-013 |
 | REQ-L2-LA-007 | REQ-L1-013 | — |
 | REQ-L2-LA-008 | REQ-L1-013 | REQ-L1-026 |
+| REQ-L2-LA-009 | REQ-L1-013 | — |
+| REQ-L2-LA-010 | REQ-L1-013 | — |
 
 ---
 
@@ -292,4 +314,6 @@ Der LlmAdapter SHALL LLM-Langläufer-Operationen (`decompose_requirement`, `chec
 | REQ-L2-LA-006 | REQ-L1-011, REQ-L1-013 (mitwirkend) |
 | REQ-L2-LA-007 | REQ-L1-013 |
 | REQ-L2-LA-008 | REQ-L1-013 (primär), REQ-L1-026 (mitwirkend) |
+| REQ-L2-LA-009 | REQ-L1-013 |
+| REQ-L2-LA-010 | REQ-L1-013 |
 

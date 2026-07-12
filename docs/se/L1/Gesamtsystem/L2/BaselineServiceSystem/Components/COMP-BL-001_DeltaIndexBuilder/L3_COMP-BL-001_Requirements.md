@@ -15,17 +15,18 @@ Scope-Aufloesung, Item-ID/Version-Ermittlung, Immutability-Enforcement, Naming/M
 
 | REQ-L2 | Anforderungstext (Kurzform) |
 |--------|-----------------------------|
-| REQ-L2-BL-001 | Scope-Aufloesung und Delta-Storage (item_id, version) |
+| REQ-L2-BL-001 | Scope-Aufloesung und Delta-Storage |
 | REQ-L2-BL-004 | Preset Gate — Scope-Verfuegbarkeit pruefen |
 | REQ-L2-BL-005 | Baseline Naming und Metadata-Validierung |
 | REQ-L2-BL-008 | Baseline Creation Performance (bis 10.000 Items in 5s) |
+| REQ-L2-BL-012 | Baseline Delta-Storage Index mit JSON-Snapshots |
 
 ## Interne Schnittstellen
 
 | IF-ID | Richtung | Gegenstelle | Vertrag |
 |-------|----------|-------------|---------|
 | IF-BL-INT-001 | ausgehend | COMP-BL-003 (BaselineStore) | `persist_delta_index(delta_index, metadata) -> baseline_id` |
-| IF-BL-INT-003 | ausgehend | COMP-BL-002 (DiffEngine) | `get_delta_index(baseline_id) -> list[tuple[item_id, version]]` (optional) |
+| IF-BL-INT-003 | ausgehend | COMP-BL-002 (DiffEngine) | `get_delta_index(baseline_id) -> list[tuple[item_id, snapshot]]` |
 
 ## Externe Schnittstellen (Systemgrenze)
 
@@ -46,12 +47,12 @@ Scope-Aufloesung, Item-ID/Version-Ermittlung, Immutability-Enforcement, Naming/M
 **Remarks:** Testabdeckung fehlt.
 
 
-Der DeltaIndexBuilder SHALL fuer jeden eingehenden `build`-Aufruf den angeforderten Scope (`document`, `project`, `global`) auflösen, alle betroffenen Item-IDs mit exakter Versions-Nummer ermitteln (via TraceabilityEngine) und einen Delta-Index als Menge von `(item_id, version)`-Tupeln erstellen. Der vollstaendige Item-Payload (title, description, content) DARF NICHT im Delta-Index enthalten sein.
+Der DeltaIndexBuilder SHALL fuer jeden eingehenden `build`-Aufruf den angeforderten Scope (`document`, `project`, `global`) auflösen, alle betroffenen Item-IDs ermitteln (via TraceabilityEngine) und einen Delta-Index erstellen. Der Delta-Index MUSS für jedes Item einen de-normalisierten JSON-Snapshot enthalten (gemäß REQ-L2-BL-012).
 
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] `build(scope="project", workspace_id=W)` with 10 requirements and 3 arch elements → delta index contains exactly 13 `(item_id, version)` tuples
-- [ ] Delta index entries contain no title/description/content payload fields
+- [ ] `build(scope="project", workspace_id=W)` with 10 requirements and 3 arch elements → delta index contains exactly 13 entries with full JSON snapshots.
+- [ ] Delta index entries contain title, description, content payload fields, and outgoing trace links.
 - [ ] `build(scope="document", artifact_id=A)` with 2 children → index contains A, both children and trace link references
 - [ ] `build(scope="global")` → all items across all workspaces of the tenant included
 
@@ -110,8 +111,18 @@ Der DeltaIndexBuilder SHALL die Delta-Index-Erstellung (Scope-Aufloesung + Tupel
 
 **Priority:** desired
 **Acceptance Criteria:**
-- [ ] Scope resolution + tuple assembly for 10,000 items completes in < 4s (p95)
-- [ ] No full item payload is loaded during index creation (only IDs and versions)
+- [ ] Scope resolution + tuple assembly + JSON snapshot generation for 10,000 items completes in < 4s (p95)
+
+---
+
+### REQ-L3-BL001-005: JSON-Snapshot Erstellung
+
+Der DeltaIndexBuilder MUSS bei der Index-Erstellung den aktuellen Zustand jedes Items inkl. aller Metadaten, Typ-Informationen und ausgehenden TraceLinks serialisieren (JSONField).
+
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] JSON-Snapshot beinhaltet `title`, `description`, `type`, `custom_attributes`.
+- [ ] JSON-Snapshot beinhaltet Array der ausgehenden TraceLinks (`target_id`, `type`).
 
 ---
 

@@ -372,7 +372,7 @@ class CanvasEditor:
     # REQ-L2-DS-006: PNG Export (stub — client-side)
     # ------------------------------------------------------------------
 
-    def export_png(self, stroke_data: dict) -> bytes:
+    def export_png(self, _stroke_data: dict) -> bytes:
         """Stub: PNG export is a client-side operation.
 
         REQ-L2-DS-006: PNG export happens client-side via Canvas.toDataURL().

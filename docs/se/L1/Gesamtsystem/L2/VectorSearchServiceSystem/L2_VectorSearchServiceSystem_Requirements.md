@@ -240,6 +240,31 @@ Hybrid-Suche verbessert die Präzision bei Anfragen mit spezifischen Schlüsselb
 
 *Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-VS-001..003 vollständig ausgearbeitet)*
 
+---
+
+### REQ-L2-VS-004: pgvector-Extension und Embedding-Datenmodell
+
+Das System MUSS die PostgreSQL-Extension `pgvector` aktivieren und ein dediziertes Embedding-Feld auf dem `Requirement`-Modell bereitstellen. Bei Erstellung und Änderung einer Anforderung MUSS automatisch (asynchron via Celery) ein Embedding über den konfigurierten LLM-Adapter generiert und persistiert werden. Ein REST-Endpunkt für Ähnlichkeitssuche MUSS implementiert werden. Die Suche auf dem Mock-Adapter liefert einen definierten Fallback.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine pgvector-Extension, kein Embedding-Feld, keine Ähnlichkeitssuche vorhanden. Nur deutschsprachige Volltextsuche auf Requirements implementiert.
+**Test Status:** Missing
+**Remarks:** Neu aufgenommen 2026-07-10. Konkretisierung der Implementierungsebene für REQ-L2-VS-001 und REQ-L2-VS-002.
+
+**Domain:** software
+**Priority:** could
+**Acceptance Criteria:**
+- [ ] `pgvector`-Extension ist in der Django-Migration aktiviert (`CREATE EXTENSION IF NOT EXISTS vector`)
+- [ ] `Requirement.embedding` (VectorField, dimension=konfigurierbar, nullable) ist im Django-Modell vorhanden
+- [ ] Celery-Task `generate_embedding` wird nach `requirement.created` und `requirement.updated` ausgelöst und speichert das Embedding via LLM-Adapter
+- [ ] Mock-Adapter gibt Null-Vektor der korrekten Dimension zurück (kein Absturz ohne echten LLM)
+- [ ] REST-Endpunkt `POST /workspaces/{id}/requirements/similar` nimmt `requirement_id` oder `query`-Text und gibt Top-N ähnlichste Anforderungen mit Ähnlichkeits-Score zurück
+- [ ] HNSW-Index auf `Requirement.embedding` ist aktiv (Performance: p95 < 200 ms bei 10.000 Anforderungen)
+- [ ] Integrationstest: Anforderung erstellen → Embedding generiert → Ähnlichkeitssuche findet semantisch ähnliche Anforderung
+
+**Traceability:** REQ-L1-038
+**Rationale:** REQ-L2-VS-001 und VS-002 definieren das Systemverhalten; REQ-L2-VS-004 konkretisiert die Datenmodell- und Infrastrukturebene, ohne die höherstufige Spezifikation zu ersetzen.
+
 
 ## Master Traceability Matrix
 
@@ -248,4 +273,5 @@ Hybrid-Suche verbessert die Präzision bei Anfragen mit spezifischen Schlüsselb
 | REQ-L2-VS-001 | REQ-L1-038 |
 | REQ-L2-VS-002 | REQ-L1-038 |
 | REQ-L2-VS-003 | REQ-L1-038 |
+| REQ-L2-VS-004 | REQ-L1-038 |
 

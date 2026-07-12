@@ -110,3 +110,25 @@ Vor jeder Ausführung eines Prompts für AI Decomposition, AI Quality Gate oder 
 **Priority:** desired
 **Abgeleitet von:** REQ-L1-088
 **Übergeordnete REQ-L0:** REQ-L0-056
+
+---
+
+### REQ-L2-AI-007: AI Derivation Service — Draft/Accept-Infrastruktur
+
+Alle KI-gestützten Ableitungsflows MÜSSEN als ApplicationService-Methoden implementiert, über REST und MCP exponiert werden; Ergebnisse sind stets Entwürfe und werden nur nach expliziter User-Bestätigung persistiert — automatische Übernahme ist verboten.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3a — Infrastruktur und Draft/Accept-Pattern.
+
+---
+
+### REQ-L2-AI-008: AI Derivation Flows — Konkrete Ableitungsschritte
+
+Das System MUSS drei nutzerseitig auslösbare KI-Flows bereitstellen: (1) StakeholderNeed → n SystemRequirement-Entwürfe, (2) SystemRequirement → Vorschlag zur ArchitectureElement-Zuordnung, (3) SystemRequirement (mit Architektur) → Dekomposition auf Level n+1, wobei Ergebnisse mehrere ArchitectureElements umspannen können.
+
+**Implementation State:** Not Implemented
+**Domain:** software
+**Priority:** must
+**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3a — spezifische Flow-Implementierungen; setzt REQ-L2-AI-007 voraus.

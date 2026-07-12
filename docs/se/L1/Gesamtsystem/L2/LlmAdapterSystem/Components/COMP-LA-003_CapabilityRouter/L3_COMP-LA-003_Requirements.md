@@ -19,6 +19,8 @@ Zentraler Einstiegspunkt fuer alle LLM-Aufrufe aus dem ApplicationService. Veran
 | REQ-L2-LA-003 | Selektive Capability-Aktivierung |
 | REQ-L2-LA-005 | Provider-Fehlerbehandlung und Timeout |
 | REQ-L2-LA-008 | Asynchrone LLM-Task-Ausführung via Celery |
+| REQ-L2-LA-009 | LlmSettings — Mandanten-konfigurierbarer LLM-Provider |
+| REQ-L2-LA-010 | PromptTemplate — Admin-editierbare Prompt-Slots |
 
 ## Interne Schnittstellen
 
@@ -98,6 +100,17 @@ Der CapabilityRouter SHALL alle Exceptions aus ProviderRegistry und Provider-Auf
 - [ ] HTTP 429 from provider → `{"error": {"code": "LLM_PROVIDER_ERROR", "message": "Rate limit exceeded"}}`
 - [ ] Unexpected exception → `{"error": {"code": "LLM_PROVIDER_ERROR", "message": "<exception text>"}}`
 - [ ] No raw exception propagates beyond the router boundary
+
+---
+
+### REQ-L3-LA003-004: Auflösung von LlmSettings und PromptTemplates
+
+Der CapabilityRouter SHALL vor Aufruf von `get_provider` und der Ausführung der Capability prüfen, ob mandantenspezifische `LlmSettings` und/oder `PromptTemplate`-Einträge existieren. Diese MÜSSEN in den Kontext der Anfrage geladen und an ProviderRegistry (`LlmSettings`) und CapabilityInterface (`PromptTemplate`) übergeben werden.
+
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Bei Ausführung wird das korrekte `PromptTemplate` für die aktuelle Capability (z.B. `sysreq_decompose_next_level`) geladen.
+- [ ] Fehlt ein mandantenspezifisches Template, wird das systemweite Default-Template verwendet.
 
 ---
 

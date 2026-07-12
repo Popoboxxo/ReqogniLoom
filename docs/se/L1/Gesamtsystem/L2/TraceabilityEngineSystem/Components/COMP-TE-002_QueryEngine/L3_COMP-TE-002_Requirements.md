@@ -19,6 +19,7 @@ Upstream/Downstream-Queries (direkte Nachbarn), transitive Hüllenberechnung (Im
 | REQ-L2-TE-005 | Transitive Hüllen-Query — Impact-Analyse (alle Ebenen, ≤ 200ms p95) |
 | REQ-L2-TE-008 | Trace-Graph-Sammlung für Baseline-Snapshot (≤ 500ms) |
 | REQ-L2-TE-012 | TraceLink-Query-Performance-SLA (GIST/GIN-Indizes) |
+| REQ-L2-TE-019 | TraceLink Read-Model und Recursive CTE |
 
 ## Interne Schnittstellen
 

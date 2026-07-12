@@ -115,6 +115,11 @@ flowchart TD
 | REQ-L2-DS-005 | COMP-DS-005 |
 | REQ-L2-DS-006 | COMP-DS-006 |
 | REQ-L2-DS-007 | COMP-DS-007 |
+| REQ-L2-DS-008 | COMP-DS-006 |
+| REQ-L2-DS-009 | COMP-DS-006 |
+| REQ-L2-DS-010 | COMP-DS-006 |
+| REQ-L2-DS-011 | COMP-DS-006 |
+| REQ-L2-DS-012 | COMP-DS-006 |
 
 ---
 
@@ -171,7 +176,7 @@ flowchart TD
 |--------|-----------|
 | Alle IF-L1-032..036 eingebunden | vollständig |
 | Alle IF-L1-058..061 eingebunden | vollständig |
-| Alle REQ-L2-DS-001..007 zugewiesen | vollständig |
+| Alle REQ-L2-DS-001..012 zugewiesen | vollständig |
 | Azyklischer Dependency-Graph | nachgewiesen |
 
 ---

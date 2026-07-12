@@ -1084,6 +1084,31 @@ Der ApplicationService MUSS CRUD-Operationen für KI-Prompts auf Workspace-Ebene
 **Review Findings:** Neu.
 **Test Status:** Missing
 
+---
+
+### REQ-L2-AS-039: Dynamische Custom-Attribute (JSONB) pro Artefakttyp
+
+Das System MUSS nutzerdefinierte Zusatzfelder (Custom Attributes) pro Artefakttyp unterstützen. Das `Artifact`-Modell erhält dafür ein `custom_fields`-JSONField (nullable, default=`{}`). Ein GIN-Index auf diesem Feld gewährleistet Abfrageperformance. Die Werte werden serverseitig per JSON-Schema-Validierung gegen ein typspezifisches Schema geprüft. DRF-Serializer exponieren das Feld in der API. Das Frontend stellt einen generischen Custom-Attribute-Editor bereit.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Kein Mechanismus für nutzerdefinierte Felder pro Artefakttyp vorhanden. `AttributeVisibilityConfig` kontrolliert nur die Sichtbarkeit fixer Felder.
+**Test Status:** Missing
+**Remarks:** Neu aufgenommen 2026-07-10. Umbenannt von REQ-L2-AS-037 wg. ID-Konflikt.
+
+**Domain:** software
+**Priority:** should
+**Acceptance Criteria:**
+- [ ] `Artifact.custom_fields` (JSONField, nullable, default=`{}`) ist im Django-Modell vorhanden und per Migration erstellt
+- [ ] PostgreSQL-GIN-Index auf `Artifact.custom_fields` ist aktiv
+- [ ] Schreiben in `custom_fields` wird gegen ein artefakttypspezifisches JSON-Schema validiert; ungültige Werte werden mit HTTP 400 abgelehnt
+- [ ] DRF-Serializer für alle Artefakttypen exponieren `custom_fields` als les- und schreibbares Feld
+- [ ] Frontend: Generische Custom-Attribute-Editor-Komponente rendert Felder aus `custom_fields` dynamisch (Typ: string, number, boolean, date)
+- [ ] `custom_fields` ist in Baseline-Snapshots enthalten (REQ-L2-BL-012)
+- [ ] Integrationstest: Custom Attribute anlegen → per API abfragen → im Baseline-Snapshot vorhanden
+
+**Traceability:** REQ-L1-001
+**Rationale:** Ohne nutzerdefinierte Felder müssen projektspezifische Metadaten in Freitextfeldern oder externen Systemen abgelegt werden — das verhindert maschinenlesbare Auswertung und Traceability.
+
 
 ## Master Traceability Matrix
 
@@ -1121,4 +1146,10 @@ Der ApplicationService MUSS CRUD-Operationen für KI-Prompts auf Workspace-Ebene
 | REQ-L2-AS-030 | REQ-L1-035, REQ-L1-012 (mitwirkend) |
 | REQ-L2-AS-031 | REQ-L1-036, REQ-L1-011 (mitwirkend) |
 | REQ-L2-AS-032 | REQ-L1-040, REQ-L1-011 (mitwirkend) |
-
+| REQ-L2-AS-033 | REQ-L1-057 |
+| REQ-L2-AS-034 | REQ-L1-059 |
+| REQ-L2-AS-035 | REQ-L1-061 |
+| REQ-L2-AS-036 | REQ-L1-062 |
+| REQ-L2-AS-037 | REQ-L1-086 |
+| REQ-L2-AS-038 | REQ-L1-088 |
+| REQ-L2-AS-039 | REQ-L1-001 |

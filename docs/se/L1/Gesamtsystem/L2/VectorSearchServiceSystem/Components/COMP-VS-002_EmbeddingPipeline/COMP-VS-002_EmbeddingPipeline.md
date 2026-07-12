@@ -1,6 +1,6 @@
 ---
 component_id: COMP-VS-002
-parent_requirement: REQ-L2-VS-002
+parent_requirement: REQ-L2-VS-002, REQ-L2-VS-004
 parent_system: VectorSearchServiceSystem
 designation: component
 status: draft

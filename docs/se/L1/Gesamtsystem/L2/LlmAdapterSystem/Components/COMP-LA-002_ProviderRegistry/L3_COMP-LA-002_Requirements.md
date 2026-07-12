@@ -18,6 +18,7 @@ Sammlung der austauschbaren Provider-Implementierungen; Provider-Auswahl und -In
 | REQ-L2-LA-001 | LLM-Capability-Interface mit Provider-Abstraktion |
 | REQ-L2-LA-005 | Provider-Fehlerbehandlung und Timeout |
 | REQ-L2-LA-007 | Azure-OpenAI Provider-Unterstützung |
+| REQ-L2-LA-009 | LlmSettings — Mandanten-konfigurierbarer LLM-Provider |
 
 ## Interne Schnittstellen
 
@@ -95,6 +96,17 @@ Die ProviderRegistry SHALL einen Registrierungsmechanismus bereitstellen, der da
 - [ ] A new provider class can be registered by adding it to the registry without editing router code
 - [ ] Registered provider is discoverable via `get_provider()` when `LLM_PROVIDER` matches
 - [ ] Unit test for a stub provider passes without modifying existing provider files
+
+---
+
+### REQ-L3-LA002-004: Mandanten-konfigurierbarer LLM-Provider (LlmSettings)
+
+Die ProviderRegistry SHALL Provider-Instanzen basierend auf mandantenspezifischen `LlmSettings` instanziieren, sofern diese konfiguriert sind. Die Umgebungsvariable `LLM_PROVIDER` dient nur noch als Fallback. Bei Instanziierung MÜSSEN `base_url` und der (verschlüsselte) `api_key` aus den `LlmSettings` an den Provider übergeben werden.
+
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `get_provider` bevorzugt `LlmSettings` des aktuellen Tenants vor Umgebungsvariablen.
+- [ ] API-Key und Base-URL aus `LlmSettings` werden korrekt an die Provider-Instanz weitergereicht.
 
 ---
 

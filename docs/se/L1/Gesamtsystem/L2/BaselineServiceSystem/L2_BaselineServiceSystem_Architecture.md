@@ -35,10 +35,10 @@ Erstellung unveraenderlicher, benannter Baselines auf drei Scopes (document, pro
 
 | Komp-ID | Name | Verantwortlichkeit | Domain |
 |---------|------|--------------------|--------|
-| COMP-BL-001 | DeltaIndexBuilder | Scope-Aufloesung, Item-ID/Version- sowie ICD-Version-Ermittlung, Immutability-Enforcement, Naming/Metadata-Validierung; persistiert ausschliesslich Identifikatoren (`item_id`, `icd_id`) und `version`-Tupel ohne Payload | software |
+| COMP-BL-001 | DeltaIndexBuilder | Scope-Aufloesung, Item-ID/Version- sowie ICD-Version-Ermittlung, Immutability-Enforcement, Naming/Metadata-Validierung; persistiert zusaetzlich den vollstaendigen Entity-Zustand im `state`-JSONField (REQ-L2-BL-012) in der BaselineDeltaIndex-Tabelle. | software |
 | COMP-BL-002 | DiffEngine | Vergleich zweier Baselines desselben Scopes (added/removed/changed mit Versions-Delta) auf Basis von Item/ICD-Versions-Paaren, Scope-Kompatibilitaetspruefung | software |
 | COMP-BL-003 | BaselineStore | Baseline-Persistenz (INSERT/SELECT), Retrieval und Listing der Delta-Index-Tabelle (fuer Items und ICDs), Tenant-Isolation, atomare Transaktionen | software |
-| COMP-BL-004 | VersionReconstructor | Laedt fuer ein Item/ICD den historischen Payload aus AuditLog / VersionHistory-Tabelle; implementiert `get_entity_at_baseline(baseline_id, entity_id) -> Payload` | software |
+| COMP-BL-004 | VersionReconstructor | Laedt fuer ein Item/ICD den historischen Payload; greift bevorzugt auf das `state`-Feld im BaselineDeltaIndexEntry zurueck und nutzt AuditLog / VersionHistory nur als Fallback; implementiert `get_entity_at_baseline(baseline_id, entity_id) -> Payload` | software |
 
 ### Interne Schnittstellen
 
@@ -102,12 +102,11 @@ flowchart TD
 *Rationale:* Scope-Aufloesung (rekursive CTEs), Diff-Berechnung, Persistenz (ORM/Constraints) und Payload-Rekonstruktion (AuditLog-Zugriff) sind orthogonal genug, um separate Module zu rechtfertigen. Ermoeglicht unabhaengige Testisolation und zukuenftige Optimierungen je Belang.
 *Verworfene Alternative:* Monolithischer BaselineService — abgelehnt wegen SRP-Verletzung und schlechter Testisolation.
 
-**ADR-BL-02 — Delta-Storage statt JSON-Snapshot**
-*Entscheidung:* Baseline speichert ausschliesslich Identifikatoren und Versionen (z. B. `(entity_id, version, type)`) in einer schlanken Delta-Index-Tabelle. Der vollstaendige Payload (title, description, content) von Items oder ICDs wird nicht persistiert. Zur Rekonstruktion eines historischen Zustands verwendet COMP-BL-004 (VersionReconstructor) das AuditLog bzw. die Versions-Tabellen.
-*Rationale:* Ein vollstaendiger JSON-Payload-Snapshot pro Baseline erzeugt bei 10.000 Entitaeten massives DB-Wachstum und ein OOM-Risiko. Delta-Storage reduziert den Speicherbedarf auf wenige Bytes pro Eintrag. Die Payload-Rekonstruktion aus der ohnehin vorhandenen Versionshistorie ist deterministisch und guenstig.
+**ADR-BL-02 — State-Snapshot im Delta-Index (Revoked Delta-Storage Only)**
+*Entscheidung:* Baseline speichert Identifikatoren und Versionen, aber neu (gemäß REQ-L2-BL-012) auch den vollständigen Payload-Zustand zum Zeitpunkt der Baseline in einem `state`-JSONField am `BaselineDeltaIndexEntry`. Der Zugriff durch COMP-BL-004 (VersionReconstructor) erfolgt primär auf dieses Feld, ein Lookup im AuditLog ist nur noch der Fallback.
+*Rationale:* Ein rein referenzieller Delta-Index ohne Snapshot-Payload zwang den Reconstructor zu teuren History-Lookups, was bei großen Workspaces inakzeptable Latenz und N+1-Query-Probleme verursachte. Der Speicher-Overhead eines JSON-Snapshots wird zugunsten der Lesegeschwindigkeit und Unabhängigkeit von lückenloser Historie in Kauf genommen.
 *Verworfene Alternativen:*
-- JSON-Snapshot (vollstaendiger Payload in Baseline-Zeile) — abgelehnt wegen Speicher-Overhead und OOM-Risiko bei grossen Projekten.
-- Event-Sourcing (Baseline als Marker auf AuditLog-Zeitstrahl) — als Alternativmodell erwaehnt; nicht gewaehlt, da Delta-Storage mit expliziten `(item_id, version)`-Eintraegen einfacher nachvollziehbar und unabhaengig von einer lueckenlosen AuditLog-Kette ist.
+- Reines Delta-Storage (nur IDs) — urspruenglich gewählt, aber verworfen wegen massiver Latenz-Probleme bei der Payload-Rekonstruktion.
 
 **ADR-BL-03 — VersionReconstructor als eigenstaendige Komponente**
 *Entscheidung:* Die Rekonstruktion historischer Item-Payloads wird in COMP-BL-004 (VersionReconstructor) isoliert; sie wird nicht in DeltaIndexBuilder oder BaselineStore eingebettet.

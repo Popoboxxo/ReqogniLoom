@@ -22,6 +22,7 @@ TraceLink-CRUD, Link-Typ-Validierung, Zyklenprüfung via Tarjan-Algorithmus für
 | REQ-L2-TE-010 | TraceLink-Audit-Metadaten |
 | REQ-L2-TE-011 | Tenant-Isolation für alle TraceLink-Operationen |
 | REQ-L2-TE-012 | TraceLink-Query-Performance-SLA (mitwirkend) |
+| REQ-L2-TE-020 | ADR ↔ ArchitectureElement TraceLink |
 
 ## Interne Schnittstellen
 
@@ -51,7 +52,7 @@ TraceLink-CRUD, Link-Typ-Validierung, Zyklenprüfung via Tarjan-Algorithmus für
 **Remarks:** Sollte implementiert werden.
 
 
-Der TraceLinkManager SHALL TraceLinks für die 6 Link-Typen (`parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`) erstellen, lesen, aktualisieren und löschen. Vor der Persistenz SHALL der Link-Typ gegen die zulässige Menge validiert werden. Alle Operationen SHALL ausschließlich TraceLinks des aktiven Tenants betreffen; Cross-Tenant-Zugriffe SHALL abgewiesen werden.
+Der TraceLinkManager SHALL TraceLinks für alle registrierten Link-Typen (`parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`, `documents`, `adr-architecture`) erstellen, lesen, aktualisieren und löschen. Vor der Persistenz SHALL der Link-Typ gegen die zulässige Menge validiert werden. Alle Operationen SHALL ausschließlich TraceLinks des aktiven Tenants betreffen; Cross-Tenant-Zugriffe SHALL abgewiesen werden.
 
 **Priority:** mandatory
 
@@ -74,7 +75,7 @@ Der TraceLinkManager SHALL TraceLinks für die 6 Link-Typen (`parent-child`, `de
 **Remarks:** Sollte implementiert werden.
 
 
-Der TraceLinkManager SHALL vor der Persistenz jedes einzelnen TraceLinks eine transitive Zyklenprüfung über alle 6 Link-Typen durchführen. Wird ein Zyklus erkannt, SHALL die Operation abgebrochen werden, bevor der Link in die Datenbank geschrieben wird.
+Der TraceLinkManager SHALL vor der Persistenz jedes einzelnen TraceLinks eine transitive Zyklenprüfung über alle transitiven Link-Typen durchführen. Wird ein Zyklus erkannt, SHALL die Operation abgebrochen werden, bevor der Link in die Datenbank geschrieben wird.
 
 **Priority:** mandatory
 
@@ -95,7 +96,7 @@ Der TraceLinkManager SHALL vor der Persistenz jedes einzelnen TraceLinks eine tr
 **Remarks:** Sollte implementiert werden.
 
 
-Der TraceLinkManager SHALL Batch-Erstellung und Batch-Löschung von TraceLinks in einer einzigen atomaren Datenbanktransaktion ausführen. Am Ende der Transaktion SHALL ein Tarjan-Algorithmus (O(V+E)) den vollständigen Link-Graphen auf Zyklen über alle 6 Link-Typen prüfen. Bei erkanntem Zyklus oder Teilfehler SHALL die gesamte Transaktion zurückgesetzt werden; der Fehlerbericht SHALL den vollständigen Zyklus-Pfad enthalten.
+Der TraceLinkManager SHALL Batch-Erstellung und Batch-Löschung von TraceLinks in einer einzigen atomaren Datenbanktransaktion ausführen. Am Ende der Transaktion SHALL ein Tarjan-Algorithmus (O(V+E)) den vollständigen Link-Graphen auf Zyklen über alle transitiven Link-Typen prüfen. Bei erkanntem Zyklus oder Teilfehler SHALL die gesamte Transaktion zurückgesetzt werden; der Fehlerbericht SHALL den vollständigen Zyklus-Pfad enthalten.
 
 **Priority:** mandatory
 

@@ -205,6 +205,43 @@ describe("CanvasEditor — shape tools (REQ-L2-CV-001)", () => {
     expect(rects[0].height).toBe(30);
     expect(rects[0].selectable).toBe(true);
   });
+
+  it("adds a fabric.Ellipse when the ellipse tool is active and mouse events fire", async () => {
+    const fabric = await import("fabric");
+    render(<CanvasEditor diagramId="d1" />);
+    const canvas = await latestCanvas();
+
+    fireEvent.click(screen.getByTestId("canvas-tool-ellipse"));
+
+    canvas._pointer = { x: 20, y: 20 };
+    canvas.trigger("mouse:down", { e: {} });
+    canvas._pointer = { x: 80, y: 60 };
+    canvas.trigger("mouse:move", { e: {} });
+    canvas.trigger("mouse:up", { e: {} });
+
+    const ellipses = canvas.getObjects().filter((o) => o instanceof fabric.Ellipse);
+    expect(ellipses).toHaveLength(1);
+    expect(ellipses[0].rx).toBe(30); // (80 - 20) / 2
+    expect(ellipses[0].ry).toBe(20); // (60 - 20) / 2
+    expect(ellipses[0].selectable).toBe(true);
+  });
+
+  it("adds a fabric.Textbox when the text tool is active and mouse down fires", async () => {
+    const fabric = await import("fabric");
+    render(<CanvasEditor diagramId="d1" />);
+    const canvas = await latestCanvas();
+
+    fireEvent.click(screen.getByTestId("canvas-tool-text"));
+
+    canvas._pointer = { x: 100, y: 100 };
+    canvas.trigger("mouse:down", { e: {} });
+
+    const textboxes = canvas.getObjects().filter((o) => o instanceof fabric.Textbox);
+    expect(textboxes).toHaveLength(1);
+    expect(textboxes[0].left).toBe(100);
+    expect(textboxes[0].top).toBe(100);
+    expect(textboxes[0].editable).toBe(true);
+  });
 });
 
 describe("CanvasEditor — connector follow (REQ-L2-CV-004)", () => {
