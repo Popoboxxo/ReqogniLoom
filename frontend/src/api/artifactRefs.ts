@@ -4,8 +4,9 @@
  * leaf_id: COMP-RF-003 (RequirementEditors), COMP-RF-004 (ArchitectureEditors)
  * req_id:  REQ-L2-RF-006 (Traceability-Anzeige), REQ-L1-003 (Traceability-Engine)
  *
- * TraceLinks connect Requirement, ArchitectureElement and TestCase artifacts
- * (the three Artifact-backed entity types — see backend/persistence/models.py).
+ * TraceLinks connect Requirement, ArchitectureElement, TestCase and ADR
+ * artifacts (the Artifact-backed entity types — see backend persistence and
+ * application models; ADR backing added in REQ-L2-TE-020).
  * Resolves a linked artifact's display title and route generically instead of
  * assuming every trace target is a Requirement.
  */
@@ -14,6 +15,7 @@ import { artifactsApi } from "./artifacts";
 import { requirementsApi } from "./requirements";
 import { architectureApi } from "./architecture";
 import { testcasesApi } from "./testcases";
+import { adrsApi } from "./adrs";
 import type { UUID } from "../types";
 
 export interface ArtifactRef {
@@ -25,6 +27,7 @@ const ROUTE_BASE_BY_TYPE: Record<string, string> = {
   Requirement: "/requirements",
   ArchitectureElement: "/architecture",
   TestCase: "/testcases",
+  Adr: "/adrs",
 };
 
 function fallbackRef(id: UUID): ArtifactRef {
@@ -50,6 +53,10 @@ export async function resolveArtifactRef(id: UUID): Promise<ArtifactRef> {
       case "TestCase": {
         const tc = await testcasesApi.get(id);
         return { title: tc.title || "(untitled)", route: `${routeBase}/${id}` };
+      }
+      case "Adr": {
+        const adr = await adrsApi.get(id);
+        return { title: adr.title || "(untitled)", route: `${routeBase}/${id}` };
       }
       default:
         return fallbackRef(id);

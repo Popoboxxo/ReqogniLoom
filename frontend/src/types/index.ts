@@ -214,7 +214,8 @@ export type LinkType =
   | "traces"
   | "copy-of"
   | "allocated-to"
-  | "uses-term";
+  | "uses-term"
+  | "decides";
 
 export interface TraceLink {
   id: UUID;

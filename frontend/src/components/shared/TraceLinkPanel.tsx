@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { TraceLink, LinkType, UUID, Requirement, ArchitectureElement, TestCase } from "../../types";
+import { TraceLink, LinkType, UUID, Requirement, ArchitectureElement, TestCase, Adr } from "../../types";
 import { tracelinksApi } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
 import { testcasesApi } from "../../api/testcases";
+import { adrsApi } from "../../api/adrs";
 import { resolveArtifactRef, type ArtifactRef } from "../../api/artifactRefs";
 import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
 
@@ -57,6 +58,7 @@ export function TraceLinkPanel({
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [architectureElements, setArchitectureElements] = useState<ArchitectureElement[]>([]);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [adrs, setAdrs] = useState<Adr[]>([]);
   const [refsById, setRefsById] = useState<Record<UUID, ArtifactRef>>({});
 
   const loadLinks = async () => {
@@ -92,14 +94,16 @@ export function TraceLinkPanel({
 
   const loadOptions = async () => {
     try {
-      const [reqs, archs, tcs] = await Promise.all([
+      const [reqs, archs, tcs, adrList] = await Promise.all([
         requirementsApi.listAll(workspaceId).catch(() => []),
         architectureApi.listAll(workspaceId).catch(() => []),
         testcasesApi.list(workspaceId).then(r => r.results).catch(() => []),
+        adrsApi.list(workspaceId).then(r => r.results).catch(() => []),
       ]);
       setRequirements(reqs);
       setArchitectureElements(archs);
       setTestCases(tcs);
+      setAdrs(adrList);
     } catch (err) {
       console.error("Failed to load target options", err);
     }
@@ -222,6 +226,7 @@ export function TraceLinkPanel({
   const otherRequirements = requirements.filter((r) => r.id !== artifactId);
   const otherArchitectureElements = architectureElements.filter((a) => a.id !== artifactId);
   const otherTestCases = testCases.filter((t) => t.id !== artifactId);
+  const otherAdrs = adrs.filter((a) => a.id !== artifactId);
 
   return (
     <div
@@ -305,6 +310,15 @@ export function TraceLinkPanel({
                 {otherTestCases.map((tc) => (
                   <option key={tc.id} value={tc.id}>
                     {tc.title || "Untitled"}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {otherAdrs.length > 0 && (
+              <optgroup label={t("traceability.adrsGroup", "ADRs")}>
+                {otherAdrs.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.title || "Untitled"}
                   </option>
                 ))}
               </optgroup>

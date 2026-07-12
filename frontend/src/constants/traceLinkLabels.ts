@@ -6,7 +6,7 @@
  * Single source of truth for human-readable LinkType labels across the
  * traceability UI (TracePanel, TraceabilityView, TraceLinkPanel,
  * ReqTraceLinkPanel). Mirrors backend/traceability/types.py::LinkType
- * (12 values). Keeping the map here avoids each component re-deriving its
+ * (13 values). Keeping the map here avoids each component re-deriving its
  * own label strings and drifting apart.
  */
 
@@ -24,6 +24,7 @@ export const LINK_TYPE_LABELS: Record<string, string> = {
   "copy-of": "Copy Of",
   "allocated-to": "Allocated To",
   "uses-term": "Uses Term",
+  decides: "Decides",
 };
 
 /** Returns the human-readable label for a link type, or the raw value as fallback. */

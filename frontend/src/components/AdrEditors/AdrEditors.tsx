@@ -6,6 +6,7 @@ import { AdrList } from './AdrList';
 import { AdrForm } from './AdrForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
+import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { useAdrData } from './useAdrData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { adrsApi } from '../../api/adrs';
@@ -82,6 +83,9 @@ export default function AdrEditors(): JSX.Element {
         <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
           <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
             <AdrForm adr={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+            {item && activeWorkspace && (
+              <TraceLinkPanel workspaceId={activeWorkspace.id} artifactId={item.id} />
+            )}
           </div>
           {item && (() => {
             const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
