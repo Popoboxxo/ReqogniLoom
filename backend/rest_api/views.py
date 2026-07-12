@@ -1444,6 +1444,20 @@ class TraceLinkViewSet(BaseEntityViewSet):
                         items.append(_neighbor_to_dict(r, artifact_id, direction))
                 except Exception:
                     pass  # no links in this direction — safe to ignore
+
+            # REQ-002: batch-resolve titles for all unique artifact IDs so the
+            # frontend can display human-readable labels without extra requests.
+            all_artifact_ids = {item["source_id"] for item in items} | {
+                item["target_id"] for item in items
+            }
+            titles = _resolve_artifact_titles(list(all_artifact_ids))
+            for item in items:
+                src = titles.get(item["source_id"], {})
+                tgt = titles.get(item["target_id"], {})
+                item["source_title"] = src.get("title", "")
+                item["target_title"] = tgt.get("title", "")
+                item["source_type"] = src.get("artifact_type", "")
+                item["target_type"] = tgt.get("artifact_type", "")
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -1474,7 +1488,12 @@ class TraceLinkViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(TraceLinkSerializer(_tracelink_to_dict(item)).data, status=status.HTTP_201_CREATED)
+        # REQ-002: resolve titles for both endpoints of the created link.
+        titles = _resolve_artifact_titles([item.source_id, item.target_id])
+        return Response(
+            TraceLinkSerializer(_tracelink_to_dict(item, titles=titles)).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         # TraceLinks are immutable (no update semantics in spec)
@@ -2356,16 +2375,93 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
     }
 
 
-def _tracelink_to_dict(tl: Any) -> dict[str, Any]:
-    """Convert TraceLink ORM object to dict."""
-    return {
+def _resolve_artifact_titles(
+    artifact_ids: list[Any],
+) -> "dict[str, dict[str, Any]]":
+    """Batch-resolve artifact IDs to {title, artifact_type} dicts.
+
+    REQ-002: Provides human-readable labels for TraceLink endpoints without N+1
+    queries. Runs at most 6 DB queries regardless of the number of links:
+    one Artifact query for types + one per domain entity table.
+
+    Args:
+        artifact_ids: List of artifact UUIDs (str or UUID).
+
+    Returns:
+        Mapping from artifact_id (str) to {"title": str, "artifact_type": str}.
+    """
+    from persistence.models import (
+        ArchitectureElement,
+        Artifact,
+        Requirement,
+        StakeholderNeed,
+        TestCase,
+    )
+
+    str_ids = [str(aid) for aid in artifact_ids if aid]
+    if not str_ids:
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+
+    # Fetch artifact types first
+    for art in Artifact.objects.filter(id__in=str_ids).values("id", "artifact_type"):
+        result[str(art["id"])] = {
+            "title": "",
+            "artifact_type": art["artifact_type"],
+        }
+
+    # Each domain entity is OneToOne on Artifact — a single artifact_id__in
+    # scan per table enriches all matching entries without N+1 queries.
+    for model in (Requirement, ArchitectureElement, StakeholderNeed, TestCase):
+        for row in model.objects.filter(artifact_id__in=str_ids).values(
+            "artifact_id", "title"
+        ):
+            key = str(row["artifact_id"])
+            if key in result:
+                result[key]["title"] = row["title"] or ""
+
+    # ADR lives in the application layer (not persistence) — import locally to
+    # avoid circular imports (adr_service imports TraceLinkService).
+    try:
+        from application.models import Adr
+
+        for row in Adr.objects.filter(artifact_id__in=str_ids).values(
+            "artifact_id", "title"
+        ):
+            key = str(row["artifact_id"])
+            if key in result:
+                result[key]["title"] = row["title"] or ""
+    except Exception:  # noqa: BLE001 — ADR model absent in some test configs
+        pass
+
+    return result
+
+
+def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = None) -> dict[str, Any]:
+    """Convert TraceLink ORM object to dict.
+
+    REQ-002: When *titles* is provided the dict includes source_title,
+    target_title, source_type, target_type for human-readable display.
+    """
+    source_id = str(tl.source_id)
+    target_id = str(tl.target_id)
+    d: dict[str, Any] = {
         "id": str(tl.id),
-        "source_id": str(tl.source_id),
-        "target_id": str(tl.target_id),
+        "source_id": source_id,
+        "target_id": target_id,
         "link_type": tl.link_type,
         "version": tl.version,
         "created_at": tl.created_at,
     }
+    if titles is not None:
+        src = titles.get(source_id, {})
+        tgt = titles.get(target_id, {})
+        d["source_title"] = src.get("title", "")
+        d["target_title"] = tgt.get("title", "")
+        d["source_type"] = src.get("artifact_type", "")
+        d["target_type"] = tgt.get("artifact_type", "")
+    return d
 
 
 def _neighbor_to_dict(
@@ -2377,6 +2473,9 @@ def _neighbor_to_dict(
     upstream links the queried artifact is the target, for downstream links it
     is the source. A synthetic id is generated from the endpoint pair so the
     frontend can key list items.
+
+    Title fields (source_title, target_title, source_type, target_type) are
+    injected by the caller after batch resolution (REQ-002).
     """
     from datetime import datetime, timezone
 
@@ -2399,6 +2498,11 @@ def _neighbor_to_dict(
         "link_type": neighbor.link_type,
         "version": 1,
         "created_at": datetime.now(timezone.utc),
+        # Title fields start empty; caller fills them in (REQ-002).
+        "source_title": "",
+        "target_title": "",
+        "source_type": "",
+        "target_type": "",
     }
 
 

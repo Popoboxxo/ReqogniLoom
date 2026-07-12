@@ -211,6 +211,49 @@ class TestTraceLinkSerializer:
         assert not ser.is_valid()
         assert "link_type" in ser.errors
 
+    def test_title_fields_present_in_output(self) -> None:
+        """REQ-002: source_title/target_title/source_type/target_type included."""
+        source_id = str(uuid.uuid4())
+        target_id = str(uuid.uuid4())
+        instance = {
+            "id": str(uuid.uuid4()),
+            "source_id": source_id,
+            "target_id": target_id,
+            "link_type": "satisfies",
+            "source_title": "My Requirement",
+            "target_title": "My Architecture Element",
+            "source_type": "Requirement",
+            "target_type": "ArchitectureElement",
+            "version": 1,
+            "created_at": None,
+        }
+        ser = TraceLinkSerializer(instance)
+        data = ser.data
+        assert data["source_title"] == "My Requirement"
+        assert data["target_title"] == "My Architecture Element"
+        assert data["source_type"] == "Requirement"
+        assert data["target_type"] == "ArchitectureElement"
+
+    def test_title_fields_default_to_empty_string(self) -> None:
+        """REQ-002: Title fields default to empty string when not provided."""
+        instance = {
+            "id": str(uuid.uuid4()),
+            "source_id": str(uuid.uuid4()),
+            "target_id": str(uuid.uuid4()),
+            "link_type": "verifies",
+            "version": 1,
+            "created_at": None,
+        }
+        ser = TraceLinkSerializer(instance)
+        data = ser.data
+        # Fields should be present with empty-string defaults (REQ-002)
+        assert "source_title" in data
+        assert "target_title" in data
+        assert "source_type" in data
+        assert "target_type" in data
+        assert data["source_title"] == ""
+        assert data["target_title"] == ""
+
 
 # ---------------------------------------------------------------------------
 # PresetAwareSerializerMixin — field filtering (REQ-L3-RA002-004)

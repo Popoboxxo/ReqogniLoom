@@ -57,6 +57,26 @@ function normalizeLinkType(raw: string): LinkType | null {
   return ALL_LINK_TYPES.includes(normalized) ? normalized : null;
 }
 
+/**
+ * Map a backend artifact_type string (PascalCase) to ArtifactKind.
+ * REQ-002: source_type / target_type are now supplied by the backend.
+ */
+function artifactTypeToKind(rawType: string | undefined): ArtifactKind {
+  switch (rawType) {
+    case "ArchitectureElement":
+      return "architecture";
+    case "TestCase":
+      return "testCase";
+    case "StakeholderNeed":
+      return "stakeholderNeed";
+    case "Adr":
+      return "adr";
+    case "Requirement":
+    default:
+      return "requirement";
+  }
+}
+
 function mapTraceLink(
   link: TraceLink,
   currentArtifactId: string
@@ -69,49 +89,27 @@ function mapTraceLink(
   if (!linkType) return null;
 
   const otherId = isSource ? link.target_id : link.source_id;
-  // The TraceLink wire format does not carry the linked artifact's type or
-  // title, so resolve a short-ID fallback and let getArtifactRoute default
-  // gracefully. Real name resolution requires an API change (see file TODO).
-  const otherKind = resolveLinkedKind(link, isSource);
+
+  // REQ-002: use backend-supplied title and type; fall back to truncated UUID
+  // when the API response pre-dates the REQ-002 changes.
+  const rawTitle = isSource ? link.target_title : link.source_title;
+  const rawType = isSource ? link.target_type : link.source_type;
+  const title =
+    rawTitle && rawTitle.length > 0 ? rawTitle : `${otherId.slice(0, 8)}…`;
+  const otherKind = artifactTypeToKind(rawType);
+
   return {
     id: link.id,
     direction: isSource ? "outbound" : "inbound",
     linkType,
     otherArtifact: {
       id: otherId,
-      title: `${otherId.slice(0, 8)}…`,
+      title,
       kind: otherKind,
       route: getArtifactRoute(otherKind, otherId),
     },
     createdAt: link.created_at,
   };
-}
-
-/**
- * Best-effort artifact kind for a linked endpoint. The TraceLink wire format
- * exposes no per-endpoint type, so fall back to "requirement" until the API
- * surfaces source_type/target_type.
- */
-function resolveLinkedKind(
-  link: TraceLink,
-  _isSource: boolean
-): ArtifactKind {
-  const typed = link as TraceLink & {
-    source_type?: string;
-    target_type?: string;
-  };
-  const rawType = _isSource ? typed.target_type : typed.source_type;
-  switch (rawType) {
-    case "ArchitectureElement":
-      return "architecture";
-    case "TestCase":
-      return "testCase";
-    case "StakeholderNeed":
-      return "stakeholderNeed";
-    case "Requirement":
-    default:
-      return "requirement";
-  }
 }
 
 // ---------------------------------------------------------------------------

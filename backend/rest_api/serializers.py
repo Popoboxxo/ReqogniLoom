@@ -437,15 +437,49 @@ class TestCaseSerializer(
 
 
 class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
-    """Serializer for TraceLink entity (REQ-L2-RA-001).
+    """Serializer for TraceLink entity (REQ-L2-RA-001, REQ-002).
 
     select_related hint: source, target (for N+1 avoidance, REQ-L2-RA-013).
+
+    REQ-002: source_title, target_title, source_type, target_type are included
+    in the response so the frontend can render human-readable labels without
+    extra round-trips. These fields are optional (read-only) and default to
+    empty string / null when the backing entity has no title.
     """
 
     id = serializers.UUIDField(read_only=True)
     source_id = serializers.UUIDField()
     target_id = serializers.UUIDField()
     link_type = serializers.CharField(max_length=64)
+    # REQ-002: human-readable labels for trace endpoints
+    source_title = serializers.CharField(
+        read_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Human-readable title of the source artifact (REQ-002).",
+    )
+    target_title = serializers.CharField(
+        read_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Human-readable title of the target artifact (REQ-002).",
+    )
+    source_type = serializers.CharField(
+        read_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Artifact type of the source (e.g. Requirement, ArchitectureElement).",
+    )
+    target_type = serializers.CharField(
+        read_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Artifact type of the target (e.g. Requirement, ArchitectureElement).",
+    )
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
 

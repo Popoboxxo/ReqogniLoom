@@ -224,6 +224,14 @@ export interface TraceLink {
   link_type: string;
   version: number;
   created_at: ISODateTime;
+  /** REQ-002: human-readable title of the source artifact (optional, may be absent in legacy responses). */
+  source_title?: string;
+  /** REQ-002: human-readable title of the target artifact. */
+  target_title?: string;
+  /** REQ-002: artifact type of the source (e.g. "Requirement", "ArchitectureElement"). */
+  source_type?: string;
+  /** REQ-002: artifact type of the target. */
+  target_type?: string;
 }
 
 // ---------------------------------------------------------------------------

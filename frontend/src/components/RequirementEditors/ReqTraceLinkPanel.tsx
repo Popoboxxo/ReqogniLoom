@@ -474,10 +474,26 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
           style={{ margin: '0', padding: '0' }}
         >
           {links.map((link) => {
-            const targetTitle =
+            // REQ-002: prefer backend-supplied target_title; fall back to local
+            // lookup (loaded requirements/architectureElements/testCases) and
+            // finally to the truncated UUID prefix.
+            const backendTitle =
+              link.target_id === requirementId
+                ? link.source_title
+                : link.target_title;
+            const localTitle =
               requirementsById[link.target_id]?.title ||
               architectureElementsById[link.target_id]?.title ||
-              testCasesById[link.target_id]?.title;
+              testCasesById[link.target_id]?.title ||
+              requirementsById[link.source_id]?.title ||
+              architectureElementsById[link.source_id]?.title ||
+              testCasesById[link.source_id]?.title;
+            const otherId =
+              link.target_id === requirementId ? link.source_id : link.target_id;
+            const displayTitle =
+              (backendTitle && backendTitle.length > 0 ? backendTitle : null) ??
+              localTitle ??
+              otherId.slice(0, 8);
 
             return (
               <li
@@ -506,7 +522,7 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                 >
                   {getLinkTypeLabel(link.link_type)}
                 </span>
-                <span>{targetTitle || link.target_id.slice(0, 8)}</span>
+                <span data-testid="req-tracelink-title">{displayTitle}</span>
                 <button
                   data-testid="req-tracelink-delete-btn"
                   onClick={() => void handleDelete(link.id)}

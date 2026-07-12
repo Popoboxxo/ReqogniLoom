@@ -111,8 +111,9 @@ def _validate_link_types(link_types: Optional[list[str]]) -> Optional[list[str]]
 def _enrich(artifact_ids: list[str], tenant_id: uuid.UUID) -> dict[str, dict]:
     """Batch-fetch artifact_type + title/uid for a set of artifact ids.
 
-    Runs at most five queries total (Artifact + 4 domain tables), independent
-    of the number of nodes — avoids N+1 (REQ-L2-TE-019).
+    Runs at most six queries total (Artifact + 4 persistence domain tables +
+    1 application-layer ADR), independent of the number of nodes — avoids N+1
+    (REQ-L2-TE-019, REQ-002).
     """
     from persistence.models import (
         ArchitectureElement,
@@ -152,6 +153,21 @@ def _enrich(artifact_ids: list[str], tenant_id: uuid.UUID) -> dict[str, dict]:
             if entry is not None:
                 entry["title"] = row["title"] or ""
                 entry["uid"] = row["uid"]
+
+    # REQ-002: ADR lives in the application layer — enrich separately so that
+    # impact-analysis nodes linked to ADRs also receive a human-readable title.
+    try:
+        from application.models import Adr
+
+        for row in Adr.objects.filter(artifact_id__in=artifact_ids).values(
+            "artifact_id", "title"
+        ):
+            key = str(row["artifact_id"])
+            entry = info.get(key)
+            if entry is not None:
+                entry["title"] = row["title"] or ""
+    except Exception:  # noqa: BLE001 — Adr model absent in some test configs
+        pass
 
     return info
 

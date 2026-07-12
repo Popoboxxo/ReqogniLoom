@@ -67,24 +67,52 @@ export function TraceLinkPanel({
       const res = await tracelinksApi.listForArtifact(workspaceId, artifactId);
       setLinks(res.results);
 
-      const linkedIds = new Set<UUID>();
+      // REQ-002: build refsById from backend-supplied titles first. For any
+      // endpoint that still lacks a title (legacy API response), fall back to
+      // resolveArtifactRef (2 extra HTTP calls per artifact). This keeps the
+      // panel functional against older backend versions.
+      const refsFromBackend: Record<UUID, ArtifactRef> = {};
       res.results.forEach((l) => {
-        linkedIds.add(l.source_id);
-        linkedIds.add(l.target_id);
+        if (l.source_title && l.source_title.length > 0) {
+          refsFromBackend[l.source_id] = {
+            title: l.source_title,
+            route: l.source_type
+              ? `/${l.source_type.toLowerCase().replace("architectureelement", "architecture").replace("testcase", "testcases").replace("stakeholderneed", "needs")}/${l.source_id}`
+              : "",
+          };
+        }
+        if (l.target_title && l.target_title.length > 0) {
+          refsFromBackend[l.target_id] = {
+            title: l.target_title,
+            route: l.target_type
+              ? `/${l.target_type.toLowerCase().replace("architectureelement", "architecture").replace("testcase", "testcases").replace("stakeholderneed", "needs")}/${l.target_id}`
+              : "",
+          };
+        }
       });
-      const refEntries = await Promise.all(
-        Array.from(linkedIds).map(
-          async (id) => {
-             try {
-                const ref = await resolveArtifactRef(id);
-                return [id, ref] as const;
-             } catch {
-                return [id, { title: id, route: "" }] as const;
-             }
+
+      // For IDs not resolved via backend titles, fall back to resolveArtifactRef.
+      const unresolvedIds = new Set<UUID>();
+      res.results.forEach((l) => {
+        if (!refsFromBackend[l.source_id]) unresolvedIds.add(l.source_id);
+        if (!refsFromBackend[l.target_id]) unresolvedIds.add(l.target_id);
+      });
+
+      const fallbackEntries = await Promise.all(
+        Array.from(unresolvedIds).map(async (id) => {
+          try {
+            const ref = await resolveArtifactRef(id);
+            return [id, ref] as const;
+          } catch {
+            return [id, { title: id, route: "" }] as const;
           }
-        )
+        })
       );
-      setRefsById(Object.fromEntries(refEntries));
+
+      setRefsById({
+        ...Object.fromEntries(fallbackEntries),
+        ...refsFromBackend, // backend titles take precedence
+      });
     } catch (err) {
       console.error("Failed to load trace links", err);
     } finally {
