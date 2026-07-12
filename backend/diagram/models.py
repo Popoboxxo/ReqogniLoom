@@ -121,6 +121,10 @@ class DiagramVersion(TenantScopedModel):
         choices=PayloadFormat.choices,
     )
     payload = models.TextField()
+    # Optional full canvas JSON (e.g. fabric.js canvas serialization).
+    # Additive companion to `payload` stroke data (REQ-L2-CV-005):
+    # backward-compatible — legacy versions leave this null.
+    canvas_json = models.JSONField(null=True, blank=True, default=None)
 
     class Meta:
         db_table = "diagram_diagramversion"
