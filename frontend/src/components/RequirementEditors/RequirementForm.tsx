@@ -34,6 +34,7 @@ import {
   WORKFLOW_STATES,
 } from '../../types';
 import { requirementsApi } from '../../api/requirements';
+import { extractErrorMessage } from '../../api/client';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { MarkdownPreview } from './MarkdownPreview';
 import { VersionBadge } from '../shared/VersionBadge';
@@ -149,9 +150,9 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
       await requirementsApi.update(requirement.id, updateData);
       onSaved();
     } catch (err: unknown) {
-      const msg =
-        (err as { error?: { message?: string } })?.error?.message ?? String(err);
-      setSaveError(msg);
+      // REQ-009: extract field-level details from the ApiError response so
+      // users see the actual validation message, not just the generic fallback.
+      setSaveError(extractErrorMessage(err));
     } finally {
       setIsSaving(false);
     }

@@ -100,6 +100,7 @@ import { requirementsApi } from "../api/requirements";
 import { tracelinksApi } from "../api/tracelinks";
 import { workspacesApi } from "../api/workspaces";
 import { testcasesApi } from "../api/testcases";
+import { extractErrorMessage } from "../api/client";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
 
@@ -229,5 +230,36 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
 
     // Exactly one Inspector instance — not zero (missing), not two (duplicate).
     expect(screen.getAllByTestId("artifact-inspector")).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // REQ-009 — Validation error messages on save failure
+  // -------------------------------------------------------------------------
+
+  it("shows field-specific error message on save failure instead of generic fallback (REQ-009)", async () => {
+    const fieldError = "Title: This field may not be blank.";
+    // Configure extractErrorMessage mock to return the specific field error.
+    vi.mocked(extractErrorMessage).mockReturnValueOnce(fieldError);
+    vi.mocked(requirementsApi.update).mockRejectedValueOnce({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed.",
+        details: [{ field: "title", errors: ["This field may not be blank."] }],
+      },
+    });
+
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("save-btn")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveTextContent(fieldError);
+    });
   });
 });
