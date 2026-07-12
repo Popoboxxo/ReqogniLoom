@@ -86,7 +86,9 @@ class AdrValidator:
     req_id  : REQ-L1-029
     """
 
-    VALID_STATUSES = frozenset(Adr.Status.values)
+    # REQ-006: "Deleted" is a soft-delete marker set by delete_adr(); users
+    # must not be able to create or manually set status to "Deleted" via the API.
+    VALID_STATUSES = frozenset(s for s in Adr.Status.values if s != Adr.Status.DELETED)
 
     @classmethod
     def validate_create(
@@ -285,10 +287,15 @@ class AdrService(ServiceBase):
 
     @atomic_transaction
     def delete_adr(self, adr_id: UUID, ctx: AuthContext) -> None:
-        """Delete ADR and cascade-delete TraceLinks (REQ-L3-ADR-003, ADR-L3-ADR-03).
+        """Soft-delete ADR by setting status to 'Deleted' (REQ-006).
+
+        Physical deletion is intentionally avoided for end-user operations.
+        The ADR and its backing Artifact remain in the database; TraceLinks
+        are preserved for audit trail purposes. Hard-delete is available only
+        via the Django admin panel.
 
         Args:
-            adr_id: UUID of the ADR to delete.
+            adr_id: UUID of the ADR to soft-delete.
             ctx: Resolved AuthContext.
         """
         self._set_tenant_context(ctx)
@@ -299,27 +306,10 @@ class AdrService(ServiceBase):
             raise NotFoundError(f"ADR {adr_id} not found")
 
         workspace_id = adr.workspace_id
-        # REQ-L2-TE-020: capture the backing Artifact before deleting the ADR.
-        artifact = adr.artifact
 
-        # Cascade TraceLink deletion (IF-AS-INT-002). Resolves adr_id to its
-        # backing artifact_id internally, so it must run before the ADR/Artifact
-        # rows are removed.
-        try:
-            self._trace_link_service.cascade_delete_trace_links(adr_id, ctx)
-        except Exception:
-            logger.debug(
-                "AdrService.delete_adr: cascade TraceLink delete skipped for adr=%s",
-                adr_id,
-            )
-
-        adr.delete()
-
-        # Remove the backing Artifact (no reverse cascade from ADR -> Artifact).
-        # Any remaining Artifact-scoped TraceLinks are cleaned up by the DB-level
-        # CASCADE on pl_tracelink.source/target.
-        if artifact is not None:
-            artifact.delete()
+        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
+        adr.status = Adr.Status.DELETED
+        adr.save(update_fields=["status"])
 
         self._audit(ctx=ctx, operation="delete", entity_type="Adr", entity_id=adr_id)
         self._emit_event(
@@ -347,23 +337,28 @@ class AdrService(ServiceBase):
         return adr
 
     def list_adrs(
-        self, workspace_id: UUID, ctx: AuthContext
+        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
     ) -> List[Adr]:
-        """Return all ADRs in *workspace_id* (tenant-scoped, REQ-L3-ADR-008).
+        """Return ADRs in *workspace_id* (tenant-scoped, REQ-L3-ADR-008).
+
+        REQ-006: Excludes soft-deleted ADRs (status='Deleted') by default.
+        Pass ``include_deleted=True`` for admin/audit access.
 
         Args:
             workspace_id: Target workspace UUID.
             ctx: Resolved AuthContext.
+            include_deleted: If True, include ADRs with status='Deleted'.
 
         Returns:
             List of Adr ORM instances.
         """
         self._set_tenant_context(ctx)
-        return list(
-            Adr.objects.filter(
-                workspace_id=workspace_id, tenant_id=ctx.tenant_id
-            ).order_by("created_at")
+        qs = Adr.objects.filter(
+            workspace_id=workspace_id, tenant_id=ctx.tenant_id
         )
+        if not include_deleted:
+            qs = qs.exclude(status=Adr.Status.DELETED)
+        return list(qs.order_by("created_at"))
 
     def list_adrs_by_status(
         self, workspace_id: UUID, status: str, ctx: AuthContext

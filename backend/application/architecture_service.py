@@ -272,7 +272,12 @@ class ArchitectureService(ServiceBase):
 
     @atomic_transaction
     def delete_architecture_element(self, arch_el_id: UUID, ctx: AuthContext) -> None:
-        """Delete ArchitectureElement + cascade TraceLinks (IF-AS-INT-004)."""
+        """Soft-delete ArchitectureElement by setting lifecycle_status to 'deleted' (REQ-006).
+
+        Physical deletion is intentionally avoided for end-user operations.
+        The element and its TraceLinks remain in the database for audit purposes.
+        Hard-delete is available only via the Django admin panel.
+        """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
@@ -283,14 +288,10 @@ class ArchitectureService(ServiceBase):
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
 
         workspace_id = arch_el.artifact.workspace_id
-        artifact_id = arch_el.artifact_id
 
-        # IF-AS-INT-004
-        self._trace_link_service.cascade_delete_trace_links(
-            UUID(str(artifact_id)), ctx
-        )
-
-        arch_el.delete()
+        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
+        arch_el.lifecycle_status = "deleted"
+        arch_el.save(update_fields=["lifecycle_status"])
 
         self._audit(ctx=ctx, operation="delete", entity_type="ArchitectureElement", entity_id=arch_el_id)
         self._emit_event(
@@ -312,15 +313,20 @@ class ArchitectureService(ServiceBase):
         return arch_el
 
     def list_architecture_elements(
-        self, workspace_id: UUID, ctx: AuthContext
+        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
     ) -> List[ArchitectureElement]:
-        """Return all ArchitectureElements in *workspace_id*."""
+        """Return ArchitectureElements in *workspace_id*.
+
+        REQ-006: Excludes soft-deleted elements (lifecycle_status='deleted') by default.
+        Pass ``include_deleted=True`` for admin/audit access.
+        """
         self._set_tenant_context(ctx)
-        return list(
-            ArchitectureElement.objects.select_related("artifact").filter(
-                artifact__workspace_id=workspace_id
-            )
+        qs = ArchitectureElement.objects.select_related("artifact").filter(
+            artifact__workspace_id=workspace_id
         )
+        if not include_deleted:
+            qs = qs.exclude(lifecycle_status="deleted")
+        return list(qs)
 
 
 __all__ = ["ArchitectureService"]

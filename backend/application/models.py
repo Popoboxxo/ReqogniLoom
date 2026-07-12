@@ -199,6 +199,7 @@ class Adr(models.Model):
         APPROVED = "Approved"
         REJECTED = "Rejected"
         SUPERSEDED = "Superseded"
+        DELETED = "Deleted"  # REQ-006: soft-delete; excluded from normal list views
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # REQ-L2-TE-020: OneToOne backing Artifact so ADRs participate in the

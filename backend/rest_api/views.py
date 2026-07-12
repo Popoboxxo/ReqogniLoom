@@ -1074,7 +1074,11 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
             workspace_id_str = request.query_params.get("workspace_id")
             if not workspace_id_str:
                 return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"), status=status.HTTP_400_BAD_REQUEST)
-            items = self._svc().list_architecture_elements(workspace_id=UUID(workspace_id_str), ctx=ctx)
+            # REQ-006: include_deleted=true exposes soft-deleted elements (admin use)
+            include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
+            items = self._svc().list_architecture_elements(
+                workspace_id=UUID(workspace_id_str), ctx=ctx, include_deleted=include_deleted
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -3001,7 +3005,11 @@ class AdrViewSet(BaseEntityViewSet):
         return AdrService()
 
     def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET /api/v1/adrs/ — list all ADRs in a workspace."""
+        """GET /api/v1/adrs/ — list ADRs in a workspace.
+
+        REQ-006: Excludes soft-deleted ADRs by default.
+        Pass ?include_deleted=true for admin/audit access.
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -3012,7 +3020,9 @@ class AdrViewSet(BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             workspace_id = UUID(workspace_id_str)
-            items = self._svc().list_adrs(workspace_id=workspace_id, ctx=ctx)
+            # REQ-006: include_deleted=true exposes soft-deleted ADRs (admin use)
+            include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
+            items = self._svc().list_adrs(workspace_id=workspace_id, ctx=ctx, include_deleted=include_deleted)
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
@@ -3991,6 +4001,11 @@ class GlossaryTermViewSet(BaseEntityViewSet):
         return GlossaryService()
 
     def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/glossary/ — list GlossaryTerms in a workspace.
+
+        REQ-006: Excludes soft-deleted terms by default.
+        Pass ?include_deleted=true for admin/audit access.
+        """
         ctx = get_auth_context(request)
         lang = detect_lang(request)
         workspace_id_str = request.query_params.get("workspace_id")
@@ -4003,7 +4018,9 @@ class GlossaryTermViewSet(BaseEntityViewSet):
             return Response(build_error_response("VALIDATION_ERROR", lang, message="Invalid workspace_id"), status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            terms = self._svc().list_by_workspace(ctx, workspace_id)
+            # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
+            include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
+            terms = self._svc().list_by_workspace(ctx, workspace_id, include_deleted=include_deleted)
             data = [t.__dict__ for t in terms]
             return self._paginate(request, data)
         except Exception as e:

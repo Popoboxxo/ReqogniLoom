@@ -27,6 +27,7 @@ class GlossaryTermDTO:
     synonyms: list
     abbreviation: str
     version: int
+    lifecycle_status: str = "active"  # REQ-006: soft-delete lifecycle
 
     @classmethod
     def from_orm(cls, term: GlossaryTerm) -> "GlossaryTermDTO":
@@ -38,6 +39,7 @@ class GlossaryTermDTO:
             synonyms=term.synonyms,
             abbreviation=term.abbreviation,
             version=term.version,
+            lifecycle_status=getattr(term, "lifecycle_status", "active"),
         )
 
 
@@ -50,11 +52,20 @@ class GlossaryService(ServiceBase):
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
         return GlossaryTermDTO.from_orm(term)
 
-    def list_by_workspace(self, ctx: AuthContext, workspace_id: UUID) -> List[GlossaryTermDTO]:
-        terms = GlossaryTerm.objects.filter(
+    def list_by_workspace(
+        self, ctx: AuthContext, workspace_id: UUID, include_deleted: bool = False
+    ) -> List[GlossaryTermDTO]:
+        """Return GlossaryTerms for *workspace_id*.
+
+        REQ-006: Excludes soft-deleted terms (lifecycle_status='deleted') by default.
+        Pass ``include_deleted=True`` for admin/audit access.
+        """
+        qs = GlossaryTerm.objects.filter(
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
-        ).order_by("term")
-        return [GlossaryTermDTO.from_orm(t) for t in terms]
+        )
+        if not include_deleted:
+            qs = qs.exclude(lifecycle_status="deleted")
+        return [GlossaryTermDTO.from_orm(t) for t in qs.order_by("term")]
 
     @atomic_transaction
     def create(
@@ -149,7 +160,15 @@ class GlossaryService(ServiceBase):
 
     @atomic_transaction
     def delete(self, ctx: AuthContext, term_id: UUID) -> None:
+        """Soft-delete GlossaryTerm by setting lifecycle_status to 'deleted' (REQ-006).
+
+        Physical deletion is intentionally avoided for end-user operations.
+        The term remains in the database for audit purposes.
+        Hard-delete is available only via the Django admin panel.
+        """
         gt = GlossaryTerm.objects.filter(id=term_id).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
-        gt.delete()
+        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
+        gt.lifecycle_status = "deleted"
+        gt.save(update_fields=["lifecycle_status"])

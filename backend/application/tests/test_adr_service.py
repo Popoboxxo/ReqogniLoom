@@ -85,9 +85,18 @@ class TestAdrValidator:
             )
 
     def test_valid_statuses_all_pass(self):
-        for status in Adr.Status.values:
+        # REQ-006: only workflow statuses are valid for creation; "Deleted" is a
+        # soft-delete marker set exclusively by delete_adr() — not by users.
+        for status in AdrValidator.VALID_STATUSES:
             AdrValidator.validate_create(
                 title="Valid Title", description="ok", status=status
+            )
+
+    def test_deleted_status_not_valid_for_create(self):
+        """REQ-006: 'Deleted' must not be accepted as a creation status."""
+        with pytest.raises(ValidationError, match="invalid"):
+            AdrValidator.validate_create(
+                title="Valid Title", description="ok", status="Deleted"
             )
 
 
@@ -304,12 +313,14 @@ class TestUpdateAdr:
 
 
 class TestDeleteAdr:
-    def test_deletes_and_cascades_tracelinks(self):
-        """delete_adr calls cascade_delete_trace_links and then deletes the ADR."""
-        mock_tls = MagicMock()
-        svc = AdrService(trace_link_service=mock_tls)
+    """REQ-006: delete_adr() must soft-delete (status='Deleted'), not hard-delete."""
+
+    def test_soft_delete_sets_status_to_deleted(self):
+        """delete_adr sets status='Deleted' instead of removing the row (REQ-006)."""
+        svc = AdrService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         existing_adr = _make_adr()
+        existing_adr.save = MagicMock()
 
         with (
             patch("application.adr_service.Adr.objects") as mock_mgr,
@@ -322,8 +333,52 @@ class TestDeleteAdr:
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.delete_adr(adr_id=ADR_ID, ctx=ctx)
 
-        mock_tls.cascade_delete_trace_links.assert_called_once_with(ADR_ID, ctx)
-        existing_adr.delete.assert_called_once()
+        # REQ-006: status set to Deleted, NOT hard-deleted
+        assert existing_adr.status == Adr.Status.DELETED
+        existing_adr.save.assert_called_once_with(update_fields=["status"])
+        # Hard-delete must NOT be called
+        existing_adr.delete.assert_not_called()
+
+    def test_soft_delete_does_not_cascade_tracelinks(self):
+        """delete_adr must NOT cascade-delete TraceLinks on soft-delete (REQ-006)."""
+        mock_tls = MagicMock()
+        svc = AdrService(trace_link_service=mock_tls)
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        existing_adr = _make_adr()
+        existing_adr.save = MagicMock()
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+            patch("application.adr_service.AdrService._audit"),
+            patch("application.adr_service.AdrService._emit_event"),
+            patch("application.adr_service.AdrService._make_event", return_value=MagicMock()),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing_adr
+            svc.delete_adr(adr_id=ADR_ID, ctx=ctx)
+
+        mock_tls.cascade_delete_trace_links.assert_not_called()
+
+    def test_soft_delete_emits_deleted_event(self):
+        """delete_adr still emits ARCHITECTURE_ELEMENT_DELETED event on soft-delete."""
+        svc = AdrService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        existing_adr = _make_adr()
+        existing_adr.save = MagicMock()
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+            patch("application.adr_service.AdrService._audit"),
+            patch("application.adr_service.AdrService._emit_event") as mock_emit,
+            patch("application.adr_service.AdrService._make_event", return_value=MagicMock()),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing_adr
+            svc.delete_adr(adr_id=ADR_ID, ctx=ctx)
+
+        mock_emit.assert_called_once()
 
     def test_not_found_raises(self):
         """delete_adr raises NotFoundError for missing ADR."""
@@ -360,7 +415,7 @@ class TestGetAndListAdrs:
                 svc.get_adr(ADR_ID, ctx)
 
     def test_list_adrs_filters_by_tenant(self):
-        """list_adrs filters by workspace_id AND tenant_id (REQ-L3-ADR-006)."""
+        """list_adrs filters by workspace_id AND tenant_id, excludes deleted (REQ-L3-ADR-006, REQ-006)."""
         svc = AdrService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         adr1 = _make_adr()
@@ -369,14 +424,38 @@ class TestGetAndListAdrs:
             patch("application.adr_service.Adr.objects") as mock_mgr,
             patch("application.adr_service.AdrService._set_tenant_context"),
         ):
-            mock_mgr.filter.return_value.order_by.return_value = [adr1]
+            # Chain: filter() → exclude() → order_by() → list()
+            mock_qs = MagicMock()
+            mock_qs.exclude.return_value = mock_qs
+            mock_qs.order_by.return_value = [adr1]
+            mock_mgr.filter.return_value = mock_qs
             result = svc.list_adrs(WS_ID, ctx)
 
         # Verify tenant filter was applied
         mock_mgr.filter.assert_called_once_with(
             workspace_id=WS_ID, tenant_id=ctx.tenant_id
         )
+        # REQ-006: deleted ADRs must be excluded by default
+        mock_qs.exclude.assert_called_once()
         assert result == [adr1]
+
+    def test_list_adrs_include_deleted(self):
+        """list_adrs with include_deleted=True does not call .exclude() (REQ-006)."""
+        svc = AdrService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+        ):
+            # Chain: filter() → order_by() → list() (no exclude)
+            mock_qs = MagicMock()
+            mock_qs.order_by.return_value = [MagicMock()]
+            mock_mgr.filter.return_value = mock_qs
+            svc.list_adrs(WS_ID, ctx, include_deleted=True)
+
+        # REQ-006: .exclude() must NOT be called when include_deleted=True
+        mock_qs.exclude.assert_not_called()
 
     def test_tenant_isolation_different_tenants(self):
         """Two tenants get separate filter calls (REQ-L3-ADR-006)."""
@@ -388,7 +467,11 @@ class TestGetAndListAdrs:
             patch("application.adr_service.Adr.objects") as mock_mgr,
             patch("application.adr_service.AdrService._set_tenant_context"),
         ):
-            mock_mgr.filter.return_value.order_by.return_value = []
+            # REQ-006: chain is filter() → exclude() → order_by() → list()
+            mock_qs = MagicMock()
+            mock_qs.exclude.return_value = mock_qs
+            mock_qs.order_by.return_value = []
+            mock_mgr.filter.return_value = mock_qs
             svc.list_adrs(WS_ID, ctx_a)
             svc.list_adrs(WS_ID, ctx_b)
 
@@ -542,7 +625,8 @@ class TestAdrArtifactBackingAndTraceLinks:
             str(r.entity_id) == str(adr.artifact_id) for r in from_arch
         )
 
-    def test_delete_adr_removes_backing_artifact(self, te020_ctx, te020_workspace):
+    def test_delete_adr_soft_deletes_and_preserves_artifact(self, te020_ctx, te020_workspace):
+        """REQ-006: delete_adr() soft-deletes (status='Deleted'), preserves ADR + Artifact in DB."""
         from persistence.models import Artifact
 
         svc = AdrService()
@@ -557,5 +641,10 @@ class TestAdrArtifactBackingAndTraceLinks:
 
         svc.delete_adr(adr.id, te020_ctx)
 
-        assert not Adr.objects.filter(id=adr.id).exists()
-        assert not Artifact.objects.filter(id=artifact_id).exists()
+        # REQ-006: ADR row must still exist (soft-delete)
+        adr_in_db = Adr.objects.filter(id=adr.id).first()
+        assert adr_in_db is not None, "ADR must remain in DB after soft-delete"
+        assert adr_in_db.status == Adr.Status.DELETED, "ADR must have status='Deleted'"
+
+        # REQ-006: backing Artifact must also remain in DB
+        assert Artifact.objects.filter(id=artifact_id).exists(), "Artifact must remain in DB after soft-delete"

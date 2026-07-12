@@ -365,7 +365,7 @@ class TestUpdateArchitectureElement:
 
 
 class TestDeleteArchitectureElement:
-    """REQ-L2-AS-004."""
+    """REQ-L2-AS-004, REQ-006: soft-delete replaces hard-delete for end-users."""
 
     def test_delete_not_found_raises(self):
         """NotFoundError when element to delete does not exist."""
@@ -389,11 +389,44 @@ class TestDeleteArchitectureElement:
             with pytest.raises(NotFoundError, match="ArchitectureElement"):
                 svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
 
-    def test_delete_cascades_trace_links(self):
-        """cascade_delete_trace_links called before element.delete()."""
+    def test_soft_delete_sets_lifecycle_status(self):
+        """REQ-006: delete_architecture_element sets lifecycle_status='deleted', does NOT hard-delete."""
         svc = ArchitectureService()
         ctx = _make_ctx()
         mock_el = _make_arch_el()
+        mock_el.save = MagicMock()
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_el)
+                        )
+                    )
+                ),
+            ),
+            patch.object(svc, "_audit"),
+            patch.object(svc, "_emit_event"),
+        ):
+            svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
+
+        # REQ-006: lifecycle_status set to 'deleted', NOT hard-deleted
+        assert mock_el.lifecycle_status == "deleted"
+        mock_el.save.assert_called_once_with(update_fields=["lifecycle_status"])
+        mock_el.delete.assert_not_called()
+
+    def test_soft_delete_does_not_cascade_tracelinks(self):
+        """REQ-006: soft-delete must NOT cascade-delete TraceLinks (preserve audit trail)."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el()
+        mock_el.save = MagicMock()
 
         with (
             patch("application.architecture_service.ServiceBase._set_tenant_context"),
@@ -418,8 +451,7 @@ class TestDeleteArchitectureElement:
         ):
             svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
 
-        mock_cascade.assert_called_once()
-        mock_el.delete.assert_called_once()
+        mock_cascade.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -471,23 +503,48 @@ class TestGetArchitectureElement:
                 svc.get_architecture_element(ARCH_EL_ID, ctx)
 
     def test_list_returns_all_elements(self):
-        """list_architecture_elements returns a list for the workspace."""
+        """list_architecture_elements returns active elements, excludes deleted (REQ-006)."""
         svc = ArchitectureService()
         ctx = _make_ctx()
         mock_elements = [_make_arch_el(), _make_arch_el()]
+
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.exclude.return_value = mock_elements
 
         with (
             patch("application.architecture_service.ServiceBase._set_tenant_context"),
             patch(
                 "application.architecture_service.ArchitectureElement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(return_value=mock_elements)
-                ),
+                return_value=mock_qs,
             ),
         ):
             result = svc.list_architecture_elements(WS_ID, ctx)
 
+        # REQ-006: .exclude(lifecycle_status='deleted') must be called by default
+        mock_qs.exclude.assert_called_once_with(lifecycle_status="deleted")
         assert result == mock_elements
+
+    def test_list_include_deleted_skips_exclude(self):
+        """REQ-006: include_deleted=True disables the deleted exclusion filter."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_elements = [_make_arch_el()]
+
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value = mock_elements
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=mock_qs,
+            ),
+        ):
+            result = svc.list_architecture_elements(WS_ID, ctx, include_deleted=True)
+
+        # .exclude() must NOT be called when include_deleted=True
+        mock_qs.exclude.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

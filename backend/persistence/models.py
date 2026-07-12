@@ -78,6 +78,21 @@ class ElementType(models.TextChoices):
     MODULE = "module", "Module"
 
 
+class LifecycleStatus(models.TextChoices):
+    """Soft-delete lifecycle status for entities that must not be hard-deleted by users.
+
+    REQ-006: Replaces physical deletion for ArchitectureElement and GlossaryTerm.
+    Entities with status 'deleted' are excluded from normal list queries but
+    remain in the database for audit purposes. Hard-delete is available only
+    via the Django admin panel.
+    """
+
+    ACTIVE = "active", "Active"
+    OUTDATED = "outdated", "Outdated"
+    DEPRECATED = "deprecated", "Deprecated"
+    DELETED = "deleted", "Deleted"
+
+
 class RequirementType(models.TextChoices):
     """Requirement type for SE mask standardization (REQ-L3-RF003-005).
 
@@ -636,6 +651,12 @@ class ArchitectureElement(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this element needs review due to upstream changes.",
     )
+    lifecycle_status = models.CharField(
+        max_length=16,
+        choices=LifecycleStatus.choices,
+        default=LifecycleStatus.ACTIVE,
+        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides element from normal views; hard-delete via admin only.",
+    )
 
     class Meta:
         db_table = "pl_architecture_element"
@@ -979,6 +1000,12 @@ class GlossaryTerm(TenantScopedModel):
     synonyms = models.JSONField(default=list, blank=True)
     abbreviation = models.CharField(max_length=64, blank=True)
     version = models.IntegerField(default=1)
+    lifecycle_status = models.CharField(
+        max_length=16,
+        choices=LifecycleStatus.choices,
+        default=LifecycleStatus.ACTIVE,
+        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides term from normal views; hard-delete via admin only.",
+    )
 
     class Meta:
         db_table = "pl_glossary_term"

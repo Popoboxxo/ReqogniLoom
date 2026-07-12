@@ -193,6 +193,8 @@ export interface ArchitectureElement {
   suspect?: boolean;
   change_reason?: string;
   custom_fields?: CustomFields;
+  /** REQ-006: lifecycle status; 'deleted' elements are hidden in normal views */
+  lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -258,7 +260,8 @@ export type AdrStatus =
   | "In Review"
   | "Approved"
   | "Rejected"
-  | "Superseded";
+  | "Superseded"
+  | "Deleted"; // REQ-006: soft-delete marker; set by backend delete endpoint
 
 export interface Adr {
   id: UUID;
@@ -713,6 +716,8 @@ export interface GlossaryTerm {
   synonyms: string[];
   abbreviation?: string;
   is_global?: boolean;
+  /** REQ-006: lifecycle status; 'deleted' terms are hidden in normal views */
+  lifecycle_status?: "active" | "outdated" | "deprecated" | "deleted";
   created_at?: string;
   updated_at?: string;
 }
