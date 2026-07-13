@@ -102,6 +102,23 @@ const TILES: MetricTileSpec[] = [
 const MAX_HISTORY = 30;
 
 // ---------------------------------------------------------------------------
+// Help texts for metrics (Hilfsmodus)
+// ---------------------------------------------------------------------------
+
+const METRIC_HELP: Record<string, string> = {
+  coverage:
+    "Prozentsatz der Anforderungen mit mindestens einer Trace-Verbindung zu Testfällen oder Architektur-Elementen.",
+  volatility:
+    "Durchschnittliche Anzahl von Änderungen pro Anforderung über die Projektlaufzeit. Höhere Werte zeigen unstabile Anforderungen an.",
+  workflowGap:
+    "Anzahl unvollständiger Workflow-Schritte. Zeigt die Lücken zwischen geplanten und abgeschlossenen Aktivitäten.",
+  openRisks:
+    "Gesamtzahl der identifizierten offenen Risiken im Workspace, unabhängig vom Schweregrad.",
+  openRisksCritical:
+    "Anzahl der kritischen Risiken mit höchstem Schweregrad, die sofortige Aufmerksamkeit erfordern.",
+};
+
+// ---------------------------------------------------------------------------
 // Status helpers
 // ---------------------------------------------------------------------------
 
@@ -200,9 +217,11 @@ interface MetricTileProps {
   history: number[];
   computedAt: string | null;
   isStale: boolean;
+  helpMode?: boolean;
+  helpText?: string;
 }
 
-function MetricTile({ spec, history, computedAt, isStale }: MetricTileProps): JSX.Element {
+function MetricTile({ spec, history, computedAt, isStale, helpMode = false, helpText }: MetricTileProps): JSX.Element {
   const { t } = useTranslation();
   const current = history.length > 0 ? history[history.length - 1] : 0;
   const status = classify(spec, current);
@@ -289,6 +308,22 @@ function MetricTile({ spec, history, computedAt, isStale }: MetricTileProps): JS
         )}
       </div>
 
+      {helpMode && helpText && (
+        <p
+          data-testid={`metric-help-${spec.name}`}
+          style={{
+            fontSize: "var(--font-size-xs)",
+            color: "var(--color-text-muted)",
+            marginTop: "var(--space-1)",
+            marginBottom: 0,
+            fontStyle: "italic",
+            lineHeight: 1.4,
+          }}
+        >
+          {helpText}
+        </p>
+      )}
+
       <div
         style={{
           display: "flex",
@@ -338,6 +373,8 @@ export default function MetricsDashboard(): JSX.Element {
   const [history, setHistory] = useState<Record<string, number[]>>({});
   // Last successful fetch timestamp — drives the "isStale" flag after a refresh error.
   const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
+  // Help mode toggle
+  const [helpMode, setHelpMode] = useState<boolean>(false);
 
   const load = useCallback(async (): Promise<void> => {
     if (!activeWorkspace) return;
@@ -452,6 +489,32 @@ export default function MetricsDashboard(): JSX.Element {
 
           <button
             type="button"
+            data-testid="metrics-help-toggle-btn"
+            onClick={() => setHelpMode((h) => !h)}
+            title={helpMode ? "Hide help" : "Show help"}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 28,
+              height: 28,
+              background: helpMode ? "var(--color-primary)" : "transparent",
+              color: helpMode ? "white" : "var(--color-text-muted)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "50%",
+              cursor: "pointer",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              fontFamily: "inherit",
+              padding: 0,
+              transition: "var(--transition-fast, 0.15s ease)",
+            }}
+          >
+            ?
+          </button>
+
+          <button
+            type="button"
             data-testid="metrics-refresh-btn"
             onClick={() => void load()}
             disabled={isLoading}
@@ -539,6 +602,8 @@ export default function MetricsDashboard(): JSX.Element {
               history={history[spec.name] ?? []}
               computedAt={computedAt}
               isStale={isStale}
+              helpMode={helpMode}
+              helpText={METRIC_HELP[spec.name]}
             />
           ))}
         </div>
