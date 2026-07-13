@@ -493,6 +493,94 @@ Die folgenden 7 KRITISCH-Findings wurden als REQ-IDs registriert. Der aktuelle U
 | S-03 | REQ-022 | ✅ Done | `_set_tenant_context` + `_assert_write_permission` am Eingang von `create()` ergänzt. Viewer-Role wird mit `PermissionDeniedError` abgewiesen. Commit `f1c5f7c`. |
 | S-04 | REQ-023 | ✅ Done | `clone_workspace()` baut jetzt eine `old_id → new_instance`-Map und remappt die self-referentielle Parent-FK in zwei Durchläufen (erst ohne Parent anlegen, dann verdrahten). Regressionstest `TestCloneWorkspaceHierarchy` mit 3-Ebenen-Hierarchie (Grandparent→Parent→Child). Commit `2dc82b1`. |
 
+### 8.1 Verifikation HOCH/MITTEL/NIEDRIG/Cross-Cutting (Stand 2026-07-14)
+
+#### HOCH (13 Findings)
+
+| ID | Status | Befund/Begründung |
+|-----|--------|------------------|
+| A-02 | ❌ Offen | `diagram_views.py:88-90` — workspace_id validiert, Queryset filtert nur auf tenant_id |
+| A-03 | ❌ Offen | `icd_views.py:249-264` — DDL `ALTER TABLE ... DISABLE/ENABLE TRIGGER` noch im destroy-Handler |
+| P-03 | ❌ Offen | `tool_registry.py:52-77` `_WRITE_TOOL_PREFIXES` ohne Eintrag für needs/adr/risk/issue/glossary |
+| P-04 | ❌ Offen | `tools/needs.py:54-104` — kein `write_mcp_audit`-Aufruf in create/update |
+| P-05 | ❌ Offen | Schema deklariert "id", Handler ruft `require_uuid(params, "requirement_id")` |
+| P-06 | ❌ Offen | `protocol_handler.py:145` — `{"error_code": str}` statt `{"code": int}` |
+| S-05 | ✅ Done | `propagate_suspect_status()` implementiert BFS mit direction="outgoing" |
+| S-06 | ❌ Offen | `import_service._insert_rows()` erstellt keinen initialen WorkflowState |
+| S-07 | ❌ Offen | `export_service._fetch_entities()` filtert nicht auf lifecycle_status != "deleted" |
+| S-08 | ❌ Offen | `search_service._search_entity_type()` nutzt weiterhin plainto_tsquery |
+| S-09 | ❌ Offen | `preset_policy_service.validate_transition_roles()` L145 nutzt tenant_id statt workspace_id |
+| M-01 | ❌ Offen | DomainEventOutbox/DLQ, WebhookSubscription, MetricCache, WorkspaceThresholdConfig erben weiterhin models.Model statt TenantScopedModel |
+| M-02 | ✅ Done | Migration 0029-0033 vollständig vorhanden |
+
+#### MITTEL (20 Findings)
+
+| ID | Status | Befund/Begründung |
+|-----|--------|------------------|
+| A-04 | ⚠️ Teilweise | QUERYSET_OPTIMIZATIONS existiert, aber kein ViewSet nutzt es in get_queryset() |
+| A-05 | ⚠️ Teilweise | kwargs["workspace_pk"] noch direkt, aber except Exception fängt KeyError als 500 |
+| A-06 | ❌ Offen | results-Action gibt run.results.all() ohne Paginator |
+| A-07 | ❌ Offen | TraceLinkViewSet.retrieve gibt immer 404 (Service-Methode fehlt) |
+| A-08 | ❌ Offen | WorkflowDefinitionViewSet.list/retrieve weiterhin Stub |
+| A-09 | ❌ Offen | AttributeVisibilityConfigViewSet.list ohne _paginate() |
+| P-07 | ⚠️ Teilweise | DB unique=True verhindert Doppel-Create, aber IntegrityError nicht explizit gefangen |
+| P-08 | ❌ Offen | PARSE_ERROR/INVALID_REQUEST liefern weiterhin HTTP 401 statt 400 |
+| P-09 | ❌ Offen | cross_cutting.py:148 limit ohne Upper-Bound-Check |
+| P-10 | ❌ Offen | Kein _TOOL_SCHEMAS für Needs/GenericCrud ToolGroup |
+| S-10 | ❌ Offen | StakeholderNeedService.update()/delete() rufen _set_tenant_context() nicht auf |
+| S-11 | ❌ Offen | AiDerivationService Mock-Fallback ohne logger.warning() |
+| S-12 | ❌ Offen | webhook_dispatcher._dispatch_with_retry() weiterhin synchron (TODO-ASYNC) |
+| S-13 | ❌ Offen | get_allocation_coverage() N+1 in Loop |
+| S-14 | ❌ Offen | _search_entity_type() ohne DB-seitige LIMIT/OFFSET |
+| S-15 | ❌ Offen | PresetPolicyService._cache weiterhin prozess-lokales dict |
+| M-03 | ⚠️ Teilweise | get_with_level() CTE ergänzt, aber get_level() traversiert weiterhin rekursiv |
+| M-04 | ❌ Offen | Migration 0014 entfernte uid-Indizes, weiterhin keine uid-Indizes |
+| M-05 | ❌ Offen | Duale Workflow-Tabellen (persistence.WorkflowDefinition/State vs workflow.WorkflowEngineDefinition/ItemState) koexistieren |
+| M-06 | ❌ Offen | persistence.AuditLogEntry und audit.AuditEntry koexistieren weiterhin |
+
+#### NIEDRIG (24 Findings)
+
+| ID | Status | Befund/Begründung |
+|-----|--------|------------------|
+| A-10 | ❌ Offen | search_fields fehlt in mehreren ViewSets |
+| A-11 | ❌ Offen | Kein @extend_schema an kritischen Endpunkten |
+| A-12 | ❌ Offen | COMMON_ERROR_RESPONSES ungenutzt definiert |
+| A-13 | ❌ Offen | Kein action-level permission_classes |
+| A-14 | ❌ Offen | 403/405-Inkonsistenz bleibt bestehen |
+| A-15 | ❌ Offen | ApiKey Error-Format abweichend vom Standard |
+| A-16 | ❌ Offen | Direktes ORM in ViewSets (statt Service-Layer) |
+| P-11 | ❌ Offen | Kein Thread-Pool-Limit für MCP-Anfragen |
+| P-12 | ❌ Offen | PresetCache in-process (nicht Redis) |
+| P-13 | ❌ Offen | CORS ohne Allowlist konfiguriert |
+| P-14 | ❌ Offen | backup_list nutzt Python-Filter statt DB-Filter |
+| P-15 | ❌ Offen | Kein Rate-Limiting auf MCP-Endpunkten |
+| P-16 | ❌ Offen | SSE ohne Auth-Check beim Connect |
+| S-16 | ❌ Offen | Kein TraceLink-Cascade bei Soft-Delete |
+| S-17 | ❌ Offen | Hard-Delete in artifact_service statt Soft-Delete |
+| S-18 | ❌ Offen | String-Matching für Exception-Typen (fragil) |
+| S-19 | ❌ Offen | get_policy("scope_allowed") liefert None statt Default |
+| S-20 | ❌ Offen | Kein test_dlq_service.py vorhanden |
+| M-07 | ❌ Offen | Fehlende Index-Wartung nach Migrations |
+| M-08 | ⚠️ Teilweise | GlossaryTerm nutzt weiterhin unique_together statt UniqueConstraint |
+| M-09 | ❌ Offen | CSV-Feld statt ArrayField für Optionen |
+| M-10 | ❌ Offen | Fehlende Indizes auf DLQ/TraceLink-Feldern |
+| M-11 | ❌ Offen | Fehlende Indizes auf weiteren Feldern |
+| M-12 | ❌ Offen | Kein __str__ auf GlossaryTermVersion |
+
+#### Cross-Cutting (5 Findings)
+
+| ID | Status | Befund/Begründung |
+|-----|--------|------------------|
+| X-01 | ⚠️ Teilweise | Soft-Delete für Req/ArchElem/Need/Glossary umgesetzt; ArtifactService/RiskService/IssueService/TestService weiterhin hartes .delete() |
+| X-02 | ⚠️ Teilweise | SeMetrics-Cache auf DB umgestellt; PresetPolicyService._cache und se_metrics/cache.py weiterhin in-process |
+| X-03 | ✅ Done | ProviderConfig.timeout=30 mit LLM_TIMEOUT-Env-Override, in allen Provider-Calls angewandt |
+| X-04 | ❌ Offen | Kein Rate-Limiting (keine DRF-Throttle-Klassen, keine Middleware) |
+| X-05 | ⚠️ Teilweise | _assert_write_permission() in den meisten Services; trace_link_service.py hat keinen einzigen Aufruf |
+
+#### Zusammenfassung (62 non-KRITISCH Findings)
+
+**Gesamtzählung:** ✅ Done: 3 | ⚠️ Teilweise: 8 | ❌ Offen: 51
+
 ### Bekanntes Problem: Commit 9e215903
 
 Der aktuelle HEAD (`9e215903`, "Add some critical Fixes es reqs") verstößt gegen die Commit-Konventionen (kein `fix(REQ-xxx):`-Format) und enthält keine der oben aufgelisteten Backend-Fixes. Stattdessen:
