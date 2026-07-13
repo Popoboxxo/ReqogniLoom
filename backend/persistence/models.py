@@ -882,6 +882,7 @@ class TestRun(TenantScopedModel):
             ("passed", "Passed"),
             ("failed", "Failed"),
             ("partial", "Partial"),
+            ("closed", "Closed"),
         ],
         default="in_progress",
     )

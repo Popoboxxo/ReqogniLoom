@@ -230,7 +230,9 @@
     "typeRequirement": "Anforderung",
     "typeArchitecture": "Architektur",
     "typeTestCase": "Testfall",
-    "typeAdr": "ADR"
+    "typeAdr": "ADR",
+    "typeRisk": "Risiko",
+    "typeIssue": "Problem"
   },
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",

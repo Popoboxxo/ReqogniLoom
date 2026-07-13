@@ -533,7 +533,7 @@ export interface TestRun {
   id: UUID;
   workspace_id: UUID;
   name: string;
-  status: "in_progress" | "passed" | "failed" | "partial";
+  status: "in_progress" | "passed" | "failed" | "partial" | "closed";
   ci_job_id: string;
   started_at: ISODateTime | null;
   finished_at: ISODateTime | null;

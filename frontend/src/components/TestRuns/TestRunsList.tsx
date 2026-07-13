@@ -48,25 +48,34 @@ interface TestRunDetailEditorProps {
   testRun: TestRun;
   onClose: () => void;
   onRefresh: () => Promise<void>;
+  onUpdated: (run: TestRun) => void;
 }
 
 function TestRunDetailEditor({
   testRun,
   onClose,
   onRefresh,
+  onUpdated,
 }: TestRunDetailEditorProps): JSX.Element {
   const { t } = useTranslation();
   const [isClosing, setIsClosing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
+  const [closeSuccess, setCloseSuccess] = useState(false);
 
   const handleClose = async (): Promise<void> => {
     setIsClosing(true);
     setCloseError(null);
+    setCloseSuccess(false);
     try {
-      await testRunsApi.close(testRun.id);
+      const closedRun = await testRunsApi.close(testRun.id);
+      // Update the detail panel in place with the closed run's new status
+      // instead of dismissing the panel — the user needs to see that the
+      // action actually took effect (REQ-012).
+      onUpdated(closedRun);
+      setConfirmClose(false);
+      setCloseSuccess(true);
       await onRefresh();
-      onClose();
     } catch (err) {
       console.error("Failed to close test run:", err);
       const msg =
@@ -261,10 +270,26 @@ function TestRunDetailEditor({
         )}
       </div>
 
+      {/* Close success */}
+      {closeSuccess && (
+        <p
+          role="status"
+          data-testid="testrun-close-success"
+          style={{
+            color: "var(--color-text)",
+            fontSize: "var(--font-size-sm)",
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          {t("testRuns.closeSuccess", "Test-Run wurde abgeschlossen.")}
+        </p>
+      )}
+
       {/* Close error */}
       {closeError && (
         <p
           role="alert"
+          data-testid="testrun-close-error"
           style={{
             color: "var(--color-danger)",
             fontSize: "var(--font-size-sm)",
@@ -383,9 +408,13 @@ export function TestRunsList(): JSX.Element {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const loadList = async (): Promise<void> => {
+  // `silent=true` refreshes the list in the background without flipping the
+  // full-page isLoading flag — used after closing a run so the detail panel
+  // (and its success/error feedback) stays mounted instead of being replaced
+  // by the "loading" placeholder mid-interaction (REQ-012).
+  const loadList = async (silent = false): Promise<void> => {
     if (!activeWorkspace) return;
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     setLoadError(null);
     try {
       const resp = await testRunsApi.list(activeWorkspace.id);
@@ -397,7 +426,7 @@ export function TestRunsList(): JSX.Element {
         t("testRuns.loadFailed", "Test-Runs konnten nicht geladen werden.");
       setLoadError(msg);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
@@ -739,7 +768,8 @@ export function TestRunsList(): JSX.Element {
             key={selectedRun.id}
             testRun={selectedRun}
             onClose={() => setSelectedId(null)}
-            onRefresh={loadList}
+            onRefresh={() => loadList(true)}
+            onUpdated={setSelectedRun}
           />
         ) : (
           <p

@@ -230,7 +230,9 @@
     "typeRequirement": "Requirement",
     "typeArchitecture": "Architecture",
     "typeTestCase": "Test Case",
-    "typeAdr": "ADR"
+    "typeAdr": "ADR",
+    "typeRisk": "Risk",
+    "typeIssue": "Issue"
   },
   "baselines": {
     "placeholder": "Baselines — in progress.",
@@ -375,7 +377,15 @@
     "create": "Create Run",
     "closeRun": "Close Test Run",
     "namePlaceholder": "Run name...",
-    "empty": "No test runs yet. Create one to get started."
+    "empty": "No test runs yet. Create one to get started.",
+    "closeConfirm": "Close this test run?",
+    "closeSuccess": "Test run was closed.",
+    "closeFailed": "Test run could not be closed.",
+    "startedAt": "Started",
+    "finishedAt": "Finished",
+    "loadFailed": "Test runs could not be loaded.",
+    "detailLoadFailed": "Test run could not be loaded.",
+    "selectPrompt": "Select a test run to view details"
   },
   "import": {
     "title": "CSV Import",

@@ -149,7 +149,7 @@ class TestRunService(ServiceBase):
             raise NotFoundError(f"TestRun {test_run_id} not found")
 
         # Recalculate aggregate status
-        aggregate_status = self._compute_aggregate_status(test_run)
+        aggregate_status = self._compute_aggregate_status(test_run, is_closing=True)
         test_run.status = aggregate_status
         test_run.finished_at = datetime.now(timezone.utc)
         test_run.save()
@@ -312,18 +312,22 @@ class TestRunService(ServiceBase):
     # ---------- Helpers ----------
 
     @staticmethod
-    def _compute_aggregate_status(test_run: TestRun) -> str:
+    def _compute_aggregate_status(test_run: TestRun, *, is_closing: bool = False) -> str:
         """Compute the aggregate status from individual results.
 
         REQ-L2-AS-030:
           - All passed → 'passed'
           - Any failed → 'failed'
           - Any blocked / not_run → 'partial'
-          - No results → 'in_progress'
+          - No results, still active (queried, not closing) → 'in_progress'
+          - No results, closing (REQ-012) → 'closed' — a run finalized without
+            any recorded results must reach a terminal status, otherwise
+            close_test_run() is a no-op from the user's perspective (status
+            stays 'in_progress' and the "Close Run" action reappears).
         """
         results = list(test_run.results.all())
         if not results:
-            return "in_progress"
+            return "closed" if is_closing else "in_progress"
 
         has_failed = any(r.status == "failed" for r in results)
         has_blocked_or_not_run = any(

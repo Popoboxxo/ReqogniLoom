@@ -477,6 +477,46 @@ class TestCloseTestRun:
 
         assert result.status == "partial"
 
+    def test_no_results_returns_closed(self):
+        """REQ-012: closing a TestRun with zero results reaches a terminal
+        'closed' status instead of staying 'in_progress' (which made the
+        Close action look like a no-op in the UI)."""
+        svc = TestRunService()
+        ctx = _make_ctx()
+
+        mock_tr = _make_test_run(results=[])
+
+        with (
+            patch("application.test_run_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.test_run_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.test_run_service.TestRun.objects.prefetch_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_tr))
+                    )
+                ),
+            ),
+            patch.object(svc, "_audit"),
+        ):
+            result = svc.close_test_run(test_run_id=RUN_ID, ctx=ctx)
+
+        assert result.status == "closed"
+        assert result.finished_at is not None
+
+    def test_compute_aggregate_status_no_results_not_closing_stays_in_progress(self):
+        """Non-closing callers (e.g. status queries) still get 'in_progress'
+        for a TestRun with no results — only close_test_run() finalizes it."""
+        mock_tr = _make_test_run(results=[])
+
+        assert TestRunService._compute_aggregate_status(mock_tr) == "in_progress"
+        assert (
+            TestRunService._compute_aggregate_status(mock_tr, is_closing=True)
+            == "closed"
+        )
+
 
 # ---------------------------------------------------------------------------
 # get_test_run / list_test_runs

@@ -172,4 +172,82 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("workspace not found");
     });
   });
+
+  describe("closing a test run (REQ-012)", () => {
+    const detailRun = {
+      id: "tr-1",
+      workspace_id: "ws-123",
+      name: "Sprint 1 QA Run",
+      status: "in_progress",
+      ci_job_id: "",
+      started_at: null,
+      finished_at: null,
+      result_summary: { total: 0, passed: 0, failed: 0, not_run: 0 },
+      version: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+
+    beforeEach(() => {
+      vi.mocked(testRunsModule.testRunsApi.get).mockResolvedValue(
+        detailRun as any
+      );
+    });
+
+    it("shows a success message and keeps the panel open after closing", async () => {
+      const closedRun = { ...detailRun, status: "closed", finished_at: "2026-01-02T00:00:00Z" };
+      vi.mocked(testRunsModule.testRunsApi.close).mockResolvedValue(
+        closedRun as any
+      );
+      const user = userEvent.setup();
+      render(<TestRunsList />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-item-tr-1"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-close-btn")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-close-btn"));
+      await user.click(screen.getByTestId("testrun-confirm-close-btn"));
+
+      await waitFor(() => {
+        expect(testRunsModule.testRunsApi.close).toHaveBeenCalledWith("tr-1");
+        expect(screen.getByTestId("testrun-close-success")).toBeInTheDocument();
+      });
+      // Panel stays open (no auto-dismiss) — detail heading still visible.
+      expect(screen.getAllByText("Sprint 1 QA Run").length).toBeGreaterThan(0);
+      // Terminal status means the Close Run button no longer offers to reopen.
+      expect(screen.queryByTestId("testrun-close-btn")).not.toBeInTheDocument();
+    });
+
+    it("shows a visible error and keeps in_progress status when close fails", async () => {
+      vi.mocked(testRunsModule.testRunsApi.close).mockRejectedValue({
+        error: { message: "server exploded" },
+      });
+      const user = userEvent.setup();
+      render(<TestRunsList />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-item-tr-1"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-close-btn")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-close-btn"));
+      await user.click(screen.getByTestId("testrun-confirm-close-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-close-error")).toHaveTextContent(
+          "server exploded"
+        );
+      });
+      // Status unchanged → Close Run action is offered again.
+      expect(screen.getByTestId("testrun-close-btn")).toBeInTheDocument();
+    });
+  });
 });
