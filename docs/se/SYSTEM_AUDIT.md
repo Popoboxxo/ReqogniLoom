@@ -488,7 +488,7 @@ Die folgenden 7 KRITISCH-Findings wurden als REQ-IDs registriert. Der aktuelle U
 | P-01 | REQ-017 | ✅ Done | Debug-Log-Zeilen in `backend/mcp_server/views.py::_extract_django_headers` entfernt. Commit `798cabde`. |
 | P-02 | REQ-018 | ❌ Offen | API-Key steht weiterhin in SSE-Endpoint-URL (`views.py:219`). Noch nicht umgesetzt. |
 | A-01 | REQ-019 | ✅ Done | Ownership-Check in `ApiKeyViewSet.destroy` hinzugefügt. Commit `bda8b582`. |
-| S-01 | REQ-020 | ❌ Offen | Atomare Claim-Semantik (`select_for_update(skip_locked)`) fehlt noch. Race-Condition besteht fort. |
+| S-01 | REQ-020 | ✅ Done | Per-Record `select_for_update(skip_locked=True)` + `transaction.atomic()` in `poll_and_dispatch()`. Kein doppelter Dispatch bei konkurrierenden Workern. Commit `5d702ef`. |
 | S-02 | REQ-021 | ✅ Done | DLQ-Move in `backend/application/event_bus.py::poll_and_dispatch()` jetzt in `transaction.atomic()` gekapselt. Commit `fbe8c201`. |
 | S-03 | REQ-022 | ❌ Offen | Permission-Check in `StakeholderNeedService.create()` fehlt noch. Kein Code-Diff gegen main. |
 | S-04 | REQ-023 | ❌ Offen | Clone-Hierarchie-Bug in `WorkspaceService.clone_workspace()` (`arch.id`-Problem) nicht behoben. Noch nicht umgesetzt. |

@@ -242,45 +242,56 @@ POLL_BATCH_SIZE: int = 100
 def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
     """Fetch unpublished events from the outbox and dispatch them.
 
-    SELECT FOR UPDATE prevents concurrent workers from processing the same event
-    (REQ-L3-DEB-003, ADR-L3-DEB-03).
+    Each event is atomically claimed via SELECT FOR UPDATE (skip_locked=True)
+    inside an individual transaction.atomic() block that also covers the status
+    update.  Concurrent Celery workers therefore cannot dispatch the same event
+    twice (REQ-020, S-01, ADR-L3-DEB-03).
 
     Returns:
         Number of events processed in this poll cycle.
     """
-    # DomainEventDLQ and DomainEventOutbox are imported at module level.
     bus = get_event_bus()
     processed = 0
 
-    with transaction.atomic():
-        # SELECT FOR UPDATE skips already-locked rows (SKIP LOCKED)
-        outbox_qs = (
-            DomainEventOutbox.objects.select_for_update(skip_locked=True)
-            .filter(published=False)
-            .order_by("created_at")[:batch_size]
-        )
-        events_to_process = list(outbox_qs)
+    # Fetch candidate PKs without a row-lock; individual workers race to claim below.
+    candidate_pks: List[Any] = list(
+        DomainEventOutbox.objects
+        .filter(published=False)
+        .order_by("created_at")
+        .values_list("pk", flat=True)[:batch_size]
+    )
 
-    for record in events_to_process:
-        domain_event = DomainEvent(
-            event_id=record.event_id,
-            event_type=record.event_type,
-            entity_id=record.entity_id,
-            workspace_id=record.workspace_id,
-            payload=record.payload,
-        )
-        try:
-            bus.dispatch_to_subscribers(domain_event)
-            record.published = True
-            record.published_at = timezone.now()
-            record.save(update_fields=["published", "published_at"])
-            processed += 1
-        except Exception as exc:
-            record.retry_count += 1
-            record.save(update_fields=["retry_count"])
-            if record.retry_count >= MAX_RETRIES:
-                # Move to DLQ atomically (REQ-021)
-                with transaction.atomic():
+    for pk in candidate_pks:
+        with transaction.atomic():
+            # Atomic claim: SELECT FOR UPDATE skips rows locked by peer workers.
+            try:
+                record = (
+                    DomainEventOutbox.objects
+                    .select_for_update(skip_locked=True)
+                    .get(pk=pk, published=False)
+                )
+            except DomainEventOutbox.DoesNotExist:
+                # Already claimed or published by a concurrent worker — skip.
+                continue
+
+            domain_event = DomainEvent(
+                event_id=record.event_id,
+                event_type=record.event_type,
+                entity_id=record.entity_id,
+                workspace_id=record.workspace_id,
+                payload=record.payload,
+            )
+            try:
+                bus.dispatch_to_subscribers(domain_event)
+                record.published = True
+                record.published_at = timezone.now()
+                record.save(update_fields=["published", "published_at"])
+                processed += 1
+            except Exception as exc:
+                record.retry_count += 1
+                record.save(update_fields=["retry_count"])
+                if record.retry_count >= MAX_RETRIES:
+                    # Move to DLQ atomically (REQ-021) — already inside atomic().
                     DomainEventDLQ.objects.create(
                         event_id=record.event_id,
                         event_type=record.event_type,
@@ -291,19 +302,19 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
                         retry_count=record.retry_count,
                     )
                     record.delete()
-                logger.error(
-                    "DomainEventBus: event %s moved to DLQ after %d retries",
-                    record.event_id,
-                    record.retry_count,
-                )
-            else:
-                logger.warning(
-                    "DomainEventBus: event %s retry %d/%d — %s",
-                    record.event_id,
-                    record.retry_count,
-                    MAX_RETRIES,
-                    exc,
-                )
+                    logger.error(
+                        "DomainEventBus: event %s moved to DLQ after %d retries",
+                        record.event_id,
+                        record.retry_count,
+                    )
+                else:
+                    logger.warning(
+                        "DomainEventBus: event %s retry %d/%d — %s",
+                        record.event_id,
+                        record.retry_count,
+                        MAX_RETRIES,
+                        exc,
+                    )
 
     return processed
 
