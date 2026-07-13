@@ -48,6 +48,9 @@ const WorkspaceSettings = lazy(
 const TraceabilityView = lazy(
   () => import("../TraceabilityView/TraceabilityView")
 );
+const ImpactView = lazy(() =>
+  import("../ImpactView/ImpactView").then((m) => ({ default: m.ImpactView }))
+);
 const BaselinesView = lazy(
   () => import("../BaselinesView/BaselinesView")
 );
@@ -108,6 +111,7 @@ function AppShell(): JSX.Element {
               <Route path="/architecture" element={<ArchitectureEditors />} />
               <Route path="/architecture/:id" element={<ArchitectureEditors />} />
               <Route path="/traceability" element={<TraceabilityView />} />
+              <Route path="/impact" element={<ImpactView />} />
               <Route path="/baselines" element={<BaselinesView />} />
               <Route path="/adrs" element={<AdrEditors />} />
               <Route path="/adrs/:id" element={<AdrEditors />} />
