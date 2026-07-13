@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Adr } from '../../types';
 import { adrsApi } from '../../api/adrs';
 import { VersionBadge } from '../shared/VersionBadge';
+import { getStatusBadgeStyle } from '../../utils/statusBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 
 interface AdrFormProps {
@@ -104,7 +105,7 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: '99px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+            <span style={getStatusBadgeStyle(adr.status)}>
               {adr.status}
             </span>
             {adr.version && <VersionBadge version={adr.version} />}

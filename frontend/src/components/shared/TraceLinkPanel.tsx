@@ -126,11 +126,15 @@ export function TraceLinkPanel({
         <span
           style={{
             fontSize: "0.7rem",
-            background: "var(--color-badge-draft)",
-            color: "var(--color-badge-draft-text)",
+            background: "var(--color-badge-info-bg)",
+            color: "var(--color-badge-info-text)",
             padding: "2px 6px",
             borderRadius: "var(--radius-full)",
+            fontWeight: 600,
+            whiteSpace: "nowrap",
           }}
+          data-testid={`trace-type-${trace.link_type}`}
+          title={getLinkTypeLabel(trace.link_type)}
         >
           {getLinkTypeLabel(trace.link_type)}
         </span>
