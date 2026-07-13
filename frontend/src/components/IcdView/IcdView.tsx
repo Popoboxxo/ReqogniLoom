@@ -81,6 +81,7 @@ export default function IcdView(): JSX.Element {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [isLoadingArch, setIsLoadingArch] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
@@ -123,18 +124,26 @@ export default function IcdView(): JSX.Element {
     setIsLoading(true);
     setError(null);
     try {
-      // Bug fix B-ICD-004: fetch the full architecture element list via
-      // architectureApi.listAll (follows pagination links) so every element
-      // is selectable in the source/target dropdowns.
-      const [icdResp, archAll] = await Promise.all([
-        icdsApi.list(activeWorkspace.id),
-        architectureApi.listAll(activeWorkspace.id),
-      ]);
+      // Phase 1: Load ICDs first (fast) → tree appears immediately
+      // REQ-014: split loading to show ICD tree before architecture elements finish
+      const icdResp = await icdsApi.list(activeWorkspace.id);
       setIcds(icdResp.results);
-      setArchitectureElements(archAll);
+      setIsLoading(false); // Tree now visible
+
+      // Phase 2: Load architecture elements in background
+      // (needed for source/target dropdowns in create form)
+      setIsLoadingArch(true);
+      try {
+        // Bug fix B-ICD-004: fetch the full architecture element list via
+        // architectureApi.listAll (follows pagination links) so every element
+        // is selectable in the source/target dropdowns.
+        const archAll = await architectureApi.listAll(activeWorkspace.id);
+        setArchitectureElements(archAll);
+      } finally {
+        setIsLoadingArch(false);
+      }
     } catch (err) {
       setError(extractErrorMessage(err, t("icds.loadFailed")));
-    } finally {
       setIsLoading(false);
     }
   }, [activeWorkspace, t]);
@@ -533,9 +542,14 @@ export default function IcdView(): JSX.Element {
               data-testid="icd-source-select"
               value={formSource}
               onChange={(e) => setFormSource(e.target.value)}
+              disabled={isLoadingArch && architectureElements.length === 0}
               style={inputStyle}
             >
-              <option value="">{t("icds.selectSource")}</option>
+              <option value="">
+                {isLoadingArch && architectureElements.length === 0
+                  ? t("loading")
+                  : t("icds.selectSource")}
+              </option>
               {architectureElements.map((el) => (
                 <option key={el.id} value={el.id}>
                   {el.title} ({el.element_type})
@@ -551,9 +565,14 @@ export default function IcdView(): JSX.Element {
               data-testid="icd-target-select"
               value={formTarget}
               onChange={(e) => setFormTarget(e.target.value)}
+              disabled={isLoadingArch && architectureElements.length === 0}
               style={inputStyle}
             >
-              <option value="">{t("icds.selectTarget")}</option>
+              <option value="">
+                {isLoadingArch && architectureElements.length === 0
+                  ? t("loading")
+                  : t("icds.selectTarget")}
+              </option>
               {architectureElements.map((el) => (
                 <option key={el.id} value={el.id}>
                   {el.title} ({el.element_type})
@@ -673,7 +692,7 @@ export default function IcdView(): JSX.Element {
                 type="button"
                 data-testid="create-icd-submit"
                 onClick={() => void handleCreate()}
-                disabled={isSaving || architectureElements.length < 2}
+                disabled={isSaving || isLoadingArch || architectureElements.length < 2}
                 style={{
                   background: "var(--color-primary)",
                   color: "white",
@@ -681,8 +700,8 @@ export default function IcdView(): JSX.Element {
                   borderRadius: "var(--radius-md)",
                   padding: "var(--space-2) var(--space-6)",
                   fontSize: "var(--font-size-sm)",
-                  cursor: isSaving ? "not-allowed" : "pointer",
-                  opacity: isSaving ? 0.7 : 1,
+                  cursor: isSaving || isLoadingArch ? "not-allowed" : "pointer",
+                  opacity: isSaving || isLoadingArch ? 0.7 : 1,
                 }}
               >
                 {isSaving ? t("actions.saving") : t("actions.save")}
