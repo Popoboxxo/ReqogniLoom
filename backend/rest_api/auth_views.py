@@ -31,6 +31,7 @@ from rest_framework.views import APIView
 from auth_tenancy.errors import AuthError, build_error_body
 from auth_tenancy.services import PasswordAuthenticationService
 from persistence.models import User
+from rest_api.serializers import UserProfileSerializer
 
 
 def _auth_error_response(
@@ -47,6 +48,8 @@ def _user_payload(user: User, roles: tuple[str, ...]) -> dict[str, Any]:
         "id": str(user.id),
         "username": user.username,
         "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "is_active": user.is_active,
         "tenant_id": str(user.tenant_id) if user.tenant_id else None,
         "roles": list(roles),
@@ -127,6 +130,43 @@ class MeView(APIView):
                 accept_language=accept_language,
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
+
+        return Response(
+            {
+                "user": _user_payload(user, tuple(ctx.active_roles)),
+                "tenant_id": str(ctx.tenant_id),
+                "roles": list(ctx.active_roles),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update the current user's editable profile fields (REQ-006).
+
+        Accepts a partial ``{first_name, last_name}`` body and persists the
+        change for the authenticated caller. Returns the refreshed identity
+        payload (same shape as ``GET``). Requires a valid Bearer token.
+        """
+        accept_language = request.META.get("HTTP_ACCEPT_LANGUAGE")
+        ctx = getattr(request, "auth_context", None)
+        if ctx is None:
+            return _auth_error_response(
+                "authentication_required",
+                accept_language=accept_language,
+                http_status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        user = User.objects.filter(id=ctx.user_id).first()
+        if user is None:
+            return _auth_error_response(
+                "authentication_required",
+                accept_language=accept_language,
+                http_status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        serializer = UserProfileSerializer(instance=user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
         return Response(
             {

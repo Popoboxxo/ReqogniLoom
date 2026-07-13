@@ -16,7 +16,7 @@ import { createContext,
   useCallback,
   type ReactNode,
 } from "react";
-import { setAuthToken, setUnauthorizedHandler } from "../api/client";
+import { apiClient, setAuthToken, setUnauthorizedHandler } from "../api/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,9 +26,17 @@ export interface AuthUser {
   id: string;
   username: string;
   email: string;
+  first_name: string;
+  last_name: string;
   is_active: boolean;
   tenant_id: string | null;
   roles: string[];
+}
+
+/** Editable subset of the user profile (REQ-006). */
+export interface ProfileUpdate {
+  first_name: string;
+  last_name: string;
 }
 
 export interface LoginCredentials {
@@ -51,6 +59,8 @@ export interface AuthState {
   roles: string[];
   /** POST /api/v1/auth/login/ — resolves on success, rejects with error message on failure */
   login: (credentials: LoginCredentials) => Promise<void>;
+  /** PATCH /api/v1/auth/me/ — update editable profile fields (REQ-006) */
+  updateProfile: (update: ProfileUpdate) => Promise<void>;
   logout: () => void;
 }
 
@@ -148,6 +158,16 @@ export function AuthProvider({
     []
   );
 
+  /** Updates the current user's profile via PATCH /api/v1/auth/me/ (REQ-006). */
+  const updateProfile = useCallback(
+    async (update: ProfileUpdate): Promise<void> => {
+      const data = await apiClient.patch<{ user: AuthUser }>("/auth/me/", update);
+      setUser(data.user);
+      sessionStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    },
+    []
+  );
+
   const logout = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(USER_KEY);
@@ -164,6 +184,7 @@ export function AuthProvider({
     tenantId,
     roles,
     login,
+    updateProfile,
     logout,
   };
 

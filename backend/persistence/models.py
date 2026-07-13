@@ -286,6 +286,10 @@ class User(AuditableModel):
 
     username = models.CharField(max_length=150, unique=True)
     email = models.EmailField(unique=True)
+    # Human-readable name fields (REQ-006). Optional and blank by default so
+    # existing users remain valid without a data migration backfill.
+    first_name = models.CharField(max_length=150, blank=True, default="")
+    last_name = models.CharField(max_length=150, blank=True, default="")
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(
         default=False,

@@ -915,6 +915,42 @@ class GlossaryTermSerializer(serializers.Serializer):
     modified_by_id = serializers.UUIDField(read_only=True, allow_null=True)
 
 
+class UserProfileSerializer(serializers.Serializer):
+    """User identity + editable profile fields (REQ-006).
+
+    Read fields mirror the ``/auth/me/`` identity payload; ``first_name`` and
+    ``last_name`` are the only writable fields (a user may edit their own name
+    but not their username, email, tenant or roles). ``update`` applies the
+    partial change and persists only the touched columns.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    username = serializers.CharField(read_only=True)
+    email = serializers.EmailField(read_only=True)
+    first_name = serializers.CharField(
+        max_length=150, required=False, allow_blank=True, default=""
+    )
+    last_name = serializers.CharField(
+        max_length=150, required=False, allow_blank=True, default=""
+    )
+    is_active = serializers.BooleanField(read_only=True)
+
+    def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
+        """Apply first_name/last_name changes to ``instance`` and persist them.
+
+        Only fields present in ``validated_data`` are touched (PATCH semantics);
+        each value is trimmed of surrounding whitespace before saving.
+        """
+        updated_fields: list[str] = []
+        for field in ("first_name", "last_name"):
+            if field in validated_data:
+                setattr(instance, field, validated_data[field].strip())
+                updated_fields.append(field)
+        if updated_fields:
+            instance.save(update_fields=updated_fields)
+        return instance
+
+
 __all__ = [
     "ArtifactSerializer",
     "StakeholderNeedSerializer",
@@ -938,6 +974,7 @@ __all__ = [
     "TestRunResultBulkSerializer",
     "GlossaryTermSerializer",
     "GlossaryTermVersionSerializer",
+    "UserProfileSerializer",
     "StandardPagination",
     "PresetAwareSerializerMixin",
     "CustomFieldsSerializerMixin",

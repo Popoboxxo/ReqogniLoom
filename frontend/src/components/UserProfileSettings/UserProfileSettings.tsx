@@ -13,6 +13,7 @@
 
 import { useTranslation } from "react-i18next";
 import { ApiKeysSection } from "./ApiKeysSection";
+import { ProfileSection } from "./ProfileSection";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 import { useState, useCallback } from "react";
@@ -90,6 +91,8 @@ export default function UserProfileSettings(): JSX.Element {
       >
         {t("nav.profile")}
       </h2>
+
+      <ProfileSection />
 
       <ApiKeysSection />
 

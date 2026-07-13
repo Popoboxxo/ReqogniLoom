@@ -138,3 +138,59 @@ def test_me_without_token_is_rejected(db):
     client = APIClient()
     resp = client.get("/api/v1/auth/me/")
     assert resp.status_code in (401, 403)
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_user_can_update_first_last_name(admin_user):
+    """PATCH /auth/me/ updates first_name/last_name and persists them (REQ-006)."""
+    client = APIClient()
+    token = client.post(
+        "/api/v1/auth/login/",
+        {"username": "loginadmin", "password": "hunter2pass"},
+        format="json",
+    ).json()["token"]
+
+    authed = APIClient()
+    authed.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    resp = authed.patch(
+        "/api/v1/auth/me/",
+        {"first_name": "  Ada  ", "last_name": "Lovelace"},
+        format="json",
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # Whitespace is trimmed on save.
+    assert body["user"]["first_name"] == "Ada"
+    assert body["user"]["last_name"] == "Lovelace"
+
+    admin_user.refresh_from_db()
+    assert admin_user.first_name == "Ada"
+    assert admin_user.last_name == "Lovelace"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_user_serializer_includes_name_fields(admin_user):
+    """UserProfileSerializer exposes name fields and applies partial updates."""
+    from rest_api.serializers import UserProfileSerializer
+
+    admin_user.first_name = "Grace"
+    admin_user.last_name = "Hopper"
+    admin_user.save(update_fields=["first_name", "last_name"])
+
+    read = UserProfileSerializer(instance=admin_user).data
+    assert read["first_name"] == "Grace"
+    assert read["last_name"] == "Hopper"
+    assert read["username"] == "loginadmin"
+
+    serializer = UserProfileSerializer(
+        instance=admin_user, data={"first_name": "Ada"}, partial=True
+    )
+    assert serializer.is_valid(), serializer.errors
+    serializer.save()
+    admin_user.refresh_from_db()
+    # Partial update touches only first_name; last_name is preserved.
+    assert admin_user.first_name == "Ada"
+    assert admin_user.last_name == "Hopper"
