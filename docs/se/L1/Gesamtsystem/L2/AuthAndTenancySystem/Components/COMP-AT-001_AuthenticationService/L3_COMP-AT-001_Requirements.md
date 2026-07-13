@@ -46,6 +46,11 @@ Bearer-Token-Validierung (JWT), API-Key-Validierung (SHA-256), Timing-Attack-res
 Der AuthenticationService SHALL eingehende JWT-Bearer-Tokens validieren — Signaturprüfung mit dem konfigurierten Secret/Public-Key, Ablaufzeit (`exp`), Aussteller (`iss`) und Zielgruppe (`aud`). Ungültige oder abgelaufene Tokens SHALL sofort mit dem entsprechenden Fehlercode zurückgewiesen werden, ohne dass nachgelagerte Komponenten erreicht werden.
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-001, REQ-L2-AT-007
 **Acceptance Criteria:**
 - [ ] Valid JWT with correct signature → `IdentityClaims` produced and forwarded to COMP-AT-002 and COMP-AT-003
@@ -61,6 +66,11 @@ Der AuthenticationService SHALL eingehende JWT-Bearer-Tokens validieren — Sign
 Der AuthenticationService SHALL API Keys ausschließlich durch Vergleich des SHA-256-Hashes des eingehenden Keys mit dem gespeicherten Hash-Wert validieren. Der Vergleich SHALL mittels `hmac.compare_digest` in konstanter Laufzeit erfolgen, um Timing-Angriffe auszuschließen. Widerrufene Keys SHALL sofort abgewiesen werden.
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-002, REQ-L2-AT-009
 **Acceptance Criteria:**
 - [ ] Valid API Key → User and tenant resolved, `IdentityClaims` produced
@@ -76,6 +86,11 @@ Der AuthenticationService SHALL API Keys ausschließlich durch Vergleich des SHA
 Der AuthenticationService SHALL CRUD-Operationen für API Keys bereitstellen: Erstellung (Rückgabe des Klartexts genau einmal), Auflistung (nur Metadaten), und sofort wirksamen Widerruf. Format: `rf_<40 zufällige Zeichen>`. Pro Nutzer maximal 10 aktive Keys.
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-009
 **Acceptance Criteria:**
 - [ ] Key creation → plain-text returned in response body exactly once, SHA-256 hash stored in DB
@@ -91,6 +106,11 @@ Der AuthenticationService SHALL CRUD-Operationen für API Keys bereitstellen: Er
 Der AuthenticationService SHALL alle Authentifizierungsfehler im einheitlichen Format `{"error": "<code>", "message": "...", "doc_url": "..."}` zurückgeben. Fehlermeldungen SHALL in Deutsch und Englisch verfügbar sein. Keine sensiblen Informationen (Token-Inhalt, Hash-Werte, interne Stack-Traces) SHALL in Fehlerantworten enthalten sein.
 
 **Priority:** desired
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-010
 **Acceptance Criteria:**
 - [ ] All 401 responses contain `error`, `message`, and `doc_url` fields
@@ -101,3 +121,14 @@ Der AuthenticationService SHALL alle Authentifizierungsfehler im einheitlichen F
 ---
 
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-AT001-001 | REQ-L2-AT-001, REQ-L2-AT-007 |
+| REQ-L3-AT001-002 | REQ-L2-AT-002, REQ-L2-AT-009 |
+| REQ-L3-AT001-003 | REQ-L2-AT-009 |
+| REQ-L3-AT001-004 | REQ-L2-AT-010 |
+

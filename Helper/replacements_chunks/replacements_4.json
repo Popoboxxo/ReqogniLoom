@@ -1,0 +1,189 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\RestApiAdapterSystem\\L2_RestApiAdapterSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-RA-001: REST-CRUD-Endpunkte f\u00fcr alle Entit\u00e4ten\n\nDer RestApiAdapter SHALL vollst\u00e4ndige CRUD-Endpunkte (GET list, GET detail, POST, PATCH, DELETE) unter `/api/v1/` f\u00fcr alle sieben Domain-Entit\u00e4ten bereitstellen: Artifact, Requirement, ArchitectureElement, TestCase, TraceLink, Baseline und WorkflowDefinition.\n",
+      "ReplacementContent": "### REQ-L2-RA-001: REST-CRUD-Endpunkte f\u00fcr alle Entit\u00e4ten\n\nDer RestApiAdapter SHALL vollst\u00e4ndige CRUD-Endpunkte (GET list, GET detail, POST, PATCH, DELETE) unter `/api/v1/` f\u00fcr alle sieben Domain-Entit\u00e4ten bereitstellen: Artifact, Requirement, ArchitectureElement, TestCase, TraceLink, Baseline und WorkflowDefinition.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-002: Auto-generierte OpenAPI-Spezifikation\n\nDer RestApiAdapter SHALL eine vollst\u00e4ndige, auto-generierte OpenAPI 3.0 Spezifikation unter `/api/v1/schema/` bereitstellen. Eine Swagger-UI SHALL unter `/api/v1/schema/swagger-ui/` zug\u00e4nglich sein.\n",
+      "ReplacementContent": "### REQ-L2-RA-002: Auto-generierte OpenAPI-Spezifikation\n\nDer RestApiAdapter SHALL eine vollst\u00e4ndige, auto-generierte OpenAPI 3.0 Spezifikation unter `/api/v1/schema/` bereitstellen. Eine Swagger-UI SHALL unter `/api/v1/schema/swagger-ui/` zug\u00e4nglich sein.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-003: API-Response-Performance unter 200ms\n\nDer RestApiAdapter SHALL auf Standard-Queries (GET list, GET detail) innerhalb von 200ms beim 95. Perzentil antworten \u2014 bei bis zu 10.000 Requirements, inklusive Serialization und Datenbank-Query, exklusive Netzwerk-Latenz. Voraussetzung f\u00fcr die Einhaltung dieses Latenz-Ziels ist die konsequente Vermeidung von N+1-Query-Mustern via `select_related` und `prefetch_related` (siehe REQ-L2-RA-013).\n",
+      "ReplacementContent": "### REQ-L2-RA-003: API-Response-Performance unter 200ms\n\nDer RestApiAdapter SHALL auf Standard-Queries (GET list, GET detail) innerhalb von 200ms beim 95. Perzentil antworten \u2014 bei bis zu 10.000 Requirements, inklusive Serialization und Datenbank-Query, exklusive Netzwerk-Latenz. Voraussetzung f\u00fcr die Einhaltung dieses Latenz-Ziels ist die konsequente Vermeidung von N+1-Query-Mustern via `select_related` und `prefetch_related` (siehe REQ-L2-RA-013).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-004: Backend-Fehlermeldungen i18n (DE/EN)\n\nDer RestApiAdapter SHALL alle API-Fehlermeldungen in Deutsch und Englisch bereitstellen. Die Sprache SHALL durch den `Accept-Language`-Header bestimmt werden (Fallback: Englisch). Fehlende Translation-Keys M\u00dcSSEN als Build-Fehler behandelt werden.\n",
+      "ReplacementContent": "### REQ-L2-RA-004: Backend-Fehlermeldungen i18n (DE/EN)\n\nDer RestApiAdapter SHALL alle API-Fehlermeldungen in Deutsch und Englisch bereitstellen. Die Sprache SHALL durch den `Accept-Language`-Header bestimmt werden (Fallback: Englisch). Fehlende Translation-Keys M\u00dcSSEN als Build-Fehler behandelt werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-005: Bearer-Token-Authentifizierung f\u00fcr alle Endpunkte\n\nDer RestApiAdapter SHALL Bearer-Token-Authentifizierung auf allen API-Endpunkten unter `/api/v1/` erzwingen (Ausnahme: OpenAPI-Spec-Endpunkte). Requests ohne g\u00fcltigen Token SHALL mit HTTP 401 abgewiesen werden.\n",
+      "ReplacementContent": "### REQ-L2-RA-005: Bearer-Token-Authentifizierung f\u00fcr alle Endpunkte\n\nDer RestApiAdapter SHALL Bearer-Token-Authentifizierung auf allen API-Endpunkten unter `/api/v1/` erzwingen (Ausnahme: OpenAPI-Spec-Endpunkte). Requests ohne g\u00fcltigen Token SHALL mit HTTP 401 abgewiesen werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-006: RBAC-Enforcement auf API-Ebene\n\nDer RestApiAdapter SHALL rollenbasierte Zugriffskontrolle f\u00fcr jede API-Operation und Ressource erzwingen. Vor der Delegation an den ApplicationService MUSS der Adapter pr\u00fcfen, ob die Rollen des Nutzers die Operation erlauben. Unautorisierte Operationen SHALL mit HTTP 403 abgewiesen werden.\n",
+      "ReplacementContent": "### REQ-L2-RA-006: RBAC-Enforcement auf API-Ebene\n\nDer RestApiAdapter SHALL rollenbasierte Zugriffskontrolle f\u00fcr jede API-Operation und Ressource erzwingen. Vor der Delegation an den ApplicationService MUSS der Adapter pr\u00fcfen, ob die Rollen des Nutzers die Operation erlauben. Unautorisierte Operationen SHALL mit HTTP 403 abgewiesen werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-007: Audit-Log-Ausl\u00f6sung bei Schreiboperationen\n\nDer RestApiAdapter SHALL sicherstellen, dass jede Schreiboperation (POST, PATCH, DELETE) einen Audit-Log-Eintrag \u00fcber den ApplicationService ausl\u00f6st. Der Eintrag SHALL die authentifizierte Nutzer-Identit\u00e4t, Operationstyp, betroffene Entity-ID und Zeitstempel enthalten.\n",
+      "ReplacementContent": "### REQ-L2-RA-007: Audit-Log-Ausl\u00f6sung bei Schreiboperationen\n\nDer RestApiAdapter SHALL sicherstellen, dass jede Schreiboperation (POST, PATCH, DELETE) einen Audit-Log-Eintrag \u00fcber den ApplicationService ausl\u00f6st. Der Eintrag SHALL die authentifizierte Nutzer-Identit\u00e4t, Operationstyp, betroffene Entity-ID und Zeitstempel enthalten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-008: Preset-basierte Endpunkt- und Feldsichtbarkeit\n\nDer RestApiAdapter SHALL zur Laufzeit die PresetConfigEngine konsultieren, um zu bestimmen, welche Endpunkte und Felder basierend auf dem aktiven Workspace-Preset sichtbar/aktiv sind. Nicht erlaubte Endpunkte SHALL mit HTTP 404/403 beantwortet werden. Nicht erlaubte Felder SHALL aus der Serialization ausgeschlossen werden.\n",
+      "ReplacementContent": "### REQ-L2-RA-008: Preset-basierte Endpunkt- und Feldsichtbarkeit\n\nDer RestApiAdapter SHALL zur Laufzeit die PresetConfigEngine konsultieren, um zu bestimmen, welche Endpunkte und Felder basierend auf dem aktiven Workspace-Preset sichtbar/aktiv sind. Nicht erlaubte Endpunkte SHALL mit HTTP 404/403 beantwortet werden. Nicht erlaubte Felder SHALL aus der Serialization ausgeschlossen werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-009: Standardisierte HTTP-Fehlercodes und Response-Format\n\nDer RestApiAdapter SHALL standardisierte HTTP-Statuscodes und ein konsistentes JSON-Fehlerformat verwenden. Das Fehlerformat SHALL enthalten: machine-readable Error-Code, human-readable Message (lokalisiert), optionale Feld-Details.\n",
+      "ReplacementContent": "### REQ-L2-RA-009: Standardisierte HTTP-Fehlercodes und Response-Format\n\nDer RestApiAdapter SHALL standardisierte HTTP-Statuscodes und ein konsistentes JSON-Fehlerformat verwenden. Das Fehlerformat SHALL enthalten: machine-readable Error-Code, human-readable Message (lokalisiert), optionale Feld-Details.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-010: Pagination, Filtering, Sorting f\u00fcr Listen-Endpunkte\n\nDer RestApiAdapter SOLLTE Pagination, Filtering und Sorting auf allen Listen-Endpunkten unterst\u00fctzen. Pagination SHALL cursor- oder offset-basiert sein mit konfigurierbarer Page-Size.\n",
+      "ReplacementContent": "### REQ-L2-RA-010: Pagination, Filtering, Sorting f\u00fcr Listen-Endpunkte\n\nDer RestApiAdapter SOLLTE Pagination, Filtering und Sorting auf allen Listen-Endpunkten unterst\u00fctzen. Pagination SHALL cursor- oder offset-basiert sein mit konfigurierbarer Page-Size.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-011: Tenant-Kontext-Propagation\n\nDer RestApiAdapter SHALL den aktiven Tenant aus dem authentifizierten Token extrahieren und in den Request-Kontext propagieren. Alle Datenbankabfragen M\u00dcSSEN automatisch nach `tenant_id` gefiltert werden. Der Adapter DARF den Tenant-Filter nicht umgehen.\n",
+      "ReplacementContent": "### REQ-L2-RA-011: Tenant-Kontext-Propagation\n\nDer RestApiAdapter SHALL den aktiven Tenant aus dem authentifizierten Token extrahieren und in den Request-Kontext propagieren. Alle Datenbankabfragen M\u00dcSSEN automatisch nach `tenant_id` gefiltert werden. Der Adapter DARF den Tenant-Filter nicht umgehen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-012: Keine Gesch\u00e4ftslogik in der Adapter-Schicht\n\nDer RestApiAdapter DARF KEINE Gesch\u00e4ftslogik implementieren. Der Adapter SHALL eine reine Translation-Schicht sein: HTTP-Request \u2192 validieren/serialisieren \u2192 an ApplicationService delegieren \u2192 serialisieren \u2192 HTTP-Response.\n",
+      "ReplacementContent": "### REQ-L2-RA-012: Keine Gesch\u00e4ftslogik in der Adapter-Schicht\n\nDer RestApiAdapter DARF KEINE Gesch\u00e4ftslogik implementieren. Der Adapter SHALL eine reine Translation-Schicht sein: HTTP-Request \u2192 validieren/serialisieren \u2192 an ApplicationService delegieren \u2192 serialisieren \u2192 HTTP-Response.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RA-013: N+1-Query-Vermeidung bei verschachtelten Responses\n\nDer RestApiAdapter SHALL f\u00fcr alle List- und Detail-Endpunkte, die verschachtelte Entit\u00e4ten liefern (TraceLinks, TestCases, Children-Artifacts), `select_related` f\u00fcr ForeignKey-Beziehungen und `prefetch_related` f\u00fcr ManyToMany- und Reverse-ForeignKey-Beziehungen im DRF-ViewSet-Queryset verwenden. Kein N+1-Query-Muster darf in Produktionscode vorhanden sein. H\u00e4ufig gelesene verschachtelte Baumstrukturen (Artifact-Trees, vollst\u00e4ndige Workspaces) SHALL serverseitig gecacht werden; der Cache MUSS bei Mutationen (POST/PATCH/DELETE auf betroffenen Entit\u00e4ten) invalidiert werden.\n",
+      "ReplacementContent": "### REQ-L2-RA-013: N+1-Query-Vermeidung bei verschachtelten Responses\n\nDer RestApiAdapter SHALL f\u00fcr alle List- und Detail-Endpunkte, die verschachtelte Entit\u00e4ten liefern (TraceLinks, TestCases, Children-Artifacts), `select_related` f\u00fcr ForeignKey-Beziehungen und `prefetch_related` f\u00fcr ManyToMany- und Reverse-ForeignKey-Beziehungen im DRF-ViewSet-Queryset verwenden. Kein N+1-Query-Muster darf in Produktionscode vorhanden sein. H\u00e4ufig gelesene verschachtelte Baumstrukturen (Artifact-Trees, vollst\u00e4ndige Workspaces) SHALL serverseitig gecacht werden; der Cache MUSS bei Mutationen (POST/PATCH/DELETE auf betroffenen Entit\u00e4ten) invalidiert werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 417,
+      "AllowMultiple": false
+    }
+  ]
+}

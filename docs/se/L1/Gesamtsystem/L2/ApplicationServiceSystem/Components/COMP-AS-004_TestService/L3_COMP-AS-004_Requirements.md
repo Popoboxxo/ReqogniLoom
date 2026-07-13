@@ -38,6 +38,13 @@ TestCase-CRUD, Test-Execution-Status-Management, Coverage-Berechnung.
 
 ### REQ-L3-AS004-001: TestCase CRUD mit Typ- und Status-Verwaltung
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der TestService SHALL vollstaendiges CRUD fuer TestCases bereitstellen. Unterstuetzte `test_type`-Werte: `Unit`, `Integration`, `System`, `Acceptance`. Initial-`execution_status`: `Not Run`. Bei Delete: TraceLinks kaskadiert loeschen.
 
 **Priority:** mandatory
@@ -52,6 +59,13 @@ Der TestService SHALL vollstaendiges CRUD fuer TestCases bereitstellen. Unterstu
 
 ### REQ-L3-AS004-002: Execution-Status-Aktualisierung
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der TestService SHALL eine dedizierte Methode `update_test_status(id, execution_status, ctx)` bereitstellen, die den `execution_status` eines TestCase aktualisiert. Unterstuetzte Werte: `Passed`, `Failed`, `Not Run`. Ungueltige Werte werden abgelehnt.
 
 **Priority:** mandatory
@@ -65,6 +79,13 @@ Der TestService SHALL eine dedizierte Methode `update_test_status(id, execution_
 ---
 
 ### REQ-L3-AS004-003: Coverage-Berechnung
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der TestService SHALL eine `get_coverage(workspace_id, ctx)`-Methode bereitstellen, die die Abdeckung von Requirements durch TestCases berechnet. Delegation der TraceLink-Query an die TraceabilityEngine. Rueckgabe: `{total, covered, percentage}`.
 

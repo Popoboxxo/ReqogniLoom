@@ -1,0 +1,203 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\PresetConfigEngineSystem\\L2_PresetConfigEngineSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-PC-001: Preset-Verwaltung (Minimal / Standard / Extended)\n\nDie PresetConfigEngine SHALL drei vordefinierte Workspace-Presets verwalten \u2014 Minimal, Standard und Extended \u2014 die zur Laufzeit bestimmen: Pflichtfelder, sichtbare Features, Baseline-Scope-Verf\u00fcgbarkeit, Workflow-Konfigurierbarkeit und `change_reason`-Pflicht.\n",
+      "ReplacementContent": "### REQ-L2-PC-001: Preset-Verwaltung (Minimal / Standard / Extended)\n\nDie PresetConfigEngine SHALL drei vordefinierte Workspace-Presets verwalten \u2014 Minimal, Standard und Extended \u2014 die zur Laufzeit bestimmen: Pflichtfelder, sichtbare Features, Baseline-Scope-Verf\u00fcgbarkeit, Workflow-Konfigurierbarkeit und `change_reason`-Pflicht.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-002: Feature-Query-Interface\n\nDie PresetConfigEngine SHALL das Interface `is_feature_enabled(feature_key, workspace_id)` bereitstellen. Feature-Keys: mindestens `baselines`, `global_baselines`, `approval_workflows`, `custom_workflows`, `change_reason_mandatory`.\n",
+      "ReplacementContent": "### REQ-L2-PC-002: Feature-Query-Interface\n\nDie PresetConfigEngine SHALL das Interface `is_feature_enabled(feature_key, workspace_id)` bereitstellen. Feature-Keys: mindestens `baselines`, `global_baselines`, `approval_workflows`, `custom_workflows`, `change_reason_mandatory`.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-003: Preset-Query-Interface\n\nDie PresetConfigEngine SHALL `get_preset(workspace_id)` die vollst\u00e4ndige Preset-Konfiguration zur\u00fcckgeben: Pflichtfeld-Regeln, Feature-Flags, Baseline-Scope-Verf\u00fcgbarkeit, Workflow-Konfigurierbarkeit, `change_reason`-Policy.\n",
+      "ReplacementContent": "### REQ-L2-PC-003: Preset-Query-Interface\n\nDie PresetConfigEngine SHALL `get_preset(workspace_id)` die vollst\u00e4ndige Preset-Konfiguration zur\u00fcckgeben: Pflichtfeld-Regeln, Feature-Flags, Baseline-Scope-Verf\u00fcgbarkeit, Workflow-Konfigurierbarkeit, `change_reason`-Policy.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-004: Pflichtfeld-Regeln pro Preset\n\nDie PresetConfigEngine SHALL Pflichtfeld-Regeln pro Preset definieren. Minimal: nur `title`. Standard: + `description`, `acceptance_criteria`, `priority`. Extended: + `classification`, `traceability-target`, `change_reason`.\n",
+      "ReplacementContent": "### REQ-L2-PC-004: Pflichtfeld-Regeln pro Preset\n\nDie PresetConfigEngine SHALL Pflichtfeld-Regeln pro Preset definieren. Minimal: nur `title`. Standard: + `description`, `acceptance_criteria`, `priority`. Extended: + `classification`, `traceability-target`, `change_reason`.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-005: Baseline-Scope-Verf\u00fcgbarkeit pro Preset\n\nDie PresetConfigEngine SHALL Baseline-Scope-Verf\u00fcgbarkeit bestimmen: Minimal \u2192 keine. Standard \u2192 `document`, `project`. Extended \u2192 alle drei.\n",
+      "ReplacementContent": "### REQ-L2-PC-005: Baseline-Scope-Verf\u00fcgbarkeit pro Preset\n\nDie PresetConfigEngine SHALL Baseline-Scope-Verf\u00fcgbarkeit bestimmen: Minimal \u2192 keine. Standard \u2192 `document`, `project`. Extended \u2192 alle drei.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-006: Workflow-Konfigurierbarkeits-Regeln pro Preset\n\nDie PresetConfigEngine SHALL Workflow-Konfigurierbarkeit bestimmen: Minimal \u2192 `fixed`. Standard \u2192 `partial`. Extended \u2192 `full`.\n",
+      "ReplacementContent": "### REQ-L2-PC-006: Workflow-Konfigurierbarkeits-Regeln pro Preset\n\nDie PresetConfigEngine SHALL Workflow-Konfigurierbarkeit bestimmen: Minimal \u2192 `fixed`. Standard \u2192 `partial`. Extended \u2192 `full`.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-007: Change-Reason-Pflicht-Regeln pro Preset\n\nDie PresetConfigEngine SHALL `change_reason`-Pflicht bestimmen: Minimal/Standard \u2192 optional. Extended \u2192 Pflicht.\n",
+      "ReplacementContent": "### REQ-L2-PC-007: Change-Reason-Pflicht-Regeln pro Preset\n\nDie PresetConfigEngine SHALL `change_reason`-Pflicht bestimmen: Minimal/Standard \u2192 optional. Extended \u2192 Pflicht.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-008: Preset-Wechsel aufsteigend ohne Datenmigration\n\nDie PresetConfigEngine SHALL aufsteigende Preset-Wechsel (Minimal \u2192 Standard \u2192 Extended) ohne Datenmigration, Datenverlust oder Schema-\u00c4nderungen erlauben. \u2264 1 Sekunde bei 10.000 Artefakten.\n",
+      "ReplacementContent": "### REQ-L2-PC-008: Preset-Wechsel aufsteigend ohne Datenmigration\n\nDie PresetConfigEngine SHALL aufsteigende Preset-Wechsel (Minimal \u2192 Standard \u2192 Extended) ohne Datenmigration, Datenverlust oder Schema-\u00c4nderungen erlauben. \u2264 1 Sekunde bei 10.000 Artefakten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-009: Terminologie-Profil-Verwaltung (Dev-Modus / SE-Modus)\n\nDie PresetConfigEngine SHALL mindestens zwei Terminologie-Profile verwalten. Jedes Profil definiert ein vollst\u00e4ndiges Mapping von generischen Entity-Namen zu dom\u00e4nenspezifischen Labels. REST API und MCP nutzen immer generische Namen.\n",
+      "ReplacementContent": "### REQ-L2-PC-009: Terminologie-Profil-Verwaltung (Dev-Modus / SE-Modus)\n\nDie PresetConfigEngine SHALL mindestens zwei Terminologie-Profile verwalten. Jedes Profil definiert ein vollst\u00e4ndiges Mapping von generischen Entity-Namen zu dom\u00e4nenspezifischen Labels. REST API und MCP nutzen immer generische Namen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-010: Terminologie-Profil-Wechsel ohne Datenmigration\n\nDie PresetConfigEngine SHALL Profilwechsel ohne Datenmigration, Schema-\u00c4nderungen oder API-Struktur\u00e4nderungen erlauben. \u2264 1 Sekunde.\n",
+      "ReplacementContent": "### REQ-L2-PC-010: Terminologie-Profil-Wechsel ohne Datenmigration\n\nDie PresetConfigEngine SHALL Profilwechsel ohne Datenmigration, Schema-\u00c4nderungen oder API-Struktur\u00e4nderungen erlauben. \u2264 1 Sekunde.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-011: Preset-Downgrade-Validierung\n\nDie PresetConfigEngine SOLLTE Preset-Downgrades validieren, indem sie inkompatible Daten pr\u00fcft (Global-Baselines, Approval-States). Bei Inkompatibilit\u00e4ten SHALL der Downgrade blockiert werden.\n",
+      "ReplacementContent": "### REQ-L2-PC-011: Preset-Downgrade-Validierung\n\nDie PresetConfigEngine SOLLTE Preset-Downgrades validieren, indem sie inkompatible Daten pr\u00fcft (Global-Baselines, Approval-States). Bei Inkompatibilit\u00e4ten SHALL der Downgrade blockiert werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-012: Default-Preset-Immutabilit\u00e4t\n\nDie drei Default-Presets (Minimal, Standard, Extended) SOLLTEN unver\u00e4nderlich sein.\n",
+      "ReplacementContent": "### REQ-L2-PC-012: Default-Preset-Immutabilit\u00e4t\n\nDie drei Default-Presets (Minimal, Standard, Extended) SOLLTEN unver\u00e4nderlich sein.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-013: Preset-Query-Performance\n\nPreset-Queries SOLLTEN innerhalb von 10ms (p95) antworten. Caching MAY verwendet werden.\n",
+      "ReplacementContent": "### REQ-L2-PC-013: Preset-Query-Performance\n\nPreset-Queries SOLLTEN innerhalb von 10ms (p95) antworten. Caching MAY verwendet werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-PC-014: Benutzerdefinierte Presets (Extended-Modus)\n\nIm Extended-Preset KANN die PresetConfigEngine benutzerdefinierte Presets erlauben (Clone eines Default-Presets mit Modifikationen).\n",
+      "ReplacementContent": "### REQ-L2-PC-014: Benutzerdefinierte Presets (Extended-Modus)\n\nIm Extended-Preset KANN die PresetConfigEngine benutzerdefinierte Presets erlauben (Clone eines Default-Presets mit Modifikationen).\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    }
+  ]
+}

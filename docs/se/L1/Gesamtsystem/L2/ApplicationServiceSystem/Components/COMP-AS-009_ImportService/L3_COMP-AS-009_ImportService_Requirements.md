@@ -60,6 +60,11 @@ Der ImportService SHALL CSV-Dateien zeilenweise parsen und folgende Validierunge
 - [ ] Validierung blockiert nicht andere Zeilen (Full Report)
 
 **Interfaces:** IF-AS-EXT-IN-001
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-014
 **Rationale:** Benutzerfreundliche Fehlerberichte ermöglichen schnelle Korrekturen.
 
@@ -78,6 +83,11 @@ Der ImportService SHALL alle validen Zeilen in einer einzigen Datenbank-Transakt
 - [ ] Import-Report zeigt "All-or-Nothing" Status
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-014
 **Rationale:** Datenkonsistenz und Audit-Klarheit.
 
@@ -96,6 +106,11 @@ Der ImportService SHALL alle neu erstellten Entitäten mit regulären UUIDs vers
 - [ ] UUID-Länge und Format validiert
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-014
 **Rationale:** Eindeutige Identifikation und Traceability.
 
@@ -118,6 +133,11 @@ Der ImportService SHALL folgende Entity-Typen und Feldmappings unterstützen:
 - [ ] Enum-Werte werden gegen Whitelisten validiert
 
 **Interfaces:** IF-AS-EXT-IN-001
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-014
 **Rationale:** Klare Schnittstellen für Batch-Operationen.
 
@@ -140,6 +160,11 @@ Nach Validierung und Rollback-Szenarien SHALL der ImportService einen detaillier
 - [ ] Report enthält Summary (z.B. "0/100 rows imported, 100 errors")
 
 **Interfaces:** IF-AS-EXT-IN-001
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-014
 **Rationale:** Benutzerfreundliche Fehleranalyse.
 
@@ -158,6 +183,11 @@ Nach erfolgreichem Import SHALL der ImportService ein einziges batch-AuditLog-Ev
 - [ ] Batch-Aggregation reduziert AuditLog-Einträge um ≥99%
 
 **Interfaces:** IF-AS-EXT-OUT-006
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-019
 **Rationale:** Audit-Effizienz bei Bulk-Operationen.
 
@@ -176,6 +206,11 @@ Der ImportService SHALL garantieren, dass alle importierten Entitäten dem aktue
 - [ ] Keine Cross-Tenant-Imports möglich
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-022
 **Rationale:** Sicherheit und Multi-Tenancy.
 
@@ -198,6 +233,11 @@ Der ImportService SHALL Importe mit bis zu 10.000 Zeilen handhaben:
 - [ ] Streaming-Parsing für große Dateien
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-023
 **Rationale:** Skalierbarkeit und Zuverlässigkeit.
 
@@ -220,3 +260,18 @@ Der ImportService SHALL Importe mit bis zu 10.000 Zeilen handhaben:
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-IMP-001 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-002 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-003 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-004 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-005 | REQ-L2-AppSvc-014 |
+| REQ-L3-IMP-006 | REQ-L2-AppSvc-019 |
+| REQ-L3-IMP-007 | REQ-L2-AppSvc-022 |
+| REQ-L3-IMP-008 | REQ-L2-AppSvc-023 |
+

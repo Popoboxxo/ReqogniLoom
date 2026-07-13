@@ -33,6 +33,13 @@ Custom Django Manager (`TenantQuerySet`), automatischer `tenant_id`-Filter auf a
 
 ### REQ-L3-PL002-001: Automatischer Tenant-Filter auf allen QuerySets
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der TenantIsolationManager MUSS einen `TenantQuerySet` implementieren, der als Default-Manager (`objects`) auf allen mandantenspezifischen Modellen registriert wird. Jede QuerySet-Operation (`all()`, `filter()`, `get()`, `exclude()`) MUSS automatisch eine `WHERE tenant_id = <aktueller_tenant>` Bedingung einfuegen, ohne dass aufrufender Code diesen Filter explizit setzen muss.
 
 **Priority:** mandatory
@@ -46,6 +53,13 @@ Der TenantIsolationManager MUSS einen `TenantQuerySet` implementieren, der als D
 
 ### REQ-L3-PL002-002: Pflichtvalidierung des Tenant-Kontexts
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der TenantIsolationManager MUSS bei jeder QuerySet-Operation pruefen, ob ein gueltiger Tenant-Kontext (nicht-leere UUID) im aktuellen Thread-Local gesetzt ist. Fehlt der Kontext, MUSS eine `TenantContextNotSetError`-Exception ausgeloest werden, bevor eine Datenbankabfrage ausgefuehrt wird. Die Exception MUSS die QuerySet-Klasse und die aufgerufene Methode im Fehlermeldungstext enthalten.
 
 **Priority:** mandatory
@@ -58,6 +72,13 @@ Der TenantIsolationManager MUSS bei jeder QuerySet-Operation pruefen, ob ein gue
 ---
 
 ### REQ-L3-PL002-003: Kein umgehbarer Filter durch Manager-Override-Ketten
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der TenantIsolationManager MUSS sicherstellen, dass `TenantQuerySet` auch bei Chaining (`filter().filter()`, `select_related()`, `prefetch_related()`) den Tenant-Filter behaelt. Aufrufe ueber `.using(alias)` MUESSEN den Tenant-Filter ebenfalls erzwingen. Direkter Zugriff auf `super().get_queryset()` ohne Tenant-Kontext MUSS blockiert werden.
 

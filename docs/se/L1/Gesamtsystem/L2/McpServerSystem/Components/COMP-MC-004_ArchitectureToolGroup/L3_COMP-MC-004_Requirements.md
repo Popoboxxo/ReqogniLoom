@@ -38,6 +38,13 @@ Implementierung der fuenf Architecture-Tools: `architecture.get`, `architecture.
 
 ### REQ-L3-MC004-001: Implementierung der fuenf Architecture-Tools
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Die ArchitectureToolGroup SHALL die fuenf Tools `architecture.get`, `architecture.query`, `architecture.create`, `architecture.update` und `architecture.link` implementieren. Jedes Tool SHALL seine Eingabeparameter gegen ein dediziertes JSON-Schema validieren. `architecture.create` SHALL als Pflichtparameter `title`, `description`, `element_type` und `workspace_id` verlangen und ein ArchitectureElement mit UUID zurueckgeben.
 
 **Priority:** mandatory
@@ -54,6 +61,13 @@ Die ArchitectureToolGroup SHALL die fuenf Tools `architecture.get`, `architectur
 
 ### REQ-L3-MC004-002: TraceLink-Erzeugung via architecture.link
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Das Tool `architecture.link` SHALL das Verknuepfen eines ArchitectureElements mit einem Requirement, einem TestCase oder einem anderen ArchitectureElement unterstuetzen. Der Parameter `link_type` SHALL validiert werden; ungueltiger Link-Typ SHALL mit `VALIDATION_ERROR` abgelehnt werden. Der erzeugte TraceLink SHALL eine eindeutige ID erhalten.
 
 **Priority:** mandatory
@@ -67,6 +81,13 @@ Das Tool `architecture.link` SHALL das Verknuepfen eines ArchitectureElements mi
 ---
 
 ### REQ-L3-MC004-003: AuditLog-Erzeugung bei schreibenden Operationen
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Die ArchitectureToolGroup SHALL fuer jede schreibende Operation (create, update, link) einen AuditLog-Eintrag ueber den ApplicationService (IF-MC-EXT-OUT-003) erzeugen. Der Eintrag SHALL Agent-Client-Identitaet, API-Key-Hash, Tool-Name, betroffene Entitaets-ID(s) und Zeitstempel enthalten. Speziell fuer `architecture.link` SHALL die TraceLink-ID im AuditLog erfasst werden.
 

@@ -38,6 +38,13 @@ Verwaltung von Terminologie-Profilen (Dev-Modus / SE-Modus). Liefert vollständi
 
 ### REQ-L3-PC002-001: Vollständiges Label-Mapping pro Terminologie-Profil
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der TerminologyProfileService SHALL für jedes registrierte Profil (Dev-Modus, SE-Modus) ein vollständiges Mapping aller generischen Entity-Namen auf domänenspezifische Labels bereitstellen. Ein unvollständiges Mapping ist abzulehnen.
 
 **Priority:** mandatory
@@ -52,6 +59,13 @@ Der TerminologyProfileService SHALL für jedes registrierte Profil (Dev-Modus, S
 
 ### REQ-L3-PC002-002: Profil-Wechsel ohne Datenmigration in unter 1 Sekunde
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der TerminologyProfileService SHALL Profilwechsel (z.B. Dev → SE) ohne DB-Schema-Änderung, Datenmigration oder Änderung der API-Antwortstruktur vollziehen. Der Wechsel muss in unter 1 Sekunde abgeschlossen sein.
 
 **Priority:** mandatory
@@ -65,6 +79,13 @@ Der TerminologyProfileService SHALL Profilwechsel (z.B. Dev → SE) ohne DB-Sche
 ---
 
 ### REQ-L3-PC002-003: Profil-Persistenz pro Workspace
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der TerminologyProfileService SHALL das aktive Terminologie-Profil workspace-spezifisch persistieren, sodass ein Neustart des Systems das zuletzt gesetzte Profil wiederherstellt.
 

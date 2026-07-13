@@ -1,6 +1,17 @@
 .keep
 .opencode
 .claude
+.bin
+frontend/node_modules/
+e2e/node_modules/
+e2e/test-results/
+
+.continue
+
+# Environment variables — NEVER commit .env with real secrets
+.env
+.env.local
+.env.*.local
 
 
 # --- agent-meta managed (do not edit) ---
@@ -9,6 +20,11 @@
 .claude/pending-tasks.md
 .claude/settings.json
 .claude/settings.local.json
+.continue/agents/
+.continue/config.yaml
+.continue/rules/
+.continue/rules/project-context.md
+.continue/settings.local.yaml
 .gemini/GEMINI.md
 .gemini/agents/
 .gemini/commands/
@@ -37,3 +53,6 @@ sync.log
 backend/.tokensave/
 
 docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/Components/COMP-DS-001_DiagramManager/.keep
+
+node_modules/
+docs/se/METHODOLOGY_AUDIT.md

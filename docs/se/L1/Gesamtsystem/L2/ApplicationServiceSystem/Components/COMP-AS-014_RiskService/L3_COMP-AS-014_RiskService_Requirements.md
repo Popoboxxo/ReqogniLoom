@@ -64,6 +64,11 @@ Der RiskService SHALL ein neues Risk-Artefakt erstellen und folgende Schritte du
 - [ ] Rückgabe der erstellten Risk-UUID
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-INT-003, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Risks sind Entscheidungs-Artefakte mit State-Management und Scoring.
 
@@ -90,6 +95,11 @@ Der RiskService SHALL Risks mit strukturierten Metadaten speichern:
 - [ ] Status ist änderbar per Workflow-Transition
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Strukturierte Risiko-Erfassung ermöglicht Analyse und Priorisierung.
 
@@ -112,6 +122,11 @@ Der RiskService SHALL Risk-Updates mit Versionshistorie verwalten. Bei Änderung
 - [ ] Risk-Score wird aktualisiert
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Nachvollziehbarkeit von Risiko-Änderungen.
 
@@ -134,6 +149,11 @@ Bei Löschung eines Risks SHALL der RiskService:
 - [ ] Atomare Transaktion
 
 **Interfaces:** IF-AS-INT-002, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Referenzielle Integrität.
 
@@ -157,6 +177,11 @@ Der RiskService SHALL Workflow-State-Transitions für Risks delegieren an Workfl
 - [ ] Audit-Log-Eintrag wird geschrieben
 
 **Interfaces:** IF-AS-INT-003
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Kontrolled Risk-Lifecycle.
 
@@ -178,6 +203,11 @@ Der RiskService SHALL TraceLinks zwischen Risks und anderen Artefakten verwalten
 - [ ] Link-Erstellung ist optional
 
 **Interfaces:** IF-AS-INT-002
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Impact-Analyse und Traceability.
 
@@ -200,6 +230,11 @@ Der RiskService SHALL Risks nach Risk-Score sortieren können:
 - [ ] Score wird in Result-Payload geliefert
 
 **Interfaces:** IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Priorisierung für Impact-Analyse.
 
@@ -221,6 +256,11 @@ Der RiskService SHALL garantieren:
 - [ ] Keine Cross-Tenant-TraceLinks
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
+**Test Status:** Covered
+**Remarks:** Implementierung prüfen.
+
 **Traceability:** REQ-L2-AppSvc-022
 **Rationale:** Sicherheit und Datenisolation.
 
@@ -244,6 +284,11 @@ Diese Events werden via DomainEventBus publiziert.
 - [ ] Fire-and-Forget (nicht-blockierend)
 
 **Interfaces:** IF-AS-INT-016
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Asynchrone Publikation für Audit und externe Systeme.
 
@@ -268,6 +313,11 @@ Der RiskService SHALL folgende Query-Operationen unterstützen:
 - [ ] Queries performant (≤500ms)
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Abfrageunterstützung für Analyse und Reporting.
 
@@ -292,3 +342,12 @@ Der RiskService SHALL folgende Query-Operationen unterstützen:
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RISK-008 | REQ-L2-AppSvc-022 |
+| REQ-L3-RISK-009 | REQ-L2-AppSvc-026 |
+

@@ -1,0 +1,203 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\ReactFrontendSystem\\L2_ReactFrontendSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-RF-001: Frontend-i18n mit react-i18next (DE/EN)\n\nDas ReactFrontend MUSS alle UI-Texte \u00fcber react-i18next in Deutsch und Englisch bereitstellen. Jeder UI-String MUSS einen Translation-Key in beiden Sprachdateien (de.json, en.json) besitzen. Die Sprache MUSS pro Nutzer-Pr\u00e4ferenz umschaltbar sein (Profil-Setting oder Browser-Sprache als Default). Fehlende Translation-Keys M\u00dcSSEN als Build-Fehler behandelt werden (Lint-Regel im CI). Der Sprachwechsel MUSS w\u00e4hrend der Session ohne Seiten-Reload erfolgen.\n",
+      "ReplacementContent": "### REQ-L2-RF-001: Frontend-i18n mit react-i18next (DE/EN)\n\nDas ReactFrontend MUSS alle UI-Texte \u00fcber react-i18next in Deutsch und Englisch bereitstellen. Jeder UI-String MUSS einen Translation-Key in beiden Sprachdateien (de.json, en.json) besitzen. Die Sprache MUSS pro Nutzer-Pr\u00e4ferenz umschaltbar sein (Profil-Setting oder Browser-Sprache als Default). Fehlende Translation-Keys M\u00dcSSEN als Build-Fehler behandelt werden (Lint-Regel im CI). Der Sprachwechsel MUSS w\u00e4hrend der Session ohne Seiten-Reload erfolgen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-002: Dashboard mit Projekt\u00fcbersicht und Offenen Punkten\n\nDas ReactFrontend MUSS ein Dashboard bereitstellen, das eine \u00dcbersicht \u00fcber alle Workspaces des aktuellen Nutzers zeigt, inklusive Anzahl der Requirements pro Workspace, Anzahl offener Punkte (Requirements im Initial-State ohne TraceLink) und aktives Terminologie-Profil.\n",
+      "ReplacementContent": "### REQ-L2-RF-002: Dashboard mit Projekt\u00fcbersicht und Offenen Punkten\n\nDas ReactFrontend MUSS ein Dashboard bereitstellen, das eine \u00dcbersicht \u00fcber alle Workspaces des aktuellen Nutzers zeigt, inklusive Anzahl der Requirements pro Workspace, Anzahl offener Punkte (Requirements im Initial-State ohne TraceLink) und aktives Terminologie-Profil.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-003: Requirements-Editor mit Inline-Editing und Markdown\n\nDas ReactFrontend MUSS einen Requirements-Editor bereitstellen, der Inline-Editing f\u00fcr Title, Description und Category eines Requirements unterst\u00fctzt. Das Description-Feld MUSS Markdown rendern (Vorschau und Edit-Modus). Der Editor MUSS den aktuellen WorkflowState anzeigen und State-\u00dcberg\u00e4nge \u00fcber ein Dropdown ausl\u00f6sen k\u00f6nnen.\n",
+      "ReplacementContent": "### REQ-L2-RF-003: Requirements-Editor mit Inline-Editing und Markdown\n\nDas ReactFrontend MUSS einen Requirements-Editor bereitstellen, der Inline-Editing f\u00fcr Title, Description und Category eines Requirements unterst\u00fctzt. Das Description-Feld MUSS Markdown rendern (Vorschau und Edit-Modus). Der Editor MUSS den aktuellen WorkflowState anzeigen und State-\u00dcberg\u00e4nge \u00fcber ein Dropdown ausl\u00f6sen k\u00f6nnen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-004: Architecture-Editor\n\nDas ReactFrontend MUSS einen Architecture-Editor bereitstellen, der CRUD-Operationen f\u00fcr ArchitectureElements unterst\u00fctzt \u2014 inkl. Element-Typ-Auswahl (Component, Interface, Subsystem, Layer, Module), Markdown-Description und Anzeige verkn\u00fcpfter TraceLinks.\n",
+      "ReplacementContent": "### REQ-L2-RF-004: Architecture-Editor\n\nDas ReactFrontend MUSS einen Architecture-Editor bereitstellen, der CRUD-Operationen f\u00fcr ArchitectureElements unterst\u00fctzt \u2014 inkl. Element-Typ-Auswahl (Component, Interface, Subsystem, Layer, Module), Markdown-Description und Anzeige verkn\u00fcpfter TraceLinks.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-005: Artefakt-Navigation als Baumstruktur\n\nDas ReactFrontend MUSS eine Artefakt-Navigation in Baumstruktur (Tree-View) bereitstellen, die die hierarchische Artifact-Struktur eines Workspaces darstellt. Der Baum MUSS Lazy-Loading f\u00fcr Kindknoten unterst\u00fctzen und per Klick ein Artefakt mit seinen Requirements im Editor \u00f6ffnen.\n",
+      "ReplacementContent": "### REQ-L2-RF-005: Artefakt-Navigation als Baumstruktur\n\nDas ReactFrontend MUSS eine Artefakt-Navigation in Baumstruktur (Tree-View) bereitstellen, die die hierarchische Artifact-Struktur eines Workspaces darstellt. Der Baum MUSS Lazy-Loading f\u00fcr Kindknoten unterst\u00fctzen und per Klick ein Artefakt mit seinen Requirements im Editor \u00f6ffnen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-006: Traceability-Anzeige\n\nDas ReactFrontend MUSS eine Traceability-Anzeige bereitstellen, die bidirektionale TraceLinks (Upstream/Downstream) zwischen Requirements, ArchitectureElements und TestCases visualisiert. Die Anzeige MUSS den Link-Typ (parent-child, derives-from, satisfies, verifies, implements, refines) als Label darstellen und per Klick auf ein verkn\u00fcpftes Artefakt navigieren.\n",
+      "ReplacementContent": "### REQ-L2-RF-006: Traceability-Anzeige\n\nDas ReactFrontend MUSS eine Traceability-Anzeige bereitstellen, die bidirektionale TraceLinks (Upstream/Downstream) zwischen Requirements, ArchitectureElements und TestCases visualisiert. Die Anzeige MUSS den Link-Typ (parent-child, derives-from, satisfies, verifies, implements, refines) als Label darstellen und per Klick auf ein verkn\u00fcpftes Artefakt navigieren.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-007: Preset-basierte UI-Sichtbarkeit\n\nDas ReactFrontend MUSS UI-Elemente, Felder und Funktionen basierend auf dem aktiven Workspace-Preset (Minimal / Standard / Extended) ein- oder ausblenden. Die Sichtbarkeitsregeln M\u00dcSSEN aus der PresetConfigEngine (ARCH-L1-008, via REST-Endpunkt) geladen werden. Beim Wechsel des Presets MUSS sich die UI ohne Seiten-Reload aktualisieren.\n",
+      "ReplacementContent": "### REQ-L2-RF-007: Preset-basierte UI-Sichtbarkeit\n\nDas ReactFrontend MUSS UI-Elemente, Felder und Funktionen basierend auf dem aktiven Workspace-Preset (Minimal / Standard / Extended) ein- oder ausblenden. Die Sichtbarkeitsregeln M\u00dcSSEN aus der PresetConfigEngine (ARCH-L1-008, via REST-Endpunkt) geladen werden. Beim Wechsel des Presets MUSS sich die UI ohne Seiten-Reload aktualisieren.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-008: Terminologie-Profil-Rendering (Dev-Modus / SE-Modus)\n\nDas ReactFrontend MUSS das aktive Terminologie-Profil (Dev-Modus / SE-Modus) aus den Workspace-Settings laden und UI-Labels dynamisch entsprechend rendern. Ein Profilwechsel MUSS ausschlie\u00dflich Labels und UI-Texte \u00e4ndern \u2014 keine API-Aufrufe mit ge\u00e4nderten Entit\u00e4tsnamen. Die generischen API-Feldnamen M\u00dcSSEN unver\u00e4ndert bleiben.\n",
+      "ReplacementContent": "### REQ-L2-RF-008: Terminologie-Profil-Rendering (Dev-Modus / SE-Modus)\n\nDas ReactFrontend MUSS das aktive Terminologie-Profil (Dev-Modus / SE-Modus) aus den Workspace-Settings laden und UI-Labels dynamisch entsprechend rendern. Ein Profilwechsel MUSS ausschlie\u00dflich Labels und UI-Texte \u00e4ndern \u2014 keine API-Aufrufe mit ge\u00e4nderten Entit\u00e4tsnamen. Die generischen API-Feldnamen M\u00dcSSEN unver\u00e4ndert bleiben.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-009: UI-Performance\n\nDas ReactFrontend MUSS initiale Seitenansichten innerhalb von 2 Sekunden rendern und Nutzerinteraktionen (Editor-Wechsel, Knoten-Expansion, Sprachwechsel) innerhalb von 500 ms verarbeiten \u2014 unter der Bedingung von bis zu 10.000 Requirements im aktiven Workspace und einer stabilen Netzwerkverbindung zum Backend.\n",
+      "ReplacementContent": "### REQ-L2-RF-009: UI-Performance\n\nDas ReactFrontend MUSS initiale Seitenansichten innerhalb von 2 Sekunden rendern und Nutzerinteraktionen (Editor-Wechsel, Knoten-Expansion, Sprachwechsel) innerhalb von 500 ms verarbeiten \u2014 unter der Bedingung von bis zu 10.000 Requirements im aktiven Workspace und einer stabilen Netzwerkverbindung zum Backend.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-010: REST-API-Kommunikation mit Bearer-Token-Authentifizierung\n\nDas ReactFrontend MUSS ausschlie\u00dflich \u00fcber die REST API (ARCH-L1-002) mit dem Backend kommunizieren. Jede Anfrage MUSS den Bearer-Token des authentifizierten Nutzers im `Authorization`-Header mitf\u00fchren. Bei 401-Antworten MUSS das Frontend den Nutzer zur Login-Seite umleiten.\n",
+      "ReplacementContent": "### REQ-L2-RF-010: REST-API-Kommunikation mit Bearer-Token-Authentifizierung\n\nDas ReactFrontend MUSS ausschlie\u00dflich \u00fcber die REST API (ARCH-L1-002) mit dem Backend kommunizieren. Jede Anfrage MUSS den Bearer-Token des authentifizierten Nutzers im `Authorization`-Header mitf\u00fchren. Bei 401-Antworten MUSS das Frontend den Nutzer zur Login-Seite umleiten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-011: Fehleranzeige und Backend-Error-Rendering\n\nDas ReactFrontend MUSS Backend-Fehlermeldungen (\u00fcbersetzt via Accept-Language in DE/EN) in einer nutzerfreundlichen Form anzeigen. Fehler M\u00dcSSEN den \u00fcbersetzten Text aus dem REST-Response enthalten und dem Nutzer eine Handlungsoption bieten (z.B. \u201eErneut versuchen\", \u201eZur\u00fcck\").\n",
+      "ReplacementContent": "### REQ-L2-RF-011: Fehleranzeige und Backend-Error-Rendering\n\nDas ReactFrontend MUSS Backend-Fehlermeldungen (\u00fcbersetzt via Accept-Language in DE/EN) in einer nutzerfreundlichen Form anzeigen. Fehler M\u00dcSSEN den \u00fcbersetzten Text aus dem REST-Response enthalten und dem Nutzer eine Handlungsoption bieten (z.B. \u201eErneut versuchen\", \u201eZur\u00fcck\").\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-012: Workspace-Konfigurations-UI\n\nDas ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der der Nutzer (mit Admin-Rolle) das aktive Preset (Minimal / Standard / Extended), das Terminologie-Profil (Dev-Modus / SE-Modus) und die Spracheinstellung einsehen und \u00e4ndern kann. \u00c4nderungen M\u00dcSSEN sofort wirksam werden (kein Reload erforderlich).\n",
+      "ReplacementContent": "### REQ-L2-RF-012: Workspace-Konfigurations-UI\n\nDas ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der der Nutzer (mit Admin-Rolle) das aktive Preset (Minimal / Standard / Extended), das Terminologie-Profil (Dev-Modus / SE-Modus) und die Spracheinstellung einsehen und \u00e4ndern kann. \u00c4nderungen M\u00dcSSEN sofort wirksam werden (kein Reload erforderlich).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-014: Visuelles Artefakt-Diff\n\nDas ReactFrontend MUSS \u00c4nderungen an einem einzelnen Artefakt zwischen zwei beliebigen Versionen als visuellen Text-Diff darstellen. Das Diff MUSS mit visueller Hervorhebung angezeigt werden (gr\u00fcn=hinzugef\u00fcgt, rot=gel\u00f6scht, gelb=ge\u00e4ndert). Die Diff-Ansicht ist in der Artefakt-Detailansicht integriert und zeigt Feld-Level-\u00c4nderungen.\n",
+      "ReplacementContent": "### REQ-L2-RF-014: Visuelles Artefakt-Diff\n\nDas ReactFrontend MUSS \u00c4nderungen an einem einzelnen Artefakt zwischen zwei beliebigen Versionen als visuellen Text-Diff darstellen. Das Diff MUSS mit visueller Hervorhebung angezeigt werden (gr\u00fcn=hinzugef\u00fcgt, rot=gel\u00f6scht, gelb=ge\u00e4ndert). Die Diff-Ansicht ist in der Artefakt-Detailansicht integriert und zeigt Feld-Level-\u00c4nderungen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-RF-015: Visuelles Baseline-Diff\n\nDas ReactFrontend MUSS den Vergleich zweier benannter Baselines als visuellen Diff darstellen. Die Diff-Ansicht zeigt eine kategorisierte Liste (hinzugef\u00fcgte, ge\u00e4nderte, gel\u00f6schte Artefakte inkl. Versions-Delta) mit Navigation zwischen Kategorien. Vergleich inkompatibler Scopes (document\u2194project) MUSS einen klaren Fehlerhinweis anzeigen.\n",
+      "ReplacementContent": "### REQ-L2-RF-015: Visuelles Baseline-Diff\n\nDas ReactFrontend MUSS den Vergleich zweier benannter Baselines als visuellen Diff darstellen. Die Diff-Ansicht zeigt eine kategorisierte Liste (hinzugef\u00fcgte, ge\u00e4nderte, gel\u00f6schte Artefakte inkl. Versions-Delta) mit Navigation zwischen Kategorien. Vergleich inkompatibler Scopes (document\u2194project) MUSS einen klaren Fehlerhinweis anzeigen.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 440,
+      "AllowMultiple": false
+    }
+  ]
+}

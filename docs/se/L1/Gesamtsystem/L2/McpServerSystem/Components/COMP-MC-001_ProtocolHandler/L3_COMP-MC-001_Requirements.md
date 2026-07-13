@@ -40,6 +40,13 @@ Transport-Protokoll-Abstraktion (stdio, SSE, HTTP), JSON-RPC-Frame-Validierung, 
 
 ### REQ-L3-MC001-001: Transport-Protokoll-Unterstuetzung
 
+
+**Implementation State:** Implemented
+**Review Findings:** `McpSseTransportView` verarbeitet SSE asynchron über Redis.
+**Test Status:** Covered
+**Remarks:** HTTP POST 202 Accepted ist standardkonform umgesetzt.
+
+
 Der ProtocolHandler SHALL MCP-Anfragen ueber alle drei Transportprotokolle stdio, SSE und HTTP empfangen und beantworten. Das verwendete Transportprotokoll SHALL fuer die nachgelagerten Komponenten vollstaendig transparent sein; der interne Dispatch-Aufruf (IF-MC-INT-001) DARF KEINE transportspezifischen Informationen enthalten.
 
 **Priority:** mandatory
@@ -53,6 +60,13 @@ Der ProtocolHandler SHALL MCP-Anfragen ueber alle drei Transportprotokolle stdio
 ---
 
 ### REQ-L3-MC001-002: JSON-RPC-Frame-Validierung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Standardkonforme `protocol_handler.py` verarbeitet `initialize`, `tools/list` und `tools/call`.
+**Test Status:** Covered
+**Remarks:** Vollständige JSON-RPC Fehlerbehandlung integriert.
+
 
 Der ProtocolHandler SHALL eingehende JSON-RPC-Frames gegen das MCP-Protokollschema validieren, bevor ein Dispatch erfolgt. Frames mit fehlendem `method`-Feld, ungueltiger `id`, fehlerhaftem JSON oder unbekanntem MCP-Methoden-Typ SHALL mit einem strukturierten Fehler gemaess REQ-L2-MC-011 abgelehnt werden, ohne dass die ToolRegistry involviert wird.
 
@@ -68,6 +82,13 @@ Der ProtocolHandler SHALL eingehende JSON-RPC-Frames gegen das MCP-Protokollsche
 
 ### REQ-L3-MC001-003: API-Key-Extraktion und -Weiterleitung
 
+
+**Implementation State:** Implemented
+**Review Findings:** API Key Extraktion in View Layer implementiert, wird via AuthContext übergeben.
+**Test Status:** Covered
+**Remarks:** Auth-Prüfung erfolgt vor Dispatch in ToolRegistry.
+
+
 Der ProtocolHandler SHALL den API-Key aus dem eingehenden MCP-Request extrahieren und ihn als Teil des Dispatch-Aufrufs (IF-MC-INT-001) an die ToolRegistry uebergeben. Fehlt der API-Key im Request, SHALL der ProtocolHandler die Anfrage mit Fehler `AUTH_FAILED` unmittelbar ablehnen, ohne Dispatch.
 
 **Priority:** mandatory
@@ -80,6 +101,13 @@ Der ProtocolHandler SHALL den API-Key aus dem eingehenden MCP-Request extrahiere
 ---
 
 ### REQ-L3-MC001-004: Response-Serialisierung und -Routing
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der ProtocolHandler SHALL ein eingehendes `ToolResult`-Objekt (IF-MC-INT-006) korrekt in das transportspezifische JSON-Antwortformat serialisieren und an den aufrufenden AI-Agent zurueckgeben. Die Zuordnung zwischen eingehender Request-`id` und ausgehender Response-`id` SHALL eineindeutig und verlustfrei sein (kein Request/Response-Mismatch).
 

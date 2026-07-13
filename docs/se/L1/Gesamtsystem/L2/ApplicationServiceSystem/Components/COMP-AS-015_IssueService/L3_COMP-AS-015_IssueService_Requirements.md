@@ -63,6 +63,11 @@ Der IssueService SHALL ein neues Issue-Artefakt erstellen und folgende Schritte 
 - [ ] Rückgabe der erstellten Issue-UUID
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-INT-003, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Issues sind Lifecycle-Artefakte mit State-Management und Priorisierung.
 
@@ -90,6 +95,11 @@ Der IssueService SHALL Issues mit strukturierten Metadaten speichern:
 - [ ] Due-Date wird formatiert (ISO 8601)
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Strukturierte Issue-Erfassung ermöglicht Priorisierung und Verwaltung.
 
@@ -112,6 +122,11 @@ Der IssueService SHALL Issue-Updates mit Versionshistorie verwalten. Bei Änderu
 - [ ] Versionsverlauf ist querybar
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Nachvollziehbarkeit von Problem-Änderungen.
 
@@ -134,6 +149,11 @@ Bei Löschung eines Issues SHALL der IssueService:
 - [ ] Atomare Transaktion mit Rollback on Error
 
 **Interfaces:** IF-AS-INT-002, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Referenzielle Integrität und Datenhygiene.
 
@@ -158,6 +178,11 @@ Der IssueService SHALL Workflow-State-Transitions für Issues delegieren an Work
 - [ ] Nur Open Issues können in In Progress wechseln
 
 **Interfaces:** IF-AS-INT-003
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Controlled Issue-Lifecycle.
 
@@ -181,6 +206,11 @@ Der IssueService SHALL TraceLinks zwischen Issues und anderen Artefakten verwalt
 - [ ] Link-Erstellung ist optional
 
 **Interfaces:** IF-AS-INT-002
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Impact-Analyse und Abhängigkeits-Management.
 
@@ -203,6 +233,11 @@ Der IssueService SHALL Issues nach Severity priorisieren können:
 - [ ] Severity wird in Result-Payload geliefert
 
 **Interfaces:** IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Priorisierung für Triage und Reporting.
 
@@ -224,6 +259,11 @@ Der IssueService SHALL Assignee-Zuordnungen verwalten:
 - [ ] Query nach assignee_id möglich
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Verantwortlichkeits-Management.
 
@@ -245,6 +285,11 @@ Der IssueService SHALL garantieren:
 - [ ] Keine Cross-Tenant-TraceLinks
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
+**Test Status:** Covered
+**Remarks:** Implementierung prüfen.
+
 **Traceability:** REQ-L2-AppSvc-022
 **Rationale:** Sicherheit und Datenisolation.
 
@@ -268,6 +313,11 @@ Diese Events werden via DomainEventBus publiziert.
 - [ ] Fire-and-Forget (nicht-blockierend)
 
 **Interfaces:** IF-AS-INT-017
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Asynchrone Publikation für Audit und externe Systeme.
 
@@ -293,6 +343,11 @@ Der IssueService SHALL folgende Query-Operationen unterstützen:
 - [ ] Queries performant (≤500ms)
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L1-029
 **Rationale:** Abfrageunterstützung für Triage und Reporting.
 
@@ -318,3 +373,12 @@ Der IssueService SHALL folgende Query-Operationen unterstützen:
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-ISSUE-009 | REQ-L2-AppSvc-022 |
+| REQ-L3-ISSUE-010 | REQ-L2-AppSvc-026 |
+

@@ -1,0 +1,133 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\BaselineServiceSystem\\L2_BaselineServiceSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-BL-001: Baseline Scope Resolution and Delta Storage\n\nDer BaselineService SHALL den angeforderten Scope (`document`, `project`, `global`) aufl\u00f6sen und alle betroffenen Item-IDs mit exakter Revisions-Nummer (`version`) ermitteln. TraceLinks SHALL \u00fcber die TraceabilityEngine gesammelt werden. Der Snapshot SHALL als Menge von `(item_id, version)`-Tupeln plus zugeh\u00f6rigen TraceLink-Referenzen atomar persistiert werden. Der vollst\u00e4ndige Item-Payload (title, description, content) DARF NICHT in der Baseline gespeichert werden.\n\n- **Scope-Semantik:**\n  - `document`: Ein Artefakt + alle Nachkommen (rekursiv) inkl. zugeh\u00f6riger Items und TraceLinks.\n  - `project`: Alle Items eines Workspaces.\n  - `global`: Alle Items aller Workspaces des Tenants.\n",
+      "ReplacementContent": "### REQ-L2-BL-001: Baseline Scope Resolution and Delta Storage\n\nDer BaselineService SHALL den angeforderten Scope (`document`, `project`, `global`) aufl\u00f6sen und alle betroffenen Item-IDs mit exakter Revisions-Nummer (`version`) ermitteln. TraceLinks SHALL \u00fcber die TraceabilityEngine gesammelt werden. Der Snapshot SHALL als Menge von `(item_id, version)`-Tupeln plus zugeh\u00f6rigen TraceLink-Referenzen atomar persistiert werden. Der vollst\u00e4ndige Item-Payload (title, description, content) DARF NICHT in der Baseline gespeichert werden.\n\n- **Scope-Semantik:**\n  - `document`: Ein Artefakt + alle Nachkommen (rekursiv) inkl. zugeh\u00f6riger Items und TraceLinks.\n  - `project`: Alle Items eines Workspaces.\n  - `global`: Alle Items aller Workspaces des Tenants.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-BL-002: Baseline Immutability\n\nDer BaselineService SHALL strenge Unver\u00e4nderlichkeit nach der Erstellung erzwingen. Ein persistierter Baseline-Snapshot DARF NICHT modifiziert, gel\u00f6scht oder \u00fcberschrieben werden.\n",
+      "ReplacementContent": "### REQ-L2-BL-002: Baseline Immutability\n\nDer BaselineService SHALL strenge Unver\u00e4nderlichkeit nach der Erstellung erzwingen. Ein persistierter Baseline-Snapshot DARF NICHT modifiziert, gel\u00f6scht oder \u00fcberschrieben werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-BL-003: Baseline Diff (Vergleich)\n\nDer BaselineService SHALL den Vergleich zweier Baselines desselben Scopes unterst\u00fctzen. Das Diff SHALL drei Kategorien enthalten: added, removed, changed (mit old/new Version). Baselines unterschiedlichen Scopes S\u00dcLLEN mit Fehler abgelehnt werden.\n",
+      "ReplacementContent": "### REQ-L2-BL-003: Baseline Diff (Vergleich)\n\nDer BaselineService SHALL den Vergleich zweier Baselines desselben Scopes unterst\u00fctzen. Das Diff SHALL drei Kategorien enthalten: added, removed, changed (mit old/new Version). Baselines unterschiedlichen Scopes S\u00dcLLEN mit Fehler abgelehnt werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-BL-004: Preset Gate \u2014 Scope Availability\n\nDer BaselineService SHALL die PresetConfigEngine konsultieren, um die Scope-Verf\u00fcgbarkeit zu pr\u00fcfen:\n- Minimal: keine Baselines\n- Standard: `document` und `project`, kein `global`\n- Extended: alle drei Scopes\n",
+      "ReplacementContent": "### REQ-L2-BL-004: Preset Gate \u2014 Scope Availability\n\nDer BaselineService SHALL die PresetConfigEngine konsultieren, um die Scope-Verf\u00fcgbarkeit zu pr\u00fcfen:\n- Minimal: keine Baselines\n- Standard: `document` und `project`, kein `global`\n- Extended: alle drei Scopes\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-BL-005: Baseline Naming and Metadata\n\nDer BaselineService SHALL einen eindeutigen, nicht-leeren Namen pro Workspace verlangen. Metadata: `name`, `scope`, `workspace_id`, `description` (optional), `created_by`, `created_at` (UTC). Doppelte Namen im selben Workspace S\u00dcLLEN abgelehnt werden.\n",
+      "ReplacementContent": "### REQ-L2-BL-005: Baseline Naming and Metadata\n\nDer BaselineService SHALL einen eindeutigen, nicht-leeren Namen pro Workspace verlangen. Metadata: `name`, `scope`, `workspace_id`, `description` (optional), `created_by`, `created_at` (UTC). Doppelte Namen im selben Workspace S\u00dcLLEN abgelehnt werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-BL-006: Baseline Retrieval and Listing\n\nDer BaselineService SHALL Einzelabruf (mit vollst\u00e4ndigem Snapshot) und Listen (optional nach Scope gefiltert, sortiert nach created_at DESC) unterst\u00fctzen. Listen SOLLTEN den Snapshot nicht enthalten.\n",
+      "ReplacementContent": "### REQ-L2-BL-006: Baseline Retrieval and Listing\n\nDer BaselineService SHALL Einzelabruf (mit vollst\u00e4ndigem Snapshot) und Listen (optional nach Scope gefiltert, sortiert nach created_at DESC) unterst\u00fctzen. Listen SOLLTEN den Snapshot nicht enthalten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-BL-007: Atomic Creation with Transactional Guarantees\n\nDer BaselineService SHALL Baselines atomar erstellen: entweder der komplette Snapshot wird persistiert oder keine Daten (vollst\u00e4ndiges Rollback).\n",
+      "ReplacementContent": "### REQ-L2-BL-007: Atomic Creation with Transactional Guarantees\n\nDer BaselineService SHALL Baselines atomar erstellen: entweder der komplette Snapshot wird persistiert oder keine Daten (vollst\u00e4ndiges Rollback).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-BL-009: Baseline-Rekonstruktion aus Versionshistorie\n\nDer BaselineService SHALL in der Lage sein, den Zustand eines Items zum Baseline-Zeitpunkt zu rekonstruieren. Dazu greift er auf die Versionshistorie (AuditLog oder `RequirementVersion`-Tabelle) zur\u00fcck und liefert den Payload der gespeicherten `version` zur\u00fcck. Die Funktion `get_item_at_baseline(baseline_id, item_id)` SHALL den vollst\u00e4ndigen Item-Payload zur zum Baseline-Zeitpunkt gespeicherten Version zur\u00fcckgeben.\n",
+      "ReplacementContent": "### REQ-L2-BL-009: Baseline-Rekonstruktion aus Versionshistorie\n\nDer BaselineService SHALL in der Lage sein, den Zustand eines Items zum Baseline-Zeitpunkt zu rekonstruieren. Dazu greift er auf die Versionshistorie (AuditLog oder `RequirementVersion`-Tabelle) zur\u00fcck und liefert den Payload der gespeicherten `version` zur\u00fcck. Die Funktion `get_item_at_baseline(baseline_id, item_id)` SHALL den vollst\u00e4ndigen Item-Payload zur zum Baseline-Zeitpunkt gespeicherten Version zur\u00fcckgeben.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-BL-008: Baseline Creation Performance\n\nDer BaselineService SHALL Baseline-Erstellung f\u00fcr bis zu 10.000 Items innerhalb von 5 Sekunden abschlie\u00dfen. Diff-Operationen zwischen zwei Baselines SOLLTEN innerhalb von 2 Sekunden abgeschlossen sein.\n",
+      "ReplacementContent": "### REQ-L2-BL-008: Baseline Creation Performance\n\nDer BaselineService SHALL Baseline-Erstellung f\u00fcr bis zu 10.000 Items innerhalb von 5 Sekunden abschlie\u00dfen. Diff-Operationen zwischen zwei Baselines SOLLTEN innerhalb von 2 Sekunden abgeschlossen sein.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 294,
+      "AllowMultiple": false
+    }
+  ]
+}

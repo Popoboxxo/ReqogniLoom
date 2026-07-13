@@ -38,8 +38,12 @@ Das IcdManagementSystem verwaltet Schnittstellen zwischen ArchitectureElements a
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-ICD-001: ICD CRUD und Versionierung
-
 Das IcdManagementSystem SHALL vollständiges CRUD für Interface Control Documents bereitstellen. Jede Änderung eines ICDs MUSS eine neue, unveränderliche Version (IcdVersion) erzeugen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -52,14 +56,19 @@ Das IcdManagementSystem SHALL vollständiges CRUD für Interface Control Documen
 - Incoming: IF-L1-037
 - Outgoing: IF-L1-040
 
+
 **Traceability:** REQ-L1-028
 **Rationale:** Unveränderliche Schnittstellenverträge sind essenziell für Systemintegration.
 
 ---
 
 ### REQ-L2-ICD-002: Design-by-Contract Modellierung
-
 Das IcdManagementSystem SHALL ICDs mit Feldern für Richtung, Typ, semantische Beschreibung, Vorbedingungen (Preconditions), Nachbedingungen (Postconditions) und Invarianten verwalten.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -71,14 +80,19 @@ Das IcdManagementSystem SHALL ICDs mit Feldern für Richtung, Typ, semantische B
 - Incoming: IF-L1-037
 - Outgoing: IF-L1-040
 
+
 **Traceability:** REQ-L1-028
 **Rationale:** Setzt das vertragsbasierte Schnittstellendesign nach Systems Engineering Standards um.
 
 ---
 
 ### REQ-L2-ICD-003: Breaking-Change Erkennung
-
 Das IcdManagementSystem SHALL bei jedem Update eine semantische Kompatibilitätsprüfung durchführen. Inkompatible Änderungen (z.B. Verschärfung von Vorbedingungen, Aufweichung von Nachbedingungen) MÜSSEN erkannt und als Breaking-Change-Warnung gemeldet werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -88,14 +102,19 @@ Das IcdManagementSystem SHALL bei jedem Update eine semantische Kompatibilitäts
 **Interfaces:**
 - Incoming: IF-L1-037
 
+
 **Traceability:** REQ-L1-028
 **Rationale:** Verhindert unbeabsichtigte Zerstörung von Systemintegrationen durch Schnittstellenänderungen.
 
 ---
 
 ### REQ-L2-ICD-004: Traceability-Verknüpfung (Typ: realizes)
-
 Das IcdManagementSystem SHALL bei Erstellung eines ICD die Verknüpfung zu den betroffenen ArchitectureElements (Source und Target) über den TraceLink-Typ `realizes` in der TraceabilityEngine anlegen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -106,14 +125,19 @@ Das IcdManagementSystem SHALL bei Erstellung eines ICD die Verknüpfung zu den b
 - Incoming: IF-L1-037
 - Outgoing: IF-L1-039
 
+
 **Traceability:** REQ-L1-028
 **Rationale:** ICDs verknüpfen Architekturkomponenten und müssen im Traceability-Graph navigierbar sein.
 
 ---
 
 ### REQ-L2-ICD-005: Baseline-Integration
-
 Das IcdManagementSystem SHALL aktuelle ICD-Versionen für den Baseline-Snapshot auf Anfrage bereitstellen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -123,14 +147,19 @@ Das IcdManagementSystem SHALL aktuelle ICD-Versionen für den Baseline-Snapshot 
 **Interfaces:**
 - Incoming: IF-L1-038
 
+
 **Traceability:** REQ-L1-028
 **Rationale:** Schnittstellenverträge müssen Teil von reproduzierbaren Projekt-Baselines sein.
 
 ---
 
 ### REQ-L2-ICD-006: Audit-Logging für Breaking Changes
-
 Das IcdManagementSystem SHALL erkannte Breaking-Change-Events in das AuditLog schreiben.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** desired
@@ -139,6 +168,7 @@ Das IcdManagementSystem SHALL erkannte Breaking-Change-Events in das AuditLog sc
 
 **Interfaces:**
 - Outgoing: IF-L1-041
+
 
 **Traceability:** REQ-L1-028
 **Rationale:** Erhöhte Sichtbarkeit und Nachverfolgbarkeit für kritische Schnittstellenbrüche.
@@ -175,3 +205,16 @@ Das IcdManagementSystem SHALL erkannte Breaking-Change-Events in das AuditLog sc
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
 *Handoff: HOFF-20260621-002 | Parent: REQ-L1-028 | Architektur-Referenz: ARCH-L1-014*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-ICD-001 | REQ-L1-028 |
+| REQ-L2-ICD-002 | REQ-L1-028 |
+| REQ-L2-ICD-003 | REQ-L1-028 |
+| REQ-L2-ICD-004 | REQ-L1-028 |
+| REQ-L2-ICD-005 | REQ-L1-028 |
+| REQ-L2-ICD-006 | REQ-L1-028 |
+

@@ -41,6 +41,11 @@ Tenant-Extraktion aus Token oder API-Key, Request-Context-Injektion für den Cus
 Der TenantContextService SHALL aus den eingehenden `IdentityClaims` die `tenant_id` extrahieren und daraus einen validierten `TenantContext {tenant_id, tenant_name}` erzeugen. Kann die `tenant_id` nicht aufgelöst werden (unbekannter Tenant, fehlende Zuordnung), SHALL die Komponente mit HTTP 500 `{"error": "tenant_resolution_failed", "message": "Tenant resolution failed"}` abbrechen, ohne einen partiellen Kontext weiterzuleiten.
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-008
 **Acceptance Criteria:**
 - [ ] Valid `tenant_id` in `IdentityClaims` → `TenantContext` produced with correct `tenant_name` from DB
@@ -56,6 +61,11 @@ Der TenantContextService SHALL aus den eingehenden `IdentityClaims` die `tenant_
 Der TenantContextService SHALL den erzeugten `TenantContext` in den Django Request-Context injizieren, sodass der Custom Manager ihn automatisch auf alle ORM-Queries anwendet. Die Injektion SHALL für jeden Request neu erfolgen und nach Abschluss des Requests bereinigt werden. Kein Request SHALL ohne aktiven Tenant-Context die Persistenzschicht erreichen dürfen.
 
 **Priority:** mandatory
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AT-008
 **Acceptance Criteria:**
 - [ ] Tenant T1 creates requirement → query from tenant T2 context does not return it
@@ -70,6 +80,11 @@ Der TenantContextService SHALL den erzeugten `TenantContext` in den Django Reque
 Der TenantContextService SHALL nach vollständiger Tenant-Auflösung einen immutablen Auth-Kontext erzeugen: `{user_id, tenant_id, active_roles, auth_method, api_key_id}` und diesen an den ApplicationService, die WorkflowEngine und das AuditLog übergeben. Der Kontext SHALL nach Erzeugung nicht veränderbar sein.
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AT-005
 **Acceptance Criteria:**
 - [ ] Bearer-auth request → context contains `{auth_method: "bearer_token", api_key_id: null}`
@@ -86,6 +101,11 @@ Der TenantContextService SHALL nach vollständiger Tenant-Auflösung einen immut
 Der TenantContextService SHALL den erzeugten `TenantContext` über die interne Schnittstelle IF-AT-INT-003 an den AuthorizationService weiterleiten, bevor dieser einen Berechtigungsentscheid trifft. Der `TenantContext` SHALL die vollständigen Tenant-Metadaten `{tenant_id, tenant_name}` enthalten.
 
 **Priority:** mandatory
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AT-005, REQ-L2-AT-008
 **Acceptance Criteria:**
 - [ ] AuthorizationService receives `TenantContext` on every authorization evaluation
@@ -96,3 +116,14 @@ Der TenantContextService SHALL den erzeugten `TenantContext` über die interne S
 ---
 
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-AT003-001 | REQ-L2-AT-008 |
+| REQ-L3-AT003-002 | REQ-L2-AT-008 |
+| REQ-L3-AT003-003 | REQ-L2-AT-005 |
+| REQ-L3-AT003-004 | REQ-L2-AT-005, REQ-L2-AT-008 |
+

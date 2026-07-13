@@ -32,7 +32,6 @@
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-WE-001: Transition Validation
-
 Die WorkflowEngine SHALL jede Workflow-State-Transition (`from_state → to_state`) gegen die aktive WorkflowDefinition validieren. Die Validierung SHALL vier Regeln durchsetzen:
 1. Die Transition existiert in der aktiven WorkflowDefinition für den Item-Typ und Workspace.
 2. Die Rolle des anfragenden Nutzers ist in den `allowed_roles` der Transition enthalten.
@@ -40,6 +39,11 @@ Die WorkflowEngine SHALL jede Workflow-State-Transition (`from_state → to_stat
 4. Falls die Transition ein `SignatureGate` besitzt, MUSS der Aufruf ein gültiges Credential (Passwort-Bestätigung oder TOTP-Token) enthalten.
 
 Bei Regelverletzung SHALL die Transition mit spezifischer Fehlermeldung abgelehnt werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -54,19 +58,24 @@ Bei Regelverletzung SHALL die Transition mit spezifischer Fehlermeldung abgelehn
 - Incoming: IF-WE-EXT-IN-001, IF-WE-EXT-IN-003, IF-WE-EXT-IN-004, IF-WE-EXT-IN-005
 - Outgoing: IF-WE-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-010 (mitwirkend), REQ-L1-012 (mitwirkend)
 **Rationale:** Transition-Validierung ist der Kern-Sicherheitsmechanismus der WorkflowEngine.
 
 ---
 
 ### REQ-L2-WE-002: WorkflowDefinition Management
-
 Die WorkflowEngine SHALL WorkflowDefinitions pro Item-Typ und Workspace verwalten. Vordefinierte Default-Workflows für alle drei Presets:
 - **Minimal:** States `[draft, done]`, alle Transitionen für `editor`.
 - **Standard:** States `[draft, approved, deprecated]`, rollenbasiert.
 - **Extended:** States `[draft, in_review, approved, deprecated]`, `in_review → approved` nur für `approver`, `change_reason` Pflicht.
 
 Custom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-Preset SHALL der Default-Workflow nicht konfigurierbar sein. Jede Transition KANN optional ein `signature_gate`-Attribut (boolean) tragen; ist es gesetzt (`true`), wird bei der Ausführung ein Credential verlangt.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -81,14 +90,19 @@ Custom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-P
 - Incoming: IF-WE-EXT-IN-003
 - Outgoing: IF-WE-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-009, REQ-L1-007 (mitwirkend)
 **Rationale:** WorkflowDefinitions sind das strukturelle Fundament von Configurable Rigor auf Item-Ebene.
 
 ---
 
 ### REQ-L2-WE-003: WorkflowState History (Audit-Trail)
-
 Die WorkflowEngine SHALL für jede erfolgreiche Transition einen append-only History-Eintrag schreiben mit: `from_state`, `to_state`, `transitioned_by`, `transitioned_at` (UTC, ms-Präzision), `change_reason` (optional), `signature_seal` (kryptografisches Prüfsiegel, non-null wenn SignatureGate durchlaufen). History-Einträge DÜRFEN NICHT modifiziert oder gelöscht werden. Transition und History-Eintrag MÜSSEN atomar persistiert werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -102,14 +116,19 @@ Die WorkflowEngine SHALL für jede erfolgreiche Transition einen append-only His
 **Interfaces:**
 - Outgoing: IF-WE-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-009, REQ-L1-011 (mitwirkend), REQ-L1-025 (mitwirkend)
 **Rationale:** Append-only History ist die Grundlage des Audit-Trails für Workflow-Transitionen.
 
 ---
 
 ### REQ-L2-WE-004: Workflow Migration on Definition Change
-
 Die WorkflowEngine SHALL bei WorkflowDefinition-Änderungen prüfen, ob Items in nicht mehr vorhandenen States existieren (verwaiste States). Falls ja, SHALL die Änderung blockiert werden mit Fehlermeldung (State-Name, betroffene Item-Anzahl, Item-IDs bis Limit 100).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -121,14 +140,19 @@ Die WorkflowEngine SHALL bei WorkflowDefinition-Änderungen prüfen, ob Items in
 **Interfaces:**
 - Outgoing: IF-WE-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-009, REQ-L1-007 (mitwirkend)
 **Rationale:** Verhindert stille Datenkorruption durch unkontrollierte Definitionsänderungen. Adressiert OP-03.
 
 ---
 
 ### REQ-L2-WE-005: Workflow State Initialization
-
 Die WorkflowEngine SHALL die Operation `initialize_workflow_state(item_ids[], item_type, workspace_id, ctx)` bereitstellen, die für jedes Item einen initialen WorkflowState erstellt (initial_state, typischerweise `draft`). Alle States MÜSSEN atomar persistiert werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -142,14 +166,19 @@ Die WorkflowEngine SHALL die Operation `initialize_workflow_state(item_ids[], it
 - Incoming: IF-WE-EXT-IN-002
 - Outgoing: IF-WE-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-012 (mitwirkend), REQ-L1-025 (mitwirkend)
 **Rationale:** Initialisierung ist erforderlich bei jeder Item-Erstellung (REST, MCP, CSV-Import).
 
 ---
 
 ### REQ-L2-WE-006: Tenant-Scoped Workflow Data Isolation
-
 Die WorkflowEngine SHALL alle WorkflowDefinition- und WorkflowState-Queries auf den aktiven Tenant beschränken. Jede Operation SHALL den `tenant_id` aus dem Auth-Kontext als Filter verwenden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** mandatory
@@ -161,14 +190,19 @@ Die WorkflowEngine SHALL alle WorkflowDefinition- und WorkflowState-Queries auf 
 **Interfaces:**
 - Outgoing: IF-WE-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-015, REQ-L1-009 (mitwirkend)
 **Rationale:** Tenant-Isolation ist Querschnittsanforderung für alle Subsysteme.
 
 ---
 
 ### REQ-L2-WE-007: Preset-Downgrade Behavior
-
 Die WorkflowEngine SHALL bei Preset-Downgrades prüfen, ob Items in States existieren, die im Zielpreset nicht gültig sind. Falls ja, SHALL der Downgrade blockiert werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -181,14 +215,19 @@ Die WorkflowEngine SHALL bei Preset-Downgrades prüfen, ob Items in States exist
 - Incoming: IF-WE-EXT-IN-003
 - Outgoing: IF-WE-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-007, REQ-L1-009 (mitwirkend)
 **Rationale:** Verhindert Items in States ohne gültige Transitionen. Adressiert OP-02.
 
 ---
 
 ### REQ-L2-WE-008: Transition Performance
-
 Die WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + History-Write) innerhalb von 50ms abschließen — unter Normal-Last (50 gleichzeitige Nutzer, 10.000 Items).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -200,14 +239,19 @@ Die WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + 
 - Incoming: IF-WE-EXT-IN-001
 - Outgoing: IF-WE-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-026, REQ-L1-009 (mitwirkend)
 **Rationale:** 50ms-Budget stellt sicher, dass die WorkflowEngine nicht zum Flaschenhals wird.
 
 ---
 
 ### REQ-L2-WE-009: SignatureGate — Credential-Verifizierung
-
 Die WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das übergebene Credential (Passwort-Bestätigung oder TOTP-Token) gegen das AuthAndTenancy-System verifizieren, bevor die Transition ausgeführt wird. Schlägt die Verifizierung fehl, SHALL die Transition abgebrochen werden (HTTP 403) und kein AuditLog-Eintrag geschrieben werden. Bei erfolgreicher Verifizierung SHALL ein kryptografisches Prüfsiegel (`signature_seal`) als HMAC-SHA256 aus `transition_id + timestamp + user_id` berechnet und im History-Eintrag gespeichert werden. Ziel ist die Erfüllung der Anforderungen an Qualified Electronic Signatures (QES) für sicherheitskritische Systeme (IEC 61508 v2).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Geprüft von se-verifier (2026-07-01). WorkflowEngine Tests erfolgreich.
 
 **Domain:** software
 **Priority:** desired
@@ -221,6 +265,7 @@ Die WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das überge
 **Interfaces:**
 - Incoming: IF-WE-EXT-IN-001 (erweiterter Payload), IF-WE-EXT-IN-004, IF-WE-EXT-IN-005
 - Outgoing: IF-WE-EXT-OUT-001
+
 
 **Traceability:** REQ-L1-009, REQ-L1-010 (mitwirkend)
 **Rationale:** SignatureGate ermöglicht QES-konforme Workflow-Transitionen für IEC 61508 v2 (Safety-Critical Systems). Ohne kryptografisches Prüfsiegel im AuditLog sind Safety-Nachweise nicht auditierbar.
@@ -259,3 +304,19 @@ Die WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das überge
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-Workflow → REQ-L2-WE, Template-Standardisierung*
 *Designation: subsystem (Leaf-AE) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-WE-001 | REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-010 (mitwirkend), REQ-L1-012 (mitwirkend) |
+| REQ-L2-WE-002 | REQ-L1-009, REQ-L1-007 (mitwirkend) |
+| REQ-L2-WE-003 | REQ-L1-009, REQ-L1-011 (mitwirkend), REQ-L1-025 (mitwirkend) |
+| REQ-L2-WE-004 | REQ-L1-009, REQ-L1-007 (mitwirkend) |
+| REQ-L2-WE-005 | REQ-L1-009, REQ-L1-002 (mitwirkend), REQ-L1-004 (mitwirkend), REQ-L1-012 (mitwirkend), REQ-L1-025 (mitwirkend) |
+| REQ-L2-WE-006 | REQ-L1-015, REQ-L1-009 (mitwirkend) |
+| REQ-L2-WE-007 | REQ-L1-007, REQ-L1-009 (mitwirkend) |
+| REQ-L2-WE-008 | REQ-L1-026, REQ-L1-009 (mitwirkend) |
+| REQ-L2-WE-009 | REQ-L1-009, REQ-L1-010 (mitwirkend) |
+

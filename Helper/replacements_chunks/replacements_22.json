@@ -1,0 +1,35 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\IcdManagementSystem\\Components\\COMP-ICD-002_ContractValidator\\L3_COMP-ICD-002_ContractValidator_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L3-ICD-002-001: Design-by-Contract Validierung\n\nDie Komponente ContractValidator SHALL bei der Vertragspr\u00fcfung die korrekte Struktur der Felder f\u00fcr Richtung, Typ, Beschreibung, Vorbedingungen, Nachbedingungen und Invarianten validieren.",
+      "ReplacementContent": "### REQ-L3-ICD-002-001: Design-by-Contract Validierung\n\nDie Komponente ContractValidator SHALL bei der Vertragspr\u00fcfung die korrekte Struktur der Felder f\u00fcr Richtung, Typ, Beschreibung, Vorbedingungen, Nachbedingungen und Invarianten validieren.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 68,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 68,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L3-ICD-002-002: Breaking Change Erkennung\n\nDie Komponente ContractValidator SHALL beim Aufruf von `validate_contract` (IF-ICD-INT-001) einen semantischen Vergleich der Felder durchf\u00fchren, um inkompatible \u00c4nderungen (Breaking Changes) wie z.B. Versch\u00e4rfungen der Vorbedingungen oder Aufweichungen der Nachbedingungen zu identifizieren.",
+      "ReplacementContent": "### REQ-L3-ICD-002-002: Breaking Change Erkennung\n\nDie Komponente ContractValidator SHALL beim Aufruf von `validate_contract` (IF-ICD-INT-001) einen semantischen Vergleich der Felder durchf\u00fchren, um inkompatible \u00c4nderungen (Breaking Changes) wie z.B. Versch\u00e4rfungen der Vorbedingungen oder Aufweichungen der Nachbedingungen zu identifizieren.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 68,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 68,
+      "AllowMultiple": false
+    }
+  ]
+}

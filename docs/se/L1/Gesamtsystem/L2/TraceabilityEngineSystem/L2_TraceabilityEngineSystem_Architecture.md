@@ -10,7 +10,7 @@
 
 ## 1. Verantwortlichkeit
 
-Verwaltet TraceLinks zwischen Requirements, ArchitectureElements und TestCases mit den Link-Typen `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`, `documents`, `realizes`. Beantwortet Upstream/Downstream-Queries (inkl. Cross-Projekt-Traversal) und Coverage-Reports. Performance-Ziel: < 200 ms fuer 10.000 Items.
+Verwaltet TraceLinks zwischen Requirements, ArchitectureElements, TestCases und ADRs mit den Link-Typen `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`, `documents`, `realizes`, `adr-architecture`. Beantwortet Upstream/Downstream-Queries (inkl. Cross-Projekt-Traversal) und Coverage-Reports. Performance-Ziel: < 200 ms fuer 10.000 Items.
 
 ---
 
@@ -35,8 +35,8 @@ Verwaltet TraceLinks zwischen Requirements, ArchitectureElements und TestCases m
 
 | Komp-ID | Name | Verantwortlichkeit | Domain |
 |---------|------|--------------------|--------|
-| COMP-TE-001 | TraceLinkManager | TraceLink-CRUD, Link-Typ-Validierung (8 Link-Typen inkl. 'documents', 'realizes'), Zyklenprüfung via Tarjan-Algorithmus (Bulk: am Ende der Transaktion; Single: eager vor Persistenz); lehnt Cross-Tenant-Links ab; Rollback mit Pfad-Fehlerbericht, atomare Batch-Operationen, referentielle Integritaet (CASCADE), Audit-Metadaten, project_id Awareness | software |
-| COMP-TE-002 | QueryEngine | Upstream/Downstream-Queries (direkte Nachbarn), transitive Huellenberechnung (Impact-Analyse inkl. Cross-Projekt-Graph-Traversal via project_id), Performance-optimierte Graph-Traversierung via PostgreSQL Recursive CTE | software |
+| COMP-TE-001 | TraceLinkManager | TraceLink-CRUD, Link-Typ-Validierung (9 Link-Typen inkl. 'documents', 'realizes', 'adr-architecture'), Zyklenprüfung via Tarjan-Algorithmus (Bulk: am Ende der Transaktion; Single: eager vor Persistenz); lehnt Cross-Tenant-Links ab; Rollback mit Pfad-Fehlerbericht, atomare Batch-Operationen, referentielle Integritaet (CASCADE), Audit-Metadaten, project_id Awareness | software |
+| COMP-TE-002 | QueryEngine | Read-Modell (`TraceabilityReadService`): Impact-Analyse (`impact`), Pfadsuche (`path`) und Zykluserkennung (`detect_cycles`) via PostgreSQL Recursive CTE; Cross-Projekt-Graph-Traversal via project_id; Performance-optimierte Graph-Traversierung | software |
 | COMP-TE-003 | CoverageCalculator | Test-Coverage-Berechnung (Requirement -> TestCase via `verifies`), gefilterte Coverage nach Artefakttyp und Link-Typ | software |
 | COMP-TE-004 | VCRMReportGenerator | Generiert Verification Cross Reference Matrix (flache Matrix: requirement_id → component_id → test_case_id → test_result); filterbar nach Baseline und Workspace; Export als CSV; optionaler PDF-Export via Template-Renderer | software |
 
@@ -96,6 +96,11 @@ flowchart TD
 | REQ-L2-TE-011 | COMP-TE-001 |
 | REQ-L2-TE-012 | COMP-TE-001, COMP-TE-002, COMP-TE-003 |
 | REQ-L2-TE-013 | COMP-TE-004 |
+| REQ-L2-TE-016 | COMP-TE-001 |
+| REQ-L2-TE-017 | COMP-TE-001 |
+| REQ-L2-TE-018 | COMP-TE-001, COMP-TE-003 |
+| REQ-L2-TE-019 | COMP-TE-002 |
+| REQ-L2-TE-020 | COMP-TE-001 |
 
 ---
 

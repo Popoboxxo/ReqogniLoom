@@ -34,6 +34,13 @@ Keine — der WorkflowGapDetector operiert auf den von COMP-SM-002 via IF-L1-046
 
 ### REQ-L3-SM005-001: Erkennung fehlender Pflicht-Zustände je Item
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der WorkflowGapDetector SHALL aus der übergebenen Liste von `IncompleteState`-Objekten (geliefert von WorkflowEngine) alle Items identifizieren, die mindestens einen obligatorischen Zustand der aktiven WorkflowDefinition ihres Workspaces nie durchlaufen haben. Ein Item gilt als Lücke, wenn es in `find_incomplete_states`-Ergebnis enthalten ist. Für jede Lücke SHALL ein Eintrag mit `item_id`, `item_type` und `missing_state` erzeugt werden. Bei einem Workspace ohne konfigurierte WorkflowDefinition SHALL die Ergebnisliste leer sein.
 
 **Priority:** mandatory
@@ -46,6 +53,13 @@ Der WorkflowGapDetector SHALL aus der übergebenen Liste von `IncompleteState`-O
 ---
 
 ### REQ-L3-SM005-002: Gesamtanzahl und strukturierte Ergebnisrückgabe
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der WorkflowGapDetector SHALL `total_incomplete` als Anzahl aller Items mit mindestens einer Workflow-Lücke und `items` als vollständige Liste aller Lücken-Einträge zurückgeben. Ein Item mit mehreren fehlenden Pflicht-Zuständen SHALL mehrfach in `items` erscheinen (einmal je fehlendem Zustand), zählt aber in `total_incomplete` nur einmal.
 

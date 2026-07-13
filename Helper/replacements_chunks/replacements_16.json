@@ -1,0 +1,91 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\IcdManagementSystem\\L2_IcdManagementSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-ICD-001: ICD CRUD und Versionierung\n\nDas IcdManagementSystem SHALL vollst\u00e4ndiges CRUD f\u00fcr Interface Control Documents bereitstellen. Jede \u00c4nderung eines ICDs MUSS eine neue, unver\u00e4nderliche Version (IcdVersion) erzeugen.\n",
+      "ReplacementContent": "### REQ-L2-ICD-001: ICD CRUD und Versionierung\n\nDas IcdManagementSystem SHALL vollst\u00e4ndiges CRUD f\u00fcr Interface Control Documents bereitstellen. Jede \u00c4nderung eines ICDs MUSS eine neue, unver\u00e4nderliche Version (IcdVersion) erzeugen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-ICD-002: Design-by-Contract Modellierung\n\nDas IcdManagementSystem SHALL ICDs mit Feldern f\u00fcr Richtung, Typ, semantische Beschreibung, Vorbedingungen (Preconditions), Nachbedingungen (Postconditions) und Invarianten verwalten.\n",
+      "ReplacementContent": "### REQ-L2-ICD-002: Design-by-Contract Modellierung\n\nDas IcdManagementSystem SHALL ICDs mit Feldern f\u00fcr Richtung, Typ, semantische Beschreibung, Vorbedingungen (Preconditions), Nachbedingungen (Postconditions) und Invarianten verwalten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-ICD-003: Breaking-Change Erkennung\n\nDas IcdManagementSystem SHALL bei jedem Update eine semantische Kompatibilit\u00e4tspr\u00fcfung durchf\u00fchren. Inkompatible \u00c4nderungen (z.B. Versch\u00e4rfung von Vorbedingungen, Aufweichung von Nachbedingungen) M\u00dcSSEN erkannt und als Breaking-Change-Warnung gemeldet werden.\n",
+      "ReplacementContent": "### REQ-L2-ICD-003: Breaking-Change Erkennung\n\nDas IcdManagementSystem SHALL bei jedem Update eine semantische Kompatibilit\u00e4tspr\u00fcfung durchf\u00fchren. Inkompatible \u00c4nderungen (z.B. Versch\u00e4rfung von Vorbedingungen, Aufweichung von Nachbedingungen) M\u00dcSSEN erkannt und als Breaking-Change-Warnung gemeldet werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-ICD-004: Traceability-Verkn\u00fcpfung (Typ: realizes)\n\nDas IcdManagementSystem SHALL bei Erstellung eines ICD die Verkn\u00fcpfung zu den betroffenen ArchitectureElements (Source und Target) \u00fcber den TraceLink-Typ `realizes` in der TraceabilityEngine anlegen.\n",
+      "ReplacementContent": "### REQ-L2-ICD-004: Traceability-Verkn\u00fcpfung (Typ: realizes)\n\nDas IcdManagementSystem SHALL bei Erstellung eines ICD die Verkn\u00fcpfung zu den betroffenen ArchitectureElements (Source und Target) \u00fcber den TraceLink-Typ `realizes` in der TraceabilityEngine anlegen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-ICD-005: Baseline-Integration\n\nDas IcdManagementSystem SHALL aktuelle ICD-Versionen f\u00fcr den Baseline-Snapshot auf Anfrage bereitstellen.\n",
+      "ReplacementContent": "### REQ-L2-ICD-005: Baseline-Integration\n\nDas IcdManagementSystem SHALL aktuelle ICD-Versionen f\u00fcr den Baseline-Snapshot auf Anfrage bereitstellen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-ICD-006: Audit-Logging f\u00fcr Breaking Changes\n\nDas IcdManagementSystem SHALL erkannte Breaking-Change-Events in das AuditLog schreiben.\n",
+      "ReplacementContent": "### REQ-L2-ICD-006: Audit-Logging f\u00fcr Breaking Changes\n\nDas IcdManagementSystem SHALL erkannte Breaking-Change-Events in das AuditLog schreiben.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 208,
+      "AllowMultiple": false
+    }
+  ]
+}

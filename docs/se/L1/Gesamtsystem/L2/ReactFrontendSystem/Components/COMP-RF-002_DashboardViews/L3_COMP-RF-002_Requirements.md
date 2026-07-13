@@ -33,6 +33,13 @@ Keine direkte externe Schnittstelle; Kommunikation mit dem Backend erfolgt aussc
 
 ### REQ-L3-RF002-001: Workspace-Kartenliste mit Metriken
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die DashboardViews-Komponente MUSS nach Aktivierung durch die NavigationShell alle dem authentifizierten Nutzer zugänglichen Workspaces als Kartenliste darstellen. Jede Karte MUSS die Anzahl der Requirements, die Anzahl offener Punkte (Requirements im Initial-State ohne TraceLink) und das aktive Terminologie-Profil enthalten. Die gesamte Kartenliste MUSS innerhalb von 2 Sekunden nach Aktivierung vollständig gerendert sein.
 
 **Priority:** mandatory
@@ -46,6 +53,13 @@ Die DashboardViews-Komponente MUSS nach Aktivierung durch die NavigationShell al
 
 ### REQ-L3-RF002-002: Terminologie-Profil-Label-Rendering im Dashboard
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die DashboardViews-Komponente MUSS das aktive Terminologie-Profil (Dev-Modus / SE-Modus) aus dem I18nService beziehen und alle Labels in der Workspace-Karte (z.B. Bezeichnung fuer Requirements, offene Punkte) entsprechend des aktiven Profils darstellen. Ein Profilwechsel MUSS ohne Seiten-Reload wirksam werden.
 
 **Priority:** mandatory
@@ -58,6 +72,13 @@ Die DashboardViews-Komponente MUSS das aktive Terminologie-Profil (Dev-Modus / S
 ---
 
 ### REQ-L3-RF002-003: Navigation von Dashboard zu Workspace-Detail
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die DashboardViews-Komponente MUSS bei Klick auf eine Workspace-Karte die NavigationShell ueber IF-RF-INT-001 informieren, den ausgewaehlten Workspace zu aktivieren und zur Artefakt-Navigation oder zum Requirements-Editor weiterzuleiten.
 

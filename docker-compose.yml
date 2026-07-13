@@ -1,0 +1,160 @@
+# ReqFlow Docker Compose Orchestration
+# ADR-08: Self-Hosted via Docker Compose — Production-Ready Configuration
+#
+# ┌─ SETUP ─────────────────────────────────────────────────────────┐
+# │ 1. Copy .env.example to .env and fill in all CHANGE-ME values   │
+# │ 2. Generate SECRET_KEY: python3 -c "import secrets;              │
+# │    print(secrets.token_hex(50))"                                │
+# │ 3. Set ALLOWED_HOSTS to your actual server hostname(s)          │
+# │ 4. docker-compose build && docker-compose up -d                 │
+# │ 5. docker-compose exec backend python manage.py migrate         │
+# └─────────────────────────────────────────────────────────────────┘
+#
+# DEVELOPMENT OVERRIDE:
+# For development with hot-reload, docker-compose.override.yml
+# is automatically merged by Docker Compose. To use it, ensure the
+# file exists in the project root (it does, by default).
+# For production, delete docker-compose.override.yml.
+#
+# SECURITY NOTES:
+# • NEVER commit .env with real secrets (already in .gitignore)
+# • Always use HTTPS reverse proxy in production (nginx, Traefik, etc.)
+# • Keep DEBUG=False in production
+# • Use strong POSTGRES_PASSWORD (32+ random chars)
+# • Restrict network access to ports 5432 (postgres) and 6379 (redis)
+
+services:
+  # ─────────────────────────────────────────────────────────
+  # PostgreSQL — ARCH-L1-010 PersistenceLayer
+  # ─────────────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-reqflow}
+      POSTGRES_USER: ${DB_USER:-reqflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-reqflow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-reqflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────
+  # Redis — ARCH-L1-016 ResilienceOrchestrator (Celery broker)
+  # ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────
+  # Django Backend — All backend ARCH-L1 systems
+  # ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DJANGO_SETTINGS_MODULE: reqflow.settings
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DB_NAME: ${DB_NAME:-reqflow}
+      DB_USER: ${DB_USER:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02)
+      # Set LLM_PROVIDER=anthropic|openai|ollama to enable AI features.
+      # Graceful degradation if not set (REQ-L1-032).
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  # ─────────────────────────────────────────────────────────
+  # Celery Worker — ARCH-L1-016 ResilienceOrchestrator
+  # Handles async tasks: LLM calls, Webhooks, GitHub integration
+  # ─────────────────────────────────────────────────────────
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DJANGO_SETTINGS_MODULE: reqflow.settings
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      DB_NAME: ${DB_NAME:-reqflow}
+      DB_USER: ${DB_USER:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqflow project
+    command: >
+      sh -c "celery -A reqflow worker --loglevel=info"
+
+  # ─────────────────────────────────────────────────────────
+  # React Frontend — ARCH-L1-001 ReactFrontend
+  # ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # For production: use 'production' target with nginx
+      # For development: use 'development' target with 'docker-compose.override.yml'
+      target: production
+    restart: unless-stopped
+    environment:
+      # Environment variables used at build time for Vite
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

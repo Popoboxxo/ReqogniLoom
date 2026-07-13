@@ -1,0 +1,178 @@
+"""
+COMP-RA-001 — ApiKeyViewSet (REQ-L3-AT001-003).
+
+REST endpoints for API key lifecycle (create / list / revoke).
+
+Architecture:
+  Uses AuthenticationService from auth_tenancy for all operations.
+  Standardised auth error handling via AuthTenancyAuthentication.
+
+Endpoints:
+  GET    /api/v1/api-keys/         — list keys (metadata only)
+  POST   /api/v1/api-keys/         — create key (plaintext returned ONCE)
+  DELETE /api/v1/api-keys/<pk>/    — revoke key
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from rest_framework import status
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.viewsets import ViewSet
+
+from auth_tenancy.services.authentication import AuthenticationService
+
+
+class ApiKeyViewSet(ViewSet):
+    """REST ViewSet for API key lifecycle management.
+
+    list:   GET  /api/v1/api-keys/          — metadata-only listing
+    create: POST /api/v1/api-keys/          — create, plaintext returned once
+    destroy:DEL  /api/v1/api-keys/<pk>/     — revoke key
+
+    Authentication: Bearer token (AuthTenancyAuthentication via DRF default classes).
+    Permissions:  IsAuthenticated (any authenticated user may manage own keys).
+    Tenant scope: Keys are scoped to the user — list/create return only the
+                  authenticated user's keys.  Tenant isolation is implicit via
+                  AuthenticationService which filters by user_id.
+    """
+
+    # Uses global DEFAULT_AUTHENTICATION_CLASSES (AuthTenancyAuthentication)
+    # and DEFAULT_PERMISSION_CLASSES (RbacPermission) from settings.
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._authn = AuthenticationService()
+
+    # -- helpers -----------------------------------------------------------
+
+    def _get_user_id(self, request: Request) -> str | None:
+        """Extract the authenticated user's UUID from the auth context."""
+        ctx = getattr(request, "auth_context", None)
+        if ctx is None:
+            return None
+        return str(ctx.user_id)
+
+    def _get_tenant_id(self, request: Request) -> str | None:
+        """Extract the authenticated user's tenant UUID from the auth context."""
+        ctx = getattr(request, "auth_context", None)
+        if ctx is None:
+            return None
+        return str(ctx.tenant_id)
+
+    # -- list (GET /api/v1/api-keys/) --------------------------------------
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """Return metadata-only listing of the authenticated user's API keys."""
+        user_id = self._get_user_id(request)
+        if user_id is None:
+            return Response(
+                {"error": "authentication_required", "message": "Not authenticated"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        from uuid import UUID
+        keys = self._authn.list_api_keys(user_id=UUID(user_id))
+        return Response(keys, status=status.HTTP_200_OK)
+
+    # -- create (POST /api/v1/api-keys/) -----------------------------------
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """Create a new API key and return its plaintext exactly once.
+
+        Request body:
+          { "name": "my-api-key-label" }
+
+        Response (201):
+          {
+            "id": "<uuid>",
+            "name": "my-api-key-label",
+            "plaintext": "rf_<40 chars>",   // ONLY shown here, never again
+            "warning": "Save this key now — it will not be shown again."
+          }
+
+        Errors:
+          400 — name missing or empty
+          400 — max active keys reached
+          401 — not authenticated
+        """
+        user_id = self._get_user_id(request)
+        tenant_id = self._get_tenant_id(request)
+        if user_id is None or tenant_id is None:
+            return Response(
+                {"error": "authentication_required", "message": "Not authenticated"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        name = request.data.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return Response(
+                {"error": "VALIDATION_ERROR", "message": "Field 'name' is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from uuid import UUID
+        try:
+            result = self._authn.create_api_key(
+                user_id=UUID(user_id),
+                tenant_id=UUID(tenant_id),
+                name=name.strip(),
+            )
+        except ValueError as exc:
+            return Response(
+                {"error": "VALIDATION_ERROR", "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "id": str(result.api_key_id),
+                "name": result.name,
+                "plaintext": result.plaintext,
+                "warning": "Save this key now — it will not be shown again.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    # -- destroy (DELETE /api/v1/api-keys/<pk>/) ---------------------------
+
+    def destroy(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        """Revoke an API key by its UUID.
+
+        The key is immediately invalidated — subsequent requests using this key
+        will receive 401 ``api_key_revoked``.
+
+        Returns 204 with no body on success.
+        Returns 404 if the key does not exist or does not belong to the user.
+        """
+        user_id = self._get_user_id(request)
+        if user_id is None:
+            return Response(
+                {"error": "authentication_required", "message": "Not authenticated"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if not pk:
+            return Response(
+                {"error": "NOT_FOUND", "message": "Key ID is required."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from uuid import UUID
+        try:
+            key_uuid = UUID(pk)
+        except (ValueError, AttributeError):
+            return Response(
+                {"error": "NOT_FOUND", "message": "Invalid key ID."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            self._authn.revoke_api_key(api_key_id=key_uuid)
+        except Exception:
+            return Response(
+                {"error": "NOT_FOUND", "message": "Key not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

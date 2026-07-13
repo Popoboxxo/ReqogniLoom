@@ -29,8 +29,12 @@
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-RF-001: Frontend-i18n mit react-i18next (DE/EN)
-
 Das ReactFrontend MUSS alle UI-Texte über react-i18next in Deutsch und Englisch bereitstellen. Jeder UI-String MUSS einen Translation-Key in beiden Sprachdateien (de.json, en.json) besitzen. Die Sprache MUSS pro Nutzer-Präferenz umschaltbar sein (Profil-Setting oder Browser-Sprache als Default). Fehlende Translation-Keys MÜSSEN als Build-Fehler behandelt werden (Lint-Regel im CI). Der Sprachwechsel MUSS während der Session ohne Seiten-Reload erfolgen.
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Domain:** software
 **Priority:** mandatory
@@ -50,8 +54,12 @@ Das ReactFrontend MUSS alle UI-Texte über react-i18next in Deutsch und Englisch
 ---
 
 ### REQ-L2-RF-002: Dashboard mit Projektübersicht und Offenen Punkten
-
 Das ReactFrontend MUSS ein Dashboard bereitstellen, das eine Übersicht über alle Workspaces des aktuellen Nutzers zeigt, inklusive Anzahl der Requirements pro Workspace, Anzahl offener Punkte (Requirements im Initial-State ohne TraceLink) und aktives Terminologie-Profil.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -71,8 +79,12 @@ Das ReactFrontend MUSS ein Dashboard bereitstellen, das eine Übersicht über al
 ---
 
 ### REQ-L2-RF-003: Requirements-Editor mit Inline-Editing und Markdown
-
 Das ReactFrontend MUSS einen Requirements-Editor bereitstellen, der Inline-Editing für Title, Description und Category eines Requirements unterstützt. Das Description-Feld MUSS Markdown rendern (Vorschau und Edit-Modus). Der Editor MUSS den aktuellen WorkflowState anzeigen und State-Übergänge über ein Dropdown auslösen können.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -92,8 +104,12 @@ Das ReactFrontend MUSS einen Requirements-Editor bereitstellen, der Inline-Editi
 ---
 
 ### REQ-L2-RF-004: Architecture-Editor
-
 Das ReactFrontend MUSS einen Architecture-Editor bereitstellen, der CRUD-Operationen für ArchitectureElements unterstützt — inkl. Element-Typ-Auswahl (Component, Interface, Subsystem, Layer, Module), Markdown-Description und Anzeige verknüpfter TraceLinks.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -113,8 +129,12 @@ Das ReactFrontend MUSS einen Architecture-Editor bereitstellen, der CRUD-Operati
 ---
 
 ### REQ-L2-RF-005: Artefakt-Navigation als Baumstruktur
-
 Das ReactFrontend MUSS eine Artefakt-Navigation in Baumstruktur (Tree-View) bereitstellen, die die hierarchische Artifact-Struktur eines Workspaces darstellt. Der Baum MUSS Lazy-Loading für Kindknoten unterstützen und per Klick ein Artefakt mit seinen Requirements im Editor öffnen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -133,8 +153,12 @@ Das ReactFrontend MUSS eine Artefakt-Navigation in Baumstruktur (Tree-View) bere
 ---
 
 ### REQ-L2-RF-006: Traceability-Anzeige
-
 Das ReactFrontend MUSS eine Traceability-Anzeige bereitstellen, die bidirektionale TraceLinks (Upstream/Downstream) zwischen Requirements, ArchitectureElements und TestCases visualisiert. Die Anzeige MUSS den Link-Typ (parent-child, derives-from, satisfies, verifies, implements, refines) als Label darstellen und per Klick auf ein verknüpftes Artefakt navigieren.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -154,8 +178,12 @@ Das ReactFrontend MUSS eine Traceability-Anzeige bereitstellen, die bidirektiona
 ---
 
 ### REQ-L2-RF-007: Preset-basierte UI-Sichtbarkeit
-
 Das ReactFrontend MUSS UI-Elemente, Felder und Funktionen basierend auf dem aktiven Workspace-Preset (Minimal / Standard / Extended) ein- oder ausblenden. Die Sichtbarkeitsregeln MÜSSEN aus der PresetConfigEngine (ARCH-L1-008, via REST-Endpunkt) geladen werden. Beim Wechsel des Presets MUSS sich die UI ohne Seiten-Reload aktualisieren.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -175,8 +203,12 @@ Das ReactFrontend MUSS UI-Elemente, Felder und Funktionen basierend auf dem akti
 ---
 
 ### REQ-L2-RF-008: Terminologie-Profil-Rendering (Dev-Modus / SE-Modus)
-
 Das ReactFrontend MUSS das aktive Terminologie-Profil (Dev-Modus / SE-Modus) aus den Workspace-Settings laden und UI-Labels dynamisch entsprechend rendern. Ein Profilwechsel MUSS ausschließlich Labels und UI-Texte ändern — keine API-Aufrufe mit geänderten Entitätsnamen. Die generischen API-Feldnamen MÜSSEN unverändert bleiben.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -196,8 +228,12 @@ Das ReactFrontend MUSS das aktive Terminologie-Profil (Dev-Modus / SE-Modus) aus
 ---
 
 ### REQ-L2-RF-009: UI-Performance
-
 Das ReactFrontend MUSS initiale Seitenansichten innerhalb von 2 Sekunden rendern und Nutzerinteraktionen (Editor-Wechsel, Knoten-Expansion, Sprachwechsel) innerhalb von 500 ms verarbeiten — unter der Bedingung von bis zu 10.000 Requirements im aktiven Workspace und einer stabilen Netzwerkverbindung zum Backend.
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Domain:** software
 **Priority:** mandatory
@@ -218,8 +254,12 @@ Das ReactFrontend MUSS initiale Seitenansichten innerhalb von 2 Sekunden rendern
 ---
 
 ### REQ-L2-RF-010: REST-API-Kommunikation mit Bearer-Token-Authentifizierung
-
 Das ReactFrontend MUSS ausschließlich über die REST API (ARCH-L1-002) mit dem Backend kommunizieren. Jede Anfrage MUSS den Bearer-Token des authentifizierten Nutzers im `Authorization`-Header mitführen. Bei 401-Antworten MUSS das Frontend den Nutzer zur Login-Seite umleiten.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -239,8 +279,12 @@ Das ReactFrontend MUSS ausschließlich über die REST API (ARCH-L1-002) mit dem 
 ---
 
 ### REQ-L2-RF-011: Fehleranzeige und Backend-Error-Rendering
-
 Das ReactFrontend MUSS Backend-Fehlermeldungen (übersetzt via Accept-Language in DE/EN) in einer nutzerfreundlichen Form anzeigen. Fehler MÜSSEN den übersetzten Text aus dem REST-Response enthalten und dem Nutzer eine Handlungsoption bieten (z.B. „Erneut versuchen", „Zurück").
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
 
 **Domain:** software
 **Priority:** mandatory
@@ -260,8 +304,12 @@ Das ReactFrontend MUSS Backend-Fehlermeldungen (übersetzt via Accept-Language i
 ---
 
 ### REQ-L2-RF-012: Workspace-Konfigurations-UI
-
 Das ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der der Nutzer (mit Admin-Rolle) das aktive Preset (Minimal / Standard / Extended), das Terminologie-Profil (Dev-Modus / SE-Modus) und die Spracheinstellung einsehen und ändern kann. Änderungen MÜSSEN sofort wirksam werden (kein Reload erforderlich).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -277,6 +325,62 @@ Das ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der
 
 **Traceability:** REQ-L1-017, REQ-L1-007 (mitwirkend), REQ-L1-014 (mitwirkend)
 **Rationale:** ARCH-L1-001 Verantwortung umfasst „Workspace-Profil-Konfiguration".
+
+---
+
+## Erweiterung Phase 3 (se-architect, 2026-06-27)
+
+### REQ-L2-RF-014: Visuelles Artefakt-Diff
+Das ReactFrontend MUSS Änderungen an einem einzelnen Artefakt zwischen zwei beliebigen Versionen als visuellen Text-Diff darstellen. Das Diff MUSS mit visueller Hervorhebung angezeigt werden (grün=hinzugefügt, rot=gelöscht, gelb=geändert). Die Diff-Ansicht ist in der Artefakt-Detailansicht integriert und zeigt Feld-Level-Änderungen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+**Domain:** software
+**Priority:** desired
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] GUI zeigt Diff mit visueller Hervorhebung (grün=hinzugefügt, rot=gelöscht, gelb=geändert)
+- [ ] Diff-Ansicht ist in der Artefakt-Detailansicht integriert
+- [ ] Versionsauswahl (from/to) via UI-Steuerung möglich
+- [ ] Markdown-Felder werden als Text-Diff dargestellt
+- [ ] Diff wird via REST-API (GET /artifacts/{id}/diff) geladen
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (GET /artifacts/{id}/diff?from=v1&to=v2)
+- Outgoing: IF-RF-EXT-OUT-002 (Gerenderte Diff-Ansicht)
+
+**Traceability:** REQ-L1-040
+**Rationale:** Visueller Diff ist für formale Reviews und Freigabe-Entscheidungen unerlässlich.
+
+---
+
+### REQ-L2-RF-015: Visuelles Baseline-Diff
+Das ReactFrontend MUSS den Vergleich zweier benannter Baselines als visuellen Diff darstellen. Die Diff-Ansicht zeigt eine kategorisierte Liste (hinzugefügte, geänderte, gelöschte Artefakte inkl. Versions-Delta) mit Navigation zwischen Kategorien. Vergleich inkompatibler Scopes (document↔document, project↔project) MUSS einen klaren Fehlerhinweis anzeigen.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+**Domain:** software
+**Priority:** desired
+**arch_impact:** false
+**Acceptance Criteria:**
+- [ ] GUI zeigt Diff mit kategorisierter Liste (added/modified/deleted)
+- [ ] Navigation zwischen Kategorien möglich
+- [ ] Modified-Liste zeigt Versions-Delta (Version in Baseline A → Version in Baseline B)
+- [ ] Vergleich kompatibler Scopes (document↔document, project↔project) möglich
+- [ ] Vergleich inkompatibler Scopes → klarer Fehlerhinweis in UI
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (GET /baselines/{id_a}/diff/{id_b})
+- Outgoing: IF-RF-EXT-OUT-002 (Gerenderte Baseline-Diff-Ansicht)
+
+**Traceability:** REQ-L1-041
+**Rationale:** Baseline-Diff ist für formale Reviews und Compliance-Nachweise in regulierten Umgebungen zwingend.
 
 ---
 
@@ -296,6 +400,13 @@ Das ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der
 | REQ-L2-RF-010 | REST-API-Kommunikation | REQ-L1-017 | REQ-L1-006 |
 | REQ-L2-RF-011 | Fehleranzeige | REQ-L1-016 | REQ-L1-017 |
 | REQ-L2-RF-012 | Workspace-Konfigurations-UI | REQ-L1-017 | REQ-L1-007, REQ-L1-014 |
+| REQ-L2-RF-013 | (reserviert) | — | — |
+| REQ-L2-RF-014 | Visuelles Artefakt-Diff | REQ-L1-040 | — |
+| REQ-L2-RF-015 | Visuelles Baseline-Diff | REQ-L1-041 | — |
+| REQ-L2-RF-034 | RightSidebar Shell (ArtifactInspector) | REQ-L1-089 | REQ-L1-093, REQ-L1-094 |
+| REQ-L2-RF-035 | VersionPanel | REQ-L1-090 | REQ-L1-094 |
+| REQ-L2-RF-036 | DiffPanel | REQ-L1-091 | REQ-L1-093, REQ-L1-094 |
+| REQ-L2-RF-037 | TracePanel | REQ-L1-092 | REQ-L1-094 |
 
 ---
 
@@ -311,8 +422,541 @@ Das ReactFrontend MUSS eine Workspace-Konfigurationsseite bereitstellen, auf der
 
 **Vollständigkeit:** Alle ARCH-L1-001 zugeordneten REQ-L1 sind durch mindestens eine REQ-L2-RF abgedeckt.
 
+| REQ-L1 | Titel | Abgedeckt durch | Status |
+|--------|-------|-----------------|--------|
+| REQ-L1-007 | Configurable-Rigor-Presets | REQ-L2-RF-007, REQ-L2-RF-012 | ✓ |
+| REQ-L1-014 | Terminologie-Profile | REQ-L2-RF-008, REQ-L2-RF-012 | ✓ |
+| REQ-L1-016 | i18n DE/EN | REQ-L2-RF-001, REQ-L2-RF-011, REQ-L2-RF-034..037 | ✓ |
+| REQ-L1-017 | React-UI | REQ-L2-RF-002..006, REQ-L2-RF-010, REQ-L2-RF-012, REQ-L2-RF-034..037 | ✓ |
+| REQ-L1-026 | Performance | REQ-L2-RF-009 | ✓ |
+| REQ-L1-089 | Unified ArtifactInspector (RightSidebar) Shell | REQ-L2-RF-034 | ✓ |
+| REQ-L1-090 | VersionPanel inside ArtifactInspector | REQ-L2-RF-035 | ✓ |
+| REQ-L1-091 | DiffPanel inside ArtifactInspector | REQ-L2-RF-036 | ✓ |
+| REQ-L1-092 | TracePanel inside ArtifactInspector | REQ-L2-RF-037 | ✓ |
+| REQ-L1-093 | Accessibility baseline for ArtifactInspector | REQ-L2-RF-034..037 (in scope) | ✓ |
+| REQ-L1-094 | i18n key naming convention for ArtifactInspector | REQ-L2-RF-001 (mitwirkend), REQ-L2-RF-034..037 | ✓ |
+| REQ-L1-095 | Adoption of ArtifactInspector on all 10 artifact types | REQ-L2-RF-034..037 (adoption unit) | ✓ |
+
+**Vollständigkeit:** Alle ARCH-L1-001 zugeordneten REQ-L1 sind durch mindestens eine REQ-L2-RF abgedeckt.
+
 ---
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-React → REQ-L2-RF, Template-Standardisierung*
 *Designation: subsystem (Leaf-AE) — decomposition_status: terminal*
+
+---
+
+## Erweiterung v2 — REQ-L2-RF-016..017 (aus REQ-L1-048 und REQ-L1-045/046)
+
+> **Datum:** 2026-06-28 | **Quelle:** REQ-L1-048 (Feedback REQ-L1-001), REQ-L1-045, REQ-L1-046
+
+---
+
+### REQ-L2-RF-016: Flat View & Level View (Multi-View-Artefaktansicht)
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+Das Frontend MUSS für alle Artefakttypen (Requirements, Architecture, TestCases, TraceLinks)
+zwei Ansichtsmodi bereitstellen, die jederzeit umschaltbar sind:
+
+1. **Flat View:** Alle Artefakte eines Workspaces in einer tabellarischen Liste,
+   filter- und sortierbar nach Typ, Status, REQ-ID, Ebene.
+2. **Level View:** Hierarchische Baumdarstellung nach Kaskaden-Ebene (L0 → L1 → L2 → Ln),
+   kollabierbar pro Ebene, navigierbar.
+
+Ein Toggle-Element MUSS den Wechsel zwischen beiden Modi ermöglichen.
+Der gewählte Modus MUSS per Nutzer-Session persistent sein (LocalStorage).
+
+**Akzeptanzkriterien:**
+- AC1: Toggle-Button „Flat / Level" sichtbar in der Artefakt-Übersicht
+- AC2: Flat View zeigt alle Artefakte in Tabelle mit Filter (Typ, Status, Ebene)
+- AC3: Level View zeigt Baumstruktur mit kollabierbaren Ebenen-Knoten
+- AC4: Wechsel zwischen Modi zeigt dieselben Artefakte ohne Reload
+- AC5: Gewählter Modus bleibt nach Seiten-Refresh erhalten (LocalStorage)
+- AC6: Level View zeigt `suspect`-Status (SN-30) und `cross-level`-Marker (SN-35) distinkt
+
+**Verifikationsmethode:** UI-E2E-Test — Toggle-Wechsel, Artefakt-Konsistenz, Filter-Funktionalität
+**Verifikiert durch:** L2-RF-Test-016
+**Abgeleitet von:** REQ-L1-048
+**Übergeordnete REQ-L0:** REQ-L1-001 (Feedback-Erweiterung)
+
+---
+
+### REQ-L2-RF-017: Sandbox-Diff-UI & Baseline-Vergleich
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+Das Frontend MUSS eine dedizierte Diff-Ansicht für zwei Szenarien bereitstellen:
+
+1. **Sandbox-Merge-Diff:** Beim Merge-Vorgang (REQ-L2-BL-010) zeigt die UI einen
+   zweispaltigen Diff zwischen Sandbox-Zweig und Hauptstand. Konflikte werden rot markiert.
+   Der Nutzer kann Konflikte manuell auflösen (Auswahl: „Sandbox-Version" oder „Hauptstand-Version").
+
+2. **Baseline-Vergleich:** Nutzer können zwei Baselines (oder zwei Versionen desselben
+   Artefakts) in einer zweispaltigen Ansicht vergleichen. Changed/Added/Removed-Felder
+   werden auf Feld-Ebene farbig hervorgehoben (grün/rot/gelb).
+
+**Akzeptanzkriterien:**
+- AC1: Sandbox-Merge-Diff zeigt alle geänderten Felder zweispaltig (Sandbox | Hauptstand)
+- AC2: Konflikte sind rot markiert; nicht-konfliktive Änderungen werden automatisch übernommen
+- AC3: Manuelle Konfliktauflösung per Klick (Auswahl der gewünschten Version)
+- AC4: Baseline-Vergleich: Dropdown für zwei Baselines → Diff-Darstellung
+- AC5: Added/Removed/Changed-Felder sind farbig kodiert (grün/rot/gelb)
+- AC6: Diff-Ansicht ist druckbar / exportierbar (PDF/Clipboard)
+
+**Verifikationsmethode:** UI-E2E-Test — Sandbox erstellen, Änderung, Merge-Diff prüfen
+**Verifikiert durch:** L2-RF-Test-017
+**Abgeleitet von:** REQ-L1-045, REQ-L1-046
+**Übergeordnete REQ-L0:** REQ-L0-033, REQ-L0-034
+
+---
+
+*Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-RF-016..017 aus REQ-L1-048, REQ-L1-045/046)*
+
+---
+
+## Erweiterung v8 — REQ-L2-RF-018 (Ebenen-Modell)
+
+> **Datum:** 2026-07-02 | **Quelle:** REQ-L1-063
+
+---
+
+### REQ-L2-RF-018: Frontend Level-View (Requirements Hierarchy)
+
+Das ReactFrontendSystem MUSS eine neue Route oder Ansicht `/levels` bereitstellen, die alle Requirements gruppiert nach ihrer abgeleiteten Ebene (Level) darstellt. Das Layout SOLL als Tree-View oder Tabellen-View realisiert sein und die Felder Level, Allocated-to-Owner, Status und Workflow-State anzeigen.
+
+**Akzeptanzkriterien:**
+- AC1: Route `/levels` oder dedizierter Tab existiert
+- AC2: Ansicht gruppiert und rendert Requirements nach dem Feld `level`
+- AC3: Zuweisung (allocated-to-owner) ist als anklickbarer Link dargestellt
+- AC4: UI ist responsive (mobile-friendly, scrollbar/collapsible)
+
+**Verifikationsmethode:** UI-Test (Component Rendering & Navigation)
+**Abgeleitet von:** REQ-L1-063
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+## Erweiterung v9 — REQ-L2-RF-019..021 (Skalierbare Listen-UIs)
+
+> **Datum:** 2026-07-03 | **Quelle:** UI-Befund für Listen-Skalierbarkeit (REQ-L0-038, REQ-L0-039, REQ-L0-040)
+
+---
+
+### REQ-L2-RF-019: Pagination und API-State in Listen-Komponenten
+
+Das ReactFrontendSystem MUSS in allen primären Listenansichten (`RequirementEditors.tsx`, `ArchitectureEditors.tsx`, etc.) die Paginierung unterstützen. Statt `listAll()` aufzurufen, müssen die Query-Parameter (`page`, `search`, `status`, `ordering`) an die React Query Hooks übergeben werden.
+
+**Akzeptanzkriterien:**
+- AC1: API-Client und Query-Hooks akzeptieren Paginierungs- und Filter-Parameter.
+- AC2: UI rendert Infinite Scroll oder Paginierungs-Buttons, um weitere Seiten abzurufen.
+- AC3: API-Responses vom Format `{"results": [...], "count": N}` werden korrekt verarbeitet.
+
+**Verifikationsmethode:** UI-Test (Network-Traffic: nur eine Seite wird beim Mount geladen)
+**Abgeleitet von:** REQ-L1-065
+**Implementation State:** Backlog
+**Review Findings:** `useRequirementsList` ruft derzeit `listAll()` auf.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-020: Wiederverwendbare ListToolbar (Search, Filter, Sort)
+
+Das ReactFrontendSystem MUSS eine isolierte, wiederverwendbare `<ListToolbar />`-Komponente bereitstellen, die die Steuerung von Suche, Filter und Sortierung übernimmt und die Parameter über URL-State oder lokalen State an die Listen-Views weitergibt.
+
+**Akzeptanzkriterien:**
+- AC1: `<ListToolbar />` enthält ein debounced Search-Input.
+- AC2: Enthält Dropdowns/Selects für Filterung nach Status/Kategorie und Sortierung (ASC/DESC).
+- AC3: Wird einheitlich in Requirements-, Architecture- und TestCase-Views eingesetzt.
+
+**Verifikationsmethode:** UI-Test (Interaktion mit Toolbar ändert Query-Parameter)
+**Abgeleitet von:** REQ-L1-064, REQ-L1-066
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-021: Hierarchische Darstellung (Tree-View-Modus)
+
+Das ReactFrontendSystem MUSS für Artefakte mit Parent-Child-Beziehungen (Requirements, ArchitectureElements) einen umschaltbaren Hierarchie-Modus in der Liste bereitstellen. Dieser Modus rendert die Datensätze als Baum (Tree) mit visueller Einrückung und Expand/Collapse-Funktionalität.
+
+**Akzeptanzkriterien:**
+- AC1: Toggle-Switch in der ListToolbar zwischen "Flat List" und "Tree View".
+- AC2: Tree-View rückt Child-Elemente basierend auf `parent_id` oder TraceLinks visuell ein.
+- AC3: Parent-Elemente haben ein Chevron-Icon zum Ein-/Ausklappen ihrer Kinder.
+
+**Verifikationsmethode:** UI-Test (DOM-Struktur prüfen)
+**Abgeleitet von:** REQ-L1-067
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+## Erweiterung v10 — REQ-L2-RF-022..024 (Adaptive AI-Native SE UI)
+
+> **Datum:** 2026-07-03 | **Quelle:** Adaptive AI-Native SE Plattform
+
+---
+
+### REQ-L2-RF-022: WebGL-basierter Interaktiver Node-Graph
+
+Das ReactFrontendSystem MUSS eine interaktive Netzwerk-Ansicht (Node Graph) bereitstellen, die die Traceability-Beziehungen (DAG) zwischen allen Entitäten visualisiert. Um Performance bei tausenden Knoten zu gewährleisten, MUSS das Rendering auf WebGL/Canvas basieren (z.B. via React Flow, Cytoscape oder Sigma.js).
+
+**Akzeptanzkriterien:**
+- AC1: Neue Route `/graph` rendert das Projekt als Node-Graph.
+- AC2: Flüssiges Rendering (30 FPS) bei mindestens 5000 Knoten.
+- AC3: Knoten sind interaktiv (Klick öffnet Detail-Kontext, Drag & Drop).
+
+**Verifikationsmethode:** Performance-Profil im Browser mit 5000 Mock-Nodes.
+**Abgeleitet von:** REQ-L1-070
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-023: Traceability Matrix (TRM) Ansicht
+
+Das ReactFrontendSystem MUSS eine Traceability Matrix (Kreuztabelle) implementieren. Diese Ansicht erlaubt es Nutzern, Lücken in der Traceability zwischen zwei Ebenen (z. B. System Requirements vs. Architecture Elements) schnell zu identifizieren.
+
+**Akzeptanzkriterien:**
+- AC1: Neue Route `/trm` rendert eine konfigurierbare Matrix.
+- AC2: Nutzer kann Zeilen-Typ (z.B. SyReq) und Spalten-Typ (z.B. ArchE) auswählen.
+- AC3: Zellen zeigen Trace-Status an (verknüpft, nicht verknüpft, suspect).
+
+**Verifikationsmethode:** UI-Test (Matrix-Konfiguration und Rendering).
+**Abgeleitet von:** REQ-L1-071
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-024: Split-Screen Context Panel & KI-Chat
+
+Das ReactFrontendSystem MUSS ein Split-Screen-Layout implementieren, das es erlaubt, links primäre Ansichten (Tree, Node Graph) zu navigieren und rechts ein kontext-sensitives Panel offen zu halten. Dieses Panel MUSS die Metadaten des selektierten Elements und einen KI-Chat enthalten, der kontextbewusst auf das selektierte Element reagiert.
+
+**Akzeptanzkriterien:**
+- AC1: Rechte Sidebar (Context Panel) lässt sich ein-/ausblenden.
+- AC2: Selektion im Graph/Tree ändert automatisch den Kontext im Panel.
+- AC3: Chat-Interface im Panel ist direkt mit dem AI Orchestration Layer verbunden.
+
+**Verifikationsmethode:** UI-Test (Selektion synchronisiert Sidebar-Context).
+**Abgeleitet von:** REQ-L1-069, REQ-L1-070
+**Implementation State:** Backlog
+**Review Findings:** Nicht implementiert.
+**Test Status:** Missing
+
+---
+
+## Erweiterung v11 — REQ-L2-RF-025..026 (Striktes Datenmodell & Stage-Gating)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive"
+
+---
+
+### REQ-L2-RF-025: Dynamische UI-Masken für Artefakt-Typen
+
+Das ReactFrontendSystem MUSS im Requirements-Editor und Architecture-Editor die Eingabemasken dynamisch an den Artefakt-Typ (StReq, SyReq, ArchE, TC) anpassen und typspezifische Dropdowns / Slider rendern.
+
+**Akzeptanzkriterien:**
+- AC1: Ist der Typ `Stakeholder Requirement`, wird ein Dropdown für MoSCoW-Priority gerendert.
+- AC2: Ist der Typ `System Requirement`, wird ein Number-Input (oder Slider) für Complexity (Fibonacci) gerendert.
+- AC3: Die globale `UID` und `Version` werden in allen Ansichten prominent und schreibgeschützt (read-only) angezeigt.
+
+**Verifikationsmethode:** UI-Test (Editor-Rendering basierend auf Typ).
+**Abgeleitet von:** REQ-L1-076, REQ-L1-077
+**Implementation State:** Backlog
+**Review Findings:** Bisher nur ein generisches Formular.
+**Test Status:** Missing
+
+---
+
+### REQ-L2-RF-026: UI-Feedback für Guardrail-Fehler (Stage-Gating)
+
+Wenn das Backend einen Status-Übergang mit HTTP `409 Conflict` (Stage-Gating-Violation) ablehnt, MUSS das Frontend die im Response enthaltene detaillierte Fehlermeldung direkt am WorkflowState-Dropdown (oder in einer Toast-Notification) gut sichtbar darstellen.
+
+**Akzeptanzkriterien:**
+- AC1: Fehler vom Typ "Orphan-Rule-Violation" (z.B. "Fehler: Anforderung hängt in der Luft") werden als rotes Alert-Banner oder Tooltip am Status-Feld gezeigt.
+- AC2: Der Status im Dropdown springt visuell auf den alten Wert zurück, um den Fehlerzustand aufzulösen.
+
+**Verifikationsmethode:** UI-Test (Mock Backend 409 Response auf PATCH request).
+**Abgeleitet von:** REQ-L1-079
+**Implementation State:** Backlog
+**Test Status:** Missing
+
+---
+
+## Erweiterung v4 — REQ-L2-RF-028 (System Announcement Banner)
+
+> **Datum:** 2026-07-04 | **Quelle:** REQ-L1-082
+
+---
+
+### REQ-L2-RF-028: Globales System Announcement Banner
+
+Das ReactFrontendSystem MUSS das Announcement Banner global (z.B. oberhalb der Hauptnavigation) anzeigen, wenn über die API ein aktiver Status-Text gemeldet wird. Für Administratoren MUSS es im Einstellungsbereich eine Möglichkeit geben, diesen Text zu ändern und das Banner zu aktivieren/deaktivieren.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Das Banner ist auf allen Seiten sichtbar (Sticky) und kann von normalen Nutzern nicht weggklickt werden.
+- [ ] Admin-Einstellungen: Textarea für den Inhalt und ein Toggle (An/Aus).
+- [ ] Das Banner pollt nicht, sondern wird beim initialen App-Load (`/api/v1/system/announcement`) geladen oder via SSE aktualisiert.
+
+**Verifikationsmethode:** UI-Test (Admin schaltet Banner ein, User sieht es).
+**Verifikiert durch:** L2-RF-Test-028
+**Abgeleitet von:** REQ-L1-082
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*
+
+---
+
+## Erweiterung v5 — REQ-L2-RF-029 bis 031 (UI/UX Migration)
+
+> **Datum:** 2026-07-04 | **Quelle:** REQ-L1-083 bis 085
+
+---
+
+### REQ-L2-RF-029: Hierarchy Tree-View Component
+
+Das ReactFrontendSystem MUSS eine Komponente zur hierarchischen Darstellung bereitstellen.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Stellt Artefakte mit `parent_id` Referenzen als verschachtelten Baum dar.
+- [ ] Erlaubt das Auf- und Zuklappen (Expand/Collapse) von Knoten.
+- [ ] Rendert lazy oder mit Virtualisierung, um Performance-Einbrüche bei >1000 Elementen zu vermeiden.
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-029
+**Abgeleitet von:** REQ-L1-083
+
+---
+
+### REQ-L2-RF-030: Split-View Layout Component
+
+Das ReactFrontendSystem MUSS ein generisches Zweispalten-Layout implementieren, das von allen Domänen (Requirements, Architecture etc.) genutzt wird.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Resizable Divider zwischen linkem und rechtem Panel.
+- [ ] Breiten werden im LocalStorage des Browsers gespeichert und beim Reload wiederhergestellt.
+- [ ] Linkes Panel für Listen/Trees, rechtes Panel für Details/Editoren.
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-030
+**Abgeleitet von:** REQ-L1-084
+
+---
+
+### REQ-L2-RF-031: Reusable List-Toolbar
+
+Das ReactFrontendSystem MUSS eine wiederverwendbare Toolbar für Tabellen/Listen implementieren.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Migration.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Beinhaltet Debounced Search-Input (löst nach 300ms API Call aus).
+- [ ] Beinhaltet konfigurierbare Dropdowns für Filter-Attribute (Status, Typ).
+- [ ] Beinhaltet Sortier-Controls.
+- [ ] Die aktiven Filter/Sortierungen spiegeln sich in den URL-Parametern wider (Bookmark-Fähigkeit).
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-031
+**Abgeleitet von:** REQ-L1-085
+
+---
+
+### REQ-L2-RF-032: Markdown Glossary Tooltips
+
+Das ReactFrontendSystem MUSS im Markdown-Renderer eine Erweiterung implementieren, welche `@Begriff`-Syntax erkennt und als interaktiven Tooltip-Trigger rendert.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Der Markdown-Renderer registriert `@Begriff` und erzeugt ein interaktives Element (Tooltip-Trigger).
+- [ ] Beim Hover lädt das Frontend asynchron die Definition aus der API oder verwendet einen gecachten Store und zeigt diese an.
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-032
+**Abgeleitet von:** REQ-L1-086
+
+---
+
+### REQ-L2-RF-033: Workspace-spezifische KI-Prompts Konfigurations-UI
+
+Das ReactFrontendSystem MUSS im Workspace-Admin-Bereich eine UI bereitstellen, in der berechtigte Administratoren die KI-Prompts für AI-Aufgaben konfigurieren können.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] UI-Tab "AI Prompts" im Workspace Settings Dialog.
+- [ ] Textarea für die Eingabe von Prompts pro Agenten-Rolle (Decomposition, Quality Gate, Test-Generation).
+- [ ] Speichern ruft den entsprechenden REST-API-Endpunkt zur Prompt-Konfiguration auf.
+
+**Verifikationsmethode:** UI-Test.
+**Verifikiert durch:** L2-RF-Test-033
+**Abgeleitet von:** REQ-L1-088
+
+---
+
+## Erweiterung v12 — REQ-L2-RF-034..037 (Unified ArtifactInspector / Right Sidebar)
+
+> **Datum:** 2026-07-06 | **Quelle:** REQ-L1-089..095 (User-Request "UI Unification of the Right Sidebar")
+
+---
+
+### REQ-L2-RF-034: RightSidebar Shell Component (ArtifactInspector)
+
+The ReactFrontendSystem MUST implement a generic, reusable right-sidebar shell component (`RightSidebar` / `ArtifactInspector`) used by every artifact detail page. The shell MUST host three panel slots in fixed order — `VersionPanel`, `DiffPanel`, `TracePanel` — and MUST expose `collapse` and `pin` user actions, with the resulting state persisted per user session (LocalStorage). The shell MUST apply the ARIA roles defined in REQ-L1-093 and source all user-visible strings from the `sidebar.inspector.*` i18n key tree defined in REQ-L1-094. The shell MUST be keyboard-navigable and announce collapse/pin/switch state changes via `aria-live="polite"` regions.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. Supersedes the inline sidebars of the RequirementEditor (REQ-L3-RF003-003) and ArchitectureEditor (REQ-L3-RF004-003).
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Shell component renders three panel slots in fixed order: VersionPanel, DiffPanel, TracePanel.
+- [ ] User can collapse and pin the sidebar; state persists per user session (LocalStorage).
+- [ ] Shell applies ARIA roles (`complementary` on shell, `region` + `aria-labelledby` on each panel, `aria-expanded` on toggle button) and announces state changes via `aria-live="polite"`.
+- [ ] All shell strings are sourced from `sidebar.inspector.*` and translated in `de` and `en`.
+- [ ] Existing inline sidebars of RequirementEditor and ArchitectureEditor are removed and the unified shell takes their place.
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (REST: GET /api/v1/artifacts/{type}/{id}/versions, /api/v1/artifacts/{type}/{id}/trace-links)
+- Outgoing: IF-RF-EXT-OUT-002 (rendered right column of the artifact detail page)
+
+**Traceability:** REQ-L1-089, REQ-L1-093, REQ-L1-094
+**Abgeleitet von:** REQ-L1-089, REQ-L1-093, REQ-L1-094
+
+---
+
+### REQ-L2-RF-035: VersionPanel Component
+
+The ReactFrontendSystem MUST implement a reusable `VersionPanel` component that renders a list of all versions of the active artifact (newest first, with version label, author, timestamp), allows the user to switch the displayed version by clicking an entry, and displays a baseline indicator for the currently selected version (baseline name, scope, date) or a neutral "Not in any active baseline" state. For artifact types without versioning, the panel MUST render an explicit "Single version" state. All user-visible strings MUST be sourced from the `sidebar.version.*` i18n key tree (REQ-L1-094), translated in `de` and `en`.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Panel lists all versions of the active artifact, newest first, with version label, author, timestamp.
+- [ ] Clicking a version entry switches the detail view to that version.
+- [ ] When the selected version is contained in a baseline, a baseline indicator is shown (baseline name, scope, date).
+- [ ] When no baseline contains the selected version, a neutral "Not in any active baseline" state is rendered.
+- [ ] For artifact types without versioning, an explicit "Single version" state is shown.
+- [ ] All strings are sourced from `sidebar.version.*` and translated in `de` and `en`.
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (REST: GET /api/v1/artifacts/{type}/{id}/versions, GET /api/v1/baselines?artifact={id})
+- Outgoing: IF-RF-EXT-OUT-002 (rendered VersionPanel slot)
+
+**Traceability:** REQ-L1-090, REQ-L1-094
+**Abgeleitet von:** REQ-L1-090, REQ-L1-094
+
+---
+
+### REQ-L2-RF-036: DiffPanel Component (field-level diff)
+
+The ReactFrontendSystem MUST implement a reusable `DiffPanel` component that accepts any two versions of the active artifact (sourced from the VersionPanel) and renders a field-level diff grouped by field name with per-field status (added / changed / removed) and old/new values. For ICDs the diff MUST include semantic fields (precondition, postcondition, invariant). An empty diff MUST be shown as an explicit "no differences" state, not a blank panel. All user-visible strings MUST be sourced from the `sidebar.diff.*` i18n key tree (REQ-L1-094), translated in `de` and `en`.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. The existing `Visuelles Artefakt-Diff` (REQ-L2-RF-014) is a global view; the DiffPanel is the per-artifact companion.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Panel exposes two version pickers (from / to) sourced from the VersionPanel.
+- [ ] Panel renders a field-level diff grouped by field name with per-field status (added / changed / removed) and old/new values.
+- [ ] For ICDs, semantic fields (precondition, postcondition, invariant) are included in the diff.
+- [ ] Identical versions render an explicit "no differences" state, not a blank panel.
+- [ ] Loading and error states are rendered consistently with the other panels.
+- [ ] All strings are sourced from `sidebar.diff.*` and translated in `de` and `en`.
+- [ ] Color contrast for added/changed/removed states meets WCAG 2.1 AA (REQ-L1-093).
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (REST: GET /api/v1/artifacts/{type}/{id}/diff?from={v1}&to={v2})
+- Outgoing: IF-RF-EXT-OUT-002 (rendered DiffPanel slot)
+
+**Traceability:** REQ-L1-091, REQ-L1-093, REQ-L1-094
+**Abgeleitet von:** REQ-L1-091, REQ-L1-093, REQ-L1-094
+
+---
+
+### REQ-L2-RF-037: TracePanel Component (inbound/outbound links, type filter)
+
+The ReactFrontendSystem MUST implement a reusable `TracePanel` component that displays all inbound (other artifacts linking to this artifact) and outbound (this artifact linking to other artifacts) TraceLinks of the active artifact, grouped by direction and by TraceLink type. A multi-select filter MUST let the user restrict both groups to one or more TraceLink types. Each link entry MUST show source/target artifact ID, type, direction, and `suspect` flag (per REQ-L1-043) when applicable. Empty groups MUST show an explicit "No inbound links" / "No outbound links" placeholder. All user-visible strings MUST be sourced from the `sidebar.trace.*` i18n key tree (REQ-L1-094), translated in `de` and `en`.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Newly identified. The existing `Traceability-Anzeige` (REQ-L2-RF-006) and the inline sidebars of RequirementEditor / ArchitectureEditor are predecessors; the TracePanel is the unified successor.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Panel shows two groups: inbound and outbound, each grouped by TraceLink type.
+- [ ] A multi-select filter restricts both groups to one or more TraceLink types.
+- [ ] Each link entry shows source/target artifact ID, type, direction, and `suspect` flag when applicable.
+- [ ] Clicking a link entry navigates to the linked artifact's detail view, preserving the inspector state.
+- [ ] Empty groups show an explicit "No inbound links" / "No outbound links" placeholder.
+- [ ] All strings are sourced from `sidebar.trace.*` and translated in `de` and `en`.
+
+**Interfaces:**
+- Incoming: IF-RF-EXT-OUT-001 (REST: GET /api/v1/artifacts/{type}/{id}/trace-links?direction={in|out}&type={...})
+- Outgoing: IF-RF-EXT-OUT-002 (rendered TracePanel slot)
+
+**Traceability:** REQ-L1-092, REQ-L1-094
+**Abgeleitet von:** REQ-L1-092, REQ-L1-094
+
+---
+
+*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-RF-001 | REQ-L1-016 |
+| REQ-L2-RF-002 | REQ-L1-017 |
+| REQ-L2-RF-003 | REQ-L1-017, REQ-L1-002 (mitwirkend) |
+| REQ-L2-RF-004 | REQ-L1-017, REQ-L1-004 (mitwirkend) |
+| REQ-L2-RF-005 | REQ-L1-017, REQ-L1-001 (mitwirkend) |
+| REQ-L2-RF-006 | REQ-L1-017, REQ-L1-003 (mitwirkend) |
+| REQ-L2-RF-007 | REQ-L1-007 (mitwirkend) |
+| REQ-L2-RF-008 | REQ-L1-014 (mitwirkend) |
+| REQ-L2-RF-009 | REQ-L1-026 (mitwirkend) |
+| REQ-L2-RF-010 | REQ-L1-017, REQ-L1-006 (mitwirkend) |
+| REQ-L2-RF-011 | REQ-L1-016 (mitwirkend), REQ-L1-017 |
+| REQ-L2-RF-012 | REQ-L1-017, REQ-L1-007 (mitwirkend), REQ-L1-014 (mitwirkend) |
+| REQ-L2-RF-014 | REQ-L1-040 |
+| REQ-L2-RF-015 | REQ-L1-041 |
+| REQ-L2-RF-034 | REQ-L1-089, REQ-L1-093, REQ-L1-094 |
+| REQ-L2-RF-035 | REQ-L1-090, REQ-L1-094 |
+| REQ-L2-RF-036 | REQ-L1-091, REQ-L1-093, REQ-L1-094 |
+| REQ-L2-RF-037 | REQ-L1-092, REQ-L1-094 |
+

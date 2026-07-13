@@ -19,6 +19,8 @@ Zentraler Einstiegspunkt fuer alle LLM-Aufrufe aus dem ApplicationService. Veran
 | REQ-L2-LA-003 | Selektive Capability-Aktivierung |
 | REQ-L2-LA-005 | Provider-Fehlerbehandlung und Timeout |
 | REQ-L2-LA-008 | Asynchrone LLM-Task-Ausführung via Celery |
+| REQ-L2-LA-009 | LlmSettings — Mandanten-konfigurierbarer LLM-Provider |
+| REQ-L2-LA-010 | PromptTemplate — Admin-editierbare Prompt-Slots |
 
 ## Interne Schnittstellen
 
@@ -41,6 +43,13 @@ Zentraler Einstiegspunkt fuer alle LLM-Aufrufe aus dem ApplicationService. Veran
 
 ### REQ-L3-LA003-001: Sync/Async Routing-Entscheidung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der CapabilityRouter SHALL `validate_artifact`-Aufrufe synchron an den Provider weiterleiten und das Ergebnis direkt zurueckgeben. `decompose_requirement`- und `check_consistency`-Aufrufe SHALL der Router an den AsyncTaskDispatcher (IF-LA-INT-005) delegieren und sofort `{task_id: "<uuid>"}` an den Aufrufer zurueckgeben, ohne den WSGI/ASGI-Worker zu blockieren.
 
 **Priority:** mandatory
@@ -53,6 +62,13 @@ Der CapabilityRouter SHALL `validate_artifact`-Aufrufe synchron an den Provider 
 ---
 
 ### REQ-L3-LA003-002: Graceful Degradation und selektive Capability-Aktivierung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der CapabilityRouter SHALL bei fehlender LLM-Konfiguration (`LLM_NOT_CONFIGURED`) oder deaktivierter Capability den strukturierten Fehler `{error: {code: "LLM_NOT_CONFIGURED"}}` zurueckgeben, ohne eine Exception zu werfen. Der Router SHALL die Capability-Aktivierung aus `LLM_CAPABILITIES` (komma-separierte Liste) lesen. Fehlende Variable oder leere Liste SOLL fail-safe als "alle deaktiviert" gewertet werden.
 
@@ -68,6 +84,13 @@ Der CapabilityRouter SHALL bei fehlender LLM-Konfiguration (`LLM_NOT_CONFIGURED`
 
 ### REQ-L3-LA003-003: Strukturierte Provider-Fehlerbehandlung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der CapabilityRouter SHALL alle Exceptions aus ProviderRegistry und Provider-Aufrufen abfangen und als strukturierten Fehler `{error: {code: "LLM_PROVIDER_ERROR", message: "<detail>"}}` zurueckgeben. Abzufangende Fehlerkategorien: Timeout, HTTP-4xx/5xx, Rate-Limit (HTTP 429), unerwartete Exception.
 
 **Priority:** mandatory
@@ -77,6 +100,17 @@ Der CapabilityRouter SHALL alle Exceptions aus ProviderRegistry und Provider-Auf
 - [ ] HTTP 429 from provider → `{"error": {"code": "LLM_PROVIDER_ERROR", "message": "Rate limit exceeded"}}`
 - [ ] Unexpected exception → `{"error": {"code": "LLM_PROVIDER_ERROR", "message": "<exception text>"}}`
 - [ ] No raw exception propagates beyond the router boundary
+
+---
+
+### REQ-L3-LA003-004: Auflösung von LlmSettings und PromptTemplates
+
+Der CapabilityRouter SHALL vor Aufruf von `get_provider` und der Ausführung der Capability prüfen, ob mandantenspezifische `LlmSettings` und/oder `PromptTemplate`-Einträge existieren. Diese MÜSSEN in den Kontext der Anfrage geladen und an ProviderRegistry (`LlmSettings`) und CapabilityInterface (`PromptTemplate`) übergeben werden.
+
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Bei Ausführung wird das korrekte `PromptTemplate` für die aktuelle Capability (z.B. `sysreq_decompose_next_level`) geladen.
+- [ ] Fehlt ein mandantenspezifisches Template, wird das systemweite Default-Template verwendet.
 
 ---
 

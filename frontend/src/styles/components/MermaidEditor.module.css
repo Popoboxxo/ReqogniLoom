@@ -1,0 +1,140 @@
+/* MermaidEditor — COMP-RF-005 Mermaid (REQ-L1-057) */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: var(--space-2);
+}
+
+.splitView {
+  display: flex;
+  flex: 1;
+  gap: var(--space-3);
+  min-height: 400px;
+}
+
+.editorPane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.editorBody {
+  flex: 1;
+  overflow: auto;
+}
+
+.previewPane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.previewBody {
+  flex: 1;
+  padding: var(--space-4);
+  overflow: auto;
+  background: var(--color-surface);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.previewSvg {
+  max-width: 100%;
+  height: auto;
+}
+
+.previewFallback {
+  padding: var(--space-4);
+  font-family: monospace;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  width: 100%;
+}
+
+.previewLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  padding: var(--space-4);
+}
+
+.errorBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: #fef2f2;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.errorIcon {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.statusSaved {
+  color: var(--color-success);
+}
+
+.statusUnsaved {
+  color: var(--color-warning);
+}
+
+.statusError {
+  color: var(--color-danger);
+}
+
+/* CodeMirror container styles */
+.codeMirrorWrapper {
+  height: 100%;
+  font-size: var(--font-size-sm);
+}
+
+.codeMirrorWrapper :global(.cm-editor) {
+  height: 100%;
+}
+
+.codeMirrorWrapper :global(.cm-scroller) {
+  overflow: auto;
+  font-family: 'Fira Code', 'Consolas', monospace;
+}

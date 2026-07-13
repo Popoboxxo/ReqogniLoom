@@ -1,0 +1,11 @@
+last_completed_step: docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/validation/L2_DiagramServiceSystem_TestPlan.md
+leaf_id: ARCH-L1-013_DiagramServiceSystem
+req_id: REQ-L1-027
+status: testplan_created
+timestamp: "2026-07-01T00:00:00Z"
+agent: se-integration-and-test-manager
+phase: "7"
+step: "13"
+sub_steps: "13a-13k"
+gate: "G13"
+gate_status: "PRECONDITIONS_MET"

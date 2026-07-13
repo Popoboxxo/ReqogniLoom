@@ -69,6 +69,11 @@ Der DomainEventBus SHALL Events in einer persistenten Outbox-Tabelle speichern (
 - [ ] Payload wird als JSON gespeichert
 
 **Interfaces:** IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Durability und Exactly-Once-Delivery garantiert durch DB-Persistierung.
 
@@ -91,6 +96,11 @@ Die schreibenden Domain-Services publizieren Events nach erfolgreicher DB-Commit
 - [ ] Hook-Fehler werden geloggt (nicht propagiert)
 
 **Interfaces:** IF-AS-INT-009, 010, 011, 012, 015, 016, 017, IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Garantierte Konsistenz: DB-Change ↔ Event-Publikation.
 
@@ -127,6 +137,11 @@ Der DomainEventBus SHALL folgende Event-Typen und deren Payload-Schema definiere
 - [ ] Ungültige Events werden abgewiesen
 
 **Interfaces:** IF-AS-INT-009, 010, 011, 012, 015, 016, 017
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Konsistente und validierbare Event-Struktur.
 
@@ -151,6 +166,11 @@ Der DomainEventBus SHALL Events asynchron an Subscriber dispatchen via Worker-Qu
 - [ ] Dead-Letter-Queue für fehlgeschlagene Events (nach max retries)
 
 **Interfaces:** IF-AS-INT-013, 014, IF-AS-EXT-OUT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Nicht-blockierende Delivery garantiert schnelle API-Antworten.
 
@@ -178,6 +198,11 @@ Vordefinierte Subscriber:
 - [ ] Mehrere Subscriber derselben Type möglich
 
 **Interfaces:** IF-AS-INT-013, 014
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Erweiterbarkeit und Entkopplung.
 
@@ -200,6 +225,11 @@ Der DomainEventBus SHALL Exactly-Once-Delivery garantieren:
 - [ ] Keine Event-Verluste auch bei Worker-Crash (Durability)
 
 **Interfaces:** IF-AS-EXT-OUT-007, IF-AS-INT-013, 014
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Zuverlässigkeitszusage für Subscription-basierte Systeme.
 
@@ -224,6 +254,11 @@ Operatoren können DLQ inspizieren und manuell erneut versuchen.
 - [ ] Metriken für DLQ-Größe verfügbar
 
 **Interfaces:** IF-AS-EXT-OUT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Operational Visibility und Recovery-Optionen.
 
@@ -247,6 +282,11 @@ Wenn ein Subscriber fehlschlägt oder zu lange dauert (Timeout > 30s):
 - [ ] Max 5 Retries pro Event
 
 **Interfaces:** IF-AS-INT-013, 014
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Robustheit bei Subscriber-Fehlern.
 
@@ -268,6 +308,11 @@ Der DomainEventBus SHALL Events pro Workspace isoliert verarbeiten:
 - [ ] Workspace-spezifische Subscriber-Registrierung möglich
 
 **Interfaces:** IF-AS-EXT-OUT-007, IF-AS-INT-013, 014
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-022
 **Rationale:** Sicherheit und Datenisolation.
 
@@ -293,6 +338,11 @@ Diese Metriken sind Prometheus-kompatibel und über `/metrics`-Endpoint abrufbar
 - [ ] Alerts sind möglich (z.B. >100 pending Events)
 
 **Interfaces:** (metrics export, keine inter-service IF)
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-026
 **Rationale:** Operational Observability.
 
@@ -317,3 +367,20 @@ Diese Metriken sind Prometheus-kompatibel und über `/metrics`-Endpoint abrufbar
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-DEB-001 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-002 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-003 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-004 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-005 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-006 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-007 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-008 | REQ-L2-AppSvc-026 |
+| REQ-L3-DEB-009 | REQ-L2-AppSvc-022 |
+| REQ-L3-DEB-010 | REQ-L2-AppSvc-026 |
+

@@ -1,0 +1,250 @@
+/* CanvasEditor — COMP-RF-005 Canvas (REQ-L1-056)
+   Architecture-modelling surface: grouped toolbar, dot-grid canvas. */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: var(--space-2);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/* Segmented tool groups instead of loose buttons + separators. */
+.toolGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.groupLabel {
+  font-size: var(--font-size-xs, 0.7rem);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  padding: 0 var(--space-1) 0 var(--space-2);
+  user-select: none;
+}
+
+.toolbarSeparator {
+  width: 1px;
+  height: 24px;
+  background: var(--color-border);
+  margin: 0 var(--space-1);
+}
+
+.toolButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: var(--color-text-muted);
+  transition: background var(--transition-fast), color var(--transition-fast),
+    border-color var(--transition-fast);
+  min-width: 30px;
+  width: 30px;
+  height: 30px;
+}
+
+.toolButton:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+.toolButton:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.toolButton:disabled:hover {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.toolButtonActive {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+}
+
+.toolButtonActive:hover {
+  background: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  color: var(--color-primary);
+}
+
+/* Shape / text / connector tool buttons (REQ-L2-CV-001..004). */
+.shapeTool {
+  line-height: 1;
+}
+
+/* Stroke / fill color swatches. */
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.swatch:hover {
+  transform: scale(1.15);
+}
+
+.swatchActive {
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary);
+}
+
+/* "No fill" swatch: white with a red diagonal. */
+.swatchTransparent {
+  background: linear-gradient(
+    to top right,
+    #ffffff 44%,
+    #ef4444 46%,
+    #ef4444 54%,
+    #ffffff 56%
+  );
+}
+
+.colorPicker {
+  width: 26px;
+  height: 26px;
+  padding: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: var(--color-surface);
+  margin: 0 2px;
+}
+
+.widthSlider {
+  width: 72px;
+  accent-color: var(--color-primary);
+  margin: 0 var(--space-1);
+}
+
+.widthLabel {
+  font-size: var(--font-size-xs, 0.7rem);
+  color: var(--color-text-muted);
+  min-width: 32px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoomLabel {
+  font-size: var(--font-size-xs, 0.7rem);
+  color: var(--color-text-muted);
+  min-width: 38px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.saveButton {
+  margin-left: auto;
+  padding: var(--space-1) var(--space-4);
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  height: 32px;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.saveButton:hover:not(:disabled) {
+  background: var(--color-primary-dark, var(--color-primary));
+}
+
+.saveButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Dot-grid modelling surface. Size/position are updated from JS so the grid
+   follows the viewport pan/zoom (background stays behind the transparent
+   Fabric canvas). */
+.canvasWrapper {
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  position: relative;
+  min-height: 400px;
+  background-color: var(--color-surface);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-text-muted) 32%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 20px 20px;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.statusHint {
+  flex: 1;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.statusSaved {
+  color: var(--color-success);
+}
+
+.statusUnsaved {
+  color: var(--color-warning);
+}
+
+.statusError {
+  color: var(--color-danger);
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+}

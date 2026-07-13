@@ -1,0 +1,49 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\VectorSearchServiceSystem\\L2_VectorSearchServiceSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-VS-001: Semantische Vektorsuche\n\nDer VectorSearchService SHALL eine semantische, vektorbasierte Suche \u00fcber alle Artefakttypen bereitstellen. Nat\u00fcrlichsprachliche Queries SHALL in einen Vektor eingebettet und gegen die gespeicherten Artefakt-Vektoren verglichen werden. Ergebnisse SHALL mit \u00c4hnlichkeits-Score gerankt zur\u00fcckgegeben werden. Query per Artefakt-ID SHALL semantisch \u00e4hnliche Artefakte als Duplikat-Vorschl\u00e4ge liefern.\n",
+      "ReplacementContent": "### REQ-L2-VS-001: Semantische Vektorsuche\n\nDer VectorSearchService SHALL eine semantische, vektorbasierte Suche \u00fcber alle Artefakttypen bereitstellen. Nat\u00fcrlichsprachliche Queries SHALL in einen Vektor eingebettet und gegen die gespeicherten Artefakt-Vektoren verglichen werden. Ergebnisse SHALL mit \u00c4hnlichkeits-Score gerankt zur\u00fcckgegeben werden. Query per Artefakt-ID SHALL semantisch \u00e4hnliche Artefakte als Duplikat-Vorschl\u00e4ge liefern.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 138,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 138,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-VS-002: Embedding-Pipeline\n\nDer VectorSearchService SHALL bei jeder Artefakt-Erstellung und -Bearbeitung automatisch die Embeddings aktualisieren. Die Embedding-Generierung SHALL asynchron erfolgen (maximale Verz\u00f6gerung 5 Minuten). Das Embedding-Modell SHALL \u00fcber den LlmAdapter abstrahiert werden (Provider-agnostisch).\n",
+      "ReplacementContent": "### REQ-L2-VS-002: Embedding-Pipeline\n\nDer VectorSearchService SHALL bei jeder Artefakt-Erstellung und -Bearbeitung automatisch die Embeddings aktualisieren. Die Embedding-Generierung SHALL asynchron erfolgen (maximale Verz\u00f6gerung 5 Minuten). Das Embedding-Modell SHALL \u00fcber den LlmAdapter abstrahiert werden (Provider-agnostisch).\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 138,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 138,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-VS-003: Hybrid-Suche (Vektor + Volltext)\n\nDer VectorSearchService SHALL eine Hybrid-Suche bereitstellen, die Vektor-\u00c4hnlichkeit und Volltext-Suche kombiniert. Das Ranking SHALL beide Signalquellen fusionieren (Reciprocal Rank Fusion oder gewichtete Summe). Volltext-Treffer SHALL bei exakten \u00dcbereinstimmungen h\u00f6her gewichtet werden.\n",
+      "ReplacementContent": "### REQ-L2-VS-003: Hybrid-Suche (Vektor + Volltext)\n\nDer VectorSearchService SHALL eine Hybrid-Suche bereitstellen, die Vektor-\u00c4hnlichkeit und Volltext-Suche kombiniert. Das Ranking SHALL beide Signalquellen fusionieren (Reciprocal Rank Fusion oder gewichtete Summe). Volltext-Treffer SHALL bei exakten \u00dcbereinstimmungen h\u00f6her gewichtet werden.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 138,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 138,
+      "AllowMultiple": false
+    }
+  ]
+}

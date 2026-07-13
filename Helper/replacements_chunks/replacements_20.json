@@ -1,0 +1,189 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\SeMetricsSystem\\L2_SeMetricsSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-SM-001: REST-Endpunkt GET /metrics/workspace/{id}\n\nDas SeMetricsSystem SHALL den Endpunkt `GET /metrics/workspace/{id}` bereitstellen, der einen vollst\u00e4ndigen strukturierten JSON-Metrikbericht f\u00fcr den angegebenen Workspace zur\u00fcckgibt. Die Antwort SHALL mindestens die vier Metrik-Kategorien Volatility, TraceabilityCoverage, WorkflowLuecken und OffeneRisiken enthalten. Anfragen ohne g\u00fcltigen Bearer Token oder API-Key M\u00dcSSEN mit HTTP 401 abgelehnt werden.\n",
+      "ReplacementContent": "### REQ-L2-SM-001: REST-Endpunkt GET /metrics/workspace/{id}\n\nDas SeMetricsSystem SHALL den Endpunkt `GET /metrics/workspace/{id}` bereitstellen, der einen vollst\u00e4ndigen strukturierten JSON-Metrikbericht f\u00fcr den angegebenen Workspace zur\u00fcckgibt. Die Antwort SHALL mindestens die vier Metrik-Kategorien Volatility, TraceabilityCoverage, WorkflowLuecken und OffeneRisiken enthalten. Anfragen ohne g\u00fcltigen Bearer Token oder API-Key M\u00dcSSEN mit HTTP 401 abgelehnt werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-002: Zeitraum- und Scope-Filter\n\nDas SeMetricsSystem SHALL optionale Query-Parameter `timeframe` (ISO-8601-Zeitraum, z.B. `P30D`) und `scope_filter` (Artefakttyp-Liste) am Metrik-Endpunkt auswerten. Fehlt `timeframe`, SHALL ein konfigurierter Standardwert (Default: 30 Tage) verwendet werden. Ung\u00fcltige Parameter-Werte M\u00dcSSEN mit HTTP 400 und beschreibender Fehlermeldung abgelehnt werden.\n",
+      "ReplacementContent": "### REQ-L2-SM-002: Zeitraum- und Scope-Filter\n\nDas SeMetricsSystem SHALL optionale Query-Parameter `timeframe` (ISO-8601-Zeitraum, z.B. `P30D`) und `scope_filter` (Artefakttyp-Liste) am Metrik-Endpunkt auswerten. Fehlt `timeframe`, SHALL ein konfigurierter Standardwert (Default: 30 Tage) verwendet werden. Ung\u00fcltige Parameter-Werte M\u00dcSSEN mit HTTP 400 und beschreibender Fehlermeldung abgelehnt werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-003: Requirements-Volatility-Berechnung\n\nDas SeMetricsSystem SHALL Requirements Volatility berechnen als: Anzahl \u00c4nderungsereignisse je Requirement im konfigurierbaren Zeitraum, aggregiert als Gesamt-\u00c4nderungsrate (Total-Changes / Total-Requirements) und als geordnete Liste der Top-10-volatilsten Requirements mit \u00c4nderungszahl. Quelldaten: AuditLog (IF-L1-044) nach Entit\u00e4ts-Typ `Requirement` und Operation `update`/`workflow_transition`.\n",
+      "ReplacementContent": "### REQ-L2-SM-003: Requirements-Volatility-Berechnung\n\nDas SeMetricsSystem SHALL Requirements Volatility berechnen als: Anzahl \u00c4nderungsereignisse je Requirement im konfigurierbaren Zeitraum, aggregiert als Gesamt-\u00c4nderungsrate (Total-Changes / Total-Requirements) und als geordnete Liste der Top-10-volatilsten Requirements mit \u00c4nderungszahl. Quelldaten: AuditLog (IF-L1-044) nach Entit\u00e4ts-Typ `Requirement` und Operation `update`/`workflow_transition`.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-004: Traceability-Coverage-Berechnung\n\nDas SeMetricsSystem SHALL Traceability Coverage berechnen als: Anteil der Requirements mit mindestens einem ausgehenden TraceLink (beliebiger Typ), ausgedr\u00fcckt in Prozent. Quelldaten: TraceabilityEngine `coverage(workspace_id)` (IF-L1-045). Die Antwort SHALL Gesamtanzahl, abgedeckte Anzahl, Prozentwert und Liste der unabgedeckten Requirement-IDs enthalten.\n",
+      "ReplacementContent": "### REQ-L2-SM-004: Traceability-Coverage-Berechnung\n\nDas SeMetricsSystem SHALL Traceability Coverage berechnen als: Anteil der Requirements mit mindestens einem ausgehenden TraceLink (beliebiger Typ), ausgedr\u00fcckt in Prozent. Quelldaten: TraceabilityEngine `coverage(workspace_id)` (IF-L1-045). Die Antwort SHALL Gesamtanzahl, abgedeckte Anzahl, Prozentwert und Liste der unabgedeckten Requirement-IDs enthalten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-005: Workflow-L\u00fccken-Erkennung\n\nDas SeMetricsSystem SHALL Workflow-L\u00fccken identifizieren als: Items ohne vollst\u00e4ndige Workflow-Historie, d.h. Items, die einen oder mehrere obligatorische Zust\u00e4nde der aktiven WorkflowDefinition nie durchlaufen haben. Quelldaten: WorkflowEngine `find_incomplete_states(workspace_id)` (IF-L1-046). Die Antwort SHALL Gesamtanzahl betroffener Items und eine Liste mit Item-ID, Item-Typ und fehlendem Zustand enthalten.\n",
+      "ReplacementContent": "### REQ-L2-SM-005: Workflow-L\u00fccken-Erkennung\n\nDas SeMetricsSystem SHALL Workflow-L\u00fccken identifizieren als: Items ohne vollst\u00e4ndige Workflow-Historie, d.h. Items, die einen oder mehrere obligatorische Zust\u00e4nde der aktiven WorkflowDefinition nie durchlaufen haben. Quelldaten: WorkflowEngine `find_incomplete_states(workspace_id)` (IF-L1-046). Die Antwort SHALL Gesamtanzahl betroffener Items und eine Liste mit Item-ID, Item-Typ und fehlendem Zustand enthalten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-006: Offene Risiken nach Schweregrad\n\nDas SeMetricsSystem SHALL offene Risiken nach Schweregrad aggregieren. Quelldaten: ApplicationService `query_risks_by_severity(workspace_id)` (IF-L1-047), gefiltert auf Risiko-Artefakte mit WorkflowState != geschlossen/mitigation-abgeschlossen. Die Antwort SHALL Gesamtanzahl sowie Aufschl\u00fcsselung nach Schweregrad-Kategorie (critical, high, medium, low) enthalten.\n",
+      "ReplacementContent": "### REQ-L2-SM-006: Offene Risiken nach Schweregrad\n\nDas SeMetricsSystem SHALL offene Risiken nach Schweregrad aggregieren. Quelldaten: ApplicationService `query_risks_by_severity(workspace_id)` (IF-L1-047), gefiltert auf Risiko-Artefakte mit WorkflowState != geschlossen/mitigation-abgeschlossen. Die Antwort SHALL Gesamtanzahl sowie Aufschl\u00fcsselung nach Schweregrad-Kategorie (critical, high, medium, low) enthalten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-007: Konfigurierbare Schwellwert-Warnungen\n\nDas SeMetricsSystem SHALL pro Workspace konfigurierbare Schwellwert-Warnungen f\u00fcr alle vier Metrik-Kategorien unterst\u00fctzen. \u00dcberschreitet ein Metrikwert den konfigurierten Schwellwert, SHALL die Antwort ein `warnings`-Objekt mit Metrik-Name, Ist-Wert, Schwellwert und Beschreibung enthalten. Schwellwerte f\u00fcr Metriken SHALL \u00fcber eine dedizierte konfigurierbare Schnittstelle verwaltbar sein (CRUD).\n",
+      "ReplacementContent": "### REQ-L2-SM-007: Konfigurierbare Schwellwert-Warnungen\n\nDas SeMetricsSystem SHALL pro Workspace konfigurierbare Schwellwert-Warnungen f\u00fcr alle vier Metrik-Kategorien unterst\u00fctzen. \u00dcberschreitet ein Metrikwert den konfigurierten Schwellwert, SHALL die Antwort ein `warnings`-Objekt mit Metrik-Name, Ist-Wert, Schwellwert und Beschreibung enthalten. Schwellwerte f\u00fcr Metriken SHALL \u00fcber eine dedizierte konfigurierbare Schnittstelle verwaltbar sein (CRUD).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-008: Read-Modell ohne Seiteneffekte\n\nDas SeMetricsSystem SHALL ausschlie\u00dflich lesende Operationen auf allen Quellsystemen durchf\u00fchren. Es darf keine schreibenden Operationen auf Requirements, ArchitectureElements, TestCases, TraceLinks, WorkflowStates oder AuditLog-Eintr\u00e4gen ausf\u00fchren. Der einzig erlaubte Schreibzugriff ist die optionale Persistenz von Metric-Cache-Eintr\u00e4gen (IF-L1-048) sowie die Persistenz von Schwellwert-Konfigurationen (IF-L1-048).\n",
+      "ReplacementContent": "### REQ-L2-SM-008: Read-Modell ohne Seiteneffekte\n\nDas SeMetricsSystem SHALL ausschlie\u00dflich lesende Operationen auf allen Quellsystemen durchf\u00fchren. Es darf keine schreibenden Operationen auf Requirements, ArchitectureElements, TestCases, TraceLinks, WorkflowStates oder AuditLog-Eintr\u00e4gen ausf\u00fchren. Der einzig erlaubte Schreibzugriff ist die optionale Persistenz von Metric-Cache-Eintr\u00e4gen (IF-L1-048) sowie die Persistenz von Schwellwert-Konfigurationen (IF-L1-048).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-009: Optionale Metric-Cache-Persistenz mit proaktiver Vorberechnung\n\nDas SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer Metric-Cache-Entity (IF-L1-048) materialisieren, um wiederholte Berechnungen f\u00fcr denselben Workspace und Zeitraum zu vermeiden. Cache-Invalidierung SHALL bei Empfang eines \u00c4nderungsereignisses aus dem AuditLog f\u00fcr den betroffenen Workspace erfolgen oder nach einer konfigurierbaren TTL. Zus\u00e4tzlich SHALL ein Celery-Beat-Job Metriken f\u00fcr aktive Workspaces in konfigurierbaren Intervallen (Default: alle 15 Minuten) proaktiv vorberechnen und Ergebnisse in den Cache schreiben, bevor ein Cache-Miss durch einen eingehenden Request ausgel\u00f6st wird.\n",
+      "ReplacementContent": "### REQ-L2-SM-009: Optionale Metric-Cache-Persistenz mit proaktiver Vorberechnung\n\nDas SeMetricsSystem SOLLTE berechnete Aggregationsergebnisse optional in einer Metric-Cache-Entity (IF-L1-048) materialisieren, um wiederholte Berechnungen f\u00fcr denselben Workspace und Zeitraum zu vermeiden. Cache-Invalidierung SHALL bei Empfang eines \u00c4nderungsereignisses aus dem AuditLog f\u00fcr den betroffenen Workspace erfolgen oder nach einer konfigurierbaren TTL. Zus\u00e4tzlich SHALL ein Celery-Beat-Job Metriken f\u00fcr aktive Workspaces in konfigurierbaren Intervallen (Default: alle 15 Minuten) proaktiv vorberechnen und Ergebnisse in den Cache schreiben, bevor ein Cache-Miss durch einen eingehenden Request ausgel\u00f6st wird.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-010: Tenant-Isolation f\u00fcr alle Metrik-Abfragen\n\nDas SeMetricsSystem SHALL sicherstellen, dass alle Quelldaten-Abfragen (IF-L1-044 bis IF-L1-047) ausschlie\u00dflich Daten des aktiven Tenants liefern. Workspace-ID-Validierung gegen den Tenant-Kontext des Aufrufers SHALL vor jeder Berechnung erfolgen.\n",
+      "ReplacementContent": "### REQ-L2-SM-010: Tenant-Isolation f\u00fcr alle Metrik-Abfragen\n\nDas SeMetricsSystem SHALL sicherstellen, dass alle Quelldaten-Abfragen (IF-L1-044 bis IF-L1-047) ausschlie\u00dflich Daten des aktiven Tenants liefern. Workspace-ID-Validierung gegen den Tenant-Kontext des Aufrufers SHALL vor jeder Berechnung erfolgen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-011: Metrik-Antwort-Performance-SLA\n\nDas SeMetricsSystem SHALL die folgenden Performance-SLAs einhalten: \u2264 500ms (p95) f\u00fcr eine vollst\u00e4ndige Metrik-Berechnung ohne Cache bei bis zu 10.000 Requirements und 50.000 TraceLinks im Workspace. \u00dcberschreitungen von 2.000ms (p99) gelten als Verletzung.\n",
+      "ReplacementContent": "### REQ-L2-SM-011: Metrik-Antwort-Performance-SLA\n\nDas SeMetricsSystem SHALL die folgenden Performance-SLAs einhalten: \u2264 500ms (p95) f\u00fcr eine vollst\u00e4ndige Metrik-Berechnung ohne Cache bei bis zu 10.000 Requirements und 50.000 TraceLinks im Workspace. \u00dcberschreitungen von 2.000ms (p99) gelten als Verletzung.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-012: Strukturiertes JSON-Antwortformat\n\nDas SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat f\u00fcr den Metrik-Endpunkt bereitstellen. Das Format SHALL mindestens die Felder `workspace_id`, `computed_at`, `timeframe`, `volatility`, `traceability_coverage`, `workflow_gaps`, `open_risks` und `warnings` enthalten. Feldnamen und -typen d\u00fcrfen in v1 nicht ohne API-Versionierung ge\u00e4ndert werden.\n",
+      "ReplacementContent": "### REQ-L2-SM-012: Strukturiertes JSON-Antwortformat\n\nDas SeMetricsSystem SHALL ein stabiles, versioniertes JSON-Antwortformat f\u00fcr den Metrik-Endpunkt bereitstellen. Das Format SHALL mindestens die Felder `workspace_id`, `computed_at`, `timeframe`, `volatility`, `traceability_coverage`, `workflow_gaps`, `open_risks` und `warnings` enthalten. Feldnamen und -typen d\u00fcrfen in v1 nicht ohne API-Versionierung ge\u00e4ndert werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-SM-013: Thundering-Herd-Prevention bei Cache-Miss\n\nDas SeMetricsSystem MUSS sicherstellen, dass bei einem Cache-Miss f\u00fcr einen Workspace/Zeitraum-Schl\u00fcssel genau EINE Celery-Task zur Neuberechnung ausgel\u00f6st wird. Alle parallel eingehenden Anfragen f\u00fcr denselben Workspace/Zeitraum-Schl\u00fcssel M\u00dcSSEN auf das Ergebnis dieser Task warten, anstatt eigenst\u00e4ndig weitere Berechnungen anzusto\u00dfen. Die Implementierung MUSS einen distributed Lock-Mechanismus (z.B. Redis-Lock) verwenden, der f\u00fcr die Dauer der Berechnung exklusiv gehalten wird.\n",
+      "ReplacementContent": "### REQ-L2-SM-013: Thundering-Herd-Prevention bei Cache-Miss\n\nDas SeMetricsSystem MUSS sicherstellen, dass bei einem Cache-Miss f\u00fcr einen Workspace/Zeitraum-Schl\u00fcssel genau EINE Celery-Task zur Neuberechnung ausgel\u00f6st wird. Alle parallel eingehenden Anfragen f\u00fcr denselben Workspace/Zeitraum-Schl\u00fcssel M\u00dcSSEN auf das Ergebnis dieser Task warten, anstatt eigenst\u00e4ndig weitere Berechnungen anzusto\u00dfen. Die Implementierung MUSS einen distributed Lock-Mechanismus (z.B. Redis-Lock) verwenden, der f\u00fcr die Dauer der Berechnung exklusiv gehalten wird.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 416,
+      "AllowMultiple": false
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\WorkflowEngineSystem\\L2_WorkflowEngineSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-WE-001: Transition Validation\n\nDie WorkflowEngine SHALL jede Workflow-State-Transition (`from_state \u2192 to_state`) gegen die aktive WorkflowDefinition validieren. Die Validierung SHALL vier Regeln durchsetzen:\n1. Die Transition existiert in der aktiven WorkflowDefinition f\u00fcr den Item-Typ und Workspace.\n2. Die Rolle des anfragenden Nutzers ist in den `allowed_roles` der Transition enthalten.\n3. Falls `requires_change_reason = true`, MUSS ein nicht-leerer `change_reason` vorhanden sein.\n4. Falls die Transition ein `SignatureGate` besitzt, MUSS der Aufruf ein g\u00fcltiges Credential (Passwort-Best\u00e4tigung oder TOTP-Token) enthalten.\n\nBei Regelverletzung SHALL die Transition mit spezifischer Fehlermeldung abgelehnt werden.\n",
+      "ReplacementContent": "### REQ-L2-WE-001: Transition Validation\n\nDie WorkflowEngine SHALL jede Workflow-State-Transition (`from_state \u2192 to_state`) gegen die aktive WorkflowDefinition validieren. Die Validierung SHALL vier Regeln durchsetzen:\n1. Die Transition existiert in der aktiven WorkflowDefinition f\u00fcr den Item-Typ und Workspace.\n2. Die Rolle des anfragenden Nutzers ist in den `allowed_roles` der Transition enthalten.\n3. Falls `requires_change_reason = true`, MUSS ein nicht-leerer `change_reason` vorhanden sein.\n4. Falls die Transition ein `SignatureGate` besitzt, MUSS der Aufruf ein g\u00fcltiges Credential (Passwort-Best\u00e4tigung oder TOTP-Token) enthalten.\n\nBei Regelverletzung SHALL die Transition mit spezifischer Fehlermeldung abgelehnt werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-WE-002: WorkflowDefinition Management\n\nDie WorkflowEngine SHALL WorkflowDefinitions pro Item-Typ und Workspace verwalten. Vordefinierte Default-Workflows f\u00fcr alle drei Presets:\n- **Minimal:** States `[draft, done]`, alle Transitionen f\u00fcr `editor`.\n- **Standard:** States `[draft, approved, deprecated]`, rollenbasiert.\n- **Extended:** States `[draft, in_review, approved, deprecated]`, `in_review \u2192 approved` nur f\u00fcr `approver`, `change_reason` Pflicht.\n\nCustom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-Preset SHALL der Default-Workflow nicht konfigurierbar sein. Jede Transition KANN optional ein `signature_gate`-Attribut (boolean) tragen; ist es gesetzt (`true`), wird bei der Ausf\u00fchrung ein Credential verlangt.\n",
+      "ReplacementContent": "### REQ-L2-WE-002: WorkflowDefinition Management\n\nDie WorkflowEngine SHALL WorkflowDefinitions pro Item-Typ und Workspace verwalten. Vordefinierte Default-Workflows f\u00fcr alle drei Presets:\n- **Minimal:** States `[draft, done]`, alle Transitionen f\u00fcr `editor`.\n- **Standard:** States `[draft, approved, deprecated]`, rollenbasiert.\n- **Extended:** States `[draft, in_review, approved, deprecated]`, `in_review \u2192 approved` nur f\u00fcr `approver`, `change_reason` Pflicht.\n\nCustom WorkflowDefinitions SOLLTEN im Extended-Preset erlaubt sein. Im Minimal-Preset SHALL der Default-Workflow nicht konfigurierbar sein. Jede Transition KANN optional ein `signature_gate`-Attribut (boolean) tragen; ist es gesetzt (`true`), wird bei der Ausf\u00fchrung ein Credential verlangt.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-WE-003: WorkflowState History (Audit-Trail)\n\nDie WorkflowEngine SHALL f\u00fcr jede erfolgreiche Transition einen append-only History-Eintrag schreiben mit: `from_state`, `to_state`, `transitioned_by`, `transitioned_at` (UTC, ms-Pr\u00e4zision), `change_reason` (optional), `signature_seal` (kryptografisches Pr\u00fcfsiegel, non-null wenn SignatureGate durchlaufen). History-Eintr\u00e4ge D\u00dcRFEN NICHT modifiziert oder gel\u00f6scht werden. Transition und History-Eintrag M\u00dcSSEN atomar persistiert werden.\n",
+      "ReplacementContent": "### REQ-L2-WE-003: WorkflowState History (Audit-Trail)\n\nDie WorkflowEngine SHALL f\u00fcr jede erfolgreiche Transition einen append-only History-Eintrag schreiben mit: `from_state`, `to_state`, `transitioned_by`, `transitioned_at` (UTC, ms-Pr\u00e4zision), `change_reason` (optional), `signature_seal` (kryptografisches Pr\u00fcfsiegel, non-null wenn SignatureGate durchlaufen). History-Eintr\u00e4ge D\u00dcRFEN NICHT modifiziert oder gel\u00f6scht werden. Transition und History-Eintrag M\u00dcSSEN atomar persistiert werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-WE-004: Workflow Migration on Definition Change\n\nDie WorkflowEngine SHALL bei WorkflowDefinition-\u00c4nderungen pr\u00fcfen, ob Items in nicht mehr vorhandenen States existieren (verwaiste States). Falls ja, SHALL die \u00c4nderung blockiert werden mit Fehlermeldung (State-Name, betroffene Item-Anzahl, Item-IDs bis Limit 100).\n",
+      "ReplacementContent": "### REQ-L2-WE-004: Workflow Migration on Definition Change\n\nDie WorkflowEngine SHALL bei WorkflowDefinition-\u00c4nderungen pr\u00fcfen, ob Items in nicht mehr vorhandenen States existieren (verwaiste States). Falls ja, SHALL die \u00c4nderung blockiert werden mit Fehlermeldung (State-Name, betroffene Item-Anzahl, Item-IDs bis Limit 100).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-WE-005: Workflow State Initialization\n\nDie WorkflowEngine SHALL die Operation `initialize_workflow_state(item_ids[], item_type, workspace_id, ctx)` bereitstellen, die f\u00fcr jedes Item einen initialen WorkflowState erstellt (initial_state, typischerweise `draft`). Alle States M\u00dcSSEN atomar persistiert werden.\n",
+      "ReplacementContent": "### REQ-L2-WE-005: Workflow State Initialization\n\nDie WorkflowEngine SHALL die Operation `initialize_workflow_state(item_ids[], item_type, workspace_id, ctx)` bereitstellen, die f\u00fcr jedes Item einen initialen WorkflowState erstellt (initial_state, typischerweise `draft`). Alle States M\u00dcSSEN atomar persistiert werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-WE-006: Tenant-Scoped Workflow Data Isolation\n\nDie WorkflowEngine SHALL alle WorkflowDefinition- und WorkflowState-Queries auf den aktiven Tenant beschr\u00e4nken. Jede Operation SHALL den `tenant_id` aus dem Auth-Kontext als Filter verwenden.\n",
+      "ReplacementContent": "### REQ-L2-WE-006: Tenant-Scoped Workflow Data Isolation\n\nDie WorkflowEngine SHALL alle WorkflowDefinition- und WorkflowState-Queries auf den aktiven Tenant beschr\u00e4nken. Jede Operation SHALL den `tenant_id` aus dem Auth-Kontext als Filter verwenden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-WE-007: Preset-Downgrade Behavior\n\nDie WorkflowEngine SHALL bei Preset-Downgrades pr\u00fcfen, ob Items in States existieren, die im Zielpreset nicht g\u00fcltig sind. Falls ja, SHALL der Downgrade blockiert werden.\n",
+      "ReplacementContent": "### REQ-L2-WE-007: Preset-Downgrade Behavior\n\nDie WorkflowEngine SHALL bei Preset-Downgrades pr\u00fcfen, ob Items in States existieren, die im Zielpreset nicht g\u00fcltig sind. Falls ja, SHALL der Downgrade blockiert werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-WE-008: Transition Performance\n\nDie WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + History-Write) innerhalb von 50ms abschlie\u00dfen \u2014 unter Normal-Last (50 gleichzeitige Nutzer, 10.000 Items).\n",
+      "ReplacementContent": "### REQ-L2-WE-008: Transition Performance\n\nDie WorkflowEngine SHALL eine einzelne Transition (Validierung + State-Update + History-Write) innerhalb von 50ms abschlie\u00dfen \u2014 unter Normal-Last (50 gleichzeitige Nutzer, 10.000 Items).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-WE-009: SignatureGate \u2014 Credential-Verifizierung\n\nDie WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das \u00fcbergebene Credential (Passwort-Best\u00e4tigung oder TOTP-Token) gegen das AuthAndTenancy-System verifizieren, bevor die Transition ausgef\u00fchrt wird. Schl\u00e4gt die Verifizierung fehl, SHALL die Transition abgebrochen werden (HTTP 403) und kein AuditLog-Eintrag geschrieben werden. Bei erfolgreicher Verifizierung SHALL ein kryptografisches Pr\u00fcfsiegel (`signature_seal`) als HMAC-SHA256 aus `transition_id + timestamp + user_id` berechnet und im History-Eintrag gespeichert werden. Ziel ist die Erf\u00fcllung der Anforderungen an Qualified Electronic Signatures (QES) f\u00fcr sicherheitskritische Systeme (IEC 61508 v2).\n",
+      "ReplacementContent": "### REQ-L2-WE-009: SignatureGate \u2014 Credential-Verifizierung\n\nDie WorkflowEngine SHALL bei Transitionen mit `signature_gate: true` das \u00fcbergebene Credential (Passwort-Best\u00e4tigung oder TOTP-Token) gegen das AuthAndTenancy-System verifizieren, bevor die Transition ausgef\u00fchrt wird. Schl\u00e4gt die Verifizierung fehl, SHALL die Transition abgebrochen werden (HTTP 403) und kein AuditLog-Eintrag geschrieben werden. Bei erfolgreicher Verifizierung SHALL ein kryptografisches Pr\u00fcfsiegel (`signature_seal`) als HMAC-SHA256 aus `transition_id + timestamp + user_id` berechnet und im History-Eintrag gespeichert werden. Ziel ist die Erf\u00fcllung der Anforderungen an Qualified Electronic Signatures (QES) f\u00fcr sicherheitskritische Systeme (IEC 61508 v2).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 307,
+      "AllowMultiple": false
+    }
+  ]
+}

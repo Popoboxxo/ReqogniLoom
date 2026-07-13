@@ -40,6 +40,13 @@ Keine direkten externen Schnittstellen; Kommunikation ausschließlich über COMP
 
 ### REQ-L3-RA002-001: JSON-Deserialisierung, Input-Validierung und DTO-Konvertierung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der DataSerializer SHALL eingehende JSON-Request-Bodies für alle sieben Domain-Entitäten deserialisieren, gegen das jeweilige Feldschema (Typen, Pflichtfelder, Format-Constraints) validieren und in typisierte DTOs für den ApplicationService konvertieren. Validierungsfehler SHALL er als strukturierten `ValidationError` mit feldspezifischen Details zurückgeben.
 
 **Priority:** mandatory
@@ -53,6 +60,13 @@ Der DataSerializer SHALL eingehende JSON-Request-Bodies für alle sieben Domain-
 
 ### REQ-L3-RA002-002: Lokalisierte Fehlermeldungen (DE/EN) via Accept-Language
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der DataSerializer SHALL alle Validierungs- und Fehlerausgaben in der durch den `Accept-Language`-Header angeforderten Sprache (Deutsch oder Englisch) zurückgeben. Fehlender oder unbekannter Header SHALL auf Englisch zurückfallen. Jeder neue Fehler-Key MUSS eine deutsche Übersetzung besitzen; fehlende Keys MÜSSEN als Build-Fehler behandelt werden.
 
 **Priority:** mandatory
@@ -65,6 +79,13 @@ Der DataSerializer SHALL alle Validierungs- und Fehlerausgaben in der durch den 
 ---
 
 ### REQ-L3-RA002-003: Pagination, Filtering und Sorting auf Listen-Responses
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der DataSerializer SHALL für alle Listen-Endpunkte Pagination (offset-basiert, konfigurierbare Page-Size, Default 25, Maximum 100), Filtering nach mindestens `workspace_id` und `workflow_state` sowie Sorting über `ordering`-Query-Parameter unterstützen. Die Response SHALL Pagination-Metadaten (`count`, `next`, `previous`, `results`) enthalten.
 
@@ -80,6 +101,13 @@ Der DataSerializer SHALL für alle Listen-Endpunkte Pagination (offset-basiert, 
 
 ### REQ-L3-RA002-004: Preset-gesteuerte Feld-Filterung in der Serialisierung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der DataSerializer SHALL die von COMP-RA-004 (PresetGuard) über IF-RA-INT-004 gelieferte `FieldFilter`-Entscheidung auswerten und Felder, die nicht im aktiven Workspace-Preset erlaubt sind, aus der Serialisierungsausgabe ausschließen. Pflichtfelder des aktiven Presets, die im Request fehlen, SHALL als Validierungsfehler behandelt werden.
 
 **Priority:** mandatory
@@ -91,4 +119,37 @@ Der DataSerializer SHALL die von COMP-RA-004 (PresetGuard) über IF-RA-INT-004 g
 
 ---
 
+## Erweiterung v2 — REQ-L3-RA002-005 (Schema Validation für AI-Native SE)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive" (REQ-L2-RA-019)
+
+---
+
+### REQ-L3-RA002-005: Domänenspezifische Validierung (Polymorphic Serialization)
+
+Der DataSerializer MUSS das Erstellen und Aktualisieren von Artefakten polymorph anhand des Feldes `type` validieren. Für jeden Artefakttyp (StReq, SyReq, ArchE, TC) MUSS eine spezifische Serializer-Child-Class exakt die im Datenmodell (REQ-L1-077) vorgeschriebenen Felder und Enums validieren.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu. Bisher nur generisches Artefakt-Schema.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] StakeholderRequirementSerializer validiert MoSCoW-Prioritäten.
+- [ ] SystemRequirementSerializer validiert Fibonacci-Werte (Complexity) und Enum (Verification Method).
+- [ ] ArchitectureElementSerializer validiert ASIL-Levels und Make-or-Buy-Enum.
+- [ ] TestCaseSerializer validiert Test Type und Pre-Conditions.
+- [ ] Ein POST/PATCH mit fehlenden oder unpassenden Pflichtfeldern für den `type` führt zu `400 Bad Request` mit Field-Errors.
+
+**Traceability:** Abgeleitet von REQ-L2-RA-019
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RA002-005 | Abgeleitet von REQ-L2-RA-019 |
+

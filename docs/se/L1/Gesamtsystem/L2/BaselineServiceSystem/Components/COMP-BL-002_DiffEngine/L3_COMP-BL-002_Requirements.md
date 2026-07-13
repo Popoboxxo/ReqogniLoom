@@ -35,6 +35,13 @@ Vergleich zweier Baselines desselben Scopes (added/removed/changed mit Versions-
 
 ### REQ-L3-BL002-001: Strukturierter Baseline-Diff mit drei Kategorien
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Die DiffEngine SHALL beim Vergleich zweier Baselines ein strukturiertes Ergebnis mit drei Kategorien liefern: `added` (Items nur in B), `removed` (Items nur in A), `changed` (Items in beiden Baselines mit unterschiedlicher Version, inkl. `old_version` und `new_version`). Items mit identischer Version in beiden Baselines werden nicht im Ergebnis aufgefuehrt.
 
 **Priority:** mandatory
@@ -49,6 +56,13 @@ Die DiffEngine SHALL beim Vergleich zweier Baselines ein strukturiertes Ergebnis
 
 ### REQ-L3-BL002-002: Scope-Kompatibilitaetspruefung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Die DiffEngine SHALL vor der Diff-Berechnung pruefen, dass beide Baselines denselben Scope besitzen. Baselines unterschiedlichen Scopes SOLLEN mit einem klar formulierten Fehler abgelehnt werden.
 
 **Priority:** mandatory
@@ -60,6 +74,13 @@ Die DiffEngine SHALL vor der Diff-Berechnung pruefen, dass beide Baselines dense
 ---
 
 ### REQ-L3-BL002-003: Diff-Performance fuer grosse Baselines
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Die DiffEngine SHALL Diff-Operationen zwischen zwei Baselines mit je bis zu 10.000 Items innerhalb von 2 Sekunden abschliessen (p95).
 

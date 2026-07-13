@@ -16,53 +16,74 @@ Laedt fuer ein `(item_id, version)`-Paar den historischen Payload aus AuditLog /
 | REQ-L2 | Anforderungstext (Kurzform) |
 |--------|-----------------------------|
 | REQ-L2-BL-009 | Baseline-Rekonstruktion aus Versionshistorie |
+| REQ-L2-BL-012 | Baseline Delta-Storage Index mit JSON-Snapshots |
 
 ## Interne Schnittstellen
 
 | IF-ID | Richtung | Gegenstelle | Vertrag |
 |-------|----------|-------------|---------|
-| IF-BL-INT-004 | ausgehend | COMP-BL-003 (BaselineStore) | `lookup_item_version(baseline_id, item_id) -> version` |
+| IF-BL-INT-004 | ausgehend | COMP-BL-003 (BaselineStore) | `lookup_item_snapshot(baseline_id, item_id) -> snapshot_json` |
 
 ## Externe Schnittstellen (Systemgrenze)
 
 | IF-ID | Richtung | Gegenstelle | Vertrag |
 |-------|----------|-------------|---------|
 | IF-BL-EXT-IN-001 | eingehend | ApplicationService | `get_item_at_baseline(baseline_id, item_id)` |
-| IF-BL-EXT-IN-004 | eingehend | AuditLog / VersionHistory (Django ORM) | `get_version(item_id, version) -> ItemPayload` |
 
 ## L3 Komponenten-Anforderungen
 
 ### REQ-L3-BL004-001: Historische Item-Payload-Rekonstruktion
 
-Der VersionReconstructor SHALL fuer einen gegebenen `(baseline_id, item_id)`-Schluessel den vollstaendigen historischen Item-Payload (title, description, content) zum in der Baseline gespeicherten Versionszeitpunkt zurueckliefern. Dazu SHALL er zunaechst die Versions-Nummer ueber den BaselineStore ermitteln und anschliessend den Payload aus dem AuditLog bzw. der `RequirementVersion`-Tabelle laden.
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
+Der VersionReconstructor SHALL fuer einen gegebenen `(baseline_id, item_id)`-Schluessel den vollstaendigen historischen Item-Payload zum in der Baseline gespeicherten Zeitpunkt zurueckliefern. Dazu SHALL er den Snapshot (JSONField) direkt ueber den BaselineStore (aus dem BaselineDeltaIndexEntry) abfragen und de-serialisieren. Ein Abruf aus dem AuditLog ist explizit untersagt (gemäß REQ-L2-BL-012).
 
 **Priority:** mandatory
 **Acceptance Criteria:**
-- [ ] `get_item_at_baseline(bl_id, item_id)` → returns ItemPayload with title, description, content of the stored version
-- [ ] Item modified after baseline creation → function returns the old state at baseline time, not the current state
-- [ ] Payload retrieval uses the version number from BaselineStore, not the current item version
+- [ ] `get_item_at_baseline(bl_id, item_id)` → returns ItemPayload populated from JSON snapshot
+- [ ] No queries are made to AuditLog or VersionHistory tables.
+- [ ] Function throws an error if no JSON snapshot is available in the DeltaIndex.
 
 ---
 
 ### REQ-L3-BL004-002: Fehlerbehandlung fuer fehlende Eintraege
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der VersionReconstructor SHALL fuer Fehlerszenarien klar definierte Fehler ausloesen: wenn das Item nicht in der Baseline enthalten ist oder wenn die gespeicherte Version nicht in der Versionshistorie vorhanden ist.
 
 **Priority:** mandatory
 **Acceptance Criteria:**
 - [ ] item_id not in baseline → raises error `"Item not part of this baseline"` (delegated from BaselineStore)
-- [ ] version not found in AuditLog/RequirementVersion → raises error `"Version not found in history"`
-- [ ] Error message clearly distinguishes between the two failure cases
+- [ ] snapshot cannot be deserialized or is missing → raises error `"Valid JSON Snapshot not found in baseline index"`
 
 ---
 
 ### REQ-L3-BL004-003: Payload-Caching fuer wiederholte Rekonstruktionen
 
-Der VersionReconstructor SOLLTE haeufig abgerufene `(item_id, version)`-Paare im Arbeitsspeicher zwischenspeichern (LRU-Cache), um wiederholte AuditLog-Abfragen fuer identische Versionen zu vermeiden.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
+Der VersionReconstructor SOLLTE haeufig abgerufene JSON-Snapshots (deserialisierte Objekte) im Arbeitsspeicher zwischenspeichern (LRU-Cache), um wiederholte JSON-Deserialisierung für dasselbe `(baseline_id, item_id)` Paar zu vermeiden.
 
 **Priority:** optional
 **Acceptance Criteria:**
-- [ ] Repeated `get_item_at_baseline` calls for the same (item_id, version) pair → second call served from cache without DB query
+- [ ] Repeated `get_item_at_baseline` calls for the same baseline/item_id → second call served from cache
+
 - [ ] Cache is bounded (LRU eviction) to prevent unbounded memory growth
 - [ ] Cache invalidation is not required (payloads are immutable once versioned)
 

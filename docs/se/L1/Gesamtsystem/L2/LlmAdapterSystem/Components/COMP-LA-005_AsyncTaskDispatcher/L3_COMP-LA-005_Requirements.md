@@ -35,6 +35,13 @@ Dispatcht LLM-Langlaeufer (`decompose_requirement`, `check_consistency`) als Cel
 
 ### REQ-L3-LA005-001: Sofortiger Task-Dispatch mit task_id-Rueckgabe
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der AsyncTaskDispatcher SHALL bei Aufruf von `dispatch_async(capability, kwargs)` den LLM-Aufruf als Celery-Task in die Queue dispatchen und sofort eine UUID-basierte `task_id` zurueckgeben. Der Dispatch-Vorgang selbst SHALL den aufrufenden Thread nicht fuer die Dauer des LLM-Aufrufs blockieren. Die Rueckgabe der `task_id` MUSS innerhalb von 500 ms erfolgen.
 
 **Priority:** mandatory
@@ -47,6 +54,13 @@ Der AsyncTaskDispatcher SHALL bei Aufruf von `dispatch_async(capability, kwargs)
 ---
 
 ### REQ-L3-LA005-002: Task-Status-Abfrage und Ergebnisverwaltung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der AsyncTaskDispatcher SHALL `get_task_status(task_id) -> TaskStatusResult` implementieren. Moegliche Status-Werte: `pending` (Task in Queue, noch nicht gestartet), `running` (Celery-Worker hat Task uebernommen), `done` (Task abgeschlossen, `result` enthalten), `failed` (Task fehlgeschlagen, `error` enthalten). Das Ergebnis SHALL im Celery Result-Backend (Redis/RabbitMQ) persistiert werden.
 
@@ -63,6 +77,13 @@ Der AsyncTaskDispatcher SHALL `get_task_status(task_id) -> TaskStatusResult` imp
 
 ### REQ-L3-LA005-003: Konfigurierbarer Celery-Broker und Task-Timeout
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der AsyncTaskDispatcher SHALL den Celery-Broker ueber die Umgebungsvariable `CELERY_BROKER_URL` konfigurieren. Sowohl Redis als auch RabbitMQ SHALL als Broker unterstuetzt werden. Task-Timeouts auf Worker-Ebene SOLLEN ueber `CELERY_TASK_SOFT_TIME_LIMIT` (Warning) und `CELERY_TASK_TIME_LIMIT` (Hard-Kill) konfigurierbar sein.
 
 **Priority:** mandatory
@@ -76,6 +97,13 @@ Der AsyncTaskDispatcher SHALL den Celery-Broker ueber die Umgebungsvariable `CEL
 ---
 
 ### REQ-L3-LA005-004: Fehlerbehandlung bei Task-Ausfuehrung im Celery-Worker
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der AsyncTaskDispatcher SHALL sicherstellen, dass Fehler waehrend der Task-Ausfuehrung im Celery-Worker als `{status: "failed", error: "<message>"}` im Result-Backend gespeichert werden. Unhandled Exceptions im Worker DUERFEN nicht zu einem dauerhaft haengenden Task-Status fuehren. Der AsyncTaskDispatcher-Task SHALL bei jedem Fehler (Provider-Error, Timeout, unerwartete Exception) den Status explizit auf `failed` setzen.
 

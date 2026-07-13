@@ -44,6 +44,13 @@ HTTP-Request-Routing, Method-Dispatch, HTTP-Statuscode-Selektion, Response-Assem
 
 ### REQ-L3-RA001-001: CRUD-Routing für alle sieben Domain-Entitäten
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der HttpEndpointController SHALL vollständige CRUD-Routen (GET list, GET detail, POST, PATCH, DELETE) für alle sieben Domain-Entitäten (Artifact, Requirement, ArchitectureElement, TestCase, TraceLink, Baseline, WorkflowDefinition) unter dem Basis-Pfad `/api/v1/` registrieren und korrekt dispatchen.
 
 **Priority:** mandatory
@@ -56,6 +63,13 @@ Der HttpEndpointController SHALL vollständige CRUD-Routen (GET list, GET detail
 ---
 
 ### REQ-L3-RA001-002: HTTP-Statuscodes und Response-Assembly nach Operationstyp
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der HttpEndpointController SHALL nach jeder Delegation an den ApplicationService den korrekten HTTP-Statuscode auswählen (200 für GET/PATCH, 201 für POST, 204 für DELETE) und die JSON-Response aus dem zurückgegebenen DTO assemblen. Fehlersituationen SHALL er in standardisierte HTTP-Fehlercodes übersetzen (400, 401, 403, 404, 409, 422, 500).
 
@@ -71,6 +85,13 @@ Der HttpEndpointController SHALL nach jeder Delegation an den ApplicationService
 
 ### REQ-L3-RA001-003: Audit-Log-Delegation bei Schreiboperationen
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
+**Test Status:** Covered
+**Remarks:** Implementierung prüfen.
+
+
 Der HttpEndpointController SHALL für jede Schreiboperation (POST, PATCH, DELETE) sicherstellen, dass der ApplicationService-Aufruf die authentifizierte Nutzer-Identität, den Operationstyp und die betroffene Entity-ID miterhält, sodass ein Audit-Log-Eintrag erzeugt werden kann. GET-Operationen SHALL keinen Audit-Log-Eintrag auslösen.
 
 **Priority:** mandatory
@@ -83,6 +104,13 @@ Der HttpEndpointController SHALL für jede Schreiboperation (POST, PATCH, DELETE
 ---
 
 ### REQ-L3-RA001-004: Keine Geschäftslogik im Controller
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der HttpEndpointController SHALL ausschließlich HTTP-spezifische Aufgaben (Routing, Dispatch, Statuscodes, Response-Assembly) ausführen. Jegliche Geschäftslogik, Workflow-Transition-Logik und Validierung von Businessregeln SHALL vollständig an den ApplicationService delegiert werden.
 

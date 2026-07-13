@@ -37,6 +37,13 @@ Generiert die Verification Cross Reference Matrix (VCRM) als flache Matrix mit d
 
 ### REQ-L3-TE004-001: VCRM-Matrix-Generierung mit Baseline- und Workspace-Filter
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der VCRMReportGenerator SHALL eine flache Matrix mit den Spalten `requirement_id`, `component_id`, `test_case_id` und `test_result` (`Passed`, `Failed`, `Not Run`) generieren. Die Matrix SHALL nach Workspace gefiltert werden. Optional SHALL eine Baseline-ID übergeben werden können, sodass die Matrix den Zustand zum jeweiligen Snapshot-Zeitpunkt widerspiegelt.
 
 **Priority:** desired
@@ -52,6 +59,13 @@ Der VCRMReportGenerator SHALL eine flache Matrix mit den Spalten `requirement_id
 
 ### REQ-L3-TE004-002: CSV-Export der VCRM-Matrix
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der VCRMReportGenerator SHALL die generierte VCRM-Matrix als valide CSV-Datei exportieren. Die CSV-Datei SHALL herunterladbar sein und alle Matrix-Zeilen mit korrekter Spaltenstruktur enthalten.
 
 **Priority:** desired
@@ -65,6 +79,13 @@ Der VCRMReportGenerator SHALL die generierte VCRM-Matrix als valide CSV-Datei ex
 ---
 
 ### REQ-L3-TE004-003: Optionaler PDF-Export der VCRM-Matrix via Template-Renderer
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der VCRMReportGenerator SOLLTE die VCRM-Matrix als PDF-Datei exportieren können. Der PDF-Export SHALL via Template-Renderer implementiert werden und denselben Datenstand wie der CSV-Export verwenden. Ist der PDF-Export nicht implementiert, SHALL der Endpunkt einen klar verständlichen Fehler zurückgeben.
 

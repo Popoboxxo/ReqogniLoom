@@ -1,0 +1,264 @@
+"""
+Tests for COMP-AS-008 ExportService.
+
+leaf_id : COMP-AS-008
+req_id  : REQ-L1-019, REQ-L1-023, REQ-L3-EXP-001, REQ-L3-EXP-002, REQ-L3-EXP-003
+
+Static tests (no DB): JSON structure, CSV format, Markdown format,
+PDF stub, entity_type validation, terminology embedding.
+"""
+from __future__ import annotations
+
+import csv
+import io
+import json
+import uuid
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from application.base import ValidationError
+from application.export_service import ExportResult, ExportService
+
+pytestmark = pytest.mark.django_db
+
+
+# ---------- Helpers ----------
+
+
+def _make_ctx():
+    ctx = MagicMock()
+    ctx.active_roles = ("editor",)
+    ctx.tenant_id = uuid.uuid4()
+    ctx.user_id = uuid.uuid4()
+    return ctx
+
+
+WS_ID = uuid.uuid4()
+
+_FAKE_ROWS = [
+    {
+        "id": str(uuid.uuid4()),
+        "artifact_id": str(uuid.uuid4()),
+        "title": "Req Alpha",
+        "description": "Description of alpha",
+        "category": "functional",
+        "status": "draft",
+        "version": 1,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "modified_at": "2026-01-02T00:00:00+00:00",
+    }
+]
+
+
+def _mock_fetch(entity_type, workspace_id, artifact_id):
+    return _FAKE_ROWS
+
+
+# ---------- JSON export ----------
+
+
+class TestExportJson:
+    def test_returns_valid_json(self):
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "application.export_service.ExportService._fetch_entities",
+                side_effect=_mock_fetch,
+            ),
+            patch(
+                "application.export_service.ExportService._get_terminology_profile",
+                return_value="standard",
+            ),
+        ):
+            result = svc.export_json("Requirement", WS_ID, ctx)
+
+        assert isinstance(result, ExportResult)
+        assert result.media_type == "application/json"
+        assert result.record_count == 1
+
+        data = json.loads(result.content)
+        assert "metadata" in data
+        assert data["metadata"]["terminology_profile"] == "standard"
+        assert len(data["data"]) == 1
+
+    def test_invalid_entity_type_raises(self):
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with patch("application.export_service.TenantContext"):
+            with pytest.raises(ValidationError, match="Unsupported entity_type"):
+                svc.export_json("UnknownType", WS_ID, ctx)
+
+    def test_metadata_contains_workspace_id(self):
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "application.export_service.ExportService._fetch_entities",
+                side_effect=_mock_fetch,
+            ),
+            patch(
+                "application.export_service.ExportService._get_terminology_profile",
+                return_value="default",
+            ),
+        ):
+            result = svc.export_json("Requirement", WS_ID, ctx)
+
+        data = json.loads(result.content)
+        assert data["metadata"]["workspace_id"] == str(WS_ID)
+
+
+# ---------- CSV export ----------
+
+
+class TestExportCsv:
+    def test_first_line_is_terminology_comment(self):
+        """REQ-L3-EXP-002: comment in line 1."""
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "application.export_service.ExportService._fetch_entities",
+                side_effect=_mock_fetch,
+            ),
+            patch(
+                "application.export_service.ExportService._get_terminology_profile",
+                return_value="myprofile",
+            ),
+        ):
+            result = svc.export_csv("Requirement", WS_ID, ctx)
+
+        lines = result.content.splitlines()
+        assert lines[0] == "# terminology_profile: myprofile"
+
+    def test_csv_has_header_and_data_rows(self):
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "application.export_service.ExportService._fetch_entities",
+                side_effect=_mock_fetch,
+            ),
+            patch(
+                "application.export_service.ExportService._get_terminology_profile",
+                return_value="default",
+            ),
+        ):
+            result = svc.export_csv("Requirement", WS_ID, ctx)
+
+        # Remove comment line, parse remaining as CSV
+        non_comment = "\n".join(
+            l for l in result.content.splitlines() if not l.startswith("#")
+        )
+        reader = csv.DictReader(io.StringIO(non_comment))
+        rows = list(reader)
+        assert len(rows) == 1
+        assert rows[0]["title"] == "Req Alpha"
+
+    def test_media_type_is_csv(self):
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "application.export_service.ExportService._fetch_entities",
+                side_effect=_mock_fetch,
+            ),
+            patch(
+                "application.export_service.ExportService._get_terminology_profile",
+                return_value="default",
+            ),
+        ):
+            result = svc.export_csv("Requirement", WS_ID, ctx)
+
+        assert result.media_type == "text/csv"
+
+
+# ---------- Markdown export ----------
+
+
+class TestExportMarkdown:
+    def test_contains_title_and_workspace(self):
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "application.export_service.ExportService._fetch_entities",
+                side_effect=_mock_fetch,
+            ),
+            patch(
+                "application.export_service.ExportService._get_terminology_profile",
+                return_value="default",
+            ),
+        ):
+            result = svc.export_markdown("Requirement", WS_ID, ctx)
+
+        assert "# Requirement Export" in result.content
+        assert str(WS_ID) in result.content
+        assert "Req Alpha" in result.content
+
+    def test_media_type_is_markdown(self):
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "application.export_service.ExportService._fetch_entities",
+                side_effect=_mock_fetch,
+            ),
+            patch(
+                "application.export_service.ExportService._get_terminology_profile",
+                return_value="default",
+            ),
+        ):
+            result = svc.export_markdown("Requirement", WS_ID, ctx)
+
+        assert result.media_type == "text/markdown"
+
+
+# ---------- PDF export (REQ-L2-AS-016) ----------
+
+
+class TestExportPdf:
+    def test_returns_pdf_result(self):
+        """REQ-L2-AS-016: export_pdf returns ExportResult with PDF bytes."""
+        svc = ExportService()
+        ctx = _make_ctx()
+        fake_pdf = b"%PDF-1.4 fake pdf content"
+
+        with (
+            patch("application.export_service.TenantContext"),
+            patch(
+                "traceability.pdf_report_generator.generate_pdf_report",
+                return_value=fake_pdf,
+            ),
+        ):
+            result = svc.export_pdf("Requirement", WS_ID, ctx)
+
+        assert isinstance(result, ExportResult)
+        assert result.media_type == "application/pdf"
+        assert result.content == fake_pdf
+        assert result.filename.endswith(".pdf")
+
+    def test_invalid_entity_type_raises(self):
+        """export_pdf still validates entity_type."""
+        svc = ExportService()
+        ctx = _make_ctx()
+
+        with patch("application.export_service.TenantContext"):
+            with pytest.raises(ValidationError, match="Unsupported entity_type"):
+                svc.export_pdf("UnknownType", WS_ID, ctx)

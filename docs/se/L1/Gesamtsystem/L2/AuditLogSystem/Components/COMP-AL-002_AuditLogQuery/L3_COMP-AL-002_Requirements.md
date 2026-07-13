@@ -39,6 +39,13 @@ Paginierte Audit-Queries nach `entity_id`, `actor`, `operation`, `timestamp`, `s
 
 ### REQ-L3-AL002-001: Filterbare, paginierte Query-Schnittstelle
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der AuditLogQuery SHALL eine In-Process-Python-Schnittstelle bereitstellen, die Audit-Eintraege nach den Feldern `entity_id`, `actor`, `operation`, `entity_type`, `source` und einem `timestamp`-Bereich ([from, to]) filtert. Ergebnisse MUSSEN paginiert (Default: 50, Maximum: 200 Eintraege pro Seite) und nach `timestamp` DESC sortiert zurueckgegeben werden.
 
 **Priority:** mandatory
@@ -54,6 +61,13 @@ Der AuditLogQuery SHALL eine In-Process-Python-Schnittstelle bereitstellen, die 
 
 ### REQ-L3-AL002-002: Tenant-Isolation via Custom Django Manager
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der AuditLogQuery SHALL saemtliche Queries ausschliesslich ueber einen Custom Django Manager ausfuehren, der `tenant_id` des aktiven Anfrage-Kontexts automatisch als Filterbedingung injiziert. Ohne aktiven Tenant-Kontext MUSS die Query mit einem Fehler abgebrochen werden.
 
 **Priority:** mandatory
@@ -68,6 +82,13 @@ Der AuditLogQuery SHALL saemtliche Queries ausschliesslich ueber einen Custom Dj
 
 ### REQ-L3-AL002-003: Performance-konforme Index-Nutzung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Der AuditLogQuery SHALL sicherstellen, dass Abfragen auf `entity_id` innerhalb von 50ms (p95) und Filterkombinationen innerhalb von 200ms (p95) bei 100.000 Eintraegen beantwortet werden. Dazu MUSSEN die Indizes auf `entity_id`, `(tenant_id, timestamp)` und `(actor, operation)` genutzt werden, und Timestamp-gefilterte Queries MUSSEN Partition-Pruning aktivieren.
 
 **Priority:** desired
@@ -81,6 +102,13 @@ Der AuditLogQuery SHALL sicherstellen, dass Abfragen auf `entity_id` innerhalb v
 ---
 
 ### REQ-L3-AL002-004: Paginierter Export-Cursor fuer Archivierungs-Lesezugriff
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der AuditLogQuery SHALL eine interne Methode bereitstellen, die dem ArchiveLifecycleManager (COMP-AL-003) Audit-Eintraege aelter als einen konfigurierbaren Cutoff-Timestamp seitenweise (Cursor-basiert oder Offset-basiert) zurueckliefert, ohne den gesamten Datensatz in den Speicher zu laden.
 

@@ -40,8 +40,15 @@ Die Komponente IcdManager koordiniert die CRUD-Operationen für Interface Contro
 
 ### REQ-L3-ICD-001-001: ICD CRUD Koordination und Versionierung
 Die Komponente IcdManager SHALL alle eingehenden CRUD-Anfragen (IF-L1-037) verarbeiten und für jede Änderung an einem ICD eine neue, unveränderliche Version (`IcdVersion`) generieren sowie an den PersistenceLayer (IF-L1-040) übergeben.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priority:** mandatory
+
 **Traceability:** REQ-L2-ICD-001
 **Acceptance Criteria:**
 - [ ] Bei der Erstellung wird Version 1 persistiert.
@@ -50,8 +57,15 @@ Die Komponente IcdManager SHALL alle eingehenden CRUD-Anfragen (IF-L1-037) verar
 
 ### REQ-L3-ICD-001-002: Delegation der Kompatibilitätsprüfung
 Die Komponente IcdManager SHALL bei jedem ICD-Update den ContractValidator (IF-ICD-INT-001) aufrufen, um die neue Version gegen die alte Version auf Breaking Changes zu prüfen.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priority:** mandatory
+
 **Traceability:** REQ-L2-ICD-001, REQ-L2-ICD-003
 **Acceptance Criteria:**
 - [ ] Vor der Persistierung eines Updates wird IF-ICD-INT-001 aufgerufen.
@@ -59,16 +73,30 @@ Die Komponente IcdManager SHALL bei jedem ICD-Update den ContractValidator (IF-I
 
 ### REQ-L3-ICD-001-003: Delegation der TraceLink-Erstellung
 Die Komponente IcdManager SHALL bei erfolgreicher Erstellung eines ICDs den TraceabilityConnector (IF-ICD-INT-002) aufrufen, um das ICD mit den jeweiligen Architekturelementen zu verknüpfen.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priority:** mandatory
+
 **Traceability:** REQ-L2-ICD-004
 **Acceptance Criteria:**
 - [ ] Nach erfolgreicher Speicherung eines neuen ICDs wird IF-ICD-INT-002 mit `icd_id`, `source_id`, `target_id` aufgerufen.
 
 ### REQ-L3-ICD-001-004: Baseline Snapshot Integration
 Die Komponente IcdManager SHALL den Endpunkt `get_icd_versions` (IF-L1-038) bereitstellen und anhand der `workspace_id` die zu diesem Zeitpunkt gültigen, unveränderlichen ICD-Versionen zurückliefern.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Domain:** software
 **Priority:** mandatory
+
 **Traceability:** REQ-L2-ICD-005
 **Acceptance Criteria:**
 - [ ] Aufruf von IF-L1-038 liefert alle aktuellen ICD-Versionen für den übergebenen Scope zurück.
@@ -76,3 +104,14 @@ Die Komponente IcdManager SHALL den Endpunkt `get_icd_versions` (IF-L1-038) bere
 ---
 
 *Erstellt durch se-requirements-Agent | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-ICD-001-001 | REQ-L2-ICD-001 |
+| REQ-L3-ICD-001-002 | REQ-L2-ICD-001, REQ-L2-ICD-003 |
+| REQ-L3-ICD-001-003 | REQ-L2-ICD-004 |
+| REQ-L3-ICD-001-004 | REQ-L2-ICD-005 |
+

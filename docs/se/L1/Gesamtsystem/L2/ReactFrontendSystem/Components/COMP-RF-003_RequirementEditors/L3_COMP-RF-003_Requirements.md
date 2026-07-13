@@ -38,6 +38,13 @@ Inline-Editing fuer Requirements, Markdown-Rendering, Workflow-State-Anzeige und
 
 ### REQ-L3-RF003-001: Inline-Editing fuer Requirements-Felder
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die RequirementEditors-Komponente MUSS das Inline-Editing der Felder Title, Description und Category eines Requirements direkt in der Detailansicht ermöglichen, ohne einen separaten Bearbeitungsdialog zu öffnen. Aenderungen MÜSSEN per PATCH-Request an das Backend gespeichert werden. Das Description-Feld MUSS zwischen Edit-Modus und Markdown-Vorschau umschaltbar sein.
 
 **Priority:** mandatory
@@ -50,6 +57,13 @@ Die RequirementEditors-Komponente MUSS das Inline-Editing der Felder Title, Desc
 ---
 
 ### REQ-L3-RF003-002: Workflow-State-Anzeige und Transition
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die RequirementEditors-Komponente MUSS den aktuellen WorkflowState des Requirements prominent anzeigen und State-Übergänge über ein Dropdown ermöglichen. Nur valide Transitionen (gemaess Backend-WorkflowEngine) DÜRFEN im Dropdown angeboten werden. Nach einer Transition MUSS der angezeigte State sofort aktualisiert werden.
 
@@ -64,6 +78,13 @@ Die RequirementEditors-Komponente MUSS den aktuellen WorkflowState des Requireme
 
 ### REQ-L3-RF003-003: Bidirektionale Traceability-Seitenleiste
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die RequirementEditors-Komponente MUSS eine Seitenleiste bereitstellen, die alle verknuepften TraceLinks (Upstream und Downstream) des aktiven Requirements anzeigt, gruppiert nach Link-Typ. Ein Klick auf ein verknuepftes Artefakt MUSS die NavigationShell veranlassen, zur Detailansicht des verlinkten Artefakts zu navigieren.
 
 **Priority:** mandatory
@@ -77,6 +98,13 @@ Die RequirementEditors-Komponente MUSS eine Seitenleiste bereitstellen, die alle
 
 ### REQ-L3-RF003-004: Editor-Performance bei grossem Requirement-Bestand
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Die RequirementEditors-Komponente MUSS einen Editor-Wechsel zwischen zwei Requirements innerhalb von 500 ms abschliessen — unter der Bedingung eines Workspaces mit bis zu 10.000 Requirements und einer stabilen Netzwerkverbindung.
 
 **Priority:** mandatory
@@ -88,4 +116,62 @@ Die RequirementEditors-Komponente MUSS einen Editor-Wechsel zwischen zwei Requir
 ---
 
 ---
+
+## Erweiterung v2 — REQ-L3-RF003-005 (Dynamische Masken für AI-Native SE)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive" (REQ-L2-RF-025)
+
+---
+
+### REQ-L3-RF003-005: Dynamische UI-Masken für StReq und SyReq
+
+Die RequirementEditors-Komponente MUSS das Eingabeformular dynamisch anhand des `type` Felds des geladenen Requirements aufbauen.
+- Ist der Typ `StakeholderRequirement`, wird ein MoSCoW-Dropdown gerendert.
+- Ist der Typ `SystemRequirement`, wird ein Fibonacci-Slider für `Complexity` und ein Dropdown für `Verification Method` gerendert.
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] MoSCoW-Dropdown ist sichtbar und editierbar, wenn `type == 'StReq'`.
+- [ ] Fibonacci-Slider ist sichtbar und editierbar, wenn `type == 'SyReq'`.
+- [ ] Die Felder `UID` und `Version` sind prominent im Header platziert und read-only.
+
+**Traceability:** Abgeleitet von REQ-L2-RF-025
+
+---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+---
+
+## Erweiterung v3 — REQ-L3-RF003-006 (Glossary Mentions & Tooltips)
+
+> **Datum:** 2026-07-05 | **Quelle:** User-Request "SN-55" (REQ-L2-RF-032)
+
+---
+
+### REQ-L3-RF003-006: Markdown Glossary Mentions (@-Syntax) & Tooltips
+
+Die RequirementEditors-Komponente (insbesondere `MarkdownPreview`) MUSS im Preview-Modus Begriffe mit der Syntax `@Begriff` identifizieren.
+Ist der Begriff im Projekt-Glossar (oder im globalen Glossar) vorhanden, MUSS dieser als interaktiver Link gerendert werden. Beim Hovern (oder Anklicken) MUSS ein Tooltip mit der Glossar-Definition eingeblendet werden.
+
+**Implementation State:** Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] @Begriff wird im Preview-Modus formatiert, sofern der Begriff im Glossar existiert.
+- [ ] Ein Hover-Tooltip zeigt die Definition des Begriffs.
+- [ ] Unbekannte @Begriffe bleiben als normaler Text stehen.
+
+**Traceability:** Abgeleitet von REQ-L2-RF-032
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RF003-005 | Abgeleitet von REQ-L2-RF-025 |
+| REQ-L3-RF003-006 | Abgeleitet von REQ-L2-RF-032 |
+

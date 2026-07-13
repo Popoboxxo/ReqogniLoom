@@ -42,6 +42,13 @@ Hauptanwendungs-Layout, Routing zwischen Funktionsmodulen, Authentifizierungs-Ga
 
 ### REQ-L3-RF001-001: Authentifizierungs-Gate mit Bearer-Token-Weiterleitung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die NavigationShell MUSS jeden eingehenden Request auf das Vorhandensein eines gültigen Bearer-Tokens prüfen. Bei fehlendem oder abgelaufenem Token MUSS eine automatische Weiterleitung zur Login-Seite ohne Datenverlust erfolgen. Bei einer 401-Antwort des Backends MUSS dieselbe Weiterleitung ausgelöst werden.
 
 **Priority:** mandatory
@@ -53,6 +60,13 @@ Die NavigationShell MUSS jeden eingehenden Request auf das Vorhandensein eines g
 ---
 
 ### REQ-L3-RF001-002: Preset-gesteuertes Modul-Routing
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Die NavigationShell MUSS die sichtbaren Navigationseinträge und aktivierbaren Routen basierend auf dem aktiven Workspace-Preset (Minimal / Standard / Extended) ein- oder ausblenden. Routen, die durch das Preset ausgeblendet sind, MÜSSEN bei direktem URL-Aufruf auf eine Fehlerseite umleiten.
 
@@ -67,6 +81,13 @@ Die NavigationShell MUSS die sichtbaren Navigationseinträge und aktivierbaren R
 
 ### REQ-L3-RF001-003: Top-Level Error Boundary mit Fehlermeldungs-Rendering
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Die NavigationShell MUSS eine React Error Boundary auf Top-Level-Ebene implementieren, die unkontrollierte Laufzeitfehler in Kindkomponenten abfängt und dem Nutzer eine übersetzte Fehlermeldung mit einer Wiederherstellungsoption (Reload oder Zurück zur Startseite) anzeigt, ohne die gesamte Anwendung zu schließen.
 
 **Priority:** mandatory
@@ -79,6 +100,13 @@ Die NavigationShell MUSS eine React Error Boundary auf Top-Level-Ebene implement
 ---
 
 ### REQ-L3-RF001-004: Artefakt-Selektion und Editor-Aktivierung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Die NavigationShell MUSS bei Nutzerauswahl eines Artefakts in der Baumnavigation das zugehörige `{artifact_id, artifact_type}`-Tupel als React Props an den zuständigen Editor (RequirementEditors oder ArchitectureEditors) übergeben und die entsprechende Editor-Route aktivieren.
 

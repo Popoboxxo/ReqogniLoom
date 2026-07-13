@@ -42,6 +42,13 @@ Requirement-CRUD, Decomposition-Orchestrierung, LLM-Validation, GitHub-Integrati
 
 ### REQ-L3-AS002-001: Requirement CRUD mit change_reason-Validierung
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der RequirementService SHALL vollstaendiges CRUD fuer Requirements bereitstellen. Bei Create: initialen WorkflowState via WorkflowFacade anlegen. Bei Update: PresetPolicyService konsultieren, ob `change_reason` Pflicht ist — fehlt es im Extended-Preset, die Operation ablehnen. Bei Delete: TraceLinks via TraceLinkService kaskadiert loeschen.
 
 **Priority:** mandatory
@@ -55,6 +62,13 @@ Der RequirementService SHALL vollstaendiges CRUD fuer Requirements bereitstellen
 ---
 
 ### REQ-L3-AS002-002: Decomposition-Orchestrierung
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der RequirementService SHALL die Zerlegung eines Requirements orchestrieren: bei uebergebenen Kind-Definitionen diese validieren und persistieren; ohne Kind-Definitionen an den LlmAdapter delegieren. Nach Kind-Erstellung: parent-child-TraceLinks anlegen, WorkflowStates initialisieren. Die gesamte Operation muss atomar sein.
 
@@ -71,6 +85,13 @@ Der RequirementService SHALL die Zerlegung eines Requirements orchestrieren: bei
 
 ### REQ-L3-AS002-003: LLM-Validation und Konsistenzpruefung
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der RequirementService SHALL LLM-gestuetzte Validierung und Konsistenzpruefung einzelner Requirements via LlmAdapter bereitstellen. LLM-Ergebnisse werden strukturell validiert bevor sie zurueckgegeben oder persistiert werden. Fehlende LLM-Konfiguration fuehrt zu einem erklaerenden Fehler — nicht zu einem stillen Leerfallback.
 
 **Priority:** mandatory
@@ -84,6 +105,13 @@ Der RequirementService SHALL LLM-gestuetzte Validierung und Konsistenzpruefung e
 ---
 
 ### REQ-L3-AS002-004: GitHub-Verknuepfung
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der RequirementService SOLLTE die Verknuepfung von Requirements mit GitHub Issues und Pull Requests unterstuetzen. Verknuepfungen sind bidirektional abrufbar. Fehlende oder ungueltige GitHub-Konfiguration ergibt einen erklaerenden Fehler.
 

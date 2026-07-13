@@ -31,6 +31,13 @@ Keine direkten externen Schnittstellen. Der TransactionCoordinator ist ein inter
 
 ### REQ-L3-PL003-001: Verpflichtende Transaktionskapslung aller schreibenden Operationen
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der TransactionCoordinator MUSS sicherstellen, dass jede schreibende ORM-Operation (INSERT, UPDATE, DELETE) innerhalb eines `transaction.atomic()`-Blocks ausgefuehrt wird. Fuer Single-Entity-Operationen MUSS Django's implizites Auto-Commit deaktiviert oder ein explizites `atomic()` gesetzt sein. Fuer Multi-Entity-Operationen MUSS ein einziger uebergreifender `atomic()`-Block alle beteiligten ORM-Calls umschliessen.
 
 **Priority:** mandatory
@@ -44,6 +51,13 @@ Der TransactionCoordinator MUSS sicherstellen, dass jede schreibende ORM-Operati
 
 ### REQ-L3-PL003-002: Vollstaendiger Rollback bei Fehlern
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der TransactionCoordinator MUSS bei jeder unbehandelten Exception innerhalb eines `transaction.atomic()`-Blocks einen vollstaendigen Rollback aller innerhalb dieses Blocks vorgenommenen Schreiboperationen garantieren. Kein Teilzustand (partiell commitete Entitaeten) DARF in der Datenbank verbleiben. Savepoint-Rollbacks MUESSEN bei verschachtelten `atomic()`-Aufrufen korrekt aufgeloest werden.
 
 **Priority:** mandatory
@@ -56,6 +70,13 @@ Der TransactionCoordinator MUSS bei jeder unbehandelten Exception innerhalb eine
 ---
 
 ### REQ-L3-PL003-003: Transaktions-Timeout fuer langdauernde Operationen
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der TransactionCoordinator MUSS fuer alle schreibenden Transaktionen einen konfigurierbaren Timeout (Standard: 30 Sekunden) erzwingen. Ueberschreitet eine Transaktion den Timeout, MUSS die Transaktion mit einem vollstaendigen Rollback abgebrochen und eine `TransactionTimeoutError`-Exception ausgeloest werden. Der Timeout MUSS ueber eine Umgebungsvariable (`DB_TRANSACTION_TIMEOUT_SECONDS`) steuerbar sein.
 

@@ -43,6 +43,11 @@ Der CircuitBreaker SHALL den Status jedes konfigurierten Zielsystems (Target) al
 **Acceptance Criteria:**
 - [ ] Initialer Zustand für neue Targets ist `Closed`.
 **Interfaces:** -
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-004
 
 ### REQ-L3-RO-003-02: Fehler-Akkumulation und Open-Transition
@@ -54,6 +59,11 @@ Der CircuitBreaker SHALL in den Zustand `Open` wechseln, wenn über IF-RO-INT-00
 - [ ] Nach Erreichen der Fehlerschwelle wird der Status sofort auf `Open` gesetzt.
 - [ ] Ein Statuswechsel löst einen Aufruf von IF-RO-INT-005 aus.
 **Interfaces:** IF-RO-INT-004, IF-RO-INT-005
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-004
 
 ### REQ-L3-RO-003-03: Fast Fail bei Open-Zustand
@@ -64,6 +74,11 @@ Der CircuitBreaker SHALL bei Anfragen über IF-RO-INT-001 (`can_execute`) `false
 **Acceptance Criteria:**
 - [ ] Solange `Open`, wird kein Traffic zugelassen.
 **Interfaces:** IF-RO-INT-001
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-004
 
 ### REQ-L3-RO-003-04: Recovery via Half-Open
@@ -77,4 +92,20 @@ Der CircuitBreaker SHALL nach Ablauf eines Recovery-Timeouts vom `Open`- in den 
 - [ ] Bei `report_failure` geht der Status zurück auf `Open`.
 - [ ] Statuswechsel lösen Aufrufe an IF-RO-INT-005 aus.
 **Interfaces:** IF-RO-INT-001, IF-RO-INT-004, IF-RO-INT-005
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-004
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RO-003-01 | REQ-L2-RO-004 |
+| REQ-L3-RO-003-02 | REQ-L2-RO-004 |
+| REQ-L3-RO-003-03 | REQ-L2-RO-004 |
+| REQ-L3-RO-003-04 | REQ-L2-RO-004 |
+

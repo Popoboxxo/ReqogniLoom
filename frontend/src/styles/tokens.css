@@ -1,0 +1,127 @@
+:root {
+  /* Colors - Premium Deep Dark/Slate Theme */
+  --color-primary: #6366f1; /* Indigo 500 */
+  --color-primary-dark: #4f46e5; /* Indigo 600 */
+  --color-surface: #0f172a; /* Slate 900 */
+  --color-surface-raised: #1e293b; /* Slate 800 */
+  --color-border: #334155; /* Slate 700 */
+  --color-border-hover: #475569; /* Slate 600 */
+  --color-text: #f8fafc; /* Slate 50 */
+  --color-text-muted: #94a3b8; /* Slate 400 */
+  
+  --color-success: #10b981; /* Emerald 500 */
+  --color-warning: #f59e0b; /* Amber 500 */
+  --color-danger: #ef4444; /* Red 500 */
+  
+  /* Badge Colors */
+  --color-badge-draft: rgba(255, 255, 255, 0.1);
+  --color-badge-draft-text: #cbd5e1;
+  --color-badge-approved: rgba(16, 185, 129, 0.2);
+  --color-badge-approved-text: #34d399;
+
+  /* Status Badge Variants (dark-mode base — translucent bg + light text) */
+  --color-badge-info-bg: rgba(59, 130, 246, 0.2);
+  --color-badge-info-text: #93c5fd;
+  --color-badge-danger-bg: rgba(239, 68, 68, 0.2);
+  --color-badge-danger-text: #fca5a5;
+  --color-badge-success-bg: rgba(16, 185, 129, 0.2);
+  --color-badge-success-text: #6ee7b7;
+  --color-badge-warning-bg: rgba(245, 158, 11, 0.2);
+  --color-badge-warning-text: #fcd34d;
+  --color-badge-neutral-bg: rgba(255, 255, 255, 0.1);
+  --color-badge-neutral-text: #cbd5e1;
+
+  /* Active Card Background (translucent primary — theme-safe) */
+  --color-card-active-bg: rgba(99, 102, 241, 0.15);
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Typography */
+  --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+
+  /* Borders */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows - Smooth glowing shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --shadow-card: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+  --shadow-glow: 0 0 15px rgba(99, 102, 241, 0.3);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.8) 100%);
+  
+  /* Glassmorphism */
+  --glass-bg: rgba(30, 41, 59, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * Light theme — mirrors every token above so any component built against
+ * var(--color-*) is contrast-safe in both modes. Activated by ThemeContext
+ * setting data-theme="light" on <html> (see src/context/ThemeContext.tsx).
+ */
+:root[data-theme="light"] {
+  --color-primary: #4f46e5; /* Indigo 600 — darker for AA contrast on white */
+  --color-primary-dark: #4338ca; /* Indigo 700 */
+  --color-surface: #f8fafc; /* Slate 50 */
+  --color-surface-raised: #ffffff;
+  --color-border: #cbd5e1; /* Slate 300 */
+  --color-border-hover: #94a3b8; /* Slate 400 */
+  --color-text: #0f172a; /* Slate 900 */
+  --color-text-muted: #475569; /* Slate 600 */
+
+  --color-success: #059669; /* Emerald 600 */
+  --color-warning: #b45309; /* Amber 700 */
+  --color-danger: #dc2626; /* Red 600 */
+
+  --color-badge-draft: rgba(15, 23, 42, 0.08);
+  --color-badge-draft-text: #334155;
+  --color-badge-approved: rgba(5, 150, 105, 0.15);
+  --color-badge-approved-text: #047857;
+
+  /* Status Badge Variants (light-mode — solid pastel bg + dark text) */
+  --color-badge-info-bg: #bee3f8;
+  --color-badge-info-text: #2c5282;
+  --color-badge-danger-bg: #fed7d7;
+  --color-badge-danger-text: #9b2c2c;
+  --color-badge-success-bg: #c6f6d5;
+  --color-badge-success-text: #276749;
+  --color-badge-warning-bg: #fefcbf;
+  --color-badge-warning-text: #744210;
+  --color-badge-neutral-bg: #e2e8f0;
+  --color-badge-neutral-text: #4a5568;
+
+  --color-card-active-bg: rgba(99, 102, 241, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -1px rgba(15, 23, 42, 0.06);
+  --shadow-card: 0 10px 15px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
+  --shadow-glow: 0 0 15px rgba(79, 70, 229, 0.25);
+
+  --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(15, 23, 42, 0.08);
+}

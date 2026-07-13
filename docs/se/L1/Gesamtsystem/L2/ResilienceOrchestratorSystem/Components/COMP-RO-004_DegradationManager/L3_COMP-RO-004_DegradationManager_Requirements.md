@@ -45,6 +45,11 @@ Der DegradationManager SHALL für fehlschlagende Aufrufe, die über IF-RO-INT-00
 - [ ] Fallback-Antwort enthält Statusinformationen, dass das System temporär degradiert ist.
 - [ ] Das Frontend kann anhand der Fallback-Antwort erkennen, dass ein optionales Subsystem inaktiv ist.
 **Interfaces:** IF-RO-INT-003
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-005
 
 ### REQ-L3-RO-004-02: Logging von Degradation-Events
@@ -55,4 +60,18 @@ Der DegradationManager SHALL jedes ausgelöste Degradation-Event über IF-RO-INT
 **Acceptance Criteria:**
 - [ ] Jedes `handle_failure` Event erzeugt ein asynchrones oder nicht-blockierendes Log-Ereignis für das Audit.
 **Interfaces:** IF-RO-INT-006
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-005
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RO-004-01 | REQ-L2-RO-005 |
+| REQ-L3-RO-004-02 | REQ-L2-RO-005 |
+

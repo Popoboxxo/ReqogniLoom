@@ -41,6 +41,13 @@ Laufzeit-Entscheidungen über sichtbare Endpunkte und Felder, Preset-Downgrade-V
 
 ### REQ-L3-PC003-001: Feature-Enabled-Query mit korrektem Preset-Mapping
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der FeatureGateService SHALL `is_feature_enabled(feature_key, workspace_id)` implementieren und die Antwort ausschließlich aus der Preset-Konfiguration der Workspace ableiten. Feature-Keys müssen mindestens `baselines`, `global_baselines`, `approval_workflows`, `custom_workflows`, `change_reason_mandatory` umfassen.
 
 **Priority:** mandatory
@@ -57,6 +64,13 @@ Der FeatureGateService SHALL `is_feature_enabled(feature_key, workspace_id)` imp
 
 ### REQ-L3-PC003-002: Query-Performance p95 unter 10ms mit Cache
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der FeatureGateService SHALL Preset-Queries in unter 10ms (p95) beantworten. Caching per Workspace-ID ist zulässig. Nach einem Preset-Wechsel muss der Cache für den betroffenen Workspace innerhalb von 100ms invalidiert sein.
 
 **Priority:** desired
@@ -71,6 +85,13 @@ Der FeatureGateService SHALL Preset-Queries in unter 10ms (p95) beantworten. Cac
 
 ### REQ-L3-PC003-003: Preset-Downgrade-Validierung mit konfigurierbarer Policy
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der FeatureGateService SHALL bei `validate_downgrade(workspace_id, target_preset)` inkompatible Daten prüfen (z.B. vorhandene Global-Baselines bei Downgrade von Extended auf Standard). Bei Inkompatibilität muss der Downgrade blockiert werden, wenn die konfigurierte Policy `block` ist.
 
 **Priority:** desired
@@ -84,6 +105,13 @@ Der FeatureGateService SHALL bei `validate_downgrade(workspace_id, target_preset
 ---
 
 ### REQ-L3-PC003-004: Aufsteigender Preset-Wechsel ohne Datenmigration
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der FeatureGateService SHALL aufsteigende Preset-Wechsel (Minimal → Standard → Extended) via `switch_preset(workspace_id, target_preset)` ohne Datenmigration, Datenverlust oder Schema-Änderungen vollziehen. Der Wechsel muss bei 10.000 Artefakten in unter 1 Sekunde abgeschlossen sein.
 

@@ -28,7 +28,7 @@ Die ToolRegistry ist die zentrale Dispatch-Einheit und Zugriffskontroll-Schicht.
 
 ### 2.1 Klassen und Module
 
-- **`ToolRegistry` (Klasse):** Zentrale Dispatch- und Autorisierungs-Logik.
+- **`ToolRegistry` (Klasse):** Zentrale Dispatch- und Autorisierungs-Logik. Implementiert `list_tools` zur dynamischen Extraktion von JSON-Schemas aus registrierten Tool-Gruppen.
 - **`AuthContext` (Dataclass):** Kapselt Agent-Identität, Tenant-ID, Rollen (nach Auth-Validierung).
 - **`ToolGroupRouter` (Helper-Klasse):** Routed Tool-Namen zu zuständigen Gruppen basierend auf Präfix.
 - **`PresetCache` (Klasse):** LRU-Cache für Preset-Konfigurationen (Invalidierung bei Workspace-Änderung).
@@ -47,6 +47,7 @@ Die ToolRegistry ist die zentrale Dispatch-Einheit und Zugriffskontroll-Schicht.
   - `architecture.*` → ArchitectureToolGroup
   - `test.*` → TestToolGroup
   - `traceability.*`, `artifact.*`, `workspace.*` → CrossCuttingToolGroup
+  - `adr.*`, `risk.*`, `issue.*`, `glossary.*` → GenericCrudToolGroup (Dynamische Instanzen)
 
 - **PresetCache (In-Memory Dict):**
   - Key: workspace_id
@@ -92,10 +93,13 @@ Die ToolRegistry ist die zentrale Dispatch-Einheit und Zugriffskontroll-Schicht.
 *Rationale:* Optimiert Preset-Abfrage-Latenz. Erfüllt REQ-L3-MC002-003 (Caching erwünscht).
 *Alternative abgelehnt:* Immer fresh preset laden — würde Latenz auf jede ToolRegistry-Anfrage hinzufügen.
 
-**ADR-L3-MC002-03 — Expliziter Tool-Routing basierend auf Präfix**
-*Entscheidung:* Tool-Namen werden nach Präfix klassifiziert (requirement.*, architecture.*, etc.). Unbekannte Präfixe → UNKNOWN_TOOL.
-*Rationale:* Skalierbar, einfach neue Tool-Gruppen hinzufügbar. Erfüllt REQ-L3-MC002-004.
-*Alternative abgelehnt:* Dynamisches Tool-Registry (alle Tools registrieren sich) — würde Komplexität hinzufügen.
+**ADR-L3-MC002-03 — Dynamisches JSON Schema Discovery**
+*Entscheidung:* `ToolRegistry` ruft `get_tool_schemas()` auf allen registrierten `ToolGroup` Instanzen auf, um die Schemas für `tools/list` zu generieren.
+*Rationale:* Verhindert Boilerplate und hält die Tool-Deklaration nahe der Implementierung. Erfüllt die UI-Paritätsanforderung.
+
+**ADR-L3-MC002-04 — GenericCrudToolGroup Proxy**
+*Entscheidung:* Standard CRUD Operationen werden über eine einzige generische `GenericCrudToolGroup` Klasse zur Laufzeit an `ApplicationService` delegiert.
+*Rationale:* Verhindert massiven Boilerplate-Code für fehlende UI-Artefakte (ADR, Risk, Issue). Erlaubt sofortige 100% UI Parität.
 
 ---
 

@@ -61,6 +61,11 @@ Der WorkflowFacade SHALL vor der Delegierung an die WorkflowEngine folgende Vali
 - [ ] Validierungsfehler blockieren Delegierung an WorkflowEngine
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-INT-007
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-AppSvc-012
 **Rationale:** Frühe Validierung reduziert unnötige Aufrufe an die WorkflowEngine.
 
@@ -79,6 +84,11 @@ Der WorkflowFacade SHALL nach erfolgreicher Validierung die Transition an die Wo
 - [ ] Timeout-Handling: max 5s Wartezeit auf WorkflowEngine-Antwort
 
 **Interfaces:** IF-AS-INT-003
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-012
 **Rationale:** WorkflowEngine ist die Single Source of Truth für Transitions-Logik.
 
@@ -101,6 +111,11 @@ Nach erfolgreicher Transition durch die WorkflowEngine SHALL der WorkflowFacade 
 - [ ] AuditLog-Fehler blockieren nicht die Transition (fire-and-forget)
 
 **Interfaces:** IF-AS-EXT-OUT-006
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-019
 **Rationale:** Vollständige Auditierbarkeit aller Transitions.
 
@@ -119,6 +134,11 @@ Der WorkflowFacade SHALL vor Delegierung an WorkflowEngine verifizieren, ob chan
 - [ ] Längenvalidierung: change_reason max 500 Zeichen
 
 **Interfaces:** IF-AS-INT-007
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-020
 **Rationale:** Configurable-Rigor-Enforcement auf Transition-Ebene.
 
@@ -137,6 +157,11 @@ Sollte die WorkflowEngine einen Validierungsfehler zurückgeben (z.B. ungültige
 - [ ] Fehler enthalten keine sensiblen Informationen
 
 **Interfaces:** IF-AS-EXT-IN-001, IF-AS-INT-003
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-012
 **Rationale:** Konsistenz zwischen persistenten Änderungen und Auditlog.
 
@@ -155,6 +180,11 @@ Der WorkflowFacade SHALL garantieren, dass die Combination aus (WorkflowEngine-A
 - [ ] Keine orphaned Transitions ohne AuditLog
 
 **Interfaces:** IF-AS-INT-003, IF-AS-EXT-OUT-006
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-AppSvc-018
 **Rationale:** Datenintegrität und Audit-Zuverlässigkeit.
 
@@ -173,6 +203,11 @@ Der WorkflowFacade MAY Workflow-Definitionen und Preset-Regeln bis zu 5 Minuten 
 - [ ] Orchestrierungs-Overhead bleibt unter 50ms
 
 **Interfaces:** IF-AS-INT-007
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 **Traceability:** REQ-L2-AppSvc-023
 **Rationale:** Performance-Optimierung für häufige Transitions.
 
@@ -194,3 +229,17 @@ Der WorkflowFacade MAY Workflow-Definitionen und Preset-Regeln bis zu 5 Minuten 
 
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-WF-001 | REQ-L2-AppSvc-012 |
+| REQ-L3-WF-002 | REQ-L2-AppSvc-012 |
+| REQ-L3-WF-003 | REQ-L2-AppSvc-019 |
+| REQ-L3-WF-004 | REQ-L2-AppSvc-020 |
+| REQ-L3-WF-005 | REQ-L2-AppSvc-012 |
+| REQ-L3-WF-006 | REQ-L2-AppSvc-018 |
+| REQ-L3-WF-007 | REQ-L2-AppSvc-023 |
+

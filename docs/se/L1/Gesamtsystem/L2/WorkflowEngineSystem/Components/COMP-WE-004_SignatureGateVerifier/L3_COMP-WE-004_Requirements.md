@@ -40,6 +40,13 @@ Verifiziert Credentials (Passwort-Hash-Vergleich oder TOTP-Pruefung) gegen AuthA
 
 ### REQ-L3-WE004-001: Credential-Verifizierung gegen AuthAndTenancy
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der SignatureGateVerifier SHALL eingehende `CredentialVerificationRequest`-Nachrichten (via IF-WE-INT-004) verarbeiten, indem er das enthaltene Credential (Passwort oder TOTP-Token) gegen das AuthAndTenancy-System (IF-WE-EXT-IN-004) preuft. Passwort-Credentials MUESSEN per konstantzeit-sicherem Hash-Vergleich geprueft werden. TOTP-Tokens MUESSEN gemaess RFC 6238 validiert werden (Zeitfenster: +/- 30 Sekunden). Schlaegt die Pruefung fehl, SHALL `VerificationResult {valid: false}` ohne `seal` zurueckgegeben werden. Kein fehlgeschlagener Versuch SHALL einen Audit-Log-Eintrag ausloesen.
 
 **Priority:** desired
@@ -55,6 +62,13 @@ Der SignatureGateVerifier SHALL eingehende `CredentialVerificationRequest`-Nachr
 
 ### REQ-L3-WE004-002: HMAC-SHA256-Siegel-Generierung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der SignatureGateVerifier SHALL bei erfolgreicher Credential-Verifizierung ein kryptografisches Pruefsiegel als HMAC-SHA256-Hex-String aus der Konkatenation `transition_id + timestamp + user_id` berechnen. Der dabei verwendete HMAC-Schluessel SHALL serverseitig konfiguriert und nicht im Code hartcodiert sein. Das Siegel SHALL im `seal`-Feld von `VerificationResult` zurueckgegeben werden.
 
 **Priority:** desired
@@ -68,6 +82,13 @@ Der SignatureGateVerifier SHALL bei erfolgreicher Credential-Verifizierung ein k
 ---
 
 ### REQ-L3-WE004-003: Isolation der Sicherheitslogik
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der SignatureGateVerifier SHALL ausschliesslich auf Credential-Pruefung und Siegel-Generierung beschraenkt sein. Er SHALL keine Kenntnis von WorkflowDefinitions, States oder History-Eintraegen besitzen und keine direkten Datenbankoperationen auf Workflow-Tabellen ausfuehren.
 

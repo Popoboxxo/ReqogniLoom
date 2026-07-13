@@ -1,0 +1,259 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\AuthAndTenancySystem\\L2_AuthAndTenancySystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-AT-001: Bearer Token Authentication\n\nDas AuthAndTenancy-System SHALL eingehende REST-API- und UI-Anfragen durch Bearer Token (JWT) Validierung authentifizieren \u2014 Signaturpr\u00fcfung, Ablaufzeit, Aussteller. Ung\u00fcltige/abgelaufene Tokens SHALL mit HTTP 401 zur\u00fcckgewiesen werden.\n",
+      "ReplacementContent": "### REQ-L2-AT-001: Bearer Token Authentication\n\nDas AuthAndTenancy-System SHALL eingehende REST-API- und UI-Anfragen durch Bearer Token (JWT) Validierung authentifizieren \u2014 Signaturpr\u00fcfung, Ablaufzeit, Aussteller. Ung\u00fcltige/abgelaufene Tokens SHALL mit HTTP 401 zur\u00fcckgewiesen werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-002: API Key Authentication\n\nDas AuthAndTenancy-System SHALL API Keys gegen gehashte Stored Values validieren. Key im Header `X-API-Key` oder `Authorization: Bearer <api_key>`. Ung\u00fcltige Keys SHALL zur\u00fcckgewiesen werden. Hash-Vergleich in konstanter Laufzeit.\n",
+      "ReplacementContent": "### REQ-L2-AT-002: API Key Authentication\n\nDas AuthAndTenancy-System SHALL API Keys gegen gehashte Stored Values validieren. Key im Header `X-API-Key` oder `Authorization: Bearer <api_key>`. Ung\u00fcltige Keys SHALL zur\u00fcckgewiesen werden. Hash-Vergleich in konstanter Laufzeit.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-003: Role-Based Permission Enforcement\n\nDas AuthAndTenancy-System SHALL Berechtigungen pro Operation und Ressource pr\u00fcfen. Vier Rollen:\n\n| Rolle | Lesen | Schreiben | Workflow-Transitionen | Workspace-Konfiguration |\n|-------|-------|-----------|------------------------|--------------------------|\n| Admin | alle | alle | alle | alle |\n| Editor | alle | Workspace-Artefakte | Standard | keine |\n| Viewer | alle | keine | keine | keine |\n| Approver | alle | Workspace-Artefakte | alle inkl. Approval | keine |\n\nUnzureichende Berechtigung \u2192 HTTP 403.\n",
+      "ReplacementContent": "### REQ-L2-AT-003: Role-Based Permission Enforcement\n\nDas AuthAndTenancy-System SHALL Berechtigungen pro Operation und Ressource pr\u00fcfen. Vier Rollen:\n\n| Rolle | Lesen | Schreiben | Workflow-Transitionen | Workspace-Konfiguration |\n|-------|-------|-----------|------------------------|--------------------------|\n| Admin | alle | alle | alle | alle |\n| Editor | alle | Workspace-Artefakte | Standard | keine |\n| Viewer | alle | keine | keine | keine |\n| Approver | alle | Workspace-Artefakte | alle inkl. Approval | keine |\n\nUnzureichende Berechtigung \u2192 HTTP 403.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-004: Approver Role Preset Restriction\n\nDas AuthAndTenancy-System SHALL die Approver-Rolle ausschlie\u00dflich im Extended-Preset aktivieren. In Minimal/Standard SHALL die Rolle nicht zuweisbar sein.\n",
+      "ReplacementContent": "### REQ-L2-AT-004: Approver Role Preset Restriction\n\nDas AuthAndTenancy-System SHALL die Approver-Rolle ausschlie\u00dflich im Extended-Preset aktivieren. In Minimal/Standard SHALL die Rolle nicht zuweisbar sein.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-005: Authentication Context Propagation\n\nDas AuthAndTenancy-System SHALL nach erfolgreicher Authentifizierung einen Auth-Kontext erzeugen: `user_id`, `tenant_id`, `active_roles`, `auth_method` (bearer_token | api_key), `api_key_id` (falls API-Key). Kontext an ApplicationService, WorkflowEngine und AuditLog \u00fcbergeben. Kontext ist immutable.\n",
+      "ReplacementContent": "### REQ-L2-AT-005: Authentication Context Propagation\n\nDas AuthAndTenancy-System SHALL nach erfolgreicher Authentifizierung einen Auth-Kontext erzeugen: `user_id`, `tenant_id`, `active_roles`, `auth_method` (bearer_token | api_key), `api_key_id` (falls API-Key). Kontext an ApplicationService, WorkflowEngine und AuditLog \u00fcbergeben. Kontext ist immutable.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-006: Role Assignment Management\n\nDas AuthAndTenancy-System SHALL CRUD f\u00fcr Rollenzuweisungen auf Workspace-Ebene bereitstellen. Nur Admins S\u00dcLLEN Rollen zuweisen/entziehen k\u00f6nnen. Validierung: Rolle im Preset verf\u00fcgbar, Zielnutzer ist Workspace-Mitglied, Audit-Log-Eintrag.\n",
+      "ReplacementContent": "### REQ-L2-AT-006: Role Assignment Management\n\nDas AuthAndTenancy-System SHALL CRUD f\u00fcr Rollenzuweisungen auf Workspace-Ebene bereitstellen. Nur Admins S\u00dcLLEN Rollen zuweisen/entziehen k\u00f6nnen. Validierung: Rolle im Preset verf\u00fcgbar, Zielnutzer ist Workspace-Mitglied, Audit-Log-Eintrag.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-007: Auth Middleware Interception\n\nDas AuthAndTenancy-System SHALL alle Anfragen an REST/MCP-Endpunkte durch eine Auth-Middleware leiten. Ausnahmen: `/health`, `/api/docs`, `/api/openapi.json`.\n",
+      "ReplacementContent": "### REQ-L2-AT-007: Auth Middleware Interception\n\nDas AuthAndTenancy-System SHALL alle Anfragen an REST/MCP-Endpunkte durch eine Auth-Middleware leiten. Ausnahmen: `/health`, `/api/docs`, `/api/openapi.json`.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-008: Tenant Extraction and Propagation\n\nDas AuthAndTenancy-System SHALL den aktiven Tenant aus dem Token extrahieren und in den Request-Kontext setzen. Tenant an PersistenceLayer (Custom Manager) weitergeben. Fehlgeschlagene Tenant-Aufl\u00f6sung \u2192 HTTP 500 `\"Tenant resolution failed\"`.\n",
+      "ReplacementContent": "### REQ-L2-AT-008: Tenant Extraction and Propagation\n\nDas AuthAndTenancy-System SHALL den aktiven Tenant aus dem Token extrahieren und in den Request-Kontext setzen. Tenant an PersistenceLayer (Custom Manager) weitergeben. Fehlgeschlagene Tenant-Aufl\u00f6sung \u2192 HTTP 500 `\"Tenant resolution failed\"`.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-009: API Key Lifecycle Management\n\nDas AuthAndTenancy-System SHALL API Key Verwaltung unterst\u00fctzen: Erstellung, Auflistung, Widerruf. Keys ausschlie\u00dflich gehasht persistieren. Klartext nur einmalig bei Erstellung. Widerruf sofort wirksam.\n",
+      "ReplacementContent": "### REQ-L2-AT-009: API Key Lifecycle Management\n\nDas AuthAndTenancy-System SHALL API Key Verwaltung unterst\u00fctzen: Erstellung, Auflistung, Widerruf. Keys ausschlie\u00dflich gehasht persistieren. Klartext nur einmalig bei Erstellung. Widerruf sofort wirksam.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-010: Authentication Failure Response Standardization\n\nDas AuthAndTenancy-System SHALL standardisierte Fehlerantworten f\u00fcr Auth-Fehler zur\u00fcckgeben: `{\"error\": \"<code>\", \"message\": \"...\", \"doc_url\": \"...\"}`. Fehlermeldungen \u00fcbersetzbar (DE/EN).\n",
+      "ReplacementContent": "### REQ-L2-AT-010: Authentication Failure Response Standardization\n\nDas AuthAndTenancy-System SHALL standardisierte Fehlerantworten f\u00fcr Auth-Fehler zur\u00fcckgeben: `{\"error\": \"<code>\", \"message\": \"...\", \"doc_url\": \"...\"}`. Fehlermeldungen \u00fcbersetzbar (DE/EN).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-011: Credential Verification (Constant-Time)\n\nDas AuthAndTenancy-System SHALL ein Benutzername/Passwort-Paar gegen den gespeicherten Passwort-Hash (PBKDF2 oder gleichwertig) verifizieren und bei Erfolg den aktiven Nutzer aufl\u00f6sen. Die Verifikation SHALL in (nahezu) konstanter Laufzeit erfolgen: existiert der Nutzer nicht, SHALL dennoch ein Dummy-Hash-Vergleich durchgef\u00fchrt werden, sodass die Timing-Kurve von \u201eNutzer unbekannt\" und \u201ePasswort falsch\" vergleichbar bleibt.\n",
+      "ReplacementContent": "### REQ-L2-AT-011: Credential Verification (Constant-Time)\n\nDas AuthAndTenancy-System SHALL ein Benutzername/Passwort-Paar gegen den gespeicherten Passwort-Hash (PBKDF2 oder gleichwertig) verifizieren und bei Erfolg den aktiven Nutzer aufl\u00f6sen. Die Verifikation SHALL in (nahezu) konstanter Laufzeit erfolgen: existiert der Nutzer nicht, SHALL dennoch ein Dummy-Hash-Vergleich durchgef\u00fchrt werden, sodass die Timing-Kurve von \u201eNutzer unbekannt\" und \u201ePasswort falsch\" vergleichbar bleibt.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-012: Token Issuance \u2014 BearerTokenAuthentication-Kompatibilit\u00e4t\n\nDas AuthAndTenancy-System SHALL nach erfolgreicher Credential-Verifikation einen signierten HS256-JWT ausstellen, dessen Claim-Set exakt dem entspricht, was `AuthenticationService.validate_bearer_token` (REQ-L2-AT-001) konsumiert \u2014 `user_id`, `tenant_id`, `roles`, `iat`, `exp` sowie konfiguriertes `iss`/`aud`. Der Token SHALL round-trip-f\u00e4hig sein: er wird von `BearerTokenAuthentication` akzeptiert und liefert den korrekten Rollen- und Tenant-Kontext f\u00fcr RBAC-Entscheidungen. Secret/Issuer/Audience/TTL werden aus Django-Settings (`AUTH_JWT_*`) gelesen; kein Secret im Code.\n",
+      "ReplacementContent": "### REQ-L2-AT-012: Token Issuance \u2014 BearerTokenAuthentication-Kompatibilit\u00e4t\n\nDas AuthAndTenancy-System SHALL nach erfolgreicher Credential-Verifikation einen signierten HS256-JWT ausstellen, dessen Claim-Set exakt dem entspricht, was `AuthenticationService.validate_bearer_token` (REQ-L2-AT-001) konsumiert \u2014 `user_id`, `tenant_id`, `roles`, `iat`, `exp` sowie konfiguriertes `iss`/`aud`. Der Token SHALL round-trip-f\u00e4hig sein: er wird von `BearerTokenAuthentication` akzeptiert und liefert den korrekten Rollen- und Tenant-Kontext f\u00fcr RBAC-Entscheidungen. Secret/Issuer/Audience/TTL werden aus Django-Settings (`AUTH_JWT_*`) gelesen; kein Secret im Code.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-013: Public Login Endpoint Exemption\n\nDas AuthAndTenancy-System SHALL den Login-Endpunkt `POST /api/v1/auth/login/` von der globalen Auth-Middleware-Interception (REQ-L2-AT-007) ausnehmen: der Endpunkt ist \u00f6ffentlich (kein Bearer-Token, kein Tenant-Kontext erforderlich), da er der Mechanismus ist, \u00fcber den ein Client \u00fcberhaupt erst einen Token erh\u00e4lt. Alle \u00fcbrigen gesch\u00fctzten Endpunkte bleiben hinter der Auth-Middleware.\n",
+      "ReplacementContent": "### REQ-L2-AT-013: Public Login Endpoint Exemption\n\nDas AuthAndTenancy-System SHALL den Login-Endpunkt `POST /api/v1/auth/login/` von der globalen Auth-Middleware-Interception (REQ-L2-AT-007) ausnehmen: der Endpunkt ist \u00f6ffentlich (kein Bearer-Token, kein Tenant-Kontext erforderlich), da er der Mechanismus ist, \u00fcber den ein Client \u00fcberhaupt erst einen Token erh\u00e4lt. Alle \u00fcbrigen gesch\u00fctzten Endpunkte bleiben hinter der Auth-Middleware.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-014: Password Hash Storage Contract\n\nDas AuthAndTenancy-System SHALL voraussetzen und sicherstellen, dass Passw\u00f6rter im PersistenceLayer ausschlie\u00dflich als gesalzener Hash (Django-Hasher, PBKDF2 default) im `User.password`-Feld gespeichert werden \u2014 niemals im Klartext. Klartext-Passw\u00f6rter SHALL nie in API-Responses, Logs oder Audit-Eintr\u00e4gen erscheinen. Das System SHALL `set_password`/`check_password` nutzen; ein leeres `password` bedeutet \u201ekein nutzbares Passwort\" und matcht nie.\n",
+      "ReplacementContent": "### REQ-L2-AT-014: Password Hash Storage Contract\n\nDas AuthAndTenancy-System SHALL voraussetzen und sicherstellen, dass Passw\u00f6rter im PersistenceLayer ausschlie\u00dflich als gesalzener Hash (Django-Hasher, PBKDF2 default) im `User.password`-Feld gespeichert werden \u2014 niemals im Klartext. Klartext-Passw\u00f6rter SHALL nie in API-Responses, Logs oder Audit-Eintr\u00e4gen erscheinen. Das System SHALL `set_password`/`check_password` nutzen; ein leeres `password` bedeutet \u201ekein nutzbares Passwort\" und matcht nie.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-015: Self-Identity Endpoint (Session Bootstrap)\n\nDas AuthAndTenancy-System SHALL \u00fcber `GET /api/v1/auth/me/` mit g\u00fcltigem Bearer-Token die Identit\u00e4t des aktuell angemeldeten Nutzers `{username, roles, tenant_id}` f\u00fcr den Frontend-Session-Bootstrap zur\u00fcckgeben. Die Identit\u00e4t SHALL aus dem aufgel\u00f6sten Auth-Kontext (REQ-L2-AT-005) stammen. Ohne Token oder mit ung\u00fcltigem Token SHALL HTTP 401 zur\u00fcckgegeben werden.\n",
+      "ReplacementContent": "### REQ-L2-AT-015: Self-Identity Endpoint (Session Bootstrap)\n\nDas AuthAndTenancy-System SHALL \u00fcber `GET /api/v1/auth/me/` mit g\u00fcltigem Bearer-Token die Identit\u00e4t des aktuell angemeldeten Nutzers `{username, roles, tenant_id}` f\u00fcr den Frontend-Session-Bootstrap zur\u00fcckgeben. Die Identit\u00e4t SHALL aus dem aufgel\u00f6sten Auth-Kontext (REQ-L2-AT-005) stammen. Ohne Token oder mit ung\u00fcltigem Token SHALL HTTP 401 zur\u00fcckgegeben werden.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-016: No Account Enumeration\n\nDas AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzername, falsches Passwort, inaktives Konto) denselben generischen Fehlercode `invalid_token` mit HTTP 401 zur\u00fcckgeben \u2014 ohne Unterscheidung zwischen \u201eNutzer unbekannt\", \u201ePasswort falsch\" und \u201eKonto inaktiv\". Die Response SHALL keine Information \u00fcber die Existenz eines Kontos preisgeben.\n",
+      "ReplacementContent": "### REQ-L2-AT-016: No Account Enumeration\n\nDas AuthAndTenancy-System SHALL bei jedem Login-Fehlschlag (unbekannter Benutzername, falsches Passwort, inaktives Konto) denselben generischen Fehlercode `invalid_token` mit HTTP 401 zur\u00fcckgeben \u2014 ohne Unterscheidung zwischen \u201eNutzer unbekannt\", \u201ePasswort falsch\" und \u201eKonto inaktiv\". Die Response SHALL keine Information \u00fcber die Existenz eines Kontos preisgeben.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-017: Item-Level-RBAC Regelverwaltung\n\nDas AuthAndTenancySystem SHALL Projekt-Administratoren erm\u00f6glichen, Sichtbarkeits- und Bearbeitungsrechte auf Subsystem- oder Artefakt-Ebene zu konfigurieren. Item-Level-Regeln verfeinern die Workspace-RBAC (REQ-L1-010), \u00fcberschreiben sie jedoch niemals \u2014 Admin-Rechte auf Workspace-Ebene haben weiterhin Vorrang. Regeln werden via UI (Berechtigungs-Editor) und API-Endpunkt konfiguriert.\n",
+      "ReplacementContent": "### REQ-L2-AT-017: Item-Level-RBAC Regelverwaltung\n\nDas AuthAndTenancySystem SHALL Projekt-Administratoren erm\u00f6glichen, Sichtbarkeits- und Bearbeitungsrechte auf Subsystem- oder Artefakt-Ebene zu konfigurieren. Item-Level-Regeln verfeinern die Workspace-RBAC (REQ-L1-010), \u00fcberschreiben sie jedoch niemals \u2014 Admin-Rechte auf Workspace-Ebene haben weiterhin Vorrang. Regeln werden via UI (Berechtigungs-Editor) und API-Endpunkt konfiguriert.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AT-018: Item-Level Permission Enforcement\n\nDas AuthAndTenancySystem SHALL Item-Level-Regeln bei allen API-Zugriffen auswerten (keine UI-only-Beschr\u00e4nkung). Die Enforcement erfolgt via PostgreSQL Row-Level Security (RLS) Policies. Der Permission-Cache (TTL: 60s) reduziert die Evaluierungs-Latenz. Performance: max. 10% Overhead auf API-Response-Zeiten f\u00fcr Workspaces mit \u2264 100 Item-Level-Regeln.\n",
+      "ReplacementContent": "### REQ-L2-AT-018: Item-Level Permission Enforcement\n\nDas AuthAndTenancySystem SHALL Item-Level-Regeln bei allen API-Zugriffen auswerten (keine UI-only-Beschr\u00e4nkung). Die Enforcement erfolgt via PostgreSQL Row-Level Security (RLS) Policies. Der Permission-Cache (TTL: 60s) reduziert die Evaluierungs-Latenz. Performance: max. 10% Overhead auf API-Response-Zeiten f\u00fcr Workspaces mit \u2264 100 Item-Level-Regeln.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 571,
+      "AllowMultiple": false
+    }
+  ]
+}

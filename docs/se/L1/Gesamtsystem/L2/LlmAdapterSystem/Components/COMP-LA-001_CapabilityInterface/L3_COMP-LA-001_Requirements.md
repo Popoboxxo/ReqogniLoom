@@ -17,6 +17,7 @@ Stabile abstrakte Schnittstelle (`LlmCapabilityInterface`) mit drei Operationen;
 |--------|-----------------------------|
 | REQ-L2-LA-001 | LLM-Capability-Interface mit Provider-Abstraktion |
 | REQ-L2-LA-004 | Standardisiertes LLM-Ergebnisformat |
+| REQ-L2-LA-010 | PromptTemplate — Admin-editierbare Prompt-Slots |
 
 ## Interne Schnittstellen
 
@@ -35,6 +36,13 @@ Keine direkten externen Schnittstellen; Systemgrenze wird vom CapabilityRouter g
 
 ### REQ-L3-LA001-001: Abstrakte LLM-Capability-Schnittstelle
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die CapabilityInterface-Komponente SHALL eine abstrakte Basisklasse `LlmCapabilityInterface` bereitstellen mit den drei Operationen `validate_artifact(artifact_id: str) -> LlmResult`, `decompose_requirement(requirement_id: str) -> LlmDecompositionResult` und `check_consistency(workspace_id: str) -> LlmConsistencyResult`. Konkrete Provider-Klassen MÜSSEN alle drei Operationen implementieren.
 
 **Priority:** mandatory
@@ -47,6 +55,13 @@ Die CapabilityInterface-Komponente SHALL eine abstrakte Basisklasse `LlmCapabili
 ---
 
 ### REQ-L3-LA001-002: Standardisierte Ergebnisdatenklassen
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die CapabilityInterface-Komponente SHALL die Datenklassen `LlmResult`, `LlmDecompositionResult` und `LlmConsistencyResult` definieren. `LlmResult` enthält: `score` (float, 0.0–1.0), `suggestions` (list[str]), `provider` (str), `model` (str), `token_usage` (int | None). `LlmDecompositionResult` erweitert `LlmResult` um `children` (list[dict]). `LlmConsistencyResult` erweitert `LlmResult` um `issues` (list[dict]). Ein `score`-Wert ausserhalb [0.0, 1.0] SHALL `ValueError` auslösen.
 
@@ -63,6 +78,13 @@ Die CapabilityInterface-Komponente SHALL die Datenklassen `LlmResult`, `LlmDecom
 
 ### REQ-L3-LA001-003: Provider-Isolation durch Interface-Vertrag
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Die CapabilityInterface-Komponente SHALL ausschliesslich abstrakte Typen und Datenklassen enthalten. Kein Import von Provider-Bibliotheken (anthropic, openai, ollama, azure) DARF direkt oder transitiv in diesem Modul vorkommen.
 
 **Priority:** mandatory
@@ -70,6 +92,17 @@ Die CapabilityInterface-Komponente SHALL ausschliesslich abstrakte Typen und Dat
 - [ ] Module dependency tree of `capability_interface` contains no provider SDK imports
 - [ ] `import capability_interface` succeeds in an environment without any provider SDK installed
 - [ ] Static analysis (e.g., `import-linter`) passes without provider-library violations
+
+---
+
+### REQ-L3-LA001-004: PromptTemplate-Erweiterung im Interface
+
+Die CapabilityInterface-Komponente SHALL Methoden-Signaturen für `decompose_requirement` und `check_consistency` so erweitern, dass kontextspezifische PromptTemplates als Argumente (`prompt_template: str`) entgegengenommen werden können, anstatt sie hart in den Provider-Klassen zu verdrahten.
+
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] `LlmCapabilityInterface.decompose_requirement` akzeptiert optionalen `prompt_template` Parameter.
+- [ ] Provider-Implementierungen verwenden diesen Parameter zur Formatierung des finalen LLM-Prompts.
 
 ---
 

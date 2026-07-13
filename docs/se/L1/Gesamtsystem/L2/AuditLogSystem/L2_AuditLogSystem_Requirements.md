@@ -30,8 +30,12 @@
 ## L2 Subsystem-Anforderungen
 
 ### REQ-L2-AL-001: Vollständige Audit-Einträge für alle Schreiboperationen
-
 Das AuditLog-System SHALL für jede schreibende Operation (Create, Update, Delete) auf Requirement, ArchitectureElement, TestCase und TraceLink einen Audit-Eintrag persistieren mit: `actor`, `actor_type` (user | agent), `operation`, `entity_type`, `entity_id`, `timestamp` (ISO-8601 UTC), `version`, `change_reason` (optional).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -45,14 +49,19 @@ Das AuditLog-System SHALL für jede schreibende Operation (Create, Update, Delet
 - Incoming: IF-AL-EXT-IN-001
 - Outgoing: IF-AL-EXT-OUT-001, IF-AL-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-011, REQ-L1-002 (mitwirkend), REQ-L1-009 (mitwirkend)
 **Rationale:** Vollständige Auditierbarkeit ist explizite Non-Functional-Anforderung.
 
 ---
 
 ### REQ-L2-AL-002: MCP-Audit-Anreicherung mit Agent-Identität und API-Key-Hash
-
 Das AuditLog-System SHALL bei MCP-Schreiboperationen zusätzlich `client_name` und `api_key_hash` (SHA-256, Prefix `sha256:`) erfassen. `source`-Feld: `mcp` oder `rest`. API-Key NIEMALS im Klartext.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -65,14 +74,19 @@ Das AuditLog-System SHALL bei MCP-Schreiboperationen zusätzlich `client_name` u
 - Incoming: IF-AL-EXT-IN-001 (erweiterter Kontext)
 - Outgoing: IF-AL-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-011, REQ-L1-005 (mitwirkend)
 **Rationale:** Unterscheidung manueller/agentengesteuerter Änderungen ist Voraussetzung für sicheren Agenten-Schreibzugriff.
 
 ---
 
 ### REQ-L2-AL-003: Unveränderlichkeit des Audit-Logs (Append-Only)
-
 Das AuditLog-System SHALL Audit-Einträge ausschließlich append-only persistieren. Nach dem Schreiben DARF ein Eintrag NICHT verändert oder gelöscht werden. Erzwingung auf Datenbankebene.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -86,14 +100,19 @@ Das AuditLog-System SHALL Audit-Einträge ausschließlich append-only persistier
 - Incoming: IF-AL-EXT-IN-001 (INSERT akzeptiert, UPDATE/DELETE rejected)
 - Outgoing: IF-AL-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-011
 **Rationale:** Unveränderlichkeit ist fundamentale Vertrauensgrundlage eines Audit-Logs.
 
 ---
 
 ### REQ-L2-AL-004: Atomare Konsistenz mit auslösender Operation
-
 Das AuditLog-System SHALL die Persistierung in dieselbe Datenbank-Transaktion wie die auslösende Operation integrieren. Geschäftstransaktion fehlschlägt → Audit-Eintrag zurückgerollt. Audit-Persistierung fehlschlägt → gesamte Transaktion zurückgerollt.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -107,14 +126,19 @@ Das AuditLog-System SHALL die Persistierung in dieselbe Datenbank-Transaktion wi
 - Incoming: IF-AL-EXT-IN-001 (im Transaktionskontext)
 - Outgoing: IF-AL-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-025 (mitwirkend)
 **Rationale:** Partiell persistierte Audit-Einträge erzeugen inkonsistente Zustände.
 
 ---
 
 ### REQ-L2-AL-005: Query- und Retrieval-Fähigkeit
-
 Das AuditLog-System SOLLTE eine Query-Schnittstelle bereitstellen mit Filtern: `entity_id`, `actor`, `operation`, `entity_type`, `timestamp`-Bereich, `source`. Paginierte Ergebnisse (Default: 50, max: 200), sortiert nach `timestamp` DESC.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 
 **Domain:** software
 **Priority:** desired
@@ -129,14 +153,19 @@ Das AuditLog-System SOLLTE eine Query-Schnittstelle bereitstellen mit Filtern: `
 - Incoming: IF-AL-EXT-IN-002
 - Outgoing: IF-AL-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-011
 **Rationale:** Audit-Logs sind nur wertvoll, wenn sie effizient abfragbar sind.
 
 ---
 
 ### REQ-L2-AL-006: Tenant-Isolation für Audit-Einträge
+Das AuditLog-System SHALL jeden Audit-Eintrag mit `tenant_id` versehen. Queries SOLLTEN ausschließlich Einträge des aktiven Tenants zurückliefern. Tenant-Isolation über Custom Django Manager.
 
-Das AuditLog-System SHALL jeden Audit-Eintrag mit `tenant_id` versehen. Queries SÜLLEN ausschließlich Einträge des aktiven Tenants zurückliefern. Tenant-Isolation über Custom Django Manager.
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -150,19 +179,24 @@ Das AuditLog-System SHALL jeden Audit-Eintrag mit `tenant_id` versehen. Queries 
 - Incoming: IF-AL-EXT-IN-001, IF-AL-EXT-IN-002
 - Outgoing: IF-AL-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-015 (mitwirkend)
 **Rationale:** Tenant-Leak über Audit-Einträge wäre kritischer Sicherheitsvorfall.
 
 ---
 
 ### REQ-L2-AL-007: Performance-Anforderungen
-
 Das AuditLog-System SOLLTE folgende Performance-Ziele einhalten:
 - Audit-INSERT: +10ms maximal zur API-Gesamtantwortzeit
 - Query nach `entity_id`: < 50ms (p95) bei 100.000 Einträgen
 - Query nach Filterkombination: < 200ms (p95) bei 100.000 Einträgen
 
 Indizes mindestens auf: `entity_id`, `(tenant_id, timestamp)`, `(actor, operation)`. Die Performance-Ziele werden durch die monatliche Table-Partitionierung (REQ-L2-AL-008) zusätzlich unterstützt.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 
 **Domain:** software
 **Priority:** desired
@@ -176,14 +210,19 @@ Indizes mindestens auf: `entity_id`, `(tenant_id, timestamp)`, `(actor, operatio
 - Incoming: IF-AL-EXT-IN-001, IF-AL-EXT-IN-002
 - Outgoing: IF-AL-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-026 (mitwirkend)
 **Rationale:** Audit-Schreiboperationen liegen im kritischen Pfad.
 
 ---
 
 ### REQ-L2-AL-008: Table-Partitionierung der Audit-Tabelle
-
 Die `AuditLogEntry`-Tabelle MUSS per PostgreSQL-RANGE-Partitionierung auf dem Feld `timestamp` in monatliche Partitionen aufgeteilt werden. Neue Partitionen MÜSSEN automatisch zu Monatsbeginn erzeugt werden. Queries mit Timestamp-Filter MÜSSEN Partition-Pruning nutzen, d.h. ausschließlich die relevante(n) Partition(en) lesen.
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 
 **Domain:** software
 **Priority:** mandatory
@@ -197,14 +236,19 @@ Die `AuditLogEntry`-Tabelle MUSS per PostgreSQL-RANGE-Partitionierung auf dem Fe
 - Incoming: IF-AL-EXT-IN-001, IF-AL-EXT-IN-002
 - Outgoing: IF-AL-EXT-OUT-001
 
+
 **Traceability:** REQ-L1-026 (primär), REQ-L1-011 (mitwirkend)
 **Rationale:** Partition-Pruning reduziert den Scan-Aufwand bei Timestamp-gefilterten Queries erheblich und sichert die Performance-Ziele aus REQ-L2-AL-007 auch bei wachsendem Datenvolumen.
 
 ---
 
 ### REQ-L2-AL-009: Cold-Storage-Archivierung (Datenlebenszyklus)
-
 Ein konfigurierbarer Data-Lifecycle-Job SOLL Audit-Einträge, die älter als 2 Jahre sind, periodisch (monatlich via Celery-Beat) als komprimierte JSON-Archive in ein konfigurierbares Cold-Storage-Ziel (z.B. AWS S3 Glacier) exportieren und anschließend aus der Primärdatenbank löschen. Der Löschvorgang DARF ERST nach erfolgreich bestätigtem Export erfolgen (fail-safe).
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
+**Test Status:** Untested
+**Remarks:** Testabdeckung sicherstellen.
 
 **Domain:** software
 **Priority:** desired
@@ -218,6 +262,7 @@ Ein konfigurierbarer Data-Lifecycle-Job SOLL Audit-Einträge, die älter als 2 J
 **Interfaces:**
 - Incoming: IF-AL-EXT-IN-001 (Primär-DB als Quelle)
 - Outgoing: IF-AL-EXT-OUT-001 (Löschen aus Primär-DB nach Export), IF-AL-EXT-OUT-002 (Export-Ziel Cold Storage)
+
 
 **Traceability:** REQ-L1-011 (primär)
 **Rationale:** Langfristiger Datenzuwachs ohne Archivierungsstrategie beeinträchtigt Performance und widerspricht Compliance-Anforderungen (IEC 61508 v2). REQ-L2-AL-003 (Append-Only) gilt für den laufenden Betrieb; der Cold-Storage-Export ist kein Modifikationsvorgang, sondern ein kontrollierter Archivierungs- und Bereinigungsschritt.
@@ -262,3 +307,19 @@ v1: Operation-Level-Granularität. **Feld-Level-Diffs** sind explizit v2.
 *Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
 *Complete Rewrite: ID-Migration REQ-L2-AuditLog → REQ-L2-AL, Template-Standardisierung*
 *Designation: subsystem (Leaf) — decomposition_status: terminal*
+
+
+## Master Traceability Matrix
+
+| REQ-L2 | Abgeleitet von REQ-L1 |
+|---------|----------------------|
+| REQ-L2-AL-001 | REQ-L1-011, REQ-L1-002 (mitwirkend), REQ-L1-009 (mitwirkend) |
+| REQ-L2-AL-002 | REQ-L1-011, REQ-L1-005 (mitwirkend) |
+| REQ-L2-AL-003 | REQ-L1-011 |
+| REQ-L2-AL-004 | REQ-L1-025 (mitwirkend) |
+| REQ-L2-AL-005 | REQ-L1-011 |
+| REQ-L2-AL-006 | REQ-L1-015 (mitwirkend) |
+| REQ-L2-AL-007 | REQ-L1-026 (mitwirkend) |
+| REQ-L2-AL-008 | REQ-L1-026 (primär), REQ-L1-011 (mitwirkend) |
+| REQ-L2-AL-009 | REQ-L1-011 (primär) |
+

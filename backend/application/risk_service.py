@@ -1,0 +1,584 @@
+"""
+COMP-AS-014 RiskService — Risk CRUD with Score Calculation.
+
+leaf_id : COMP-AS-014
+req_id  : REQ-L1-029
+
+Orchestrates:
+  IF-AS-INT-002   TraceLinkService.create_trace_link / cascade_delete_trace_links
+  IF-AS-INT-003   WorkflowFacade.transition (status transitions)
+  IF-AS-INT-016   DomainEventBus → RiskCreated/Updated/Deleted (Outbox)
+  IF-AS-EXT-OUT-007  application.models.Risk (Django ORM)
+
+Architecture:
+  docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/
+    Components/COMP-AS-014_RiskService/
+      L3_COMP-AS-014_RiskService_Architecture.md
+
+ADR-L3-RISK-01: Automatic risk score calculation (probability × impact).
+ADR-L3-RISK-02: Enum probability/impact (low=1, medium=2, high=3).
+ADR-L3-RISK-03: Score-range query support for SeMetrics integration.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import List, Optional
+from uuid import UUID
+
+from auth_tenancy.context import AuthContext
+from django.db.models import F
+from persistence.transactions import atomic_transaction
+
+from application.base import NotFoundError, ServiceBase, ValidationError
+from application.models import DomainEventOutbox, Risk
+
+logger = logging.getLogger(__name__)
+
+# Supported TraceLink types for Risks (REQ-L3-RISK-006)
+RISK_LINK_TYPES = frozenset({"threatens", "mitigated-by", "related-to"})
+
+
+# ---------------------------------------------------------------------------
+# DTOs
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RiskDTO:
+    """Read-oriented DTO returned by RiskService methods.
+
+    leaf_id : COMP-AS-014
+    req_id  : REQ-L1-029
+    """
+
+    id: UUID
+    workspace_id: UUID
+    tenant_id: UUID
+    title: str
+    description: str
+    category: str
+    probability: str
+    impact: str
+    risk_score: int
+    severity: str
+    owner: str
+    mitigation_strategy: str
+    status: str
+    version: int
+
+    @classmethod
+    def from_orm(cls, risk: Risk) -> "RiskDTO":
+        return cls(
+            id=risk.id,
+            workspace_id=risk.workspace_id,
+            tenant_id=risk.tenant_id,
+            title=risk.title,
+            description=risk.description,
+            category=risk.category,
+            probability=risk.probability,
+            impact=risk.impact,
+            risk_score=risk.risk_score,
+            severity=risk.severity,
+            owner=risk.owner,
+            mitigation_strategy=risk.mitigation_strategy,
+            status=risk.status,
+            version=risk.version,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Validator
+# ---------------------------------------------------------------------------
+
+
+class RiskValidator:
+    """Schema validation for Risk payloads (REQ-L3-RISK-002).
+
+    leaf_id : COMP-AS-014
+    req_id  : REQ-L1-029
+    """
+
+    VALID_PROBABILITIES = frozenset(Risk.Probability.values)
+    VALID_IMPACTS = frozenset(Risk.Impact.values)
+    VALID_CATEGORIES = frozenset(Risk.Category.values)
+    VALID_STATUSES = frozenset(Risk.RiskStatus.values)
+
+    @classmethod
+    def validate_create(
+        cls,
+        title: str,
+        probability: str,
+        impact: str,
+        category: str = "technical",
+        status: str = "Identified",
+    ) -> None:
+        """Validate fields for Risk creation."""
+        if not title:
+            raise ValidationError("Risk title is required")
+        if probability not in cls.VALID_PROBABILITIES:
+            raise ValidationError(
+                f"Risk probability '{probability}' invalid; "
+                f"must be one of {sorted(cls.VALID_PROBABILITIES)}"
+            )
+        if impact not in cls.VALID_IMPACTS:
+            raise ValidationError(
+                f"Risk impact '{impact}' invalid; "
+                f"must be one of {sorted(cls.VALID_IMPACTS)}"
+            )
+        if category not in cls.VALID_CATEGORIES:
+            raise ValidationError(
+                f"Risk category '{category}' invalid; "
+                f"must be one of {sorted(cls.VALID_CATEGORIES)}"
+            )
+        if status not in cls.VALID_STATUSES:
+            raise ValidationError(
+                f"Risk status '{status}' invalid; "
+                f"must be one of {sorted(cls.VALID_STATUSES)}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# RiskService
+# ---------------------------------------------------------------------------
+
+
+class RiskService(ServiceBase):
+    """COMP-AS-014 — Risk CRUD with automatic score calculation and TraceLinks.
+
+    leaf_id : COMP-AS-014
+    req_id  : REQ-L1-029
+    """
+
+    def __init__(
+        self,
+        trace_link_service=None,
+    ) -> None:
+        from application.trace_link_service import TraceLinkService
+
+        self._trace_link_service = trace_link_service or TraceLinkService()
+
+    # ---------- CRUD ----------
+
+    @atomic_transaction
+    def create_risk(
+        self,
+        workspace_id: UUID,
+        title: str,
+        probability: str,
+        impact: str,
+        ctx: AuthContext,
+        description: str = "",
+        category: str = "technical",
+        owner: str = "",
+        mitigation_strategy: str = "",
+        status: str = "Identified",
+        uid: Optional[str] = None,
+    ) -> Risk:
+        """Create a Risk with automatic score calculation (REQ-L3-RISK-001/002/007).
+
+        Args:
+            workspace_id: Target workspace UUID.
+            title: Risk title.
+            probability: One of {"low", "medium", "high"}.
+            impact: One of {"low", "medium", "high"}.
+            ctx: Resolved AuthContext.
+            description: Optional description.
+            category: One of {"technical", "operational", "organizational", "business"}.
+            owner: Optional owner identifier.
+            mitigation_strategy: Optional mitigation description.
+            status: Initial status (default: Identified).
+
+        Returns:
+            Persisted Risk ORM instance.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        RiskValidator.validate_create(
+            title=title,
+            probability=probability,
+            impact=impact,
+            category=category,
+            status=status,
+        )
+
+        risk = Risk(
+            workspace_id=workspace_id,
+            tenant_id=ctx.tenant_id,
+            title=title,
+            description=description,
+            category=category,
+            probability=probability,
+            impact=impact,
+            owner=owner,
+            mitigation_strategy=mitigation_strategy,
+            status=status,
+            uid=uid,
+            created_by=str(ctx.user_id),
+        )
+        # Calculate score before save (ADR-L3-RISK-01)
+        score = risk.compute_score()
+        risk.risk_score = score
+        risk.severity = Risk.score_to_severity(score)
+        risk.save()
+
+        # Initialize workflow state
+        try:
+            from workflow.services import initialize_workflow_states
+
+            initialize_workflow_states(
+                item_ids=[risk.id],
+                item_type="Risk",
+                workspace_id=workspace_id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug("RiskService: workflow init skipped for risk=%s", risk.id)
+
+        self._audit(ctx=ctx, operation="create", entity_type="Risk", entity_id=risk.id)
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.RISK_CREATED,
+                entity_id=risk.id,
+                workspace_id=workspace_id,
+                payload={"title": title, "risk_score": score, "severity": risk.severity},
+            )
+        )
+        return risk
+
+    @atomic_transaction
+    def update_risk(
+        self,
+        risk_id: UUID,
+        ctx: AuthContext,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        probability: Optional[str] = None,
+        impact: Optional[str] = None,
+        category: Optional[str] = None,
+        owner: Optional[str] = None,
+        mitigation_strategy: Optional[str] = None,
+        change_reason: Optional[str] = None,
+    ) -> Risk:
+        """Update a Risk, recomputing score when probability/impact change (REQ-L3-RISK-003).
+
+        Args:
+            risk_id: UUID of the Risk to update.
+            ctx: Resolved AuthContext.
+            title: New title (optional).
+            description: New description (optional).
+            probability: New probability (optional, recalculates score).
+            impact: New impact (optional, recalculates score).
+            category: New category (optional).
+            owner: New owner (optional).
+            mitigation_strategy: New mitigation text (optional).
+            change_reason: Optional change rationale for audit.
+
+        Returns:
+            Updated Risk ORM instance.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        risk = Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id).first()
+        if risk is None:
+            raise NotFoundError(f"Risk {risk_id} not found")
+
+        if title is not None:
+            risk.title = title
+        if description is not None:
+            risk.description = description
+        if probability is not None:
+            if probability not in RiskValidator.VALID_PROBABILITIES:
+                raise ValidationError(f"Invalid probability '{probability}'")
+            risk.probability = probability
+        if impact is not None:
+            if impact not in RiskValidator.VALID_IMPACTS:
+                raise ValidationError(f"Invalid impact '{impact}'")
+            risk.impact = impact
+        if category is not None:
+            if category not in RiskValidator.VALID_CATEGORIES:
+                raise ValidationError(f"Invalid category '{category}'")
+            risk.category = category
+        if owner is not None:
+            risk.owner = owner
+        if mitigation_strategy is not None:
+            risk.mitigation_strategy = mitigation_strategy
+
+        # Recompute score whenever probability or impact changed (ADR-L3-RISK-01)
+        score = risk.compute_score()
+        risk.risk_score = score
+        risk.severity = Risk.score_to_severity(score)
+        # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
+        # then issue a single SQL UPDATE that increments version at the database
+        # level — avoids the read-modify-write race condition of `version += 1`.
+        risk.save()
+        Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
+        risk.refresh_from_db(fields=["version"])
+
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="Risk",
+            entity_id=risk_id,
+            change_reason=change_reason,
+        )
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.RISK_UPDATED,
+                entity_id=risk_id,
+                workspace_id=risk.workspace_id,
+                payload={
+                    "change_reason": change_reason,
+                    "risk_score": score,
+                    "severity": risk.severity,
+                    "version": risk.version,
+                },
+            )
+        )
+        return risk
+
+    @atomic_transaction
+    def delete_risk(self, risk_id: UUID, ctx: AuthContext) -> None:
+        """Delete Risk and cascade-delete TraceLinks (REQ-L3-RISK-004).
+
+        Args:
+            risk_id: UUID of the Risk to delete.
+            ctx: Resolved AuthContext.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        risk = Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id).first()
+        if risk is None:
+            raise NotFoundError(f"Risk {risk_id} not found")
+
+        workspace_id = risk.workspace_id
+
+        try:
+            self._trace_link_service.cascade_delete_trace_links(risk_id, ctx)
+        except Exception:
+            logger.debug(
+                "RiskService.delete_risk: cascade TraceLink delete skipped for risk=%s",
+                risk_id,
+            )
+
+        risk.delete()
+
+        self._audit(ctx=ctx, operation="delete", entity_type="Risk", entity_id=risk_id)
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.RISK_DELETED,
+                entity_id=risk_id,
+                workspace_id=workspace_id,
+            )
+        )
+
+    def get_risk(self, risk_id: UUID, ctx: AuthContext) -> Risk:
+        """Fetch a single Risk (tenant-scoped, REQ-L3-RISK-010).
+
+        Args:
+            risk_id: UUID of the Risk to retrieve.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            Risk ORM instance.
+        """
+        self._set_tenant_context(ctx)
+        risk = Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id).first()
+        if risk is None:
+            raise NotFoundError(f"Risk {risk_id} not found")
+        return risk
+
+    def list_risks(self, workspace_id: UUID, ctx: AuthContext) -> List[Risk]:
+        """Return all Risks in *workspace_id* (tenant-scoped, REQ-L3-RISK-010).
+
+        Args:
+            workspace_id: Target workspace UUID.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            List of Risk ORM instances ordered by risk_score descending.
+        """
+        self._set_tenant_context(ctx)
+        return list(
+            Risk.objects.filter(
+                workspace_id=workspace_id, tenant_id=ctx.tenant_id
+            ).order_by("-risk_score")
+        )
+
+    def query_risks_by_severity(
+        self, workspace_id: UUID, severity: str, ctx: AuthContext
+    ) -> List[Risk]:
+        """Query risks filtered by severity label (for SeMetrics integration).
+
+        This method is the SeMetrics contract: SeMetrics calls
+        ``query_risks_by_severity(workspace_id, severity, ctx)`` to retrieve
+        risks grouped by their derived severity (ADR-L3-RISK-03).
+
+        Signature (stable contract for SeMetrics):
+            query_risks_by_severity(
+                workspace_id: UUID,
+                severity: str,   # "low" | "medium" | "high"
+                ctx: AuthContext,
+            ) -> List[Risk]
+
+        Args:
+            workspace_id: Target workspace UUID.
+            severity: One of {"low", "medium", "high"}.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            List of Risk ORM instances with the given severity, ordered by
+            risk_score descending.
+        """
+        self._set_tenant_context(ctx)
+        if severity not in Risk.Severity.values:
+            raise ValidationError(
+                f"Invalid severity '{severity}'; must be one of "
+                f"{sorted(Risk.Severity.values)}"
+            )
+        return list(
+            Risk.objects.filter(
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                severity=severity,
+            ).order_by("-risk_score")
+        )
+
+    def query_risks_by_score_range(
+        self, workspace_id: UUID, min_score: int, max_score: int, ctx: AuthContext
+    ) -> List[Risk]:
+        """Query risks by risk_score range (REQ-L3-RISK-010, ADR-L3-RISK-03).
+
+        Args:
+            workspace_id: Target workspace UUID.
+            min_score: Minimum risk score (inclusive).
+            max_score: Maximum risk score (inclusive).
+            ctx: Resolved AuthContext.
+
+        Returns:
+            Filtered and score-ordered list of Risk ORM instances.
+        """
+        self._set_tenant_context(ctx)
+        return list(
+            Risk.objects.filter(
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                risk_score__gte=min_score,
+                risk_score__lte=max_score,
+            ).order_by("-risk_score")
+        )
+
+    # ---------- Status Transition (REQ-L3-RISK-005, IF-AS-INT-003) ----------
+
+    @atomic_transaction
+    def transition_status(
+        self,
+        risk_id: UUID,
+        target_status: str,
+        ctx: AuthContext,
+        change_reason: Optional[str] = None,
+    ) -> Risk:
+        """Transition a Risk's workflow status (REQ-L3-RISK-005).
+
+        Args:
+            risk_id: UUID of the Risk.
+            target_status: Target status from Risk.RiskStatus choices.
+            ctx: Resolved AuthContext.
+            change_reason: Optional reason for audit.
+
+        Returns:
+            Updated Risk ORM instance.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        risk = Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id).first()
+        if risk is None:
+            raise NotFoundError(f"Risk {risk_id} not found")
+
+        if target_status not in RiskValidator.VALID_STATUSES:
+            raise ValidationError(
+                f"Invalid Risk status '{target_status}'; "
+                f"must be one of {sorted(RiskValidator.VALID_STATUSES)}"
+            )
+
+        try:
+            from application.workflow_facade import WorkflowFacade
+
+            wf = WorkflowFacade()
+            wf.transition(
+                item_id=risk_id,
+                item_type="Risk",
+                target_state=target_status,
+                ctx=ctx,
+                change_reason=change_reason,
+            )
+        except Exception:
+            logger.debug(
+                "RiskService.transition_status: WorkflowFacade skipped for risk=%s",
+                risk_id,
+            )
+
+        risk.status = target_status
+        # Atomic version increment (REQ-L3-PL001-002)
+        risk.save()
+        Risk.objects.filter(id=risk.id).update(version=F("version") + 1)
+        risk.refresh_from_db(fields=["version"])
+
+        self._audit(
+            ctx=ctx,
+            operation="transition",
+            entity_type="Risk",
+            entity_id=risk_id,
+            change_reason=change_reason,
+            details={"target_status": target_status},
+        )
+        return risk
+
+    # ---------- TraceLink management (REQ-L3-RISK-006, IF-AS-INT-002) ----------
+
+    def create_tracelink(
+        self,
+        risk_id: UUID,
+        target_id: UUID,
+        link_type: str,
+        ctx: AuthContext,
+    ):
+        """Create a TraceLink from a Risk to another artifact (REQ-L3-RISK-006).
+
+        Args:
+            risk_id: UUID of the source Risk.
+            target_id: UUID of the target artifact.
+            link_type: One of {"threatens", "mitigated-by", "related-to"}.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            Created TraceLink ORM instance.
+        """
+        self._set_tenant_context(ctx)
+        if link_type not in RISK_LINK_TYPES:
+            raise ValidationError(
+                f"Invalid Risk link type '{link_type}'; "
+                f"must be one of {sorted(RISK_LINK_TYPES)}"
+            )
+
+        risk = Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id).first()
+        if risk is None:
+            raise NotFoundError(f"Risk {risk_id} not found")
+
+        return self._trace_link_service.create_trace_link(
+            source_id=risk_id,
+            target_id=target_id,
+            link_type=link_type,
+            ctx=ctx,
+        )
+
+
+__all__ = [
+    "RiskService",
+    "RiskDTO",
+    "RISK_LINK_TYPES",
+]

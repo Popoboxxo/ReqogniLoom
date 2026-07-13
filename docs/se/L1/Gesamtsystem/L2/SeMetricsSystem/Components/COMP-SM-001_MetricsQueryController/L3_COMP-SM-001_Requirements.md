@@ -40,6 +40,13 @@ REST-Endpunkt-Adapter: empfängt `GET /metrics/workspace/{id}`, validiert Bearer
 
 ### REQ-L3-SM001-001: HTTP-Authentifizierung und Workspace-Zugriffskontrolle
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der MetricsQueryController SHALL jeden eingehenden Request auf `GET /metrics/workspace/{id}` vor jeder Verarbeitung auf Authentizität und Autorisierung prüfen: (1) Fehlendes oder ungültiges Bearer Token → HTTP 401, (2) Gültiger Token, aber `workspace_id` nicht existent → HTTP 404, (3) Gültiger Token und Workspace existent, aber Tenant-Kontext des Aufrufers schließt Zugriff aus → HTTP 403. Erst nach erfolgreicher Prüfung aller drei Bedingungen SHALL die Anfrage an COMP-SM-002 delegiert werden.
 
 **Priority:** mandatory
@@ -53,6 +60,13 @@ Der MetricsQueryController SHALL jeden eingehenden Request auf `GET /metrics/wor
 ---
 
 ### REQ-L3-SM001-002: Parameter-Parsing und Validierung
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der MetricsQueryController SHALL die Query-Parameter `timeframe` (ISO-8601-Zeitraum) und `scope_filter` (kommaseparierte Artefakttyp-Liste) parsen und validieren. Fehlt `timeframe`, SHALL der konfigurierte Standardwert (Default: P30D) verwendet werden. Ungültige Parameter-Werte SHALL mit HTTP 400 und maschinenlesbarer Fehlermeldung abgelehnt werden, bevor eine Delegation an COMP-SM-002 erfolgt.
 
@@ -69,6 +83,13 @@ Der MetricsQueryController SHALL die Query-Parameter `timeframe` (ISO-8601-Zeitr
 
 ### REQ-L3-SM001-003: JSON-Antwort-Serialisierung nach stabilem Format
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der MetricsQueryController SHALL das von COMP-SM-002 zurückgegebene `MetricsResult`-Objekt in ein stabiles JSON-Antwortformat serialisieren, das die Pflichtfelder `workspace_id`, `computed_at`, `timeframe`, `volatility`, `traceability_coverage`, `workflow_gaps`, `open_risks` und `warnings` enthält. Fehlende optionale Werte SHALL als `null` oder leere Objekte serialisiert werden. Der HTTP-Statuscode SHALL bei Erfolg immer 200 sein.
 
 **Priority:** mandatory
@@ -82,6 +103,13 @@ Der MetricsQueryController SHALL das von COMP-SM-002 zurückgegebene `MetricsRes
 ---
 
 ### REQ-L3-SM001-004: Cache-Lookup vor Aggregator-Delegation
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der MetricsQueryController SHALL vor jeder Delegation an COMP-SM-002 einen Cache-Lookup via IF-SM-INT-008 (COMP-SM-008) durchführen. Bei Cache-Treffer SHALL das gecachte Ergebnis direkt serialisiert und zurückgegeben werden, ohne COMP-SM-002 aufzurufen. Bei Cache-Miss SHALL COMP-SM-002 aufgerufen und das Ergebnis nach Rückgabe via IF-SM-INT-008 in den Cache geschrieben werden. Cache-Fehler beim Lookup oder Schreiben dürfen die Antwort nicht mit HTTP 5xx abbrechen.
 

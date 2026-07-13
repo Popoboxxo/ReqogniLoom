@@ -20,7 +20,7 @@ schema_version: "1.0.0"
 
 ## 1. Verantwortlichkeit
 
-Der ProtocolHandler ist die einzige Komponente mit direktem Zugang zur externen Systemgrenze. Er empfängt MCP-Anfragen über drei Transportprotokolle (stdio, SSE, HTTP), validiert die JSON-RPC-Frames gegen das MCP-Protokollschema, extrahiert den API-Key und leitet validierte Frames an die ToolRegistry weiter. Er serialisiert ToolResult-Objekte zurück in das transportspezifische Antwortformat und stellt sicher, dass jeder Request/Response-Pair eineindeutig korreliert ist.
+Der ProtocolHandler ist die einzige Komponente mit direktem Zugang zur externen Systemgrenze. Er empfängt MCP-Anfragen über HTTP (POST für Messages, GET für SSE Streaming), validiert die JSON-RPC-Frames gegen das MCP-Protokollschema, extrahiert den API-Key und leitet validierte Frames an die ToolRegistry weiter. Die asynchrone SSE-Rückkanal-Kommunikation in Django wird durch Redis PubSub realisiert. Er serialisiert ToolResult-Objekte zurück in das transportspezifische Antwortformat und stellt sicher, dass jeder Request/Response-Pair eineindeutig korreliert ist. Zusätzlich verwaltet er den MCP Lifecycle (`initialize`, `ping`, `tools/list`).
 
 ---
 
@@ -28,13 +28,10 @@ Der ProtocolHandler ist die einzige Komponente mit direktem Zugang zur externen 
 
 ### 2.1 Klassen und Module
 
-- **`ProtocolHandler` (Klasse):** Zentrale Request/Response-Ochestration.
-- **`TransportAdapter` (Abstrakte Klasse):** Abstraktion über stdio/SSE/HTTP.
-- **`StdioTransportAdapter` (Klasse, extends TransportAdapter):** Implementierung für stdio.
-- **`SseTransportAdapter` (Klasse, extends TransportAdapter):** Implementierung für SSE.
-- **`HttpTransportAdapter` (Klasse, extends TransportAdapter):** Implementierung für HTTP.
-- **`JsonRpcValidator` (Helper-Klasse):** JSON-RPC-Schema-Validierung.
-- **`ErrorFormatter` (Helper-Klasse):** Strukturierte Fehlerformatierung nach REQ-L2-MC-011.
+- **`ProtocolHandler` (Klasse in `protocol_handler.py`):** Zentrale Lifecycle- und JSON-RPC-Orchestrierung (`initialize`, `ping`, `tools/list`, `tools/call`).
+- **`McpMessagesView` (Django View):** Nimmt HTTP POST Anfragen (`/messages/`) entgegen, antwortet sofort mit HTTP 202 Accepted und delegiert die Ausführung an einen Worker-Thread.
+- **`McpSseTransportView` (Django View):** Liefert asynchrone Server-Sent Events über eine StreamingHttpResponse aus.
+- **`RedisSsePubSub` (Klasse in `sse_pubsub.py`):** Brücke zwischen synchronen Django-Threads und dem asynchronen SSE-Rückkanal via Redis.
 
 ### 2.2 Datenstrukturen
 

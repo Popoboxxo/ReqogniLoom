@@ -35,6 +35,13 @@ Audit-Logging fuer jeden LLM-Aufruf (erfolgreich oder fehlgeschlagen). Extrahier
 
 ### REQ-L3-LA004-001: Vollstaendige Protokollierung jedes LLM-Aufrufs
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der LlmAuditLogger SHALL jeden LLM-Aufruf — erfolgreich oder fehlgeschlagen — als Audit-Eintrag an den AuditLog schreiben. Der Eintrag SHALL folgende Felder enthalten: `source` (fest: "llm_adapter"), `provider` (str), `capability` (str), `artifact_id` (str | None), `token_usage` (int | None), `success` (bool), `error` (str | None). Der Logger SHALL den Aufruf in allen Faellen protokollieren, auch wenn kein Provider konfiguriert ist oder ein Fehler aufgetreten ist.
 
 **Priority:** mandatory
@@ -49,6 +56,13 @@ Der LlmAuditLogger SHALL jeden LLM-Aufruf — erfolgreich oder fehlgeschlagen �
 
 ### REQ-L3-LA004-002: Token-Verbrauch-Extraktion aus Provider-Response
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der LlmAuditLogger SHALL den Token-Verbrauch aus der Provider-Response extrahieren. Falls die Provider-Response kein Usage-Objekt enthaelt, SHALL `token_usage: None` protokolliert werden. Die Extraktion SHALL provider-unabhaengig ueber eine normalisierte Hilfsfunktion erfolgen.
 
 **Priority:** mandatory
@@ -61,6 +75,13 @@ Der LlmAuditLogger SHALL den Token-Verbrauch aus der Provider-Response extrahier
 ---
 
 ### REQ-L3-LA004-003: Fehlertolerantes Logging ohne Seiteneffekte
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der LlmAuditLogger SHALL so implementiert sein, dass ein Fehler beim Schreiben des Audit-Eintrags den eigentlichen LLM-Aufruf und dessen Ergebnis nicht beeintraechtigt. Logging-Fehler SOLLEN intern (z.B. als Python-Warning) gemeldet werden, ohne Exception nach aussen zu propagieren.
 

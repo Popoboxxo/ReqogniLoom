@@ -39,6 +39,13 @@ Test-Coverage-Berechnung (Requirement → TestCase via `verifies`), gefilterte C
 
 ### REQ-L3-TE003-001: Requirement-Test-Coverage-Berechnung
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der CoverageCalculator SHALL den Prozentsatz der Requirements berechnen, die mindestens einen `verifies`-TraceLink zu einem TestCase besitzen. Das Ergebnis SHALL `total`, `covered`, `uncovered` (IDs) und `percentage` enthalten. Die Berechnung SHALL ≤ 500ms (p95) bei bis zu 10.000 Requirements einhalten.
 
 **Priority:** mandatory
@@ -53,6 +60,13 @@ Der CoverageCalculator SHALL den Prozentsatz der Requirements berechnen, die min
 
 ### REQ-L3-TE003-002: Gefilterte Coverage-Berechnung nach Artefakttyp und Link-Typ
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der CoverageCalculator SOLLTE Coverage-Abfragen optional nach Artefakttyp (`artifact_type`) und Link-Typ (`link_type`) filtern können. Werden keine Filter angegeben, SHALL das Verhalten identisch zu REQ-L3-TE003-001 sein. Gefilterte Abfragen SHALL ≤ 500ms (p95) bei 10.000 Items einhalten.
 
 **Priority:** desired
@@ -66,6 +80,13 @@ Der CoverageCalculator SOLLTE Coverage-Abfragen optional nach Artefakttyp (`arti
 ---
 
 ### REQ-L3-TE003-003: Coverage-Daten-Export für VCRMReportGenerator
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der CoverageCalculator SHALL auf interne Anfrage des VCRMReportGenerators (IF-TE-INT-004) strukturierte Coverage-Daten zurückgeben. Das Ergebnis (`CoverageData`) SHALL für jedes Requirement die verknüpften TestCase-IDs und deren Test-Ergebnis (`Passed`, `Failed`, `Not Run`) enthalten. Optional SHALL eine Baseline-ID für historische Abfragen übergeben werden können.
 

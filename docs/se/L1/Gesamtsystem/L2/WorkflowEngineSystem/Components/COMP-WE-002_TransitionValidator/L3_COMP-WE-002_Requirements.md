@@ -44,6 +44,13 @@ Validierung aller State-Transitions gegen aktive WorkflowDefinition: Transition-
 
 ### REQ-L3-WE002-001: Vierstufige Transition-Regelvalidierung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der TransitionValidator SHALL jede eingehende Transition sequenziell gegen vier Regeln pruefen: (1) Transition existiert in der aktiven WorkflowDefinition fuer den betreffenden Item-Typ und Workspace; (2) Rolle des anfragenden Nutzers ist in `allowed_roles` der Transition enthalten; (3) Falls `requires_change_reason = true`, ist ein nicht-leerer `change_reason` vorhanden; (4) Falls `signature_gate = true`, ist ein Credential uebergeben worden. Bei der ersten Regelverletzung SHALL die Validierung mit einem spezifischen `error_code` und `error_message` abgebrochen und `ValidationResult {valid: false}` zurueckgegeben werden.
 
 **Priority:** mandatory
@@ -58,6 +65,13 @@ Der TransitionValidator SHALL jede eingehende Transition sequenziell gegen vier 
 
 ### REQ-L3-WE002-002: SignatureGate-Delegierung an COMP-WE-004
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Erfordert eine Transition `signature_gate: true` und wurde ein Credential uebergeben, SHALL der TransitionValidator eine `CredentialVerificationRequest` an COMP-WE-004 (IF-WE-INT-004) senden. Das Ergebnis `VerificationResult {valid, seal?}` von COMP-WE-004 SHALL in das endgueltige `ValidationResult` einfliessen: bei `valid: false` wird `ValidationResult {valid: false, error_code: "SIGNATURE_INVALID"}` zurueckgegeben; bei `valid: true` wird `seal` an COMP-WE-003 weitergereicht (via IF-WE-INT-002 im Erweiterungs-Payload).
 
 **Priority:** desired
@@ -70,6 +84,13 @@ Erfordert eine Transition `signature_gate: true` und wurde ein Credential ueberg
 ---
 
 ### REQ-L3-WE002-003: Validierungs-Performance-Budget
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der TransitionValidator SHALL den gesamten Validierungsablauf (Regelprueung inkl. WorkflowDefinition-Abruf via IF-WE-INT-001, exkl. COMP-WE-004-Roundtrip) innerhalb von 10 ms abschliessen — gemessen unter Normal-Last (50 gleichzeitige Anfragen, 10.000 Items im System).
 

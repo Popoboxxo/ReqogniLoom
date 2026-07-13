@@ -41,6 +41,13 @@ Append-Only-Persistierung von Audit-Eintraegen, atomare Transaktion mit ausloese
 
 ### REQ-L3-AL001-001: Event-Bus-Subscription und Feld-Extraktion
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der AuditLogWriter SHALL sich als Subscriber am DomainEventBus fuer `AuditableOperationOccurred`-Events (post_commit) registrieren und alle Pflichtfelder (`actor`, `actor_type`, `op`, `entity_type`, `entity_id`, `version`, `timestamp`) sowie optionale Felder (`change_reason`, `ctx`) aus dem Event extrahieren und als AuditLogEntry persistieren.
 
 **Priority:** mandatory
@@ -54,6 +61,13 @@ Der AuditLogWriter SHALL sich als Subscriber am DomainEventBus fuer `AuditableOp
 ---
 
 ### REQ-L3-AL001-002: MCP-Kontext-Anreicherung
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der AuditLogWriter SHALL bei Eintraegen mit `actor_type = "agent"` die Felder `client_name`, `api_key_hash` (SHA-256 mit Prefix `sha256:`) und `source = "mcp"` aus dem `ctx`-Kontext des Events extrahieren und im AuditLogEntry persistieren. Der API-Key DARF NIEMALS im Klartext gespeichert werden.
 
@@ -69,6 +83,13 @@ Der AuditLogWriter SHALL bei Eintraegen mit `actor_type = "agent"` die Felder `c
 
 ### REQ-L3-AL001-003: Append-Only-Constraint auf Datenbankebene
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der AuditLogWriter SHALL die AuditLogEntry-Tabelle mit Datenbank-Constraints absichern, sodass UPDATE- und DELETE-Operationen auf persistierten Eintraegen abgelehnt werden. Die Komponente DARF keine `update_entry()`- oder `delete_entry()`-Methode exponieren.
 
 **Priority:** mandatory
@@ -83,6 +104,13 @@ Der AuditLogWriter SHALL die AuditLogEntry-Tabelle mit Datenbank-Constraints abs
 
 ### REQ-L3-AL001-004: Atomare Transaktion und Partition-Management
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der AuditLogWriter SHALL den INSERT in die AuditLogEntry-Tabelle innerhalb derselben Datenbank-Transaktion wie die ausloesende Geschaeftsoperation ausfuehren. Schlaegt der INSERT fehl, MUSS die gesamte Transaktion zurueckgerollt werden. Neue monatliche Partitionen MUESSEN automatisch zu Monatsbeginn erzeugt werden.
 
 **Priority:** mandatory
@@ -96,6 +124,13 @@ Der AuditLogWriter SHALL den INSERT in die AuditLogEntry-Tabelle innerhalb derse
 ---
 
 ### REQ-L3-AL001-005: Tenant-ID-Injektion
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Der AuditLogWriter SHALL die `tenant_id` des aktiven Request-Kontexts automatisch in jeden AuditLogEntry injizieren. Fehlt die `tenant_id` im Kontext, MUSS der Write-Vorgang mit einem Fehler abgebrochen werden.
 

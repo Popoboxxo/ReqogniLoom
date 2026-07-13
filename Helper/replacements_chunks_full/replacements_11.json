@@ -1,0 +1,35 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\IcdManagementSystem\\Components\\COMP-ICD-001_IcdManager\\L3_COMP-ICD-001_IcdManager_Requirements.md",
+  "Instruction": "Update requirement fields correctly, deleting old properties and inserting new ones",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L3-ICD-001-001: ICD CRUD Koordination und Versionierung\n\nDie Komponente IcdManager SHALL alle eingehenden CRUD-Anfragen (IF-L1-037) verarbeiten und f\u00fcr jede \u00c4nderung an einem ICD eine neue, unver\u00e4nderliche Version (`IcdVersion`) generieren sowie an den PersistenceLayer (IF-L1-040) \u00fcbergeben.\n**Domain:** software\n**Priority:** mandatory\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Traceability:** REQ-L2-ICD-001\n**Acceptance Criteria:**\n- [ ] Bei der Erstellung wird Version 1 persistiert.\n- [ ] Bei jedem Update wird eine neue Version generiert und persistiert.\n- [ ] Existierende Versionen werden niemals \u00fcberschrieben.\n\n",
+      "ReplacementContent": "### REQ-L3-ICD-001-001: ICD CRUD Koordination und Versionierung\nDie Komponente IcdManager SHALL alle eingehenden CRUD-Anfragen (IF-L1-037) verarbeiten und f\u00fcr jede \u00c4nderung an einem ICD eine neue, unver\u00e4nderliche Version (`IcdVersion`) generieren sowie an den PersistenceLayer (IF-L1-040) \u00fcbergeben.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Domain:** software\n**Priority:** mandatory\n\n**Traceability:** REQ-L2-ICD-001\n**Acceptance Criteria:**\n- [ ] Bei der Erstellung wird Version 1 persistiert.\n- [ ] Bei jedem Update wird eine neue Version generiert und persistiert.\n- [ ] Existierende Versionen werden niemals \u00fcberschrieben.\n\n",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L3-ICD-001-002: Delegation der Kompatibilit\u00e4tspr\u00fcfung\n\nDie Komponente IcdManager SHALL bei jedem ICD-Update den ContractValidator (IF-ICD-INT-001) aufrufen, um die neue Version gegen die alte Version auf Breaking Changes zu pr\u00fcfen.\n**Domain:** software\n**Priority:** mandatory\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Traceability:** REQ-L2-ICD-001, REQ-L2-ICD-003\n**Acceptance Criteria:**\n- [ ] Vor der Persistierung eines Updates wird IF-ICD-INT-001 aufgerufen.\n- [ ] Bei erkannten Breaking Changes wird der AuditLogger (IF-ICD-INT-003) asynchron getriggert.\n\n",
+      "ReplacementContent": "### REQ-L3-ICD-001-002: Delegation der Kompatibilit\u00e4tspr\u00fcfung\nDie Komponente IcdManager SHALL bei jedem ICD-Update den ContractValidator (IF-ICD-INT-001) aufrufen, um die neue Version gegen die alte Version auf Breaking Changes zu pr\u00fcfen.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Domain:** software\n**Priority:** mandatory\n\n**Traceability:** REQ-L2-ICD-001, REQ-L2-ICD-003\n**Acceptance Criteria:**\n- [ ] Vor der Persistierung eines Updates wird IF-ICD-INT-001 aufgerufen.\n- [ ] Bei erkannten Breaking Changes wird der AuditLogger (IF-ICD-INT-003) asynchron getriggert.\n\n",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L3-ICD-001-003: Delegation der TraceLink-Erstellung\n\nDie Komponente IcdManager SHALL bei erfolgreicher Erstellung eines ICDs den TraceabilityConnector (IF-ICD-INT-002) aufrufen, um das ICD mit den jeweiligen Architekturelementen zu verkn\u00fcpfen.\n**Domain:** software\n**Priority:** mandatory\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Traceability:** REQ-L2-ICD-004\n**Acceptance Criteria:**\n- [ ] Nach erfolgreicher Speicherung eines neuen ICDs wird IF-ICD-INT-002 mit `icd_id`, `source_id`, `target_id` aufgerufen.\n\n",
+      "ReplacementContent": "### REQ-L3-ICD-001-003: Delegation der TraceLink-Erstellung\nDie Komponente IcdManager SHALL bei erfolgreicher Erstellung eines ICDs den TraceabilityConnector (IF-ICD-INT-002) aufrufen, um das ICD mit den jeweiligen Architekturelementen zu verkn\u00fcpfen.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Domain:** software\n**Priority:** mandatory\n\n**Traceability:** REQ-L2-ICD-004\n**Acceptance Criteria:**\n- [ ] Nach erfolgreicher Speicherung eines neuen ICDs wird IF-ICD-INT-002 mit `icd_id`, `source_id`, `target_id` aufgerufen.\n\n",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L3-ICD-001-004: Baseline Snapshot Integration\n\nDie Komponente IcdManager SHALL den Endpunkt `get_icd_versions` (IF-L1-038) bereitstellen und anhand der `workspace_id` die zu diesem Zeitpunkt g\u00fcltigen, unver\u00e4nderlichen ICD-Versionen zur\u00fcckliefern.\n**Domain:** software\n**Priority:** mandatory\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Traceability:** REQ-L2-ICD-005\n**Acceptance Criteria:**\n- [ ] Aufruf von IF-L1-038 liefert alle aktuellen ICD-Versionen f\u00fcr den \u00fcbergebenen Scope zur\u00fcck.\n\n---\n\n*Erstellt durch se-requirements-Agent | 2026-06-21*\n",
+      "ReplacementContent": "### REQ-L3-ICD-001-004: Baseline Snapshot Integration\nDie Komponente IcdManager SHALL den Endpunkt `get_icd_versions` (IF-L1-038) bereitstellen und anhand der `workspace_id` die zu diesem Zeitpunkt g\u00fcltigen, unver\u00e4nderlichen ICD-Versionen zur\u00fcckliefern.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Domain:** software\n**Priority:** mandatory\n\n**Traceability:** REQ-L2-ICD-005\n**Acceptance Criteria:**\n- [ ] Aufruf von IF-L1-038 liefert alle aktuellen ICD-Versionen f\u00fcr den \u00fcbergebenen Scope zur\u00fcck.\n\n---\n\n*Erstellt durch se-requirements-Agent | 2026-06-21*\n",
+      "StartLine": 1,
+      "EndLine": 103,
+      "AllowMultiple": false
+    }
+  ]
+}

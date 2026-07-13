@@ -37,6 +37,13 @@ PostgreSQL-Indizes (BTree, GIST/GIN, tsvector), Connection-Pooling, Latenz-SLA-M
 
 ### REQ-L3-PL005-001: Pflichtindizes fuer alle definierten Query-Pfade
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der PerformanceOptimizationLayer MUSS folgende PostgreSQL-Indizes als Django-Migrationsoperationen bereitstellen: (1) BTree-Index auf `Artifact.parent_id` fuer Hierarchie-Queries, (2) GIN-Index auf `source_id` und `target_id` in `TraceLink` fuer Graph-Traversal-Queries, (3) tsvector-GIN-Index auf `to_tsvector('german', title || ' ' || description)` fuer die Entitaeten Requirement, ArchitectureElement und TestCase. Alle Indizes MUESSEN in Django-Migrationen als `AddIndex`-Operationen deklariert sein.
 
 **Priority:** mandatory
@@ -52,6 +59,13 @@ Der PerformanceOptimizationLayer MUSS folgende PostgreSQL-Indizes als Django-Mig
 
 ### REQ-L3-PL005-002: Konfigurierbare Connection-Pool-Parameter
 
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
+
 Der PerformanceOptimizationLayer MUSS Django's `CONN_MAX_AGE`-Parameter und optionale Pool-Groessen-Parameter ueber Umgebungsvariablen steuerbar machen. Folgende Parameter MUESSEN unterstuetzt werden: `DB_CONN_MAX_AGE` (Sekunden, Standard: 60), `DB_POOL_SIZE` (maximale Pool-Groesse, Standard: 10). Bei 50 gleichzeitigen Requests DARF keine `OperationalError: too many connections`-Exception auftreten. Die Verbindungswiederverwendungsrate MUSS bei Lasttests > 80% betragen.
 
 **Priority:** desired
@@ -64,6 +78,13 @@ Der PerformanceOptimizationLayer MUSS Django's `CONN_MAX_AGE`-Parameter und opti
 ---
 
 ### REQ-L3-PL005-003: Latenz-SLA-Einhaltung unter Last
+
+
+**Implementation State:** Not Implemented
+**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
+**Test Status:** Missing
+**Remarks:** Sollte implementiert werden.
+
 
 Der PerformanceOptimizationLayer MUSS in Kombination mit den definierten Indizes und Pool-Einstellungen sicherstellen, dass die folgenden Latenzziele bei 10.000 Items und 50 gleichzeitigen Nutzern eingehalten werden: Standard-CRUD-Queries < 200ms (p95), TraceLink-Graph-Queries < 200ms (p95), Recursive-CTE-Queries (500 Knoten) < 200ms (p95), Full-Text-Search < 500ms (p95). Die Messung MUSS gegen PostgreSQL mit produktionsaehnlichem Datensatz erfolgen.
 

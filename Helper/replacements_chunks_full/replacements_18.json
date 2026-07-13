@@ -1,0 +1,14 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\IcdManagementSystem\\Components\\COMP-ICD-004_AuditLogger\\L3_COMP-ICD-004_AuditLogger_Requirements.md",
+  "Instruction": "Update requirement fields correctly, deleting old properties and inserting new ones",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L3-ICD-004-001: Logging von Breaking Changes\n\nDie Komponente AuditLogger SHALL bei jedem Aufruf von `log_breaking_change` (IF-ICD-INT-003) ein strukturiertes Audit-Event \u00fcber die erkannte Inkompatibilit\u00e4t erstellen und via IF-L1-041 an das AuditLog senden.\n**Domain:** software\n**Priority:** mandatory\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Traceability:** REQ-L2-ICD-006\n**Acceptance Criteria:**\n- [ ] Bei Aufruf von IF-ICD-INT-003 wird ein AuditLog-Eintrag mit der betroffenen `icd_id` und den Details des Breaking Changes erfolgreich geschrieben.\n\n---\n\n*Erstellt durch se-requirements-Agent | 2026-06-21*\n",
+      "ReplacementContent": "### REQ-L3-ICD-004-001: Logging von Breaking Changes\nDie Komponente AuditLogger SHALL bei jedem Aufruf von `log_breaking_change` (IF-ICD-INT-003) ein strukturiertes Audit-Event \u00fcber die erkannte Inkompatibilit\u00e4t erstellen und via IF-L1-041 an das AuditLog senden.\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n\n**Domain:** software\n**Priority:** mandatory\n\n**Traceability:** REQ-L2-ICD-006\n**Acceptance Criteria:**\n- [ ] Bei Aufruf von IF-ICD-INT-003 wird ein AuditLog-Eintrag mit der betroffenen `icd_id` und den Details des Breaking Changes erfolgreich geschrieben.\n\n---\n\n*Erstellt durch se-requirements-Agent | 2026-06-21*\n",
+      "StartLine": 1,
+      "EndLine": 54,
+      "AllowMultiple": false
+    }
+  ]
+}

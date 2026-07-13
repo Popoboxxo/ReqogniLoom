@@ -1,0 +1,455 @@
+{
+  "TargetFile": "C:\\Repositories\\ai-native-reqflow-POC\\docs\\se\\L1\\Gesamtsystem\\L2\\ApplicationServiceSystem\\L2_ApplicationServiceSystem_Requirements.md",
+  "Instruction": "Update requirement fields",
+  "Description": "Update implementation state and test status based on codebase search.",
+  "ReplacementChunks": [
+    {
+      "TargetContent": "### REQ-L2-AS-001: Artifact-Hierarchy Cycle Detection\n\nDer ApplicationService SHALL bei Erstellung oder \u00c4nderung einer Parent-Child-Beziehung validieren, dass keine zyklischen Abh\u00e4ngigkeiten eingef\u00fchrt werden. Validierung VOR Persistenz. Bei Zyklus-Erkennung: Operation abbrechen mit Fehlermeldung.\n",
+      "ReplacementContent": "### REQ-L2-AS-001: Artifact-Hierarchy Cycle Detection\n\nDer ApplicationService SHALL bei Erstellung oder \u00c4nderung einer Parent-Child-Beziehung validieren, dass keine zyklischen Abh\u00e4ngigkeiten eingef\u00fchrt werden. Validierung VOR Persistenz. Bei Zyklus-Erkennung: Operation abbrechen mit Fehlermeldung.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-002: Artifact Tree Query mit beliebiger Tiefe\n\nDer ApplicationService SHALL eine Tree-Query-Operation bereitstellen, die die vollst\u00e4ndige Artefakt-Hierarchie als verschachtelte Struktur bis zu einer variablen Tiefe (N) zur\u00fcckgibt. \u2264 200ms bei 500 Artefakten.\n",
+      "ReplacementContent": "### REQ-L2-AS-002: Artifact Tree Query mit beliebiger Tiefe\n\nDer ApplicationService SHALL eine Tree-Query-Operation bereitstellen, die die vollst\u00e4ndige Artefakt-Hierarchie als verschachtelte Struktur bis zu einer variablen Tiefe (N) zur\u00fcckgibt. \u2264 200ms bei 500 Artefakten.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-003: Requirement CRUD with Workflow Integration\n\nDer ApplicationService SHALL vollst\u00e4ndiges CRUD f\u00fcr Requirements bereitstellen. Bei Erstellung: automatischer initialer WorkflowState. Bei Update: `change_reason` validieren (Pflicht im Extended-Preset). Bei Delete: Cascade-L\u00f6schung aller TraceLinks. Jede Schreiboperation delegiert Workflow-Validierung an WorkflowEngine und schreibt AuditLog.\n",
+      "ReplacementContent": "### REQ-L2-AS-003: Requirement CRUD with Workflow Integration\n\nDer ApplicationService SHALL vollst\u00e4ndiges CRUD f\u00fcr Requirements bereitstellen. Bei Erstellung: automatischer initialer WorkflowState. Bei Update: `change_reason` validieren (Pflicht im Extended-Preset). Bei Delete: Cascade-L\u00f6schung aller TraceLinks. Jede Schreiboperation delegiert Workflow-Validierung an WorkflowEngine und schreibt AuditLog.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-004: ArchitectureElement CRUD with Versioning\n\nDer ApplicationService SHALL vollst\u00e4ndiges CRUD f\u00fcr ArchitectureElements bereitstellen mit: element_type (Component, Interface, Subsystem, Layer, Module), automatischem Version-Inkrement, Optimistic Locking. Bei Delete: Cascade TraceLinks.\n",
+      "ReplacementContent": "### REQ-L2-AS-004: ArchitectureElement CRUD with Versioning\n\nDer ApplicationService SHALL vollst\u00e4ndiges CRUD f\u00fcr ArchitectureElements bereitstellen mit: element_type (Component, Interface, Subsystem, Layer, Module), automatischem Version-Inkrement, Optimistic Locking. Bei Delete: Cascade TraceLinks.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-005: TestCase CRUD with Test Status Management\n\nDer ApplicationService SHALL vollst\u00e4ndiges CRUD f\u00fcr TestCases bereitstellen mit: test_type (Unit, Integration, System, Acceptance), WorkflowState, execution_status (Passed, Failed, Not Run). Bei Delete: Cascade TraceLinks.\n",
+      "ReplacementContent": "### REQ-L2-AS-005: TestCase CRUD with Test Status Management\n\nDer ApplicationService SHALL vollst\u00e4ndiges CRUD f\u00fcr TestCases bereitstellen mit: test_type (Unit, Integration, System, Acceptance), WorkflowState, execution_status (Passed, Failed, Not Run). Bei Delete: Cascade TraceLinks.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Anforderung ist in Tests abgedeckt, aber Implementierung fehlt.\n**Test Status:** Covered\n**Remarks:** Implementierung abschlie\u00dfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Nur Tests gefunden, aber keine Implementierung.\n**Test Status:** Covered\n**Remarks:** Implementierung pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-006: Export in JSON and CSV\n\nDer ApplicationService SHALL Export-Operationen f\u00fcr Requirements, ArchitectureElements, TestCases und TraceLinks in JSON und CSV bereitstellen. Scope: Workspace oder einzelnes Artefakt. Export von 1.000 Requirements \u2264 5 Sekunden.\n",
+      "ReplacementContent": "### REQ-L2-AS-006: Export in JSON and CSV\n\nDer ApplicationService SHALL Export-Operationen f\u00fcr Requirements, ArchitectureElements, TestCases und TraceLinks in JSON und CSV bereitstellen. Scope: Workspace oder einzelnes Artefakt. Export von 1.000 Requirements \u2264 5 Sekunden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-007: Export with Terminology Profile Metadata\n\nDer ApplicationService SHALL das aktive Terminologie-Profil als Metadatum in jeden Export einbetten. JSON: `metadata.terminology_profile`. CSV: Kommentarzeile am Dateianfang.\n",
+      "ReplacementContent": "### REQ-L2-AS-007: Export with Terminology Profile Metadata\n\nDer ApplicationService SHALL das aktive Terminologie-Profil als Metadatum in jeden Export einbetten. JSON: `metadata.terminology_profile`. CSV: Kommentarzeile am Dateianfang.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-008: Full-Text Search across Artifact Types\n\nDer ApplicationService SHALL artefakttyp-\u00fcbergreifende Volltextsuche \u00fcber Requirements, ArchitectureElements und TestCases bereitstellen. Suche ber\u00fccksichtigt Wortst\u00e4mme und Tippfehler (Fuzzy Search/Stemming). Ergebnisse nach Relevanz sortiert mit Artefakttyp-Annotation. \u2264 500ms bei 10.000 Items.\n",
+      "ReplacementContent": "### REQ-L2-AS-008: Full-Text Search across Artifact Types\n\nDer ApplicationService SHALL artefakttyp-\u00fcbergreifende Volltextsuche \u00fcber Requirements, ArchitectureElements und TestCases bereitstellen. Suche ber\u00fccksichtigt Wortst\u00e4mme und Tippfehler (Fuzzy Search/Stemming). Ergebnisse nach Relevanz sortiert mit Artefakttyp-Annotation. \u2264 500ms bei 10.000 Items.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-009: Search Type-Filter and Workspace-Filter\n\nDer ApplicationService SHALL optionale Filter f\u00fcr Artefakttyp und Workspace in Suchoperationen unterst\u00fctzen. Beide Filter K\u00d6NNEN kombiniert werden.\n",
+      "ReplacementContent": "### REQ-L2-AS-009: Search Type-Filter and Workspace-Filter\n\nDer ApplicationService SHALL optionale Filter f\u00fcr Artefakttyp und Workspace in Suchoperationen unterst\u00fctzen. Beide Filter K\u00d6NNEN kombiniert werden.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-010: TraceLink Orchestration\n\nDer ApplicationService SHALL TraceLink-Erstellung, -Query und -L\u00f6schung als Orchestrierung \u00fcber die TraceabilityEngine bereitstellen. Validierung: Source und Target existieren und geh\u00f6ren zum selben Workspace. Unterst\u00fctzte Link-Typen: `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`. AuditLog f\u00fcr Schreiboperationen.\n",
+      "ReplacementContent": "### REQ-L2-AS-010: TraceLink Orchestration\n\nDer ApplicationService SHALL TraceLink-Erstellung, -Query und -L\u00f6schung als Orchestrierung \u00fcber die TraceabilityEngine bereitstellen. Validierung: Source und Target existieren und geh\u00f6ren zum selben Workspace. Unterst\u00fctzte Link-Typen: `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`. AuditLog f\u00fcr Schreiboperationen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-011: Baseline Lifecycle Orchestration\n\nDer ApplicationService SHALL Baseline-Erstellung, -Abruf und -Diff als Facade \u00fcber den BaselineService orchestrieren. VOR Erstellung: PresetConfigEngine konsultieren (Scope-Verf\u00fcgbarkeit). Nach Erstellung: AuditLog.\n",
+      "ReplacementContent": "### REQ-L2-AS-011: Baseline Lifecycle Orchestration\n\nDer ApplicationService SHALL Baseline-Erstellung, -Abruf und -Diff als Facade \u00fcber den BaselineService orchestrieren. VOR Erstellung: PresetConfigEngine konsultieren (Scope-Verf\u00fcgbarkeit). Nach Erstellung: AuditLog.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-012: Workflow Transition Orchestration\n\nDer ApplicationService SHALL Workflow-Transitionen als Facade \u00fcber die WorkflowEngine orchestrieren. Delegiert Validierung (Rollen, change_reason) an WorkflowEngine. Nach Transition: AuditLog. DARF WorkflowState nicht direkt modifizieren.\n",
+      "ReplacementContent": "### REQ-L2-AS-012: Workflow Transition Orchestration\n\nDer ApplicationService SHALL Workflow-Transitionen als Facade \u00fcber die WorkflowEngine orchestrieren. Delegiert Validierung (Rollen, change_reason) an WorkflowEngine. Nach Transition: AuditLog. DARF WorkflowState nicht direkt modifizieren.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-013: LLM Capability Orchestration\n\nDer ApplicationService SHALL LLM-gest\u00fctzte Capabilities (validate, decompose, check_consistency) durch Delegierung an den LlmAdapter orchestrieren. Ohne LLM-Konfiguration: graceful Fehler. LLM-Ergebnisse strukturell validieren VOR Persistierung.\n",
+      "ReplacementContent": "### REQ-L2-AS-013: LLM Capability Orchestration\n\nDer ApplicationService SHALL LLM-gest\u00fctzte Capabilities (validate, decompose, check_consistency) durch Delegierung an den LlmAdapter orchestrieren. Ohne LLM-Konfiguration: graceful Fehler. LLM-Ergebnisse strukturell validieren VOR Persistierung.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-014: CSV Bulk Import\n\nDer ApplicationService SHALL CSV-Import f\u00fcr Requirements, ArchitectureElements und TestCases bereitstellen. Validierung gegen Datenmodell. Fehler mit Zeilennummer. Importiert Items mit UUIDs. Atomar: entweder alle g\u00fcltigen Zeilen oder keine.\n",
+      "ReplacementContent": "### REQ-L2-AS-014: CSV Bulk Import\n\nDer ApplicationService SHALL CSV-Import f\u00fcr Requirements, ArchitectureElements und TestCases bereitstellen. Validierung gegen Datenmodell. Fehler mit Zeilennummer. Importiert Items mit UUIDs. Atomar: entweder alle g\u00fcltigen Zeilen oder keine.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-015: GitHub Integration\n\nDer ApplicationService SOLLTE die Verkn\u00fcpfung von Requirements mit GitHub Issues und PRs unterst\u00fctzen. Bidirektional abrufbar. GitHub-Token und zugreifbare Repositories erforderlich.\n",
+      "ReplacementContent": "### REQ-L2-AS-015: GitHub Integration\n\nDer ApplicationService SOLLTE die Verkn\u00fcpfung von Requirements mit GitHub Issues und PRs unterst\u00fctzen. Bidirektional abrufbar. GitHub-Token und zugreifbare Repositories erforderlich.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-016: PDF Report Export\n\nDer ApplicationService SOLLTE PDF-Report-Export f\u00fcr Anforderungsdokumente und Traceability-Matrizen bereitstellen. Inklusive Metadaten (Version, Baseline-Referenz, Workflow-State, Audit-History). Scope: Workspace, Artefakt oder Baseline.\n",
+      "ReplacementContent": "### REQ-L2-AS-016: PDF Report Export\n\nDer ApplicationService SOLLTE PDF-Report-Export f\u00fcr Anforderungsdokumente und Traceability-Matrizen bereitstellen. Inklusive Metadaten (Version, Baseline-Referenz, Workflow-State, Audit-History). Scope: Workspace, Artefakt oder Baseline.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-017: Webhook Dispatch\n\nDer ApplicationService SOLLTE konfigurierbare Webhooks f\u00fcr Ereignis-Typen (Requirement erstellt, ge\u00e4ndert, Status-\u00dcbergang, Baseline erstellt) dispatchen. HTTP POST an konfigurierte URL mit JSON-Payload. Der Dispatch der Webhooks MUSS asynchron erfolgen und DARF die ausl\u00f6sende Operation nicht blockieren. Entkopplung \u00fcber asynchronen Messaging-Mechanismus (REQ-L2-AS-029).\n",
+      "ReplacementContent": "### REQ-L2-AS-017: Webhook Dispatch\n\nDer ApplicationService SOLLTE konfigurierbare Webhooks f\u00fcr Ereignis-Typen (Requirement erstellt, ge\u00e4ndert, Status-\u00dcbergang, Baseline erstellt) dispatchen. HTTP POST an konfigurierte URL mit JSON-Payload. Der Dispatch der Webhooks MUSS asynchron erfolgen und DARF die ausl\u00f6sende Operation nicht blockieren. Entkopplung \u00fcber asynchronen Messaging-Mechanismus (REQ-L2-AS-029).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-018: Transactional Consistency (ACID)\n\nDer ApplicationService SHALL alle Daten\u00e4nderungen atomar und konsistent persistieren. Bei Fehlern: vollst\u00e4ndiges Rollback. Die Atomizit\u00e4t MUSS \u00fcber das gesamte System sichergestellt sein (ACID-Garantien).\n",
+      "ReplacementContent": "### REQ-L2-AS-018: Transactional Consistency (ACID)\n\nDer ApplicationService SHALL alle Daten\u00e4nderungen atomar und konsistent persistieren. Bei Fehlern: vollst\u00e4ndiges Rollback. Die Atomizit\u00e4t MUSS \u00fcber das gesamte System sichergestellt sein (ACID-Garantien).\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-019: Audit Log Writing\n\nDer ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag schreiben: actor, operation, entity_id, timestamp, optionale Details. Der AuditLog-Eintrag MUSS durch einen entkoppelten, asynchronen Mechanismus (REQ-L2-AS-029) geschrieben werden. Die Persistierung des Events f\u00fcr das Audit-Log MUSS im selben Transaktionskontext erfolgen wie die Mutation (Eventual-Write-Garantie, kein Fire-and-Forget), ohne den AuditLogWriter direkt synchron aufzurufen.\n",
+      "ReplacementContent": "### REQ-L2-AS-019: Audit Log Writing\n\nDer ApplicationService SHALL nach jeder Schreiboperation einen AuditLog-Eintrag schreiben: actor, operation, entity_id, timestamp, optionale Details. Der AuditLog-Eintrag MUSS durch einen entkoppelten, asynchronen Mechanismus (REQ-L2-AS-029) geschrieben werden. Die Persistierung des Events f\u00fcr das Audit-Log MUSS im selben Transaktionskontext erfolgen wie die Mutation (Eventual-Write-Garantie, kein Fire-and-Forget), ohne den AuditLogWriter direkt synchron aufzurufen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-020: Preset Policy Enforcement\n\nDer ApplicationService SHALL PresetConfigEngine konsultieren vor preset-abh\u00e4ngigen Operationen: (a) Baseline-Scope-Verf\u00fcgbarkeit, (b) change_reason-Pflicht, (c) Preset-Downgrade-Validierung.\n",
+      "ReplacementContent": "### REQ-L2-AS-020: Preset Policy Enforcement\n\nDer ApplicationService SHALL PresetConfigEngine konsultieren vor preset-abh\u00e4ngigen Operationen: (a) Baseline-Scope-Verf\u00fcgbarkeit, (b) change_reason-Pflicht, (c) Preset-Downgrade-Validierung.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-021: Auth Context Propagation\n\nDer ApplicationService SHALL Auth-Kontext (User, Tenant, Rollen) von AuthAndTenancy f\u00fcr jede Operation empfangen und an Downstream-Calls weiterreichen. DARF keine Auth-Primitiven direkt aufrufen.\n",
+      "ReplacementContent": "### REQ-L2-AS-021: Auth Context Propagation\n\nDer ApplicationService SHALL Auth-Kontext (User, Tenant, Rollen) von AuthAndTenancy f\u00fcr jede Operation empfangen und an Downstream-Calls weiterreichen. DARF keine Auth-Primitiven direkt aufrufen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-022: Tenant Context Propagation\n\nDer ApplicationService SHALL sicherstellen, dass jede DB-Query auf den aktiven Tenant beschr\u00e4nkt ist. Tenant aus Auth-Kontext extrahiert und an PersistenceLayer propagiert. DARF Tenant-Filter nicht umgehen.\n",
+      "ReplacementContent": "### REQ-L2-AS-022: Tenant Context Propagation\n\nDer ApplicationService SHALL sicherstellen, dass jede DB-Query auf den aktiven Tenant beschr\u00e4nkt ist. Tenant aus Auth-Kontext extrahiert und an PersistenceLayer propagiert. DARF Tenant-Filter nicht umgehen.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-023: Performance Contribution\n\nDer ApplicationService SHALL maximal 50ms Orchestrierungs-Overhead pro Use-Case hinzuf\u00fcgen (exklusive Downstream-Latenz). Batch-Operationen wo m\u00f6glich. Keine N+1-Queries.\n",
+      "ReplacementContent": "### REQ-L2-AS-023: Performance Contribution\n\nDer ApplicationService SHALL maximal 50ms Orchestrierungs-Overhead pro Use-Case hinzuf\u00fcgen (exklusive Downstream-Latenz). Batch-Operationen wo m\u00f6glich. Keine N+1-Queries.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-024: Requirement Decomposition Orchestration\n\nDer ApplicationService SHALL die Decomposition eines Requirements in Kind-Requirements orchestrieren. Mit \u00fcbergebenen Children: direkt validieren und persistieren. Ohne Children: an LlmAdapter delegieren. Nach Erstellung: parent-child-TraceLinks, WorkflowState-Initialisierung, AuditLog.\n",
+      "ReplacementContent": "### REQ-L2-AS-024: Requirement Decomposition Orchestration\n\nDer ApplicationService SHALL die Decomposition eines Requirements in Kind-Requirements orchestrieren. Mit \u00fcbergebenen Children: direkt validieren und persistieren. Ohne Children: an LlmAdapter delegieren. Nach Erstellung: parent-child-TraceLinks, WorkflowState-Initialisierung, AuditLog.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-025: Coverage Calculation\n\nDer ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requirements haben mindestens einen `verifies`-TraceLink zu einem TestCase. Ergebnis: total, covered, percentage. Delegiert TraceLink-Query an TraceabilityEngine.\n",
+      "ReplacementContent": "### REQ-L2-AS-025: Coverage Calculation\n\nDer ApplicationService SHALL Coverage-Berechnung bereitstellen: welche Requirements haben mindestens einen `verifies`-TraceLink zu einem TestCase. Ergebnis: total, covered, percentage. Delegiert TraceLink-Query an TraceabilityEngine.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-026: ADR CRUD\n\nDer ApplicationService SOLLTE vollst\u00e4ndiges CRUD f\u00fcr Architecture Decision Records (ADRs) bereitstellen. Mit Status-\u00dcberg\u00e4ngen, Verlinkung zu betroffenen ArchitectureElements und Requirements.\n",
+      "ReplacementContent": "### REQ-L2-AS-026: ADR CRUD\n\nDer ApplicationService SOLLTE vollst\u00e4ndiges CRUD f\u00fcr Architecture Decision Records (ADRs) bereitstellen. Mit Status-\u00dcberg\u00e4ngen, Verlinkung zu betroffenen ArchitectureElements und Requirements.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.\n**Test Status:** Untested\n**Remarks:** Testabdeckung sicherstellen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Implementierung gefunden, aber keine Tests.\n**Test Status:** Missing\n**Remarks:** Testabdeckung fehlt.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-027: Risiko CRUD\n\nDer ApplicationService SOLLTE vollst\u00e4ndiges CRUD f\u00fcr Risiken (Risks) bereitstellen. Mit Severity, Probability, Mitigation-Strategien und TraceLinks zu Requirements/ArchitectureElements.\n",
+      "ReplacementContent": "### REQ-L2-AS-027: Risiko CRUD\n\nDer ApplicationService SOLLTE vollst\u00e4ndiges CRUD f\u00fcr Risiken (Risks) bereitstellen. Mit Severity, Probability, Mitigation-Strategien und TraceLinks zu Requirements/ArchitectureElements.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-028: Issue CRUD\n\nDer ApplicationService SOLLTE vollst\u00e4ndiges CRUD f\u00fcr System-Issues bereitstellen. Mit Status, Assignee, und TraceLinks zu betroffenen Artefakten.\n",
+      "ReplacementContent": "### REQ-L2-AS-028: Issue CRUD\n\nDer ApplicationService SOLLTE vollst\u00e4ndiges CRUD f\u00fcr System-Issues bereitstellen. Mit Status, Assignee, und TraceLinks zu betroffenen Artefakten.\n\n\n**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Not Implemented\n**Review Findings:** Keine Implementierung oder Tests im Code gefunden.\n**Test Status:** Missing\n**Remarks:** Sollte implementiert werden.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-029: Asynchroner Entkopplungsmechanismus\n\nDer ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes Domain-Event publizieren. Unterst\u00fctzte Event-Typen: `RequirementCreated`, `RequirementUpdated`, `RequirementDeleted`, `BaselineCreated`, `WorkflowTransitioned`. Das Event-Publishing MUSS atomar an die ausl\u00f6sende Transaktion gebunden sein (Garantie: kein Event verloren, kein Event f\u00fcr zur\u00fcckgerollte Mutation). AuditLogWriter, SeMetricsCollector und WebhookDispatcher empfangen Events asynchron. Der ApplicationService kennt keine Subscriber \u2014 die Kopplung erfolgt ausschlie\u00dflich \u00fcber den Event-Typ.\n",
+      "ReplacementContent": "### REQ-L2-AS-029: Asynchroner Entkopplungsmechanismus\n\nDer ApplicationService SHALL nach jeder erfolgreichen Mutation ein typisiertes Domain-Event publizieren. Unterst\u00fctzte Event-Typen: `RequirementCreated`, `RequirementUpdated`, `RequirementDeleted`, `BaselineCreated`, `WorkflowTransitioned`. Das Event-Publishing MUSS atomar an die ausl\u00f6sende Transaktion gebunden sein (Garantie: kein Event verloren, kein Event f\u00fcr zur\u00fcckgerollte Mutation). AuditLogWriter, SeMetricsCollector und WebhookDispatcher empfangen Events asynchron. Der ApplicationService kennt keine Subscriber \u2014 die Kopplung erfolgt ausschlie\u00dflich \u00fcber den Event-Typ.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-030: Test-Run-Protokollierung\n\nDer ApplicationService SHALL Testl\u00e4ufe (Test Runs) als eigenst\u00e4ndige Entit\u00e4ten verwalten. Ein TestRun wird mit 1..n TestCase-IDs erstellt. Jeder TestCase im Run kann individuell den Status Passed/Failed/Blocked/Not Run erhalten. Das aggregierte Lauf-Ergebnis wird automatisch berechnet (Passed = alle Passed, Failed = mindestens ein Failed, Partial = mindestens ein Blocked/Not Run). Der TestRun enth\u00e4lt Zeitstempel (Start, Ende) und die ausf\u00fchrende Instanz (z.B. CI-Job-ID). Vollst\u00e4ndiges CRUD via REST-API und MCP.\n",
+      "ReplacementContent": "### REQ-L2-AS-030: Test-Run-Protokollierung\n\nDer ApplicationService SHALL Testl\u00e4ufe (Test Runs) als eigenst\u00e4ndige Entit\u00e4ten verwalten. Ein TestRun wird mit 1..n TestCase-IDs erstellt. Jeder TestCase im Run kann individuell den Status Passed/Failed/Blocked/Not Run erhalten. Das aggregierte Lauf-Ergebnis wird automatisch berechnet (Passed = alle Passed, Failed = mindestens ein Failed, Partial = mindestens ein Blocked/Not Run). Der TestRun enth\u00e4lt Zeitstempel (Start, Ende) und die ausf\u00fchrende Instanz (z.B. CI-Job-ID). Vollst\u00e4ndiges CRUD via REST-API und MCP.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-031: Automatisierte Test-Ergebnis-Einspeisung\n\nDer ApplicationService SHALL automatisierten Pipelines und CI/CD-Systemen erm\u00f6glichen, Testergebnisse direkt als Test-Run-Ergebniseintr\u00e4ge \u00fcber die REST-API und den MCP-Server (test.record_result) einzuspeisen. Die aufrufende Instanz MUSS mit einem g\u00fcltigen API-Key authentifiziert sein. Jede Einspeisung SHALL im Audit-Log mit Agent-Client-Identit\u00e4t erfasst werden. Gleichzeitige Einspeisungen verschiedener Pipelines in denselben TestRun WERDEN serialisiert verarbeitet.\n",
+      "ReplacementContent": "### REQ-L2-AS-031: Automatisierte Test-Ergebnis-Einspeisung\n\nDer ApplicationService SHALL automatisierten Pipelines und CI/CD-Systemen erm\u00f6glichen, Testergebnisse direkt als Test-Run-Ergebniseintr\u00e4ge \u00fcber die REST-API und den MCP-Server (test.record_result) einzuspeisen. Die aufrufende Instanz MUSS mit einem g\u00fcltigen API-Key authentifiziert sein. Jede Einspeisung SHALL im Audit-Log mit Agent-Client-Identit\u00e4t erfasst werden. Gleichzeitige Einspeisungen verschiedener Pipelines in denselben TestRun WERDEN serialisiert verarbeitet.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "### REQ-L2-AS-032: Artefakt Field-Level Diff\n\nDer ApplicationService SHALL ein strukturiertes JSON-Diff zwischen zwei beliebigen Versionen eines Artefakts berechnen. Das Diff enth\u00e4lt hinzugef\u00fcgte Felder, ge\u00e4nderte Felder (alt\u2192neu) und gel\u00f6schte Felder. Markdown-Felder werden als Text-Diff dargestellt (kein strukturelles AST-Diff). Der Diff ist via REST-API (GET /artifacts/{id}/diff?from=v1&to=v2) abrufbar.\n",
+      "ReplacementContent": "### REQ-L2-AS-032: Artefakt Field-Level Diff\n\nDer ApplicationService SHALL ein strukturiertes JSON-Diff zwischen zwei beliebigen Versionen eines Artefakts berechnen. Das Diff enth\u00e4lt hinzugef\u00fcgte Felder, ge\u00e4nderte Felder (alt\u2192neu) und gel\u00f6schte Felder. Markdown-Felder werden als Text-Diff dargestellt (kein strukturelles AST-Diff). Der Diff ist via REST-API (GET /artifacts/{id}/diff?from=v1&to=v2) abrufbar.\n\n\n**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    },
+    {
+      "TargetContent": "**Implementation State:** Implemented\n**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.\n**Test Status:** Covered\n**Remarks:** Regelm\u00e4\u00dfig auf Regressionen pr\u00fcfen.\n",
+      "ReplacementContent": "",
+      "StartLine": 1,
+      "EndLine": 939,
+      "AllowMultiple": false
+    }
+  ]
+}

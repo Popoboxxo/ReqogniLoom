@@ -37,6 +37,13 @@ CRUD-Operationen fuer ArchitectureElements, Element-Typ-Auswahl, Markdown-Descri
 
 ### REQ-L3-RF004-001: CRUD-Operationen fuer ArchitectureElements
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die ArchitectureEditors-Komponente MUSS das Anlegen, Lesen, Bearbeiten und Loeschen von ArchitectureElements ermöglichen. Das Anlegen MUSS die Auswahl eines Element-Typs (Component, Interface, Subsystem, Layer, Module) ueber ein Dropdown erfordern. Eine Loeschoperation MUSS eine Bestaetigung vom Nutzer verlangen, bevor der DELETE-Request ausgeloest wird.
 
 **Priority:** mandatory
@@ -49,6 +56,13 @@ Die ArchitectureEditors-Komponente MUSS das Anlegen, Lesen, Bearbeiten und Loesc
 ---
 
 ### REQ-L3-RF004-002: Markdown-Description-Editing
+
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 
 Die ArchitectureEditors-Komponente MUSS das Description-Feld eines ArchitectureElements als Markdown-faehiges Textfeld bereitstellen. Das Feld MUSS zwischen Edit-Modus und gerenderter Markdown-Vorschau umschaltbar sein. Aenderungen MÜSSEN per PATCH-Request an das Backend gespeichert werden.
 
@@ -63,6 +77,13 @@ Die ArchitectureEditors-Komponente MUSS das Description-Feld eines ArchitectureE
 
 ### REQ-L3-RF004-003: Verknuepfte Requirements in Seitenleiste
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die ArchitectureEditors-Komponente MUSS in einer Seitenleiste alle mit dem aktiven ArchitectureElement verknuepften Requirements (via TraceLinks) anzeigen. Ein Klick auf ein verlinktes Requirement MUSS die NavigationShell veranlassen, zur Detailansicht des betreffenden Requirements zu navigieren.
 
 **Priority:** mandatory
@@ -75,4 +96,36 @@ Die ArchitectureEditors-Komponente MUSS in einer Seitenleiste alle mit dem aktiv
 ---
 
 ---
+
+## Erweiterung v2 — REQ-L3-RF004-004 (Dynamische Masken für AI-Native SE)
+
+> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive" (REQ-L2-RF-025)
+
+---
+
+### REQ-L3-RF004-004: Dynamische UI-Masken für Architecture Elements
+
+Die ArchitectureEditors-Komponente MUSS das Eingabeformular um domänenspezifische Felder erweitern:
+- Ein Dropdown für das `ASIL` Level (QM, A, B, C, D).
+- Ein Dropdown für `Make or Buy` (Make, Buy, Reuse).
+
+**Implementation State:** Not Implemented
+**Review Findings:** Neu.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] ASIL und Make-or-Buy Dropdowns sind sichtbar und editierbar.
+- [ ] Die Felder `UID` und `Version` sind prominent im Header platziert und read-only.
+
+**Traceability:** Abgeleitet von REQ-L2-RF-025
+
+---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RF004-004 | Abgeleitet von REQ-L2-RF-025 |
+

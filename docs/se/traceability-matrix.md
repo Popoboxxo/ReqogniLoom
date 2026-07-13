@@ -34,6 +34,25 @@
 | REQ-L0-013 | CSV-Bulk-Import | REQ-L1-021 |
 | REQ-L0-014 | GitHub-Integration | REQ-L1-022 |
 | REQ-L0-015 | PDF-Report-Export | REQ-L1-023 |
+| REQ-L0-016 | Interaktive Diagramme und Grafiken | REQ-L1-027 |
+| REQ-L0-017 | Rekursive Architektur-Hierarchie mit ICDs | REQ-L1-028 |
+| REQ-L0-018 | ADR-, Risiko- und Issue-Verwaltung | REQ-L1-029 |
+| REQ-L0-019 | Projektübergreifende Traceability | REQ-L1-030 |
+| REQ-L0-020 | Metrikbasiertes Steuern des SE-Prozesses | REQ-L1-031 |
+| REQ-L0-021 | Asynchrone, resiliente Systemkommunikation | REQ-L1-032 |
+| REQ-L0-022 | Credential-basierter User-Login | REQ-L1-033 |
+| REQ-L0-023 | ReqIF-Support für MBSE-Datenaustausch | — |
+| REQ-L0-024 | Test-Ausführungs-Management (Test Runs) | — |
+| REQ-L0-025 | Kollaboration und In-App-Diskussion | — |
+| REQ-L0-026 | Semantische Suche (RAG) und KI-Assistenz | — |
+| REQ-L0-027 | Granulare Zugriffssteuerung (Item-Level Access) | — |
+| REQ-L0-028 | Visuelles Diffing von Artefakten und Baselines | — |
+| REQ-L0-029 | Workspace-Lifecycle-Management für Administratoren | REQ-L1-042 |
+| REQ-L0-030 | Suspect-Link-Propagierung bei Anforderungsänderungen | REQ-L1-043 |
+| REQ-L0-032 | Semantisches Projekt-Glossar (Data Dictionary) | REQ-L1-044 |
+| REQ-L0-033 | Isolierte Requirement-Sandboxes (Branch & Merge) | REQ-L1-045 |
+| REQ-L0-034 | Instanz-Backup, Disaster Recovery & Baseline-Vergleich | REQ-L1-046 |
+| REQ-L0-035 | Direkte Traceability-Verknüpfungen über mehrere Ebenen | REQ-L1-047 |
 
 ---
 
@@ -67,6 +86,13 @@
 | REQ-L1-024 | Webhook-Support | ApplicationServiceSystem | REQ-L2-AS-017 |
 | REQ-L1-025 | Transaktionale Konsistenz (ACID) | PersistenceLayerSystem | REQ-L2-PL-002, REQ-L2-PL-009 |
 | REQ-L1-026 | Performance | ApplicationServiceSystem | REQ-L2-AS-023 |
+| REQ-L1-027 | Integrierte Diagramm- und Grafik-Verwaltung | ApplicationServiceSystem | ausstehend — L2-Zerlegung durch se-architect |
+| REQ-L1-028 | ICD-Verwaltung mit Versionierung und Design-by-Contract | ApplicationServiceSystem | ausstehend — L2-Zerlegung durch se-architect |
+| REQ-L1-029 | ADR-, Risiko- und Issue-Verwaltung mit Artefakt-Verknüpfung | ApplicationServiceSystem | ausstehend — L2-Zerlegung durch se-architect |
+| REQ-L1-030 | Projektübergreifende Traceability (Cross-Projekt-Links) | TraceabilityEngineSystem | ausstehend — L2-Zerlegung durch se-architect |
+| REQ-L1-031 | SE-Prozess-Metrikmodul | ApplicationServiceSystem | ausstehend — L2-Zerlegung durch se-architect |
+| REQ-L1-032 | Resilienz-Anforderung — Fehlertoleranz und Graceful Degradation | PersistenceLayerSystem | ausstehend — L2-Zerlegung durch se-architect |
+| REQ-L1-033 | Credential-basierte Authentifizierung mit Token-Ausgabe | AuthAndTenancySystem | REQ-L2-AT-011, REQ-L2-AT-012, REQ-L2-AT-013, REQ-L2-AT-014, REQ-L2-AT-015, REQ-L2-AT-016 (zerlegt + implementiert) |
 
 **Hinweis:** Viele REQ-L1 haben zusaetzliche mitwirkende REQ-L2 in anderen Systemen (z.B. REQ-L1-010 wird auch durch REQ-L2-RA-006 und REQ-L2-MC-007 abgedeckt). Die Tabelle listet jeweils die primaer verantwortlichen Systeme.
 
@@ -150,14 +176,20 @@
 | REQ-L2-RF-003 | Requirements-Editor | COMP-RF-003 | TC-RF-003 |
 | ... (9 weitere REQ-L2-RF) | ... | ... | ... |
 
-### 3.9 AuthAndTenancySystem (10 REQ-L2 → 3 Components)
+### 3.9 AuthAndTenancySystem (16 REQ-L2 → 4 Components)
 
 | REQ-L2 | Title | Component | Test Case |
 |--------|-------|-----------|-----------|
 | REQ-L2-AT-001 | Bearer Token Authentication | COMP-AT-001 | TC-AT-001 |
 | REQ-L2-AT-003 | Role-Based Permission Enforcement | COMP-AT-002 | TC-AT-003 |
 | REQ-L2-AT-008 | Tenant Extraction and Propagation | COMP-AT-003 | TC-AT-008 |
-| ... (7 weitere REQ-L2-AT) | ... | ... | ... |
+| REQ-L2-AT-011 | Credential Verification (Constant-Time) | COMP-AT-004 | test_password_authentication.py |
+| REQ-L2-AT-012 | Token Issuance — BearerToken-Kompatibilität | COMP-AT-004 | test_password_authentication.py |
+| REQ-L2-AT-013 | Public Login Endpoint Exemption | COMP-AT-004 / RestApiAdapter (LoginView) | test_auth_login.py |
+| REQ-L2-AT-014 | Password Hash Storage Contract | COMP-AT-004 / PersistenceLayer (User) | test_password_authentication.py |
+| REQ-L2-AT-015 | Self-Identity Endpoint (auth/me) | COMP-AT-003/001 / RestApiAdapter (MeView) | test_auth_login.py |
+| REQ-L2-AT-016 | No Account Enumeration | COMP-AT-004 | test_auth_login.py |
+| ... (4 weitere REQ-L2-AT) | ... | ... | ... |
 
 ### 3.10 PresetConfigEngineSystem (14 REQ-L2 → 3 Components)
 
@@ -191,11 +223,11 @@
 
 | Level | Total | Covered | Coverage |
 |-------|-------|---------|----------|
-| REQ-L0 | 15 | 15 | 100% |
-| REQ-L1 | 26 | 26 | 100% |
-| REQ-L2 | 136 | 136 | 100% |
-| Components | 55 | 55 | 100% |
-| Test Cases | 459+ | 459+ | 100% of REQ-L2 |
+| REQ-L0 | 34 | 22 | 64% (023-035 ausstehend L1-Zerlegung) |
+| REQ-L1 | 33 | 33 | 100% (REQ-L1-027..032 ausstehend L2-Zerlegung; REQ-L1-033 zerlegt) |
+| REQ-L2 | 142 | 142 | 100% (Legacy REQ-L1-001..026 + REQ-L1-033; REQ-L1-027..032 noch nicht zerlegt) |
+| Components | 56 | 56 | 100% (+ COMP-AT-004 für REQ-L1-033; ausstehend für REQ-L1-027..032) |
+| Test Cases | 459+ | 459+ | 100% of REQ-L2 (Legacy + REQ-L1-033) |
 
 ### System-Zusammenfassung
 
@@ -209,12 +241,13 @@
 | RestApiAdapterSystem | 12 | 5 | 47 |
 | BaselineServiceSystem | 8 | 3 | 23 |
 | ReactFrontendSystem | 12 | 6 | 48 |
-| AuthAndTenancySystem | 10 | 3 | 49 |
+| AuthAndTenancySystem | 16 | 4 | 49+ |
 | PresetConfigEngineSystem | 14 | 3 | 46 |
 | AuditLogSystem | 7 | 2 | 28 |
 | PersistenceLayerSystem | 9 | 5 | 35 |
-| **Gesamt** | **136** | **55** | **459+** |
+| **Gesamt** | **142** | **56** | **459+** |
 
 ---
 
 *Konsolidiert durch se-architect-Agent | Quellen: L1_Gesamtsystem_Requirements.md, L2_*System_Requirements.md, L2_*System_Architecture.md | 2026-06-20*
+*Erweiterung 2026-06-25: REQ-L1-033 → REQ-L2-AT-011..016 → COMP-AT-004 (Credential-Login) durch se-architect-Agent*

@@ -35,6 +35,13 @@ Automatische Generierung der OpenAPI-3.0-Spezifikation aus den registrierten Rou
 
 ### REQ-L3-RA005-001: Valide OpenAPI-3.0-Spezifikation für alle CRUD-Endpunkte
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der OpenApiGenerator SHALL unter `/api/v1/schema/` eine vollständige, maschinenlesbare OpenAPI-3.0-Spezifikation im JSON-Format bereitstellen. Die Spezifikation SHALL alle registrierten CRUD-Endpunkte aller sieben Domain-Entitäten, deren Request- und Response-Schemata sowie Security-Scheme (Bearer Token) enthalten. Die Spezifikation MUSS mit einem OpenAPI-3.0-Validator fehlerfrei validierbar sein.
 
 **Priority:** mandatory
@@ -50,6 +57,13 @@ Der OpenApiGenerator SHALL unter `/api/v1/schema/` eine vollständige, maschinen
 
 ### REQ-L3-RA005-002: Swagger-UI für interaktive API-Exploration
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Der OpenApiGenerator SHALL unter `/api/v1/schema/swagger-ui/` eine interaktive Swagger-UI bereitstellen, die die unter `/api/v1/schema/` generierte Spezifikation rendert. Die Swagger-UI SHALL ohne Authentifizierung erreichbar sein und alle Endpunkte mit „Try it out"-Funktion darstellen.
 
 **Priority:** mandatory
@@ -62,6 +76,13 @@ Der OpenApiGenerator SHALL unter `/api/v1/schema/swagger-ui/` eine interaktive S
 ---
 
 ### REQ-L3-RA005-003: TypeScript-Client-Generierung ohne Fehler
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Der OpenApiGenerator SHALL eine OpenAPI-Spezifikation erzeugen, aus der ein OpenAPI-Client-Generator (z.B. `openapi-typescript-codegen` oder äquivalent) einen TypeScript-Client fehlerfrei generieren kann. Build-Fehler bei der Client-Generierung SHALL als Regressionsfehler im CI behandelt werden.
 

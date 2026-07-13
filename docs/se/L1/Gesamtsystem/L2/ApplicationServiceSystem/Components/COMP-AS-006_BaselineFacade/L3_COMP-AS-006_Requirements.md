@@ -37,6 +37,13 @@ Baseline-Lifecycle-Orchestrierung: Preset-Check -> Snapshot-Delegation -> AuditL
 
 ### REQ-L3-AS006-001: Preset-gesteuerter Scope-Check vor Baseline-Erstellung
 
+
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
+
 Die BaselineFacade SHALL vor jeder Baseline-Erstellung den PresetPolicyService konsultieren, ob der angeforderte Scope im aktiven Preset des Workspace erlaubt ist. Bei nicht erlaubtem Scope: Operation abbrechen mit erklaerenden Fehler.
 
 **Priority:** mandatory
@@ -51,6 +58,13 @@ Die BaselineFacade SHALL vor jeder Baseline-Erstellung den PresetPolicyService k
 
 ### REQ-L3-AS006-002: Baseline-Erstellung und AuditLog
 
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
+
 Die BaselineFacade SHALL nach erfolgreicher Baseline-Erstellung durch den BaselineService ein `BaselineCreated`-Domain-Event im selben Transaktionskontext publizieren und sicherstellen, dass die erstellte Baseline immutabel ist.
 
 **Priority:** mandatory
@@ -64,6 +78,13 @@ Die BaselineFacade SHALL nach erfolgreicher Baseline-Erstellung durch den Baseli
 ---
 
 ### REQ-L3-AS006-003: Baseline-Diff-Operation
+
+
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 
 Die BaselineFacade SHALL eine `diff_baseline(baseline_id_a, baseline_id_b, ctx)`-Methode bereitstellen, die den strukturierten Unterschied zweier Baselines zurueckgibt. Die eigentliche Diff-Berechnung delegiert an `BaselineService.diff(a, b)`.
 

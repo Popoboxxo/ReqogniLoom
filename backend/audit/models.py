@@ -1,0 +1,242 @@
+"""
+ARCH-L1-012 AuditLog — Domain models for the AuditLog system.
+
+COMP-AL-001: AuditLogWriter uses AuditEntry for append-only persistence.
+COMP-AL-002: AuditLogQuery reads from AuditEntry (shared model, read-only path).
+
+Requirements:
+- REQ-L2-AL-001 (complete audit fields for all write operations)
+- REQ-L2-AL-002 (MCP enrichment: client_name, api_key_hash SHA-256)
+- REQ-L2-AL-003 (append-only: no UPDATE/DELETE via DB trigger)
+- REQ-L2-AL-006 (tenant isolation via TenantScopedModel)
+- REQ-L2-AL-007 (indexes for performance: entity_id, tenant+timestamp, actor+op)
+- REQ-L2-AL-008 (monthly RANGE partitioning on timestamp — migration manages partitions)
+
+Architecture:
+- docs/se/L1/Gesamtsystem/L2/AuditLogSystem/L2_AuditLogSystem_Architecture.md
+- docs/se/L1/Gesamtsystem/L2/AuditLogSystem/Components/COMP-AL-001_AuditLogWriter/
+- docs/se/L1/Gesamtsystem/L2/AuditLogSystem/Components/COMP-AL-002_AuditLogQuery/
+
+ESCALATION NOTE (IF-AL-EXT-OUT-001):
+  persistence.models.AuditLogEntry exists but uses a generic schema (action,
+  object_type, object_id, actor FK, payload) that is incompatible with the
+  L2 spec (actor_type, op, entity_type, entity_id, source, client_name,
+  api_key_hash, change_reason as first-class columns). Adding those fields to
+  persistence.models is outside this component's context_boundary and would
+  require a persistence interface change. AuditEntry is therefore defined here
+  in the audit app. Escalation target: se-interface-mgr / se-architect
+  (interface IF-AL-EXT-OUT-001 needs alignment).
+"""
+from __future__ import annotations
+
+import uuid
+
+from django.db import models
+
+from persistence.models import TenantScopedModel
+from persistence.tenancy import TenantManager, UnscopedManager
+
+
+# ---------------------------------------------------------------------------
+# Append-only manager — COMP-AL-001 / REQ-L2-AL-003
+# ---------------------------------------------------------------------------
+
+
+class AppendOnlyManager(TenantManager):
+    """Tenant-scoped manager that blocks bulk UPDATE/DELETE at ORM level.
+
+    The DB-level append-only trigger (migration 0002) is the authoritative
+    constraint; this manager provides an early-fail guard in the application
+    layer so misuse is caught immediately with a clear error message.
+    """
+
+    def update(self, **kwargs):  # type: ignore[override]
+        raise RuntimeError(
+            "AuditEntry is append-only. UPDATE operations are not permitted."
+        )
+
+    def delete(self):  # type: ignore[override]
+        raise RuntimeError(
+            "AuditEntry is append-only. DELETE operations are not permitted."
+        )
+
+
+class AppendOnlyUnscopedManager(UnscopedManager):
+    """Unscoped escape-hatch that also blocks UPDATE/DELETE.
+
+    Used internally by the ArchiveLifecycleManager for partition management
+    (cross-tenant maintenance context). Even the escape hatch must not allow
+    UPDATE/DELETE; only the raw DDL partition-drop path is permitted for
+    archiving (COMP-AL-003, ADR-AL-03).
+    """
+
+    def update(self, **kwargs):  # type: ignore[override]
+        raise RuntimeError(
+            "AuditEntry is append-only. UPDATE operations are not permitted."
+        )
+
+    def delete(self):  # type: ignore[override]
+        raise RuntimeError(
+            "AuditEntry is append-only. DELETE operations are not permitted."
+        )
+
+
+# ---------------------------------------------------------------------------
+# AuditEntry — append-only operational log (COMP-AL-001)
+# ---------------------------------------------------------------------------
+
+
+class AuditEntry(TenantScopedModel):
+    """Append-only audit log entry for all write operations.
+
+    REQ-L2-AL-001: captures actor, actor_type, op, entity_type, entity_id,
+                   timestamp, version, change_reason for every write.
+    REQ-L2-AL-002: MCP enrichment fields client_name, api_key_hash (SHA-256
+                   prefixed), source.
+    REQ-L2-AL-003: append-only; no UPDATE/DELETE via manager or DB trigger.
+    REQ-L2-AL-006: tenant_id injected via TenantScopedModel.
+
+    The ``timestamp`` field is set at INSERT time (auto_now_add) and is the
+    partition key for monthly RANGE partitioning (REQ-L2-AL-008).
+
+    ``version`` here tracks the entity version at the time of the operation
+    (not the audit entry's own version).
+    """
+
+    ACTOR_TYPE_USER = "user"
+    ACTOR_TYPE_AGENT = "agent"
+    ACTOR_TYPE_CHOICES = [
+        (ACTOR_TYPE_USER, "User"),
+        (ACTOR_TYPE_AGENT, "Agent"),
+    ]
+
+    OP_CREATE = "create"
+    OP_UPDATE = "update"
+    OP_DELETE = "delete"
+    OP_TRANSITION = "transition"
+    OP_BASELINE_CREATE = "baseline.create"
+    OP_WORKSPACE_CLOSE = "workspace.close"
+    OP_CHOICES = [
+        (OP_CREATE, "Create"),
+        (OP_UPDATE, "Update"),
+        (OP_DELETE, "Delete"),
+        (OP_TRANSITION, "Transition"),
+        (OP_BASELINE_CREATE, "Baseline Create"),
+        (OP_WORKSPACE_CLOSE, "Workspace Close"),
+    ]
+
+    SOURCE_REST = "rest"
+    SOURCE_MCP = "mcp"
+    SOURCE_CHOICES = [
+        (SOURCE_REST, "REST"),
+        (SOURCE_MCP, "MCP"),
+    ]
+
+    # Actor identification
+    actor = models.CharField(
+        max_length=255,
+        help_text="User ID or Agent ID string (not a FK to preserve history after user deletion).",
+    )
+    actor_type = models.CharField(
+        max_length=16,
+        choices=ACTOR_TYPE_CHOICES,
+        help_text="'user' for human actors, 'agent' for MCP clients.",
+    )
+
+    # Operation details
+    op = models.CharField(
+        max_length=32,
+        choices=OP_CHOICES,
+        help_text="Performed operation: create, update, delete, transition.",
+    )
+    entity_type = models.CharField(
+        max_length=128,
+        help_text="Type of the affected entity (e.g. 'Requirement', 'TestCase').",
+    )
+    entity_id = models.UUIDField(
+        help_text="Primary key of the affected entity.",
+    )
+    entity_version = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Entity version at the time of the operation (v1: operation-level).",
+    )
+    change_reason = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Optional human-readable reason for the change (e.g. workflow transition).",
+    )
+
+    # Timestamp — partition key (REQ-L2-AL-008)
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        help_text="UTC timestamp of the operation; auto-set at INSERT. Partition key.",
+    )
+
+    # Source and MCP enrichment (REQ-L2-AL-002)
+    source = models.CharField(
+        max_length=8,
+        choices=SOURCE_CHOICES,
+        default=SOURCE_REST,
+        help_text="'rest' for REST API callers, 'mcp' for MCP agent callers.",
+    )
+    client_name = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="MCP client identifier (e.g. 'claude-code/1.0'). NULL for REST.",
+    )
+    api_key_hash = models.CharField(
+        max_length=71,  # "sha256:" (7) + 64 hex chars
+        null=True,
+        blank=True,
+        help_text="SHA-256 hash of the API key with 'sha256:' prefix. NULL for REST. "
+                  "NEVER store the raw API key.",
+    )
+
+    # Override managers — append-only at ORM level
+    objects = AppendOnlyManager()
+    unscoped = AppendOnlyUnscopedManager()
+
+    class Meta:
+        db_table = "audit_entry"
+        base_manager_name = "unscoped"
+        # REQ-L2-AL-007: indexes for query performance at 100k+ entries.
+        indexes = [
+            models.Index(fields=["entity_id"], name="idx_auditentry_entity_id"),
+            models.Index(
+                fields=["tenant", "timestamp"],
+                name="idx_audit_tenant_ts",
+            ),
+            models.Index(
+                fields=["actor", "op"],
+                name="idx_auditentry_actor_op",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"[{self.source}] {self.actor_type}:{self.actor} {self.op} {self.entity_type}:{self.entity_id}"
+
+    def save(self, *args, **kwargs):
+        """Block UPDATE on existing instances at model level.
+
+        REQ-L2-AL-003: INSERT is accepted; UPDATE is rejected. The DB-level
+        trigger (see migration 0002_audit_append_only_trigger) is the
+        authoritative constraint; this guard provides application-layer
+        early-fail.
+        """
+        if self.pk is not None and AuditEntry.unscoped.filter(pk=self.pk).exists():
+            raise RuntimeError(
+                "AuditEntry is append-only. Modifying an existing entry is not permitted."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):  # type: ignore[override]
+        """Block DELETE on individual instances at model level.
+
+        REQ-L2-AL-003: the DB-level trigger rejects DELETE at the database;
+        this override provides an earlier application-layer guard.
+        """
+        raise RuntimeError(
+            "AuditEntry is append-only. DELETE operations are not permitted."
+        )

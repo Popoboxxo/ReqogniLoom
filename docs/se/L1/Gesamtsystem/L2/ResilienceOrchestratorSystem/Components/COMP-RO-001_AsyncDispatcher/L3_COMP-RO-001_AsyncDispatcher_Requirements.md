@@ -45,6 +45,11 @@ Der AsyncDispatcher SHALL Aufrufe über IF-L1-049 und IF-L1-050 in eine asynchro
 - [ ] Aufrufer blockiert nicht auf die Abarbeitung des externen Aufrufs.
 - [ ] Rückgabe an Aufrufer erfolgt in < 50ms (Enqueue-Zeit).
 **Interfaces:** IF-L1-049, IF-L1-050
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-001
 
 ### REQ-L3-RO-001-02: Vorab-Prüfung der Ausführbarkeit
@@ -56,6 +61,11 @@ Der AsyncDispatcher SHALL vor dem Einreihen in die Queue den CircuitBreaker übe
 - [ ] Bei `can_execute == false` wird der Aufruf direkt abgelehnt (Fast Fail).
 - [ ] Bei `can_execute == true` wird der Task eingereiht.
 **Interfaces:** IF-RO-INT-001
+**Implementation State:** Implemented
+**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
+**Test Status:** Covered
+**Remarks:** Regelmäßig auf Regressionen prüfen.
+
 **Traceability:** REQ-L2-RO-001
 
 ### REQ-L3-RO-001-03: Task-Delegation
@@ -66,4 +76,19 @@ Die asynchronen Worker des AsyncDispatchers SHALL die asynchron eingereihten Tas
 **Acceptance Criteria:**
 - [ ] Worker-Prozesse rufen `execute_with_policy` mit den in der Queue persistierten Parametern auf.
 **Interfaces:** IF-RO-INT-002
+**Implementation State:** Implemented
+**Review Findings:** Implementierung gefunden, aber keine Tests.
+**Test Status:** Missing
+**Remarks:** Testabdeckung fehlt.
+
 **Traceability:** REQ-L2-RO-001
+
+
+## Master Traceability Matrix
+
+| REQ-L3 | Abgeleitet von REQ-L2 |
+|---------|----------------------|
+| REQ-L3-RO-001-01 | REQ-L2-RO-001 |
+| REQ-L3-RO-001-02 | REQ-L2-RO-001 |
+| REQ-L3-RO-001-03 | REQ-L2-RO-001 |
+

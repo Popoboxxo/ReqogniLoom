@@ -1,0 +1,31 @@
+# ReqFlow Backend Dependencies
+# ARCH-L1: All backend systems
+
+# Core Framework
+Django>=4.2,<5.0
+djangorestframework>=3.15,<4.0
+drf-spectacular>=0.27,<1.0
+
+# Database
+psycopg2-binary>=2.9,<3.0
+
+# Vector similarity search (REQ-L2-VS-004) — pgvector Django integration
+# (VectorField, HnswIndex, CosineDistance). Requires the pgvector Postgres
+# extension in the DB image (pgvector/pgvector:pg16, provisioned by devops).
+pgvector>=0.3.0,<0.4.0
+
+# Async task queue (ARCH-L1-016 ResilienceOrchestrator)
+celery>=5.3,<6.0
+redis>=5.0,<6.0
+
+# Testing
+pytest>=8.0,<9.0
+pytest-django>=4.8,<5.0
+factory-boy>=3.3,<4.0
+pypdf>=4.0,<6.0
+
+# PDF generation (REQ-L2-AS-016, REQ-L1-023)
+reportlab>=4.0,<5.0
+
+# Utilities
+python-decouple>=3.8,<4.0
