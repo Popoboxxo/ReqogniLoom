@@ -82,7 +82,7 @@
 | D10 | Verantwortlicher: Freitext + Autocomplete | Risiken | Feld muss Freitext UND User-Dropdown/Autocomplete kombinieren |
 | D11 | Glossar-Dialog Layout | Glossar | Dialog zusammengequetscht; Titel und Buttons brechen aus Rahmen |
 | D12 | Glossar-Scope vereinfachen | Glossar | "Alle/Workspace/Global" → nur "Workspace/Global" |
-| D13 | Workspace-Einstellungen Redesign | Workspace-Einstellungen | Gesamtlayout und Proportionen neu gestalten |
+| ~~D13~~ | ~~Workspace-Einstellungen Redesign~~ | ~~Workspace-Einstellungen~~ | ~~Gesamtlayout und Proportionen neu gestalten~~ — **DONE** REQ-013 |
 | D14 | Dropdown Weiß-auf-Weiß | Workspace-Einstellungen | Entitätstyp-Dropdown: weiße Schrift auf weißem Hintergrund |
 | D15 | Traceability-Default | Workspace-Einstellungen | Default-Linktyp soll "derives from" sein |
 | D16 | Disaster Recovery Dropdown | Workspace-Einstellungen | Gleicher Kontrast-Bug wie D14 |
