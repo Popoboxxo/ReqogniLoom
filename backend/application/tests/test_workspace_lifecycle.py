@@ -361,3 +361,64 @@ class TestDeleteWorkspace:
         svc = WorkspaceService()
         with pytest.raises(NotFoundError):
             svc.delete_workspace(uuid.uuid4(), "any name", ctx)
+
+
+# ---------------------------------------------------------------------------
+# clone_workspace — Architecture Element hierarchy remap (REQ-023 / S-04)
+# ---------------------------------------------------------------------------
+
+
+def _make_arch_element(tenant, workspace, title, parent=None):
+    """Create an ArchitectureElement plus its OneToOne backing Artifact."""
+    art = Artifact.unscoped.create(
+        workspace=workspace, artifact_type="architecture", tenant=tenant
+    )
+    return ArchitectureElement.unscoped.create(
+        artifact=art, title=title, parent=parent, tenant=tenant
+    )
+
+
+class TestCloneWorkspaceHierarchy:
+    """REQ-023 (S-04): clone_workspace must remap the self-referential
+    ArchitectureElement parent FK so a ≥2-level hierarchy is preserved
+    (not flattened / dangling to old IDs) in the cloned workspace."""
+
+    def test_clone_preserves_three_level_hierarchy(self):
+        """grandparent → parent → child is rebuilt with NEW instances."""
+        tenant, user = _create_tenant_and_user()
+        source = _create_workspace(tenant, name="Source WS")
+
+        gp = _make_arch_element(tenant, source, "Grandparent")
+        p = _make_arch_element(tenant, source, "Parent", parent=gp)
+        c = _make_arch_element(tenant, source, "Child", parent=p)
+        old_ids = {gp.id, p.id, c.id}
+
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+
+        with patch("application.workspace_service.ServiceBase._audit"):
+            target = svc.clone_workspace(ctx, source.id, "Cloned WS")
+
+        cloned = {
+            e.title: e
+            for e in ArchitectureElement.unscoped.filter(
+                artifact__workspace=target
+            )
+        }
+        assert set(cloned) == {"Grandparent", "Parent", "Child"}
+
+        new_gp = cloned["Grandparent"]
+        new_p = cloned["Parent"]
+        new_c = cloned["Child"]
+
+        # All cloned elements are fresh instances, not the originals.
+        assert {new_gp.id, new_p.id, new_c.id}.isdisjoint(old_ids)
+
+        # Hierarchy points at the CLONED parents, not the old IDs.
+        assert new_gp.parent_id is None
+        assert new_p.parent_id == new_gp.id
+        assert new_c.parent_id == new_p.id
+
+        # No cloned element dangles to a source-workspace element.
+        assert new_p.parent_id not in old_ids
+        assert new_c.parent_id not in old_ids

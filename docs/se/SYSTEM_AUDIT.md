@@ -216,7 +216,7 @@ Keine dedizierten Tests für die DLQ-Verarbeitung — kritischer Pfad (siehe S-0
 |---------------|:---------------:|:-------------------------:|-------|
 | `domain_event_bus` | teils | nein | Race-Condition (S-01), atomarer DLQ-Move (S-02) untestet |
 | `stakeholder_need_service` | ja | teils | Permission-Check (S-03), Tenant-Kontext update/delete (S-10) |
-| `workspace_service` | teils | nein | Clone-Hierarchie ≥2 Ebenen (S-04) |
+| `workspace_service` | ja | ja | Clone-Hierarchie ≥2 Ebenen (S-04) — abgedeckt durch `TestCloneWorkspaceHierarchy` |
 | `trace_link_service` | ja | teils | Suspect-Propagation je Richtung (S-05), Coverage-N+1 (S-13) |
 | `import_service` | teils | nein | Initial-WorkflowState (S-06) |
 | `export_service` | teils | nein | Soft-Delete-Filter (S-07) |
@@ -491,7 +491,7 @@ Die folgenden 7 KRITISCH-Findings wurden als REQ-IDs registriert. Der aktuelle U
 | S-01 | REQ-020 | ✅ Done | Per-Record `select_for_update(skip_locked=True)` + `transaction.atomic()` in `poll_and_dispatch()`. Kein doppelter Dispatch bei konkurrierenden Workern. Commit `5d702ef`. |
 | S-02 | REQ-021 | ✅ Done | DLQ-Move in `backend/application/event_bus.py::poll_and_dispatch()` jetzt in `transaction.atomic()` gekapselt. Commit `fbe8c201`. |
 | S-03 | REQ-022 | ✅ Done | `_set_tenant_context` + `_assert_write_permission` am Eingang von `create()` ergänzt. Viewer-Role wird mit `PermissionDeniedError` abgewiesen. Commit `f1c5f7c`. |
-| S-04 | REQ-023 | ❌ Offen | Clone-Hierarchie-Bug in `WorkspaceService.clone_workspace()` (`arch.id`-Problem) nicht behoben. Noch nicht umgesetzt. |
+| S-04 | REQ-023 | ✅ Done | `clone_workspace()` baut jetzt eine `old_id → new_instance`-Map und remappt die self-referentielle Parent-FK in zwei Durchläufen (erst ohne Parent anlegen, dann verdrahten). Regressionstest `TestCloneWorkspaceHierarchy` mit 3-Ebenen-Hierarchie (Grandparent→Parent→Child). Commit `2dc82b1`. |
 
 ### Bekanntes Problem: Commit 9e215903
 
@@ -502,7 +502,7 @@ Der aktuelle HEAD (`9e215903`, "Add some critical Fixes es reqs") verstößt geg
 **Nächste Schritte:**
 1. Scratch-Skripte erneut aus Tracking entfernen (`.gitignore` aktualisieren)
 2. Commit `9e215903` ggf. sauber aufteilen (Dokumentation separate, Backend-Fixes separate)
-3. Fehlende Fixes tatsächlich implementieren: **S-04**
+3. ~~Fehlende Fixes tatsächlich implementieren: **S-04**~~ — erledigt (siehe Abschnitt 8).
 4. Nach Abschluss KRITISCH-Tier: HOCH/MITTEL/NIEDRIG-Tiers gemäß Abschnitt 7 fortsetzen
 
 **Session pausiert auf 2026-07-14** — bei Fortsetzung: direkt mit Punkt 1–4 fortzfahren.

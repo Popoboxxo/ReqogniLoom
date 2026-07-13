@@ -219,22 +219,30 @@ class WorkspaceService(ServiceBase):
             r.artifact = old_to_new_artifact[r.artifact_id]
             r.save()
 
-        # Copy ArchitectureElements
+        # Copy ArchitectureElements (self-referential parent FK).
+        # Two-pass to preserve the hierarchy across ≥2 levels:
+        #   1. create every element with parent=None and record
+        #      old_id -> new instance,
+        #   2. remap each parent reference to the CLONED parent instance.
+        # Mutating ``arch.pk`` in-place loses the old id, so the old id
+        # and old parent id are captured BEFORE the insert.
         archs = list(ArchitectureElement.objects.filter(artifact__workspace=source))
+        old_parent_of: dict[UUID, Optional[UUID]] = {}
         for arch in archs:
             old_id = arch.id
+            old_parent_of[old_id] = arch.parent_id
             arch.pk = None
+            arch.parent = None  # remapped in the second pass below
             arch.artifact = old_to_new_artifact[arch.artifact_id]
-            # parent is self-referential on ArchitectureElement
-            # we will fix parent_id in a second pass
             arch.save()
-            old_to_new_arch[old_id] = arch.id
-        
-        for arch in archs:
-            if arch.parent_id:
-                new_arch = ArchitectureElement.objects.get(id=old_to_new_arch[arch.id])
-                new_arch.parent_id = old_to_new_arch[arch.parent_id]
-                new_arch.save(update_fields=['parent_id'])
+            old_to_new_arch[old_id] = arch
+
+        # Second pass: point each cloned element at its cloned parent.
+        for old_id, old_parent_id in old_parent_of.items():
+            if old_parent_id is not None:
+                new_arch = old_to_new_arch[old_id]
+                new_arch.parent = old_to_new_arch[old_parent_id]
+                new_arch.save(update_fields=["parent"])
 
         # Copy TestCases
         tests = list(TestCase.objects.filter(artifact__workspace=source))
