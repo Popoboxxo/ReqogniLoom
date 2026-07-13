@@ -197,11 +197,10 @@ export default function WorkspaceSettings(): JSX.Element {
   // ---- Helper styles ----
 
   const sectionStyle: React.CSSProperties = {
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
+    background: "var(--color-surface-raised)",
     borderRadius: "var(--radius-lg)",
-    padding: "var(--space-5)",
-    marginBottom: "var(--space-5)",
+    padding: "var(--space-6)",
+    marginBottom: "var(--space-4)",
     boxShadow: "var(--shadow-card)",
   };
 
@@ -215,16 +214,18 @@ export default function WorkspaceSettings(): JSX.Element {
   };
 
   const headingStyle: React.CSSProperties = {
-    fontSize: "var(--font-size-lg)",
+    fontSize: "1.1rem",
     fontWeight: 600,
     color: "var(--color-text)",
-    margin: "0 0 var(--space-4) 0",
+    margin: "0 0 var(--space-3) 0",
+    borderBottom: "1px solid var(--color-border)",
+    paddingBottom: "var(--space-2)",
   };
 
   const currentPreset = activeWorkspace.preset as WorkspacePreset;
 
   return (
-    <div data-testid="workspace-settings" style={{ maxWidth: "640px" }}>
+    <div data-testid="workspace-settings" style={{ maxWidth: "860px", margin: "0 auto", padding: "var(--space-6)" }}>
       <h2 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, color: "var(--color-text)", marginBottom: "var(--space-6)" }}>
         {t("nav.settings")}
       </h2>
@@ -232,7 +233,7 @@ export default function WorkspaceSettings(): JSX.Element {
       {/* Workspace Name */}
       <section style={sectionStyle}>
         <h3 style={headingStyle}>Workspace Name</h3>
-        <div style={{ display: "flex", gap: "var(--space-3)" }}>
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
           <input
             data-testid="workspace-name-input"
             value={name}
