@@ -162,15 +162,27 @@ class McpMessagesView(CorsMixin, View):
         session_id = request.GET.get("session_id")
         if not session_id:
             return HttpResponse("Missing session_id", status=400)
-            
+
+        from mcp_server.sse_pubsub import get_session_api_key, publish_mcp_message
+
+        # Authorise by session: the API key was bound to this session at the
+        # SSE handshake and is NEVER accepted from the URL here. An unknown
+        # or expired session is rejected (REQ-018 / SYSTEM_AUDIT P-02).
+        session_api_key = get_session_api_key(session_id)
+        if not session_api_key:
+            return HttpResponse("Invalid or expired session", status=401)
+
         handler = _get_handler()
         headers = _extract_django_headers(request)
-        
+        # Force the session-bound key and ignore any api_key present in the URL.
+        headers["HTTP_X_API_KEY"] = session_api_key
+        headers["X-API-Key"] = session_api_key
+        headers["HTTP_AUTHORIZATION"] = f"Bearer {session_api_key}"
+
         # In a production system, this should be a Celery task.
         # For simplicity and to avoid Celery dependencies here, we use a thread.
         import threading
-        from mcp_server.sse_pubsub import publish_mcp_message
-        
+
         def _process():
             try:
                 response_frame = handler.handle_http_request(
@@ -194,26 +206,41 @@ class McpMessagesView(CorsMixin, View):
 class McpSseTransportView(CorsMixin, View):
     """SSE transport endpoint — serves a continuous stream for MCP."""
 
+    @staticmethod
+    def _resolve_api_key(request: HttpRequest) -> str:
+        """Resolve the API key from the SSE handshake request.
+
+        Prefers the ``Authorization`` / ``X-API-Key`` headers. The
+        query-parameter fallback is retained only for backward
+        compatibility with older clients; new clients MUST authenticate
+        via header so the secret is not exposed in the URL (REQ-018).
+        """
+        auth = request.META.get("HTTP_AUTHORIZATION", "")
+        if auth.startswith("Bearer "):
+            return auth[7:]
+        header_key = request.META.get("HTTP_X_API_KEY", "")
+        if header_key:
+            return header_key
+        return request.GET.get("api_key", "")
+
     async def get(self, request: HttpRequest, *args, **kwargs) -> StreamingHttpResponse:
         """Standard MCP SSE connection establishment."""
         import uuid
-        from mcp_server.sse_pubsub import async_sse_generator
-        
-        session_id = str(uuid.uuid4())
-        
-        # Retrieve the API key from the initial GET request headers or query
-        api_key = request.GET.get("api_key", "")
-        if not api_key:
-            auth = request.META.get("HTTP_AUTHORIZATION", "")
-            if auth.startswith("Bearer "):
-                api_key = auth[7:]
-            else:
-                api_key = request.META.get("HTTP_X_API_KEY", "")
+        from asgiref.sync import sync_to_async
+        from mcp_server.sse_pubsub import async_sse_generator, store_session_api_key
 
-        # The POST endpoint for this session
-        endpoint = f"/mcp/messages/?session_id={session_id}"
+        session_id = str(uuid.uuid4())
+
+        # Resolve the API key once, at connection setup, and bind it to the
+        # session server-side (REQ-018 / SYSTEM_AUDIT P-02).
+        api_key = self._resolve_api_key(request)
         if api_key:
-            endpoint += f"&api_key={api_key}"
+            await sync_to_async(store_session_api_key)(session_id, api_key)
+
+        # The message endpoint carries ONLY the session id — never the
+        # api_key, which would otherwise leak into access/proxy logs and
+        # browser history (REQ-018 / SYSTEM_AUDIT P-02).
+        endpoint = f"/mcp/messages/?session_id={session_id}"
 
         response = StreamingHttpResponse(
             async_sse_generator(session_id, endpoint),
