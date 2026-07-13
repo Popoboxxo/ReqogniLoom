@@ -356,7 +356,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
                   onChange={(e) => setType(e.target.value as RequirementType)}
                   style={inputStyle}
                 >
-                  <option value="StReq">{t('reqType.StReq')}</option>
                   <option value="SyReq">{t('reqType.SyReq')}</option>
                   <option value="SWReq">{t('reqType.SWReq')}</option>
                   <option value="HWReq">{t('reqType.HWReq')}</option>

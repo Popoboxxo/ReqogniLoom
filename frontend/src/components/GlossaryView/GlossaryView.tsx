@@ -12,7 +12,7 @@ export default function GlossaryView(): JSX.Element {
   const [terms, setTerms] = useState<GlossaryTerm[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterMode, setFilterMode] = useState<"all" | "workspace" | "global">("all");
+  const [filterMode, setFilterMode] = useState<"workspace" | "global">("workspace");
   
   // Form state
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -225,7 +225,7 @@ export default function GlossaryView(): JSX.Element {
           />
         </div>
         <div style={{ display: "flex", background: "var(--color-surface)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border)", overflow: "hidden" }}>
-          {(["all", "workspace", "global"] as const).map(mode => (
+          {(["workspace", "global"] as const).map(mode => (
             <button
               key={mode}
               onClick={() => setFilterMode(mode)}
@@ -239,7 +239,7 @@ export default function GlossaryView(): JSX.Element {
                 borderRight: mode !== "global" ? "1px solid var(--color-border)" : "none",
               }}
             >
-              {mode === "all" ? t("glossary.all") : mode === "workspace" ? t("glossary.workspace") : t("glossary.global")}
+              {mode === "workspace" ? t("glossary.workspace") : t("glossary.global")}
             </button>
           ))}
         </div>

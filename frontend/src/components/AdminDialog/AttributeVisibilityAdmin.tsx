@@ -336,7 +336,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
             padding: 'var(--space-2) var(--space-3)',
             borderRadius: 'var(--radius-md)',
             border: '1px solid var(--color-border)',
-            background: 'var(--color-background)',
+            background: 'var(--color-surface-raised)',
             color: 'var(--color-text)',
             fontSize: 'var(--font-size-sm)',
             fontFamily: 'var(--font-sans)',

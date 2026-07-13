@@ -104,7 +104,7 @@
     "saved": "Konfiguration erfolgreich gespeichert."
   },
   "dashboard": {
-    "openItems": "Offene Punkte",
+    "openItems": "Offene Elemente",
     "preset": "Preset",
     "empty": "Kein Workspace gefunden."
   },
@@ -375,7 +375,15 @@
     "create": "Testlauf erstellen",
     "closeRun": "Testlauf abschließen",
     "namePlaceholder": "Name des Testlaufs...",
-    "empty": "Noch keine Testläufe. Erstellen Sie einen, um zu beginnen."
+    "empty": "Noch keine Testläufe. Erstellen Sie einen, um zu beginnen.",
+    "closeConfirm": "Diesen Testlauf abschließen?",
+    "closeSuccess": "Test-Run wurde abgeschlossen.",
+    "closeFailed": "Test-Run konnte nicht geschlossen werden.",
+    "startedAt": "Gestartet",
+    "finishedAt": "Beendet",
+    "loadFailed": "Test-Runs konnten nicht geladen werden.",
+    "detailLoadFailed": "Test-Run konnte nicht geladen werden.",
+    "selectPrompt": "Testlauf auswählen, um Details anzuzeigen"
   },
   "import": {
     "title": "CSV-Import",
