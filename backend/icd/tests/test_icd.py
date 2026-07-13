@@ -731,3 +731,58 @@ class TestTenantIsolation:
         with active_tenant(tenant_a):
             result = get_icd_versions(other_ws)
         assert result == []
+
+
+@pytest.mark.django_db
+class TestIcdInterfaceTypeChoices:
+    """REQ-006: interface_type field enforces enum choices."""
+
+    def test_create_icd_with_valid_interface_type(
+        self, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        from icd.services import create_icd
+
+        with active_tenant(tenant_a):
+            for iface_type in ["provides", "requires", "event-in", "event-out", "data", "control"]:
+                dto = _make_create_dto(
+                    tenant_a, workspace_id, src_id, tgt_id,
+                    name=f"Test ICD {iface_type}",
+                    interface_type=iface_type,
+                )
+                with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                    result = create_icd(dto)
+
+            assert result.current_version.interface_type == "control"
+
+    def test_icd_version_persists_interface_type(self, tenant_a, workspace_id, src_id, tgt_id):
+        from icd.services import create_icd
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(
+                tenant_a, workspace_id, src_id, tgt_id,
+                interface_type="requires",
+            )
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                result = create_icd(dto)
+
+        assert result.current_version.interface_type == "requires"
+
+    def test_update_icd_changes_interface_type(self, tenant_a, workspace_id, src_id, tgt_id):
+        from icd.services import create_icd, update_icd, IcdUpdateDTO
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(
+                tenant_a, workspace_id, src_id, tgt_id,
+                interface_type="data",
+            )
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                r1 = create_icd(dto)
+
+            r2 = update_icd(
+                icd_id=r1.icd.id,
+                payload=IcdUpdateDTO(interface_type="event-in"),
+            )
+
+        assert r1.current_version.interface_type == "data"
+        assert r2.current_version.interface_type == "event-in"
+        assert r2.current_version.version_number == 2

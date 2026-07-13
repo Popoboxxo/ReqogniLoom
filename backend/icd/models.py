@@ -41,6 +41,20 @@ class IcdDirection(models.TextChoices):
     BIDIRECTIONAL = "bidirectional", "Bidirectional"
 
 
+class IcdType(models.TextChoices):
+    """Interface type classification (REQ-006).
+
+    Classifies the communication pattern of the interface control document.
+    """
+
+    PROVIDES = "provides", "Provides"
+    REQUIRES = "requires", "Requires"
+    EVENT_IN = "event-in", "Event In"
+    EVENT_OUT = "event-out", "Event Out"
+    DATA = "data", "Data"
+    CONTROL = "control", "Control"
+
+
 # ---------------------------------------------------------------------------
 # Icd — logical identity
 # REQ-L2-ICD-001: CRUD, REQ-L2-ICD-002: Design-by-Contract fields
@@ -124,7 +138,13 @@ class IcdVersion(TenantScopedModel):
         choices=IcdDirection.choices,
         default=IcdDirection.UNIDIRECTIONAL,
     )
-    interface_type = models.CharField(max_length=128, blank=True, default="")
+    interface_type = models.CharField(
+        max_length=32,
+        choices=IcdType.choices,
+        blank=True,
+        default="",
+        help_text="Interface type classification: provides, requires, event-in, event-out, data, control.",
+    )
     semantic_description = models.TextField(blank=True, default="")
     # Design-by-Contract fields — stored as JSON lists of strings
     preconditions = models.JSONField(default=list, blank=True)
@@ -180,5 +200,6 @@ class IcdVersion(TenantScopedModel):
 __all__ = [
     "Icd",
     "IcdDirection",
+    "IcdType",
     "IcdVersion",
 ]

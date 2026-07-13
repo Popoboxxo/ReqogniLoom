@@ -424,6 +424,7 @@
     "directionBidirectional": "Bidirektional",
     "interfaceType": "Schnittstellentyp",
     "interfaceTypePlaceholder": "z.B. REST API, gRPC, Message Queue",
+    "selectInterfaceType": "Schnittstellentyp auswählen",
     "contract": "Vertragsspezifikation",
     "contractPlaceholder": "Semantische Beschreibung des Schnittstellenvertrags",
     "preconditions": "Vorbedingungen",

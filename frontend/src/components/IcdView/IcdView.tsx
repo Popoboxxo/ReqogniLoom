@@ -605,15 +605,21 @@ export default function IcdView(): JSX.Element {
             <label htmlFor="icd-interface-type" style={labelStyle}>
               {t("icds.interfaceType")}
             </label>
-            <input
+            <select
               id="icd-interface-type"
-              data-testid="icd-interface-type-input"
-              type="text"
+              data-testid="icd-interface-type-select"
               value={formInterfaceType}
               onChange={(e) => setFormInterfaceType(e.target.value)}
-              placeholder={t("icds.interfaceTypePlaceholder")}
               style={inputStyle}
-            />
+            >
+              <option value="">{t("icds.selectInterfaceType")}</option>
+              <option value="provides">Provides</option>
+              <option value="requires">Requires</option>
+              <option value="event-in">Event In</option>
+              <option value="event-out">Event Out</option>
+              <option value="data">Data</option>
+              <option value="control">Control</option>
+            </select>
 
             <label htmlFor="icd-contract" style={labelStyle}>
               {t("icds.contract")}
@@ -1252,14 +1258,21 @@ function renderVersionFields(
       <label htmlFor="icd-nv-interface-type" style={labelStyle}>
         {t("icds.interfaceType")}
       </label>
-      <input
+      <select
         id="icd-nv-interface-type"
-        data-testid="icd-nv-interface-type-input"
-        type="text"
+        data-testid="icd-nv-interface-type-select"
         value={interfaceType}
         onChange={(e) => setInterfaceType(e.target.value)}
         style={inputStyle}
-      />
+      >
+        <option value="">{t("icds.selectInterfaceType")}</option>
+        <option value="provides">Provides</option>
+        <option value="requires">Requires</option>
+        <option value="event-in">Event In</option>
+        <option value="event-out">Event Out</option>
+        <option value="data">Data</option>
+        <option value="control">Control</option>
+      </select>
 
       <label htmlFor="icd-nv-contract" style={labelStyle}>
         {t("icds.contract")}
