@@ -479,4 +479,34 @@ Sortierung: KRITISCH → HOCH → MITTEL → NIEDRIG. Aufwand: S (≤0.5 Tag), M
 
 ---
 
+## 8. Umsetzungsstatus (Stand 2026-07-14)
+
+Die folgenden 7 KRITISCH-Findings wurden als REQ-IDs registriert. Der aktuelle Umsetzungsstand wurde durch Vergleich zwischen `main` und `fix/system-audit-critical` verifiziert:
+
+| ID | REQ-ID | Status | Kommentar |
+|-----|--------|--------|-----------|
+| P-01 | REQ-017 | ✅ Done | Debug-Log-Zeilen in `backend/mcp_server/views.py::_extract_django_headers` entfernt. Commit `798cabde`. |
+| P-02 | REQ-018 | ❌ Offen | API-Key steht weiterhin in SSE-Endpoint-URL (`views.py:219`). Noch nicht umgesetzt. |
+| A-01 | REQ-019 | ✅ Done | Ownership-Check in `ApiKeyViewSet.destroy` hinzugefügt. Commit `bda8b582`. |
+| S-01 | REQ-020 | ❌ Offen | Atomare Claim-Semantik (`select_for_update(skip_locked)`) fehlt noch. Race-Condition besteht fort. |
+| S-02 | REQ-021 | ✅ Done | DLQ-Move in `backend/application/event_bus.py::poll_and_dispatch()` jetzt in `transaction.atomic()` gekapselt. Commit `fbe8c201`. |
+| S-03 | REQ-022 | ❌ Offen | Permission-Check in `StakeholderNeedService.create()` fehlt noch. Kein Code-Diff gegen main. |
+| S-04 | REQ-023 | ❌ Offen | Clone-Hierarchie-Bug in `WorkspaceService.clone_workspace()` (`arch.id`-Problem) nicht behoben. Noch nicht umgesetzt. |
+
+### Bekanntes Problem: Commit 9e215903
+
+Der aktuelle HEAD (`9e215903`, "Add some critical Fixes es reqs") verstößt gegen die Commit-Konventionen (kein `fix(REQ-xxx):`-Format) und enthält keine der oben aufgelisteten Backend-Fixes. Stattdessen:
+- SE-Kaskade-Dokumentation (`docs/se/L1/...`)
+- Drei Scratch-Skripte (`analyze_tests.py`, `fix.py`, `update_files.py`), die versehentlich wieder trackt wurden
+
+**Nächste Schritte:**
+1. Scratch-Skripte erneut aus Tracking entfernen (`.gitignore` aktualisieren)
+2. Commit `9e215903` ggf. sauber aufteilen (Dokumentation separate, Backend-Fixes separate)
+3. Fehlende Fixes tatsächlich implementieren: **P-02, S-01, S-03, S-04**
+4. Nach Abschluss KRITISCH-Tier: HOCH/MITTEL/NIEDRIG-Tiers gemäß Abschnitt 7 fortsetzen
+
+**Session pausiert auf 2026-07-14** — bei Fortsetzung: direkt mit Punkt 1–4 fortzfahren.
+
+---
+
 > **Hinweis Traceability:** Dieser Audit ist ein System-Zustandsbericht (REQ-ID n/a). Die abgeleiteten Maßnahmen sollten vor Umsetzung als eigene REQ-Einträge in `docs/REQUIREMENTS.md` bzw. dem SE-Register (`docs/se/`) verankert werden — jede Code-Änderung braucht eine REQ-ID und einen zugehörigen Test.
