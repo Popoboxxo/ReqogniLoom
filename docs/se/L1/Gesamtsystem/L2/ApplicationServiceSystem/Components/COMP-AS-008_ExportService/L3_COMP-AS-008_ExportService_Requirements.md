@@ -242,6 +242,20 @@ Bei Export-Fehlern (z.B. Datenbank-Timeout, ungültiger Scope) SHALL der ExportS
 
 ---
 
+---
+
+### REQ-L3-EXP-009: Soft-Delete Filtering & Pagination (S-07, S-16, S-17)
+
+Der ExportService MUSS beim Iterieren über Entitäten sicherstellen, dass als `deleted_at != null` markierte Entitäten strikt aus dem Export ausgeschlossen werden. Zudem MÜSSEN interne Felder und Secrets herausgefiltert werden, bevor exportiert wird. Die Datenbankabfragen MÜSSEN paginiert erfolgen (`OFFSET`/`LIMIT`), um Memory-OOMs zu vermeiden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-07, S-16, S-17.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-AS-043, REQ-L2-AS-045
+
+---
+
 ## Traceability-Matrix: REQ-L3-EXP → REQ-L2
 
 | REQ-L3 | Primäre REQ-L2 |

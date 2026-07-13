@@ -277,6 +277,20 @@ Der WebhookDispatcher SHALL garantieren, dass Webhooks nur innerhalb der gleiche
 
 ---
 
+---
+
+### REQ-L3-WHOOK-010: Celery Tasks Logging (S-12)
+
+Der WebhookDispatcher MUSS sicherstellen, dass Exception-Tracebacks in Celery-Tasks nicht ungefiltert in Slack/Teams-Channels (über den Task-Logger) ausgegeben werden. Es MUSS ein kurzes, anonymisiertes Fehler-Log ausgegeben werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-12.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-AS-044
+
+---
+
 ## Traceability-Matrix: REQ-L3-WHOOK → REQ-L2
 
 | REQ-L3 | Primäre REQ-L2 |

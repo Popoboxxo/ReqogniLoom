@@ -120,4 +120,28 @@ Der ProtocolHandler SHALL ein eingehendes `ToolResult`-Objekt (IF-MC-INT-006) ko
 
 ---
 
+### REQ-L3-MC001-005: MCP Security & Secret Management (P-01, P-02, P-16)
+
+Der ProtocolHandler MUSS sicherstellen, dass API-Keys niemals im Klartext geloggt werden (kein `logger.error` mit Auth-Headern). API-Keys dürfen nicht als URL-Parameter (z.B. im SSE-Endpoint `/mcp/messages/`) übertragen werden. Bei der SSE-Verbindung MUSS der API-Key bereits beim initialen Connect validiert werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-01, P-02, P-16.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-MC-017
+
+---
+
+### REQ-L3-MC001-006: MCP Rate-Limiting & Protocol Compliance (P-15, P-05)
+
+Der ProtocolHandler MUSS Rate-Limiting pro API-Key durchsetzen und eine strikte CORS-Allowlist anwenden. Fehlerhafte Requests, die kein Auth-Problem darstellen (Parse Error), MÜSSEN mit HTTP 400 beantwortet werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-15, P-05.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-MC-018, REQ-L2-MC-019
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

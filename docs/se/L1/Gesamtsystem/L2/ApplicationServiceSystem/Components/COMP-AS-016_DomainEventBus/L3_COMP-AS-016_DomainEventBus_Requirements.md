@@ -369,6 +369,20 @@ Diese Metriken sind Prometheus-kompatibel und über `/metrics`-Endpoint abrufbar
 *Designation: component (terminal) — decomposition_status: terminal*
 
 
+---
+
+### REQ-L3-DEB-011: Atomare Event-Bus Claims & DLQ-Moves (S-01, S-02, S-20)
+
+Der `DomainEventBus` MUSS beim Polling von Outbox-Events eine Race-Condition durch atomare Datenbank-Claims (z.B. `select_for_update(skip_locked=True)` in einer `transaction.atomic()`) verhindern. Das Verschieben in die DLQ und Löschen in der Outbox MÜSSEN in derselben Transaktion erfolgen (Split-Brain Vermeidung). Die Funktionalität MUSS dediziert getestet werden (`dlq_service`).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-01, S-02, S-20.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-AS-040
+
+---
+
 ## Master Traceability Matrix
 
 | REQ-L3 | Abgeleitet von REQ-L2 |

@@ -125,4 +125,16 @@ Der RequirementService SOLLTE die Verknuepfung von Requirements mit GitHub Issue
 
 ---
 
+### REQ-L3-AS002-004: Service-Level Tenant & RBAC Checks (S-03, S-10, S-19)
+
+Der RequirementService (inkl. StakeholderNeedService) MUSS eine strenge Tenant-Prüfung (`_set_tenant_context`) am Service-Eingang durchsetzen. Dies gilt zwingend für alle Operationen (`create`, `update`, `delete`), unabhängig davon ob sie aus der REST- oder MCP-Schicht aufgerufen werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-03, S-10, S-19.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-AS-041
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

@@ -126,4 +126,16 @@ Der EntitySchemaManager MUSS auf allen mandantenspezifischen Entitaeten (alle au
 ---
 
 ---
+
+### REQ-L3-PL001-005: Model & Schema Integrity (M-01, M-05, M-06, M-07, M-09, M-12)
+
+Der EntitySchemaManager MUSS garantieren, dass alle Entitäten einen Tenant-FK und UUID-PKs besitzen. Die doppelten Workflow-Modelle (Issue/Requirement) MÜSSEN in einem konsolidierten Status-Modell zusammengeführt werden. Inkrementelles Löschen MUSS anstelle von Soft-Deletes mit `deleted_at` für Compliance-kritische Tabellen verwendet werden (keine Zombie-Datensätze). Es DÜRFEN keine `TextField`s ohne explizite Längenbeschränkung oder Validierung existieren. Custom Constraints (z.B. Unique) MÜSSEN auf Datenbankebene erzwungen werden (`Meta.constraints`).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von M-01, M-05, M-06, M-07, M-09, M-12.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-PL-023, REQ-L2-PL-024
+
+---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

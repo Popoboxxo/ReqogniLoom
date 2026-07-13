@@ -1110,6 +1110,79 @@ Das System MUSS nutzerdefinierte Zusatzfelder (Custom Attributes) pro Artefaktty
 **Rationale:** Ohne nutzerdefinierte Felder müssen projektspezifische Metadaten in Freitextfeldern oder externen Systemen abgelegt werden — das verhindert maschinenlesbare Auswertung und Traceability.
 
 
+---
+
+## Erweiterung v6 — System Audit Reliability & Logic (S-01 bis S-20)
+
+> **Datum:** 2026-07-13 | **Quelle:** SYSTEM_AUDIT.md
+
+---
+
+### REQ-L2-AS-040: Atomare Event-Bus Claims & DLQ-Moves
+
+Der `DomainEventBus` MUSS beim Polling von Outbox-Events eine Race-Condition bei mehreren parallel laufenden Celery-Workern durch atomare Datenbank-Claims (z.B. `select_for_update(skip_locked=True)` innerhalb einer `transaction.atomic()`-Klammer) ausschließen. Ebenso MUSS das Verschieben von fehlgeschlagenen Events in die Dead-Letter-Queue (DLQ) sowie das Markieren/Löschen in der Outbox strikt in einer einzigen atomaren Transaktion erfolgen, um Duplikate oder Verlust (Split-Brain) zu vermeiden. Die Funktionalität MUSS dediziert getestet werden (`dlq_service`).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-01, S-02, S-20.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-097
+
+---
+
+### REQ-L2-AS-041: Service-Level Autorisierung (RBAC & Tenant)
+
+Jeder mutierende und lesende Service-Aufruf (insbesondere im `StakeholderNeedService`) MUSS eine strenge Rollen- und Tenant-Prüfung (`_set_tenant_context`) am Service-Eingang durchsetzen. Dies gilt zwingend für alle Operationen (`create`, `update`, `delete`). Der `PresetPolicyService` MUSS bei `validate_transition_roles()` auf `workspace_id` anstatt `tenant_id` filtern. Fehlende Policies (z.B. bei `get_policy("scope_allowed")`) MÜSSEN einen definierten Default liefern oder explizit validiert werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-03, S-09, S-10, S-19.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-096, REQ-L1-098
+
+---
+
+### REQ-L2-AS-042: Konsistente Fachlogik & Bugfixes
+
+Der ApplicationService MUSS fachliche Randfälle korrekt behandeln:
+- **Workspace Clone:** Die Hierarchie-Wiederherstellung im `WorkspaceService.clone_workspace()` MUSS über eine explizite Old-ID-to-New-Instance-Map erfolgen.
+- **Suspect-Propagation:** Der `TraceLinkService` MUSS die Suspect-Markierung bidirektional entlang der semantischen Link-Beziehung propagieren.
+- **Import:** Der `ImportService` MUSS initialisierte `WorkflowState`-Werte gemäß dem aktiven Preset setzen.
+- **Search:** Der `SearchService` MUSS boolesche Operatoren (`AND`/`OR`/`NOT`) korrekt parsen (z.B. via `websearch_to_tsquery`) und DB-seitig paginieren.
+- **Error-Handling:** Exception-Remapping im `TraceLinkService` MUSS über typisierte Exceptions anstelle von String-Matching erfolgen.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-04, S-05, S-06, S-08, S-14, S-18.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-097, REQ-L1-099
+
+---
+
+### REQ-L2-AS-043: Resilienz bei Drittsystemen (LLM & Webhooks)
+
+Der `AiDerivationService` MUSS bei einem Fallback auf das Mock-Provider-System zwingend eine WARNING loggen und den Mock-Zustand im Payload kennzeichnen. Der `WebhookDispatcher` MUSS asynchron via Celery-Tasks (inklusive Retry und Timeout) implementiert sein, um synchrone Blockaden zu verhindern.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-11, S-12.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-099
+
+---
+
+### REQ-L2-AS-044: Exporte und Datenkonsistenz
+
+Der `ExportService` MUSS soft-deleted Entitäten aus allen Exporten filtern (z.B. durch Nutzung des Default-Managers). Löschkaskaden (z.B. das Mitmarkieren von TraceLinks bei Soft-Delete im `RequirementService`) MÜSSEN durchgehend angewandt werden, entsprechend einer einheitlichen Löschstrategie im gesamten Service-Layer. Die Coverage-Berechnung im `TraceLinkService` MUSS N+1-Query-optimiert sein.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-07, S-13, S-16, S-17.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-098, REQ-L1-099
+
+---
+
 ## Master Traceability Matrix
 
 | REQ-L2 | Abgeleitet von REQ-L1 |

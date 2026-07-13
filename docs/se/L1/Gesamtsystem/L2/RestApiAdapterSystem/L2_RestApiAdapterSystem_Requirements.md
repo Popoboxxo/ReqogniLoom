@@ -666,6 +666,73 @@ Der RestApiAdapter MUSS REST-Routen bereitstellen, um projektübergreifende (glo
 
 ---
 
+## Erweiterung v5 — System Audit Security & Compliance (A-01 bis A-16)
+
+> **Datum:** 2026-07-13 | **Quelle:** SYSTEM_AUDIT.md
+
+---
+
+### REQ-L2-RA-024: REST API Security & Ownership Checks
+
+Der RestApiAdapter MUSS auf allen ViewSets und Actions strikte Ownership-Checks und Tenant-Scoping erzwingen. Dies beinhaltet zwingend das Beheben des IDOR-Vektors im `ApiKeyViewSet.destroy` (Filtern nach Owner) und das Filtern von Diagrammen nach `workspace_id` und `tenant_id` im `DiagramViewSet.list`.
+Admin-Actions MÜSSEN explizite `permission_classes` definieren und dürfen sich nicht auf globale Defaults verlassen.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-01, A-02, A-13.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-096, REQ-L1-098
+
+---
+
+### REQ-L2-RA-025: REST API Data Integrity (No DDL in Handlers)
+
+Der RestApiAdapter DARF KEINE DDL-Befehle (wie `ALTER TABLE ... DISABLE TRIGGER`) in Request-Handlern ausführen (insbesondere nicht im `IcdViewSet.destroy`). Alle Löschkaskaden MÜSSEN über ORM-Logik oder per `SET CONSTRAINTS DEFERRED` in einer sicheren Transaktionsklammer gelöst werden. Zudem MUSS jede Geschäftslogik oder ORM-Manipulation über den `ApplicationService` delegiert werden (direkter ORM-Zugriff aus ViewSets ist untersagt).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-03, A-16.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-098
+
+---
+
+### REQ-L2-RA-026: REST API Query Performance
+
+Alle Listen-Endpunkte der REST-API MÜSSEN N+1-Query-Probleme durch konsequente Anwendung der in `QUERYSET_OPTIMIZATIONS` definierten Prefetches und Select-Related-Anweisungen in `get_queryset()` verhindern. Ebenso MUSS jeder Listen-Endpunkt paginiert sein (insbesondere `TestRunViewSet.results` und `AttributeVisibilityConfigViewSet.list`).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-04, A-06, A-09.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-099
+
+---
+
+### REQ-L2-RA-027: OpenAPI Spec & Error Consistency
+
+Die OpenAPI-Spezifikation MUSS durchgehend konsistent sein. Custom-Actions MÜSSEN `@extend_schema` verwenden. Die zentralen `COMMON_ERROR_RESPONSES` MÜSSEN eingebunden sein. Das Fehlerformat in Custom-ViewSets (z.B. `ApiKeyViewSet`) MUSS zwingend `build_error_response()` nutzen. Stubs (z.B. `TraceLinkViewSet.retrieve`, `WorkflowDefinitionViewSet.list`) MÜSSEN implementiert oder aus dem Router entfernt werden. Zudem MUSS das Status-Code-Mapping einheitlich sein (z.B. konsistent 405 statt 403 für immutable Ressourcen). Fehlende Lookup-Keys (z.B. bei `/needs/`) MÜSSEN defensiv behandelt werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-05, A-07, A-08, A-11, A-12, A-14, A-15.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-006
+
+---
+
+### REQ-L2-RA-028: API Filter & Search Fields Declaration
+
+Sofern globale FilterBackends aktiv sind, MÜSSEN in jedem ViewSet explizit `search_fields` und `ordering_fields` deklariert werden, um die Funktionalität zu aktivieren (Toter Code-Vermeidung).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-10.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-006
+
+---
+
 *Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*
 
 

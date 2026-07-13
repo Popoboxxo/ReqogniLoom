@@ -99,4 +99,16 @@ Der PerformanceOptimizationLayer MUSS in Kombination mit den definierten Indizes
 ---
 
 ---
+
+### REQ-L3-PL005-004: Indexing & Tree-Query Performance (M-03, M-04, M-10, M-11)
+
+Der PerformanceOptimizationLayer MUSS N+1 Probleme in Hierarchien (z.B. `get_level()`) durch LTree-Extension oder rekursive CTEs (auf DB-Ebene) auflösen. Fehlende Foreign-Key-Indizes auf Target-Feldern von `TraceLink` und auf Polling-Relevanten Spalten (z.B. `status` in `DomainEventBus`) MÜSSEN zwingend hinzugefügt werden, um Full-Table-Scans zu verhindern. Das Connection-Pooling MUSS via PgBouncer betrieben werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von M-03, M-04, M-10, M-11.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-PL-025
+
+---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

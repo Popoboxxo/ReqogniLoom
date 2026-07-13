@@ -123,4 +123,28 @@ Der HttpEndpointController SHALL ausschließlich HTTP-spezifische Aufgaben (Rout
 
 ---
 
+### REQ-L3-RA001-005: REST API Data Integrity & Ownership (A-01, A-02, A-13, A-03, A-16)
+
+Der HttpEndpointController MUSS sicherstellen, dass keine DDL-Befehle (z.B. `DISABLE TRIGGER`) in Handlern ausgeführt werden. Er MUSS alle Löschvorgänge, die DDL oder umständliche ORM-Direktzugriffe benötigen, strikt an den ApplicationService delegieren (inkl. Transaktionsklammern). Ebenfalls MÜSSEN in Custom-Actions wie dem `ApiKeyViewSet.destroy` und `DiagramViewSet.list` Tenant-Scoping und Ownership-Checks angewandt werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-01, A-02, A-03, A-13, A-16.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-RA-024, REQ-L2-RA-025
+
+---
+
+### REQ-L3-RA001-006: REST API Query Performance & Filtering (A-04, A-06, A-09, A-10)
+
+Der HttpEndpointController MUSS durch konsequente Delegation oder Prefetch-Anweisungen in `get_queryset()` das N+1-Query-Problem lösen. Alle Listen-Endpunkte (insbesondere `TestRunViewSet.results`) MÜSSEN paginiert sein. Globale Suchfilter MÜSSEN durch explizite Definition von `search_fields` in den ViewSets aktiviert werden, da sie sonst nicht funktionieren (Toter Code).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-04, A-06, A-09, A-10.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-RA-026, REQ-L2-RA-028
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

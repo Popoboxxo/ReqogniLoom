@@ -243,6 +243,20 @@ Der ImportService SHALL Importe mit bis zu 10.000 Zeilen handhaben:
 
 ---
 
+---
+
+### REQ-L3-IMP-009: Workflow State Transitions (S-06)
+
+Der ImportService MUSS alle Workflow-Statusübergänge (wie z.B. bei Requirements) über eine zentrale State-Machine (ApplicationService) leiten. Er DARF den Status (`status`) NICHT durch direkte Feldzuweisung ändern, da dies Policies und Audit-Logs umgehen würde.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-06.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-AS-043
+
+---
+
 ## Traceability-Matrix: REQ-L3-IMP → REQ-L2
 
 | REQ-L3 | Primäre REQ-L2 |

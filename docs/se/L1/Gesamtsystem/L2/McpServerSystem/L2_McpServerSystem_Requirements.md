@@ -203,4 +203,72 @@ Das McpServerSystem MUSS ein Tool (`get_system_announcement`) bereitstellen, mit
 
 ---
 
+## Erweiterung v2 — System Audit Security & Compliance (P-01 bis P-16)
+
+> **Datum:** 2026-07-13 | **Quelle:** SYSTEM_AUDIT.md
+
+---
+
+### REQ-L2-MC-017: MCP Security & Secret Management
+
+Das McpServerSystem MUSS sicherstellen, dass API-Keys niemals im Klartext geloggt werden (kein `logger.error` mit Auth-Headern). Ebenso dürfen API-Keys nicht als URL-Parameter (z.B. im SSE-Endpoint `/mcp/messages/`) übertragen werden; die Session-Verknüpfung MUSS serverseitig nach dem Handshake erfolgen.
+Zudem MUSS bei der SSE-Verbindung der API-Key bereits beim initialen Connect validiert werden (nicht erst beim ersten POST).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-01, P-02, P-16.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-096
+
+---
+
+### REQ-L2-MC-018: MCP RBAC & Rate-Limiting
+
+Alle mutierenden MCP-Tools (insbesondere `needs.*`, `adr.*`, `risk.*`, `issue.*`, `glossary.*`) MÜSSEN am Tool-Eingang oder durch Delegation an den ApplicationService einen RBAC-Check (Role-Based Access Control) durchführen.
+Zusätzlich MUSS das MCP-System Rate-Limiting pro API-Key und eine strikte CORS-Allowlist durchsetzen (kein blindes Spiegeln des Origin-Headers).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-03, P-13, P-15.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-096, REQ-L1-099
+
+---
+
+### REQ-L2-MC-019: MCP Protocol Compliance & Schemas
+
+Das MCP-System MUSS fehlerhafte Requests, die kein Auth-Problem darstellen (Parse Error), mit HTTP 400 (statt 401) beantworten. JSON-RPC-Fehler MÜSSEN als Integer-`code` formatiert sein. Alle Tools (insbesondere GenericCrud) MÜSSEN strikte JSON-Input-Schemas besitzen. Parameternamen (z.B. `id` vs. `requirement_id`) MÜSSEN zwischen Schema und Handler konsistent sein.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-05, P-06, P-08, P-10.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-005
+
+---
+
+### REQ-L2-MC-020: MCP Performance & Concurrency
+
+Das MCP-System MUSS Thread-Pools in Transport-Views (z.B. `McpMessagesView`) explizit limitieren. Such-Tools wie `artifact.search` MÜSSEN ein maximales Fetch-Limit erzwingen. Listen-Filter (wie `admin.backup_list`) MÜSSEN datenbankseitig operieren, nicht in-memory. Race-Conditions via TOCTOU (z.B. bei `user.create`) MÜSSEN durch DB-Level-Constraints oder atomare Operationen verhindert werden. Preset-Caches MÜSSEN über Redis laufen (nicht prozesslokal).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-07, P-09, P-11, P-12, P-14.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-097, REQ-L1-099
+
+---
+
+### REQ-L2-MC-021: MCP Audit Logging für Needs
+
+Mutierende Tools für StakeholderNeeds (`needs.create`, `needs.update`) MÜSSEN einen AuditLog-Eintrag generieren.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-04.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-005
+
+---
+
 *Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-04*

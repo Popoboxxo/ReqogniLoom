@@ -96,4 +96,16 @@ Der AuthEnforcer SHALL die Tenant-ID aus dem validierten `AuthContext` extrahier
 
 ---
 
+### REQ-L3-RA003-004: AuthEnforcer Admin Permissions & Tenant Scoping (A-01)
+
+Der AuthEnforcer MUSS sicherstellen, dass Admin-Actions keine globalen Defaults übernehmen, sondern explizite `permission_classes` definieren. Tenant-Scoping MUSS in jedem Request durch den Authenticator sichergestellt werden (Defense in Depth für IDORs wie bei ApiKeyViewSet).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-01.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-RA-024
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

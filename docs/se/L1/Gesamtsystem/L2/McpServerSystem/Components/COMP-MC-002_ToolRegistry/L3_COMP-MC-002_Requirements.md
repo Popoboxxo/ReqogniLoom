@@ -126,4 +126,28 @@ Die ToolRegistry SHALL jeden validierten und autorisierten `execute_tool`-Aufruf
 
 ---
 
+### REQ-L3-MC002-005: MCP Protocol Compliance & Schemas (P-06, P-08, P-10)
+
+Die ToolRegistry MUSS sicherstellen, dass JSON-RPC-Fehler als Integer-`code` formatiert sind. Alle Tools MÜSSEN strikte JSON-Input-Schemas besitzen, und Parameternamen (z.B. `id` vs. `requirement_id`) MÜSSEN zwischen Schema und Handler konsistent sein.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-06, P-08, P-10.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-MC-019
+
+---
+
+### REQ-L3-MC002-006: MCP Performance & Concurrency (P-07, P-09, P-11, P-12, P-14)
+
+Die ToolRegistry MUSS Thread-Pools in Transport-Views explizit limitieren. Such-Tools MÜSSEN ein maximales Fetch-Limit erzwingen, und Listen-Filter MÜSSEN datenbankseitig operieren. Race-Conditions via TOCTOU MÜSSEN verhindert werden, und Preset-Caches MÜSSEN über Redis laufen.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-07, P-09, P-11, P-12, P-14.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-MC-020
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

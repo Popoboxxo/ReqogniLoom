@@ -94,4 +94,16 @@ Die SchemaMigrationEngine MUSS in der CI-Pipeline einen automatisierten Gate-Che
 ---
 
 ---
+
+### REQ-L3-PL004-004: Migrations & Constraint-Safety (M-02, M-08)
+
+Die SchemaMigrationEngine MUSS nicht gepushte oder unvollständige Migrationen vor dem Merge im CI blockieren (`makemigrations --check`). Datenmigrationen MÜSSEN in eigenen Dateien getrennt von Schema-Migrationen liegen (`RunPython` isoliert).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von M-02, M-08.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-PL-024
+
+---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

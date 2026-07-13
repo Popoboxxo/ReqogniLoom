@@ -243,6 +243,20 @@ Der PresetPolicyService SHALL bei Policy-Violations Fehler mit strukturierter Na
 
 ---
 
+---
+
+### REQ-L3-PPL-009: PresetPolicy Tenant Scope & Defaults (S-09, S-19)
+
+Der PresetPolicyService MUSS bei `validate_transition_roles()` auf `workspace_id` anstatt auf `tenant_id` filtern. Fehlende Policies (z.B. bei `get_policy("scope_allowed")`) MÜSSEN einen definierten Default liefern oder explizit validiert werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-09, S-19.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-AS-041
+
+---
+
 ## Traceability-Matrix: REQ-L3-PPL → REQ-L2
 
 | REQ-L3 | Primäre REQ-L2 |

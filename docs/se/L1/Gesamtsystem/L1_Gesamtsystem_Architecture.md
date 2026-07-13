@@ -768,6 +768,31 @@ Die konsolidierte Schnittstellen-Registry liegt in `docs/se/interface-registry.m
 *Rationale:* Operation-Level erfüllt die Audit-Anforderungen von v1 (audit-ready, nicht zertifiziert). Feld-Level erfordert Diff-Berechnung und größeren Storage-Footprint — sinnvoll bei IEC-61508-Erweiterung (v2). *Verworfene Alternative:* Sofort Feld-Level — abgelehnt wegen Aufwand-Nutzen-Verhältnis in v1.
 *Quelle:* KONZEPT.md 11.2 (Bullet "Audit-Log-Granularität"), REQ-L1-011.
 
+**ADR-11 — Einheitliche Löschsemantik (Hard vs. Soft Delete)**
+*Entscheidung:* Projektweiter Standard ist Soft-Delete mit Cascade-Regeln. Exporte und API-Queries filtern gelöschte Entitäten standardmäßig aus.
+*Rationale:* Verhindert inkonsistente Zustände (verwaiste TraceLinks, Datenlecks im Export). Hartes Löschen ist nur auf DB-Admin-Ebene oder via DSGVO-Spezialprozess zulässig.
+*Quelle:* SYSTEM_AUDIT (X-01, S-07, S-16, S-17), REQ-L1-098.
+
+**ADR-12 — Zentralisierter In-Memory-Cache (Multi-Process fähig)**
+*Entscheidung:* Der Einsatz lokaler In-Memory-Caches (z. B. für Preset-Policies) ist in Produktionsumgebungen mit Celery/Gunicorn untersagt. Caching erfolgt zentralisiert über Redis.
+*Rationale:* Verhindert Zustand-Inkonsistenzen zwischen parallel laufenden API-Workern und Hintergrund-Tasks.
+*Quelle:* SYSTEM_AUDIT (X-02, S-15, P-12).
+
+**ADR-13 — Resiliente externe Calls (LLM-Provider)**
+*Entscheidung:* Aufrufe an LLM-Provider oder Webhooks müssen in asynchrone Tasks (z. B. Celery) ausgelagert und durch Timeout- sowie Circuit-Breaker-Mechanismen geschützt werden.
+*Rationale:* Verhindert das Blockieren von synchronen Request-Pfaden durch langsame externe Systeme. Silent Fallbacks müssen mit WARNING geloggt werden.
+*Quelle:* SYSTEM_AUDIT (X-03, S-11, S-12).
+
+**ADR-14 — Globales Rate-Limiting**
+*Entscheidung:* Rate-Limiting wird pro API-Key und User global für REST- und MCP-Schnittstellen durchgesetzt.
+*Rationale:* Verhindert Denial-of-Service (DoS) und Ressourcenerschöpfung durch fehlerhafte Skripte oder Agenten.
+*Quelle:* SYSTEM_AUDIT (X-04, P-15).
+
+**ADR-15 — Service-Layer als Autorisierungs-Gate**
+*Entscheidung:* Rollen-, Tenant- und Permission-Checks müssen unmittelbar am Eingang der `ApplicationService`-Schicht erfolgen, unabhängig vom aufrufenden Protokoll (REST oder MCP).
+*Rationale:* Gewährleistet Defense-in-Depth und verhindert, dass lückenhafte Protokoll-Adapter zu Sicherheitsproblemen führen.
+*Quelle:* SYSTEM_AUDIT (X-05, S-03, P-03, A-01).
+
 ---
 
 ## 7. Traceability (L1)

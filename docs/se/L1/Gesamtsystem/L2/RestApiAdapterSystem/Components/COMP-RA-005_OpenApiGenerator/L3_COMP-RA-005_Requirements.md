@@ -95,4 +95,16 @@ Der OpenApiGenerator SHALL eine OpenAPI-Spezifikation erzeugen, aus der ein Open
 
 ---
 
+### REQ-L3-RA005-004: OpenAPI Spec Konsistenz & Fehlerformate (A-05, A-07, A-08, A-11, A-12, A-14, A-15)
+
+Der OpenApiGenerator MUSS sicherstellen, dass Custom-Actions mit `@extend_schema` dokumentiert sind. Fehlerformate (wie z.B. in `ApiKeyViewSet`) MÜSSEN zwingend die standardisierte `build_error_response()`-Funktion nutzen. Stubs (wie `TraceLinkViewSet.retrieve`) MÜSSEN implementiert oder aus der Spec entfernt werden. Status-Codes (wie 405 statt 403 für immutable Ressourcen) MÜSSEN projektweit konsistent sein. Fehlende Lookup-Keys (bei `needs`) MÜSSEN sicher abgefangen werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von A-05, A-07, A-08, A-11, A-12, A-14, A-15.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-RA-027
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

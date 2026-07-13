@@ -375,6 +375,71 @@ Empfohlene Implementierung: `django-db-geventpool` oder `pgbouncer` (technologie
 
 
 
+---
+
+## Erweiterung v3 — System Audit Data Integrity & Performance (M-01 bis M-12)
+
+> **Datum:** 2026-07-13 | **Quelle:** SYSTEM_AUDIT.md
+
+---
+
+### REQ-L2-PL-012: Vollständige Tenant-Isolation
+
+Das PersistenceLayer MUSS die `TenantScopedModel`-Vererbung oder einen expliziten Tenant-FK für alle Applikationsmodelle erzwingen, die mandantenbezogene Daten speichern. Dies umfasst explizit die Modelle `Adr`, `Risk`, `Issue` (App `icd`), die Event-Modelle `DomainEvent`, `DomainEventOutbox`, `DomainEventDLQ`, `WebhookSubscription`, sowie die Metrik-Modelle `MetricCache` und `WorkspaceThresholdConfig`. Datenlecks zwischen Tenants MÜSSEN durch diese strukturelle Isolation ausgeschlossen werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von M-01.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-098
+
+---
+
+### REQ-L2-PL-013: Datenbank-Migrationen & Konsistenz
+
+Das PersistenceLayer MUSS sicherstellen, dass alle Datenbank-Migrationen konsistent in der Versionskontrolle verfolgt werden (Behebung von Migration 0029). Die Verwendung von `unique_together` MUSS durch das moderne `UniqueConstraint` in der Meta-Klasse ersetzt werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von M-02, M-08.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-098
+
+---
+
+### REQ-L2-PL-014: Datenbank-Performance & Indizes
+
+Das PersistenceLayer MUSS geeignete Indizes bereitstellen, um schnelle Lookups und referenzielle Rückwärts-Suchen zu ermöglichen:
+- `db_index=True` oder zusammengesetzte Indizes auf `(tenant, uid)` für `Requirement`, `StakeholderNeed`, `ArchitectureElement`.
+- Ein Index auf der Zielspalte (`target`) von `TraceLink`.
+- Ein Index auf `(status, created_at)` für die `DomainEventDLQ`.
+- Die N+1-Level-Ableitung in `ArchitectureElement.get_level()` MUSS durch Materialisierung (z.B. Pfad-Cache oder denormalisiertes Feld) performant gelöst werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von M-03, M-04, M-10, M-11.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-099
+
+---
+
+### REQ-L2-PL-015: Modell-Konsolidierung & Typisierung
+
+Das PersistenceLayer MUSS redundante Datenstrukturen konsolidieren:
+- Die parallelen Audit-Logs (`persistence.AuditLogEntry` und `audit.AuditEntry`) MÜSSEN auf eine einzige Wahrheit (`audit.AuditEntry`) migriert werden.
+- Die Legacy-Workflow-Status-Tabellen MÜSSEN in die aktuelle State-Machine migriert und gelöscht werden.
+- Die `AttributeVisibilityConfig` MUSS normalisiert werden, um Feldduplizierungen zu vermeiden.
+- CSV-String-Antipatterns (wie `WebhookSubscription.event_types`) MÜSSEN in relationale Formate (z.B. Postgres `ArrayField` oder Join-Tabelle) überführt werden.
+- Alle Modelle, insbesondere `GlossaryTermVersion`, MÜSSEN eine lesbare `__str__`-Repräsentation definieren.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von M-05, M-06, M-07, M-09, M-12.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L1-098
+
+---
+
 ## Master Traceability Matrix
 
 | REQ-L2 | Abgeleitet von REQ-L1 |

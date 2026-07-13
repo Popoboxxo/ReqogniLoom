@@ -2450,6 +2450,58 @@ The system MUST render the unified ArtifactInspector (REQ-L1-089) on the detail 
 **Traceability:** REQ-L0-062, REQ-L0-017 (ICDs), REQ-L0-018 (ADRs/Risks/Issues), REQ-L0-042 (Ontology variety)
 **Derived L2:** REQ-L2-RF-034..037 (each panel is the unit of adoption)
 
+### REQ-L1-096: API Security & Secret Management
+
+Das System muss sicherstellen, dass API-Keys und Secrets niemals im Klartext geloggt werden und nicht über URL-Parameter (wie bei SSE) übertragen werden. Mutierende Zugriffe (inkl. MCP-Tools und REST-Endpoints) müssen strikte RBAC- und Ownership-Checks aufweisen.
+
+**Rationale:** Vermeidung von Secret-Leaks und unautorisierten Zugriffen.
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet aus SYSTEM_AUDIT.md (P-01, P-02, P-03, A-01, S-03).
+**Test Status:** Untested
+**Domain:** security
+**Priorität:** mandatory
+
+---
+
+### REQ-L1-097: Transactional Integrity & Concurrency
+
+Das System muss kritische Hintergrundverarbeitungen, insbesondere den Event-Bus und Dead-Letter-Queues, durch atomare Transaktionsklammern und Row-Locks (z. B. `select_for_update`) absichern.
+
+**Rationale:** Vermeidung von Race-Conditions und Datenverlusten bei parallelen Workern.
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet aus SYSTEM_AUDIT.md (S-01, S-02, P-07).
+**Test Status:** Untested
+**Domain:** software
+**Priorität:** mandatory
+
+---
+
+### REQ-L1-098: Data Integrity & Tenant Isolation
+
+Das System muss über alle Persistenzmodelle hinweg durchgehende Tenant-Isolation erzwingen (Row-Level-Security). Die Nutzung dynamischer DDL-Befehle (wie das Abschalten von DB-Triggern) in Request-Handlern ist untersagt.
+
+**Rationale:** Gewährleistung der Mandanten-Trennung und Verhinderung von Seiteneffekten durch Request-getriebene DDLs.
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet aus SYSTEM_AUDIT.md (M-01, A-03).
+**Test Status:** Untested
+**Domain:** architecture
+**Priorität:** mandatory
+
+---
+
+### REQ-L1-099: System Performance & Constraints
+
+Das System muss alle Listen- und Such-Endpoints gegen Ressourcenerschöpfung absichern. Dies beinhaltet das Erzwingen von Max-Limits für Rückgabemengen, Datenbank-seitige Pagination und N+1-Query-Optimierungen durch konsequentes Prefetching.
+
+**Rationale:** Prävention von Denial-of-Service und Sicherstellung gleichbleibender Latenz bei wachsenden Datenmengen.
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet aus SYSTEM_AUDIT.md (A-04, P-09, P-11, M-03).
+**Test Status:** Untested
+**Domain:** performance
+**Priorität:** mandatory
+
+---
+
 ## Master Traceability Matrix
 
 | REQ-L1 | Abgeleitet von REQ-L0 |

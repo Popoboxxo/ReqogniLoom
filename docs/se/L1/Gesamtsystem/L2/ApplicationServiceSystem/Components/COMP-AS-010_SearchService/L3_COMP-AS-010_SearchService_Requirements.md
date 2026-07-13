@@ -246,6 +246,20 @@ Der SearchService SHALL Suchen über bis zu 10.000 Entitäten in ≤500ms abschl
 
 ---
 
+---
+
+### REQ-L3-SEARCH-010: Boolean Parse & Paginated Search Limits (S-14, S-18)
+
+Der SearchService MUSS komplexe Suchanfragen mit Booleschen Operatoren (AND, OR, NOT) sicher parsen können. Die maximale Fetch-Limit-Beschränkung (z.B. max. 1000 Ergebnisse pro Anfrage) MUSS enforced werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-14, S-18.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-AS-045
+
+---
+
 ### REQ-L3-SEARCH-009: Fehlerbehandlung
 
 Bei Suche-Fehlern (z.B. ungültige tsquery, Datenbank-Timeout) SHALL der SearchService:

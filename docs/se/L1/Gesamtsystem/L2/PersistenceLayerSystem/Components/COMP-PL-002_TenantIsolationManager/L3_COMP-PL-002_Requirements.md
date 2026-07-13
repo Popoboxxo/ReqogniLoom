@@ -92,4 +92,16 @@ Der TenantIsolationManager MUSS sicherstellen, dass `TenantQuerySet` auch bei Ch
 ---
 
 ---
+
+### REQ-L3-PL002-004: Tenant-Isolation Enforcement (M-01)
+
+Der TenantIsolationManager MUSS durchgehend eine Multi-Tenant Base-Class erzwingen, die sicherstellt, dass ohne explizite Tenant-ID keine Query abgesetzt werden kann. Cross-Tenant Leakage MUSS durch harte DB-RLS (Row Level Security) oder ein striktes Manager-Pattern (`get_queryset(tenant_id)`) auf unterster Ebene verhindert werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von M-01.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-PL-023
+
+---
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

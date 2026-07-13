@@ -101,4 +101,16 @@ Der TraceLinkService SHALL eine Query-Methode bereitstellen, die alle TraceLinks
 
 ---
 
+### REQ-L3-AS005-004: TraceLink Konsistenz & Coverage (S-05, S-08, S-13)
+
+Der TraceLinkService MUSS die Suspect-Markierung bidirektional entlang der semantischen Link-Beziehung propagieren. Exception-Remapping MUSS über typisierte Exceptions erfolgen (kein String-Matching). Die Coverage-Berechnung MUSS N+1-Query-optimiert sein.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von S-05, S-08, S-13.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-AS-042, REQ-L2-AS-044
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*

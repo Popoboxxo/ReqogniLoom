@@ -101,4 +101,28 @@ Die RequirementsToolGroup SHALL fuer jede schreibende Operation (create, update,
 
 ---
 
+### REQ-L3-MC003-004: MCP RBAC Enforcement (P-03)
+
+Die RequirementsToolGroup MUSS am Tool-Eingang einen strikten RBAC-Check (Role-Based Access Control) durchführen, bevor mutierende Operationen ausgeführt werden.
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-03.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-MC-018
+
+---
+
+### REQ-L3-MC003-005: MCP Audit Logging für StakeholderNeeds (P-04)
+
+Mutierende Tools für StakeholderNeeds (`needs.create`, `needs.update`) MÜSSEN einen AuditLog-Eintrag generieren. (Falls StakeholderNeeds hier verwaltet werden).
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet von P-04.
+**Test Status:** Untested
+**Priority:** mandatory
+**Abgeleitet von:** REQ-L2-MC-021
+
+---
+
 *Erstellt durch se-requirements-Agent (L3-Component) | ReqFlow SE-Kaskade | 2026-06-21*
