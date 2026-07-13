@@ -5,7 +5,7 @@ export const attributeVisibilityApi = {
   /** Get all attribute visibility configs for the tenant */
   list: async (): Promise<AttributeVisibilityConfig[]> => {
     return apiClient.get<AttributeVisibilityConfig[]>(
-      `/api/v1/attribute-visibility-configs/`
+      `/attribute-visibility-configs/`
     );
   },
 
@@ -14,7 +14,7 @@ export const attributeVisibilityApi = {
     configs: AttributeVisibilityConfig[]
   ): Promise<AttributeVisibilityConfig[]> => {
     return apiClient.post<AttributeVisibilityConfig[]>(
-      `/api/v1/attribute-visibility-configs/bulk_update/`,
+      `/attribute-visibility-configs/bulk_update/`,
       configs
     );
   },
