@@ -13,10 +13,12 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { testRunsApi } from "../../api/test-runs";
+import { testcasesApi } from "../../api/testcases";
+import type { TestCase } from "../../api/testcases";
 import { SplitView } from "../SplitView/SplitView";
 import { VersionBadge } from "../shared/VersionBadge";
 import { getStatusBadgeStyle } from "../../utils/statusBadge";
-import type { TestRun } from "../../types";
+import type { TestRun, TestRunResult } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Status badge helpers
@@ -62,6 +64,36 @@ function TestRunDetailEditor({
   const [confirmClose, setConfirmClose] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
   const [closeSuccess, setCloseSuccess] = useState(false);
+  const [results, setResults] = useState<TestRunResult[]>([]);
+  const [resultsLoading, setResultsLoading] = useState(true);
+  const [resultsError, setResultsError] = useState<string | null>(null);
+
+  // Load the per-TestCase results belonging to this run (C5): the assigned
+  // test cases are otherwise invisible inside a TestRun's detail view.
+  useEffect(() => {
+    let cancelled = false;
+    setResultsLoading(true);
+    setResultsError(null);
+    testRunsApi
+      .listResults(testRun.id)
+      .then((items) => {
+        if (!cancelled) setResults(items);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to load test run results:", err);
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          t("testRuns.resultsLoadFailed", "Testfälle konnten nicht geladen werden.");
+        setResultsError(msg);
+      })
+      .finally(() => {
+        if (!cancelled) setResultsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [testRun.id, t]);
 
   const handleClose = async (): Promise<void> => {
     setIsClosing(true);
@@ -270,6 +302,65 @@ function TestRunDetailEditor({
         )}
       </div>
 
+      {/* Test cases (C5, REQ-012) */}
+      <div style={{ marginBottom: "var(--space-6)" }}>
+        <h3
+          style={{
+            fontSize: "var(--font-size-lg)",
+            fontWeight: 700,
+            color: "var(--color-text)",
+            margin: 0,
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          {t("testRuns.testCases", "Testfälle")}
+        </h3>
+        {resultsLoading ? (
+          <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+            {t("testRuns.resultsLoading", "Lade Testfälle...")}
+          </p>
+        ) : resultsError ? (
+          <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}>
+            {resultsError}
+          </p>
+        ) : results.length === 0 ? (
+          <p
+            data-testid="testrun-results-empty"
+            style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}
+          >
+            {t("testRuns.resultsEmpty", "Diesem Testlauf sind keine Testfälle zugewiesen.")}
+          </p>
+        ) : (
+          <ul
+            data-testid="testrun-results-list"
+            style={{ listStyle: "none", padding: 0, margin: 0 }}
+          >
+            {results.map((result) => (
+              <li
+                key={result.id}
+                data-testid={`testrun-result-${result.id}`}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-2) var(--space-3)",
+                  marginBottom: "var(--space-2)",
+                  background: "var(--color-surface-raised)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                }}
+              >
+                <span style={{ color: "var(--color-text)" }}>
+                  {result.test_case_title || result.test_case_id}
+                </span>
+                <StatusBadge status={result.status} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Close success */}
       {closeSuccess && (
         <p
@@ -408,6 +499,10 @@ export function TestRunsList(): JSX.Element {
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [testCaseOptions, setTestCaseOptions] = useState<TestCase[]>([]);
+  const [testCaseOptionsLoading, setTestCaseOptionsLoading] = useState(false);
+  const [testCaseOptionsError, setTestCaseOptionsError] = useState<string | null>(null);
+  const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
   // `silent=true` refreshes the list in the background without flipping the
   // full-page isLoading flag — used after closing a run so the detail panel
   // (and its success/error feedback) stays mounted instead of being replaced
@@ -456,6 +551,34 @@ export function TestRunsList(): JSX.Element {
   const resetCreateForm = (): void => {
     setNewName("");
     setCreateError(null);
+    setSelectedTestCaseIds([]);
+  };
+
+  // Load the workspace's test cases when the create form opens so they can
+  // be assigned to the new run right away (C4) — avoids a second trip via
+  // addResult after creation.
+  useEffect(() => {
+    if (!showCreateForm || !activeWorkspace) return;
+    setTestCaseOptionsLoading(true);
+    setTestCaseOptionsError(null);
+    testcasesApi
+      .list(activeWorkspace.id)
+      .then((resp) => setTestCaseOptions(resp.results))
+      .catch((err) => {
+        console.error("Failed to load test cases:", err);
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          t("testRuns.testCaseOptionsLoadFailed", "Testfälle konnten nicht geladen werden.");
+        setTestCaseOptionsError(msg);
+      })
+      .finally(() => setTestCaseOptionsLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCreateForm, activeWorkspace]);
+
+  const toggleTestCaseSelection = (id: string): void => {
+    setSelectedTestCaseIds((prev) =>
+      prev.includes(id) ? prev.filter((tcId) => tcId !== id) : [...prev, id],
+    );
   };
 
   const handleCreate = async (
@@ -473,6 +596,9 @@ export function TestRunsList(): JSX.Element {
       await testRunsApi.create({
         workspace_id: activeWorkspace.id,
         name: newName.trim(),
+        ...(selectedTestCaseIds.length > 0
+          ? { test_case_ids: selectedTestCaseIds }
+          : {}),
       });
       resetCreateForm();
       setShowCreateForm(false);
@@ -590,6 +716,90 @@ export function TestRunsList(): JSX.Element {
                 boxSizing: "border-box",
               }}
             />
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "var(--font-size-sm)",
+                  fontWeight: 600,
+                  color: "var(--color-text)",
+                  marginBottom: "var(--space-1)",
+                }}
+              >
+                {t("testRuns.selectTestCases", "Testfälle auswählen")}
+              </label>
+              {testCaseOptionsLoading ? (
+                <p
+                  style={{
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--color-text-muted)",
+                    margin: 0,
+                  }}
+                >
+                  {t("testRuns.testCaseOptionsLoading", "Lade Testfälle...")}
+                </p>
+              ) : testCaseOptionsError ? (
+                <p
+                  role="alert"
+                  style={{
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--color-danger)",
+                    margin: 0,
+                  }}
+                >
+                  {testCaseOptionsError}
+                </p>
+              ) : testCaseOptions.length === 0 ? (
+                <p
+                  data-testid="testrun-create-testcases-empty"
+                  style={{
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--color-text-muted)",
+                    margin: 0,
+                  }}
+                >
+                  {t("testRuns.noTestCases", "Keine Testfälle im Workspace vorhanden")}
+                </p>
+              ) : (
+                <div
+                  data-testid="testrun-create-testcases-list"
+                  style={{
+                    maxHeight: "160px",
+                    overflowY: "auto",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-2)",
+                    background: "var(--color-surface)",
+                  }}
+                >
+                  {testCaseOptions.map((tc) => (
+                    <label
+                      key={tc.id}
+                      htmlFor={`testrun-create-testcase-${tc.id}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "var(--space-2)",
+                        padding: "var(--space-1) 0",
+                        fontSize: "var(--font-size-sm)",
+                        color: "var(--color-text)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        id={`testrun-create-testcase-${tc.id}`}
+                        data-testid={`testrun-create-testcase-${tc.id}`}
+                        type="checkbox"
+                        checked={selectedTestCaseIds.includes(tc.id)}
+                        onChange={() => toggleTestCaseSelection(tc.id)}
+                        disabled={isCreating}
+                      />
+                      {tc.title}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
             {createError && (
               <p
                 role="alert"

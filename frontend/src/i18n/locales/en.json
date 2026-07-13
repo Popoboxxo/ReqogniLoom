@@ -263,6 +263,9 @@
     "definition": "Definition",
     "definitionRequired": "Definition is required.",
     "synonyms": "Synonyms (comma separated)",
+    "synonymsLabel": "Synonyms",
+    "linkSynonym": "Link to existing entry",
+    "synonymLinkedTooltip": "Go to linked entry",
     "global": "Global",
     "all": "All",
     "workspace": "Workspace",
@@ -385,7 +388,15 @@
     "finishedAt": "Finished",
     "loadFailed": "Test runs could not be loaded.",
     "detailLoadFailed": "Test run could not be loaded.",
-    "selectPrompt": "Select a test run to view details"
+    "selectPrompt": "Select a test run to view details",
+    "testCases": "Test Cases",
+    "resultsLoading": "Loading test cases...",
+    "resultsLoadFailed": "Test cases could not be loaded.",
+    "resultsEmpty": "No test cases are assigned to this test run.",
+    "selectTestCases": "Select test cases",
+    "testCaseOptionsLoading": "Loading test cases...",
+    "testCaseOptionsLoadFailed": "Test cases could not be loaded.",
+    "noTestCases": "No test cases available in this workspace"
   },
   "import": {
     "title": "CSV Import",

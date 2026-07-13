@@ -16,9 +16,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TestRunsList } from "./TestRunsList";
 import * as testRunsModule from "../../api/test-runs";
+import * as testcasesModule from "../../api/testcases";
 import * as workspaceContext from "../../context/WorkspaceContext";
 
 vi.mock("../../api/test-runs");
+vi.mock("../../api/testcases");
 vi.mock("../../context/WorkspaceContext");
 // Stable t reference — a fresh t per render would re-trigger the
 // useCallback([activeWorkspace, t]) load effect in an endless loop.
@@ -58,6 +60,14 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     } as any);
     vi.mocked(testRunsModule.testRunsApi.list).mockResolvedValue({
       results: mockTestRuns,
+    } as any);
+    // Detail panel now loads per-run results (C5) — default to an empty
+    // list so tests that don't care about results don't have to mock it.
+    vi.mocked(testRunsModule.testRunsApi.listResults).mockResolvedValue([]);
+    // Create form now loads assignable test cases (C4) — default to an
+    // empty list for tests that don't exercise the selection UI.
+    vi.mocked(testcasesModule.testcasesApi.list).mockResolvedValue({
+      results: [],
     } as any);
   });
 
@@ -248,6 +258,153 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
       });
       // Status unchanged → Close Run action is offered again.
       expect(screen.getByTestId("testrun-close-btn")).toBeInTheDocument();
+    });
+  });
+
+  describe("test cases assigned to a run (C5)", () => {
+    const detailRun = {
+      id: "tr-1",
+      workspace_id: "ws-123",
+      name: "Sprint 1 QA Run",
+      status: "in_progress",
+      ci_job_id: "",
+      started_at: null,
+      finished_at: null,
+      result_summary: { total: 0, passed: 0, failed: 0, not_run: 0 },
+      version: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+
+    beforeEach(() => {
+      vi.mocked(testRunsModule.testRunsApi.get).mockResolvedValue(
+        detailRun as any
+      );
+    });
+
+    it("shows the test cases (results) assigned to the run", async () => {
+      vi.mocked(testRunsModule.testRunsApi.listResults).mockResolvedValue([
+        {
+          id: "res-1",
+          test_run_id: "tr-1",
+          test_case_id: "tc-1",
+          test_case_title: "Login works",
+          status: "passed",
+          message: "",
+          duration_ms: null,
+          executed_at: null,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+        {
+          id: "res-2",
+          test_run_id: "tr-1",
+          test_case_id: "tc-2",
+          test_case_title: "Logout works",
+          status: "failed",
+          message: "",
+          duration_ms: null,
+          executed_at: null,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ] as any);
+      const user = userEvent.setup();
+      render(<TestRunsList />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-item-tr-1"));
+
+      await waitFor(() => {
+        expect(testRunsModule.testRunsApi.listResults).toHaveBeenCalledWith(
+          "tr-1"
+        );
+        expect(screen.getByTestId("testrun-results-list")).toBeInTheDocument();
+      });
+      expect(screen.getByText("Login works")).toBeInTheDocument();
+      expect(screen.getByText("Logout works")).toBeInTheDocument();
+    });
+
+    it("shows an empty state when no test cases are assigned", async () => {
+      vi.mocked(testRunsModule.testRunsApi.listResults).mockResolvedValue([]);
+      const user = userEvent.setup();
+      render(<TestRunsList />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-item-tr-1"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-results-empty")).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("assigning test cases when creating a run (C4)", () => {
+    const testCases = [
+      { id: "tc-1", workspace_id: "ws-123", title: "Login works", description: "", status: "active", version: 1, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+      { id: "tc-2", workspace_id: "ws-123", title: "Logout works", description: "", status: "active", version: 1, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+    ];
+
+    it("loads and lists assignable test cases when the create form opens", async () => {
+      vi.mocked(testcasesModule.testcasesApi.list).mockResolvedValue({
+        results: testCases,
+      } as any);
+      const user = userEvent.setup();
+      render(<TestRunsList />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-create-btn")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-create-btn"));
+
+      await waitFor(() => {
+        expect(testcasesModule.testcasesApi.list).toHaveBeenCalledWith(
+          "ws-123"
+        );
+        expect(
+          screen.getByTestId("testrun-create-testcases-list")
+        ).toBeInTheDocument();
+      });
+      expect(screen.getByText("Login works")).toBeInTheDocument();
+      expect(screen.getByText("Logout works")).toBeInTheDocument();
+    });
+
+    it("sends the selected test_case_ids when creating a run", async () => {
+      vi.mocked(testcasesModule.testcasesApi.list).mockResolvedValue({
+        results: testCases,
+      } as any);
+      vi.mocked(testRunsModule.testRunsApi.create).mockResolvedValue({
+        id: "tr-3",
+      } as any);
+      const user = userEvent.setup();
+      render(<TestRunsList />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("testrun-create-btn")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-create-btn"));
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("testrun-create-testcase-tc-1")
+        ).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("testrun-create-testcase-tc-1"));
+      await user.type(
+        screen.getByTestId("testrun-name-input"),
+        "New test run"
+      );
+      await user.click(screen.getByTestId("testrun-create-submit-btn"));
+
+      await waitFor(() => {
+        expect(testRunsModule.testRunsApi.create).toHaveBeenCalledWith({
+          workspace_id: "ws-123",
+          name: "New test run",
+          test_case_ids: ["tc-1"],
+        });
+      });
     });
   });
 });
