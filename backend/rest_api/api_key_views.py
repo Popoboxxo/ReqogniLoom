@@ -168,7 +168,7 @@ class ApiKeyViewSet(ViewSet):
             )
 
         try:
-            self._authn.revoke_api_key(api_key_id=key_uuid)
+            self._authn.revoke_api_key(api_key_id=key_uuid, user_id=UUID(user_id))
         except Exception:
             return Response(
                 {"error": "NOT_FOUND", "message": "Key not found."},

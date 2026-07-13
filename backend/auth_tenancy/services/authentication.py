@@ -237,14 +237,21 @@ class AuthenticationService:
             for k in keys
         ]
 
-    def revoke_api_key(self, *, api_key_id: UUID) -> None:
+    def revoke_api_key(self, *, api_key_id: UUID, user_id: UUID | None = None) -> None:
         """Revoke a key; effective immediately for subsequent requests.
 
+        Args:
+            api_key_id: UUID of the key to revoke.
+            user_id: Optional owner user ID; if provided, validates ownership.
+
         Raises:
-            AuthenticationFailed: ``invalid_api_key`` if the key does not exist.
+            AuthenticationFailed: ``invalid_api_key`` if the key does not exist,
+                if user_id is provided and does not match the key's owner.
         """
         api_key = ApiKey.unscoped.filter(id=api_key_id).first()
         if api_key is None:
+            raise AuthenticationFailed("invalid_api_key")
+        if user_id is not None and api_key.user_id != user_id:
             raise AuthenticationFailed("invalid_api_key")
         if api_key.revoked_at is None:
             api_key.revoked_at = datetime.now(timezone.utc)
