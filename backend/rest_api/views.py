@@ -2562,7 +2562,7 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         "ai_prompts": getattr(ws, "ai_prompts", {}),
         "decomposition_link_type": getattr(ws, "decomposition_link_type", "parent-child"),
         "terminology_profile": terminology_profile,
-        "language": "en",
+        "language": (ws.preset or {}).get("language", "de"),  # REQ-013: language stored in preset blob
         "is_active": getattr(ws, "is_active", True),
         "closed_at": ws.closed_at.isoformat() if getattr(ws, "closed_at", None) else None,
         "closed_by": str(ws.closed_by_id) if getattr(ws, "closed_by_id", None) else None,
