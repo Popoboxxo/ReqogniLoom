@@ -55,10 +55,7 @@ def _extract_django_headers(request: HttpRequest) -> dict:
     api_key_query = request.GET.get("api_key")
     if api_key_query and not headers["HTTP_AUTHORIZATION"] and not headers["HTTP_X_API_KEY"]:
         headers["HTTP_X_API_KEY"] = api_key_query
-        
-    logger.error(f"DEBUG HEADERS META: {request.META.get('HTTP_AUTHORIZATION')} | {request.META.get('HTTP_X_API_KEY')}")
-    logger.error(f"DEBUG QUERY: {api_key_query}")
-    logger.error(f"DEBUG EXTRACTED: {headers}")
+
     return headers
 
 
