@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from application.base import NotFoundError, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.stakeholder_need_service import StakeholderNeedService
 
 pytestmark = pytest.mark.django_db
@@ -112,6 +112,70 @@ class TestCreateStakeholderNeed:
             )
 
             assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# REQ-022: RBAC gate at create() entrance (S-03)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateRBACGate:
+    """REQ-022 (S-03): RBAC gate prevents unauthorized creation."""
+
+    def test_create_raises_for_viewer_role(self):
+        """create() raises PermissionDeniedError when caller has 'viewer' role."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        # Simulate viewer — the only role that must be rejected.
+        ctx.active_roles = ("viewer",)
+
+        with pytest.raises(PermissionDeniedError):
+            svc.create(
+                ctx=ctx,
+                workspace_id=WS_ID,
+                title="Should not be created",
+            )
+
+    def test_create_succeeds_for_editor_role(self):
+        """create() proceeds past the RBAC gate when caller has 'editor' role."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        ctx.active_roles = ("editor",)
+
+        workspace = MagicMock()
+        workspace.id = WS_ID
+        workspace.tenant_id = TENANT_ID
+
+        with (
+            patch(
+                "application.stakeholder_need_service.Workspace.objects.get",
+                return_value=workspace,
+            ),
+            patch(
+                "application.stakeholder_need_service.Artifact.objects.create"
+            ) as mock_artifact_create,
+            patch(
+                "application.stakeholder_need_service.StakeholderNeed.objects.create"
+            ) as mock_need_create,
+        ):
+            artifact = MagicMock()
+            artifact.workspace_id = WS_ID
+            mock_artifact_create.return_value = artifact
+
+            need = MagicMock()
+            need.id = NEED_ID
+            need.title = "Editor Need"
+            need.artifact = artifact
+            need.version = 1
+            mock_need_create.return_value = need
+
+            result = svc.create(
+                ctx=ctx,
+                workspace_id=WS_ID,
+                title="Editor Need",
+            )
+
+        assert result is not None
 
 
 # ---------------------------------------------------------------------------

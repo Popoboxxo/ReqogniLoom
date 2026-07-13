@@ -87,6 +87,10 @@ class StakeholderNeedService(ServiceBase):
         moscow_priority: str | None = None,
         custom_fields: dict | None = None,
     ) -> StakeholderNeedDTO:
+        # REQ-022 (S-03): RBAC gate — must come before any domain logic.
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
         try:
             workspace = Workspace.objects.get(id=workspace_id, tenant_id=ctx.tenant_id)
         except Workspace.DoesNotExist:

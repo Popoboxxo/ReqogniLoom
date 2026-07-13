@@ -490,7 +490,7 @@ Die folgenden 7 KRITISCH-Findings wurden als REQ-IDs registriert. Der aktuelle U
 | A-01 | REQ-019 | ✅ Done | Ownership-Check in `ApiKeyViewSet.destroy` hinzugefügt. Commit `bda8b582`. |
 | S-01 | REQ-020 | ✅ Done | Per-Record `select_for_update(skip_locked=True)` + `transaction.atomic()` in `poll_and_dispatch()`. Kein doppelter Dispatch bei konkurrierenden Workern. Commit `5d702ef`. |
 | S-02 | REQ-021 | ✅ Done | DLQ-Move in `backend/application/event_bus.py::poll_and_dispatch()` jetzt in `transaction.atomic()` gekapselt. Commit `fbe8c201`. |
-| S-03 | REQ-022 | ❌ Offen | Permission-Check in `StakeholderNeedService.create()` fehlt noch. Kein Code-Diff gegen main. |
+| S-03 | REQ-022 | ✅ Done | `_set_tenant_context` + `_assert_write_permission` am Eingang von `create()` ergänzt. Viewer-Role wird mit `PermissionDeniedError` abgewiesen. Commit `PLACEHOLDER`. |
 | S-04 | REQ-023 | ❌ Offen | Clone-Hierarchie-Bug in `WorkspaceService.clone_workspace()` (`arch.id`-Problem) nicht behoben. Noch nicht umgesetzt. |
 
 ### Bekanntes Problem: Commit 9e215903
