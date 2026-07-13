@@ -131,11 +131,18 @@ class StakeholderNeedService(ServiceBase):
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 
     def list_by_workspace(
-        self, ctx: AuthContext, workspace_id: UUID | str
+        self, ctx: AuthContext, workspace_id: UUID | str, include_deleted: bool = False
     ) -> List[StakeholderNeedDTO]:
+        """Return StakeholderNeeds in workspace_id.
+
+        REQ-006: Excludes soft-deleted needs (lifecycle_status='deleted') by default.
+        Pass include_deleted=True for admin/audit access.
+        """
         needs = StakeholderNeed.objects.select_related("artifact").filter(
             tenant_id=ctx.tenant_id, artifact__workspace_id=workspace_id
         )
+        if not include_deleted:
+            needs = needs.exclude(lifecycle_status="deleted")
         return [StakeholderNeedDTO.from_orm(n) for n in needs]
 
     @atomic_transaction
@@ -207,6 +214,11 @@ class StakeholderNeedService(ServiceBase):
     def delete(
         self, ctx: AuthContext, need_id: UUID | str, change_reason: str = ""
     ) -> None:
+        """Soft-delete StakeholderNeed by setting lifecycle_status to 'deleted' (REQ-006).
+
+        Physical deletion intentionally avoided — Hard-delete available only via
+        Django admin.
+        """
         try:
             need = StakeholderNeed.objects.select_related("artifact__workspace").get(
                 id=need_id, tenant_id=ctx.tenant_id
@@ -220,8 +232,8 @@ class StakeholderNeedService(ServiceBase):
                     raise ValidationError("change_reason is required by preset policy.")
 
         workspace_id = need.artifact.workspace_id
-        # Artifact cascades to StakeholderNeed
-        need.artifact.delete()
+        need.lifecycle_status = "deleted"
+        need.save(update_fields=["lifecycle_status"])
 
         self._emit_event(
             self._make_event(

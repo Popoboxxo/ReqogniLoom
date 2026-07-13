@@ -352,9 +352,11 @@ class RequirementService(ServiceBase):
 
     @atomic_transaction
     def delete_requirement(self, requirement_id: UUID, ctx: AuthContext) -> None:
-        """Delete Requirement and cascade-delete its TraceLinks.
+        """Soft-delete Requirement by setting lifecycle_status to 'deleted' (REQ-006).
 
-        REQ-L2-AS-003: Requirement + all TraceLinks deleted atomically.
+        Physical deletion is intentionally avoided for end-user operations.
+        The Requirement and its TraceLinks remain in the database for audit
+        trail purposes. Hard-delete is available only via the Django admin panel.
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -366,14 +368,10 @@ class RequirementService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
 
         workspace_id = requirement.artifact.workspace_id
-        artifact_id = requirement.artifact_id
 
-        # IF-AS-INT-002 (cascade)
-        self._trace_link_service.cascade_delete_trace_links(
-            UUID(str(artifact_id)), ctx
-        )
-
-        requirement.delete()
+        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
+        requirement.lifecycle_status = "deleted"
+        requirement.save(update_fields=["lifecycle_status"])
 
         self._audit(ctx=ctx, operation="delete", entity_type="Requirement", entity_id=requirement_id)
         self._emit_event(
@@ -394,14 +392,21 @@ class RequirementService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
         return req
 
-    def list_requirements(self, workspace_id: UUID, ctx: AuthContext) -> List[Requirement]:
-        """Return all Requirements in *workspace_id*."""
+    def list_requirements(
+        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+    ) -> List[Requirement]:
+        """Return Requirements in *workspace_id*.
+
+        REQ-006: Excludes soft-deleted requirements (lifecycle_status='deleted') by default.
+        Pass ``include_deleted=True`` for admin/audit access.
+        """
         self._set_tenant_context(ctx)
-        return list(
-            Requirement.objects.select_related("artifact").filter(
-                artifact__workspace_id=workspace_id
-            )
+        qs = Requirement.objects.select_related("artifact").filter(
+            artifact__workspace_id=workspace_id
         )
+        if not include_deleted:
+            qs = qs.exclude(lifecycle_status="deleted")
+        return list(qs)
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 

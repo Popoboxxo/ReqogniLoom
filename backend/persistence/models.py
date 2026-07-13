@@ -514,6 +514,12 @@ class StakeholderNeed(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this need requires review due to upstream changes.",
     )
+    lifecycle_status = models.CharField(
+        max_length=16,
+        choices=LifecycleStatus.choices,
+        default=LifecycleStatus.ACTIVE,
+        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides need from normal views; hard-delete via admin only.",
+    )
 
     class Meta:
         db_table = "pl_stakeholder_need"
@@ -568,6 +574,12 @@ class Requirement(TenantScopedModel):
     suspect = models.BooleanField(
         default=False,
         help_text="SN-30: Indicates if this requirement needs review due to upstream changes.",
+    )
+    lifecycle_status = models.CharField(
+        max_length=16,
+        choices=LifecycleStatus.choices,
+        default=LifecycleStatus.ACTIVE,
+        help_text="REQ-006: Soft-delete lifecycle. 'deleted' hides requirement from normal views; hard-delete via admin only.",
     )
     embedding = VectorField(
         dimensions=1536,

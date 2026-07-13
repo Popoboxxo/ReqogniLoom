@@ -320,7 +320,8 @@ class TestDeleteStakeholderNeed:
             mock_policy_svc.is_change_reason_required.assert_called_once_with(
                 str(WS_ID)
             )
-            artifact.delete.assert_called_once()
+            assert need.lifecycle_status == "deleted"
+            need.save.assert_called_once_with(update_fields=["lifecycle_status"])
 
     def test_delete_with_optional_preset_ignores_change_reason_policy(self):
         """delete() does not enforce change_reason when preset is optional."""
@@ -351,7 +352,97 @@ class TestDeleteStakeholderNeed:
                 change_reason="",  # Empty, but preset is optional
             )
 
-            artifact.delete.assert_called_once()
+            assert need.lifecycle_status == "deleted"
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete (REQ-006)
+# ---------------------------------------------------------------------------
+
+
+class TestSoftDeleteStakeholderNeed:
+    """REQ-006: Soft-delete path tests."""
+
+    def test_delete_sets_lifecycle_status_deleted(self):
+        """delete() sets lifecycle_status='deleted' instead of hard-deleting."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+        need = MagicMock()
+        artifact = MagicMock()
+        artifact.workspace_id = WS_ID
+        need.artifact = artifact
+        need.id = NEED_ID
+        need.lifecycle_status = "active"
+
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
+        ) as mock_select:
+            mock_query = MagicMock()
+            mock_query.get.return_value = need
+            mock_select.return_value = mock_query
+
+            svc.delete(ctx=ctx, need_id=NEED_ID)
+
+        assert need.lifecycle_status == "deleted"
+        need.save.assert_called_once_with(update_fields=["lifecycle_status"])
+        artifact.delete.assert_not_called()
+
+    def test_delete_does_not_hard_delete_artifact(self):
+        """delete() must NOT call artifact.delete() — audit trail must be preserved."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+        need = MagicMock()
+        artifact = MagicMock()
+        artifact.workspace_id = WS_ID
+        need.artifact = artifact
+        need.id = NEED_ID
+
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
+        ) as mock_select:
+            mock_query = MagicMock()
+            mock_query.get.return_value = need
+            mock_select.return_value = mock_query
+
+            svc.delete(ctx=ctx, need_id=NEED_ID)
+
+        artifact.delete.assert_not_called()
+
+    def test_list_by_workspace_excludes_deleted_by_default(self):
+        """list_by_workspace() excludes lifecycle_status='deleted' by default."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
+        ) as mock_select:
+            mock_qs = MagicMock()
+            mock_qs.filter.return_value = mock_qs
+            mock_qs.exclude.return_value = []
+            mock_select.return_value = mock_qs
+
+            result = svc.list_by_workspace(ctx=ctx, workspace_id=WS_ID)
+
+        mock_qs.exclude.assert_called_once_with(lifecycle_status="deleted")
+        assert result == []
+
+    def test_list_by_workspace_include_deleted_returns_all(self):
+        """list_by_workspace(include_deleted=True) returns soft-deleted items too."""
+        svc = StakeholderNeedService(preset_policy_service=None)
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with patch(
+            "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
+        ) as mock_select:
+            mock_qs = MagicMock()
+            mock_qs.filter.return_value = []
+            mock_select.return_value = mock_qs
+
+            result = svc.list_by_workspace(ctx=ctx, workspace_id=WS_ID, include_deleted=True)
+
+        mock_qs.exclude.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +570,7 @@ class TestStakeholderNeedEventEmission:
         mock_event_bus.publish.assert_not_called()
 
     def test_delete_emits_stakeholder_need_deleted_event(self, mock_event_bus):
-        """delete() emits a StakeholderNeedDeleted event via the event bus."""
+        """delete() emits a StakeholderNeedDeleted event via the event bus (soft-delete, REQ-006)."""
         svc = StakeholderNeedService(preset_policy_service=None)
 
         need = MagicMock()
