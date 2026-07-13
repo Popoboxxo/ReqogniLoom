@@ -279,17 +279,18 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
             record.retry_count += 1
             record.save(update_fields=["retry_count"])
             if record.retry_count >= MAX_RETRIES:
-                # Move to DLQ
-                DomainEventDLQ.objects.create(
-                    event_id=record.event_id,
-                    event_type=record.event_type,
-                    workspace_id=record.workspace_id,
-                    entity_id=record.entity_id,
-                    payload=record.payload,
-                    error_message=str(exc),
-                    retry_count=record.retry_count,
-                )
-                record.delete()
+                # Move to DLQ atomically (REQ-021)
+                with transaction.atomic():
+                    DomainEventDLQ.objects.create(
+                        event_id=record.event_id,
+                        event_type=record.event_type,
+                        workspace_id=record.workspace_id,
+                        entity_id=record.entity_id,
+                        payload=record.payload,
+                        error_message=str(exc),
+                        retry_count=record.retry_count,
+                    )
+                    record.delete()
                 logger.error(
                     "DomainEventBus: event %s moved to DLQ after %d retries",
                     record.event_id,
