@@ -454,6 +454,9 @@ export default function TraceabilityView(): JSX.Element {
             fontSize: "var(--font-size-lg)",
             fontWeight: 600,
             color: "var(--color-text)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
           {t("traceability.impactTitle")}

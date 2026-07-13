@@ -233,16 +233,6 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             <span style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', fontFamily: 'monospace', marginRight: 'var(--space-2)' }}>
               {need.uid}
             </span>
-            <span style={{
-              fontSize: '0.8rem',
-              padding: '4px 8px',
-              borderRadius: '99px',
-              background: 'var(--color-surface-raised)',
-              border: '1px solid var(--color-border)',
-              color: 'var(--color-text)',
-            }}>
-              {need.status}
-            </span>
             {need.version && <VersionBadge version={need.version} />}
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
