@@ -71,6 +71,26 @@ const primaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const cardStyle: React.CSSProperties = {
+  boxShadow: "var(--shadow-card)",
+  borderRadius: "var(--radius-lg)",
+  padding: "var(--space-4)",
+  background: "var(--color-surface-raised)",
+  marginBottom: "var(--space-4)",
+  border: "1px solid var(--color-border)",
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  background: "var(--color-danger)",
+  color: "white",
+  border: "none",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-1) var(--space-3)",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
 export function ApiKeysSection(): JSX.Element {
   const { t } = useTranslation();
   const [keys, setKeys] = useState<ApiKeyMetadata[]>([]);
@@ -143,13 +163,15 @@ export function ApiKeysSection(): JSX.Element {
 
   return (
     <section style={sectionStyle} data-testid="api-keys-section">
-      <h3 style={headingStyle}>{t("apiKeys.title", "API Keys")}</h3>
+      <h2 style={{ ...headingStyle, fontSize: "var(--font-size-xl)", marginBottom: "var(--space-2)" }}>
+        {t("apiKeys.title", "Persönliche API-Tokens")}
+      </h2>
       <p
         style={{
           fontSize: "var(--font-size-sm)",
           color: "var(--color-text-muted)",
           marginTop: 0,
-          marginBottom: "var(--space-3)",
+          marginBottom: "var(--space-5)",
         }}
       >
         {t(
@@ -158,36 +180,40 @@ export function ApiKeysSection(): JSX.Element {
         )}
       </p>
 
-      {/* Create form */}
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-3)",
-          marginBottom: "var(--space-4)",
-        }}
-      >
-        <input
-          data-testid="api-key-name-input"
-          type="text"
-          value={newKeyName}
-          onChange={(e) => setNewKeyName(e.target.value)}
-          placeholder={t("apiKeys.namePlaceholder", "Key label (e.g. ci-pipeline)")}
-          disabled={isCreating}
-          style={{ ...inputStyle, flex: 1 }}
-        />
-        <button
-          type="button"
-          data-testid="api-key-create-btn"
-          onClick={() => void handleCreate()}
-          disabled={isCreating || !newKeyName.trim()}
+      {/* Create form card */}
+      <div style={cardStyle}>
+        <h3 style={{ ...headingStyle, marginBottom: "var(--space-3)", fontSize: "var(--font-size-base)" }}>
+          {t("apiKeys.createNew", "Neuen Token erstellen")}
+        </h3>
+        <div
           style={{
-            ...primaryButtonStyle,
-            opacity: isCreating || !newKeyName.trim() ? 0.5 : 1,
-            cursor: isCreating || !newKeyName.trim() ? "not-allowed" : "pointer",
+            display: "flex",
+            gap: "var(--space-3)",
           }}
         >
-          {isCreating ? "…" : `+ ${t("actions.create", "Create")}`}
-        </button>
+          <input
+            data-testid="api-key-name-input"
+            type="text"
+            value={newKeyName}
+            onChange={(e) => setNewKeyName(e.target.value)}
+            placeholder={t("apiKeys.namePlaceholder", "Key label (e.g. ci-pipeline)")}
+            disabled={isCreating}
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button
+            type="button"
+            data-testid="api-key-create-btn"
+            onClick={() => void handleCreate()}
+            disabled={isCreating || !newKeyName.trim()}
+            style={{
+              ...primaryButtonStyle,
+              opacity: isCreating || !newKeyName.trim() ? 0.5 : 1,
+              cursor: isCreating || !newKeyName.trim() ? "not-allowed" : "pointer",
+            }}
+          >
+            {isCreating ? "…" : `+ ${t("actions.create", "Create")}`}
+          </button>
+        </div>
       </div>
 
       {/* One-time plaintext display */}
@@ -278,106 +304,101 @@ export function ApiKeysSection(): JSX.Element {
 
       {/* Key list */}
       {isLoading ? (
-        <p role="status" style={{ color: "var(--color-text-muted)" }}>
-          {t("loading", "Loading...")}
-        </p>
+        <div style={cardStyle}>
+          <p role="status" style={{ color: "var(--color-text-muted)", margin: 0 }}>
+            {t("loading", "Loading...")}
+          </p>
+        </div>
       ) : keys.length === 0 ? (
-        <p
-          data-testid="api-keys-empty"
+        <div style={cardStyle}>
+          <p
+            data-testid="api-keys-empty"
+            style={{
+              color: "var(--color-text-muted)",
+              fontSize: "var(--font-size-sm)",
+              margin: 0,
+            }}
+          >
+            {t("apiKeys.empty", "Noch keine API-Tokens vorhanden. Erstelle einen neuen Token oben, um Clients zu authentifizieren.")}
+          </p>
+        </div>
+      ) : (
+        <div
+          data-testid="api-keys-list"
           style={{
-            color: "var(--color-text-muted)",
-            fontSize: "var(--font-size-sm)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-3)",
           }}
         >
-          {t("apiKeys.empty", "No API keys yet.")}
-        </p>
-      ) : (
-        <table
-          data-testid="api-keys-table"
-          style={{ width: "100%", borderCollapse: "collapse" }}
-        >
-          <thead>
-            <tr>
-              <th style={thStyle}>{t("apiKeys.name", "Name")}</th>
-              <th style={thStyle}>{t("apiKeys.created", "Created")}</th>
-              <th style={thStyle}>{t("apiKeys.lastUsed", "Last used")}</th>
-              <th style={thStyle}>{t("apiKeys.status", "Status")}</th>
-              <th style={thStyle} />
-            </tr>
-          </thead>
-          <tbody>
-            {keys.map((key) => (
-              <tr key={key.id} data-testid={`api-key-row-${key.id}`}>
-                <td style={tdStyle}>{key.name}</td>
-                <td style={tdStyle}>{formatDate(key.created_at)}</td>
-                <td style={tdStyle}>{formatDate(key.last_used_at)}</td>
-                <td style={tdStyle}>
-                  <span
+          {keys.map((key) => (
+            <div
+              key={key.id}
+              data-testid={`api-key-row-${key.id}`}
+              style={{
+                ...cardStyle,
+                marginBottom: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-3)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <p style={{ margin: "0 0 var(--space-1) 0", fontWeight: 700, fontSize: "var(--font-size-base)", color: "var(--color-text)" }}>
+                    {key.name}
+                  </p>
+                  <div style={{ display: "flex", gap: "var(--space-4)", fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
+                    <span>
+                      {t("apiKeys.created", "Created")}: {formatDate(key.created_at)}
+                    </span>
+                    <span>
+                      {t("apiKeys.lastUsed", "Last used")}: {formatDate(key.last_used_at)}
+                    </span>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    display: "inline-block",
+                    padding: "var(--space-1) var(--space-2)",
+                    borderRadius: "var(--radius-full)",
+                    fontSize: "var(--font-size-xs)",
+                    fontWeight: 600,
+                    background: key.revoked
+                      ? "var(--color-surface-raised)"
+                      : "rgba(22,163,74,0.12)",
+                    color: key.revoked
+                      ? "var(--color-text-muted)"
+                      : "var(--color-success, #16a34a)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {key.revoked
+                    ? t("apiKeys.revoked", "revoked")
+                    : t("apiKeys.active", "active")}
+                </span>
+              </div>
+              {!key.revoked && (
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    data-testid={`api-key-revoke-${key.id}`}
+                    onClick={() => void handleRevoke(key.id)}
+                    disabled={revokingId === key.id}
                     style={{
-                      display: "inline-block",
-                      padding: "1px var(--space-2)",
-                      borderRadius: "var(--radius-full)",
-                      fontSize: "var(--font-size-xs)",
-                      fontWeight: 600,
-                      background: key.revoked
-                        ? "var(--color-surface-raised)"
-                        : "rgba(22,163,74,0.12)",
-                      color: key.revoked
-                        ? "var(--color-text-muted)"
-                        : "var(--color-success, #16a34a)",
+                      ...dangerButtonStyle,
+                      opacity: revokingId === key.id ? 0.6 : 1,
+                      cursor: revokingId === key.id ? "wait" : "pointer",
                     }}
                   >
-                    {key.revoked
-                      ? t("apiKeys.revoked", "revoked")
-                      : t("apiKeys.active", "active")}
-                  </span>
-                </td>
-                <td style={{ ...tdStyle, textAlign: "right" }}>
-                  {!key.revoked && (
-                    <button
-                      type="button"
-                      data-testid={`api-key-revoke-${key.id}`}
-                      onClick={() => void handleRevoke(key.id)}
-                      disabled={revokingId === key.id}
-                      style={{
-                        background: "transparent",
-                        color: "var(--color-danger)",
-                        border: "1px solid var(--color-danger)",
-                        borderRadius: "var(--radius-md)",
-                        padding: "var(--space-1) var(--space-3)",
-                        fontSize: "var(--font-size-sm)",
-                        cursor: revokingId === key.id ? "wait" : "pointer",
-                        opacity: revokingId === key.id ? 0.6 : 1,
-                      }}
-                    >
-                      {t("apiKeys.revoke", "Revoke")}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    {revokingId === key.id ? "…" : t("apiKeys.revoke", "Revoke")}
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );
 }
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  color: "var(--color-text-muted)",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  borderBottom: "1px solid var(--color-border)",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "var(--space-2) var(--space-3)",
-  fontSize: "var(--font-size-sm)",
-  color: "var(--color-text)",
-  borderBottom: "1px solid var(--color-border)",
-  verticalAlign: "middle",
-};
