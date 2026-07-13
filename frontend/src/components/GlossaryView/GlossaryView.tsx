@@ -173,6 +173,10 @@ export default function GlossaryView(): JSX.Element {
           padding: "var(--space-5)",
           marginBottom: "var(--space-6)",
           boxShadow: "var(--shadow-card)",
+          overflowY: "auto",
+          maxHeight: "80vh",
+          boxSizing: "border-box",
+          width: "100%",
         }}>
           <h2 style={{ margin: "0 0 var(--space-4) 0", fontSize: "var(--font-size-lg)" }}>
             {editingId ? t("glossary.editTerm") : t("glossary.addTerm")}
@@ -203,7 +207,7 @@ export default function GlossaryView(): JSX.Element {
               <input style={inputStyle} value={formData.synonyms} onChange={e => setFormData({...formData, synonyms: e.target.value})} />
             </div>
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-3)" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-3)", flexWrap: "wrap" }}>
             <button type="button" onClick={() => setIsFormOpen(false)} style={{ ...btnStyle, backgroundColor: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text)" }}>
               {t("actions.cancel", "Cancel")}
             </button>

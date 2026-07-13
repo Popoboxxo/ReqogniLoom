@@ -75,6 +75,15 @@ export function LoginPage(): JSX.Element {
           borderRadius: "8px",
         }}
       >
+        <div style={{ textAlign: "center", marginBottom: "var(--space-4)" }}>
+          <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, margin: 0 }}>ReqFlow</h1>
+          <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: "var(--space-1) 0 0 0" }}>
+            AI-native Requirements Management
+          </p>
+          <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", opacity: 0.7 }}>
+            {(import.meta.env as Record<string, string>).VITE_APP_VERSION ?? "dev"}
+          </span>
+        </div>
         <h2>{t("login.title")}</h2>
         {error && (
           <p role="alert" style={{ color: "red" }}>

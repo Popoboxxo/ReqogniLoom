@@ -307,18 +307,6 @@ export function ArchitectureForm({
 
       {/* Header with UID and Version (read-only) */}
       <div style={{ marginBottom: 'var(--space-6)' }}>
-        <h2
-          style={{
-            margin: 0,
-            marginBottom: 'var(--space-4)',
-            fontSize: 'var(--font-size-2xl)',
-            fontWeight: 700,
-            color: 'var(--color-text)',
-          }}
-        >
-          {title || t('editor.untitled')}
-        </h2>
-
         <div
           style={{
             display: 'grid',
