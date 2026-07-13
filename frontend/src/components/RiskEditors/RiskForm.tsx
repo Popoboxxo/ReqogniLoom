@@ -24,6 +24,9 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [allOwners, setAllOwners] = useState<string[]>([]);
+  const [ownerSuggestions, setOwnerSuggestions] = useState<string[]>([]);
+  const [ownerDropdownOpen, setOwnerDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (risk) setFormData({ ...risk });
@@ -34,10 +37,50 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
     setDeleteError(null);
   }, [risk]);
 
+  // Load all risks and extract unique owner values for autocomplete
+  useEffect(() => {
+    if (!risk?.workspace_id) return;
+    const loadOwners = async () => {
+      try {
+        const response = await risksApi.list(risk.workspace_id);
+        const risks = Array.isArray(response) ? response : response.results || [];
+        const owners = Array.from(
+          new Set(
+            risks
+              .map((r: Risk) => r.owner)
+              .filter((owner: string | null | undefined): owner is string => Boolean(owner))
+          )
+        ).sort();
+        setAllOwners(owners);
+      } catch (err) {
+        console.error('Failed to load owners for autocomplete:', err);
+      }
+    };
+    loadOwners();
+  }, [risk?.workspace_id]);
+
   const handleChange = (field: keyof Risk, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (saveError) setSaveError(null);
     if (deleteError) setDeleteError(null);
+    // Update owner suggestions when owner field changes
+    if (field === 'owner' && typeof value === 'string') {
+      if (value.length > 0) {
+        const filtered = allOwners.filter((owner) =>
+          owner.toLowerCase().includes(value.toLowerCase())
+        );
+        setOwnerSuggestions(filtered);
+        setOwnerDropdownOpen(filtered.length > 0);
+      } else {
+        setOwnerSuggestions([]);
+        setOwnerDropdownOpen(false);
+      }
+    }
+  };
+
+  const handleOwnerSuggestionClick = (suggestion: string) => {
+    handleChange('owner', suggestion);
+    setOwnerDropdownOpen(false);
   };
 
   const saveFields = () => {
@@ -206,9 +249,65 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
               </select>
             </div>
           </div>
-          <div>
+          <div style={{ position: 'relative' }}>
             <label style={labelStyle}>{t('risks.owner')}</label>
-            <input type="text" value={formData.owner || ''} onChange={(e) => handleChange('owner', e.target.value)} style={inputStyle} />
+            <input
+              type="text"
+              value={formData.owner || ''}
+              onChange={(e) => handleChange('owner', e.target.value)}
+              onFocus={() => {
+                if ((formData.owner || '').length > 0 && ownerSuggestions.length > 0) {
+                  setOwnerDropdownOpen(true);
+                }
+              }}
+              onBlur={() => {
+                // Delay closing dropdown to allow click on suggestion to register
+                setTimeout(() => setOwnerDropdownOpen(false), 150);
+              }}
+              style={inputStyle}
+              data-testid="risk-owner-input"
+            />
+            {ownerDropdownOpen && ownerSuggestions.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  zIndex: 100,
+                  background: 'var(--color-surface-raised)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  marginTop: '4px',
+                }}
+                data-testid="risk-owner-dropdown"
+              >
+                {ownerSuggestions.map((suggestion) => (
+                  <div
+                    key={suggestion}
+                    onClick={() => handleOwnerSuggestionClick(suggestion)}
+                    style={{
+                      padding: 'var(--space-2) var(--space-3)',
+                      cursor: 'pointer',
+                      color: 'var(--color-text)',
+                      fontSize: 'var(--font-size-base)',
+                      borderBottom: '1px solid var(--color-border-subtle)',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'var(--color-surface-hover)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                    data-testid={`risk-owner-suggestion-${suggestion}`}
+                  >
+                    {suggestion}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label style={labelStyle}>{t('risks.mitigationStrategy')}</label>
