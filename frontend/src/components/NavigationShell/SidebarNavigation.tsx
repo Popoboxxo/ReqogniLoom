@@ -18,8 +18,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { i18n } from "../../i18n/index";
 import { searchApi, type SearchHit } from "../../api/search";
-import { workspacesApi } from "../../api/workspaces";
-import type { TerminologyProfile, WorkspacePreset } from "../../types";
+import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
+import type { Workspace } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Navigation items — preset-gated (REQ-L3-RF001-002)
@@ -93,74 +93,12 @@ export function SidebarNavigation(): JSX.Element {
   const searchRef = React.useRef<HTMLDivElement | null>(null);
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ---- Workspace create form state ---------------------------------------
-  const [showCreateForm, setShowCreateForm] = React.useState<boolean>(false);
-  const [createFormData, setCreateFormData] = React.useState<{
-    name: string;
-    preset: WorkspacePreset;
-    terminology_profile: TerminologyProfile;
-    language: string;
-  }>({
-    name: "",
-    preset: "standard",
-    terminology_profile: "se_mode",
-    language: "de",
-  });
-  const [isCreating, setIsCreating] = React.useState<boolean>(false);
-  const [createError, setCreateError] = React.useState<string | null>(null);
+  // ---- Workspace create modal (REQ-D25: moved out of the nav tree) -------
+  const [showCreateWorkspace, setShowCreateWorkspace] = React.useState<boolean>(false);
 
-  const handleCreateSubmit = async (
-    event: React.FormEvent<HTMLFormElement>
-  ): Promise<void> => {
-    event.preventDefault();
-    if (!createFormData.name.trim()) {
-      setCreateError(
-        t("workspaceCreate.errorRequired") ||
-          t("workspace.create.nameRequired") ||
-          "Name is required"
-      );
-      return;
-    }
-    setIsCreating(true);
-    setCreateError(null);
-    try {
-      const ws = await workspacesApi.create({
-        name: createFormData.name.trim(),
-        preset: createFormData.preset,
-        terminology_profile: createFormData.terminology_profile,
-        language: createFormData.language,
-      });
-      await reloadWorkspaces(ws.id);
-      setShowCreateForm(false);
-      setCreateFormData({
-        name: "",
-        preset: "standard",
-        terminology_profile: "se_mode",
-        language: "de",
-      });
-      navigate("/");
-    } catch (err) {
-      const apiErr = err as { error?: { message?: string } };
-      setCreateError(
-        apiErr?.error?.message ||
-          t("workspaceCreate.errorGeneric") ||
-          t("workspace.create.error") ||
-          "Failed to create workspace"
-      );
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const handleCreateCancel = (): void => {
-    setShowCreateForm(false);
-    setCreateError(null);
-    setCreateFormData({
-      name: "",
-      preset: "standard",
-      terminology_profile: "se_mode",
-      language: "de",
-    });
+  const handleWorkspaceCreated = async (ws: Workspace): Promise<void> => {
+    await reloadWorkspaces(ws.id);
+    navigate("/");
   };
 
   // Click-outside handler for search dropdown
@@ -286,6 +224,7 @@ export function SidebarNavigation(): JSX.Element {
   };
 
   return (
+    <>
     <nav
       aria-label="Main navigation"
       style={{
@@ -658,167 +597,28 @@ export function SidebarNavigation(): JSX.Element {
             </span>
           </div>
 
-          {/* Create workspace button */}
-          {!showCreateForm && (
-            <button
-              type="button"
-              data-testid="create-workspace-btn"
-              onClick={() => setShowCreateForm(true)}
-              style={{
-                marginTop: "var(--space-2)",
-                width: "100%",
-                background: "var(--color-primary)",
-                color: "white",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2)",
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                fontFamily: "inherit",
-                transition: "var(--transition-fast)",
-              }}
-            >
-              + Workspace
-            </button>
-          )}
-
-          {/* Inline create form */}
-          {showCreateForm && (
-            <form
-              data-testid="create-workspace-form"
-              onSubmit={handleCreateSubmit}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-2)",
-                marginTop: "var(--space-2)",
-                padding: "var(--space-2)",
-                background: "rgba(255,255,255,0.04)",
-                borderRadius: "var(--radius-md)",
-                border: `1px solid ${SIDEBAR_BORDER}`,
-              }}
-            >
-              <input
-                type="text"
-                data-testid="new-workspace-name"
-                placeholder={t("workspace.create.namePlaceholder") || "Name"}
-                value={createFormData.name}
-                onChange={(e) =>
-                  setCreateFormData((d) => ({ ...d, name: e.target.value }))
-                }
-                disabled={isCreating}
-                autoFocus
-                style={{
-                  padding: "var(--space-2)",
-                  borderRadius: "var(--radius-sm)",
-                  border: `1px solid ${SIDEBAR_BORDER}`,
-                  background: SIDEBAR_BG,
-                  color: SIDEBAR_TEXT,
-                  fontSize: "var(--font-size-sm)",
-                  fontFamily: "inherit",
-                }}
-              />
-              <select
-                data-testid="create-workspace-preset"
-                value={createFormData.preset}
-                onChange={(e) =>
-                  setCreateFormData((d) => ({
-                    ...d,
-                    preset: e.target.value as WorkspacePreset,
-                  }))
-                }
-                disabled={isCreating}
-                style={{
-                  padding: "var(--space-2)",
-                  borderRadius: "var(--radius-sm)",
-                  border: `1px solid ${SIDEBAR_BORDER}`,
-                  background: SIDEBAR_BG,
-                  color: SIDEBAR_TEXT,
-                  fontSize: "var(--font-size-sm)",
-                  fontFamily: "inherit",
-                }}
-              >
-                <option value="minimal">minimal</option>
-                <option value="standard">standard</option>
-                <option value="extended">extended</option>
-              </select>
-              <select
-                data-testid="create-workspace-language"
-                value={createFormData.language}
-                onChange={(e) =>
-                  setCreateFormData((d) => ({ ...d, language: e.target.value }))
-                }
-                disabled={isCreating}
-                style={{
-                  padding: "var(--space-2)",
-                  borderRadius: "var(--radius-sm)",
-                  border: `1px solid ${SIDEBAR_BORDER}`,
-                  background: SIDEBAR_BG,
-                  color: SIDEBAR_TEXT,
-                  fontSize: "var(--font-size-sm)",
-                  fontFamily: "inherit",
-                }}
-              >
-                <option value="de">DE</option>
-                <option value="en">EN</option>
-              </select>
-              {createError && (
-                <div
-                  data-testid="create-workspace-error"
-                  style={{
-                    color: "var(--color-danger, #f87171)",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  {createError}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                <button
-                  type="submit"
-                  data-testid="new-workspace-submit"
-                  disabled={isCreating}
-                  style={{
-                    flex: 1,
-                    background: "var(--color-primary)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "var(--space-2)",
-                    cursor: isCreating ? "not-allowed" : "pointer",
-                    fontSize: "var(--font-size-sm)",
-                    fontWeight: 600,
-                    fontFamily: "inherit",
-                    opacity: isCreating ? 0.6 : 1,
-                  }}
-                >
-                  {isCreating
-                    ? t("workspaceCreate.creating")
-                    : t("workspaceCreate.submit")}
-                </button>
-                <button
-                  type="button"
-                  data-testid="create-workspace-cancel"
-                  onClick={handleCreateCancel}
-                  disabled={isCreating}
-                  style={{
-                    flex: 1,
-                    background: "transparent",
-                    color: SIDEBAR_TEXT,
-                    border: `1px solid ${SIDEBAR_BORDER}`,
-                    borderRadius: "var(--radius-sm)",
-                    padding: "var(--space-2)",
-                    cursor: isCreating ? "not-allowed" : "pointer",
-                    fontSize: "var(--font-size-sm)",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  {t("workspace.create.cancel") || "Cancel"}
-                </button>
-              </div>
-            </form>
-          )}
+          {/* Create workspace button — opens CreateWorkspaceModal (REQ-D25) */}
+          <button
+            type="button"
+            data-testid="create-workspace-btn"
+            onClick={() => setShowCreateWorkspace(true)}
+            style={{
+              marginTop: "var(--space-2)",
+              width: "100%",
+              background: "var(--color-primary)",
+              color: "white",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2)",
+              cursor: "pointer",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              fontFamily: "inherit",
+              transition: "var(--transition-fast)",
+            }}
+          >
+            + Workspace
+          </button>
 
           {/* Dropdown */}
           {isSwitcherOpen && workspaces.length > 0 && (
@@ -1010,5 +810,11 @@ export function SidebarNavigation(): JSX.Element {
         </button>
       </div>
     </nav>
+    <CreateWorkspaceModal
+      isOpen={showCreateWorkspace}
+      onClose={() => setShowCreateWorkspace(false)}
+      onCreated={handleWorkspaceCreated}
+    />
+    </>
   );
 }
