@@ -387,6 +387,43 @@ export default function WorkspaceSettings(): JSX.Element {
             <option value="derives-from">derives-from (Ableitung)</option>
           </select>
         </div>
+
+        {/* Standard Trace Link Type — REQ-006 */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginTop: "var(--space-4)" }}>
+          <label style={{ fontSize: "var(--font-size-sm)", fontWeight: 600 }}>
+            {t("settings.defaultLinkType", "Standard-Linktyp")}
+          </label>
+          <select
+            value={(activeWorkspace.preset as Record<string, unknown>)?.default_link_type ?? "derives_from"}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSaveError(null);
+              setSavedOk(false);
+              const newPreset = { ...(activeWorkspace.preset as Record<string, unknown> || {}), default_link_type: val };
+              workspacesApi.update(activeWorkspace.id, { preset: newPreset })
+                .then(() => reloadWorkspaces(activeWorkspace.id))
+                .then(() => setSavedOk(true))
+                .catch(err => setSaveError(err?.error?.message ?? String(err)));
+            }}
+            style={{
+              padding: "var(--space-2) var(--space-3)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
+            }}
+            data-testid="default-link-type-select"
+          >
+            <option value="derives_from">derives_from</option>
+            <option value="satisfies">satisfies</option>
+            <option value="refines">refines</option>
+            <option value="implements">implements</option>
+            <option value="traces_to">traces_to</option>
+            <option value="verifies">verifies</option>
+            <option value="validates">validates</option>
+            <option value="allocates_to">allocates_to</option>
+          </select>
+        </div>
       </section>
 
       {/* Attribute Visibility (REQ-L1-084) — admin only */}

@@ -414,7 +414,7 @@ export function CreateTraceLinkDialog({
     setLinkType(defaultLinkType);
     setSubmitError(null);
     void loadElements();
-  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOpen, defaultLinkType, loadElements]);
 
   // Prevent layout shift by managing body overflow when dialog is open
   useEffect(() => {
