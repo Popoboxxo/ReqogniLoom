@@ -87,7 +87,7 @@
 | D15 | Traceability-Default | Workspace-Einstellungen | Default-Linktyp soll "derives from" sein |
 | D16 | Disaster Recovery Dropdown | Workspace-Einstellungen | Gleicher Kontrast-Bug wie D14 |
 | D17 | Datenimport deplatziert | Workspace-Einstellungen | Datenimport gehört nicht in Workspace-Einstellungen |
-| D18 | Workflows + Item Permissions | Workspace-Einstellungen | Komplett überarbeiten (als "Katastrophe" bewertet) |
+| D18 | Workflows + Item Permissions | Workspace-Einstellungen | Teilweise umgesetzt (REQ-014 ✓); Workflows offen (s. Entscheidungslog) |
 | D19 | Access Token Dialog Optik | Profil | Funktioniert, aber visuell überarbeitungswürdig |
 | D20 | Workspace-Changer deplatziert | Profil | Im Profil fehl am Platz; bessere Platzierung finden |
 | D21 | Login-Screen Design + Metadaten | Login | Design überarbeiten; Tool-Name, Version, Patch-Level anzeigen |
@@ -111,3 +111,4 @@
 | 2026-07-13 | Cluster A abgeschlossen (7/7), alle Commits auf feat/frontend-feedback-cluster-a |
 | 2026-07-13 | Cluster B freigegeben durch User; TODO-001–004 zentral notiert |
 | 2026-07-13 | TODO-002 erledigt (Soft-Delete für Requirement+StakeholderNeed, commit f96bc3d); TODO-004 geklärt (kein Hierarchie-Tree für Diagramme-View benötigt) |
+| 2026-07-13 | **D18 (Workflows + Item Permissions):** Item-Permissions-UX (REQ-014) implementiert + validiert: Backend-Endpoint `/api/v1/workspaces/{id}/members/` liefert Workspace-Mitgliederliste; `PermissionsSection.tsx` nutzt jetzt Dropdown/Autocomplete statt UUID-Freitext. **Workflows-Redesign bewusst zurückgestellt:** Transcript-Feedback zu Workflows enthält nur "als Katastrophe bewertet" ohne konkreten Soll-Zustand. `WorkflowsSection.tsx` ist rohes Dev-Formular (Freitext-UUID, kein Zustandsautomat); `WorkflowDefinitionViewSet` liefert leere Liste. Implementierung ohne vorherige Ideation/UI-UX-Spezifikation wäre Raten/Over-Engineering. **Empfehlung:** Workflows-Redesign als separater REQ nach Konzeptphase (Ideation + UI-UX-Design). |

@@ -35,6 +35,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from auth_tenancy.rest_item_permission import ItemPermissionViewSet
+from auth_tenancy.rest_workspace_members import WorkspaceMembersView
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
@@ -147,6 +148,13 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/permissions/",
         ItemPermissionViewSet.as_view(),
         name="workspace-item-permissions",
+    ),
+    # Workspace member directory (REQ-014, COMP-AT-002) — feeds the Item-Permission
+    # user picker; readable by any active member of the workspace.
+    path(
+        "workspaces/<uuid:workspace_id>/members/",
+        WorkspaceMembersView.as_view(),
+        name="workspace-members",
     ),
     # Disaster Recovery (REQ-L1-046) — admin-only.
     # /admin/backups/  -> GET list, POST create

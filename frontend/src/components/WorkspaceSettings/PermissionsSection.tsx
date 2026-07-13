@@ -10,8 +10,9 @@
  *   - grant a rule (user, optional artifact, level read/write/none)
  *   - revoke a rule
  *
- * NOTE: the backend exposes no user directory endpoint, so the user is
- * addressed by UUID (copy from the admin panel or the auth/me response).
+ * The subject user is chosen from the workspace member directory
+ * (GET /workspaces/{id}/members/, REQ-014) via a searchable dropdown that
+ * resolves the user_id automatically — no more copy-pasting raw UUIDs.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -21,6 +22,10 @@ import {
   type ItemPermission,
   type ItemPermissionLevel,
 } from "../../api/item-permissions";
+import {
+  workspaceMembersApi,
+  type WorkspaceMember,
+} from "../../api/workspace-members";
 import { artifactsApi } from "../../api/artifacts";
 import type { Artifact, UUID } from "../../types";
 
@@ -92,6 +97,8 @@ export function PermissionsSection({
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+
   // Load artifact options for the optional artifact-scoped rule.
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +114,27 @@ export function PermissionsSection({
       cancelled = true;
     };
   }, [workspaceId]);
+
+  // Load the workspace member directory for the user picker (REQ-014).
+  useEffect(() => {
+    let cancelled = false;
+    workspaceMembersApi
+      .list(workspaceId)
+      .then((rows) => {
+        if (!cancelled) setMembers(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(extractErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  const memberLabel = useCallback((m: WorkspaceMember): string => {
+    const roles = m.roles.length > 0 ? ` [${m.roles.join(", ")}]` : "";
+    return `${m.display_name} · ${m.email}${roles}`;
+  }, []);
 
   const loadPermissions = useCallback(
     async (userId: string): Promise<void> => {
@@ -210,15 +238,24 @@ export function PermissionsSection({
           borderRadius: "var(--radius-md)",
         }}
       >
-        <input
+        <select
           data-testid="permission-user-input"
-          type="text"
           value={grantUserId}
           onChange={(e) => setGrantUserId(e.target.value)}
-          placeholder={t("permissions.userPlaceholder", "User ID (UUID)")}
-          disabled={isGranting}
+          disabled={isGranting || members.length === 0}
           style={{ ...inputStyle, flex: 1, minWidth: "220px" }}
-        />
+        >
+          <option value="">
+            {members.length === 0
+              ? t("permissions.noMembers", "No workspace members")
+              : t("permissions.selectUser", "Select a member…")}
+          </option>
+          {members.map((m) => (
+            <option key={m.user_id} value={m.user_id}>
+              {memberLabel(m)}
+            </option>
+          ))}
+        </select>
         <select
           data-testid="permission-artifact-select"
           value={grantArtifactId}
@@ -271,20 +308,28 @@ export function PermissionsSection({
           marginBottom: "var(--space-3)",
         }}
       >
-        <input
+        <select
           data-testid="permission-filter-input"
-          type="text"
           value={filterUserId}
-          onChange={(e) => setFilterUserId(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void loadPermissions(filterUserId);
+          onChange={(e) => {
+            const value = e.target.value;
+            setFilterUserId(value);
+            if (value) void loadPermissions(value);
           }}
-          placeholder={t(
-            "permissions.filterPlaceholder",
-            "Show rules for user ID (UUID)…"
-          )}
+          disabled={members.length === 0}
           style={{ ...inputStyle, flex: 1 }}
-        />
+        >
+          <option value="">
+            {members.length === 0
+              ? t("permissions.noMembers", "No workspace members")
+              : t("permissions.filterSelect", "Show rules for member…")}
+          </option>
+          {members.map((m) => (
+            <option key={m.user_id} value={m.user_id}>
+              {memberLabel(m)}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           data-testid="permission-load-btn"
@@ -343,8 +388,9 @@ export function PermissionsSection({
           <tbody>
             {permissions.map((perm) => (
               <tr key={perm.id} data-testid={`permission-row-${perm.id}`}>
-                <td style={{ ...tdStyle, fontFamily: "monospace" }}>
-                  {perm.user_id.slice(0, 8)}…
+                <td style={tdStyle}>
+                  {members.find((m) => m.user_id === perm.user_id)
+                    ?.display_name ?? `${perm.user_id.slice(0, 8)}…`}
                 </td>
                 <td style={{ ...tdStyle, fontFamily: "monospace" }}>
                   {perm.artifact_id

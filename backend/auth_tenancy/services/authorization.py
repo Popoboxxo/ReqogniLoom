@@ -75,6 +75,29 @@ class AuthorizationDecision:
     applicable_roles: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True)
+class WorkspaceMember:
+    """A distinct workspace member with aggregated active roles (REQ-014).
+
+    Produced by :meth:`AuthorizationService.list_workspace_members` to feed the
+    Item-Permission user picker. Carries only identity + display fields — no
+    credential material, no suspended assignments.
+
+    Attributes:
+        user_id: Member user primary key (populates the picker's value).
+        username: Login handle (fallback display + secondary search key).
+        email: Contact address (searchable in the picker).
+        display_name: ``"first last"`` when set, else the username.
+        roles: Sorted tuple of the member's active role names in the workspace.
+    """
+
+    user_id: UUID
+    username: str
+    email: str
+    display_name: str
+    roles: tuple[str, ...] = field(default_factory=tuple)
+
+
 class PresetPolicyValidator:
     """Enforces preset-bound role restrictions (REQ-L3-AT002-002)."""
 
@@ -153,6 +176,80 @@ class AuthorizationService:
             user_id=user_id, workspace_id=workspace_id, suspended_at__isnull=True
         ).values_list("role", flat=True)
         return tuple(sorted(set(assignments)))
+
+    def list_workspace_members(
+        self, *, caller_user_id: UUID, workspace_id: UUID
+    ) -> list["WorkspaceMember"]:
+        """Return the distinct active members of a workspace (REQ-014).
+
+        Backs the Item-Permission user picker: instead of copy-pasting a raw
+        UUID, an admin selects a member resolved by this method. Membership is
+        derived from :class:`UserRole` — a user is a member iff they hold at
+        least one non-suspended role in the workspace. Roles are aggregated per
+        user so each member appears exactly once.
+
+        Access gate (REQ-014 AC#1): the caller must themselves hold an active
+        role in the target workspace. This runs *after* the coarse RBAC READ
+        check in the DRF permission layer, adding workspace-scoped membership as
+        defense-in-depth so members of one workspace cannot enumerate another.
+
+        Requires an active tenant context (the default manager is tenant-scoped,
+        so cross-tenant rows are already invisible here).
+
+        Args:
+            caller_user_id: The requesting user (must be a workspace member).
+            workspace_id: The workspace whose members are listed.
+
+        Returns:
+            Members sorted case-insensitively by display name.
+
+        Raises:
+            PermissionDenied: The caller is not an active member of the
+                workspace.
+        """
+        if not self.active_roles_for(
+            user_id=caller_user_id, workspace_id=workspace_id
+        ):
+            raise PermissionDenied()
+
+        assignments = (
+            UserRole.objects.filter(
+                workspace_id=workspace_id, suspended_at__isnull=True
+            )
+            .select_related("user")
+            .order_by("user__username")
+        )
+
+        # Aggregate roles per distinct user, preserving first-seen user object.
+        aggregated: dict[UUID, dict] = {}
+        for assignment in assignments:
+            member_user = assignment.user
+            entry = aggregated.get(member_user.id)
+            if entry is None:
+                entry = {"user": member_user, "roles": set()}
+                aggregated[member_user.id] = entry
+            entry["roles"].add(assignment.role)
+
+        members = [
+            WorkspaceMember(
+                user_id=entry["user"].id,
+                username=entry["user"].username,
+                email=entry["user"].email,
+                display_name=self._display_name(entry["user"]),
+                roles=tuple(sorted(entry["roles"])),
+            )
+            for entry in aggregated.values()
+        ]
+        members.sort(key=lambda m: m.display_name.lower())
+        return members
+
+    @staticmethod
+    def _display_name(user) -> str:
+        """Build a human-readable name: ``"first last"`` or the username."""
+        full = " ".join(
+            part for part in (user.first_name, user.last_name) if part
+        ).strip()
+        return full or user.username
 
     # -- Assignment CRUD (REQ-L3-AT002-003, REQ-L2-AT-006) ----------------
 
@@ -243,6 +340,7 @@ class AuthorizationService:
 __all__ = [
     "AuthorizationService",
     "AuthorizationDecision",
+    "WorkspaceMember",
     "Operation",
     "PresetPolicyValidator",
 ]

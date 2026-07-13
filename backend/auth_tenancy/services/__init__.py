@@ -24,6 +24,7 @@ from .authorization import (
     AuthorizationService,
     Operation,
     PresetPolicyValidator,
+    WorkspaceMember,
 )
 from .item_permission import ItemPermissionService, PermissionDecision
 from .password_authentication import PasswordAuthenticationService
@@ -43,6 +44,7 @@ __all__ = [
     "PasswordAuthenticationService",
     "AuthorizationService",
     "AuthorizationDecision",
+    "WorkspaceMember",
     "Operation",
     "PresetPolicyValidator",
     "TenantContextService",
