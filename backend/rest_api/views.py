@@ -75,6 +75,8 @@ from rest_api.serializers import (
     ArtifactSerializer,
     ArchitectureElementSerializer,
     AttributeVisibilityConfigSerializer,
+    CustomFieldDefinitionSerializer,
+    CustomFieldValueSerializer,
     BaselineDiffSerializer,
     BaselineSerializer,
     ImpactNodeSerializer,
@@ -2303,6 +2305,7 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
     return {
         "id": str(req.id),
         "workspace_id": str(req.artifact.workspace_id) if hasattr(req, "artifact") else None,
+        "artifact_id": str(req.artifact_id) if getattr(req, "artifact_id", None) else None,
         "title": req.title,
         "description": getattr(req, "description", ""),
         "uid": getattr(req, "uid", None),
@@ -4401,6 +4404,328 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
 
 
+# ---------------------------------------------------------------------------
+# REQ-016: Custom Fields (workspace-wide definitions + per-artifact values)
+# ---------------------------------------------------------------------------
+
+
+def _validate_custom_value(definition: Any, value: str, lang: str) -> Response | None:
+    """Validate a single custom-field ``value`` against its ``definition``.
+
+    Returns a 400 error Response when invalid, or ``None`` when the value is
+    acceptable. Empty values are allowed here; required-field enforcement is
+    handled by the caller so partial saves are not rejected outright.
+    """
+    if value == "":
+        return None
+    if definition.field_type == "number":
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": "value", "errors": [f"'{value}' is not a valid number."]}],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    elif definition.field_type == "dropdown":
+        if value not in (definition.options or []):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": "value", "errors": [f"'{value}' is not a valid option."]}],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    return None
+
+
+class CustomFieldDefinitionViewSet(BaseEntityViewSet):
+    """ViewSet for workspace-wide custom field definitions (REQ-016).
+
+    - ``list``   GET  /api/v1/workspaces/<workspace_pk>/custom-field-definitions/
+                 — any authenticated tenant member (needed to render forms).
+    - ``create`` POST same path — workspace admins only.
+    - ``partial_update`` PATCH /api/v1/custom-field-definitions/<pk>/ — admins only.
+    - ``destroy`` DELETE /api/v1/custom-field-definitions/<pk>/ — admins only.
+    """
+
+    serializer_class = CustomFieldDefinitionSerializer
+
+    def _forbidden(self, lang: str) -> Response:
+        return Response(
+            build_error_response("PERMISSION_DENIED", lang, message="Admin role required."),
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET workspace custom field definitions, ordered by (order, name)."""
+        lang = detect_lang(request)
+        try:
+            from persistence.models import CustomFieldDefinition
+            get_auth_context(request)  # ensure authenticated
+            workspace_id = kwargs["workspace_pk"]
+            defs = CustomFieldDefinition.objects.filter(
+                workspace_id=workspace_id
+            ).order_by("order", "name")
+            return Response(CustomFieldDefinitionSerializer(defs, many=True).data)
+        except Exception as exc:
+            logger.exception("CustomFieldDefinitionViewSet.list: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST a new definition to a workspace (admin only). Returns 201."""
+        from auth_tenancy.models import ROLE_ADMIN
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+
+        ser = CustomFieldDefinitionSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            from django.db import transaction
+            from persistence.models import CustomFieldDefinition, Workspace
+            workspace_id = kwargs["workspace_pk"]
+            # Confirm the workspace belongs to the active tenant (scoped manager).
+            Workspace.objects.get(id=workspace_id)
+            # atomic so a unique-constraint violation does not poison the
+            # surrounding request/test transaction.
+            with transaction.atomic():
+                definition = CustomFieldDefinition.objects.create(
+                    workspace_id=workspace_id,
+                    name=data["name"],
+                    field_type=data.get("field_type", "text"),
+                    is_required=data.get("is_required", False),
+                    options=data.get("options", []),
+                    order=data.get("order", 0),
+                    created_by_id=ctx.user_id,
+                )
+            return Response(
+                CustomFieldDefinitionSerializer(definition).data,
+                status=status.HTTP_201_CREATED,
+            )
+        except Exception as exc:
+            from persistence.models import Workspace
+            if isinstance(exc, Workspace.DoesNotExist):
+                return Response(
+                    build_error_response("NOT_FOUND", lang, message="Workspace not found"),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            from django.db import IntegrityError
+            if isinstance(exc, IntegrityError):
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, details=[{"field": "name", "errors": ["A field with this name already exists in the workspace."]}]),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            logger.exception("CustomFieldDefinitionViewSet.create: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH an existing definition (admin only). Returns 200."""
+        from auth_tenancy.models import ROLE_ADMIN
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+
+        try:
+            from persistence.models import CustomFieldDefinition
+            definition = CustomFieldDefinition.objects.get(id=pk)
+        except Exception:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        ser = CustomFieldDefinitionSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        # Guard: a dropdown must always keep at least one option.
+        effective_type = data.get("field_type", definition.field_type)
+        effective_options = data.get("options", definition.options)
+        if effective_type == "dropdown" and not effective_options:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, details=[{"field": "options", "errors": ["Dropdown fields require at least one option."]}]),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            from django.db import transaction
+            for attr in ("name", "field_type", "is_required", "options", "order"):
+                if attr in data:
+                    setattr(definition, attr, data[attr])
+            definition.modified_by_id = ctx.user_id
+            definition.version += 1
+            with transaction.atomic():
+                definition.save()
+            return Response(CustomFieldDefinitionSerializer(definition).data)
+        except Exception as exc:
+            from django.db import IntegrityError
+            if isinstance(exc, IntegrityError):
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, details=[{"field": "name", "errors": ["A field with this name already exists in the workspace."]}]),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            logger.exception("CustomFieldDefinitionViewSet.partial_update: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE a definition and its values (admin only). Returns 204."""
+        from auth_tenancy.models import ROLE_ADMIN
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+        try:
+            from persistence.models import CustomFieldDefinition
+            definition = CustomFieldDefinition.objects.get(id=pk)
+            definition.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Exception as exc:
+            from persistence.models import CustomFieldDefinition
+            if isinstance(exc, CustomFieldDefinition.DoesNotExist):
+                return Response(
+                    build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            logger.exception("CustomFieldDefinitionViewSet.destroy: unhandled exception")
+            return _service_error_response(exc, lang)
+
+
+class ArtifactCustomFieldValuesView(APIView):
+    """Read/write custom field values for a single artifact (REQ-016).
+
+    - GET  /api/v1/artifacts/<pk>/custom-field-values/
+           → the artifact's workspace definitions merged with current values.
+    - PUT  /api/v1/artifacts/<pk>/custom-field-values/
+           body: ``[{"definition_id": "...", "value": "..."}]`` — upserts values.
+
+    Any authenticated tenant member may read and write values (form filling).
+    """
+
+    def _merged_rows(self, workspace_id: str, artifact_id: str) -> list[dict]:
+        from persistence.models import CustomFieldDefinition, CustomFieldValue
+        definitions = list(
+            CustomFieldDefinition.objects.filter(
+                workspace_id=workspace_id
+            ).order_by("order", "name")
+        )
+        values = {
+            v.definition_id: v
+            for v in CustomFieldValue.objects.filter(artifact_id=artifact_id)
+        }
+        rows: list[dict] = []
+        for d in definitions:
+            v = values.get(d.id)
+            rows.append(
+                {
+                    "id": str(v.id) if v else None,
+                    "definition_id": str(d.id),
+                    "artifact_id": str(artifact_id),
+                    "value": v.value if v else "",
+                    "name": d.name,
+                    "field_type": d.field_type,
+                    "is_required": d.is_required,
+                    "options": d.options,
+                    "order": d.order,
+                }
+            )
+        return rows
+
+    def get(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            from persistence.models import Artifact
+            get_auth_context(request)
+            artifact = Artifact.objects.get(id=pk)
+            return Response(self._merged_rows(str(artifact.workspace_id), pk))
+        except Exception as exc:
+            from persistence.models import Artifact
+            if isinstance(exc, Artifact.DoesNotExist):
+                return Response(
+                    build_error_response("NOT_FOUND", lang, message="Artifact not found"),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            logger.exception("ArtifactCustomFieldValuesView.get: unhandled exception")
+            return _service_error_response(exc, lang)
+
+    def put(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        if not isinstance(request.data, list):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="Expected a list of {definition_id, value}."),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            from django.db import transaction
+            from persistence.models import (
+                Artifact,
+                CustomFieldDefinition,
+                CustomFieldValue,
+            )
+            ctx = get_auth_context(request)
+            artifact = Artifact.objects.get(id=pk)
+            workspace_id = str(artifact.workspace_id)
+            defs = {
+                str(d.id): d
+                for d in CustomFieldDefinition.objects.filter(workspace_id=workspace_id)
+            }
+
+            with transaction.atomic():
+                for item in request.data:
+                    did = str(item.get("definition_id", ""))
+                    raw = item.get("value")
+                    value = "" if raw is None else str(raw)
+                    definition = defs.get(did)
+                    if definition is None:
+                        return Response(
+                            build_error_response("VALIDATION_ERROR", lang, details=[{"field": "definition_id", "errors": [f"Unknown definition {did} for this workspace."]}]),
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    if value == "" and definition.is_required:
+                        return Response(
+                            build_error_response("VALIDATION_ERROR", lang, details=[{"field": definition.name, "errors": ["This field is required."]}]),
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    err = _validate_custom_value(definition, value, lang)
+                    if err is not None:
+                        return err
+                    if value == "":
+                        CustomFieldValue.objects.filter(
+                            definition_id=did, artifact_id=pk
+                        ).delete()
+                    else:
+                        # ``update_or_create`` bypasses TenantManager.create, so
+                        # the tenant FK must be supplied explicitly here.
+                        CustomFieldValue.objects.update_or_create(
+                            definition_id=did,
+                            artifact_id=pk,
+                            defaults={"value": value, "tenant_id": ctx.tenant_id},
+                        )
+            return Response(self._merged_rows(workspace_id, pk))
+        except Exception as exc:
+            from persistence.models import Artifact
+            if isinstance(exc, Artifact.DoesNotExist):
+                return Response(
+                    build_error_response("NOT_FOUND", lang, message="Artifact not found"),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            logger.exception("ArtifactCustomFieldValuesView.put: unhandled exception")
+            return _service_error_response(exc, lang)
+
+
 __all__ = [
     "StakeholderNeedViewSet",
     "RequirementViewSet",
@@ -4416,6 +4741,8 @@ __all__ = [
     "RiskViewSet",
     "IssueViewSet",
     "AttributeVisibilityConfigViewSet",
+    "CustomFieldDefinitionViewSet",
+    "ArtifactCustomFieldValuesView",
     "SearchViewSet",
     "CsvImportView",
     "CsvExportView",

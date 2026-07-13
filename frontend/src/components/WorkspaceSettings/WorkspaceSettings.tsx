@@ -36,6 +36,7 @@ import { BackupRestoreSection } from "./BackupRestoreSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { PromptTemplateSection } from "./PromptTemplateSection";
+import { CustomFieldsSection } from "./CustomFieldsSection";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -480,6 +481,9 @@ export default function WorkspaceSettings(): JSX.Element {
                 </label>
               ))}
             </section>
+
+            {/* Custom Fields (REQ-016) — workspace-wide field definitions, admin-managed */}
+            {isAdmin && <CustomFieldsSection workspaceId={activeWorkspace.id} />}
           </>
         )}
 

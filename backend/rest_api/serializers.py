@@ -832,6 +832,71 @@ class AttributeVisibilityConfigSerializer(serializers.Serializer):
     )
 
 
+class CustomFieldDefinitionSerializer(serializers.Serializer):
+    """Serializer for CustomFieldDefinition (REQ-016).
+
+    Workspace-wide custom field definition. ``options`` is only meaningful for
+    ``field_type == "dropdown"`` and must then be a non-empty list of strings.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(max_length=128)
+    field_type = serializers.ChoiceField(
+        choices=["text", "number", "dropdown"],
+        default="text",
+    )
+    is_required = serializers.BooleanField(default=False)
+    options = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+    )
+    order = serializers.IntegerField(required=False, default=0)
+    created_at = serializers.DateTimeField(read_only=True)
+    modified_at = serializers.DateTimeField(read_only=True)
+
+    def validate(self, attrs: dict) -> dict:
+        """Enforce that dropdown fields carry at least one option.
+
+        On partial updates ``field_type``/``options`` may be absent; the check
+        only fires when a dropdown type is being set without any option.
+        """
+        field_type = attrs.get("field_type")
+        options = attrs.get("options")
+        if field_type == "dropdown" and not options:
+            raise serializers.ValidationError(
+                {"options": "Dropdown fields require at least one option."}
+            )
+        return attrs
+
+
+class CustomFieldValueSerializer(serializers.Serializer):
+    """Serializer for a persisted CustomFieldValue joined with its definition (REQ-016).
+
+    Read output merges the value with its definition metadata so the frontend can
+    render the input control without a second request. On write only
+    ``definition_id`` and ``value`` are consumed.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    definition_id = serializers.UUIDField()
+    artifact_id = serializers.UUIDField(read_only=True)
+    value = serializers.CharField(
+        allow_blank=True, allow_null=True, required=False, default=""
+    )
+    # Definition metadata (read-only convenience fields).
+    name = serializers.CharField(source="definition.name", read_only=True)
+    field_type = serializers.CharField(
+        source="definition.field_type", read_only=True
+    )
+    is_required = serializers.BooleanField(
+        source="definition.is_required", read_only=True
+    )
+    options = serializers.JSONField(source="definition.options", read_only=True)
+    order = serializers.IntegerField(source="definition.order", read_only=True)
+
+
 # ---------------------------------------------------------------------------
 # Queryset optimization helpers (REQ-L2-RA-013, COMP-RA-006 integration point)
 # ---------------------------------------------------------------------------
@@ -971,6 +1036,8 @@ __all__ = [
     "RiskSerializer",
     "IssueSerializer",
     "AttributeVisibilityConfigSerializer",
+    "CustomFieldDefinitionSerializer",
+    "CustomFieldValueSerializer",
     "TestRunSerializer",
     "TestRunResultSerializer",
     "TestRunResultBulkSerializer",

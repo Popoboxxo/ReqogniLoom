@@ -167,6 +167,20 @@ class MakeOrBuy(models.TextChoices):
     REUSE = "Reuse", "Reuse"
 
 
+class CustomFieldType(models.TextChoices):
+    """Data type of a workspace-wide custom field (REQ-016).
+
+    ``TEXT``     — free-text single line, stored verbatim.
+    ``NUMBER``   — numeric value, stored as its string representation.
+    ``DROPDOWN`` — one of a predefined set of options (see
+                   :attr:`CustomFieldDefinition.options`).
+    """
+
+    TEXT = "text", "Text"
+    NUMBER = "number", "Number"
+    DROPDOWN = "dropdown", "Dropdown"
+
+
 # ---------------------------------------------------------------------------
 # Abstract base classes (COMP-PL-001, ADR-L3-PL-001)
 # ---------------------------------------------------------------------------
@@ -1008,6 +1022,115 @@ class AttributeVisibilityConfig(TenantScopedModel):
         visibility_status = "visible" if self.is_visible else "hidden"
         required_status = "required" if self.is_required else "optional"
         return f"{self.entity_type}.{self.attribute_name} ({visibility_status}, {required_status})"
+
+
+class CustomFieldDefinition(TenantScopedModel):
+    """Workspace-wide custom field definition (REQ-016).
+
+    Workspace administrators define custom fields (name, type, required flag and
+    — for dropdowns — a fixed option set) centrally per workspace. A definition
+    applies to *all* artifacts of the workspace (Requirements, ArchitectureElements,
+    TestCases, …) because every concrete artifact type shares the generic
+    :class:`Artifact` base. Entered values are stored per artifact instance in
+    :class:`CustomFieldValue`.
+
+    Constraint: unique on (workspace, name) — a field name is unique per workspace.
+    """
+
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="custom_field_definitions",
+    )
+    name = models.CharField(
+        max_length=128,
+        help_text="Human-readable field label, unique within the workspace.",
+    )
+    field_type = models.CharField(
+        max_length=16,
+        choices=CustomFieldType.choices,
+        default=CustomFieldType.TEXT,
+        help_text="Data type: text, number or dropdown.",
+    )
+    is_required = models.BooleanField(
+        default=False,
+        help_text="Whether a value must be provided on the artifact form.",
+    )
+    options = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Dropdown options as a list of strings. Empty for text/number "
+            "fields; required (non-empty) for dropdown fields."
+        ),
+    )
+    order = models.IntegerField(
+        default=0,
+        help_text="Display order of the field in artifact forms (ascending).",
+    )
+
+    class Meta:
+        db_table = "pl_custom_field_definition"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "name"],
+                name="uq_customfielddef_workspace_name",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["workspace"], name="idx_customfielddef_workspace"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.field_type})"
+
+
+class CustomFieldValue(TenantScopedModel):
+    """Persisted value of a custom field for a single artifact instance (REQ-016).
+
+    The FK targets the generic :class:`Artifact` base rather than each concrete
+    type, so a single value table serves Requirements, ArchitectureElements and
+    TestCases alike (all of which own a 1:1 ``artifact``). The value is stored as
+    text; numeric and dropdown values are serialised to their string form and
+    validated against the definition at the API boundary.
+
+    Constraint: unique on (definition, artifact) — one value per field per artifact.
+    """
+
+    definition = models.ForeignKey(
+        CustomFieldDefinition,
+        on_delete=models.CASCADE,
+        related_name="values",
+    )
+    artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.CASCADE,
+        related_name="custom_field_values",
+    )
+    value = models.TextField(
+        blank=True,
+        default="",
+        help_text="Stored value (string representation).",
+    )
+
+    class Meta:
+        db_table = "pl_custom_field_value"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["definition", "artifact"],
+                name="uq_customfieldvalue_definition_artifact",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["artifact"], name="idx_customfieldvalue_artifact"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.definition_id}={self.value!r}"
 
 
 class GlossaryTerm(TenantScopedModel):

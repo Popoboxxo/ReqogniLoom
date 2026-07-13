@@ -92,6 +92,7 @@ export interface StakeholderNeed {
 export interface Requirement {
   id: UUID;
   workspace_id: UUID;
+  artifact_id?: UUID;
   parent_id?: string;
   title: string;
   description: string;

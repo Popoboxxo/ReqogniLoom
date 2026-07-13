@@ -76,6 +76,11 @@ vi.mock("../AdminDialog/AttributeVisibilityAdmin", () => ({
   AttributeVisibilityAdmin: () => <div data-testid="stub-visibility" />,
 }));
 
+// Stub CustomFieldsSection (REQ-016) to prevent api calls in unit tests.
+vi.mock("./CustomFieldsSection", () => ({
+  CustomFieldsSection: () => <div data-testid="stub-custom-fields" />,
+}));
+
 describe("WorkspaceSettings tabs (REQ-015)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

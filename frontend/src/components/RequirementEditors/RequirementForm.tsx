@@ -36,6 +36,7 @@ import {
 import { requirementsApi } from '../../api/requirements';
 import { extractErrorMessage } from '../../api/client';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
+import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from './MarkdownPreview';
 import { VersionBadge } from '../shared/VersionBadge';
 import { FIBONACCI_SEQUENCE } from '../../utils/fibonacciUtils';
@@ -419,6 +420,13 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
             disabled={isSaving}
           />
         </div>
+
+        {/* SECTION: Workspace custom fields (REQ-016) — workspace-defined,
+            typed fields persisted per artifact instance. Only shown for an
+            existing requirement (needs an artifact id). */}
+        {requirement.artifact_id && (
+          <ArtifactCustomFields artifactId={requirement.artifact_id} />
+        )}
 
         {/* SECTION: Change Control */}
         {isExtendedPreset && isFieldVisible('change_reason') && (

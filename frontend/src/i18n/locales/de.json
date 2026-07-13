@@ -5,6 +5,8 @@
   },
   "customFields": {
     "section": "Benutzerdefinierte Felder",
+    "workspaceSection": "Workspace-Felder",
+    "saveValues": "Felder speichern",
     "empty": "Keine benutzerdefinierten Felder. Feld hinzufügen, um zu beginnen.",
     "addField": "Feld hinzufügen",
     "key": "Schlüssel",
@@ -335,6 +337,16 @@
     "devMode": "Entwickler-Modus",
     "seMode": "SE-Modus",
     "saved": "Gespeichert.",
+    "customFields": {
+      "title": "Benutzerdefinierte Felder",
+      "description": "Definiere zusätzliche Felder, die workspace-weit an allen Artefakten erscheinen.",
+      "name": "Name",
+      "type": "Typ",
+      "required": "Pflicht",
+      "options": "Optionen",
+      "optionsHint": "Optionen, Komma-getrennt",
+      "empty": "Noch keine Felder definiert."
+    },
     "dataManagement": "Datenverwaltung",
     "dataManagementHint": "Bestehende Anforderungen aus einer CSV-Datei importieren.",
     "lifecycleSection": "Workspace-Verwaltung",

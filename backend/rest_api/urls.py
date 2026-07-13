@@ -57,9 +57,11 @@ from rest_api.settings_views import (
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
+    ArtifactCustomFieldValuesView,
     ArtifactViewSet,
     AttributeVisibilityConfigViewSet,
     BaselineViewSet,
+    CustomFieldDefinitionViewSet,
     CsvExportView,
     CsvImportView,
     GlossaryTermViewSet,
@@ -142,6 +144,26 @@ urlpatterns = [
         "workspaces/<uuid:workspace_pk>/needs/",
         StakeholderNeedViewSet.as_view({"get": "list", "post": "create"}),
         name="workspace-needs",
+    ),
+    # Custom field definitions (REQ-016) — workspace-scoped list/create.
+    path(
+        "workspaces/<uuid:workspace_pk>/custom-field-definitions/",
+        CustomFieldDefinitionViewSet.as_view({"get": "list", "post": "create"}),
+        name="workspace-custom-field-definitions",
+    ),
+    # Custom field definition detail (REQ-016) — update/delete by id (admin-only).
+    path(
+        "custom-field-definitions/<uuid:pk>/",
+        CustomFieldDefinitionViewSet.as_view(
+            {"patch": "partial_update", "delete": "destroy"}
+        ),
+        name="custom-field-definition-detail",
+    ),
+    # Custom field values (REQ-016) — read/upsert values for one artifact.
+    path(
+        "artifacts/<uuid:pk>/custom-field-values/",
+        ArtifactCustomFieldValuesView.as_view(),
+        name="artifact-custom-field-values",
     ),
     # ItemPermission CRUD (REQ-L1-039, COMP-AT-005) — workspace-scoped, admin-only.
     path(

@@ -5,6 +5,8 @@
   },
   "customFields": {
     "section": "Custom Fields",
+    "workspaceSection": "Workspace Fields",
+    "saveValues": "Save fields",
     "empty": "No custom fields yet. Add a field to get started.",
     "addField": "Add field",
     "key": "Key",
@@ -335,6 +337,16 @@
     "devMode": "Dev Mode",
     "seMode": "SE Mode",
     "saved": "Saved.",
+    "customFields": {
+      "title": "Custom Fields",
+      "description": "Define additional fields that appear workspace-wide on all artifacts.",
+      "name": "Name",
+      "type": "Type",
+      "required": "Required",
+      "options": "Options",
+      "optionsHint": "Options, comma-separated",
+      "empty": "No fields defined yet."
+    },
     "dataManagement": "Data Management",
     "dataManagementHint": "Import existing requirements from a CSV file.",
     "lifecycleSection": "Workspace Administration",
