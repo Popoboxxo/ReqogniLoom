@@ -31,4 +31,9 @@ sync.log
 
 # agent-meta runtime artifacts
 .meta-viz/
+
+# tokensave local index files
+.tokensave/
+backend/.tokensave/
+
 docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/Components/COMP-DS-001_DiagramManager/.keep
