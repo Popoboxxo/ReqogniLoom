@@ -408,33 +408,6 @@ export default function WorkspaceSettings(): JSX.Element {
       {/* AI Prompt Templates (REQ-L2-PT-001) — admin only */}
       <PromptTemplateSection />
 
-      {/* Data Management (REQ-L0-013, REQ-L2-RF-016) */}
-      {isFeatureVisible("csv_import") && (
-        <section style={sectionStyle}>
-          <h3 style={headingStyle}>{t("settings.dataManagement", "Data Management")}</h3>
-          <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", marginBottom: "var(--space-3)" }}>
-            {t("settings.dataManagementHint", "Import existing requirements from a CSV file.")}
-          </p>
-          <button
-            type="button"
-            data-testid="settings-csv-import-btn"
-            onClick={() => navigate("/import")}
-            style={{
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {t("import.title", "CSV Import")}
-          </button>
-        </section>
-      )}
-
       {/* Workflows (REQ-L2-RA-001) */}
       <WorkflowsSection workspaceId={activeWorkspace.id} />
 
