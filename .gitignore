@@ -5,6 +5,7 @@
 frontend/node_modules/
 e2e/node_modules/
 e2e/test-results/
+e2e/node_modules/
 
 .continue
 
@@ -56,3 +57,13 @@ docs/se/L1/Gesamtsystem/L2/DiagramServiceSystem/Components/COMP-DS-001_DiagramMa
 
 node_modules/
 docs/se/METHODOLOGY_AUDIT.md
+
+# Generated artifacts and logs
+*.log
+test-results/
+e2e/playwright-report/
+repomix-output.xml
+
+# Local dev files
+.local/
+frontend/.scratchpad-shots/
