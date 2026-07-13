@@ -41,7 +41,7 @@
 | B4 | Tags-Implementierung reparieren | Probleme | developer | REQ-010 | ausstehend |
 | B5 | Baselines: UUID-Fehler "badly formed hexadecimal UUID string" | Baselines | developer | REQ-011 | ausstehend |
 | B6 | Testläufe: "Confirm/Abschließen"-Button funktioniert nicht | Testläufe | junior-developer | REQ-012 | ausstehend |
-| B7+B8 | Workspace-Einstellungen: Sprache ohne Wirkung + Attribut-Sichtbarkeit HTTP 404 | Workspace-Einstellungen | developer | REQ-013 | ausstehend |
+| B7+B8 | Workspace-Einstellungen: Sprache ohne Wirkung + Attribut-Sichtbarkeit HTTP 404 | Workspace-Einstellungen | developer | REQ-015 | ausstehend |
 | B9 | ICDS: Baum fehlt initial, erscheint erst nach Speichern | ICDS | junior-developer | REQ-014 | ausstehend |
 
 ---
@@ -82,7 +82,7 @@
 | D10 | Verantwortlicher: Freitext + Autocomplete | Risiken | Feld muss Freitext UND User-Dropdown/Autocomplete kombinieren |
 | D11 | Glossar-Dialog Layout | Glossar | Dialog zusammengequetscht; Titel und Buttons brechen aus Rahmen |
 | D12 | Glossar-Scope vereinfachen | Glossar | "Alle/Workspace/Global" → nur "Workspace/Global" |
-| D13 | Workspace-Einstellungen Redesign | Workspace-Einstellungen | Gesamtlayout und Proportionen neu gestalten |
+| ~~D13~~ | ~~Workspace-Einstellungen Redesign~~ | ~~Workspace-Einstellungen~~ | ~~Gesamtlayout und Proportionen neu gestalten~~ — **DONE** REQ-015 |
 | D14 | Dropdown Weiß-auf-Weiß | Workspace-Einstellungen | Entitätstyp-Dropdown: weiße Schrift auf weißem Hintergrund |
 | D15 | Traceability-Default | Workspace-Einstellungen | Default-Linktyp soll "derives from" sein |
 | D16 | Disaster Recovery Dropdown | Workspace-Einstellungen | Gleicher Kontrast-Bug wie D14 |
@@ -112,3 +112,4 @@
 | 2026-07-13 | Cluster B freigegeben durch User; TODO-001–004 zentral notiert |
 | 2026-07-13 | TODO-002 erledigt (Soft-Delete für Requirement+StakeholderNeed, commit f96bc3d); TODO-004 geklärt (kein Hierarchie-Tree für Diagramme-View benötigt) |
 | 2026-07-13 | **D18 (Workflows + Item Permissions):** Item-Permissions-UX (REQ-014) implementiert + validiert: Backend-Endpoint `/api/v1/workspaces/{id}/members/` liefert Workspace-Mitgliederliste; `PermissionsSection.tsx` nutzt jetzt Dropdown/Autocomplete statt UUID-Freitext. **Workflows-Redesign bewusst zurückgestellt:** Transcript-Feedback zu Workflows enthält nur "als Katastrophe bewertet" ohne konkreten Soll-Zustand. `WorkflowsSection.tsx` ist rohes Dev-Formular (Freitext-UUID, kein Zustandsautomat); `WorkflowDefinitionViewSet` liefert leere Liste. Implementierung ohne vorherige Ideation/UI-UX-Spezifikation wäre Raten/Over-Engineering. **Empfehlung:** Workflows-Redesign als separater REQ nach Konzeptphase (Ideation + UI-UX-Design). |
+| 2026-07-13 | **Merge-Konflikt REQ-ID-Kollision:** `feat/frontend-feedback-cluster-a` und `worktree-agent-a043b4757acbc101d` haben unabhängig voneinander beide REQ-013 vergeben (Lifecycle-Status/Soft-Delete vs. Workspace-Einstellungen Redesign/D13). Da REQ-013 (Lifecycle-Status) und REQ-014 (Item-Permissions) im Zielbranch bereits belegt waren, wurde D13/Workspace-Einstellungen-Redesign auf **REQ-015** umnummeriert (REQUIREMENTS.md, `WorkspaceSettings.tsx`/`.test.tsx`, diese Datei). |
