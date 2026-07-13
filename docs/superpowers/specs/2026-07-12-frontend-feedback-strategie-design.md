@@ -12,9 +12,9 @@
 | # | TODO | Priorität | Herkunft |
 |---|------|-----------|---------|
 | TODO-001 | A1: Testdateien `test_versioning.py` und `versioning.test.ts` wurden vom Agenten beschrieben aber waren bei Commit nicht auf Disk — manuell nachprüfen und ggf. nacherfassen | medium | A1 (REQ-001) |
-| TODO-002 | A6: `Requirement` und `StakeholderNeed` haben noch kein Soft-Delete — als separates Work Package einplanen (Cluster C oder eigener Ticket) | medium | A6 (REQ-006) |
+| TODO-002 | ~~A6: `Requirement` und `StakeholderNeed` haben noch kein Soft-Delete~~ | ~~medium~~ | A6 (REQ-006) — **DONE** commit f96bc3d |
 | TODO-003 | A3: `ArchitectureList.tsx` ist durch WorkspaceTree superseded — kann in einem separaten Cleanup-Commit gelöscht werden | low | A3 (REQ-003) |
-| TODO-004 | A3: Diagramme-View wurde beim Tree-Rollout bewusst ausgelassen — klären ob Hierarchie-Tree dort überhaupt benötigt wird | low | A3 (REQ-003) |
+| TODO-004 | A3: Diagramme-View Hierarchie-Tree | low | A3 (REQ-003) — **GEKLÄRT 2026-07-13: User-Entscheidung: kein Hierarchie-Tree für Diagramme benötigt. Kein Code-Task.** |
 
 ---
 
@@ -62,7 +62,7 @@
 | C10 | Glossar-Synonym-Verlinkung | Synonyme direkt mit bestehenden Glossar-Einträgen verknüpfen |
 | C11 | Nutzerprofil editierbar | Vorname/Nachname einsehbar + änderbar; Activity-Log "Zuletzt bearbeitet" |
 | C12 | AI Prompt Konsolidierung | "AI Prompt Templates" und "AI Derivation Prompts" zu einer einzigen, funktionierenden Oberfläche zusammenführen |
-| TODO-002 | Requirement/StakeholderNeed Soft-Delete | Aus A6 übertragen: fehlende Soft-Delete-Erweiterung für Requirements-Entitäten |
+| ~~TODO-002~~ | ~~Requirement/StakeholderNeed Soft-Delete~~ | ~~Aus A6 übertragen~~ — **DONE** in REQ-006, commit f96bc3d |
 
 ---
 
@@ -110,3 +110,4 @@
 | 2026-07-12 | Playwright-E2E nicht automatisch ausführen (playwright-policy.md) |
 | 2026-07-13 | Cluster A abgeschlossen (7/7), alle Commits auf feat/frontend-feedback-cluster-a |
 | 2026-07-13 | Cluster B freigegeben durch User; TODO-001–004 zentral notiert |
+| 2026-07-13 | TODO-002 erledigt (Soft-Delete für Requirement+StakeholderNeed, commit f96bc3d); TODO-004 geklärt (kein Hierarchie-Tree für Diagramme-View benötigt) |
