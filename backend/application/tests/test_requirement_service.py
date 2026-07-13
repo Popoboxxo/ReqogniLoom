@@ -9,7 +9,7 @@ Coverage:
   - create_requirement: success, viewer denied, tenant not found, workspace not found,
                         audit entry produced
   - update_requirement: success, change_reason policy enforcement, not found
-  - delete_requirement: success, cascade trace links called, not found
+  - delete_requirement: soft-delete (lifecycle_status='deleted', REQ-006), not found
   - get_requirement / list_requirements: basic delegation
   - decompose: manual children persisted; LLM path raises LlmNotConfiguredError
   - Tenant isolation: _set_tenant_context called on every write
@@ -311,6 +311,7 @@ class TestUpdateRequirement:
                     )
                 ),
             ),
+            patch("application.requirement_service.Requirement.objects.filter"),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
@@ -519,7 +520,11 @@ class TestDeleteRequirement:
                 svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
     def test_delete_cascades_trace_links_and_deletes(self):
-        """cascade_delete_trace_links called then requirement.delete() called."""
+        """delete_requirement soft-deletes by setting lifecycle_status='deleted' (REQ-006).
+
+        Physical deletion and trace-link cascade were replaced by a soft-delete:
+        the requirement row and its TraceLinks remain for audit purposes.
+        """
         svc = RequirementService()
         ctx = _make_ctx()
         mock_req = _make_requirement()
@@ -539,16 +544,13 @@ class TestDeleteRequirement:
                     )
                 ),
             ),
-            patch.object(
-                svc._trace_link_service, "cascade_delete_trace_links"
-            ) as mock_cascade,
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
             svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
-        mock_cascade.assert_called_once()
-        mock_req.delete.assert_called_once()
+        assert mock_req.lifecycle_status == "deleted"
+        mock_req.save.assert_called_once_with(update_fields=["lifecycle_status"])
 
     def test_audit_entry_on_delete(self):
         """_audit is invoked with operation='delete'."""
@@ -631,22 +633,25 @@ class TestGetRequirement:
                 svc.get_requirement(REQ_ID, ctx)
 
     def test_list_requirements_returns_list(self):
-        """list_requirements returns a list of ORM instances."""
+        """list_requirements returns a list of ORM instances, excluding soft-deleted (REQ-006)."""
         svc = RequirementService()
         ctx = _make_ctx()
         mock_reqs = [_make_requirement(), _make_requirement()]
+        mock_filtered_qs = MagicMock()
+        mock_filtered_qs.exclude.return_value = mock_reqs
 
         with (
             patch("application.requirement_service.ServiceBase._set_tenant_context"),
             patch(
                 "application.requirement_service.Requirement.objects.select_related",
                 return_value=MagicMock(
-                    filter=MagicMock(return_value=mock_reqs)
+                    filter=MagicMock(return_value=mock_filtered_qs)
                 ),
             ),
         ):
             result = svc.list_requirements(WS_ID, ctx)
 
+        mock_filtered_qs.exclude.assert_called_once_with(lifecycle_status="deleted")
         assert result == mock_reqs
 
 
