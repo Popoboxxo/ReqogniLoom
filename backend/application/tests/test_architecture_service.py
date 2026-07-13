@@ -679,43 +679,67 @@ class TestElementTypeValidation:
             for p in patches:
                 p.stop()
 
-    def test_create_with_invalid_element_type_raises_validation_error(self):
-        """Invalid element_type like 'banane' raises ValidationError."""
+    def test_create_with_custom_element_type_is_accepted(self):
+        """REQ-006 (D5): free-vocabulary element_type like 'banane' is accepted, not rejected."""
         svc = ArchitectureService()
         ctx = _make_ctx()
+        patches = self._patch_create_chain(svc)
 
-        with (
-            patch("application.architecture_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.architecture_service.ServiceBase._assert_write_permission"
-            ),
-        ):
-            with pytest.raises(ValidationError, match="Invalid element_type"):
-                svc.create_architecture_element(
-                    workspace_id=WS_ID,
-                    title="Invalid",
-                    ctx=ctx,
-                    element_type="banane",
-                )
+        captured = {}
 
-    def test_create_with_empty_string_raises_validation_error(self):
-        """Empty string element_type raises ValidationError."""
+        def capture_create(**kw):
+            captured.update(kw)
+            return _make_arch_el(element_type=kw.get("element_type", "component"))
+
+        patches[5] = patch(
+            "application.architecture_service.ArchitectureElement.objects.create",
+            side_effect=capture_create,
+        )
+
+        cms = [p.start() for p in patches]
+        try:
+            svc.create_architecture_element(
+                workspace_id=WS_ID,
+                title="Custom Type",
+                ctx=ctx,
+                element_type="banane",
+            )
+            assert captured["element_type"] == "banane"
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_create_with_empty_string_defaults_to_component(self):
+        """REQ-006 (D5): empty string element_type falls back to the default COMPONENT type."""
+        from persistence.models import ElementType
+
         svc = ArchitectureService()
         ctx = _make_ctx()
+        patches = self._patch_create_chain(svc)
 
-        with (
-            patch("application.architecture_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.architecture_service.ServiceBase._assert_write_permission"
-            ),
-        ):
-            with pytest.raises(ValidationError, match="Invalid element_type"):
-                svc.create_architecture_element(
-                    workspace_id=WS_ID,
-                    title="Empty",
-                    ctx=ctx,
-                    element_type="",
-                )
+        captured = {}
+
+        def capture_create(**kw):
+            captured.update(kw)
+            return _make_arch_el(element_type=kw.get("element_type", "component"))
+
+        patches[5] = patch(
+            "application.architecture_service.ArchitectureElement.objects.create",
+            side_effect=capture_create,
+        )
+
+        cms = [p.start() for p in patches]
+        try:
+            svc.create_architecture_element(
+                workspace_id=WS_ID,
+                title="Empty",
+                ctx=ctx,
+                element_type="",
+            )
+            assert captured["element_type"] == ElementType.COMPONENT
+        finally:
+            for p in patches:
+                p.stop()
 
     def test_update_with_valid_element_type(self):
         """update_architecture_element accepts valid element_type values."""
@@ -755,11 +779,14 @@ class TestElementTypeValidation:
 
         assert mock_el.element_type == "subsystem"
 
-    def test_update_with_invalid_element_type_raises_validation_error(self):
-        """update_architecture_element rejects invalid element_type."""
+    def test_update_with_custom_element_type_is_accepted(self):
+        """REQ-006 (D5): update accepts free-vocabulary element_type like 'banane'."""
         svc = ArchitectureService()
         ctx = _make_ctx()
         mock_el = _make_arch_el(version=1)
+
+        mock_filter_qs = MagicMock()
+        mock_filter_qs.update = MagicMock()
 
         with (
             patch("application.architecture_service.ServiceBase._set_tenant_context"),
@@ -774,14 +801,21 @@ class TestElementTypeValidation:
                     )
                 ),
             ),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.filter",
+                return_value=mock_filter_qs,
+            ),
+            patch.object(svc, "_audit"),
+            patch.object(svc, "_emit_event"),
         ):
-            with pytest.raises(ValidationError, match="Invalid element_type"):
-                svc.update_architecture_element(
-                    arch_el_id=ARCH_EL_ID,
-                    ctx=ctx,
-                    expected_version=1,
-                    element_type="banane",
-                )
+            svc.update_architecture_element(
+                arch_el_id=ARCH_EL_ID,
+                ctx=ctx,
+                expected_version=1,
+                element_type="banane",
+            )
+
+        assert mock_el.element_type == "banane"
 
     def test_update_normalizes_pascal_case_element_type(self):
         """update_architecture_element normalizes PascalCase to lowercase."""

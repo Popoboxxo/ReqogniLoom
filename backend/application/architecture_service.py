@@ -45,7 +45,9 @@ _UNSET = object()
 class ArchitectureService(ServiceBase):
     """COMP-AS-003 — ArchitectureElement lifecycle management."""
 
-    # Supported element types — derived from ElementType TextChoices enum
+    # Built-in element types — used as defaults/suggestions only. REQ-006
+    # (D5): element_type is a free-vocabulary field; this set no longer
+    # restricts which values may be stored.
     VALID_ELEMENT_TYPES = frozenset(ElementType.values)
 
     def __init__(self, trace_link_service=None) -> None:
@@ -57,19 +59,15 @@ class ArchitectureService(ServiceBase):
 
     @staticmethod
     def _validate_element_type(element_type: str) -> str:
-        """Validate and normalize *element_type* to a lowercase enum value.
+        """Normalize *element_type* to a lowercase, trimmed string.
 
-        Accepts both exact lowercase values (``"component"``) and legacy
-        PascalCase labels (``"Component"``).  Raises ``ValidationError``
-        for anything outside the ElementType enum (e.g. ``"banane"``).
+        REQ-006 (D5): element_type is a free-vocabulary field — any
+        workspace-defined type is accepted (e.g. ``"actor"``,
+        ``"boundary"``), not just the built-in ElementType enum values.
+        Falls back to the default COMPONENT type when blank.
         """
         normalized = (element_type or "").strip().lower()
-        if normalized not in ArchitectureService.VALID_ELEMENT_TYPES:
-            raise ValidationError(
-                f"Invalid element_type '{element_type}'. "
-                f"Allowed values: {', '.join(sorted(ElementType.values))}"
-            )
-        return normalized
+        return normalized or ElementType.COMPONENT
 
     # ---------- CRUD (REQ-L2-AS-004) ----------
 

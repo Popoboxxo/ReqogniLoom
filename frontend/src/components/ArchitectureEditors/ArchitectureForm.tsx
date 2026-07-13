@@ -56,6 +56,14 @@ interface ArchitectureFormProps {
 }
 
 /**
+ * Fallback element-type suggestions shown when the workspace does not yet
+ * contain any ArchitectureElement (REQ-006 / D5). Mirrors the values of the
+ * former fixed choice list so existing muscle memory keeps working, while
+ * the field itself is now free text.
+ */
+const DEFAULT_ELEMENT_TYPE_SUGGESTIONS = ['System', 'Subsystem', 'Component', 'Interface', 'Function'];
+
+/**
  * Shared style tokens.
  */
 const labelStyle: React.CSSProperties = {
@@ -210,6 +218,12 @@ export function ArchitectureForm({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
 
+  // REQ-006 (D5): element_type autocomplete state — suggestions are derived
+  // from the types already used in this workspace (falls back to
+  // DEFAULT_ELEMENT_TYPE_SUGGESTIONS when the workspace has none yet).
+  const [typeSuggestions, setTypeSuggestions] = useState<string[]>([]);
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+
   // Sync form state when element changes
   useEffect(() => {
     setTitle(element.title);
@@ -250,6 +264,36 @@ export function ArchitectureForm({
     () => elements.filter((el) => !invalidParentIds.has(el.id)),
     [elements, invalidParentIds]
   );
+
+  // REQ-006 (D5): element types used anywhere in the workspace, de-duplicated
+  // and sorted — replaces the former fixed ElementType choice list.
+  const allElementTypes = useMemo((): string[] => {
+    const existing = Array.from(
+      new Set(
+        elements
+          .map((el) => el.element_type)
+          .filter((type): type is string => Boolean(type))
+      )
+    ).sort();
+    return existing.length > 0 ? existing : DEFAULT_ELEMENT_TYPE_SUGGESTIONS;
+  }, [elements]);
+
+  const handleElementTypeChange = useCallback(
+    (value: string): void => {
+      setElementType(value as ElementType);
+      const filtered = value
+        ? allElementTypes.filter((ty) => ty.toLowerCase().includes(value.toLowerCase()))
+        : allElementTypes;
+      setTypeSuggestions(filtered);
+      setTypeDropdownOpen(filtered.length > 0);
+    },
+    [allElementTypes]
+  );
+
+  const handleTypeSuggestionClick = useCallback((suggestion: string): void => {
+    setElementType(suggestion as ElementType);
+    setTypeDropdownOpen(false);
+  }, []);
 
   const handleSave = useCallback(async (): Promise<void> => {
     setIsSaving(true);
@@ -362,23 +406,74 @@ export function ArchitectureForm({
         }}
       />
 
-      {/* Element type dropdown */}
+      {/* Element type — free text with autocomplete (REQ-006 / D5: types can be
+          changed and extended freely, no longer a fixed choice list) */}
       <label htmlFor="arch-type" style={labelStyle}>
         {t('arch.elementType')}
       </label>
-      <select
-        id="arch-type"
-        data-testid="arch-element-type-select"
-        value={elementType}
-        onChange={(e) => setElementType(e.target.value as ElementType)}
-        style={{ ...inputStyle, width: 'auto', minWidth: '200px' }}
-      >
-        <option value="component">{t('arch.elementType.component')}</option>
-        <option value="interface">{t('arch.elementType.interface')}</option>
-        <option value="subsystem">{t('arch.elementType.subsystem')}</option>
-        <option value="layer">{t('arch.elementType.layer')}</option>
-        <option value="module">{t('arch.elementType.module')}</option>
-      </select>
+      <div style={{ position: 'relative', width: 'auto', minWidth: '200px', marginBottom: 'var(--space-4)' }}>
+        <input
+          id="arch-type"
+          type="text"
+          data-testid="arch-element-type-select"
+          value={elementType}
+          onChange={(e) => handleElementTypeChange(e.target.value)}
+          onFocus={() => {
+            const filtered = elementType
+              ? allElementTypes.filter((ty) => ty.toLowerCase().includes(elementType.toLowerCase()))
+              : allElementTypes;
+            setTypeSuggestions(filtered);
+            setTypeDropdownOpen(filtered.length > 0);
+          }}
+          onBlur={() => {
+            // Delay closing to allow a click on a suggestion to register first.
+            setTimeout(() => setTypeDropdownOpen(false), 150);
+          }}
+          placeholder={t('arch.elementTypePlaceholder', 'z.B. System, Subsystem, Component, Interface...')}
+          style={{ ...inputStyle, marginBottom: 0 }}
+        />
+        {typeDropdownOpen && typeSuggestions.length > 0 && (
+          <div
+            data-testid="arch-element-type-dropdown"
+            style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              zIndex: 100,
+              background: 'var(--color-surface-raised)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              maxHeight: '200px',
+              overflowY: 'auto',
+              marginTop: '4px',
+            }}
+          >
+            {typeSuggestions.map((suggestion) => (
+              <div
+                key={suggestion}
+                data-testid={`arch-element-type-suggestion-${suggestion}`}
+                onClick={() => handleTypeSuggestionClick(suggestion)}
+                style={{
+                  padding: 'var(--space-2) var(--space-3)',
+                  cursor: 'pointer',
+                  color: 'var(--color-text)',
+                  fontSize: 'var(--font-size-base)',
+                  borderBottom: '1px solid var(--color-border-subtle)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--color-surface-hover)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                {suggestion}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Parent element picker */}
       <label htmlFor="arch-parent" style={labelStyle}>

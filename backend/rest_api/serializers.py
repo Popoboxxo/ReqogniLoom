@@ -365,8 +365,10 @@ class ArchitectureElementSerializer(
     workspace_id = serializers.UUIDField(required=True)
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
-    element_type = serializers.ChoiceField(
-        choices=ElementType.choices, allow_blank=True, default=ElementType.COMPONENT
+    # REQ-006 (D5): free-form field — no longer restricted to ElementType.choices,
+    # so users can introduce new workspace-defined element types.
+    element_type = serializers.CharField(
+        max_length=64, allow_blank=True, default=ElementType.COMPONENT
     )
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     level = serializers.IntegerField(read_only=True)

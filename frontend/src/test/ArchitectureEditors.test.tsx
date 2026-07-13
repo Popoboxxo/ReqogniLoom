@@ -173,7 +173,7 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     await waitFor(() => {
       // Title field
       expect(screen.getByTestId("arch-title")).toBeInTheDocument();
-      // Element-type dropdown
+      // Element-type autocomplete input (REQ-006 / D5: free text, not a fixed dropdown)
       expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
       // Save button
       expect(screen.getByTestId("arch-save-btn")).toBeInTheDocument();
@@ -186,11 +186,11 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     expect(titleInput.value).toBe("AuthService");
 
     // Element type should be set to "component"
-    const typeSelect = screen.getByTestId("arch-element-type-select") as HTMLSelectElement;
-    expect(typeSelect.value).toBe("component");
+    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    expect(typeInput.value).toBe("component");
   });
 
-  it("can change element type dropdown (REQ-L3-RF004-001 — Type-Auswahl)", async () => {
+  it("can change element type via free-text autocomplete (REQ-006 / D5 — Type-Auswahl)", async () => {
     const user = userEvent.setup();
     renderEditor(MOCK_ELEMENT.id);
 
@@ -198,9 +198,24 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
     });
 
-    const typeSelect = screen.getByTestId("arch-element-type-select");
-    await user.selectOptions(typeSelect, "subsystem");
-    expect((typeSelect as HTMLSelectElement).value).toBe("subsystem");
+    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    await user.clear(typeInput);
+    await user.type(typeInput, "subsystem");
+    expect(typeInput.value).toBe("subsystem");
+  });
+
+  it("allows entering a brand-new element type not present in the workspace (REQ-006 / D5)", async () => {
+    const user = userEvent.setup();
+    renderEditor(MOCK_ELEMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("arch-element-type-select")).toBeInTheDocument();
+    });
+
+    const typeInput = screen.getByTestId("arch-element-type-select") as HTMLInputElement;
+    await user.clear(typeInput);
+    await user.type(typeInput, "Actor");
+    expect(typeInput.value).toBe("Actor");
   });
 
   it("calls architectureApi.update on save (REQ-L3-RF004-001 — Update)", async () => {

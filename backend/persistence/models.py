@@ -630,10 +630,14 @@ class ArchitectureElement(TenantScopedModel):
     )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
+    # REQ-006 (D5): free-form field — the ElementType enum no longer
+    # restricts stored values. ElementType.choices only supplies the
+    # built-in defaults/suggestions; users may introduce new workspace
+    # types on the fly (Django choices are Python-level validation only,
+    # not a DB constraint, so no migration is required for this change).
     element_type = models.CharField(
         max_length=64,
         blank=True,
-        choices=ElementType.choices,
         default=ElementType.COMPONENT,
     )
     parent = models.ForeignKey(
