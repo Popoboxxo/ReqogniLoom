@@ -36,7 +36,6 @@ import { SplitView } from "../SplitView/SplitView";
 import { VersionBadge } from "../shared/VersionBadge";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
-import { SimilarIcdsPanel } from "./SimilarIcdsPanel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,6 +59,36 @@ function joinListField(values: string[] | undefined): string {
 function extractErrorMessage(err: unknown, fallback: string): string {
   const e = err as { error?: { message?: string } };
   return e?.error?.message ?? (err ? String(err) : fallback);
+}
+
+// Similarity algorithm: tokenize ICD names and compute Jaccard similarity
+function tokenize(name: string): Set<string> {
+  return new Set(
+    name
+      .toLowerCase()
+      .split(/[\s\-_/]+/)
+      .filter((t) => t.length > 2)
+  );
+}
+
+function similarity(a: string, b: string): number {
+  const ta = tokenize(a);
+  const tb = tokenize(b);
+  const intersection = new Set([...ta].filter((t) => tb.has(t)));
+  const union = new Set([...ta, ...tb]);
+  return union.size > 0 ? intersection.size / union.size : 0;
+}
+
+function findSimilarICDs(
+  current: Icd,
+  allICDs: Icd[],
+  threshold = 0.5
+): Array<{ icd: Icd; score: number }> {
+  return allICDs
+    .filter((icd) => icd.id !== current.id)
+    .map((icd) => ({ icd, score: similarity(current.name, icd.name) }))
+    .filter(({ score }) => score >= threshold)
+    .sort((a, b) => b.score - a.score);
 }
 
 // ---------------------------------------------------------------------------
@@ -745,6 +774,7 @@ export default function IcdView(): JSX.Element {
         ) : routeId && selectedDetail ? (
           <IcdDetailPane
             detail={selectedDetail}
+            allICDs={icds}
             artifactLabel={artifactLabel}
             onSelectIcd={(id) => navigate(`/icds/${id}`)}
             showNewVersion={showNewVersion}
@@ -790,6 +820,7 @@ export default function IcdView(): JSX.Element {
 
 interface IcdDetailPaneProps {
   detail: IcdDetail;
+  allICDs: Icd[];
   artifactLabel: (id: string) => string;
   onSelectIcd: (id: string) => void;
   showNewVersion: boolean;
@@ -814,6 +845,7 @@ interface IcdDetailPaneProps {
 
 function IcdDetailPane({
   detail,
+  allICDs,
   artifactLabel,
   onSelectIcd,
   showNewVersion,
@@ -1087,8 +1119,12 @@ function IcdDetailPane({
             />
           </div>
 
-          {/* REQ-L2-VS-004: semantic similarity search over ICD contracts. */}
-          <SimilarIcdsPanel icdId={detail.id} onSelect={onSelectIcd} />
+          {/* REQ-006: Show similar interfaces based on name token similarity. */}
+          <SimilarIcdsPanel
+            currentICD={allICDs.find((icd) => icd.id === detail.id) || null}
+            allICDs={allICDs}
+            onSelect={onSelectIcd}
+          />
         </div>
 
         {/* Removed: replaced by ArtifactInspector (REQ-L1-095).
@@ -1321,6 +1357,127 @@ function renderVersionFields(
         rows={2}
         style={{ ...inputStyle, fontFamily: "inherit" }}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SimilarIcdsPanel — shows similar interfaces based on name similarity
+// ---------------------------------------------------------------------------
+
+interface SimilarIcdsPanelProps {
+  currentICD: Icd | null;
+  allICDs: Icd[];
+  onSelect: (icdId: string) => void;
+}
+
+function SimilarIcdsPanel({
+  currentICD,
+  allICDs,
+  onSelect,
+}: SimilarIcdsPanelProps): JSX.Element {
+  const { t } = useTranslation();
+
+  if (!currentICD) {
+    return <div />;
+  }
+
+  const similarICDs = findSimilarICDs(currentICD, allICDs);
+
+  if (similarICDs.length === 0) {
+    return <div />;
+  }
+
+  return (
+    <div
+      data-testid="similar-icds-panel"
+      style={{
+        background: "var(--color-warning-bg)",
+        border: "1px solid var(--color-warning)",
+        borderRadius: "var(--radius-lg)",
+        padding: "var(--space-4)",
+        marginBottom: "var(--space-6)",
+      }}
+    >
+      <h4
+        style={{
+          fontSize: "var(--font-size-base)",
+          fontWeight: 600,
+          color: "var(--color-text)",
+          margin: "0 0 var(--space-3) 0",
+        }}
+      >
+        {t("icds.similarInterfaces", "Similar Interfaces")}
+      </h4>
+      <ul
+        style={{
+          listStyle: "none",
+          padding: 0,
+          margin: 0,
+        }}
+      >
+        {similarICDs.map(({ icd, score }) => (
+          <li
+            key={icd.id}
+            data-testid={`similar-icd-${icd.id}`}
+            onClick={() => onSelect(icd.id)}
+            style={{
+              padding: "var(--space-3)",
+              marginBottom: "var(--space-2)",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
+              cursor: "pointer",
+              transition: "var(--transition-fast)",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLLIElement).style.background =
+                "var(--color-surface-raised)";
+              (e.currentTarget as HTMLLIElement).style.borderColor =
+                "var(--color-primary)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLLIElement).style.background =
+                "var(--color-surface)";
+              (e.currentTarget as HTMLLIElement).style.borderColor =
+                "var(--color-border)";
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{
+                  fontWeight: 500,
+                  color: "var(--color-text)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                }}
+              >
+                {icd.name}
+              </span>
+              <span
+                data-testid={`similarity-score-${icd.id}`}
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  fontWeight: 600,
+                  color: "var(--color-warning-text)",
+                  marginLeft: "var(--space-2)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {Math.round(score * 100)}%
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
