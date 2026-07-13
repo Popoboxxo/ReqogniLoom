@@ -1302,7 +1302,7 @@ function SummaryBadge({
 }
 
 /** A single diff item: added/removed as a row, changed as a collapsible table. */
-function DiffItemRow({ item }: { item: DiffItem }): JSX.Element {
+export function DiffItemRow({ item }: { item: DiffItem }): JSX.Element {
   const { t } = useTranslation();
   const hasFieldChanges =
     item.status === "changed" &&
@@ -1331,15 +1331,29 @@ function DiffItemRow({ item }: { item: DiffItem }): JSX.Element {
       >
         {item.entity_type}
       </span>
-      <code
-        style={{
-          fontFamily: "monospace",
-          fontSize: "var(--font-size-sm)",
-          color: "var(--color-text)",
-        }}
-      >
-        {item.item_id.slice(0, 8)}…
-      </code>
+      {item.artifact_name ? (
+        <span
+          data-testid="diff-item-name"
+          style={{
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text)",
+            fontWeight: 600,
+          }}
+        >
+          {item.artifact_name}
+        </span>
+      ) : (
+        <code
+          data-testid="diff-item-name"
+          style={{
+            fontFamily: "monospace",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text)",
+          }}
+        >
+          {item.item_id.slice(0, 8)}…
+        </code>
+      )}
     </>
   );
 

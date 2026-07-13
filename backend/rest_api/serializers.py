@@ -601,6 +601,9 @@ class DiffItemSerializer(serializers.Serializer):
     field_changes = FieldChangeSerializer(
         many=True, read_only=True, required=False, allow_null=True
     )
+    artifact_name = serializers.CharField(
+        read_only=True, allow_null=True, required=False
+    )
 
 
 class BaselineDiffSerializer(serializers.Serializer):

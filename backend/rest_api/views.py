@@ -2072,11 +2072,30 @@ class BaselineViewSet(BaseEntityViewSet):
             logger.exception("BaselineViewSet.diff: unhandled exception")
             return _service_error_response(exc, lang)
 
+        all_item_ids = [
+            *result.added,
+            *result.removed,
+            *(changed.id for changed in result.changed),
+        ]
+        artifact_names = _collect_artifact_names(all_item_ids, ctx.tenant_id)
+
         items: list[dict[str, Any]] = []
         for item_id in result.added:
-            items.append({"item_id": item_id, "entity_type": "item", "status": "added", "field_changes": None})
+            items.append({
+                "item_id": item_id,
+                "entity_type": "item",
+                "status": "added",
+                "field_changes": None,
+                "artifact_name": artifact_names.get(item_id),
+            })
         for item_id in result.removed:
-            items.append({"item_id": item_id, "entity_type": "item", "status": "removed", "field_changes": None})
+            items.append({
+                "item_id": item_id,
+                "entity_type": "item",
+                "status": "removed",
+                "field_changes": None,
+                "artifact_name": artifact_names.get(item_id),
+            })
         for changed in result.changed:
             field_changes = None
             if changed.field_changes:
@@ -2089,6 +2108,7 @@ class BaselineViewSet(BaseEntityViewSet):
                 "entity_type": "item",
                 "status": "changed",
                 "field_changes": field_changes,
+                "artifact_name": artifact_names.get(changed.id),
             })
 
         payload = {
@@ -2508,6 +2528,43 @@ def _neighbor_to_dict(
         "source_type": "",
         "target_type": "",
     }
+
+
+def _collect_artifact_names(
+    item_ids: list[str], tenant_id: uuid.UUID
+) -> dict[str, str]:
+    """Batch-resolve ``{item_id: title}`` for baseline-diff items (REQ-006).
+
+    ``item_id`` is the Artifact UUID for ``entity_type == "item"`` entries
+    (REQ-L2-BL-001). The concrete domain entity is discovered by
+    batch-querying each candidate table on ``artifact_id__in``, mirroring
+    ``baseline.state_capture._capture_items``. Non-UUID or unresolved ids
+    (e.g. icd/trace_link/glossary_term entries) are simply omitted so callers
+    can fall back to the raw id.
+    """
+    uuids: list[uuid.UUID] = []
+    for raw in item_ids:
+        try:
+            uuids.append(UUID(str(raw)))
+        except (ValueError, TypeError):
+            continue
+    if not uuids:
+        return {}
+
+    from persistence.models import (
+        ArchitectureElement,
+        Requirement,
+        StakeholderNeed,
+        TestCase,
+    )
+
+    names: dict[str, str] = {}
+    for Model in (Requirement, StakeholderNeed, ArchitectureElement, TestCase):
+        for artifact_id, title in Model.unscoped.filter(
+            artifact_id__in=uuids, tenant_id=tenant_id
+        ).values_list("artifact_id", "title"):
+            names[str(artifact_id)] = title
+    return names
 
 
 def _baseline_to_dict(bl: Any) -> dict[str, Any]:

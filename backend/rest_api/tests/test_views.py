@@ -705,3 +705,95 @@ class TestOpenApiSchemaEndpoint:
             if hasattr(p, "name") and p.name == "api-v1-swagger-ui"
         ]
         assert len(swagger_patterns) == 1
+
+
+# ---------------------------------------------------------------------------
+# Baseline diff — artifact names resolved for diff items (REQ-006)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestCollectArtifactNames:
+    """_collect_artifact_names resolves Artifact-backed titles for baseline diffs.
+
+    Covers REQ-006: baseline diff should show readable artifact names instead
+    of only truncated UUIDs.
+    """
+
+    def _make_tenant_and_workspace(self):
+        from persistence.models import Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        slug = f"bl-diff-tenant-{uuid.uuid4().hex[:8]}"
+        tenant = Tenant.objects.create(name="BL Diff Tenant", slug=slug)
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(tenant=tenant, name="BL-WS")
+        finally:
+            TenantContext.clear_tenant()
+        return tenant, workspace
+
+    def test_resolves_titles_for_requirement_and_stakeholder_need(self) -> None:
+        from persistence.models import Artifact, Requirement, StakeholderNeed
+        from persistence.tenancy import TenantContext
+        from rest_api.views import _collect_artifact_names
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        TenantContext.set_tenant(tenant.id)
+        try:
+            req_artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            requirement = Requirement.objects.create(
+                tenant=tenant, artifact=req_artifact, title="Login must succeed"
+            )
+            sn_artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="StakeholderNeed"
+            )
+            need = StakeholderNeed.objects.create(
+                tenant=tenant, artifact=sn_artifact, title="User wants fast login"
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        names = _collect_artifact_names(
+            [str(req_artifact.id), str(sn_artifact.id)], tenant.id
+        )
+
+        assert names[str(req_artifact.id)] == "Login must succeed"
+        assert names[str(sn_artifact.id)] == "User wants fast login"
+
+    def test_unresolvable_and_invalid_ids_are_omitted(self) -> None:
+        """Non-UUID ids and ids with no matching domain entity are skipped
+        so callers can fall back to the raw item_id (graceful degradation)."""
+        from rest_api.views import _collect_artifact_names
+
+        tenant, _workspace = self._make_tenant_and_workspace()
+        names = _collect_artifact_names(
+            ["not-a-uuid", str(uuid.uuid4())], tenant.id
+        )
+        assert names == {}
+
+    def test_cross_tenant_artifact_not_resolved(self) -> None:
+        """Titles from another tenant must never leak into the diff (RLS)."""
+        from persistence.models import Artifact, Requirement
+        from persistence.tenancy import TenantContext
+        from rest_api.views import _collect_artifact_names
+
+        tenant_a, workspace_a = self._make_tenant_and_workspace()
+        tenant_b, _workspace_b = self._make_tenant_and_workspace()
+
+        TenantContext.set_tenant(tenant_a.id)
+        try:
+            artifact = Artifact.objects.create(
+                tenant=tenant_a, workspace=workspace_a, artifact_type="Requirement"
+            )
+            Requirement.objects.create(
+                tenant=tenant_a, artifact=artifact, title="Tenant A Requirement"
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        # Query as tenant_b — must not see tenant_a's requirement title.
+        names = _collect_artifact_names([str(artifact.id)], tenant_b.id)
+        assert names == {}

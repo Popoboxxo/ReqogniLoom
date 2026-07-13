@@ -78,6 +78,8 @@ export interface DiffItem {
   entity_type: string;
   status: "added" | "removed" | "changed";
   field_changes: FieldChange[] | null;
+  /** REQ-006: human-readable artifact title, null when unresolved (e.g. non-artifact entity types). */
+  artifact_name?: string | null;
 }
 
 /** REQ-L2-BL-003: field-level structural diff between two baselines. */
