@@ -18,6 +18,7 @@ import { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { importApi, type EntityType, type ImportResult } from "../../api/import";
+import { exportApi, type ExportEntityType } from "../../api/export";
 
 // ---------------------------------------------------------------------------
 // Entity type options
@@ -27,6 +28,14 @@ const ENTITY_TYPES: EntityType[] = [
   "Requirement",
   "ArchitectureElement",
   "TestCase",
+];
+
+// C7 (frontend-feedback Cluster C): MVP export scope — Requirements,
+// StakeholderNeeds, ArchitectureElements.
+const EXPORT_ENTITY_TYPES: ExportEntityType[] = [
+  "Requirement",
+  "StakeholderNeed",
+  "ArchitectureElement",
 ];
 
 // ---------------------------------------------------------------------------
@@ -44,6 +53,10 @@ export function CsvImport(): JSX.Element {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  const [exportEntityType, setExportEntityType] = useState<ExportEntityType>("Requirement");
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const handleFileSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>): void => {
@@ -107,6 +120,23 @@ export function CsvImport(): JSX.Element {
       setIsUploading(false);
     }
   }, [selectedFile, activeWorkspace, entityType, t]);
+
+  const handleExport = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace) return;
+
+    setIsExporting(true);
+    setExportError(null);
+
+    try {
+      await exportApi.downloadCsv(activeWorkspace.id, exportEntityType);
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : t("export.errorGeneric", "Export failed")
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  }, [activeWorkspace, exportEntityType, t]);
 
   const handleReset = useCallback((): void => {
     setSelectedFile(null);
@@ -404,6 +434,113 @@ export function CsvImport(): JSX.Element {
           )}
         </div>
       )}
+
+      {/* CSV Export (C7 — frontend-feedback Cluster C, MVP) */}
+      <h2
+        style={{
+          fontSize: "var(--font-size-2xl)",
+          fontWeight: 700,
+          color: "var(--color-text)",
+          margin: "var(--space-8) 0 var(--space-6) 0",
+        }}
+      >
+        {t("export.title", "CSV Export")}
+      </h2>
+
+      <section
+        data-testid="csv-export-page"
+        style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-lg)",
+          padding: "var(--space-5)",
+          marginBottom: "var(--space-5)",
+          boxShadow: "var(--shadow-card)",
+        }}
+      >
+        <h3
+          style={{
+            fontSize: "var(--font-size-lg)",
+            fontWeight: 600,
+            color: "var(--color-text)",
+            margin: "0 0 var(--space-4) 0",
+          }}
+        >
+          {t("export.entityType", "Entity Type")}
+        </h3>
+        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginBottom: "var(--space-5)" }}>
+          {EXPORT_ENTITY_TYPES.map((type) => (
+            <label
+              key={type}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
+                padding: "var(--space-2) var(--space-3)",
+                borderRadius: "var(--radius-md)",
+                border: exportEntityType === type
+                  ? "1px solid var(--color-primary)"
+                  : "1px solid var(--color-border)",
+                background: exportEntityType === type
+                  ? "rgba(var(--color-primary-rgb, 79,70,229), 0.08)"
+                  : "transparent",
+                cursor: "pointer",
+                fontSize: "var(--font-size-sm)",
+              }}
+            >
+              <input
+                type="radio"
+                name="exportEntityType"
+                value={type}
+                checked={exportEntityType === type}
+                onChange={() => setExportEntityType(type)}
+                data-testid={`export-entity-type-${type}`}
+              />
+              {type}
+            </label>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          data-testid="csv-export-btn"
+          onClick={() => void handleExport()}
+          disabled={isExporting}
+          style={{
+            background: "var(--color-primary)",
+            color: "white",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-2) var(--space-5)",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 600,
+            cursor: isExporting ? "not-allowed" : "pointer",
+            opacity: isExporting ? 0.5 : 1,
+            transition: "var(--transition-fast)",
+          }}
+        >
+          {isExporting
+            ? t("export.downloading", "Exporting...")
+            : t("export.download", "Export CSV")}
+        </button>
+
+        {exportError && (
+          <div
+            data-testid="csv-export-error"
+            role="alert"
+            style={{
+              marginTop: "var(--space-4)",
+              padding: "var(--space-3)",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-danger, #f87171)",
+              borderRadius: "var(--radius-md)",
+              color: "var(--color-danger, #f87171)",
+            }}
+          >
+            {exportError}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

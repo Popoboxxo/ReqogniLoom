@@ -4049,6 +4049,97 @@ class CsvImportView(APIView):
         return Response(response_data, status=http_status)
 
 
+# ---------------------------------------------------------------------------
+# CsvExportView — COMP-AS-008 REST facade (REQ-L3-EXP-002)
+# ---------------------------------------------------------------------------
+
+
+class CsvExportView(APIView):
+    """GET /api/v1/workspaces/{id}/export/csv/ — Bulk CSV export.
+
+    REQ-L3-EXP-002: CSV export (ApplicationService layer, COMP-AS-008).
+    C7 (frontend-feedback Cluster C): MVP CSV export for Requirement,
+    StakeholderNeed, ArchitectureElement — wires the existing ExportService
+    (already implemented, previously not exposed via REST) to a workspace-
+    scoped endpoint, mirroring CsvImportView above.
+
+    Query params:
+        - ``entity_type``: "Requirement" | "StakeholderNeed" | "ArchitectureElement"
+          | "TestCase"
+
+    Returns:
+        200 with CSV file (Content-Disposition: attachment).
+        400 on missing/invalid entity_type.
+    """
+
+    _VALID_ENTITY_TYPES = {
+        "Requirement",
+        "StakeholderNeed",
+        "ArchitectureElement",
+        "TestCase",
+    }
+
+    def get(self, request: Request, pk: str = None, **kwargs: Any) -> HttpResponse | Response:
+        """Handle CSV export GET request."""
+        lang = detect_lang(request)
+
+        if not pk:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="Workspace ID is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        entity_type = request.query_params.get("entity_type")
+        if not entity_type:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message=(
+                        "entity_type is required. Allowed: "
+                        f"{sorted(self._VALID_ENTITY_TYPES)}"
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if entity_type not in self._VALID_ENTITY_TYPES:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message=f"Unsupported entity_type '{entity_type}'. Allowed: {sorted(self._VALID_ENTITY_TYPES)}",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            svc = ExportService()
+            result = svc.export_csv(
+                entity_type=entity_type,
+                workspace_id=pk,
+                ctx=ctx,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("CsvExportView: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        response = HttpResponse(result.content, content_type=result.media_type)
+        response["Content-Disposition"] = f'attachment; filename="{result.filename}"'
+        return response
+
+
 class GlossaryTermViewSet(BaseEntityViewSet):
     """ViewSet for Semantic Project Glossary (REQ-L1-044)."""
 
@@ -4327,5 +4418,6 @@ __all__ = [
     "AttributeVisibilityConfigViewSet",
     "SearchViewSet",
     "CsvImportView",
+    "CsvExportView",
     "ArtifactDiffService",
 ]

@@ -59,6 +59,7 @@ from rest_api.views import (
     ArtifactViewSet,
     AttributeVisibilityConfigViewSet,
     BaselineViewSet,
+    CsvExportView,
     CsvImportView,
     GlossaryTermViewSet,
     IssueViewSet,
@@ -128,6 +129,12 @@ urlpatterns = [
         "workspaces/<uuid:pk>/import/csv/",
         CsvImportView.as_view(),
         name="workspace-csv-import",
+    ),
+    # CSV export (REQ-L3-EXP-002, C7 frontend-feedback Cluster C) — workspace-scoped.
+    path(
+        "workspaces/<uuid:pk>/export/csv/",
+        CsvExportView.as_view(),
+        name="workspace-csv-export",
     ),
     # Needs routing by workspace
     path(

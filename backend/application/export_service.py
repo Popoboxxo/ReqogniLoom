@@ -6,8 +6,11 @@ req_id  : REQ-L1-019, REQ-L1-023, REQ-L2-AppSvc-006, REQ-L2-AppSvc-007,
           REQ-L3-EXP-001, REQ-L3-EXP-002, REQ-L3-EXP-003
 
 Produces JSON, CSV, Markdown, and PDF exports for Requirements,
-ArchitectureElements, and TestCases scoped by workspace or single artifact.
-Embeds active terminology profile as metadata.
+ArchitectureElements, TestCases, and StakeholderNeeds scoped by workspace or
+single artifact. Embeds active terminology profile as metadata.
+
+C7 (frontend-feedback Cluster C): StakeholderNeed added to enable CSV export
+of Bedarfe alongside Requirements and ArchitectureElements.
 
 PDF support: stub/NotImplemented — reportlab/weasyprint not available in the
 current container image. See TODO-PDF below.
@@ -40,7 +43,7 @@ from application.base import NotFoundError, ServiceBase, ValidationError
 logger = logging.getLogger(__name__)
 
 # Supported entity types
-_VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase"}
+_VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase", "StakeholderNeed"}
 
 # ---------- DTOs ----------
 
@@ -342,11 +345,34 @@ class ExportService(ServiceBase):
 
         IF-AS-EXT-OUT-007.
         """
-        from persistence.models import ArchitectureElement, Requirement, TestCase
+        from persistence.models import (
+            ArchitectureElement,
+            Requirement,
+            StakeholderNeed,
+            TestCase,
+        )
 
         art_filter: Dict[str, Any] = {"artifact__workspace_id": workspace_id}
         if artifact_id is not None:
             art_filter["artifact_id"] = UUID(str(artifact_id))
+
+        if entity_type == "StakeholderNeed":
+            qs = StakeholderNeed.objects.filter(**art_filter).select_related("artifact")
+            return [
+                {
+                    "id": str(n.id),
+                    "artifact_id": str(n.artifact_id),
+                    "title": n.title,
+                    "description": n.description,
+                    "category": n.category,
+                    "status": n.status,
+                    "moscow_priority": n.moscow_priority,
+                    "version": n.version,
+                    "created_at": n.created_at.isoformat() if n.created_at else None,
+                    "modified_at": n.modified_at.isoformat() if n.modified_at else None,
+                }
+                for n in qs
+            ]
 
         if entity_type == "Requirement":
             qs = Requirement.objects.filter(**art_filter).select_related("artifact")
