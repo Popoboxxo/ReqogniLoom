@@ -25,6 +25,8 @@ import { requirementsApi } from '../../../api/requirements';
 import { architectureApi } from '../../../api/architecture';
 import { testcasesApi } from '../../../api/testcases';
 import { adrsApi } from '../../../api/adrs';
+import { risksApi } from '../../../api/risks';
+import { issuesApi } from '../../../api/issues';
 import { tracelinksApi } from '../../../api/tracelinks';
 import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../../constants/traceLinkLabels';
 import type { LinkType } from '../../../types';
@@ -33,7 +35,7 @@ import type { LinkType } from '../../../types';
 // Types
 // ---------------------------------------------------------------------------
 
-export type ArtifactTypeKey = 'all' | 'requirement' | 'architecture' | 'testcase' | 'adr';
+export type ArtifactTypeKey = 'all' | 'requirement' | 'architecture' | 'testcase' | 'adr' | 'risk' | 'issue';
 
 interface TargetElement {
   id: string;
@@ -151,6 +153,8 @@ const ALL_FILTER_TYPES: ArtifactTypeKey[] = [
   'architecture',
   'testcase',
   'adr',
+  'risk',
+  'issue',
 ];
 
 /** Map artifact type key to i18n label key. */
@@ -160,6 +164,8 @@ const TYPE_LABEL_KEYS: Record<ArtifactTypeKey, string> = {
   architecture: 'createTraceLinkDialog.typeArchitecture',
   testcase: 'createTraceLinkDialog.typeTestCase',
   adr: 'createTraceLinkDialog.typeAdr',
+  risk: 'createTraceLinkDialog.typeRisk',
+  issue: 'createTraceLinkDialog.typeIssue',
 };
 
 /** Map artifact type key to a short display badge label. */
@@ -169,6 +175,8 @@ const TYPE_DISPLAY_LABELS: Record<ArtifactTypeKey, string> = {
   architecture: 'ARCH',
   testcase: 'TC',
   adr: 'ADR',
+  risk: 'RISK',
+  issue: 'ISSUE',
 };
 
 // ---------------------------------------------------------------------------
@@ -372,11 +380,13 @@ export function CreateTraceLinkDialog({
     if (!workspaceId) return;
     setIsLoadingElements(true);
     try {
-      const [reqs, archs, tcs, adrList] = await Promise.all([
+      const [reqs, archs, tcs, adrList, riskList, issueList] = await Promise.all([
         requirementsApi.listAll(workspaceId).catch(() => []),
         architectureApi.listAll(workspaceId).catch(() => []),
         testcasesApi.list(workspaceId).then((r) => r.results).catch(() => []),
         adrsApi.list(workspaceId).then((r) => r.results).catch(() => []),
+        risksApi.list(workspaceId).then((r) => r.results).catch(() => []),
+        issuesApi.list(workspaceId).then((r) => r.results).catch(() => []),
       ]);
 
       const all: TargetElement[] = [
@@ -384,6 +394,8 @@ export function CreateTraceLinkDialog({
         ...archs.map((a) => ({ id: a.id, title: a.title || t('editor.untitled'), artifactType: 'architecture' as const })),
         ...tcs.map((tc) => ({ id: tc.id, title: tc.title || t('editor.untitled'), artifactType: 'testcase' as const })),
         ...adrList.map((a) => ({ id: a.id, title: a.title || t('editor.untitled'), artifactType: 'adr' as const })),
+        ...riskList.map((r) => ({ id: r.id, title: r.title || t('editor.untitled'), artifactType: 'risk' as const })),
+        ...issueList.map((i) => ({ id: i.id, title: i.title || t('editor.untitled'), artifactType: 'issue' as const })),
       ];
 
       setAllElements(all);

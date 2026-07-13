@@ -6,6 +6,7 @@ import { RiskList } from './RiskList';
 import { RiskForm } from './RiskForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
+import { CreateTraceLinkDialog } from '../shared/CreateTraceLinkDialog/create-trace-link-dialog';
 import { useRiskData } from './useRiskData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { risksApi } from '../../api/risks';
@@ -19,6 +20,7 @@ export default function RiskEditors(): JSX.Element {
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
 
   const handleCreateNew = async () => {
     if (!activeWorkspace) return;
@@ -77,6 +79,25 @@ export default function RiskEditors(): JSX.Element {
         <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
           <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
             <RiskForm risk={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+            {item && activeWorkspace && (
+              <>
+                <button
+                  type="button"
+                  data-testid="risk-create-link-button"
+                  onClick={() => setShowLinkDialog(true)}
+                  style={{ marginTop: 'var(--space-3)', padding: 'var(--space-2) var(--space-4)', background: 'var(--color-primary)', color: 'white', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: 'var(--font-size-sm)' }}
+                >
+                  {t('traceability.create', 'Neue Verknüpfung')}
+                </button>
+                <CreateTraceLinkDialog
+                  workspaceId={activeWorkspace.id}
+                  sourceId={item.id}
+                  isOpen={showLinkDialog}
+                  onClose={() => setShowLinkDialog(false)}
+                  onCreated={() => { setShowLinkDialog(false); refresh(); }}
+                />
+              </>
+            )}
           </div>
           {item && (() => {
             const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
