@@ -21,7 +21,6 @@ import { WorkflowsSection } from "./WorkflowsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { BackupRestoreSection } from "./BackupRestoreSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
-import { AiPromptsSection } from "./AiPromptsSection";
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { PromptTemplateSection } from "./PromptTemplateSection";
 
@@ -408,21 +407,6 @@ export default function WorkspaceSettings(): JSX.Element {
 
       {/* AI Prompt Templates (REQ-L2-PT-001) — admin only */}
       <PromptTemplateSection />
-
-      {/* Feature-flagged: AI Configuration */}
-      <AiPromptsSection
-        workspace={activeWorkspace} 
-        onSavePrompts={async (prompts) => {
-          setSaveError(null);
-          try {
-            await workspacesApi.update(activeWorkspace.id, { ai_prompts: prompts });
-            await reloadWorkspaces(activeWorkspace.id);
-            setSavedOk(true);
-          } catch (err: unknown) {
-            setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
-          }
-        }} 
-      />
 
       {/* Data Management (REQ-L0-013, REQ-L2-RF-016) */}
       {isFeatureVisible("csv_import") && (
