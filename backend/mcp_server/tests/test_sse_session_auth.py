@@ -138,3 +138,56 @@ def test_messages_invalid_session_is_rejected() -> None:
     # No handler dispatch and no background thread for an unauthorised session.
     get_handler.assert_not_called()
     thread_cls.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# (d) Session api key is encrypted at rest in Redis (REQ-036 / audit BE-5)
+# ---------------------------------------------------------------------------
+
+
+class _FakeRedis:
+    """Minimal in-memory Redis stand-in capturing stored values."""
+
+    def __init__(self) -> None:
+        self.store: dict = {}
+
+    def set(self, key: str, value: str, ex: Optional[int] = None) -> None:
+        self.store[key] = value
+
+    def get(self, key: str):
+        return self.store.get(key)
+
+
+def test_session_api_key_is_encrypted_at_rest_and_round_trips() -> None:
+    """Stored value is Django-signed (not plaintext) yet decrypts back to the key."""
+    from mcp_server import sse_pubsub
+
+    session_id = "22222222-2222-2222-2222-222222222222"
+    fake = _FakeRedis()
+
+    with mock.patch(
+        "mcp_server.sse_pubsub._get_redis_client", return_value=fake
+    ):
+        sse_pubsub.store_session_api_key(session_id, _API_KEY)
+
+        # The raw Redis value must not expose the plaintext key.
+        stored = fake.store[sse_pubsub._session_auth_key(session_id)]
+        assert _API_KEY not in stored
+        assert stored != _API_KEY
+
+        # Reading back yields the original plaintext for the auth flow.
+        assert sse_pubsub.get_session_api_key(session_id) == _API_KEY
+
+
+def test_tampered_session_api_key_returns_none() -> None:
+    """A value with a broken signature is treated as unknown (BadSignature -> None)."""
+    from mcp_server import sse_pubsub
+
+    session_id = "33333333-3333-3333-3333-333333333333"
+    fake = _FakeRedis()
+    fake.store[sse_pubsub._session_auth_key(session_id)] = "tampered:not-a-signature"
+
+    with mock.patch(
+        "mcp_server.sse_pubsub._get_redis_client", return_value=fake
+    ):
+        assert sse_pubsub.get_session_api_key(session_id) is None
