@@ -158,8 +158,10 @@ services:
       redis:
         condition: service_healthy
     # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqflow project
+    # REQ-077: single worker consumes all queues. Split into dedicated workers
+    # (e.g. a high-concurrency -Q llm worker) when workloads need to scale apart.
     command: >
-      sh -c "celery -A reqflow worker --loglevel=info"
+      sh -c "celery -A reqflow worker --loglevel=info -Q default,llm,events"
 
   # ─────────────────────────────────────────────────────────
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
