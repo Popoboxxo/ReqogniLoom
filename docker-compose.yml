@@ -33,7 +33,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-reqflow}
       POSTGRES_USER: ${DB_USER:-reqflow}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-reqflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -71,7 +71,7 @@ services:
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -107,7 +107,7 @@ services:
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -137,7 +137,7 @@ services:
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
       CELERY_BROKER_URL: redis://redis:6379/0
