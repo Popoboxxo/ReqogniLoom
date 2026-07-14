@@ -106,6 +106,7 @@ class LlmCapabilityInterface(ABC):
         *,
         title: Optional[str] = None,
         content: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> LlmResult:
         """Validate a single artifact using the LLM.
 
@@ -120,6 +121,8 @@ class LlmCapabilityInterface(ABC):
             artifact_id: Identifier of the artifact to validate.
             title: Optional artifact title to embed into the prompt.
             content: Optional artifact body/description to embed into the prompt.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             LlmResult containing score, suggestions, and usage metadata.
@@ -132,6 +135,7 @@ class LlmCapabilityInterface(ABC):
         *,
         title: Optional[str] = None,
         content: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> LlmDecompositionResult:
         """Decompose a requirement into child items using the LLM.
 
@@ -145,6 +149,8 @@ class LlmCapabilityInterface(ABC):
             title: Optional requirement title to embed into the prompt.
             content: Optional requirement body/description to embed into the
                 prompt.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             LlmDecompositionResult with children list and usage metadata.
@@ -156,6 +162,7 @@ class LlmCapabilityInterface(ABC):
         workspace_id: str,
         *,
         artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
     ) -> LlmConsistencyResult:
         """Check consistency across all artifacts in a workspace.
 
@@ -168,17 +175,26 @@ class LlmCapabilityInterface(ABC):
         Args:
             workspace_id: Identifier of the workspace to check.
             artifacts: Optional list of artifact summary dicts to embed.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             LlmConsistencyResult with issues list and usage metadata.
         """
 
     @abstractmethod
-    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
         """Derive System Requirements from a Stakeholder Need.
 
         Args:
             need_id: Identifier of the stakeholder need to derive from.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             LlmDecompositionResult with derived requirements.
@@ -191,6 +207,7 @@ class LlmCapabilityInterface(ABC):
         *,
         purpose: str = "",
         context: Optional[dict] = None,
+        timeout: Optional[float] = None,
     ) -> str:
         """Return the raw completion text for a free-form prompt (REQ-L2-AI-002).
 
@@ -202,6 +219,8 @@ class LlmCapabilityInterface(ABC):
             purpose: Optional hint used by deterministic mocks; real
                 providers may ignore it.
             context: Optional structured context; real providers may ignore it.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             The raw completion text produced by the model.

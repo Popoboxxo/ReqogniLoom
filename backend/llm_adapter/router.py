@@ -38,8 +38,13 @@ Graceful Degradation:
 """
 from __future__ import annotations
 
+import logging
 import os
-from typing import Any, Dict, Optional, Set, Union
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FutureTimeoutError,
+)
+from typing import Any, Callable, Dict, Optional, Set, Union
 
 from llm_adapter.audit_logger import LlmAuditLogger, extract_token_usage
 from llm_adapter.dispatcher import AsyncTaskDispatcher
@@ -51,6 +56,8 @@ from llm_adapter.providers import (
     LlmProviderUnknownError,
     get_provider,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -69,6 +76,21 @@ _ALL_CAPABILITIES: Set[str] = _SYNC_CAPABILITIES | _ASYNC_CAPABILITIES
 # ---------------------------------------------------------------------------
 # Capability configuration — REQ-L3-LA003-002 / REQ-L2-LA-003
 # ---------------------------------------------------------------------------
+
+
+def _sync_timeout_seconds() -> float:
+    """Return the hard sync-call timeout (REQ-084).
+
+    Read from ``settings.LLM_SYNC_TIMEOUT_SECONDS`` (env ``LLM_SYNC_TIMEOUT``,
+    default 25s — below the typical 30s Gunicorn worker timeout). Falls back
+    to 25 when Django settings are not configured (isolated unit tests).
+    """
+    try:
+        from django.conf import settings  # noqa: PLC0415
+
+        return float(getattr(settings, "LLM_SYNC_TIMEOUT_SECONDS", 25))
+    except Exception:  # noqa: BLE001 — settings unavailable outside Django
+        return 25.0
 
 
 def _read_enabled_capabilities() -> Set[str]:
@@ -188,13 +210,20 @@ class CapabilityRouter:
     def _execute_sync(
         self, capability_name: str, kwargs: Dict[str, Any]
     ) -> Union[LlmResult, Dict[str, Any]]:
-        """Execute a capability synchronously via the provider."""
+        """Execute a capability synchronously via the provider.
+
+        REQ-084: the provider call runs under a hard timeout
+        (``LLM_SYNC_TIMEOUT_SECONDS``) so a slow provider can never block the
+        request thread long enough to exhaust the Gunicorn worker pool.
+        """
         provider_name = "unknown"
         try:
             provider = get_provider()
             provider_name = getattr(provider, "PROVIDER_NAME", type(provider).__name__)
             method = getattr(provider, capability_name)
-            result: LlmResult = method(**kwargs)
+            result: LlmResult = self._call_with_sync_timeout(
+                provider_name, method, kwargs
+            )
 
             self._audit_logger.log_llm_call(
                 provider=provider_name,
@@ -263,6 +292,70 @@ class CapabilityRouter:
                 error=error_msg,
             )
             return _provider_error_response(error_msg)
+
+    # ------------------------------------------------------------------
+    # Sync timeout enforcement (REQ-084)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _call_with_sync_timeout(
+        provider_name: str,
+        method: Callable[..., Any],
+        kwargs: Dict[str, Any],
+    ) -> Any:
+        """Run a sync provider call under the hard LLM sync timeout (REQ-084).
+
+        The call executes in a single worker thread; the caller waits at most
+        ``LLM_SYNC_TIMEOUT_SECONDS``. On expiry the request thread is released
+        immediately (``shutdown(wait=False)`` — the abandoned worker thread
+        ends when the provider's own HTTP timeout fires) and a built-in
+        ``TimeoutError`` is raised for the existing timeout handling path.
+
+        The active tenant context (thread-local) is re-established inside the
+        worker thread so tenant-scoped reads (LlmSettings, breaker state)
+        behave exactly as in the request thread.
+
+        Raises:
+            TimeoutError: When the call exceeds the configured sync timeout.
+        """
+        timeout = _sync_timeout_seconds()
+
+        tenant_id = None
+        try:
+            from persistence.tenancy import TenantContext  # noqa: PLC0415
+
+            tenant_id = TenantContext.get_tenant()
+        except Exception:  # noqa: BLE001 — no tenant context → run without one
+            TenantContext = None  # type: ignore[assignment]
+
+        def _call() -> Any:
+            if tenant_id is not None and TenantContext is not None:
+                TenantContext.set_tenant(tenant_id)
+            try:
+                return method(**kwargs)
+            finally:
+                if tenant_id is not None and TenantContext is not None:
+                    TenantContext.clear_tenant()
+
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="llm-sync")
+        try:
+            future = pool.submit(_call)
+            try:
+                return future.result(timeout=timeout)
+            except FutureTimeoutError:
+                future.cancel()
+                logger.warning(
+                    "LLM sync call timed out after %ds for provider %s",
+                    timeout,
+                    provider_name,
+                )
+                raise TimeoutError(
+                    f"LLM sync call timed out after {timeout:g}s "
+                    f"for provider {provider_name}"
+                ) from None
+        finally:
+            # Never block the request thread on an abandoned provider call.
+            pool.shutdown(wait=False, cancel_futures=True)
 
     # ------------------------------------------------------------------
     # Async dispatch

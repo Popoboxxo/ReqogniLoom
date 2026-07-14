@@ -266,6 +266,11 @@ LLM_PROVIDER: str = config("LLM_PROVIDER", default="mock")
 LLM_API_KEY: str = config("LLM_API_KEY", default="")
 LLM_BASE_URL: str = config("LLM_BASE_URL", default="")
 LLM_MODEL: str = config("LLM_MODEL", default="")
+# REQ-084: hard upper bound (seconds) for synchronous LLM calls executed in
+# the request thread. Chosen below the typical 30s Gunicorn worker timeout so
+# a slow provider can never exhaust the WSGI worker pool. Enforced centrally
+# in the CapabilityRouter sync path; async Celery calls are NOT capped by this.
+LLM_SYNC_TIMEOUT_SECONDS: int = config("LLM_SYNC_TIMEOUT", default=25, cast=int)
 
 # ---------------------------------------------------------------------------
 # Celery — ARCH-L1-016 ResilienceOrchestrator (async task queue)
