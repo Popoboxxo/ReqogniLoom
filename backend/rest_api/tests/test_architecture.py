@@ -39,7 +39,7 @@ _MODEL_IMPORT_RE = re.compile(r"^\s*from persistence\.models import")
 # Per-file ceiling of tolerated direct-ORM lines. Files not listed must be 0.
 # NEVER raise a value here — REQ-066 only lowers them.
 MAX_ORM_LINES: dict[str, int] = {
-    "views.py": 8,
+    "views.py": 2,
     "icd_views.py": 3,
     "diagram_views.py": 3,
     "diagram_canvas_views.py": 3,

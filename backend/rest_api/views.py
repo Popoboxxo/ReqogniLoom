@@ -219,11 +219,6 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         from application.preset_policy_service import PresetPolicyService
         return StakeholderNeedService(preset_policy_service=PresetPolicyService())
 
-    def get_queryset(self):
-        """Used only by DRF for generic lookups. Logic is in Service layer."""
-        from persistence.models import StakeholderNeed
-        return StakeholderNeed.objects.all()
-
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs."""
         lang = detect_lang(request)
@@ -992,13 +987,10 @@ class ArtifactViewSet(BaseEntityViewSet):
                     build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            self._svc()._set_tenant_context(ctx)
-            from persistence.models import Artifact
             # REQ-034: hand the QuerySet directly to the paginator so it slices
             # lazily (LIMIT/OFFSET) instead of loading every row via list().
-            qs = Artifact.unscoped.filter(workspace_id=UUID(workspace_id_str)).values(
-                "id", "parent_id", "artifact_type"
-            )
+            # REQ-066: the ORM access lives in ArtifactService.
+            qs = self._svc().list_child_summaries(ctx, UUID(workspace_id_str))
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -2456,53 +2448,10 @@ def _resolve_artifact_titles(
 
     Returns:
         Mapping from artifact_id (str) to {"title": str, "artifact_type": str}.
+
+    REQ-066: thin wrapper — the ORM access lives in ArtifactService.
     """
-    from persistence.models import (
-        ArchitectureElement,
-        Artifact,
-        Requirement,
-        StakeholderNeed,
-        TestCase,
-    )
-
-    str_ids = [str(aid) for aid in artifact_ids if aid]
-    if not str_ids:
-        return {}
-
-    result: dict[str, dict[str, Any]] = {}
-
-    # Fetch artifact types first
-    for art in Artifact.objects.filter(id__in=str_ids).values("id", "artifact_type"):
-        result[str(art["id"])] = {
-            "title": "",
-            "artifact_type": art["artifact_type"],
-        }
-
-    # Each domain entity is OneToOne on Artifact — a single artifact_id__in
-    # scan per table enriches all matching entries without N+1 queries.
-    for model in (Requirement, ArchitectureElement, StakeholderNeed, TestCase):
-        for row in model.objects.filter(artifact_id__in=str_ids).values(
-            "artifact_id", "title"
-        ):
-            key = str(row["artifact_id"])
-            if key in result:
-                result[key]["title"] = row["title"] or ""
-
-    # ADR lives in the application layer (not persistence) — import locally to
-    # avoid circular imports (adr_service imports TraceLinkService).
-    try:
-        from application.models import Adr
-
-        for row in Adr.objects.filter(artifact_id__in=str_ids).values(
-            "artifact_id", "title"
-        ):
-            key = str(row["artifact_id"])
-            if key in result:
-                result[key]["title"] = row["title"] or ""
-    except Exception:  # noqa: BLE001 — ADR model absent in some test configs
-        pass
-
-    return result
+    return ArtifactService().resolve_artifact_titles(artifact_ids)
 
 
 def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = None) -> dict[str, Any]:
@@ -2584,30 +2533,10 @@ def _collect_artifact_names(
     ``baseline.state_capture._capture_items``. Non-UUID or unresolved ids
     (e.g. icd/trace_link/glossary_term entries) are simply omitted so callers
     can fall back to the raw id.
+
+    REQ-066: thin wrapper — the ORM access lives in ArtifactService.
     """
-    uuids: list[uuid.UUID] = []
-    for raw in item_ids:
-        try:
-            uuids.append(UUID(str(raw)))
-        except (ValueError, TypeError):
-            continue
-    if not uuids:
-        return {}
-
-    from persistence.models import (
-        ArchitectureElement,
-        Requirement,
-        StakeholderNeed,
-        TestCase,
-    )
-
-    names: dict[str, str] = {}
-    for Model in (Requirement, StakeholderNeed, ArchitectureElement, TestCase):
-        for artifact_id, title in Model.unscoped.filter(
-            artifact_id__in=uuids, tenant_id=tenant_id
-        ).values_list("artifact_id", "title"):
-            names[str(artifact_id)] = title
-    return names
+    return ArtifactService().collect_artifact_names(item_ids, tenant_id)
 
 
 def _baseline_to_dict(bl: Any) -> dict[str, Any]:
