@@ -29,7 +29,6 @@ Celery configuration (env vars):
 from __future__ import annotations
 
 import os
-import uuid
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Union
@@ -59,81 +58,32 @@ class TaskStatusResult:
 
 
 # ---------------------------------------------------------------------------
-# Celery app — lazy initialisation
+# Broker / tenant helpers
 # ---------------------------------------------------------------------------
 
 
-def _get_celery_app():
-    """Return the project Celery app, or None if not configured.
+def _broker_configured() -> bool:
+    """Return True when a Celery broker URL is configured.
 
-    Tries to import the reqflow.celery module. If the broker URL is absent or
-    the celery package is not installed, returns None so dispatch_async can
-    return a BROKER_NOT_CONFIGURED error gracefully.
+    The graceful stub (BROKER_NOT_CONFIGURED) relies on this: without a broker
+    there is no point queueing a message no worker will consume.
     """
-    broker_url = os.environ.get("CELERY_BROKER_URL", "")
-    if not broker_url:
-        return None
+    return bool(os.environ.get("CELERY_BROKER_URL", ""))
 
+
+def _resolve_tenant_id() -> Optional[str]:
+    """Return the active tenant id as a string, or None when no context is set.
+
+    The task runs in a Celery worker outside the request thread, so the tenant
+    context must be propagated explicitly. We read it from the caller's thread
+    and pass it as a plain string argument (UUIDs are not JSON-serialisable).
+    """
     try:
-        from celery import Celery  # noqa: PLC0415
+        from persistence.tenancy import TenantContext  # noqa: PLC0415
 
-        app = Celery("llm_adapter")
-        app.conf.broker_url = broker_url
-        app.conf.result_backend = os.environ.get("CELERY_RESULT_BACKEND", broker_url)
-        soft_limit = os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT")
-        hard_limit = os.environ.get("CELERY_TASK_TIME_LIMIT")
-        if soft_limit:
-            app.conf.task_soft_time_limit = int(soft_limit)
-        if hard_limit:
-            app.conf.task_time_limit = int(hard_limit)
-        return app
-    except ImportError:
-        warnings.warn(
-            "celery package not installed. Async dispatch is unavailable. "
-            "Install with: pip install celery",
-            RuntimeWarning,
-            stacklevel=2,
-        )
+        return str(TenantContext.get_tenant())
+    except Exception:  # noqa: BLE001 — no/invalid context → dispatch tenant-less
         return None
-
-
-# ---------------------------------------------------------------------------
-# Celery task definition
-# ---------------------------------------------------------------------------
-
-
-def _make_task(app):
-    """Define the Celery worker task bound to the given app."""
-
-    @app.task(bind=True, name="llm_adapter.run_capability")
-    def run_capability(self, capability: str, kwargs: dict) -> dict:
-        """Execute an LLM capability inside the Celery worker.
-
-        Args:
-            capability: Name of the capability (decompose_requirement or check_consistency).
-            kwargs: Arguments forwarded to the provider method.
-
-        Returns:
-            Serialisable dict of the LlmResult or LlmDecompositionResult /
-            LlmConsistencyResult fields.
-        """
-        import dataclasses
-
-        try:
-            # Import here to avoid circular import in worker context
-            from llm_adapter.providers import get_provider  # noqa: PLC0415
-
-            provider = get_provider()
-            method = getattr(provider, capability)
-            result = method(**kwargs)
-            # Dataclass → dict for Celery serialisation
-            return dataclasses.asdict(result)
-        except Exception as exc:  # noqa: BLE001
-            # Store failure in result backend so get_task_status returns "failed"
-            # We re-raise so Celery marks the task FAILURE and stores the exc.
-            raise exc
-
-    return run_capability
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +116,7 @@ class AsyncTaskDispatcher:
             Structured error dict if broker is not configured:
             {"error": {"code": "BROKER_NOT_CONFIGURED", "message": "..."}}.
         """
-        app = _get_celery_app()
-        if app is None:
+        if not _broker_configured():
             return {
                 "error": {
                     "code": BROKER_NOT_CONFIGURED,
@@ -178,13 +127,29 @@ class AsyncTaskDispatcher:
                 }
             }
 
-        task = _make_task(app)
-        task_id = str(uuid.uuid4())
-        task.apply_async(
-            args=[capability, kwargs],
-            task_id=task_id,
+        try:
+            # Registered as a @shared_task and autodiscovered by reqflow.celery,
+            # so the running worker knows this task by name.
+            from llm_adapter.tasks import run_capability  # noqa: PLC0415
+        except ImportError:
+            warnings.warn(
+                "celery package not installed. Async dispatch is unavailable. "
+                "Install with: pip install celery",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return {
+                "error": {
+                    "code": BROKER_NOT_CONFIGURED,
+                    "message": "Celery is not installed. Async task dispatch is unavailable.",
+                }
+            }
+
+        tenant_id = _resolve_tenant_id()
+        async_result = run_capability.apply_async(
+            args=[capability, kwargs, tenant_id],
         )
-        return task_id
+        return async_result.id
 
     def get_task_status(self, task_id: str) -> TaskStatusResult:
         """Query the status of a previously dispatched task (REQ-L3-LA005-002).
@@ -195,8 +160,7 @@ class AsyncTaskDispatcher:
         Returns:
             TaskStatusResult with status in {"pending","running","done","failed","not_found"}.
         """
-        app = _get_celery_app()
-        if app is None:
+        if not _broker_configured():
             return TaskStatusResult(
                 task_id=task_id,
                 status="not_found",
@@ -205,8 +169,9 @@ class AsyncTaskDispatcher:
 
         try:
             from celery.result import AsyncResult  # noqa: PLC0415
+            from reqflow.celery import app as celery_app  # noqa: PLC0415
 
-            async_result = AsyncResult(task_id, app=app)
+            async_result = AsyncResult(task_id, app=celery_app)
             state = async_result.state  # PENDING | STARTED | SUCCESS | FAILURE | RETRY
 
             if state == "PENDING":

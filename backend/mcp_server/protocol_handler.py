@@ -37,7 +37,15 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Error codes (REQ-L2-MC-011)
+# MCP protocol version (REQ-108)
+# ---------------------------------------------------------------------------
+# Single source of truth for the negotiated MCP protocol revision. Kept as a
+# module-level constant instead of a scattered string literal so a version bump
+# touches exactly one line. See https://modelcontextprotocol.io/specification.
+MCP_PROTOCOL_VERSION = "2024-11-05"
+
+# ---------------------------------------------------------------------------
+# Error codes (REQ-L2-MC-011, JSON-RPC 2.0 compliant)
 # ---------------------------------------------------------------------------
 
 ERROR_CODES = {
@@ -51,6 +59,38 @@ ERROR_CODES = {
     "INTERNAL_ERROR": "An internal server error occurred.",
     "PARSE_ERROR": "Failed to parse JSON-RPC request.",
     "INVALID_REQUEST": "Malformed JSON-RPC request frame.",
+}
+
+# Protocol-level error codes (REQ-086 / MCP spec).
+# These are transport/JSON-RPC concerns — malformed frames, unknown tools,
+# authentication, authorization and preset gating. They are always reported
+# as JSON-RPC errors, even for a ``tools/call`` request. Every other error
+# code originates from the tool actually executing and is therefore a
+# tool-execution error, which the MCP spec requires to be returned as a
+# successful JSON-RPC response carrying ``isError: true`` in its result.
+_PROTOCOL_ERROR_CODES = frozenset({
+    "PARSE_ERROR",
+    "INVALID_REQUEST",
+    "UNKNOWN_TOOL",
+    "AUTH_FAILED",
+    "PERMISSION_DENIED",
+    "FEATURE_NOT_ENABLED",
+})
+
+# JSON-RPC 2.0 Error Code Mapping
+# See: https://www.jsonrpc.org/specification#error_object
+# Standard codes: -32700 to -32603; Server-defined: -32000 to -32768
+ERROR_CODE_MAP = {
+    "PARSE_ERROR": -32700,           # JSON Parse error
+    "INVALID_REQUEST": -32600,       # Invalid Request
+    "UNKNOWN_TOOL": -32601,          # Method not found
+    "VALIDATION_ERROR": -32602,      # Invalid params
+    "INTERNAL_ERROR": -32603,        # Internal error
+    "AUTH_FAILED": -32000,           # Server-defined: Authentication
+    "PERMISSION_DENIED": -32001,     # Server-defined: Permission
+    "FEATURE_NOT_ENABLED": -32002,   # Server-defined: Feature
+    "LLM_NOT_CONFIGURED": -32003,    # Server-defined: LLM config
+    "NOT_FOUND": -32004,             # Server-defined: Not found
 }
 
 
@@ -141,9 +181,16 @@ class ErrorFormatter:
         message: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Return a structured error dict (REQ-L2-MC-011)."""
+        """Return a structured error dict (REQ-L2-MC-011, JSON-RPC 2.0 compliant).
+
+        Returns error object with 'code' (int) and 'message' (str) per
+        https://www.jsonrpc.org/specification#error_object
+        """
+        # Map error_code string to JSON-RPC numeric code
+        rpc_code = ERROR_CODE_MAP.get(error_code, -32603)  # Default to Internal Error
+
         body: Dict[str, Any] = {
-            "error_code": error_code,
+            "code": rpc_code,
             "message": message or ERROR_CODES.get(error_code, error_code),
         }
         if details:
@@ -312,8 +359,11 @@ class ProtocolHandler:
         self,
         adapter: TransportAdapter,
         headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> Optional[Dict[str, Any]]:
         """Handle one MCP request via *adapter* and return the response frame.
+
+        Returns ``None`` for JSON-RPC notifications, which must not be
+        answered (REQ-108).
 
         Steps (ADR-L3-MC001-02):
           1. Read request from transport adapter.
@@ -363,7 +413,7 @@ class ProtocolHandler:
             
         if method == "initialize":
             response = ErrorFormatter.format_jsonrpc_result(request_id, {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": {
                     "tools": {}
                 },
@@ -375,10 +425,12 @@ class ProtocolHandler:
             adapter.write_response(response)
             return response
             
-        if method == "notifications/initialized":
-            # Just ignore and return empty (or don't return anything)
-            # Since our adapter write_response might expect something, we return dummy
-            return {}
+        # JSON-RPC notifications (method prefix "notifications/") carry no id and
+        # MUST NOT receive a response (MCP spec / JSON-RPC 2.0, REQ-108). We
+        # acknowledge them by returning ``None`` — the transport layer maps this
+        # to an empty 202 body and never writes a JSON-RPC frame back.
+        if method.startswith("notifications/"):
+            return None
 
         # API-key extraction (ADR-L3-MC001-03 / REQ-L2-MC-006)
         effective_headers: Dict[str, str] = {}
@@ -403,7 +455,10 @@ class ProtocolHandler:
         # 2. Handle standard MCP methods (tools/list, tools/call)
         if method == "tools/list":
             try:
-                tools_list = self._registry.list_tools(api_key=api_key)
+                tools_list = self._registry.list_tools(
+                    api_key=api_key,
+                    workspace_id=clean_params.get("workspace_id"),
+                )
                 response = ErrorFormatter.format_jsonrpc_result(request_id, {"tools": tools_list})
             except Exception as exc:
                 logger.exception("Error listing tools")
@@ -452,12 +507,32 @@ class ProtocolHandler:
                 response_data = result.data
             response = ErrorFormatter.format_jsonrpc_result(request_id, response_data)
         else:
-            response = ErrorFormatter.format_jsonrpc_error(
-                request_id,
-                result.error_code or "INTERNAL_ERROR",
-                result.message,
-                result.details,
-            )
+            error_code = result.error_code or "INTERNAL_ERROR"
+            # MCP spec (REQ-086 / F8.2): a tool-execution error must be
+            # returned as a *successful* JSON-RPC response whose result
+            # carries ``isError: true``. Protocol-level errors (auth,
+            # unknown tool, malformed request, RBAC/preset gating) stay
+            # JSON-RPC errors. The isError shape only applies to the
+            # standard ``tools/call`` surface; direct-method dispatch keeps
+            # the legacy JSON-RPC-error contract.
+            if method == "tools/call" and error_code not in _PROTOCOL_ERROR_CODES:
+                error_text = result.message or ERROR_CODES.get(error_code, error_code)
+                response = ErrorFormatter.format_jsonrpc_result(
+                    request_id,
+                    {
+                        "content": [
+                            {"type": "text", "text": f"Error: {error_text}"}
+                        ],
+                        "isError": True,
+                    },
+                )
+            else:
+                response = ErrorFormatter.format_jsonrpc_error(
+                    request_id,
+                    error_code,
+                    result.message,
+                    result.details,
+                )
 
         adapter.write_response(response)
         return response
@@ -466,7 +541,7 @@ class ProtocolHandler:
         self,
         body: bytes,
         headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> Optional[Dict[str, Any]]:
         """Convenience wrapper for HTTP transport (Django view integration).
 
         Args:
@@ -474,7 +549,7 @@ class ProtocolHandler:
             headers: Django META-style or plain header dict.
 
         Returns:
-            JSON-RPC 2.0 response frame.
+            JSON-RPC 2.0 response frame, or ``None`` for notifications (REQ-108).
         """
         adapter = HttpTransportAdapter(body=body, headers=headers or {})
         return self.handle(adapter, headers=headers)

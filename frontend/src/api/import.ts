@@ -10,7 +10,7 @@
  * Uses multipart/form-data for file upload.
  */
 
-import { getAuthToken } from "./client";
+import { readCookie } from "./client";
 import type { UUID } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -51,14 +51,13 @@ export const importApi = {
     file: File,
     entityType: EntityType
   ): Promise<ImportResult> {
-    const token = getAuthToken();
+    // Auth flows via the httpOnly cookie (REQ-052); this POST additionally
+    // carries the CSRF token from the csrftoken cookie.
     const headers: Record<string, string> = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-    // Accept-Language from document lang
     const lang = document.documentElement.lang || "en";
     headers["Accept-Language"] = lang;
+    const csrf = readCookie("csrftoken");
+    if (csrf) headers["X-CSRFToken"] = csrf;
 
     const formData = new FormData();
     formData.append("file", file);
@@ -69,6 +68,7 @@ export const importApi = {
       {
         method: "POST",
         headers,
+        credentials: "same-origin",
         body: formData,
       }
     );

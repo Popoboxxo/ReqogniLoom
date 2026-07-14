@@ -23,12 +23,14 @@
  */
 
 import {
+  type CSSProperties,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 // ---------------------------------------------------------------------------
 // Level badge colors — design doc section 6
@@ -139,8 +141,20 @@ export interface WorkspaceTreeProps {
   searchPlaceholder?: string;
   emptyLabel?: string;
   noMatchesLabel?: string;
+  /**
+   * REQ-091: Opt-in list virtualization for large artifact lists.
+   * When true and the number of visible rows exceeds the threshold, rows are
+   * rendered through @tanstack/react-virtual so only on-screen rows hit the DOM.
+   * Small lists fall back to normal rendering (no layout change). Default: false.
+   */
+  virtualize?: boolean;
   'data-testid'?: string;
 }
+
+// REQ-091: virtualization threshold 100 items
+const VIRTUALIZE_THRESHOLD = 100;
+// REQ-091: fixed row height estimate — TreeRow minHeight 32px + 2px list gap.
+const VIRTUAL_ROW_HEIGHT = 34;
 
 // ---------------------------------------------------------------------------
 // Internal tree model
@@ -230,6 +244,7 @@ export function WorkspaceTree({
   searchPlaceholder = 'Search...',
   emptyLabel = 'No items.',
   noMatchesLabel = 'No matches found.',
+  virtualize = false,
   'data-testid': testId = 'workspace-tree',
 }: WorkspaceTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -294,6 +309,16 @@ export function WorkspaceTree({
     });
   }, []);
 
+  // REQ-091: virtualize only when opted in and the visible list is large.
+  const parentRef = useRef<HTMLDivElement>(null);
+  const useVirtual = virtualize && visibleRows.length > VIRTUALIZE_THRESHOLD;
+  const rowVirtualizer = useVirtualizer({
+    count: visibleRows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => VIRTUAL_ROW_HEIGHT,
+    overscan: 12,
+  });
+
   return (
     <div
       data-testid={testId}
@@ -345,6 +370,52 @@ export function WorkspaceTree({
         >
           {noMatchesLabel}
         </p>
+      ) : useVirtual ? (
+        // REQ-091: virtualized rendering — only on-screen rows hit the DOM.
+        <div
+          ref={parentRef}
+          data-testid={`${testId}-scroll`}
+          style={{ overflowY: 'auto', maxHeight: '70vh' }}
+        >
+          <ul
+            role="tree"
+            data-testid={`${testId}-list`}
+            style={{
+              listStyle: 'none',
+              padding: 0,
+              margin: 0,
+              position: 'relative',
+              height: `${rowVirtualizer.getTotalSize()}px`,
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const { internal, hasChildren, isExpanded } =
+                visibleRows[virtualRow.index];
+              return (
+                <TreeRow
+                  key={internal.node.id}
+                  node={internal.node}
+                  depth={internal.depth}
+                  isSelected={internal.node.id === selectedId}
+                  hasChildren={hasChildren}
+                  isExpanded={isExpanded}
+                  showLevelBadge={showLevelBadge}
+                  onAddChild={onAddChild}
+                  testIdPrefix={testId}
+                  onSelect={onSelect}
+                  onToggle={toggleExpand}
+                  rowStyle={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                />
+              );
+            })}
+          </ul>
+        </div>
       ) : (
         <ul
           role="tree"
@@ -394,6 +465,8 @@ interface TreeRowProps {
   testIdPrefix: string;
   onSelect: (id: string) => void;
   onToggle: (id: string) => void;
+  /** REQ-091: extra positioning styles injected by the virtualizer. */
+  rowStyle?: CSSProperties;
 }
 
 function TreeRow({
@@ -407,6 +480,7 @@ function TreeRow({
   testIdPrefix,
   onSelect,
   onToggle,
+  rowStyle,
 }: TreeRowProps): JSX.Element {
   return (
     <li
@@ -432,6 +506,7 @@ function TreeRow({
         color: 'var(--color-text)',
         transition: 'background var(--transition-fast)',
         boxSizing: 'border-box',
+        ...rowStyle,
       }}
       onMouseEnter={(e) => {
         if (!isSelected) {

@@ -14,7 +14,21 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TestRunsList } from "./TestRunsList";
+
+// TestRunsList now fetches through TanStack Query (REQ-050) — every render
+// needs a QueryClientProvider. retry:false keeps rejected queries fast.
+const renderList = (): ReturnType<typeof render> => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TestRunsList />
+    </QueryClientProvider>,
+  );
+};
 import * as testRunsModule from "../../api/test-runs";
 import * as testcasesModule from "../../api/testcases";
 import * as workspaceContext from "../../context/WorkspaceContext";
@@ -72,7 +86,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
   });
 
   it("loads the test run list on mount", async () => {
-    render(<TestRunsList />);
+    renderList();
 
     await waitFor(() => {
       expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
@@ -83,7 +97,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
   });
 
   it("displays status for each test run", async () => {
-    render(<TestRunsList />);
+    renderList();
 
     await waitFor(() => {
       expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
@@ -97,7 +111,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
       results: [],
     } as any);
 
-    render(<TestRunsList />);
+    renderList();
 
     await waitFor(() => {
       expect(screen.queryByTestId(/testrun-item/)).not.toBeInTheDocument();
@@ -106,7 +120,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
 
   it("validates that name is required before create", async () => {
     const user = userEvent.setup();
-    render(<TestRunsList />);
+    renderList();
 
     await waitFor(() => {
       expect(screen.getByTestId("testrun-create-btn")).toBeInTheDocument();
@@ -123,7 +137,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
       id: "tr-3",
     } as any);
     const user = userEvent.setup();
-    render(<TestRunsList />);
+    renderList();
 
     await waitFor(() => {
       expect(screen.getByTestId("testrun-create-btn")).toBeInTheDocument();
@@ -149,7 +163,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
       id: "tr-3",
     } as any);
     const user = userEvent.setup();
-    render(<TestRunsList />);
+    renderList();
 
     await waitFor(() => {
       expect(screen.getByTestId("testrun-create-btn")).toBeInTheDocument();
@@ -169,7 +183,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
       error: { message: "workspace not found" },
     });
     const user = userEvent.setup();
-    render(<TestRunsList />);
+    renderList();
 
     await waitFor(() => {
       expect(screen.getByTestId("testrun-create-btn")).toBeInTheDocument();
@@ -210,7 +224,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
         closedRun as any
       );
       const user = userEvent.setup();
-      render(<TestRunsList />);
+      renderList();
 
       await waitFor(() => {
         expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
@@ -238,7 +252,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
         error: { message: "server exploded" },
       });
       const user = userEvent.setup();
-      render(<TestRunsList />);
+      renderList();
 
       await waitFor(() => {
         expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
@@ -308,7 +322,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
         },
       ] as any);
       const user = userEvent.setup();
-      render(<TestRunsList />);
+      renderList();
 
       await waitFor(() => {
         expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
@@ -328,7 +342,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     it("shows an empty state when no test cases are assigned", async () => {
       vi.mocked(testRunsModule.testRunsApi.listResults).mockResolvedValue([]);
       const user = userEvent.setup();
-      render(<TestRunsList />);
+      renderList();
 
       await waitFor(() => {
         expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
@@ -352,7 +366,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
         results: testCases,
       } as any);
       const user = userEvent.setup();
-      render(<TestRunsList />);
+      renderList();
 
       await waitFor(() => {
         expect(screen.getByTestId("testrun-create-btn")).toBeInTheDocument();
@@ -379,7 +393,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
         id: "tr-3",
       } as any);
       const user = userEvent.setup();
-      render(<TestRunsList />);
+      renderList();
 
       await waitFor(() => {
         expect(screen.getByTestId("testrun-create-btn")).toBeInTheDocument();

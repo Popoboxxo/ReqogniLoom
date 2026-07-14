@@ -199,6 +199,84 @@ class UsersToolGroup(BaseToolGroup):
         "user.deactivate": "_handle_user_deactivate",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "user.create",
+            "description": "Create a new user (admin-only, write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "username": {"type": "string", "description": "Unique username."},
+                    "email": {"type": "string", "description": "Unique email address."},
+                    "password": {"type": "string", "description": "Password, at least 8 characters."},
+                    "role": {
+                        "type": "string",
+                        "description": "Informational initial role hint (default 'viewer').",
+                    },
+                    "preset": {
+                        "type": "string",
+                        "description": "Informational active preset hint (default 'basic').",
+                    },
+                    "tenant_id": {
+                        "type": "string",
+                        "description": "Optional tenant UUID (superuser callers only).",
+                    },
+                },
+                "required": ["username", "email", "password"],
+            },
+        },
+        {
+            "name": "user.assign_role",
+            "description": "Assign a role to a user in a workspace (admin-only, write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string", "description": "UUID of the target user."},
+                    "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
+                    "role": {
+                        "type": "string",
+                        "enum": ["admin", "editor", "viewer", "approver"],
+                        "description": "Role to assign.",
+                    },
+                    "preset": {
+                        "type": "string",
+                        "description": "Active workspace preset (gates the approver role).",
+                    },
+                },
+                "required": ["user_id", "workspace_id", "role", "preset"],
+            },
+        },
+        {
+            "name": "user.list",
+            "description": "List users, tenant-scoped (admin-only, read).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "tenant_id": {
+                        "type": "string",
+                        "description": "Optional tenant UUID (defaults to caller's tenant).",
+                    },
+                    "is_active": {
+                        "type": "boolean",
+                        "description": "Optional active-state filter; omit to return both.",
+                    },
+                    "limit": {"type": "integer", "description": "Page size (1..500, default 100)."},
+                },
+            },
+        },
+        {
+            "name": "user.deactivate",
+            "description": "Deactivate a user (is_active=False), admin-only, write, audited.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string", "description": "UUID of the user to deactivate."},
+                },
+                "required": ["user_id"],
+            },
+        },
+    ]
+
     def __init__(
         self, authz_service: Optional[AuthorizationService] = None
     ) -> None:

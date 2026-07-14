@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 from rest_framework import authentication, exceptions, permissions
+from rest_framework.authentication import CSRFCheck
 
 from .context import AuthContext
 from .errors import AuthError, build_error_body
@@ -39,6 +40,11 @@ _AUTH_HEADER = "HTTP_AUTHORIZATION"
 _API_KEY_HEADER = "HTTP_X_API_KEY"
 _BEARER_PREFIX = "Bearer "
 _API_KEY_PLAINTEXT_PREFIX = "rf_"
+
+# httpOnly access-token cookie (REQ-052). The SPA never reads this cookie;
+# the browser attaches it automatically on same-origin requests, which keeps
+# the JWT out of JavaScript reach (XSS mitigation). See LoginView/LogoutView.
+ACCESS_COOKIE_NAME = "reqflow_access"
 
 
 class _StandardAuthError(exceptions.APIException):
@@ -81,9 +87,17 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
         """
         accept_language = request.META.get("HTTP_ACCEPT_LANGUAGE")
         try:
-            claims = self._extract_and_validate(request)
-            if claims is None:
+            extracted = self._extract_and_validate(request)
+            if extracted is None:
                 return None
+            claims, via_cookie = extracted
+
+            # Cookie-borne credentials are ambient (attached automatically by the
+            # browser), so they are vulnerable to CSRF. Enforce a CSRF token on
+            # unsafe methods for the cookie path only; header/API-key auth is a
+            # deliberate act by the caller and stays CSRF-exempt (REQ-052).
+            if via_cookie:
+                self._enforce_csrf(request)
 
             tenant_context = self._tenancy.resolve_tenant_context(claims)
             self._tenancy.activate(tenant_context)
@@ -101,10 +115,16 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
         return (auth_context.user_id, auth_context)
 
     def _extract_and_validate(self, request: Any):
-        """Pick the credential from headers and validate it (COMP-AT-001)."""
+        """Pick the credential from headers/cookie and validate it (COMP-AT-001).
+
+        Returns ``(claims, via_cookie)`` on success or ``None`` when no credential
+        is present. ``via_cookie`` is ``True`` only when the token came from the
+        httpOnly ``reqflow_access`` cookie (drives CSRF enforcement, REQ-052).
+        Header and API-key credentials take precedence over the cookie.
+        """
         api_key = request.META.get(_API_KEY_HEADER)
         if api_key:
-            return self._authn.validate_api_key(api_key)
+            return self._authn.validate_api_key(api_key), False
 
         header = request.META.get(_AUTH_HEADER, "")
         if header.startswith(_BEARER_PREFIX):
@@ -112,10 +132,31 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
             # A Bearer-carried API key (rf_ prefix) is treated as an API key
             # (REQ-L2-AT-002 allows ``Authorization: Bearer <api_key>``).
             if credential.startswith(_API_KEY_PLAINTEXT_PREFIX):
-                return self._authn.validate_api_key(credential)
-            return self._authn.validate_bearer_token(credential)
+                return self._authn.validate_api_key(credential), False
+            return self._authn.validate_bearer_token(credential), False
+
+        cookie_token = request.COOKIES.get(ACCESS_COOKIE_NAME)
+        if cookie_token:
+            return self._authn.validate_bearer_token(cookie_token), True
 
         return None  # no credential present
+
+    def _enforce_csrf(self, request: Any) -> None:
+        """Run Django's CSRF check for cookie-authenticated requests (REQ-052).
+
+        Mirrors DRF's ``SessionAuthentication.enforce_csrf``. Safe HTTP methods
+        (GET/HEAD/OPTIONS/TRACE) are skipped by Django's own middleware logic, so
+        this only rejects unsafe methods lacking a valid ``X-CSRFToken``.
+        """
+
+        def _dummy_get_response(_request: Any) -> None:  # pragma: no cover
+            return None
+
+        check = CSRFCheck(_dummy_get_response)
+        check.process_request(request)
+        reason = check.process_view(request, None, (), {})
+        if reason:
+            raise exceptions.PermissionDenied(f"CSRF Failed: {reason}")
 
 
 class HasOperationPermission(permissions.BasePermission):
@@ -147,4 +188,8 @@ class HasOperationPermission(permissions.BasePermission):
         return decision.allow
 
 
-__all__ = ["AuthTenancyAuthentication", "HasOperationPermission"]
+__all__ = [
+    "ACCESS_COOKIE_NAME",
+    "AuthTenancyAuthentication",
+    "HasOperationPermission",
+]

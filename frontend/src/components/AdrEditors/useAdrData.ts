@@ -1,52 +1,66 @@
-import { useState, useEffect, useCallback } from 'react';
-import { adrsApi } from '../../api/adrs';
-import { useWorkspace } from '../../context/WorkspaceContext';
-import type { Adr } from '../../types';
+/**
+ * ARCH-L1-001 ReactFrontend — ADR Data Hook.
+ *
+ * req_id: REQ-049 (TanStack Query migration)
+ *
+ * TanStack Query replacement for the hand-rolled fetch/loading/error state.
+ * Query cancellation, error reset on refetch and de-duplication are handled
+ * by react-query; the return shape is preserved so AdrEditors is unchanged.
+ */
 
-export function useAdrData(selectedId?: string) {
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { adrsApi } from "../../api/adrs";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { asError } from "../../queries/query-error";
+import type { Adr } from "../../types";
+
+export const adrKeys = {
+  all: ["adrs"] as const,
+  list: (workspaceId: string) => ["adrs", "list", workspaceId] as const,
+  detail: (id: string) => ["adrs", "detail", id] as const,
+};
+
+export interface AdrData {
+  items: Adr[];
+  item: Adr | null;
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => void;
+}
+
+export function useAdrData(selectedId?: string): AdrData {
   const { activeWorkspace } = useWorkspace();
-  const [items, setItems] = useState<Adr[]>([]);
-  const [item, setItem] = useState<Adr | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const workspaceId = activeWorkspace?.id;
+  const queryClient = useQueryClient();
 
-  const loadList = useCallback(async () => {
-    if (!activeWorkspace) return;
-    setIsLoading(true);
-    try {
-      const resp = await adrsApi.list(activeWorkspace.id);
-      setItems(resp.results || []);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeWorkspace]);
+  const listQuery = useQuery({
+    queryKey: adrKeys.list(workspaceId ?? ""),
+    queryFn: async () => (await adrsApi.list(workspaceId as string)).results ?? [],
+    enabled: !!workspaceId,
+  });
 
-  const loadDetail = useCallback(async () => {
-    if (!selectedId) {
-      setItem(null);
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const resp = await adrsApi.get(selectedId);
-      setItem(resp);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedId]);
+  const detailQuery = useQuery({
+    queryKey: adrKeys.detail(selectedId ?? ""),
+    queryFn: () => adrsApi.get(selectedId as string),
+    enabled: !!selectedId,
+  });
 
-  useEffect(() => { loadList(); }, [loadList]);
-  useEffect(() => { loadDetail(); }, [loadDetail]);
+  const refresh = (): void => {
+    if (workspaceId) {
+      void queryClient.invalidateQueries({ queryKey: adrKeys.list(workspaceId) });
+    }
+    if (selectedId) {
+      void queryClient.invalidateQueries({ queryKey: adrKeys.detail(selectedId) });
+    }
+  };
+
+  const rawError = detailQuery.error ?? listQuery.error;
 
   return {
-    items,
-    item,
-    isLoading,
-    error,
-    refresh: () => { loadList(); loadDetail(); },
+    items: listQuery.data ?? [],
+    item: selectedId ? detailQuery.data ?? null : null,
+    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    error: rawError ? asError(rawError) : null,
+    refresh,
   };
 }

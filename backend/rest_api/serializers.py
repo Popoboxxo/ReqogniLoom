@@ -146,15 +146,70 @@ def build_error_response(
 
 
 class StandardPagination(pagination.PageNumberPagination):
-    """Offset-based pagination: default 25, max 100 (REQ-L3-RA002-003).
+    """Offset-based pagination: default 25, max 100 (REQ-L3-RA002-003, REQ-076).
 
-    Response format: {"count", "next", "previous", "results"}
+    Response envelope::
+
+        {
+            "count":    <int>,     # total number of matching items
+            "next":     <url|null>,  # absolute URL of the next page (null on last)
+            "previous": <url|null>,  # absolute URL of the previous page (null on first)
+            "results":  [ ... ]    # page slice of serialized items
+        }
+
+    Query parameters (documented in OpenAPI via
+    ``get_schema_operation_parameters`` / ``get_paginated_response_schema``):
+
+    - ``page``      — 1-based page number (default 1).
+    - ``page_size`` — items per page (default 25, capped at ``max_page_size``).
     """
 
+    #: Default number of items returned per page when ``page_size`` is omitted.
     page_size = 25
+    #: Query parameter clients use to override the page size (bounded by max_page_size).
     page_size_query_param = "page_size"
+    #: Hard upper bound for client-requested page sizes — protects against abuse.
     max_page_size = 100
+    #: Query parameter selecting the 1-based page number.
     page_query_param = "page"
+
+    def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        """Declare the exact pagination envelope for drf-spectacular (REQ-076).
+
+        Overrides DRF's default so the generated OpenAPI schema pins the
+        ``count``/``next``/``previous``/``results`` contract instead of leaving
+        it implicit. *schema* is the item schema of a single ``results`` entry.
+        """
+        return {
+            "type": "object",
+            "required": ["count", "results"],
+            "properties": {
+                "count": {
+                    "type": "integer",
+                    "example": 123,
+                    "description": "Total number of items across all pages.",
+                },
+                "next": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": (
+                        "https://api.example.org/api/v1/requirements/?page=3&page_size=25"
+                    ),
+                    "description": "Absolute URL of the next page, or null on the last page.",
+                },
+                "previous": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": (
+                        "https://api.example.org/api/v1/requirements/?page=1&page_size=25"
+                    ),
+                    "description": "Absolute URL of the previous page, or null on the first page.",
+                },
+                "results": schema,
+            },
+        }
 
 
 # ---------------------------------------------------------------------------

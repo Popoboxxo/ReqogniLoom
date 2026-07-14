@@ -18,11 +18,13 @@ Provider isolation:
     the module is importable without them installed. MockLlmProvider is always
     available and requires no external SDK.
 
-Note on ResilienceOrchestrator (IF-L1-050, ADR-LA-04):
-    In this implementation the provider classes are responsible for their own
-    HTTP transport. Integration with the ResilienceOrchestrator (circuit-breaker,
-    retry, backoff) is deferred to the infrastructure layer and does not change
-    the interface contracts defined here.
+Note on ResilienceOrchestrator (IF-L1-050, ADR-LA-04, REQ-082):
+    Provider classes own their HTTP transport, but every outbound HTTP/SDK
+    call is wrapped by ``llm_adapter.resilient_transport.resilient_call``:
+    3 retries with exponential backoff (1s/2s/4s) on transient failures
+    (connection errors, timeouts, 5xx, 429), no retry on permanent 4xx
+    failures, and one circuit breaker per provider class. The interface
+    contracts defined here are unchanged.
 """
 from __future__ import annotations
 
@@ -31,7 +33,7 @@ import os
 import time
 import warnings
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from llm_adapter.interface import (
     LlmCapabilityInterface,
@@ -143,6 +145,109 @@ def _read_config() -> ProviderConfig:
     return _apply_db_settings(_read_env_config())
 
 
+def resolve_provider_config() -> ProviderConfig:
+    """Return the effective provider configuration for the active context.
+
+    REQ-083: public accessor so out-of-request callers (Celery workers) can
+    resolve the per-tenant LLM configuration explicitly after restoring the
+    tenant context. With an active tenant context the persisted
+    :class:`~persistence.models.LlmSettings` row wins; without one the
+    environment (global ``LLM_PROVIDER`` etc.) is the fallback.
+
+    Returns:
+        The effective :class:`ProviderConfig` (tenant settings overlaid on
+        environment defaults).
+    """
+    return _read_config()
+
+
+# ---------------------------------------------------------------------------
+# Prompt content embedding helpers (REQ-046)
+# ---------------------------------------------------------------------------
+# Security: user content is delimited to reduce prompt injection surface
+# (REQ-080). Artifact titles, descriptions and requirement text are user-
+# controlled; wrapping them in an unambiguous delimiter keeps them from being
+# interpreted as model instructions.
+
+_USER_CONTENT_DELIMITER = "###"
+
+
+def _delimit_user_content(content: str) -> str:
+    """Wrap user-controlled content in delimiters (REQ-080).
+
+    The returned block clearly separates untrusted artifact/requirement text
+    from the surrounding instructions so the model treats it as data, not as
+    commands. This reduces the prompt-injection surface without changing the
+    embedded text itself.
+
+    Args:
+        content: The user-controlled text to delimit.
+
+    Returns:
+        The content fenced between ``###`` delimiter lines.
+    """
+    return f"{_USER_CONTENT_DELIMITER}\n{content}\n{_USER_CONTENT_DELIMITER}"
+
+
+def _format_artifact_context(
+    title: Optional[str], content: Optional[str]
+) -> str:
+    """Render an artifact's title/content as a prompt-embeddable block (REQ-046).
+
+    Providers previously interpolated only the opaque artifact UUID, forcing the
+    model to hallucinate. This helper turns the real text supplied by the
+    application layer into a labelled block appended to the prompt.
+
+    Returns an empty string when neither title nor content is supplied, so
+    id-only prompts stay byte-for-byte backward compatible.
+
+    Args:
+        title: Optional artifact title.
+        content: Optional artifact body/description.
+
+    Returns:
+        A leading-newline block such as ``"\\n\\nTitle: ...\\nContent:\\n..."`` or
+        ``""`` when nothing was provided.
+    """
+    parts: List[str] = []
+    if title:
+        parts.append(f"Title: {title}")
+    if content:
+        parts.append(f"Content:\n{content}")
+    if not parts:
+        return ""
+    # Security: delimit user-controlled content (REQ-080).
+    return "\n\n" + _delimit_user_content("\n".join(parts))
+
+
+def _format_artifacts_list(artifacts: Optional[List[dict]]) -> str:
+    """Render a list of artifact summaries as a prompt-embeddable block (REQ-046).
+
+    Each entry is expected to be a ``{"id", "title", "content"}`` dict. Returns
+    an empty string for an empty/None list so id-only prompts stay backward
+    compatible.
+
+    Args:
+        artifacts: Optional list of artifact summary dicts.
+
+    Returns:
+        A leading-newline block enumerating the artifacts, or ``""`` when empty.
+    """
+    if not artifacts:
+        return ""
+    lines: List[str] = []
+    for entry in artifacts:
+        if not isinstance(entry, dict):
+            continue
+        identifier = entry.get("id", "")
+        title = entry.get("title", "")
+        content = entry.get("content", "")
+        lines.append(f"- [{identifier}] {title}: {content}")
+    # Security: delimit user-controlled content (REQ-080). The "Artifacts:"
+    # label stays outside the fence; the enumerated user text stays inside.
+    return "\n\nArtifacts:\n" + _delimit_user_content("\n".join(lines))
+
+
 # ---------------------------------------------------------------------------
 # MockLlmProvider — always-available test/CI/graceful-degradation provider
 # ---------------------------------------------------------------------------
@@ -176,8 +281,21 @@ class MockLlmProvider(LlmCapabilityInterface):
             if random.random() < self._config.mock_error_rate:
                 raise RuntimeError("MockLlmProvider: simulated error")
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
-        """Return a fixed validation result for the given artifact."""
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmResult:
+        """Return a fixed validation result for the given artifact.
+
+        The mock returns deterministic values and builds no real prompt, so the
+        ``title`` / ``content`` injected by the application layer (REQ-046) and
+        the per-call ``timeout`` (REQ-084) are accepted for interface parity
+        but do not alter the output.
+        """
         self._simulate()
         return LlmResult(
             score=0.85,
@@ -187,8 +305,20 @@ class MockLlmProvider(LlmCapabilityInterface):
             token_usage=42,
         )
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
-        """Return a fixed decomposition result for the given requirement."""
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        """Return a fixed decomposition result for the given requirement.
+
+        ``title`` / ``content`` (REQ-046) and ``timeout`` (REQ-084) are
+        accepted for interface parity but do not alter the deterministic mock
+        output.
+        """
         self._simulate()
         return LlmDecompositionResult(
             score=0.90,
@@ -202,8 +332,18 @@ class MockLlmProvider(LlmCapabilityInterface):
             ],
         )
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
-        """Return a fixed consistency result for the given workspace."""
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmConsistencyResult:
+        """Return a fixed consistency result for the given workspace.
+
+        ``artifacts`` (REQ-046) and ``timeout`` (REQ-084) are accepted for
+        interface parity but do not alter the deterministic mock output.
+        """
         self._simulate()
         return LlmConsistencyResult(
             score=0.95,
@@ -214,7 +354,12 @@ class MockLlmProvider(LlmCapabilityInterface):
             issues=[],
         )
 
-    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
         """Return a fixed set of derived requirements for the given need."""
         self._simulate()
         return LlmDecompositionResult(
@@ -235,6 +380,7 @@ class MockLlmProvider(LlmCapabilityInterface):
         *,
         purpose: str = "",
         context: Optional[dict] = None,
+        timeout: Optional[float] = None,
     ) -> str:
         """Return deterministic mock JSON matching the AI-derivation flows.
 
@@ -332,30 +478,118 @@ class _BaseHttpProvider(LlmCapabilityInterface):
             "Install the provider SDK and override this method."
         )
 
+    def _resilient(
+        self,
+        call: Callable[[], Any],
+        timeout_seconds: Optional[float] = None,
+    ) -> Any:
+        """Run an outbound HTTP/SDK call under the resilience policy (REQ-082).
+
+        Applies retry with exponential backoff (1s/2s/4s) on transient
+        failures, no retry on permanent 4xx failures, and the per-provider
+        circuit breaker. Raises
+        :class:`~llm_adapter.resilient_transport.LlmTransportError` on final
+        failure so the CapabilityRouter maps it to LLM_PROVIDER_ERROR.
+
+        Args:
+            call: Zero-arg callable performing the actual outbound request.
+            timeout_seconds: Optional per-call timeout override (REQ-084);
+                the configured provider timeout is used when omitted.
+
+        Returns:
+            The transport call's result.
+        """
+        # Lazy import to avoid import-time coupling to the resilience app.
+        from llm_adapter.resilient_transport import resilient_call  # noqa: PLC0415
+
+        return resilient_call(
+            call,
+            provider_name=self.PROVIDER_NAME,
+            timeout_seconds=(
+                timeout_seconds
+                if timeout_seconds is not None
+                else self._config.timeout
+            ),
+        )
+
+    def _effective_timeout(self, timeout: Optional[float]) -> float:
+        """Resolve the per-call timeout (REQ-084): override or config default."""
+        return float(timeout) if timeout is not None else float(self._config.timeout)
+
+    def _invoke_chat(
+        self, prompt: str, timeout: Optional[float] = None
+    ) -> tuple[str, Optional[int]]:
+        """Invoke the provider's ``_chat`` transport, forwarding ``timeout``.
+
+        The ``timeout`` keyword is only forwarded when explicitly given so
+        that simplified ``_chat(prompt)`` doubles (tests, custom providers)
+        keep working unchanged.
+        """
+        chat = getattr(self, "_chat", None)
+        if chat is None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not expose a _chat transport."
+            )
+        if timeout is None:
+            return chat(prompt)
+        return chat(prompt, timeout=timeout)
+
     def complete(
         self,
         prompt: str,
         *,
         purpose: str = "",
         context: Optional[dict] = None,
+        timeout: Optional[float] = None,
     ) -> str:
         """Return the raw completion text for a free-form prompt (REQ-L2-AI-002).
 
         Real providers derive the completion from ``self._chat`` (defined by the
         concrete OpenAI/Ollama/Azure subclasses). ``purpose`` and ``context`` are
-        hints for deterministic mocks only and are ignored here.
+        hints for deterministic mocks only and are ignored here. ``timeout``
+        (REQ-084) is forwarded to the transport when given.
 
         Raises:
             NotImplementedError: If the concrete provider does not expose a
                 ``_chat`` transport helper.
         """
-        chat = getattr(self, "_chat", None)
-        if chat is None:
+        if getattr(self, "_chat", None) is None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} does not support free-form completion."
             )
-        text, _token_usage = chat(prompt)
+        text, _token_usage = self._invoke_chat(prompt, timeout)
         return text
+
+
+# ---------------------------------------------------------------------------
+# Shared parsing helper for derive_requirements (REQ-041)
+# ---------------------------------------------------------------------------
+
+
+def _parse_derivation_response(text: str) -> dict:
+    """Parse a derive_requirements completion into a data dict.
+
+    Some models wrap the JSON payload in markdown fences; these are stripped
+    before parsing. On malformed JSON the response is wrapped into a single
+    generated requirement so callers always receive a usable structure. This
+    mirrors the fallback behaviour of :class:`OpenAiProvider`.
+
+    Args:
+        text: The raw completion text returned by the provider.
+
+    Returns:
+        A dict with (at least) a ``children`` key.
+    """
+    import json
+
+    try:
+        cleaned = text.replace("```json", "").replace("```", "").strip()
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.warning(
+            "Provider returned invalid JSON for derive_requirements: %s", text
+        )
+        return {"children": [{"title": "Generated Req", "description": text}]}
 
 
 # ---------------------------------------------------------------------------
@@ -373,25 +607,73 @@ class AnthropicProvider(_BaseHttpProvider):
     PROVIDER_NAME = "anthropic"
     MODEL_NAME = "claude-3-opus-20240229"
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
-        """Call Anthropic API to validate an artifact."""
+    def _chat(
+        self, prompt: str, timeout: Optional[float] = None
+    ) -> tuple[str, Optional[int]]:
+        """Send a message to the Anthropic API and return (text, token_usage).
+
+        Provides the free-form transport used by the inherited ``complete``
+        method (REQ-048) so free-form flows such as derive_requirements
+        (REQ-041) work without duplicating SDK plumbing. ``timeout`` (REQ-084)
+        overrides the configured provider timeout for this call.
+        """
+        try:
+            import anthropic  # noqa: PLC0415 (lazy import intentional)
+        except ImportError as exc:
+            raise RuntimeError(
+                "anthropic SDK not installed. Run: pip install anthropic"
+            ) from exc
+
+        effective_timeout = self._effective_timeout(timeout)
+        client = anthropic.Anthropic(api_key=self._config.api_key)
+        message = self._resilient(
+            lambda: client.messages.create(
+                model=self.MODEL_NAME,
+                max_tokens=4096,
+                timeout=effective_timeout,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            timeout_seconds=effective_timeout,
+        )
+        text = message.content[0].text
+        token_usage = (
+            message.usage.input_tokens + message.usage.output_tokens
+            if hasattr(message, "usage")
+            else None
+        )
+        return text, token_usage
+
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmResult:
+        """Call Anthropic API to validate an artifact (content embedded, REQ-046)."""
         try:
             import anthropic  # noqa: PLC0415 (lazy import intentional)
 
+            effective_timeout = self._effective_timeout(timeout)
             client = anthropic.Anthropic(api_key=self._config.api_key)
-            message = client.messages.create(
-                model=self.MODEL_NAME,
-                max_tokens=1024,
-                timeout=self._config.timeout,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Validate artifact {artifact_id}. "
-                            "Return a JSON object with keys: score (0-1), suggestions (list of strings)."
-                        ),
-                    }
-                ],
+            message = self._resilient(
+                lambda: client.messages.create(
+                    model=self.MODEL_NAME,
+                    max_tokens=1024,
+                    timeout=effective_timeout,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Validate the following artifact (id: {artifact_id})."
+                                f"{_format_artifact_context(title, content)}\n\n"
+                                "Return a JSON object with keys: score (0-1), suggestions (list of strings)."
+                            ),
+                        }
+                    ],
+                ),
+                timeout_seconds=effective_timeout,
             )
             import json
 
@@ -414,25 +696,37 @@ class AnthropicProvider(_BaseHttpProvider):
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
-        """Call Anthropic API to decompose a requirement."""
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        """Call Anthropic API to decompose a requirement (content embedded, REQ-046)."""
         try:
             import anthropic  # noqa: PLC0415
 
+            effective_timeout = self._effective_timeout(timeout)
             client = anthropic.Anthropic(api_key=self._config.api_key)
-            message = client.messages.create(
-                model=self.MODEL_NAME,
-                max_tokens=4096,
-                timeout=self._config.timeout,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Decompose requirement {requirement_id} into sub-requirements. "
-                            "Return JSON: {score, suggestions, children: [{id, title, type}]}"
-                        ),
-                    }
-                ],
+            message = self._resilient(
+                lambda: client.messages.create(
+                    model=self.MODEL_NAME,
+                    max_tokens=4096,
+                    timeout=effective_timeout,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Decompose the following requirement (id: {requirement_id}) "
+                                f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
+                                "Return JSON: {score, suggestions, children: [{id, title, type}]}"
+                            ),
+                        }
+                    ],
+                ),
+                timeout_seconds=effective_timeout,
             )
             import json
 
@@ -456,25 +750,36 @@ class AnthropicProvider(_BaseHttpProvider):
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
-        """Call Anthropic API to check workspace consistency."""
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmConsistencyResult:
+        """Call Anthropic API to check workspace consistency (content embedded, REQ-046)."""
         try:
             import anthropic  # noqa: PLC0415
 
+            effective_timeout = self._effective_timeout(timeout)
             client = anthropic.Anthropic(api_key=self._config.api_key)
-            message = client.messages.create(
-                model=self.MODEL_NAME,
-                max_tokens=4096,
-                timeout=self._config.timeout,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Check consistency for workspace {workspace_id}. "
-                            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
-                        ),
-                    }
-                ],
+            message = self._resilient(
+                lambda: client.messages.create(
+                    model=self.MODEL_NAME,
+                    max_tokens=4096,
+                    timeout=effective_timeout,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Check consistency across the artifacts in workspace "
+                                f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
+                                "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
+                            ),
+                        }
+                    ],
+                ),
+                timeout_seconds=effective_timeout,
             )
             import json
 
@@ -498,6 +803,37 @@ class AnthropicProvider(_BaseHttpProvider):
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need (REQ-041, REQ-048).
+
+        The provider works only with the identifier it is handed; fetching the
+        StakeholderNeed and rendering configured prompt templates is the
+        responsibility of the application layer (AiDerivationService), which
+        keeps this Layer-3 provider free of direct persistence access. The
+        full artifact content is injected by that layer in REQ-046.
+        """
+        text = self.complete(
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}",
+            purpose="derive_requirements",
+            timeout=timeout,
+        )
+        data = _parse_derivation_response(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self.MODEL_NAME,
+            token_usage=None,
+            children=data.get("children", []),
+        )
+
 
 # ---------------------------------------------------------------------------
 # OpenAI provider
@@ -514,7 +850,9 @@ class OpenAiProvider(_BaseHttpProvider):
     PROVIDER_NAME = "openai"
     MODEL_NAME = "gpt-4"
 
-    def _chat(self, prompt: str) -> tuple[str, Optional[int]]:
+    def _chat(
+        self, prompt: str, timeout: Optional[float] = None
+    ) -> tuple[str, Optional[int]]:
         """Send a chat completion request and return (text, token_usage)."""
         try:
             from openai import OpenAI  # noqa: PLC0415
@@ -523,10 +861,14 @@ class OpenAiProvider(_BaseHttpProvider):
                 "openai SDK not installed. Run: pip install openai"
             ) from exc
 
-        client = OpenAI(api_key=self._config.api_key, timeout=self._config.timeout)
-        response = client.chat.completions.create(
-            model=self.MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
+        effective_timeout = self._effective_timeout(timeout)
+        client = OpenAI(api_key=self._config.api_key, timeout=effective_timeout)
+        response = self._resilient(
+            lambda: client.chat.completions.create(
+                model=self.MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            timeout_seconds=effective_timeout,
         )
         text = response.choices[0].message.content or ""
         token_usage = (
@@ -534,11 +876,21 @@ class OpenAiProvider(_BaseHttpProvider):
         )
         return text, token_usage
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Validate artifact {artifact_id}. Return JSON: {{score, suggestions}}"
+        text, token_usage = self._invoke_chat(
+            f"Validate the following artifact (id: {artifact_id})."
+            f"{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions}",
+            timeout,
         )
         data = json.loads(text)
         return LlmResult(
@@ -549,12 +901,21 @@ class OpenAiProvider(_BaseHttpProvider):
             token_usage=token_usage,
         )
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Decompose requirement {requirement_id}. "
-            "Return JSON: {score, suggestions, children: [{id, title, type}]}"
+        text, token_usage = self._invoke_chat(
+            f"Decompose the following requirement (id: {requirement_id}) "
+            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
+            timeout,
         )
         data = json.loads(text)
         return LlmDecompositionResult(
@@ -566,60 +927,60 @@ class OpenAiProvider(_BaseHttpProvider):
             children=data.get("children", []),
         )
 
-    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        # The provider works only with the identifier it is handed; fetching the
+        # StakeholderNeed and rendering configured prompt templates is the
+        # responsibility of the application layer (AiDerivationService), which
+        # keeps this Layer-3 provider free of direct persistence access (REQ-048).
         import json
-        from persistence.models import StakeholderNeed
-        
-        need = StakeholderNeed.objects.select_related("artifact__workspace").get(id=need_id)
-        
-        # Get configured prompt if available
-        workspace = need.artifact.workspace
-        configured_prompt = getattr(workspace, "ai_prompts", {}).get("L0_L1")
-        
-        # We don't have direct access to architecture elements from StakeholderNeed here easily, 
-        # but the request asks to pass it if available. 
-        # For L0->L1 there are typically no architecture elements yet.
-        
-        if configured_prompt:
-            prompt_text = (
-                f"{configured_prompt}\n\n"
-                f"Source Requirement (Need):\n"
-                f"Title: {need.title}\n"
-                f"Description: {getattr(need, 'description', '')}\n\n"
-                "Return exactly JSON format: {\"children\": [{\"title\": \"System Req 1\", \"description\": \"Desc...\"}]}"
-            )
-        else:
-            prompt_text = (
-                f"Decompose Stakeholder Need {need.title} into System Requirements.\n"
-                f"Need Description: {getattr(need, 'description', '')}\n"
-                "Return exactly JSON format: {\"score\": 1.0, \"suggestions\": [], \"children\": [{\"title\": \"...\", \"description\": \"...\"}]}"
-            )
 
-        text, token_usage = self._chat(prompt_text)
-        
+        prompt_text = (
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}"
+        )
+
+        text, token_usage = self._invoke_chat(prompt_text, timeout)
+
         try:
-            # Qwen or other LLMs might wrap JSON in markdown blocks
+            # Some models wrap JSON in markdown fences; strip them before parsing.
             text = text.replace("```json", "").replace("```", "").strip()
             data = json.loads(text)
         except json.JSONDecodeError:
-            print(f"LLM returned invalid JSON: {text}")
+            logger.warning(
+                "OpenAI provider returned invalid JSON for derive_requirements: %s",
+                text,
+            )
             data = {"children": [{"title": "Generated Req", "description": text}]}
-            
+
         return LlmDecompositionResult(
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self._model,
+            model=self.MODEL_NAME,
             token_usage=token_usage,
             children=data.get("children", []),
         )
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmConsistencyResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Check consistency for workspace {workspace_id}. "
-            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
+        text, token_usage = self._invoke_chat(
+            f"Check consistency across the artifacts in workspace "
+            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
+            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
+            timeout,
         )
         data = json.loads(text)
         return LlmConsistencyResult(
@@ -654,7 +1015,9 @@ class OllamaProvider(_BaseHttpProvider):
         self._base_url = config.api_base_url or self.DEFAULT_BASE_URL
         self._model = os.environ.get("LLM_MODEL", self.MODEL_NAME)
 
-    def _chat(self, prompt: str) -> tuple[str, Optional[int]]:
+    def _chat(
+        self, prompt: str, timeout: Optional[float] = None
+    ) -> tuple[str, Optional[int]]:
         """POST to Ollama /api/generate endpoint."""
         import json as _json
 
@@ -666,23 +1029,41 @@ class OllamaProvider(_BaseHttpProvider):
             ) from exc
 
         url = f"{self._base_url}/api/generate"
-        resp = requests.post(
-            url,
-            json={"model": self._model, "prompt": prompt, "stream": False},
-            timeout=self._config.timeout,
-        )
-        resp.raise_for_status()
+        effective_timeout = self._effective_timeout(timeout)
+
+        def _post():
+            # raise_for_status inside the resilient call so 5xx responses are
+            # classified (and retried) by status code (REQ-082).
+            response = requests.post(
+                url,
+                json={"model": self._model, "prompt": prompt, "stream": False},
+                timeout=effective_timeout,
+            )
+            response.raise_for_status()
+            return response
+
+        resp = self._resilient(_post, timeout_seconds=effective_timeout)
         data = resp.json()
         text = data.get("response", "")
         # Ollama does not expose token counts in the same format; use eval_count
         token_usage = data.get("eval_count") or None
         return text, token_usage
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Validate artifact {artifact_id}. Return JSON: {{score, suggestions}}"
+        text, token_usage = self._invoke_chat(
+            f"Validate the following artifact (id: {artifact_id})."
+            f"{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions}",
+            timeout,
         )
         data = json.loads(text)
         return LlmResult(
@@ -693,12 +1074,21 @@ class OllamaProvider(_BaseHttpProvider):
             token_usage=token_usage,
         )
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Decompose requirement {requirement_id}. "
-            "Return JSON: {score, suggestions, children: [{id, title, type}]}"
+        text, token_usage = self._invoke_chat(
+            f"Decompose the following requirement (id: {requirement_id}) "
+            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
+            timeout,
         )
         data = json.loads(text)
         return LlmDecompositionResult(
@@ -710,12 +1100,20 @@ class OllamaProvider(_BaseHttpProvider):
             children=data.get("children", []),
         )
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmConsistencyResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Check consistency for workspace {workspace_id}. "
-            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
+        text, token_usage = self._invoke_chat(
+            f"Check consistency across the artifacts in workspace "
+            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
+            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
+            timeout,
         )
         data = json.loads(text)
         return LlmConsistencyResult(
@@ -725,6 +1123,35 @@ class OllamaProvider(_BaseHttpProvider):
             model=self._model,
             token_usage=token_usage,
             issues=data.get("issues", []),
+        )
+
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need (REQ-041, REQ-048).
+
+        Fetching the StakeholderNeed and rendering configured prompt templates
+        is the responsibility of the application layer (AiDerivationService);
+        the full artifact content is injected by that layer in REQ-046.
+        """
+        text = self.complete(
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}",
+            purpose="derive_requirements",
+            timeout=timeout,
+        )
+        data = _parse_derivation_response(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._model,
+            token_usage=None,
+            children=data.get("children", []),
         )
 
 
@@ -747,7 +1174,9 @@ class AzureOpenAiProvider(_BaseHttpProvider):
     PROVIDER_NAME = "azure"
     MODEL_NAME = "gpt-4"
 
-    def _chat(self, prompt: str) -> tuple[str, Optional[int]]:
+    def _chat(
+        self, prompt: str, timeout: Optional[float] = None
+    ) -> tuple[str, Optional[int]]:
         """Send a chat completion request via Azure OpenAI endpoint."""
         try:
             from openai import AzureOpenAI  # noqa: PLC0415
@@ -756,26 +1185,40 @@ class AzureOpenAiProvider(_BaseHttpProvider):
                 "openai SDK not installed. Run: pip install openai"
             ) from exc
 
+        effective_timeout = self._effective_timeout(timeout)
         client = AzureOpenAI(
             api_key=self._config.api_key,
             azure_endpoint=self._config.api_base_url or "",
             azure_deployment=self._config.azure_deployment or "",
             api_version=self._config.azure_api_version or "2024-02-01",
-            timeout=self._config.timeout,
+            timeout=effective_timeout,
         )
-        response = client.chat.completions.create(
-            model=self._config.azure_deployment or self.MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
+        response = self._resilient(
+            lambda: client.chat.completions.create(
+                model=self._config.azure_deployment or self.MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            timeout_seconds=effective_timeout,
         )
         text = response.choices[0].message.content or ""
         token_usage = response.usage.total_tokens if response.usage else None
         return text, token_usage
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Validate artifact {artifact_id}. Return JSON: {{score, suggestions}}"
+        text, token_usage = self._invoke_chat(
+            f"Validate the following artifact (id: {artifact_id})."
+            f"{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions}",
+            timeout,
         )
         data = json.loads(text)
         return LlmResult(
@@ -786,12 +1229,21 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             token_usage=token_usage,
         )
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Decompose requirement {requirement_id}. "
-            "Return JSON: {score, suggestions, children: [{id, title, type}]}"
+        text, token_usage = self._invoke_chat(
+            f"Decompose the following requirement (id: {requirement_id}) "
+            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
+            timeout,
         )
         data = json.loads(text)
         return LlmDecompositionResult(
@@ -803,12 +1255,20 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             children=data.get("children", []),
         )
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmConsistencyResult:
         import json
 
-        text, token_usage = self._chat(
-            f"Check consistency for workspace {workspace_id}. "
-            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
+        text, token_usage = self._invoke_chat(
+            f"Check consistency across the artifacts in workspace "
+            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
+            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
+            timeout,
         )
         data = json.loads(text)
         return LlmConsistencyResult(
@@ -818,6 +1278,35 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             model=self._config.azure_deployment or self.MODEL_NAME,
             token_usage=token_usage,
             issues=data.get("issues", []),
+        )
+
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need (REQ-041, REQ-048).
+
+        Fetching the StakeholderNeed and rendering configured prompt templates
+        is the responsibility of the application layer (AiDerivationService);
+        the full artifact content is injected by that layer in REQ-046.
+        """
+        text = self.complete(
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}",
+            purpose="derive_requirements",
+            timeout=timeout,
+        )
+        data = _parse_derivation_response(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._config.azure_deployment or self.MODEL_NAME,
+            token_usage=None,
+            children=data.get("children", []),
         )
 
 
@@ -916,6 +1405,7 @@ __all__ = [
     # Public API
     "get_provider",
     "register_provider",
+    "resolve_provider_config",
     "ProviderConfig",
     # Provider implementations
     "MockLlmProvider",

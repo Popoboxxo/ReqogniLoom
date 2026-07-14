@@ -277,6 +277,114 @@ class ArtifactService(ServiceBase):
             raise NotFoundError(f"Artifact {artifact_id} not found")
         return artifact
 
+    # ---------- Read / label resolution (REQ-066 Phase 2) ----------
+
+    def list_child_summaries(self, ctx: AuthContext, workspace_id: UUID):
+        """Return a lazy QuerySet of artifact summary rows for a workspace.
+
+        REQ-034: the caller hands the QuerySet straight to the paginator so it
+        slices lazily (LIMIT/OFFSET) instead of materializing every row.
+        REQ-066: keeps the ORM access inside the service layer.
+        """
+        self._set_tenant_context(ctx)
+        return Artifact.unscoped.filter(workspace_id=workspace_id).values(
+            "id", "parent_id", "artifact_type"
+        )
+
+    def resolve_artifact_titles(
+        self, artifact_ids: List[Any]
+    ) -> "Dict[str, Dict[str, Any]]":
+        """Batch-resolve artifact IDs to ``{title, artifact_type}`` dicts.
+
+        REQ-002: Provides human-readable labels for TraceLink endpoints without
+        N+1 queries. Runs at most 6 DB queries regardless of the number of
+        links: one Artifact query for types + one per domain entity table.
+        REQ-066: ORM access lives in the service layer, not the REST view.
+        """
+        from persistence.models import (
+            ArchitectureElement,
+            Requirement,
+            StakeholderNeed,
+            TestCase,
+        )
+
+        str_ids = [str(aid) for aid in artifact_ids if aid]
+        if not str_ids:
+            return {}
+
+        result: Dict[str, Dict[str, Any]] = {}
+
+        # Fetch artifact types first.
+        for art in Artifact.objects.filter(id__in=str_ids).values(
+            "id", "artifact_type"
+        ):
+            result[str(art["id"])] = {
+                "title": "",
+                "artifact_type": art["artifact_type"],
+            }
+
+        # Each domain entity is OneToOne on Artifact — a single artifact_id__in
+        # scan per table enriches all matching entries without N+1 queries.
+        for model in (Requirement, ArchitectureElement, StakeholderNeed, TestCase):
+            for row in model.objects.filter(artifact_id__in=str_ids).values(
+                "artifact_id", "title"
+            ):
+                key = str(row["artifact_id"])
+                if key in result:
+                    result[key]["title"] = row["title"] or ""
+
+        # ADR lives in the application layer (not persistence) — import locally
+        # to avoid circular imports (adr_service imports TraceLinkService).
+        try:
+            from application.models import Adr
+
+            for row in Adr.objects.filter(artifact_id__in=str_ids).values(
+                "artifact_id", "title"
+            ):
+                key = str(row["artifact_id"])
+                if key in result:
+                    result[key]["title"] = row["title"] or ""
+        except Exception:  # noqa: BLE001 — ADR model absent in some test configs
+            pass
+
+        return result
+
+    def collect_artifact_names(
+        self, item_ids: List[str], tenant_id: UUID
+    ) -> Dict[str, str]:
+        """Batch-resolve ``{item_id: title}`` for baseline-diff items (REQ-006).
+
+        ``item_id`` is the Artifact UUID for ``entity_type == "item"`` entries
+        (REQ-L2-BL-001). The concrete domain entity is discovered by
+        batch-querying each candidate table on ``artifact_id__in``, mirroring
+        ``baseline.state_capture._capture_items``. Non-UUID or unresolved ids
+        (e.g. icd/trace_link/glossary_term entries) are simply omitted so
+        callers can fall back to the raw id. REQ-066: ORM stays in the service.
+        """
+        from persistence.models import (
+            ArchitectureElement,
+            Requirement,
+            StakeholderNeed,
+            TestCase,
+        )
+
+        uuids: List[UUID] = []
+        for raw in item_ids:
+            try:
+                uuids.append(UUID(str(raw)))
+            except (ValueError, TypeError):
+                continue
+        if not uuids:
+            return {}
+
+        names: Dict[str, str] = {}
+        for model in (Requirement, StakeholderNeed, ArchitectureElement, TestCase):
+            for artifact_id, title in model.unscoped.filter(
+                artifact_id__in=uuids, tenant_id=tenant_id
+            ).values_list("artifact_id", "title"):
+                names[str(artifact_id)] = title
+        return names
+
     # ---------- Tree Query (REQ-L2-AS-002, ADR-L3-AS001-02) ----------
 
     def get_tree(

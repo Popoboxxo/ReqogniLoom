@@ -5,12 +5,32 @@
  * req_id:  REQ-L2-RF-010 (Bearer-Token auth), REQ-L2-RF-011 (Error rendering)
  *
  * All REST calls go through this module.
- * - Attaches Authorization: Bearer <token> to every request.
- * - On 401 or 403 → emits a redirect event; caller redirects to /login.
+ * - Auth travels as the httpOnly ``reqflow_access`` cookie (REQ-052); requests
+ *   are sent with credentials so the browser attaches it automatically. A
+ *   legacy in-memory Bearer token is still supported for non-browser callers.
+ * - Sends X-CSRFToken (from the ``csrftoken`` cookie) on unsafe methods, as the
+ *   cookie auth path is CSRF-protected server-side.
+ * - On 401 → clears auth state; caller redirects to /login.
+ * - On 403 → throws ForbiddenError (permission error, no logout — REQ-051).
  * - Accepts/sends JSON; sends Accept-Language from i18n.
  */
 
 import type { ApiError, PaginatedResponse } from "../types";
+import { ForbiddenError } from "./errors";
+
+// ---------------------------------------------------------------------------
+// CSRF helpers (REQ-052)
+// ---------------------------------------------------------------------------
+
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/** Read a cookie value by name (returns null when absent). */
+export function readCookie(name: string): string | null {
+  const match = document.cookie.match(
+    new RegExp("(?:^|;\\s*)" + name + "=([^;]*)")
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
 
 // ---------------------------------------------------------------------------
 // Token storage (IF-RF-INT — NavigationShell.TokenManager owns the token)
@@ -44,11 +64,31 @@ async function apiFetch<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
-    ...(options.headers as Record<string, string>),
   };
 
+  // Safely merge incoming headers: only record-like objects can be spread.
+  // HeadersInit can be Record<string, string>, Headers, or string[][], so we
+  // narrow to plain objects before merging.
+  if (
+    options.headers &&
+    typeof options.headers === "object" &&
+    !Array.isArray(options.headers) &&
+    !(options.headers instanceof Headers)
+  ) {
+    Object.assign(headers, options.headers as Record<string, string>);
+  }
+
+  // Legacy in-memory Bearer token (non-browser callers). Browser auth flows
+  // rely on the httpOnly cookie instead (REQ-052), so _token is normally null.
   if (_token) {
     headers["Authorization"] = `Bearer ${_token}`;
+  }
+
+  // Attach CSRF token on unsafe methods for the cookie auth path (REQ-052).
+  const method = (options.method ?? "GET").toUpperCase();
+  if (UNSAFE_METHODS.has(method)) {
+    const csrf = readCookie("csrftoken");
+    if (csrf) headers["X-CSRFToken"] = csrf;
   }
 
   // Send Accept-Language from document lang or i18n (REQ-L2-RF-011)
@@ -57,11 +97,14 @@ async function apiFetch<T>(
 
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
+    // Send the httpOnly access cookie on same-origin requests (REQ-052).
+    credentials: "same-origin",
     headers,
   });
 
-  // Treat both 401 and 403 as "not authenticated" (REQ-L2-RF-010)
-  if (response.status === 401 || response.status === 403) {
+  // 401 → not authenticated: clear auth state and redirect to login
+  // (REQ-L2-RF-010).
+  if (response.status === 401) {
     _onUnauthorized?.();
     const err: ApiError = {
       error: {
@@ -71,6 +114,12 @@ async function apiFetch<T>(
       },
     };
     throw err;
+  }
+
+  // 403 → authenticated but lacking permission: surface the error without
+  // logging the user out (REQ-051).
+  if (response.status === 403) {
+    throw new ForbiddenError();
   }
 
   if (!response.ok) {
@@ -90,7 +139,10 @@ async function apiFetch<T>(
   }
 
   if (response.status === 204) {
-    return undefined as unknown as T;
+    // HTTP 204 No Content: response body is empty. Callers should declare
+    // their response type as void, undefined, or a union (T | undefined).
+    // This cast is safe because 204 responses have no body by spec.
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;

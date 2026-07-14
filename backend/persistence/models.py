@@ -496,6 +496,16 @@ class Artifact(TenantScopedModel):
         indexes = [
             # REQ-L3-PL005-001: BTree on parent for hierarchy / recursive CTE.
             models.Index(fields=["parent"], name="idx_artifact_parent_btree"),
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            # RLS always filters on tenant; list endpoints add workspace / type.
+            models.Index(fields=["tenant", "workspace"], name="idx_artifact_tnt_ws"),
+            models.Index(
+                fields=["tenant", "artifact_type"], name="idx_artifact_tnt_type"
+            ),
+            models.Index(
+                fields=["tenant", "workspace", "artifact_type"],
+                name="idx_artifact_tnt_ws_type",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -541,6 +551,13 @@ class StakeholderNeed(TenantScopedModel):
 
     class Meta:
         db_table = "pl_stakeholder_need"
+        indexes = [
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            models.Index(fields=["tenant", "status"], name="idx_sn_tnt_status"),
+            models.Index(
+                fields=["tenant", "lifecycle_status"], name="idx_sn_tnt_lifecycle"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -622,6 +639,11 @@ class Requirement(TenantScopedModel):
                 ef_construction=64,
                 opclasses=["vector_cosine_ops"],
             ),
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            models.Index(fields=["tenant", "status"], name="idx_req_tnt_status"),
+            models.Index(
+                fields=["tenant", "lifecycle_status"], name="idx_req_tnt_lifecycle"
+            ),
         ]
 
     def __str__(self) -> str:
@@ -694,6 +716,16 @@ class ArchitectureElement(TenantScopedModel):
 
     class Meta:
         db_table = "pl_architecture_element"
+        indexes = [
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            models.Index(
+                fields=["tenant", "element_type"], name="idx_archelem_tnt_type"
+            ),
+            models.Index(
+                fields=["tenant", "lifecycle_status"],
+                name="idx_archelem_tnt_lifecyc",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -916,6 +948,11 @@ class TestRun(TenantScopedModel):
         verbose_name_plural = "Test Runs"
         indexes = [
             models.Index(fields=["uid"], name="idx_test_run_uid_btree"),
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            models.Index(fields=["tenant", "workspace"], name="idx_testrun_tnt_ws"),
+            models.Index(
+                fields=["tenant", "status"], name="idx_testrun_tnt_status"
+            ),
         ]
 
     def __str__(self) -> str:
@@ -1214,6 +1251,9 @@ class LlmSettings(TenantScopedModel):
         default="",
         help_text="Optional base URL override (e.g. for a local Ollama server).",
     )
+    # SECURITY: api_key is stored as plaintext. For production, this field should
+    # be encrypted using django-fernet-fields or similar. See REQ-081.
+    # Rotation: change the key and update the stored value.
     api_key = models.CharField(
         max_length=512,
         blank=True,
@@ -1237,6 +1277,18 @@ class LlmSettings(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"LlmSettings(provider={self.provider})"
+
+    def get_api_key_masked(self) -> str:
+        """Return a masked api_key safe for logging (REQ-081).
+
+        Exposes only the first and last four characters so operators can
+        correlate a key without leaking the plaintext secret. Short or empty
+        keys are fully masked.
+        """
+        key = self.api_key or ""
+        if len(key) <= 8:
+            return "***"
+        return f"{key[:4]}...{key[-4:]}"
 
 
 # ---------------------------------------------------------------------------
@@ -1337,6 +1389,70 @@ class PromptTemplate(TenantScopedModel):
             setattr(self, slot_name, default)
 
 
+# ---------------------------------------------------------------------------
+# Token usage accounting (REQ-106) — tenant-scoped, append-only
+# ---------------------------------------------------------------------------
+
+
+class TokenUsageRecord(TenantScopedModel):
+    """Per-call LLM token consumption record (REQ-106).
+
+    One row is written after every successful LLM capability call so token
+    consumption can be aggregated per tenant and enforced against a configurable
+    daily limit (``settings.TENANT_TOKEN_LIMIT_PER_DAY``).
+
+    The stable LLM interface (``LlmResult.token_usage``) only exposes a single
+    combined total, so callers that only know the total store it in
+    ``input_tokens`` and leave ``output_tokens`` at 0. Aggregation always sums
+    both columns, so the total is preserved regardless of how a provider splits
+    the count. ``workspace_id`` is an optional soft reference (no FK) because the
+    workspace is not always known at the LLM adapter boundary.
+    """
+
+    workspace_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Optional workspace this call is attributed to (soft reference).",
+    )
+    provider = models.CharField(
+        max_length=64,
+        help_text="Provider name that served the call (e.g. 'anthropic', 'mock').",
+    )
+    capability = models.CharField(
+        max_length=64,
+        help_text="Capability invoked (e.g. 'validate_artifact').",
+    )
+    input_tokens = models.IntegerField(
+        default=0,
+        help_text="Prompt/input tokens (holds the combined total when a provider "
+        "only exposes a single token count).",
+    )
+    output_tokens = models.IntegerField(
+        default=0,
+        help_text="Completion/output tokens (0 when only a combined total is known).",
+    )
+
+    class Meta:
+        db_table = "pl_token_usage_record"
+        indexes = [
+            # REQ-106: aggregation queries filter by tenant and time window.
+            models.Index(
+                fields=["tenant", "created_at"], name="idx_tokenusage_tnt_created"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"TokenUsage(tenant={self.tenant_id}, provider={self.provider}, "
+            f"total={self.total_tokens})"
+        )
+
+    @property
+    def total_tokens(self) -> int:
+        """Return the combined input + output token count for this record."""
+        return int(self.input_tokens or 0) + int(self.output_tokens or 0)
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -1367,6 +1483,7 @@ __all__ = [
     "GlossaryTermVersion",
     "LlmProvider",
     "LlmSettings",
+    "TokenUsageRecord",
     "PromptTemplate",
     "PROMPT_TEMPLATE_DEFAULTS",
     "DEFAULT_NEED_TO_SYSREQ",

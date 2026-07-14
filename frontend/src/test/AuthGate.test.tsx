@@ -10,7 +10,7 @@
  * 2. Authenticated access → renders children.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { AuthGate } from "../components/NavigationShell/AuthGate";
@@ -21,16 +21,34 @@ import { WorkspaceProvider } from "../context/WorkspaceContext";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const MOCK_USER = {
+  id: "u-1",
+  username: "tester",
+  email: "t@x.test",
+  first_name: "",
+  last_name: "",
+  is_active: true,
+  tenant_id: "t-1",
+  roles: ["viewer"],
+};
+
+/**
+ * The session is now restored via GET /auth/me/ (httpOnly cookie, REQ-052)
+ * instead of a sessionStorage token. ``authenticated`` decides whether that
+ * bootstrap resolves to a user (200) or to the anonymous state (401).
+ */
 function renderWithAuth(
   initialPath: string,
-  token: string | null
+  authenticated: boolean
 ): ReturnType<typeof render> {
-  // Pre-load token into sessionStorage so AuthProvider picks it up
-  if (token) {
-    sessionStorage.setItem("reqflow_token", token);
-  } else {
-    sessionStorage.removeItem("reqflow_token");
-  }
+  vi.spyOn(globalThis, "fetch").mockImplementation((async (url: string) => {
+    if (url.endsWith("/auth/me/")) {
+      return authenticated
+        ? { ok: true, status: 200, json: async () => ({ user: MOCK_USER, tenant_id: "t-1", roles: ["viewer"] }) }
+        : { ok: false, status: 401, json: async () => ({}) };
+    }
+    return { ok: true, status: 200, json: async () => ({ count: 0, results: [] }) };
+  }) as typeof fetch);
 
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
@@ -62,15 +80,19 @@ describe("AuthGate (COMP-RF-001 / REQ-L3-RF001-001)", () => {
     sessionStorage.clear();
   });
 
-  it("redirects unauthenticated users to /login", () => {
-    renderWithAuth("/protected", null);
-    expect(screen.getByText("Login Page")).toBeInTheDocument();
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("redirects unauthenticated users to /login", async () => {
+    renderWithAuth("/protected", false);
+    expect(await screen.findByText("Login Page")).toBeInTheDocument();
     expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
   });
 
-  it("renders children for authenticated users", () => {
-    renderWithAuth("/protected", "test-bearer-token");
-    expect(screen.getByText("Protected Content")).toBeInTheDocument();
+  it("renders children for authenticated users", async () => {
+    renderWithAuth("/protected", true);
+    expect(await screen.findByText("Protected Content")).toBeInTheDocument();
     expect(screen.queryByText("Login Page")).not.toBeInTheDocument();
   });
 });

@@ -22,6 +22,11 @@
 # • Keep DEBUG=False in production
 # • Use strong POSTGRES_PASSWORD (32+ random chars)
 # • Restrict network access to ports 5432 (postgres) and 6379 (redis)
+#
+# SECRET MANAGEMENT (REQ-062):
+# All services load configuration from .env via env_file directives.
+# Sensitive values: SECRET_KEY, DB_PASSWORD, REDIS_PASSWORD, LLM_API_KEY.
+# Environment variables override defaults throughout — zero secrets in compose file.
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -33,11 +38,14 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-reqflow}
       POSTGRES_USER: ${DB_USER:-reqflow}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-reqflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-reqflow}"]
       interval: 10s
@@ -46,15 +54,62 @@ services:
       start_period: 30s
 
   # ─────────────────────────────────────────────────────────
+  # PostgreSQL Backup — REQ-102 (INF-21) backup strategy
+  # ─────────────────────────────────────────────────────────
+  # Sidecar that runs backend/scripts/backup_postgres.sh on a fixed interval
+  # (BACKUP_INTERVAL seconds, default 24h). Each run writes a timestamped,
+  # gzip-compressed pg_dump to the postgres_backup_data volume and prunes all
+  # but the newest BACKUP_RETENTION (default 7) dumps. Restore with:
+  #   gunzip -c reqflow_<ts>.sql.gz | psql -h postgres -U $DB_USER -d $DB_NAME
+  postgres-backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${DB_NAME:-reqflow}
+      POSTGRES_USER: ${DB_USER:-reqflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-7}
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
+    volumes:
+      - postgres_backup_data:/backups
+      - ./backend/scripts/backup_postgres.sh:/usr/local/bin/backup_postgres.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          /bin/sh /usr/local/bin/backup_postgres.sh || echo "[backup] run failed";
+          sleep "${BACKUP_INTERVAL:-86400}";
+        done
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────────────────
   # Redis — ARCH-L1-016 ResilienceOrchestrator (Celery broker)
   # ─────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-}
+      --maxmemory 256mb
+      --maxmemory-policy volatile-lru
+      --appendonly yes
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -68,6 +123,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
       SECRET_KEY: ${SECRET_KEY}
@@ -75,11 +131,12 @@ services:
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
       # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02)
       # Set LLM_PROVIDER=anthropic|openai|ollama to enable AI features.
       # Graceful degradation if not set (REQ-L1-032).
@@ -88,18 +145,55 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
-    volumes:
-      - ./backend:/app
     ports:
       - "8000:8000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/schema/", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py runserver 0.0.0.0:8000"
+      migrate:
+        condition: service_completed_successfully
+
+  # ─────────────────────────────────────────────────────────
+  # Database Migration Service — Runs migrations before backend startup
+  # ─────────────────────────────────────────────────────────
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: reqflow.settings
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      DB_NAME: ${DB_NAME:-reqflow}
+      DB_USER: ${DB_USER:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    command: python manage.py migrate
 
   # ─────────────────────────────────────────────────────────
   # Celery Worker — ARCH-L1-016 ResilienceOrchestrator
@@ -110,31 +204,80 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
-    volumes:
-      - ./backend:/app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "celery", "-A", "reqflow", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqflow project
+    # REQ-077: single worker consumes all queues. Split into dedicated workers
+    # (e.g. a high-concurrency -Q llm worker) when workloads need to scale apart.
     command: >
-      sh -c "celery -A reqflow worker --loglevel=info"
+      sh -c "celery -A reqflow worker --loglevel=info -Q default,llm,events"
+
+  # ─────────────────────────────────────────────────────────
+  # Celery Beat Scheduler — Periodic Tasks (REQ-030)
+  # ─────────────────────────────────────────────────────────
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DEBUG: ${DEBUG:-False}
+      DB_NAME: ${DB_NAME:-reqflow}
+      DB_USER: ${DB_USER:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "celery -A reqflow beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
 
   # ─────────────────────────────────────────────────────────
   # React Frontend — ARCH-L1-001 ReactFrontend
@@ -147,14 +290,22 @@ services:
       # For development: use 'development' target with 'docker-compose.override.yml'
       target: production
     restart: unless-stopped
+    env_file: .env
     environment:
       # Environment variables used at build time for Vite
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
       VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
     ports:
       - "3000:80"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  postgres_backup_data:  # REQ-102: retained pg_dump backups

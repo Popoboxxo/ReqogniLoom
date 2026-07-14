@@ -16,6 +16,7 @@ Environment variables (see .env.example for full list):
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from decouple import Csv, config
@@ -32,6 +33,19 @@ SECRET_KEY: str = config("SECRET_KEY", default="CHANGE-ME-IN-PRODUCTION")
 DEBUG: bool = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS: list[str] = config(
     "ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv()
+)
+
+# ---------------------------------------------------------------------------
+# CORS (REQ-081)
+# ---------------------------------------------------------------------------
+# SECURITY: Reflecting an arbitrary Origin together with
+# Access-Control-Allow-Credentials: true lets any site issue credentialed
+# cross-origin requests. Restrict allowed origins to an explicit allowlist
+# sourced from the environment instead of using a wildcard.
+CORS_ALLOWED_ORIGINS: list[str] = config(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:3000,http://localhost:5173",
+    cast=Csv(),
 )
 
 # ---------------------------------------------------------------------------
@@ -190,6 +204,8 @@ REST_FRAMEWORK = {
         "rest_api.auth_enforcer.RbacPermission",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # REQ-071: unify all DRF errors into {"error": {"code", "message", "details"}}
+    "EXCEPTION_HANDLER": "rest_api.error_envelope.reqflow_exception_handler",
     # COMP-RA-002: Pagination — default 25, max 100 (REQ-L3-RA002-003)
     "DEFAULT_PAGINATION_CLASS": "rest_api.serializers.StandardPagination",
     "PAGE_SIZE": 25,
@@ -263,14 +279,76 @@ LLM_PROVIDER: str = config("LLM_PROVIDER", default="mock")
 LLM_API_KEY: str = config("LLM_API_KEY", default="")
 LLM_BASE_URL: str = config("LLM_BASE_URL", default="")
 LLM_MODEL: str = config("LLM_MODEL", default="")
+# REQ-084: hard upper bound (seconds) for synchronous LLM calls executed in
+# the request thread. Chosen below the typical 30s Gunicorn worker timeout so
+# a slow provider can never exhaust the WSGI worker pool. Enforced centrally
+# in the CapabilityRouter sync path; async Celery calls are NOT capped by this.
+LLM_SYNC_TIMEOUT_SECONDS: int = config("LLM_SYNC_TIMEOUT", default=25, cast=int)
+
+# REQ-106: per-tenant daily token budget. When set (a positive integer), the
+# CapabilityRouter rejects further LLM calls for a tenant that has already
+# consumed this many tokens in the last 24 hours, returning a structured
+# LLM_TOKEN_LIMIT_EXCEEDED error (http_status 429). Default None = unlimited.
+TENANT_TOKEN_LIMIT_PER_DAY: int | None = config(
+    "TENANT_TOKEN_LIMIT_PER_DAY", default=None, cast=lambda v: int(v) if v else None
+)
 
 # ---------------------------------------------------------------------------
 # Celery — ARCH-L1-016 ResilienceOrchestrator (async task queue)
+# REQ-057: Support Redis authentication. If REDIS_PASSWORD is set, both URLs
+# will include credentials. The password is optional for local development.
 # ---------------------------------------------------------------------------
-CELERY_BROKER_URL: str = config("CELERY_BROKER_URL", default="redis://redis:6379/0")
-CELERY_RESULT_BACKEND: str = config(
-    "CELERY_RESULT_BACKEND", default="redis://redis:6379/0"
-)
+# REQ-057: Redis authentication support. REDIS_PASSWORD env var is optional;
+# if set, the URLs will include :password@ before the host. In development
+# (empty password), Redis operates without requirepass. Defined here because
+# it is consumed by both the Celery URLs below and the cache REDIS_URL.
+_REDIS_PASSWORD: str = config("REDIS_PASSWORD", default="")
+_CELERY_REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
+CELERY_BROKER_URL: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}redis:6379/0"
+CELERY_RESULT_BACKEND: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}redis:6379/0"
+
+# Beat schedule — periodic outbox consumer (REQ-032, DEEP_SYSTEM_ANALYSIS.md BE-1).
+# Drains the domain-event outbox every 5 seconds. poll_and_dispatch claims each
+# row with SELECT FOR UPDATE (skip_locked), so overlapping runs stay idempotent.
+CELERY_BEAT_SCHEDULE = {
+    "dispatch-outbox-events": {
+        "task": "application.dispatch_outbox_events",
+        "schedule": timedelta(seconds=5),
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Cache — Redis-backed shared cache (REQ-033, DEEP_SYSTEM_ANALYSIS.md BE-2)
+#
+# Without an explicit CACHES setting Django falls back to LocMemCache, which is
+# per-process and never synchronised between workers. That is the root cause of
+# the four in-process caches becoming inconsistent under a multi-worker
+# deployment. Configuring a shared Redis backend gives every worker one cache.
+#
+# Uses django.core.cache.backends.redis.RedisCache (built into Django 4.0+);
+# no third-party django-redis dependency is required. A dedicated Redis logical
+# database (db 1) is used so cache keys never collide with the Celery
+# broker/result backend (db 0).
+#
+# WARNING — Multi-Worker Deployment Constraint (REQ-040, BE-9):
+#   A shared cache backend removes the per-process split, but it does NOT by
+#   itself guarantee consistency. Until the cache-invalidation strategy
+#   (REQ-038 / BE-7, signal- or TTL-based post_save/post_delete invalidation)
+#   is fully implemented, a stale entry written by one worker can remain visible
+#   to others. Deployments with more than one worker MUST be treated as
+#   potentially inconsistent until REQ-038 is closed. Do not scale beyond a
+#   single worker for correctness-critical cached reads before then.
+# ---------------------------------------------------------------------------
+# REQ-057: _REDIS_PASSWORD is defined above (Celery section) because the
+# Celery broker URLs are constructed first during module import.
+_REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
+REDIS_URL: str = f"redis://{_REDIS_PASSWORD_PART}redis:6379/1"
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+    }
+}
 
 # ---------------------------------------------------------------------------
 # Tenant-Isolation placeholder — ADR-03
@@ -278,3 +356,56 @@ CELERY_RESULT_BACKEND: str = config(
 # TODO(ARCH-L1-011): Set DEFAULT_TENANT_ID via env once auth_tenancy is implemented.
 # ---------------------------------------------------------------------------
 DEFAULT_TENANT_ID: int = config("DEFAULT_TENANT_ID", default=1, cast=int)
+
+# ---------------------------------------------------------------------------
+# Logging — Structured JSON logging for observability (REQ-063)
+# REQ-074: SQL query logging in DEBUG mode for visibility into N+1 queries.
+# REQ-063: All environments use JSON format except DEBUG (verbose for local dev).
+# Emits structured logs to console for container aggregation and analysis.
+# ---------------------------------------------------------------------------
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json": {
+            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+        },
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose" if DEBUG else "json",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "handlers": ["console"],
+            "level": "DEBUG" if DEBUG else "WARNING",
+            "propagate": False,
+        },
+        "reqflow": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "celery": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}

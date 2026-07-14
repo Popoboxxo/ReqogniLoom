@@ -140,6 +140,93 @@ class TestAuthEnforcement:
 # ---------------------------------------------------------------------------
 
 
+class _FakeSerializer:
+    """Minimal serializer stand-in: exposes the input dict as ``.data``."""
+
+    def __init__(self, data: Any) -> None:
+        self.data = data
+
+
+class TestPaginateQuerysetSlicing:
+    """REQ-034: _paginate slices via the DRF paginator and serialises only the
+    current page (O(page_size)) instead of materialising/serialising the whole
+    result set (O(N)). Response contract {count, next, previous, results} stays.
+    """
+
+    def _svc_mock_with_n(self, n: int) -> MagicMock:
+        svc = MagicMock()
+        items = []
+        for i in range(n):
+            r = MagicMock()
+            r.id = uuid.uuid4()
+            r.artifact.workspace_id = uuid.uuid4()
+            r.artifact_id = uuid.uuid4()
+            r.title = f"Req {i}"
+            r.description = ""
+            r.uid = f"SYS-REQ-{i}"
+            r.category = ""
+            r.status = "draft"
+            r.version = 1
+            r.created_at = None
+            r.modified_at = None
+            items.append(r)
+        svc.list_requirements.return_value = items
+        return svc
+
+    def test_only_current_page_is_serialised(self) -> None:
+        import rest_api.views as views_mod
+
+        req = _make_request("get", params={"workspace_id": str(uuid.uuid4())})
+        view = RequirementViewSet.as_view({"get": "list"})
+        with (
+            patch(
+                "rest_api.views.RequirementViewSet._svc",
+                return_value=self._svc_mock_with_n(60),
+            ),
+            patch("rest_api.views.RequirementSerializer", _FakeSerializer),
+            patch(
+                "rest_api.views._dto_from_orm",
+                wraps=views_mod._dto_from_orm,
+            ) as dto,
+        ):
+            response = view(req)
+
+        assert response.status_code == 200
+        # Response contract unchanged.
+        assert set(response.data.keys()) >= {"count", "next", "previous", "results"}
+        assert response.data["count"] == 60
+        # StandardPagination.page_size == 25 → only one page returned.
+        assert len(response.data["results"]) == 25
+        # REQ-034: serialisation is deferred to the page, not the full 60 items.
+        assert dto.call_count == 25
+
+    def test_second_page_serialises_remainder(self) -> None:
+        import rest_api.views as views_mod
+
+        req = _make_request(
+            "get", params={"workspace_id": str(uuid.uuid4()), "page": 3}
+        )
+        view = RequirementViewSet.as_view({"get": "list"})
+        with (
+            patch(
+                "rest_api.views.RequirementViewSet._svc",
+                return_value=self._svc_mock_with_n(60),
+            ),
+            patch("rest_api.views.RequirementSerializer", _FakeSerializer),
+            patch(
+                "rest_api.views._dto_from_orm",
+                wraps=views_mod._dto_from_orm,
+            ) as dto,
+        ):
+            response = view(req)
+
+        assert response.status_code == 200
+        assert response.data["count"] == 60
+        # Page 3 of size 25 → 10 remaining items.
+        assert len(response.data["results"]) == 10
+        assert dto.call_count == 10
+
+
 class TestRequirementViewSetRouting:
     """POST returns 201, PATCH returns 200, DELETE returns 204 (REQ-L3-RA001-002)."""
 

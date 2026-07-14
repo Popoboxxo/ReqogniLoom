@@ -182,6 +182,22 @@ class WebhookDispatcher:
 
     # ---------- Private: HTTP dispatch ----------
 
+    @staticmethod
+    def _already_delivered(subscription: Any, event: DomainEvent) -> bool:
+        """Return True if this (subscription, event) was already delivered (REQ-072).
+
+        Idempotency guard for at-least-once outbox dispatch: a prior successful
+        WebhookDeliveryLog for the same event means the webhook must not be
+        re-sent on redelivery.
+        """
+        from application.models import WebhookDeliveryLog
+
+        return WebhookDeliveryLog.objects.filter(
+            subscription=subscription,
+            event_id=event.event_id,
+            success=True,
+        ).exists()
+
     def _dispatch_with_retry(
         self,
         subscription: Any,
@@ -196,6 +212,20 @@ class WebhookDispatcher:
         TODO-ASYNC: This runs synchronously. Future: enqueue as Celery task.
         """
         from application.models import WebhookDeliveryLog
+
+        # REQ-072: outbox dispatch is at-least-once, so process_event may run
+        # again for the same event (e.g. worker crash after HTTP send but before
+        # the outbox row is marked published). Skip re-delivery when this exact
+        # (subscription, event) was already delivered successfully — makes the
+        # handler idempotent and prevents duplicate webhook calls.
+        if self._already_delivered(subscription, event):
+            logger.info(
+                "WebhookDispatcher: skip re-delivery of event=%s to url=%s "
+                "(already delivered — idempotent)",
+                event.event_type,
+                subscription.url,
+            )
+            return
 
         last_error = ""
         for attempt in range(1, _MAX_RETRIES + 1):

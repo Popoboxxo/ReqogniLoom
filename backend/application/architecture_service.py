@@ -319,12 +319,63 @@ class ArchitectureService(ServiceBase):
         Pass ``include_deleted=True`` for admin/audit access.
         """
         self._set_tenant_context(ctx)
+        # select_related("artifact") avoids one query per element when the
+        # serializer reads ``element.artifact`` (workspace_id, custom_fields).
         qs = ArchitectureElement.objects.select_related("artifact").filter(
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
             qs = qs.exclude(lifecycle_status="deleted")
-        return list(qs)
+        elements = list(qs)
+        # REQ-L2-RA-013 / REQ-070: eliminate N+1 on tree depth. The ``level``
+        # property recurses into the DB (one query per ancestor per element)
+        # unless ``_level_annotated`` is pre-set. Compute all levels in a single
+        # in-memory pass over the already-fetched set instead.
+        self._annotate_levels(elements)
+        return elements
+
+    @staticmethod
+    def _annotate_levels(elements: List[ArchitectureElement]) -> None:
+        """Set ``_level_annotated`` on each element via a single in-memory pass.
+
+        REQ-070: The ArchitectureElement.level property otherwise recurses into
+        the database (get_level) once per ancestor, producing N+1 queries when a
+        list of elements is serialized. Since the whole workspace set is already
+        loaded, tree depth can be derived without any extra query.
+
+        Elements whose parent is not part of ``elements`` (e.g. a soft-deleted
+        ancestor filtered out of the queryset) fall back to the recursive
+        property so the reported depth stays correct.
+        """
+        parent_by_id = {el.id: el.parent_id for el in elements}
+        level_cache: dict[UUID, int] = {}
+
+        def resolve(el_id: UUID) -> int | None:
+            depth = 0
+            current: UUID | None = el_id
+            seen: set[UUID] = set()
+            while current is not None:
+                if current in level_cache:
+                    return depth + level_cache[current]
+                if current not in parent_by_id or current in seen:
+                    # Parent outside the loaded set or a cycle: cannot resolve
+                    # purely in memory — signal fallback.
+                    return None
+                seen.add(current)
+                parent = parent_by_id[current]
+                if parent is None:
+                    return depth
+                depth += 1
+                current = parent
+            return depth
+
+        for el in elements:
+            resolved = resolve(el.id)
+            if resolved is None:
+                # Fallback: let the property compute it (recursive, rare path).
+                resolved = el.get_level()
+            level_cache[el.id] = resolved
+            el._level_annotated = resolved
 
 
 __all__ = ["ArchitectureService"]

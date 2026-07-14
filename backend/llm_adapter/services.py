@@ -47,10 +47,12 @@ Usage examples::
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Union
+from typing import Any, Dict, List, Optional, Union
 
 from llm_adapter.interface import LlmResult
 from llm_adapter.router import CapabilityRouter
+from llm_adapter.token_tracking import aggregate_usage as _aggregate_usage
+from llm_adapter.token_tracking import get_daily_usage as _get_daily_usage
 
 # Module-level router instance — shared across all callers in a process.
 # For test isolation, callers may construct their own CapabilityRouter.
@@ -62,7 +64,12 @@ _router = CapabilityRouter()
 # ---------------------------------------------------------------------------
 
 
-def validate_artifact(artifact_id: str) -> Union[LlmResult, Dict[str, Any]]:
+def validate_artifact(
+    artifact_id: str,
+    *,
+    title: Optional[str] = None,
+    content: Optional[str] = None,
+) -> Union[LlmResult, Dict[str, Any]]:
     """Validate a single artifact using the configured LLM provider.
 
     This call is synchronous and returns within a few seconds.
@@ -70,13 +77,22 @@ def validate_artifact(artifact_id: str) -> Union[LlmResult, Dict[str, Any]]:
 
     Args:
         artifact_id: Identifier of the artifact to validate.
+        title: Optional artifact title embedded into the provider prompt
+            (REQ-046). Fetched and supplied by the application layer.
+        content: Optional artifact body/description embedded into the prompt
+            (REQ-046).
 
     Returns:
         LlmResult on success.
         {"error": {"code": "LLM_NOT_CONFIGURED", "message": ...}} when not configured.
         {"error": {"code": "LLM_PROVIDER_ERROR", "message": ...}} on provider failure.
     """
-    return _router.execute_capability("validate_artifact", artifact_id=artifact_id)
+    return _router.execute_capability(
+        "validate_artifact",
+        artifact_id=artifact_id,
+        title=title,
+        content=content,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -84,14 +100,26 @@ def validate_artifact(artifact_id: str) -> Union[LlmResult, Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def decompose_requirement(requirement_id: str) -> Dict[str, Any]:
+def decompose_requirement(
+    requirement_id: str,
+    *,
+    title: Optional[str] = None,
+    content: Optional[str] = None,
+) -> Dict[str, Any]:
     """Decompose a requirement into sub-items via an async Celery task.
 
     Returns immediately with a task_id. The actual LLM call runs in the
     Celery worker. Poll the result with get_task_status(task_id).
 
+    ``title`` / ``content`` are forwarded through the Celery kwargs so the
+    worker's provider embeds the real requirement text into the prompt
+    (REQ-046). They are plain strings and therefore JSON-serialisable across
+    the broker.
+
     Args:
         requirement_id: Identifier of the requirement to decompose.
+        title: Optional requirement title embedded into the provider prompt.
+        content: Optional requirement body/description embedded into the prompt.
 
     Returns:
         {"task_id": "<uuid>"} on successful dispatch.
@@ -99,18 +127,30 @@ def decompose_requirement(requirement_id: str) -> Dict[str, Any]:
         {"error": {"code": "LLM_NOT_CONFIGURED", ...}} if capability is disabled.
     """
     return _router.execute_capability(
-        "decompose_requirement", requirement_id=requirement_id
+        "decompose_requirement",
+        requirement_id=requirement_id,
+        title=title,
+        content=content,
     )
 
 
-def check_consistency(workspace_id: str) -> Dict[str, Any]:
+def check_consistency(
+    workspace_id: str,
+    *,
+    artifacts: Optional[List[dict]] = None,
+) -> Dict[str, Any]:
     """Check consistency across all artifacts in a workspace via async Celery task.
 
     Returns immediately with a task_id. The actual LLM call runs in the
     Celery worker. Poll the result with get_task_status(task_id).
 
+    ``artifacts`` is an optional list of ``{"id", "title", "content"}`` summary
+    dicts forwarded through the Celery kwargs so the worker's provider embeds
+    the real artifact text into the prompt (REQ-046).
+
     Args:
         workspace_id: Identifier of the workspace to check.
+        artifacts: Optional list of artifact summary dicts to embed.
 
     Returns:
         {"task_id": "<uuid>"} on successful dispatch.
@@ -118,7 +158,9 @@ def check_consistency(workspace_id: str) -> Dict[str, Any]:
         {"error": {"code": "LLM_NOT_CONFIGURED", ...}} if capability is disabled.
     """
     return _router.execute_capability(
-        "check_consistency", workspace_id=workspace_id
+        "check_consistency",
+        workspace_id=workspace_id,
+        artifacts=artifacts,
     )
 
 
@@ -164,6 +206,28 @@ def get_task_status(task_id: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Token usage query API (REQ-106)
+# ---------------------------------------------------------------------------
+
+
+def get_token_usage(days: int = 30) -> Dict[str, Any]:
+    """Return the active tenant's aggregated token usage over ``days`` days.
+
+    Args:
+        days: Rolling window size in days (default 30).
+
+    Returns:
+        {"days": <int>, "total_tokens": <int>, "by_provider": {...}}.
+    """
+    return _aggregate_usage(days=days)
+
+
+def get_daily_token_usage() -> int:
+    """Return the active tenant's total tokens consumed in the last 24 hours."""
+    return _get_daily_usage(days=1)
+
+
+# ---------------------------------------------------------------------------
 # Re-exports for downstream consumers
 # ---------------------------------------------------------------------------
 
@@ -173,6 +237,9 @@ __all__ = [
     "decompose_requirement",
     "check_consistency",
     "get_task_status",
+    # Token usage query API (REQ-106)
+    "get_token_usage",
+    "get_daily_token_usage",
     # Result dataclasses re-exported for type annotations
     "LlmResult",
 ]

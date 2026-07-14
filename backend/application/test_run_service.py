@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 from auth_tenancy.context import AuthContext
 from persistence.models import Tenant, TestCase, TestRun, TestRunResult, Workspace
 from persistence.transactions import atomic_transaction
@@ -300,13 +302,15 @@ class TestRunService(ServiceBase):
         self,
         workspace_id: UUID,
         ctx: AuthContext,
-    ) -> List[TestRun]:
-        """List TestRuns in a workspace, most recent first."""
+    ) -> QuerySet[TestRun]:
+        """List TestRuns in a workspace, most recent first.
+
+        REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
+        (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
+        """
         self._set_tenant_context(ctx)
-        return list(
-            TestRun.objects.filter(workspace_id=workspace_id).order_by(
-                "-created_at"
-            )
+        return TestRun.objects.filter(workspace_id=workspace_id).order_by(
+            "-created_at"
         )
 
     # ---------- Helpers ----------

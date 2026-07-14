@@ -134,6 +134,9 @@ class TestLlmCapabilityInterface:
             def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
                 return LlmDecompositionResult(score=0.5, suggestions=[], provider="test", model="t", token_usage=None)
 
+            def complete(self, prompt: str, *, purpose: str = "", context=None) -> str:
+                return ""
+
         provider = CompleteProvider()
         assert isinstance(provider, LlmCapabilityInterface)
 
@@ -196,6 +199,9 @@ class TestProviderRegistry:
 
             def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
                 return LlmDecompositionResult(score=0.1, suggestions=[], provider="custom", model="c", token_usage=None)
+
+            def complete(self, prompt: str, *, purpose: str = "", context=None) -> str:
+                return ""
 
         provider = get_provider()
         assert isinstance(provider, CustomProvider)
@@ -260,6 +266,112 @@ class TestMockLlmProvider:
         r2 = provider.validate_artifact("a")
         assert r1.score == r2.score
         assert r1.token_usage == r2.token_usage
+
+    def test_mock_accepts_content_kwargs(self):
+        """REQ-046: mock accepts title/content for interface parity."""
+        from llm_adapter.providers import MockLlmProvider, ProviderConfig
+
+        provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
+        # Must not raise even though the mock ignores the injected content.
+        result = provider.validate_artifact(
+            "a", title="A title", content="A body"
+        )
+        assert result.provider == "mock"
+        decomposition = provider.decompose_requirement(
+            "r", title="Req", content="The system shall foo."
+        )
+        assert len(decomposition.children) >= 1
+        consistency = provider.check_consistency(
+            "ws", artifacts=[{"id": "x", "title": "t", "content": "c"}]
+        )
+        assert isinstance(consistency.issues, list)
+
+
+# ---------------------------------------------------------------------------
+# REQ-046 — artifact content embedded into provider prompts
+# ---------------------------------------------------------------------------
+
+
+class TestArtifactContentEmbedding:
+    """REQ-046: providers embed real artifact text, not only the UUID."""
+
+    def test_format_artifact_context_embeds_title_and_content(self):
+        from llm_adapter.providers import _format_artifact_context
+
+        block = _format_artifact_context("My Title", "My Content")
+        assert "Title: My Title" in block
+        assert "Content:\nMy Content" in block
+
+    def test_format_artifact_context_empty_when_nothing_supplied(self):
+        from llm_adapter.providers import _format_artifact_context
+
+        assert _format_artifact_context(None, None) == ""
+        assert _format_artifact_context("", "") == ""
+
+    def test_format_artifacts_list_enumerates_entries(self):
+        from llm_adapter.providers import _format_artifacts_list
+
+        block = _format_artifacts_list(
+            [{"id": "i1", "title": "T1", "content": "C1"}]
+        )
+        assert "[i1] T1: C1" in block
+
+    def test_format_artifacts_list_empty_for_none(self):
+        from llm_adapter.providers import _format_artifacts_list
+
+        assert _format_artifacts_list(None) == ""
+        assert _format_artifacts_list([]) == ""
+
+    def test_openai_validate_embeds_content_into_prompt(self):
+        """The prompt sent to the model must carry the real artifact text."""
+        from llm_adapter.providers import OpenAiProvider, ProviderConfig
+
+        provider = OpenAiProvider(ProviderConfig(provider_name="openai"))
+        captured: Dict[str, str] = {}
+
+        def fake_chat(prompt: str):
+            captured["prompt"] = prompt
+            return '{"score": 0.5, "suggestions": []}', 10
+
+        with patch.object(provider, "_chat", side_effect=fake_chat):
+            provider.validate_artifact(
+                "req-1", title="Login", content="The system shall log in users."
+            )
+
+        assert "Login" in captured["prompt"]
+        assert "The system shall log in users." in captured["prompt"]
+        assert "req-1" in captured["prompt"]
+
+    def test_openai_decompose_embeds_content_into_prompt(self):
+        from llm_adapter.providers import OpenAiProvider, ProviderConfig
+
+        provider = OpenAiProvider(ProviderConfig(provider_name="openai"))
+        captured: Dict[str, str] = {}
+
+        def fake_chat(prompt: str):
+            captured["prompt"] = prompt
+            return '{"score": 0.5, "suggestions": [], "children": []}', 10
+
+        with patch.object(provider, "_chat", side_effect=fake_chat):
+            provider.decompose_requirement(
+                "req-2", title="Auth", content="The system shall authenticate."
+            )
+
+        assert "Auth" in captured["prompt"]
+        assert "The system shall authenticate." in captured["prompt"]
+
+    def test_services_facade_forwards_content_kwargs(self):
+        """REQ-046: the facade forwards title/content down to the router."""
+        import llm_adapter.services as services
+
+        fake_router = MagicMock()
+        with patch.object(services, "_router", fake_router):
+            services.validate_artifact(
+                "req-3", title="T", content="C"
+            )
+        fake_router.execute_capability.assert_called_once_with(
+            "validate_artifact", artifact_id="req-3", title="T", content="C"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -643,29 +755,135 @@ class TestAsyncTaskDispatcher:
         assert r.status == "done"
         assert r.result == {"score": 0.9}
 
-    def test_dispatch_async_with_mock_celery(self, monkeypatch):
-        """Verify dispatch returns a UUID string when Celery is available."""
+    def test_dispatch_async_enqueues_shared_task(self, monkeypatch):
+        """Dispatch returns the task id produced by run_capability.apply_async."""
         monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
         fake_task_id = str(uuid.uuid4())
+        mock_async_result = MagicMock()
+        mock_async_result.id = fake_task_id
 
-        # Mock out the entire Celery app and task application
-        mock_app = MagicMock()
-        mock_task = MagicMock()
-        mock_task.apply_async = MagicMock()
+        from llm_adapter import tasks
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
 
-        with patch("llm_adapter.dispatcher._get_celery_app", return_value=mock_app):
-            with patch("llm_adapter.dispatcher._make_task", return_value=mock_task):
-                from llm_adapter.dispatcher import AsyncTaskDispatcher
+        with patch.object(
+            tasks.run_capability, "apply_async", return_value=mock_async_result
+        ) as mock_apply:
+            dispatcher = AsyncTaskDispatcher()
+            result = dispatcher.dispatch_async(
+                "decompose_requirement", {"requirement_id": "r1"}
+            )
 
-                dispatcher = AsyncTaskDispatcher()
-                # Patch uuid to get predictable result
-                with patch("llm_adapter.dispatcher.uuid.uuid4", return_value=uuid.UUID(fake_task_id)):
-                    result = dispatcher.dispatch_async(
-                        "decompose_requirement", {"requirement_id": "r1"}
-                    )
-                assert result == fake_task_id
-                mock_task.apply_async.assert_called_once()
+        assert result == fake_task_id
+        mock_apply.assert_called_once()
+        # Capability, kwargs and tenant_id are passed positionally to the task.
+        _, call_kwargs = mock_apply.call_args
+        assert call_kwargs["args"] == [
+            "decompose_requirement",
+            {"requirement_id": "r1"},
+            None,
+        ]
+
+    def test_dispatch_async_propagates_tenant_id(self, monkeypatch):
+        """The active tenant context is forwarded to the task as a string."""
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
+        tenant_uuid = uuid.uuid4()
+        from llm_adapter import tasks
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        mock_async_result = MagicMock()
+        mock_async_result.id = str(uuid.uuid4())
+
+        with patch(
+            "llm_adapter.dispatcher._resolve_tenant_id",
+            return_value=str(tenant_uuid),
+        ):
+            with patch.object(
+                tasks.run_capability, "apply_async", return_value=mock_async_result
+            ) as mock_apply:
+                AsyncTaskDispatcher().dispatch_async(
+                    "check_consistency", {"workspace_id": "ws1"}
+                )
+
+        _, call_kwargs = mock_apply.call_args
+        assert call_kwargs["args"][2] == str(tenant_uuid)
+
+
+# ---------------------------------------------------------------------------
+# COMP-LA-005 — run_capability shared task (REQ-042)
+# ---------------------------------------------------------------------------
+
+
+class TestRunCapabilityTask:
+    """REQ-042: run_capability is a registered @shared_task with a whitelist."""
+
+    def test_task_is_registered_under_stable_name(self):
+        from llm_adapter.tasks import run_capability
+
+        assert run_capability.name == "llm_adapter.run_capability"
+
+    def test_rejects_unknown_capability(self):
+        from llm_adapter.tasks import run_capability
+
+        with pytest.raises(ValueError, match="Unknown capability"):
+            run_capability.run("os.system", {})
+
+    def test_rejects_non_whitelisted_provider_method(self):
+        # 'complete' exists on the provider but must not be dispatchable.
+        from llm_adapter.tasks import run_capability
+
+        with pytest.raises(ValueError, match="Unknown capability"):
+            run_capability.run("complete", {})
+
+    def test_serialises_dataclass_result(self):
+        from llm_adapter.interface import LlmResult
+        from llm_adapter import tasks
+
+        expected = LlmResult(
+            score=0.9, suggestions=[], provider="mock", model="m", token_usage=5
+        )
+        provider = MagicMock()
+        provider.validate_artifact.return_value = expected
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider):
+            result = tasks.run_capability.run(
+                "validate_artifact", {"artifact_id": "a1"}
+            )
+
+        assert isinstance(result, dict)
+        assert result["score"] == 0.9
+        assert result["provider"] == "mock"
+
+    def test_sets_and_clears_tenant_context(self):
+        from persistence.tenancy import TenantContext
+        from llm_adapter.interface import LlmResult
+        from llm_adapter import tasks
+
+        tenant_uuid = str(uuid.uuid4())
+        seen = {}
+
+        def _capture(artifact_id):
+            seen["tenant"] = TenantContext.get_tenant()
+            return LlmResult(
+                score=0.5, suggestions=[], provider="mock", model="m", token_usage=1
+            )
+
+        provider = MagicMock()
+        provider.validate_artifact.side_effect = _capture
+
+        try:
+            with patch("llm_adapter.providers.get_provider", return_value=provider):
+                tasks.run_capability.run(
+                    "validate_artifact", {"artifact_id": "a1"}, tenant_uuid
+                )
+            # Context is set during execution ...
+            assert str(seen["tenant"]) == tenant_uuid
+            # ... and cleared afterwards (finally block).
+            with pytest.raises(Exception):
+                TenantContext.get_tenant()
+        finally:
+            TenantContext.clear_tenant()
 
 
 # ---------------------------------------------------------------------------
@@ -784,3 +1002,89 @@ class TestEndToEndWithMockProvider:
             result = router.execute_capability("check_consistency", workspace_id="ws1")
 
         assert result["error"]["code"] == "LLM_NOT_CONFIGURED"
+
+
+# ---------------------------------------------------------------------------
+# COMP-LA-002 — derive_requirements across HTTP providers (REQ-041)
+# ---------------------------------------------------------------------------
+
+
+class TestDeriveRequirementsAcrossProviders:
+    """REQ-041: Anthropic, Ollama and Azure implement derive_requirements.
+
+    Before REQ-041 these providers left ``derive_requirements`` abstract and
+    raised ``TypeError`` on instantiation. These tests use mocked transports
+    (no network, no provider SDK) to verify the shared free-form flow.
+    """
+
+    _DERIVED_JSON = (
+        '{"score": 0.9, "suggestions": ["s1"], '
+        '"children": [{"title": "SyReq 1", "description": "System shall X.", '
+        '"type": "SyReq"}]}'
+    )
+
+    def _make_providers(self):
+        from llm_adapter.providers import (
+            AnthropicProvider,
+            AzureOpenAiProvider,
+            OllamaProvider,
+            ProviderConfig,
+        )
+
+        return [
+            AnthropicProvider(ProviderConfig(provider_name="anthropic")),
+            OllamaProvider(ProviderConfig(provider_name="ollama")),
+            AzureOpenAiProvider(
+                ProviderConfig(provider_name="azure", azure_deployment="dep")
+            ),
+        ]
+
+    def test_all_providers_instantiate_without_type_error(self):
+        # Core REQ-041 regression: instantiation must not raise TypeError.
+        providers = self._make_providers()
+        assert len(providers) == 3
+
+    def test_derive_requirements_parses_children(self, monkeypatch):
+        from llm_adapter.interface import LlmDecompositionResult
+
+        for provider in self._make_providers():
+            monkeypatch.setattr(
+                provider, "_chat", lambda prompt: (self._DERIVED_JSON, 7)
+            )
+            result = provider.derive_requirements("need-1")
+            assert isinstance(result, LlmDecompositionResult)
+            assert result.provider == provider.PROVIDER_NAME
+            assert result.score == 0.9
+            assert result.suggestions == ["s1"]
+            assert len(result.children) == 1
+            assert result.children[0]["title"] == "SyReq 1"
+
+    def test_derive_requirements_strips_markdown_fences(self, monkeypatch):
+        fenced = "```json\n" + self._DERIVED_JSON + "\n```"
+        for provider in self._make_providers():
+            monkeypatch.setattr(provider, "_chat", lambda prompt: (fenced, None))
+            result = provider.derive_requirements("need-1")
+            assert len(result.children) == 1
+            assert result.children[0]["type"] == "SyReq"
+
+    def test_derive_requirements_invalid_json_falls_back(self, monkeypatch):
+        for provider in self._make_providers():
+            monkeypatch.setattr(
+                provider, "_chat", lambda prompt: ("not json at all", None)
+            )
+            result = provider.derive_requirements("need-1")
+            # Fallback wraps the raw text into a single generated requirement.
+            assert len(result.children) == 1
+            assert result.children[0]["description"] == "not json at all"
+
+    def test_derive_requirements_passes_need_id_into_prompt(self, monkeypatch):
+        captured = {}
+
+        def _capture(prompt):
+            captured["prompt"] = prompt
+            return self._DERIVED_JSON, None
+
+        provider = self._make_providers()[0]
+        monkeypatch.setattr(provider, "_chat", _capture)
+        provider.derive_requirements("need-XYZ")
+        assert "need-XYZ" in captured["prompt"]

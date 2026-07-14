@@ -282,6 +282,9 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
                 payload=record.payload,
             )
             try:
+                # at-least-once: handlers must be idempotent — a worker crash
+                # after dispatch but before the row below is marked published
+                # will re-deliver this event on the next poll cycle (REQ-072).
                 bus.dispatch_to_subscribers(domain_event)
                 record.published = True
                 record.published_at = timezone.now()
@@ -315,6 +318,14 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
                         MAX_RETRIES,
                         exc,
                     )
+
+    # Outbox monitoring (REQ-069): surface dispatch throughput and backlog so a
+    # growing outbox or DLQ is observable without querying the DB manually.
+    backlog = DomainEventOutbox.objects.filter(published=False).count()
+    dlq_count = DomainEventDLQ.objects.count()
+    logger.info("DomainEventBus: dispatched %d event(s) this cycle", processed)
+    logger.info("DomainEventBus: outbox backlog is %d pending event(s)", backlog)
+    logger.info("DomainEventBus: dead-letter queue holds %d event(s)", dlq_count)
 
     return processed
 

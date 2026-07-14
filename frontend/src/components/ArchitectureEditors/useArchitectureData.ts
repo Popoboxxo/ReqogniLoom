@@ -3,14 +3,28 @@
  *
  * leaf_id: COMP-RF-004 (ArchitectureEditors)
  * req_id:  REQ-L3-RF004-001 (CRUD-Operationen),
- *          REQ-L3-RF004-003 (Verknüpfte Requirements in Seitenleiste)
+ *          REQ-L3-RF004-003 (Verknüpfte Requirements in Seitenleiste),
+ *          REQ-049 (TanStack Query migration)
+ *
+ * TanStack Query replacement for the hand-rolled fetch/loading/error state.
+ * The list is fetched exhaustively (listAll) so the decomposition tree can
+ * resolve parent_id chains (REQ-001). List errors stay non-fatal — only a
+ * failed detail fetch surfaces as `error`, matching the legacy behaviour.
  */
 
-import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { architectureApi } from "../../api/architecture";
 import { tracelinksApi } from "../../api/tracelinks";
+import { extractErrorMessage } from "../../api/client";
 import type { ArchitectureElement, TraceLink } from "../../types";
 import { useWorkspace } from "../../context/WorkspaceContext";
+
+export const architectureKeys = {
+  all: ["architecture"] as const,
+  list: (workspaceId: string) => ["architecture", "list", workspaceId] as const,
+  detail: (workspaceId: string, id: string) =>
+    ["architecture", "detail", workspaceId, id] as const,
+};
 
 export interface ArchitectureData {
   elements: ArchitectureElement[];
@@ -21,75 +35,56 @@ export interface ArchitectureData {
   refresh: () => void;
 }
 
+interface ArchitectureDetail {
+  element: ArchitectureElement;
+  linkedTraceLinks: TraceLink[];
+}
+
 export function useArchitectureData(selectedId?: string): ArchitectureData {
   const { activeWorkspace } = useWorkspace();
-  const [elements, setElements] = useState<ArchitectureElement[]>([]);
-  const [element, setElement] = useState<ArchitectureElement | null>(null);
-  const [linkedTraceLinks, setLinkedTraceLinks] = useState<TraceLink[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
+  const workspaceId = activeWorkspace?.id;
+  const queryClient = useQueryClient();
 
-  const refresh = (): void => setTick((t) => t + 1);
+  const listQuery = useQuery({
+    queryKey: architectureKeys.list(workspaceId ?? ""),
+    queryFn: () => architectureApi.listAll(workspaceId as string),
+    enabled: !!workspaceId,
+  });
 
-  // Effect 1: Load the list (sidebar)
-  useEffect(() => {
-    if (!activeWorkspace) return;
-    let cancelled = false;
+  const detailQuery = useQuery<ArchitectureDetail>({
+    queryKey: architectureKeys.detail(workspaceId ?? "", selectedId ?? ""),
+    queryFn: async () => {
+      const element = await architectureApi.get(selectedId as string);
+      const links = await tracelinksApi.listForArtifact(
+        workspaceId as string,
+        element.id
+      );
+      return { element, linkedTraceLinks: links.results };
+    },
+    enabled: !!workspaceId && !!selectedId,
+  });
 
-    async function loadList(): Promise<void> {
-      if (!activeWorkspace) return;
-      try {
-        // Full (paginated-exhaustive) list — the decomposition tree needs
-        // every element to resolve parent_id chains (REQ-001).
-        const all = await architectureApi.listAll(activeWorkspace.id);
-        if (cancelled) return;
-        setElements(all);
-      } catch {
-        // list errors are non-fatal
-      } finally {
-        if (!cancelled) setIsLoading(false);
+  const refresh = (): void => {
+    if (workspaceId) {
+      void queryClient.invalidateQueries({
+        queryKey: architectureKeys.list(workspaceId),
+      });
+      if (selectedId) {
+        void queryClient.invalidateQueries({
+          queryKey: architectureKeys.detail(workspaceId, selectedId),
+        });
       }
     }
+  };
 
-    setIsLoading(true);
-    void loadList();
-    return () => { cancelled = true; };
-  }, [activeWorkspace, tick]);
-
-  // Effect 2: Load the selected element detail + tracelinks (independent of list)
-  useEffect(() => {
-    if (!activeWorkspace || !selectedId) {
-      setElement(null);
-      setLinkedTraceLinks([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    async function loadDetail(): Promise<void> {
-      if (!activeWorkspace || !selectedId) return;
-      try {
-        const el = await architectureApi.get(selectedId);
-        if (cancelled) return;
-        setElement(el);
-
-        const links = await tracelinksApi.listForArtifact(activeWorkspace.id, el.id);
-        if (cancelled) return;
-        setLinkedTraceLinks(links.results);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        const msg =
-          (err as { error?: { message?: string } })?.error?.message ??
-          String(err);
-        setError(msg);
-        setElement(null);
-      }
-    }
-
-    void loadDetail();
-    return () => { cancelled = true; };
-  }, [activeWorkspace, selectedId, tick]);
-
-  return { elements, element, linkedTraceLinks, isLoading, error, refresh };
+  return {
+    elements: listQuery.data ?? [],
+    element: selectedId ? detailQuery.data?.element ?? null : null,
+    linkedTraceLinks: detailQuery.data?.linkedTraceLinks ?? [],
+    // Loading until the workspace is known and the list has resolved.
+    isLoading: !workspaceId || listQuery.isLoading,
+    // List errors are non-fatal; only detail failures surface.
+    error: detailQuery.error ? extractErrorMessage(detailQuery.error) : null,
+    refresh,
+  };
 }

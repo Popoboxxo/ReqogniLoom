@@ -100,47 +100,130 @@ class LlmCapabilityInterface(ABC):
     """
 
     @abstractmethod
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmResult:
         """Validate a single artifact using the LLM.
+
+        The caller (application layer) is responsible for fetching the artifact
+        and passing its ``title`` / ``content`` so the provider can embed the
+        real text into the prompt instead of only the opaque identifier
+        (REQ-046). ``title`` / ``content`` are optional to preserve backward
+        compatibility; when omitted the provider falls back to an id-only
+        prompt.
 
         Args:
             artifact_id: Identifier of the artifact to validate.
+            title: Optional artifact title to embed into the prompt.
+            content: Optional artifact body/description to embed into the prompt.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             LlmResult containing score, suggestions, and usage metadata.
         """
 
     @abstractmethod
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
         """Decompose a requirement into child items using the LLM.
+
+        The caller (application layer) passes the requirement ``title`` /
+        ``content`` so the provider embeds the real text into the prompt
+        instead of only the opaque identifier (REQ-046). Both are optional to
+        preserve backward compatibility.
 
         Args:
             requirement_id: Identifier of the requirement to decompose.
+            title: Optional requirement title to embed into the prompt.
+            content: Optional requirement body/description to embed into the
+                prompt.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             LlmDecompositionResult with children list and usage metadata.
         """
 
     @abstractmethod
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmConsistencyResult:
         """Check consistency across all artifacts in a workspace.
+
+        The caller (application layer) passes an ``artifacts`` summary (each a
+        ``{"id", "title", "content"}`` dict) so the provider embeds the real
+        artifact text into the prompt instead of only the workspace identifier
+        (REQ-046). ``artifacts`` is optional to preserve backward
+        compatibility.
 
         Args:
             workspace_id: Identifier of the workspace to check.
+            artifacts: Optional list of artifact summary dicts to embed.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             LlmConsistencyResult with issues list and usage metadata.
         """
 
     @abstractmethod
-    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
         """Derive System Requirements from a Stakeholder Need.
 
         Args:
             need_id: Identifier of the stakeholder need to derive from.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
 
         Returns:
             LlmDecompositionResult with derived requirements.
+        """
+
+    @abstractmethod
+    def complete(
+        self,
+        prompt: str,
+        *,
+        purpose: str = "",
+        context: Optional[dict] = None,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """Return the raw completion text for a free-form prompt (REQ-L2-AI-002).
+
+        Provides a stable static contract for the free-form completion
+        capability already offered by the concrete providers (REQ-048).
+
+        Args:
+            prompt: Free-form prompt sent to the underlying model.
+            purpose: Optional hint used by deterministic mocks; real
+                providers may ignore it.
+            context: Optional structured context; real providers may ignore it.
+            timeout: Optional per-call timeout in seconds (REQ-084). ``None``
+                falls back to the provider's configured timeout.
+
+        Returns:
+            The raw completion text produced by the model.
         """
 
 

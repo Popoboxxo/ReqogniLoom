@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F
+from django.db.models import F, QuerySet
 from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import Artifact, Requirement, Tenant, Workspace
 from persistence.transactions import TransactionContextManager, atomic_transaction
@@ -394,11 +394,15 @@ class RequirementService(ServiceBase):
 
     def list_requirements(
         self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
-    ) -> List[Requirement]:
+    ) -> QuerySet[Requirement]:
         """Return Requirements in *workspace_id*.
 
         REQ-006: Excludes soft-deleted requirements (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
+
+        REQ-088: Returns a lazy ``QuerySet`` (no ``list()``) so the caller —
+        e.g. the paginating ViewSet (REQ-034) — can slice with LIMIT/OFFSET
+        instead of materialising the full result set.
         """
         self._set_tenant_context(ctx)
         qs = Requirement.objects.select_related("artifact").filter(
@@ -406,7 +410,7 @@ class RequirementService(ServiceBase):
         )
         if not include_deleted:
             qs = qs.exclude(lifecycle_status="deleted")
-        return list(qs)
+        return qs
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 
@@ -564,7 +568,11 @@ class RequirementService(ServiceBase):
         workspace_id = parent_req.artifact.workspace_id
 
         if children is None:
-            children = self._decompose_via_llm(str(requirement_id))
+            children = self._decompose_via_llm(
+                str(requirement_id),
+                title=parent_req.title,
+                content=parent_req.description or "",
+            )
 
         # REQ-L1-043: Validate target_architecture_elements if provided
         if target_architecture_elements is not None:
@@ -642,15 +650,28 @@ class RequirementService(ServiceBase):
         return result
 
     @staticmethod
-    def _decompose_via_llm(requirement_id: str) -> List[Dict[str, Any]]:
+    def _decompose_via_llm(
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Call LlmAdapter to generate child requirements.
+
+        The parent requirement's ``title`` / ``content`` are forwarded so the
+        provider embeds the real requirement text into the prompt instead of
+        only the opaque UUID (REQ-046).
 
         ADR-L3-AS002-03: explicit LlmNotConfiguredError if LLM unavailable.
         REQ-L2-AS-013 / REQ-L2-AS-024.
         """
         from llm_adapter.services import decompose_requirement
 
-        response = decompose_requirement(requirement_id=requirement_id)
+        response = decompose_requirement(
+            requirement_id=requirement_id,
+            title=title,
+            content=content,
+        )
 
         if "error" in response:
             code = response["error"].get("code", "")
@@ -693,7 +714,57 @@ class RequirementService(ServiceBase):
 
         from llm_adapter.services import validate_artifact
 
-        result = validate_artifact(artifact_id=str(requirement_id))
+        # REQ-046: fetch the requirement so the provider embeds its real text
+        # into the prompt instead of only the opaque UUID. A missing row simply
+        # degrades to an id-only prompt (title/content stay None).
+        req = (
+            Requirement.objects.filter(id=requirement_id)
+            .only("id", "title", "description")
+            .first()
+        )
+        result = validate_artifact(
+            artifact_id=str(requirement_id),
+            title=req.title if req is not None else None,
+            content=(req.description or "") if req is not None else None,
+        )
+        if isinstance(result, dict) and "error" in result:
+            code = result["error"].get("code", "")
+            if "NOT_CONFIGURED" in code:
+                raise LlmNotConfiguredError("LLM not configured")
+            raise ValueError(result["error"].get("message", str(result)))
+
+        return result if isinstance(result, dict) else {"result": str(result)}
+
+    def check_consistency(
+        self, workspace_id: UUID, ctx: AuthContext
+    ) -> Dict[str, Any]:
+        """Check consistency across a workspace's requirements via the LlmAdapter.
+
+        REQ-089: wires the previously unreachable ``check_consistency``
+        capability into the application layer — before this, the LlmAdapter
+        exposed it but no service or MCP tool ever invoked it.
+
+        REQ-046: forwards each requirement's real title/content as artifact
+        summary dicts so the provider embeds the artifact text into the
+        consistency prompt instead of only opaque IDs.
+
+        The capability is asynchronous: it returns a ``{"task_id": ...}`` dict
+        immediately; poll the outcome via ``llm_adapter.services.get_task_status``.
+        """
+        self._set_tenant_context(ctx)
+
+        from llm_adapter.services import check_consistency as _llm_check_consistency
+
+        rows = (
+            Requirement.objects.filter(artifact__workspace_id=workspace_id)
+            .exclude(lifecycle_status="deleted")
+            .only("id", "title", "description")
+        )
+        artifacts = [
+            {"id": str(r.id), "title": r.title, "content": r.description or ""}
+            for r in rows
+        ]
+        result = _llm_check_consistency(str(workspace_id), artifacts=artifacts)
         if isinstance(result, dict) and "error" in result:
             code = result["error"].get("code", "")
             if "NOT_CONFIGURED" in code:

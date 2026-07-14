@@ -23,21 +23,39 @@ i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 });
 
-function seedUser(first: string, last: string): void {
-  sessionStorage.setItem("reqflow_token", "test-token");
-  sessionStorage.setItem(
-    "reqflow_user",
-    JSON.stringify({
-      id: "u-1",
-      username: "tester",
-      email: "t@x.test",
-      first_name: first,
-      last_name: last,
-      is_active: true,
-      tenant_id: null,
-      roles: [],
-    })
-  );
+/**
+ * The profile is now hydrated from GET /auth/me/ (httpOnly cookie session,
+ * REQ-052) instead of a sessionStorage snapshot. ``seedUser`` installs a fetch
+ * mock whose /auth/me/ GET returns the seeded identity; PATCH updates are
+ * driven per-test via ``patchResponse``.
+ */
+function seedUser(
+  first: string,
+  last: string,
+  patchResponse?: () => Promise<unknown>
+): ReturnType<typeof vi.fn> {
+  const meUser = {
+    id: "u-1",
+    username: "tester",
+    email: "t@x.test",
+    first_name: first,
+    last_name: last,
+    is_active: true,
+    tenant_id: null,
+    roles: [],
+  };
+  const fetchMock = vi.fn(async (_url: string, opts?: RequestInit) => {
+    if ((opts?.method ?? "GET").toUpperCase() === "PATCH" && patchResponse) {
+      return { ok: true, status: 200, json: patchResponse } as Response;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ user: meUser, tenant_id: null, roles: [] }),
+    } as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 function renderProfile(): ReturnType<typeof render> {
@@ -60,36 +78,31 @@ describe("ProfileSection", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the stored display name in read mode", () => {
+  it("renders the stored display name in read mode", async () => {
     seedUser("Ada", "Lovelace");
     renderProfile();
-    expect(screen.getByTestId("profile-display-name").textContent).toBe("Ada Lovelace");
+    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
   });
 
   it("saves edited name via PATCH and shows the updated value", async () => {
-    seedUser("Ada", "Lovelace");
-
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        user: {
-          id: "u-1",
-          username: "tester",
-          email: "t@x.test",
-          first_name: "Grace",
-          last_name: "Hopper",
-          is_active: true,
-          tenant_id: null,
-          roles: [],
-        },
-      }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = seedUser("Ada", "Lovelace", async () => ({
+      user: {
+        id: "u-1",
+        username: "tester",
+        email: "t@x.test",
+        first_name: "Grace",
+        last_name: "Hopper",
+        is_active: true,
+        tenant_id: null,
+        roles: [],
+      },
+    }));
 
     renderProfile();
     const user = userEvent.setup();
 
+    // Wait for the /auth/me/ hydration before entering edit mode.
+    await screen.findByText("Ada Lovelace");
     await user.click(screen.getByTestId("profile-edit-button"));
 
     const firstInput = screen.getByTestId("profile-first-name-input");
@@ -106,9 +119,14 @@ describe("ProfileSection", () => {
     });
 
     // PATCH went to the correct endpoint with the correct method + body.
-    const [url, options] = fetchMock.mock.calls[0];
+    // (calls also include the initial GET /auth/me/ hydration.)
+    const patchCall = fetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit | undefined)?.method === "PATCH"
+    );
+    expect(patchCall).toBeDefined();
+    const [url, options] = patchCall as [string, RequestInit];
     expect(url).toBe("/api/v1/auth/me/");
     expect(options.method).toBe("PATCH");
-    expect(JSON.parse(options.body)).toEqual({ first_name: "Grace", last_name: "Hopper" });
+    expect(JSON.parse(options.body as string)).toEqual({ first_name: "Grace", last_name: "Hopper" });
   });
 });

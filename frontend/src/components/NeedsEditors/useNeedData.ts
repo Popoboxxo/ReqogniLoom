@@ -1,60 +1,66 @@
-import { useState, useEffect, useCallback } from 'react';
-import { stakeholderNeedApi } from '../../api/stakeholder-need';
-import { useWorkspace } from '../../context/WorkspaceContext';
-import type { StakeholderNeed } from '../../types';
+/**
+ * ARCH-L1-001 ReactFrontend — Stakeholder Need Data Hook.
+ *
+ * req_id: REQ-049 (TanStack Query migration)
+ *
+ * TanStack Query replacement for the hand-rolled fetch/loading/error state.
+ * The return shape is preserved so NeedsEditors is unchanged.
+ */
 
-export function useNeedData(selectedId?: string) {
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { stakeholderNeedApi } from "../../api/stakeholder-need";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { asError } from "../../queries/query-error";
+import type { StakeholderNeed } from "../../types";
+
+export const needKeys = {
+  all: ["needs"] as const,
+  list: (workspaceId: string) => ["needs", "list", workspaceId] as const,
+  detail: (id: string) => ["needs", "detail", id] as const,
+};
+
+export interface NeedData {
+  needs: StakeholderNeed[];
+  need: StakeholderNeed | null;
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => void;
+}
+
+export function useNeedData(selectedId?: string): NeedData {
   const { activeWorkspace } = useWorkspace();
-  const [needs, setNeeds] = useState<StakeholderNeed[]>([]);
-  const [need, setNeed] = useState<StakeholderNeed | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const workspaceId = activeWorkspace?.id;
+  const queryClient = useQueryClient();
 
-  const loadList = useCallback(async () => {
-    if (!activeWorkspace) return;
-    setIsLoading(true);
-    try {
-      const resp = await stakeholderNeedApi.listByWorkspace(activeWorkspace.id);
-      setNeeds(resp.results || []);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setIsLoading(false);
+  const listQuery = useQuery({
+    queryKey: needKeys.list(workspaceId ?? ""),
+    queryFn: async () =>
+      (await stakeholderNeedApi.listByWorkspace(workspaceId as string)).results ?? [],
+    enabled: !!workspaceId,
+  });
+
+  const detailQuery = useQuery({
+    queryKey: needKeys.detail(selectedId ?? ""),
+    queryFn: () => stakeholderNeedApi.get(selectedId as string),
+    enabled: !!selectedId,
+  });
+
+  const refresh = (): void => {
+    if (workspaceId) {
+      void queryClient.invalidateQueries({ queryKey: needKeys.list(workspaceId) });
     }
-  }, [activeWorkspace]);
-
-  const loadDetail = useCallback(async () => {
-    if (!selectedId) {
-      setNeed(null);
-      return;
+    if (selectedId) {
+      void queryClient.invalidateQueries({ queryKey: needKeys.detail(selectedId) });
     }
-    setIsLoading(true);
-    try {
-      const resp = await stakeholderNeedApi.get(selectedId);
-      setNeed(resp);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedId]);
+  };
 
-  useEffect(() => {
-    loadList();
-  }, [loadList]);
-
-  useEffect(() => {
-    loadDetail();
-  }, [loadDetail]);
+  const rawError = detailQuery.error ?? listQuery.error;
 
   return {
-    needs,
-    need,
-    isLoading,
-    error,
-    refresh: () => {
-      loadList();
-      loadDetail();
-    },
+    needs: listQuery.data ?? [],
+    need: selectedId ? detailQuery.data ?? null : null,
+    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    error: rawError ? asError(rawError) : null,
+    refresh,
   };
 }

@@ -32,6 +32,15 @@ import type {
   FabricCanvasJson,
 } from "../../types";
 import styles from "../../styles/components/CanvasEditor.module.css";
+import { ICONS } from "./canvas-icons";
+import {
+  boundingRect,
+  extractStrokeData,
+  getEdgePoint,
+  loadStrokesToCanvas,
+  makeObjectId,
+  zoomViewportAt,
+} from "./canvas-geometry";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -105,124 +114,6 @@ type AnyObj = Record<string, any>;
 
 type LineStyle = "solid" | "dashed";
 
-// ---------------------------------------------------------------------------
-// Toolbar icons (16px, stroke = currentColor)
-// ---------------------------------------------------------------------------
-
-interface IconProps {
-  children: React.ReactNode;
-}
-
-function Icon({ children }: IconProps): JSX.Element {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
-}
-
-const ICONS = {
-  select: (
-    <Icon>
-      <path d="M3 2l4.5 11 1.6-4.4L13.5 7 3 2z" fill="currentColor" stroke="none" />
-    </Icon>
-  ),
-  pen: (
-    <Icon>
-      <path d="M2.5 13.5l.9-3.2 7.4-7.4a1.3 1.3 0 011.8 0l.5.5a1.3 1.3 0 010 1.8l-7.4 7.4-3.2.9z" />
-    </Icon>
-  ),
-  eraser: (
-    <Icon>
-      <path d="M5.5 13h8" />
-      <path d="M2.7 10.3l6-6a1.2 1.2 0 011.7 0l2.3 2.3a1.2 1.2 0 010 1.7L8.5 12.5H5.9l-3.2-2.2z" />
-    </Icon>
-  ),
-  rect: (
-    <Icon>
-      <rect x="2.5" y="4" width="11" height="8" rx="1.5" />
-    </Icon>
-  ),
-  ellipse: (
-    <Icon>
-      <ellipse cx="8" cy="8" rx="5.5" ry="4" />
-    </Icon>
-  ),
-  text: (
-    <Icon>
-      <path d="M3.5 4.5V3h9v1.5M8 3v10M6 13h4" />
-    </Icon>
-  ),
-  connector: (
-    <Icon>
-      <rect x="1.5" y="1.5" width="5" height="4" rx="1" />
-      <rect x="9.5" y="10.5" width="5" height="4" rx="1" />
-      <path d="M6.5 5.5L10 10m0 0v-2.6M10 10H7.4" />
-    </Icon>
-  ),
-  dashed: (
-    <Icon>
-      <path d="M2 8h2.5M6.5 8H9M11 8h3" />
-    </Icon>
-  ),
-  solid: (
-    <Icon>
-      <path d="M2 8h12" />
-    </Icon>
-  ),
-  grid: (
-    <Icon>
-      <circle cx="4" cy="4" r="0.8" fill="currentColor" stroke="none" />
-      <circle cx="8" cy="4" r="0.8" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="4" r="0.8" fill="currentColor" stroke="none" />
-      <circle cx="4" cy="8" r="0.8" fill="currentColor" stroke="none" />
-      <circle cx="8" cy="8" r="0.8" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="8" r="0.8" fill="currentColor" stroke="none" />
-      <circle cx="4" cy="12" r="0.8" fill="currentColor" stroke="none" />
-      <circle cx="8" cy="12" r="0.8" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="12" r="0.8" fill="currentColor" stroke="none" />
-    </Icon>
-  ),
-  zoomIn: (
-    <Icon>
-      <circle cx="7" cy="7" r="4.5" />
-      <path d="M10.5 10.5L14 14M7 5v4M5 7h4" />
-    </Icon>
-  ),
-  zoomOut: (
-    <Icon>
-      <circle cx="7" cy="7" r="4.5" />
-      <path d="M10.5 10.5L14 14M5 7h4" />
-    </Icon>
-  ),
-  fit: (
-    <Icon>
-      <path d="M2 5.5V2h3.5M14 5.5V2h-3.5M2 10.5V14h3.5M14 10.5V14h-3.5" />
-    </Icon>
-  ),
-  undo: (
-    <Icon>
-      <path d="M6 3.5L2.5 7 6 10.5" />
-      <path d="M2.5 7h7a4 4 0 010 8H8" />
-    </Icon>
-  ),
-  redo: (
-    <Icon>
-      <path d="M10 3.5L13.5 7 10 10.5" />
-      <path d="M13.5 7h-7a4 4 0 000 8H8" />
-    </Icon>
-  ),
-};
 
 // ---------------------------------------------------------------------------
 // CanvasEditor component
@@ -1467,139 +1358,7 @@ export function CanvasEditor({
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Generate a stable per-object id for connector anchoring (REQ-L2-CV-004). */
-function makeObjectId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 function clampZoom(z: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
-}
-
-/** Set the viewport zoom while keeping the given screen point stationary. */
-function zoomViewportAt(canvas: FabricCanvas, zoom: number, x: number, y: number): void {
-  const current = canvas.viewportTransform as number[] | undefined;
-  if (!current) return;
-  const vt = current.slice();
-  const prev = vt[0] || 1;
-  vt[0] = zoom;
-  vt[3] = zoom;
-  vt[4] = x - ((x - vt[4]) * zoom) / prev;
-  vt[5] = y - ((y - vt[5]) * zoom) / prev;
-  if (typeof canvas.setViewportTransform === "function") {
-    canvas.setViewportTransform(vt);
-  } else {
-    canvas.viewportTransform = vt;
-  }
-}
-
-/**
- * Bounding-box rect of a Fabric object. Prefers getBoundingRect(true) and falls
- * back to left/top + width/height for lightweight/mocked objects.
- */
-function boundingRect(
-  obj: Record<string, unknown>
-): { left: number; top: number; width: number; height: number } {
-  if (typeof obj.getBoundingRect === "function") {
-    return (obj.getBoundingRect as (absolute?: boolean) => {
-      left: number;
-      top: number;
-      width: number;
-      height: number;
-    })(true);
-  }
-  return {
-    left: (obj.left as number) ?? 0,
-    top: (obj.top as number) ?? 0,
-    width: (obj.width as number) ?? 0,
-    height: (obj.height as number) ?? 0,
-  };
-}
-
-/** Returns the point on the axis-aligned bounding box edge in direction of (tx, ty) from center (cx, cy). */
-function getEdgePoint(
-  cx: number, cy: number,
-  halfW: number, halfH: number,
-  tx: number, ty: number
-): { x: number; y: number } {
-  const dx = tx - cx;
-  const dy = ty - cy;
-  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return { x: cx, y: cy };
-  const tX = Math.abs(dx) > 0.001 ? halfW / Math.abs(dx) : Infinity;
-  const tY = Math.abs(dy) > 0.001 ? halfH / Math.abs(dy) : Infinity;
-  const t = Math.min(tX, tY);
-  return { x: cx + dx * t, y: cy + dy * t };
-}
-
-/**
- * Extract stroke data from a Fabric.js canvas for persistence (IF-L1-058).
- *
- * Iterates over all canvas objects and maps them to CanvasStroke records.
- * Only "path" (free-hand pen) objects are converted; other object types
- * are included with an empty points array until richer extraction is needed.
- */
-function extractStrokeData(canvas: FabricCanvas): CanvasStrokeData {
-  const objects: unknown[] = canvas.getObjects() as unknown[];
-  const strokes: CanvasStroke[] = [];
-
-  for (const obj of objects) {
-    const o = obj as Record<string, unknown>;
-    const stroke: CanvasStroke = {
-      id: typeof o.id === "string" ? o.id : crypto.randomUUID(),
-      type: "pen",
-      color: typeof o.stroke === "string" ? o.stroke : "#000000",
-      width: typeof o.strokeWidth === "number" ? o.strokeWidth : 2,
-      opacity: typeof o.opacity === "number" ? o.opacity : 1.0,
-      points: [],
-    };
-
-    // Extract path points for free-hand strokes (Fabric.js type === "path")
-    if (o.type === "path") {
-      const pathObj = o as { path?: Array<Array<string | number>> };
-      stroke.points = (pathObj.path ?? [])
-        .map((segment) => ({
-          x: segment[segment.length - 2] as number,
-          y: segment[segment.length - 1] as number,
-        }));
-    }
-
-    strokes.push(stroke);
-  }
-
-  return {
-    strokes,
-    width: (canvas.width as number | undefined) ?? 800,
-    height: (canvas.height as number | undefined) ?? 600,
-  };
-}
-
-/**
- * Load stroke data onto a Fabric.js canvas (IF-L1-060).
- *
- * For pen strokes, converts point arrays to SVG path strings. Full Fabric
- * object reconstruction from all stroke types is deferred to a future
- * iteration — this simplified version handles pen strokes.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function loadStrokesToCanvas(canvas: FabricCanvas, fabric: any, strokes: CanvasStroke[]): void {
-  for (const stroke of strokes) {
-    if (stroke.type === "pen" && stroke.points && stroke.points.length > 0) {
-      const pathData = stroke.points
-        .map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y}`)
-        .join(" ");
-      const path = new fabric.Path(pathData, {
-        stroke: stroke.color,
-        strokeWidth: stroke.width,
-        fill: "transparent",
-        opacity: stroke.opacity,
-        strokeLineCap: "round",
-        strokeLineJoin: "round"
-      });
-      canvas.add(path);
-    }
-  }
-  canvas.renderAll();
 }

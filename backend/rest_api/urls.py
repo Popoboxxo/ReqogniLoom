@@ -39,7 +39,7 @@ from auth_tenancy.rest_workspace_members import WorkspaceMembersView
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
-from rest_api.auth_views import LoginView, MeView
+from rest_api.auth_views import LoginView, LogoutView, MeView
 from rest_api.diagram_canvas_views import (
     CanvasStrokeView,
     MermaidPreviewView,
@@ -116,6 +116,8 @@ urlpatterns = [
     # Password login (REQ-L1-010) — public token exchange + authenticated bootstrap.
     # auth/login/ is PUBLIC (AllowAny, no auth); auth/me/ requires a Bearer token.
     path("auth/login/", LoginView.as_view(), name="api-v1-auth-login"),
+    # Logout (REQ-052) — clears the httpOnly access cookie; requires auth + CSRF.
+    path("auth/logout/", LogoutView.as_view(), name="api-v1-auth-logout"),
     path("auth/me/", MeView.as_view(), name="api-v1-auth-me"),
     # Baseline scope-preview + other custom baseline views (REQ-011) — must precede
     # router.urls to avoid being swallowed by the router's baselines/<pk>/ pattern.

@@ -23,6 +23,7 @@ from rest_framework.viewsets import ViewSet
 from diagram.models import Diagram, DiagramType, PayloadFormat
 from diagram.services import (
     create_diagram,
+    delete_diagram,
     get_diagram,
     list_versions,
     update_diagram,
@@ -214,8 +215,7 @@ class DiagramViewSet(ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            diagram = Diagram.objects.get(id=UUID(pk), tenant_id=ctx.tenant_id)
-            diagram.delete()
+            delete_diagram(UUID(pk), ctx.tenant_id)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Diagram.DoesNotExist:
             return Response(

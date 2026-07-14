@@ -160,6 +160,26 @@ def get_diagram(
     )
 
 
+def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    """Delete a tenant-scoped Diagram and all its versions (REQ-066).
+
+    Encapsulates the tenant-scoped ORM lookup + cascade delete so REST views
+    stay ORM-free.
+
+    Args:
+        diagram_id: UUID of the Diagram to delete.
+        tenant_id:  Active tenant primary key (isolation boundary).
+
+    Raises:
+        Diagram.DoesNotExist: If no diagram with the given id exists for the
+            tenant.
+
+    req_id: REQ-066, REQ-L2-DS-001
+    """
+    diagram = Diagram.objects.get(id=diagram_id, tenant_id=tenant_id)
+    diagram.delete()
+
+
 def list_versions(diagram_id: uuid.UUID) -> list[DiagramVersion]:
     """Return all DiagramVersions for a Diagram, sorted by version_number.
 
@@ -363,6 +383,7 @@ __all__ = [
     "create_diagram",
     "update_diagram",
     "get_diagram",
+    "delete_diagram",
     "list_versions",
     "get_mcp_artifact",
     # Canvas editor — COMP-DS-006

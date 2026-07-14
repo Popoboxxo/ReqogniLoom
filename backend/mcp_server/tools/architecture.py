@@ -81,6 +81,83 @@ class ArchitectureToolGroup(BaseToolGroup):
         "architecture.link": "_handle_link",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "architecture.get",
+            "description": "Fetch a single ArchitectureElement by ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the architecture element."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "architecture.query",
+            "description": "List ArchitectureElements in a workspace.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "architecture.create",
+            "description": "Create a new ArchitectureElement (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
+                    "title": {"type": "string", "description": "Element title."},
+                    "description": {"type": "string", "description": "Element description."},
+                    "element_type": {
+                        "type": "string",
+                        "description": "Element type (default 'component').",
+                    },
+                },
+                "required": ["workspace_id", "title"],
+            },
+        },
+        {
+            "name": "architecture.update",
+            "description": "Update an ArchitectureElement (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the architecture element."},
+                    "expected_version": {
+                        "type": "integer",
+                        "description": "Expected version for optimistic locking.",
+                    },
+                    "data": {
+                        "type": "object",
+                        "description": "Fields to update (title, description, element_type, expected_version).",
+                    },
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "architecture.link",
+            "description": "Create a TraceLink between an architecture element and a target (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "arch_id": {"type": "string", "description": "UUID of the source architecture element."},
+                    "target_id": {"type": "string", "description": "UUID of the link target."},
+                    "link_type": {
+                        "type": "string",
+                        "description": "TraceLink type (must be a valid link type).",
+                    },
+                },
+                "required": ["arch_id", "target_id", "link_type"],
+            },
+        },
+    ]
+
     def __init__(
         self,
         service: Optional[ArchitectureService] = None,

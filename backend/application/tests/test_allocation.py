@@ -297,3 +297,65 @@ class TestAllocationCoverageReport:
         assert report["allocated_count"] == 0
         assert report["coverage_ratio"] == 0
         assert len(report["unallocated_requirements"]) == 0
+
+
+@pytest.mark.django_db
+class TestRequirementAllocations:
+    """REQ-L1-058 AC3 / REQ-066: get_requirement_allocations service method.
+
+    Covers the ORM/prefetch logic moved out of RequirementViewSet.allocation_coverage
+    into TraceLinkService during REQ-066 Phase 3.
+    """
+
+    def test_returns_allocated_architecture_elements(self, auth_context, workspace):
+        """Returns the ArchitectureElement a requirement is allocated to."""
+        req_svc = RequirementService()
+        arch_svc = ArchitectureService()
+        link_svc = TraceLinkService()
+
+        req_dto = req_svc.create_requirement(
+            workspace_id=workspace.id,
+            title="Requirement with allocation",
+            ctx=auth_context,
+        )
+        arch_el = arch_svc.create_architecture_element(
+            workspace_id=workspace.id,
+            title="Target Component",
+            ctx=auth_context,
+        )
+        link_svc.allocate(
+            requirement_id=req_dto.id,
+            architecture_element_id=arch_el.id,
+            ctx=auth_context,
+        )
+
+        req = req_svc.get_requirement(req_dto.id, auth_context)
+        allocations = link_svc.get_requirement_allocations(
+            req.artifact_id, req.tenant_id, auth_context
+        )
+
+        assert len(allocations) == 1
+        entry = allocations[0]
+        assert entry["architecture_element_id"] == str(arch_el.id)
+        assert entry["architecture_element_title"] == "Target Component"
+        assert "target_level" in entry
+        assert "asil_level" in entry
+        assert "make_or_buy" in entry
+
+    def test_returns_empty_when_not_allocated(self, auth_context, workspace):
+        """Returns an empty list when the requirement has no allocation."""
+        req_svc = RequirementService()
+        link_svc = TraceLinkService()
+
+        req_dto = req_svc.create_requirement(
+            workspace_id=workspace.id,
+            title="Unallocated requirement",
+            ctx=auth_context,
+        )
+        req = req_svc.get_requirement(req_dto.id, auth_context)
+
+        allocations = link_svc.get_requirement_allocations(
+            req.artifact_id, req.tenant_id, auth_context
+        )
+
+        assert allocations == []

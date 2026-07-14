@@ -2,11 +2,16 @@
  * ARCH-L1-001 ReactFrontend — Authentication Context.
  *
  * leaf_id: COMP-RF-001 (NavigationShell / AuthGate / TokenManager)
- * req_id:  REQ-L2-RF-010 (Bearer-Token auth), REQ-L3-RF001-001
+ * req_id:  REQ-L2-RF-010 (auth), REQ-L3-RF001-001, REQ-052 (httpOnly-cookie XSS-fix)
  *
- * Manages auth state and token lifecycle.
- * On mount: restores token from sessionStorage.
- * On 401/403: clears token, redirects to /login.
+ * The access token lives in an httpOnly cookie the browser attaches
+ * automatically (REQ-052) — it is never stored in sessionStorage/JS, closing
+ * the XSS token-theft vector. Consequently:
+ * - On mount the session is restored by calling GET /auth/me/ (not storage).
+ *   A "restoring" status prevents a login-flash on reload.
+ * - On login the server sets the cookie; the body token is ignored.
+ * - On logout the server clears the cookie via POST /auth/logout/.
+ * - On 401/403 the API client clears state and the caller redirects to /login.
  */
 
 import { createContext,
@@ -16,7 +21,7 @@ import { createContext,
   useCallback,
   type ReactNode,
 } from "react";
-import { apiClient, setAuthToken, setUnauthorizedHandler } from "../api/client";
+import { apiClient, setUnauthorizedHandler } from "../api/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,9 +56,24 @@ export interface LoginResponse {
   roles: string[];
 }
 
+/**
+ * Session restore lifecycle:
+ * - "restoring"     — GET /auth/me/ in flight; AuthGate must not redirect yet.
+ * - "authenticated" — a valid session cookie resolved to a user.
+ * - "anonymous"     — no/invalid session.
+ */
+export type AuthStatus = "restoring" | "authenticated" | "anonymous";
+
+/** Shape returned by GET /auth/me/ and POST /auth/login/. */
+interface IdentityPayload {
+  user: AuthUser;
+  tenant_id: string | null;
+  roles: string[];
+}
+
 export interface AuthState {
   isAuthenticated: boolean;
-  token: string | null;
+  status: AuthStatus;
   user: AuthUser | null;
   tenantId: string | null;
   roles: string[];
@@ -70,18 +90,6 @@ export interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-const TOKEN_KEY = "reqflow_token";
-const USER_KEY = "reqflow_user";
-
-function parseStoredUser(): AuthUser | null {
-  try {
-    const raw = sessionStorage.getItem(USER_KEY);
-    return raw ? (JSON.parse(raw) as AuthUser) : null;
-  } catch {
-    return null;
-  }
-}
-
 export function AuthProvider({
   children,
   onUnauthorized,
@@ -89,42 +97,59 @@ export function AuthProvider({
   children: ReactNode;
   onUnauthorized?: () => void;
 }): JSX.Element {
-  const [token, setToken] = useState<string | null>(() => {
-    const t = sessionStorage.getItem(TOKEN_KEY);
-    // Sync immediately so WorkspaceContext can call the API on first render
-    if (t) setAuthToken(t);
-    return t;
-  });
-  const [user, setUser] = useState<AuthUser | null>(() => parseStoredUser());
+  const [status, setStatus] = useState<AuthStatus>("restoring");
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
-  const [roles, setRoles] = useState<string[]>(() => {
-    const stored = parseStoredUser();
-    return stored?.roles ?? [];
-  });
+  const [roles, setRoles] = useState<string[]>([]);
 
-  // Keep API client in sync on subsequent token changes
+  const clearAuth = useCallback(() => {
+    setUser(null);
+    setTenantId(null);
+    setRoles([]);
+    setStatus("anonymous");
+  }, []);
+
+  const applyIdentity = useCallback((data: IdentityPayload) => {
+    setUser(data.user);
+    setTenantId(data.tenant_id ?? null);
+    setRoles(data.roles ?? []);
+    setStatus("authenticated");
+  }, []);
+
+  // Restore the session from the httpOnly cookie via GET /auth/me/ (REQ-052).
+  // A 401 (no/expired cookie) simply resolves to the anonymous state.
   useEffect(() => {
-    setAuthToken(token);
-  }, [token]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiClient.get<IdentityPayload>("/auth/me/");
+        if (cancelled) return;
+        if (data?.user) applyIdentity(data);
+        else clearAuth();
+      } catch {
+        if (!cancelled) clearAuth();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyIdentity, clearAuth]);
 
   // Wire 401/403 handler (REQ-L2-RF-010)
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      setToken(null);
-      setUser(null);
-      setTenantId(null);
-      setRoles([]);
-      sessionStorage.removeItem(TOKEN_KEY);
-      sessionStorage.removeItem(USER_KEY);
+      clearAuth();
       onUnauthorized?.();
     });
-  }, [onUnauthorized]);
+  }, [onUnauthorized, clearAuth]);
 
   /** Performs credential-based login via POST /api/v1/auth/login/ */
   const login = useCallback(
     async (credentials: LoginCredentials): Promise<void> => {
       const response = await fetch("/api/v1/auth/login/", {
         method: "POST",
+        // Persist the Set-Cookie the server returns on success (REQ-052).
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
@@ -145,17 +170,15 @@ export function AuthProvider({
       }
 
       const data: LoginResponse = await response.json();
-
-      sessionStorage.setItem(TOKEN_KEY, data.token);
-      sessionStorage.setItem(USER_KEY, JSON.stringify(data.user));
-      // Sync token into apiClient BEFORE setToken triggers re-render + WorkspaceContext
-      setAuthToken(data.token);
-      setToken(data.token);
-      setUser(data.user);
-      setTenantId(data.tenant_id ?? null);
-      setRoles(data.roles ?? []);
+      // The token is delivered as an httpOnly cookie by the server; the body
+      // token is ignored here (Phase-1 backward-compat only, REQ-052).
+      applyIdentity({
+        user: data.user,
+        tenant_id: data.tenant_id ?? null,
+        roles: data.roles ?? [],
+      });
     },
-    []
+    [applyIdentity]
   );
 
   /** Updates the current user's profile via PATCH /api/v1/auth/me/ (REQ-006). */
@@ -163,23 +186,20 @@ export function AuthProvider({
     async (update: ProfileUpdate): Promise<void> => {
       const data = await apiClient.patch<{ user: AuthUser }>("/auth/me/", update);
       setUser(data.user);
-      sessionStorage.setItem(USER_KEY, JSON.stringify(data.user));
     },
     []
   );
 
   const logout = useCallback(() => {
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(USER_KEY);
-    setToken(null);
-    setUser(null);
-    setTenantId(null);
-    setRoles([]);
-  }, []);
+    // Best-effort server-side cookie clear (REQ-052); local state is cleared
+    // regardless so the UI logs out even if the request fails.
+    void apiClient.post("/auth/logout/", {}).catch(() => undefined);
+    clearAuth();
+  }, [clearAuth]);
 
   const value: AuthState = {
-    isAuthenticated: !!token,
-    token,
+    isAuthenticated: user !== null,
+    status,
     user,
     tenantId,
     roles,

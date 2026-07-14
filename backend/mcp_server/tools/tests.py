@@ -90,6 +90,133 @@ class McpTestToolGroup(BaseToolGroup):
         "test.run_report_results": "_handle_run_report_results",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "test.get",
+            "description": "Fetch a single TestCase by ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the test case."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "test.query",
+            "description": "List TestCases in a workspace.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "test.create",
+            "description": "Create a TestCase, optionally auto-linked to a requirement (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
+                    "title": {"type": "string", "description": "Test case title."},
+                    "description": {"type": "string", "description": "Test case description."},
+                    "type": {"type": "string", "description": "Test type (default 'Unit')."},
+                    "linked_req_id": {
+                        "type": "string",
+                        "description": "Optional requirement UUID to create a 'verifies' TraceLink.",
+                    },
+                },
+                "required": ["workspace_id", "title"],
+            },
+        },
+        {
+            "name": "test.update",
+            "description": "Update TestCase fields including execution_status (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the test case."},
+                    "data": {
+                        "type": "object",
+                        "description": "Fields to update (title, description, steps, status).",
+                    },
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "test.link",
+            "description": "Create a 'verifies' TraceLink between a TestCase and a Requirement (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "test_id": {"type": "string", "description": "UUID of the test case."},
+                    "req_id": {"type": "string", "description": "UUID of the requirement."},
+                },
+                "required": ["test_id", "req_id"],
+            },
+        },
+        {
+            "name": "test.run_create",
+            "description": "Create a TestRun (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
+                    "name": {"type": "string", "description": "Test run name."},
+                    "ci_job_id": {"type": "string", "description": "Optional CI job identifier."},
+                    "test_case_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of test case UUIDs to include.",
+                    },
+                },
+                "required": ["workspace_id", "name"],
+            },
+        },
+        {
+            "name": "test.run_get",
+            "description": "Fetch a TestRun with its results by ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "run_id": {"type": "string", "description": "UUID of the test run."},
+                },
+                "required": ["run_id"],
+            },
+        },
+        {
+            "name": "test.run_report_results",
+            "description": "Add a bulk list of results to a TestRun (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "run_id": {"type": "string", "description": "UUID of the test run."},
+                    "results": {
+                        "type": "array",
+                        "description": "List of result entries.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "test_case_id": {"type": "string"},
+                                "status": {
+                                    "type": "string",
+                                    "description": "One of passed|failed|blocked|not_run.",
+                                },
+                                "message": {"type": "string"},
+                                "duration_ms": {"type": "integer"},
+                            },
+                            "required": ["test_case_id"],
+                        },
+                    },
+                },
+                "required": ["run_id", "results"],
+            },
+        },
+    ]
+
     def __init__(
         self,
         service: Optional[TestService] = None,

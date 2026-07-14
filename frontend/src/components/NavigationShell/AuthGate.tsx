@@ -17,8 +17,14 @@ interface AuthGateProps {
 }
 
 export function AuthGate({ children }: AuthGateProps): JSX.Element {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, status } = useAuth();
   const location = useLocation();
+
+  if (status === "restoring") {
+    // Session restore (GET /auth/me/) is in flight — render nothing rather than
+    // flashing the login page for an already-authenticated user (REQ-052).
+    return <div data-testid="auth-restoring" aria-busy="true" />;
+  }
 
   if (!isAuthenticated) {
     // Preserve the intended destination so login can redirect back

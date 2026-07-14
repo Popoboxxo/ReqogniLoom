@@ -30,7 +30,7 @@ Design decisions:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 import uuid
 from uuid import UUID
 
@@ -157,12 +157,34 @@ class BaseEntityViewSet(PresetGateMixin, viewsets.ViewSet):
             self._paginator = self.pagination_class()
         return self._paginator
 
-    def _paginate(self, request: Request, data: list) -> Response:
-        """Apply pagination to a list and return a paginated Response."""
-        page = self.paginator.paginate_queryset(data, request, view=self)
+    def _paginate(
+        self,
+        request: Request,
+        items: Any,
+        serialize: Callable[[Any], Any] | None = None,
+    ) -> Response:
+        """Paginate *items* and return a paginated Response.
+
+        REQ-034: ``items`` (a QuerySet or in-memory sequence) is handed straight
+        to the DRF paginator, which slices lazily — a QuerySet becomes a
+        ``LIMIT/OFFSET`` query instead of being materialised in full up front
+        (no ``list()``/``len()`` over the whole result set here).
+
+        When ``serialize`` is provided it is applied *only* to the current page,
+        so serialisation cost is O(page_size) instead of O(N). Call sites that
+        already pass a pre-serialised list may omit ``serialize`` (backwards
+        compatible).
+
+        Response shape is unchanged: ``{count, next, previous, results}``.
+        """
+        page = self.paginator.paginate_queryset(items, request, view=self)
         if page is not None:
-            return self.paginator.get_paginated_response(page)
-        return Response(data)
+            results = [serialize(obj) for obj in page] if serialize else page
+            return self.paginator.get_paginated_response(results)
+        # Pagination disabled for this request — serialise the full set.
+        if serialize is not None:
+            return Response([serialize(obj) for obj in items])
+        return Response(items)
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         raise NotImplementedError
@@ -197,20 +219,17 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         from application.preset_policy_service import PresetPolicyService
         return StakeholderNeedService(preset_policy_service=PresetPolicyService())
 
-    def get_queryset(self):
-        """Used only by DRF for generic lookups. Logic is in Service layer."""
-        from persistence.models import StakeholderNeed
-        return StakeholderNeed.objects.all()
-
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs."""
         lang = detect_lang(request)
         try:
             workspace_id = kwargs["workspace_pk"]
             items = self.service.list_by_workspace(get_auth_context(request), workspace_id)
-            serialized = [StakeholderNeedSerializer(item.to_dict()).data for item in items]
-            
-            return self._paginate(request, serialized)
+            return self._paginate(
+                request,
+                items,
+                lambda item: StakeholderNeedSerializer(item.to_dict()).data,
+            )
         except NotFoundError as e:
             return Response(build_error_response("NOT_FOUND", lang, message=str(e)), status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
@@ -454,8 +473,9 @@ class RequirementViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
 
-        serialized = [RequirementSerializer(_dto_from_orm(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: RequirementSerializer(_dto_from_orm(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/ — retrieve single requirement."""
@@ -745,34 +765,13 @@ class RequirementViewSet(BaseEntityViewSet):
             ctx = get_auth_context(request)
             req = self._svc().get_requirement(UUID(pk), ctx)
 
-            # Query TraceLinks for this requirement
-            from persistence.models import TraceLink, ArchitectureElement
-            from django.db.models import Prefetch
+            # REQ-066: allocation resolution (ORM + prefetch) lives in the
+            # service layer (REQ-L2-RA-013 CTE prefetch avoids N+1).
+            from application.trace_link_service import TraceLinkService
 
-            # Get all TraceLinks where source is this requirement's artifact
-            # with CTE-annotated level to avoid N+1 queries (REQ-L2-RA-013)
-            trace_links = TraceLink.objects.filter(
-                source_id=req.artifact_id,
-                link_type="allocated-to",
-                tenant_id=req.tenant_id,
-            ).select_related("target").prefetch_related(
-                Prefetch(
-                    'target__architecture_element',
-                    queryset=ArchitectureElement.objects.get_with_level()
-                )
+            allocations = TraceLinkService().get_requirement_allocations(
+                req.artifact_id, req.tenant_id, ctx
             )
-
-            allocations = []
-            for tl in trace_links:
-                if tl.target and hasattr(tl.target, 'architecture_element'):
-                    ae = tl.target.architecture_element
-                    allocations.append({
-                        "architecture_element_id": str(ae.id),
-                        "architecture_element_title": ae.title,
-                        "target_level": ae.level,
-                        "asil_level": ae.asil_level,
-                        "make_or_buy": ae.make_or_buy,
-                    })
 
             return Response({
                 "requirement_id": str(req.id),
@@ -967,18 +966,24 @@ class ArtifactViewSet(BaseEntityViewSet):
                     build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            self._svc()._set_tenant_context(ctx)
-            from persistence.models import Artifact
-            qs = Artifact.unscoped.filter(workspace_id=UUID(workspace_id_str)).values(
-                "id", "parent_id", "artifact_type"
-            )
-            items = list(qs)
+            # REQ-034: hand the QuerySet directly to the paginator so it slices
+            # lazily (LIMIT/OFFSET) instead of loading every row via list().
+            # REQ-066: the ORM access lives in ArtifactService.
+            qs = self._svc().list_child_summaries(ctx, UUID(workspace_id_str))
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [{"id": str(r["id"]), "parent_id": str(r["parent_id"]) if r["parent_id"] else None, "artifact_type": r["artifact_type"], "name": r.get("name", "")} for r in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request,
+            qs,
+            lambda r: {
+                "id": str(r["id"]),
+                "parent_id": str(r["parent_id"]) if r["parent_id"] else None,
+                "artifact_type": r["artifact_type"],
+                "name": r.get("name", ""),
+            },
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -1085,8 +1090,11 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [ArchitectureElementSerializer(_arch_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request,
+            items,
+            lambda item: ArchitectureElementSerializer(_arch_to_dict(item)).data,
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -1287,8 +1295,9 @@ class TestCaseViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [TestCaseSerializer(_test_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: TestCaseSerializer(_test_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -1468,8 +1477,9 @@ class TraceLinkViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [TraceLinkSerializer(item).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: TraceLinkSerializer(item).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -1967,8 +1977,9 @@ class BaselineViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [BaselineSerializer(_baseline_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: BaselineSerializer(_baseline_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         self._check_preset(request)
@@ -2416,53 +2427,10 @@ def _resolve_artifact_titles(
 
     Returns:
         Mapping from artifact_id (str) to {"title": str, "artifact_type": str}.
+
+    REQ-066: thin wrapper — the ORM access lives in ArtifactService.
     """
-    from persistence.models import (
-        ArchitectureElement,
-        Artifact,
-        Requirement,
-        StakeholderNeed,
-        TestCase,
-    )
-
-    str_ids = [str(aid) for aid in artifact_ids if aid]
-    if not str_ids:
-        return {}
-
-    result: dict[str, dict[str, Any]] = {}
-
-    # Fetch artifact types first
-    for art in Artifact.objects.filter(id__in=str_ids).values("id", "artifact_type"):
-        result[str(art["id"])] = {
-            "title": "",
-            "artifact_type": art["artifact_type"],
-        }
-
-    # Each domain entity is OneToOne on Artifact — a single artifact_id__in
-    # scan per table enriches all matching entries without N+1 queries.
-    for model in (Requirement, ArchitectureElement, StakeholderNeed, TestCase):
-        for row in model.objects.filter(artifact_id__in=str_ids).values(
-            "artifact_id", "title"
-        ):
-            key = str(row["artifact_id"])
-            if key in result:
-                result[key]["title"] = row["title"] or ""
-
-    # ADR lives in the application layer (not persistence) — import locally to
-    # avoid circular imports (adr_service imports TraceLinkService).
-    try:
-        from application.models import Adr
-
-        for row in Adr.objects.filter(artifact_id__in=str_ids).values(
-            "artifact_id", "title"
-        ):
-            key = str(row["artifact_id"])
-            if key in result:
-                result[key]["title"] = row["title"] or ""
-    except Exception:  # noqa: BLE001 — ADR model absent in some test configs
-        pass
-
-    return result
+    return ArtifactService().resolve_artifact_titles(artifact_ids)
 
 
 def _tracelink_to_dict(tl: Any, titles: "dict[str, dict[str, Any]] | None" = None) -> dict[str, Any]:
@@ -2544,30 +2512,10 @@ def _collect_artifact_names(
     ``baseline.state_capture._capture_items``. Non-UUID or unresolved ids
     (e.g. icd/trace_link/glossary_term entries) are simply omitted so callers
     can fall back to the raw id.
+
+    REQ-066: thin wrapper — the ORM access lives in ArtifactService.
     """
-    uuids: list[uuid.UUID] = []
-    for raw in item_ids:
-        try:
-            uuids.append(UUID(str(raw)))
-        except (ValueError, TypeError):
-            continue
-    if not uuids:
-        return {}
-
-    from persistence.models import (
-        ArchitectureElement,
-        Requirement,
-        StakeholderNeed,
-        TestCase,
-    )
-
-    names: dict[str, str] = {}
-    for Model in (Requirement, StakeholderNeed, ArchitectureElement, TestCase):
-        for artifact_id, title in Model.unscoped.filter(
-            artifact_id__in=uuids, tenant_id=tenant_id
-        ).values_list("artifact_id", "title"):
-            names[str(artifact_id)] = title
-    return names
+    return ArtifactService().collect_artifact_names(item_ids, tenant_id)
 
 
 def _baseline_to_dict(bl: Any) -> dict[str, Any]:
@@ -2718,8 +2666,9 @@ class WorkspaceViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [WorkspaceSerializer(_workspace_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: WorkspaceSerializer(_workspace_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/workspaces/{pk}/ — fetch a single workspace by id."""
@@ -2781,63 +2730,19 @@ class WorkspaceViewSet(BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            from persistence.models import Workspace
-            self._svc()._set_tenant_context(ctx)
-            ws = Workspace.objects.filter(id=pk).first()
-            if ws is None:
-                return Response(
-                    build_error_response("NOT_FOUND", lang),
-                    status=status.HTTP_404_NOT_FOUND,
+            # Forward only fields the client actually supplied (PATCH semantics);
+            # the service applies the sentinel default to the rest.
+            fields = {
+                key: request.data[key]
+                for key in (
+                    "name",
+                    "language",
+                    "decomposition_link_type",
+                    "terminology_profile",
                 )
-
-            update_fields: list[str] = []
-            preset_blob = dict(ws.preset or {})
-
-            if "name" in request.data:
-                new_name = str(request.data.get("name") or "").strip()
-                if not new_name:
-                    return Response(
-                        build_error_response(
-                            "VALIDATION_ERROR", lang, message="name must not be empty"
-                        ),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                ws.name = new_name
-                update_fields.append("name")
-
-            if "language" in request.data:
-                preset_blob["language"] = str(request.data["language"])
-                ws.preset = preset_blob
-                if "preset" not in update_fields:
-                    update_fields.append("preset")
-
-            if "decomposition_link_type" in request.data:
-                ws.decomposition_link_type = str(request.data["decomposition_link_type"])
-                if "decomposition_link_type" not in update_fields:
-                    update_fields.append("decomposition_link_type")
-
-            if "terminology_profile" in request.data:
-                target_profile = str(request.data["terminology_profile"])
-                if target_profile not in ("dev_mode", "se_mode"):
-                    return Response(
-                        build_error_response(
-                            "VALIDATION_ERROR",
-                            lang,
-                            message="terminology_profile must be dev_mode or se_mode",
-                        ),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                from presets.services import switch_terminology_profile
-                switch_terminology_profile(
-                    workspace_id=str(pk), target_profile=target_profile
-                )
-                preset_blob["terminology_profile"] = target_profile
-                ws.preset = preset_blob
-                if "preset" not in update_fields:
-                    update_fields.append("preset")
-
-            if update_fields:
-                ws.save(update_fields=update_fields)
+                if key in request.data
+            }
+            ws = self._svc().update_metadata(ctx, UUID(pk), **fields)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -2852,37 +2757,10 @@ class WorkspaceViewSet(BaseEntityViewSet):
         REQ-L2-RF-007 / REQ-L2-RF-012: Preset switch from Workspace Settings UI.
         """
         lang = detect_lang(request)
+        target_tier = request.data.get("preset")
         try:
             ctx = get_auth_context(request)
-            target_tier = request.data.get("preset")
-            if not target_tier or target_tier not in (
-                "minimal",
-                "standard",
-                "extended",
-            ):
-                return Response(
-                    build_error_response(
-                        "VALIDATION_ERROR",
-                        lang,
-                        message="preset must be minimal, standard or extended",
-                    ),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            from presets.services import switch_preset
-            switch_preset(workspace_id=str(pk), target_preset=str(target_tier))
-            from persistence.models import Workspace
-            self._svc()._set_tenant_context(ctx)
-            ws = Workspace.objects.filter(id=pk).first()
-            if ws is None:
-                return Response(
-                    build_error_response("NOT_FOUND", lang),
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            preset_blob = dict(ws.preset or {})
-            preset_blob["tier"] = target_tier
-            preset_blob["name"] = target_tier
-            ws.preset = preset_blob
-            ws.save(update_fields=["preset"])
+            self._svc().switch_preset_tier(ctx, UUID(pk), str(target_tier))
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
@@ -3089,8 +2967,9 @@ class AdrViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [AdrSerializer(_adr_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: AdrSerializer(_adr_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/adrs/{pk}/ — retrieve single ADR."""
@@ -3273,8 +3152,9 @@ class RiskViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [RiskSerializer(_risk_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: RiskSerializer(_risk_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/risks/{pk}/ — retrieve single Risk."""
@@ -3463,8 +3343,9 @@ class IssueViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [IssueSerializer(_issue_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: IssueSerializer(_issue_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/issues/{pk}/ — retrieve single Issue."""
@@ -3653,8 +3534,7 @@ class TestRunViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [_test_run_to_dict(item) for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(request, items, _test_run_to_dict)
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/test-runs/{id}/ — retrieve single test run."""
@@ -4172,8 +4052,7 @@ class GlossaryTermViewSet(BaseEntityViewSet):
             # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
             include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
             terms = self._svc().list_by_workspace(ctx, workspace_id, include_deleted=include_deleted)
-            data = [t.__dict__ for t in terms]
-            return self._paginate(request, data)
+            return self._paginate(request, terms, lambda t: t.__dict__)
         except Exception as e:
             logger.exception("Error in GlossaryTermViewSet.list")
             return _service_error_response(e, lang)
@@ -4244,19 +4123,18 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
     serializer_class = AttributeVisibilityConfigSerializer
 
     def _svc(self):
-        """Return RequirementService (workaround: models use generic service)."""
-        from persistence.services import RequirementService
-        return RequirementService()
+        """Return the AttributeVisibilityConfigService (REQ-066)."""
+        from application.attribute_visibility_service import (
+            AttributeVisibilityConfigService,
+        )
+        return AttributeVisibilityConfigService()
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/attribute-visibility-config/ — list all visibility configs."""
         lang = detect_lang(request)
         try:
-            from persistence.models import AttributeVisibilityConfig
             ctx = get_auth_context(request)
-            configs = AttributeVisibilityConfig.objects.filter(
-                tenant_id=ctx.tenant_id
-            ).order_by("entity_type", "attribute_name")
+            configs = self._svc().list_configs(ctx)
             serializer = AttributeVisibilityConfigSerializer(configs, many=True)
             return Response(serializer.data)
         except PermissionDeniedError as exc:
@@ -4275,40 +4153,21 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            from persistence.models import AttributeVisibilityConfig
-            from django.db import transaction
             ctx = get_auth_context(request)
-            
-            results = []
-            with transaction.atomic():
-                for item in request.data:
-                    item_data = dict(item)
-                    item_data["tenant_id"] = str(ctx.tenant_id)
-                    ser = AttributeVisibilityConfigSerializer(data=item_data)
-                    if not ser.is_valid():
-                        return Response(
-                            build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    data = ser.validated_data
-                    config, created = AttributeVisibilityConfig.objects.update_or_create(
-                        tenant_id=data["tenant_id"],
-                        entity_type=data["entity_type"],
-                        attribute_name=data["attribute_name"],
-                        defaults={
-                            "is_visible": data.get("is_visible", True),
-                            "is_required": data.get("is_required", False),
-                        }
+
+            validated_items: list[dict[str, Any]] = []
+            for item in request.data:
+                item_data = dict(item)
+                item_data["tenant_id"] = str(ctx.tenant_id)
+                ser = AttributeVisibilityConfigSerializer(data=item_data)
+                if not ser.is_valid():
+                    return Response(
+                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]),
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
-                    # update_or_create does not set created_by conditionally on create cleanly in defaults for modified_by etc.
-                    if created:
-                        config.created_by = ctx.user
-                    else:
-                        config.modified_by = ctx.user
-                        config.version += 1
-                    config.save()
-                    results.append(config)
-            
+                validated_items.append(dict(ser.validated_data))
+
+            results = self._svc().bulk_upsert(ctx, validated_items)
             return Response(AttributeVisibilityConfigSerializer(results, many=True).data, status=status.HTTP_200_OK)
         except Exception as exc:
             logger.exception("AttributeVisibilityConfigViewSet.bulk_update: unhandled exception")
@@ -4329,16 +4188,14 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
             )
         data = ser.validated_data
         try:
-            from persistence.models import AttributeVisibilityConfig
             ctx = get_auth_context(request)
 
-            config = AttributeVisibilityConfig.objects.create(
-                tenant_id=data["tenant_id"],
+            config = self._svc().create_config(
+                ctx,
                 entity_type=data["entity_type"],
                 attribute_name=data["attribute_name"],
                 is_visible=data.get("is_visible", True),
                 is_required=data.get("is_required", False),
-                created_by=ctx.user,
             )
             return Response(
                 AttributeVisibilityConfigSerializer(config).data,
@@ -4363,23 +4220,16 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
             )
         data = ser.validated_data
         try:
-            from persistence.models import AttributeVisibilityConfig
             ctx = get_auth_context(request)
-
-            config = AttributeVisibilityConfig.objects.get(id=pk, tenant_id=ctx.tenant_id)
-            if "is_visible" in data:
-                config.is_visible = data["is_visible"]
-            if "is_required" in data:
-                config.is_required = data["is_required"]
-            config.modified_by = ctx.user
-            config.version += 1
-            config.save()
-            return Response(AttributeVisibilityConfigSerializer(config).data)
-        except AttributeVisibilityConfig.DoesNotExist:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message=f"Config {pk} not found"),
-                status=status.HTTP_404_NOT_FOUND,
+            config = self._svc().update_config(
+                ctx,
+                UUID(pk),
+                is_visible=data.get("is_visible") if "is_visible" in data else None,
+                is_required=data.get("is_required") if "is_required" in data else None,
             )
+            return Response(AttributeVisibilityConfigSerializer(config).data)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
         except Exception as exc:
             logger.exception("AttributeVisibilityConfigViewSet.partial_update: unhandled exception")
             return _service_error_response(exc, lang)
@@ -4388,17 +4238,11 @@ class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
         """DELETE /api/v1/attribute-visibility-config/{pk}/ — delete config. Returns 204."""
         lang = detect_lang(request)
         try:
-            from persistence.models import AttributeVisibilityConfig
             ctx = get_auth_context(request)
-
-            config = AttributeVisibilityConfig.objects.get(id=pk, tenant_id=ctx.tenant_id)
-            config.delete()
+            self._svc().delete_config(ctx, UUID(pk))
             return Response(status=status.HTTP_204_NO_CONTENT)
-        except AttributeVisibilityConfig.DoesNotExist:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message=f"Config {pk} not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
         except Exception as exc:
             logger.exception("AttributeVisibilityConfigViewSet.destroy: unhandled exception")
             return _service_error_response(exc, lang)
@@ -4455,6 +4299,11 @@ class CustomFieldDefinitionViewSet(BaseEntityViewSet):
 
     serializer_class = CustomFieldDefinitionSerializer
 
+    def _svc(self):
+        """Return the CustomFieldService (REQ-066)."""
+        from application.custom_field_service import CustomFieldService
+        return CustomFieldService()
+
     def _forbidden(self, lang: str) -> Response:
         return Response(
             build_error_response("PERMISSION_DENIED", lang, message="Admin role required."),
@@ -4465,12 +4314,9 @@ class CustomFieldDefinitionViewSet(BaseEntityViewSet):
         """GET workspace custom field definitions, ordered by (order, name)."""
         lang = detect_lang(request)
         try:
-            from persistence.models import CustomFieldDefinition
-            get_auth_context(request)  # ensure authenticated
+            ctx = get_auth_context(request)  # ensure authenticated
             workspace_id = kwargs["workspace_pk"]
-            defs = CustomFieldDefinition.objects.filter(
-                workspace_id=workspace_id
-            ).order_by("order", "name")
+            defs = self._svc().list_definitions(ctx, workspace_id)
             return Response(CustomFieldDefinitionSerializer(defs, many=True).data)
         except Exception as exc:
             logger.exception("CustomFieldDefinitionViewSet.list: unhandled exception")
@@ -4492,40 +4338,23 @@ class CustomFieldDefinitionViewSet(BaseEntityViewSet):
             )
         data = ser.validated_data
         try:
-            from django.db import transaction
-            from persistence.models import CustomFieldDefinition, Workspace
             workspace_id = kwargs["workspace_pk"]
-            # Confirm the workspace belongs to the active tenant (scoped manager).
-            Workspace.objects.get(id=workspace_id)
-            # atomic so a unique-constraint violation does not poison the
-            # surrounding request/test transaction.
-            with transaction.atomic():
-                definition = CustomFieldDefinition.objects.create(
-                    workspace_id=workspace_id,
-                    name=data["name"],
-                    field_type=data.get("field_type", "text"),
-                    is_required=data.get("is_required", False),
-                    options=data.get("options", []),
-                    order=data.get("order", 0),
-                    created_by_id=ctx.user_id,
-                )
+            definition = self._svc().create_definition(
+                ctx,
+                workspace_id,
+                name=data["name"],
+                field_type=data.get("field_type", "text"),
+                is_required=data.get("is_required", False),
+                options=data.get("options", []),
+                order=data.get("order", 0),
+            )
             return Response(
                 CustomFieldDefinitionSerializer(definition).data,
                 status=status.HTTP_201_CREATED,
             )
+        except (NotFoundError, ValidationError) as exc:
+            return _service_error_response(exc, lang)
         except Exception as exc:
-            from persistence.models import Workspace
-            if isinstance(exc, Workspace.DoesNotExist):
-                return Response(
-                    build_error_response("NOT_FOUND", lang, message="Workspace not found"),
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            from django.db import IntegrityError
-            if isinstance(exc, IntegrityError):
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, details=[{"field": "name", "errors": ["A field with this name already exists in the workspace."]}]),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
             logger.exception("CustomFieldDefinitionViewSet.create: unhandled exception")
             return _service_error_response(exc, lang)
 
@@ -4538,9 +4367,8 @@ class CustomFieldDefinitionViewSet(BaseEntityViewSet):
             return self._forbidden(lang)
 
         try:
-            from persistence.models import CustomFieldDefinition
-            definition = CustomFieldDefinition.objects.get(id=pk)
-        except Exception:
+            definition = self._svc().get_definition(ctx, pk)
+        except NotFoundError:
             return Response(
                 build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
                 status=status.HTTP_404_NOT_FOUND,
@@ -4562,22 +4390,11 @@ class CustomFieldDefinitionViewSet(BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            from django.db import transaction
-            for attr in ("name", "field_type", "is_required", "options", "order"):
-                if attr in data:
-                    setattr(definition, attr, data[attr])
-            definition.modified_by_id = ctx.user_id
-            definition.version += 1
-            with transaction.atomic():
-                definition.save()
+            definition = self._svc().update_definition(ctx, pk, dict(data))
             return Response(CustomFieldDefinitionSerializer(definition).data)
+        except (NotFoundError, ValidationError) as exc:
+            return _service_error_response(exc, lang)
         except Exception as exc:
-            from django.db import IntegrityError
-            if isinstance(exc, IntegrityError):
-                return Response(
-                    build_error_response("VALIDATION_ERROR", lang, details=[{"field": "name", "errors": ["A field with this name already exists in the workspace."]}]),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
             logger.exception("CustomFieldDefinitionViewSet.partial_update: unhandled exception")
             return _service_error_response(exc, lang)
 
@@ -4589,17 +4406,14 @@ class CustomFieldDefinitionViewSet(BaseEntityViewSet):
         if not ctx.has_role(ROLE_ADMIN):
             return self._forbidden(lang)
         try:
-            from persistence.models import CustomFieldDefinition
-            definition = CustomFieldDefinition.objects.get(id=pk)
-            definition.delete()
+            self._svc().delete_definition(ctx, pk)
             return Response(status=status.HTTP_204_NO_CONTENT)
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except Exception as exc:
-            from persistence.models import CustomFieldDefinition
-            if isinstance(exc, CustomFieldDefinition.DoesNotExist):
-                return Response(
-                    build_error_response("NOT_FOUND", lang, message=f"Definition {pk} not found"),
-                    status=status.HTTP_404_NOT_FOUND,
-                )
             logger.exception("CustomFieldDefinitionViewSet.destroy: unhandled exception")
             return _service_error_response(exc, lang)
 
@@ -4615,49 +4429,24 @@ class ArtifactCustomFieldValuesView(APIView):
     Any authenticated tenant member may read and write values (form filling).
     """
 
-    def _merged_rows(self, workspace_id: str, artifact_id: str) -> list[dict]:
-        from persistence.models import CustomFieldDefinition, CustomFieldValue
-        definitions = list(
-            CustomFieldDefinition.objects.filter(
-                workspace_id=workspace_id
-            ).order_by("order", "name")
-        )
-        values = {
-            v.definition_id: v
-            for v in CustomFieldValue.objects.filter(artifact_id=artifact_id)
-        }
-        rows: list[dict] = []
-        for d in definitions:
-            v = values.get(d.id)
-            rows.append(
-                {
-                    "id": str(v.id) if v else None,
-                    "definition_id": str(d.id),
-                    "artifact_id": str(artifact_id),
-                    "value": v.value if v else "",
-                    "name": d.name,
-                    "field_type": d.field_type,
-                    "is_required": d.is_required,
-                    "options": d.options,
-                    "order": d.order,
-                }
-            )
-        return rows
+    def _svc(self):
+        """Return the CustomFieldService (REQ-066)."""
+        from application.custom_field_service import CustomFieldService
+        return CustomFieldService()
 
     def get(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
-            from persistence.models import Artifact
-            get_auth_context(request)
-            artifact = Artifact.objects.get(id=pk)
-            return Response(self._merged_rows(str(artifact.workspace_id), pk))
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            workspace_id = svc.get_artifact_workspace_id(ctx, pk)
+            return Response(svc.merged_rows(ctx, workspace_id, pk))
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message="Artifact not found"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except Exception as exc:
-            from persistence.models import Artifact
-            if isinstance(exc, Artifact.DoesNotExist):
-                return Response(
-                    build_error_response("NOT_FOUND", lang, message="Artifact not found"),
-                    status=status.HTTP_404_NOT_FOUND,
-                )
             logger.exception("ArtifactCustomFieldValuesView.get: unhandled exception")
             return _service_error_response(exc, lang)
 
@@ -4669,59 +4458,44 @@ class ArtifactCustomFieldValuesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            from django.db import transaction
-            from persistence.models import (
-                Artifact,
-                CustomFieldDefinition,
-                CustomFieldValue,
-            )
             ctx = get_auth_context(request)
-            artifact = Artifact.objects.get(id=pk)
-            workspace_id = str(artifact.workspace_id)
-            defs = {
-                str(d.id): d
-                for d in CustomFieldDefinition.objects.filter(workspace_id=workspace_id)
-            }
+            svc = self._svc()
+            workspace_id = svc.get_artifact_workspace_id(ctx, pk)
+            defs = svc.get_definitions_map(ctx, workspace_id)
 
-            with transaction.atomic():
-                for item in request.data:
-                    did = str(item.get("definition_id", ""))
-                    raw = item.get("value")
-                    value = "" if raw is None else str(raw)
-                    definition = defs.get(did)
-                    if definition is None:
-                        return Response(
-                            build_error_response("VALIDATION_ERROR", lang, details=[{"field": "definition_id", "errors": [f"Unknown definition {did} for this workspace."]}]),
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    if value == "" and definition.is_required:
-                        return Response(
-                            build_error_response("VALIDATION_ERROR", lang, details=[{"field": definition.name, "errors": ["This field is required."]}]),
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    err = _validate_custom_value(definition, value, lang)
-                    if err is not None:
-                        return err
-                    if value == "":
-                        CustomFieldValue.objects.filter(
-                            definition_id=did, artifact_id=pk
-                        ).delete()
-                    else:
-                        # ``update_or_create`` bypasses TenantManager.create, so
-                        # the tenant FK must be supplied explicitly here.
-                        CustomFieldValue.objects.update_or_create(
-                            definition_id=did,
-                            artifact_id=pk,
-                            defaults={"value": value, "tenant_id": ctx.tenant_id},
-                        )
-            return Response(self._merged_rows(workspace_id, pk))
+            # Phase 1: validate every item without touching the database. This is
+            # side-effect free, so validating up front is equivalent to the former
+            # interleaved-and-rollback flow while keeping HTTP concerns in the view.
+            operations: list[tuple[str, str]] = []
+            for item in request.data:
+                did = str(item.get("definition_id", ""))
+                raw = item.get("value")
+                value = "" if raw is None else str(raw)
+                definition = defs.get(did)
+                if definition is None:
+                    return Response(
+                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": "definition_id", "errors": [f"Unknown definition {did} for this workspace."]}]),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if value == "" and definition.is_required:
+                    return Response(
+                        build_error_response("VALIDATION_ERROR", lang, details=[{"field": definition.name, "errors": ["This field is required."]}]),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                err = _validate_custom_value(definition, value, lang)
+                if err is not None:
+                    return err
+                operations.append((did, value))
+
+            # Phase 2: persist all operations atomically.
+            svc.apply_values(ctx, pk, operations)
+            return Response(svc.merged_rows(ctx, workspace_id, pk))
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message="Artifact not found"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except Exception as exc:
-            from persistence.models import Artifact
-            if isinstance(exc, Artifact.DoesNotExist):
-                return Response(
-                    build_error_response("NOT_FOUND", lang, message="Artifact not found"),
-                    status=status.HTTP_404_NOT_FOUND,
-                )
             logger.exception("ArtifactCustomFieldValuesView.put: unhandled exception")
             return _service_error_response(exc, lang)
 

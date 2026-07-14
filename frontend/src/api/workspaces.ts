@@ -9,7 +9,7 @@
  * Wraps /api/v1/workspaces/ endpoints.
  */
 
-import { apiClient, getList, getAuthToken } from "./client";
+import { apiClient, getList } from "./client";
 import type {
   PaginatedResponse,
   TerminologyProfile,
@@ -61,14 +61,10 @@ export const workspacesApi = {
     id: UUID,
     layout: "requirement_document" | "traceability_matrix" = "requirement_document"
   ): Promise<Blob> {
-    const token = getAuthToken();
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
+    // Auth flows via the httpOnly cookie (REQ-052) — send credentials, no header.
     const resp = await fetch(
       `/api/v1/workspaces/${id}/reports/pdf/?layout=${layout}`
-    , { headers });
+    , { credentials: "same-origin" });
     if (!resp.ok) {
       throw new Error(`PDF export failed: ${resp.status}`);
     }

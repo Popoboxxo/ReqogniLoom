@@ -208,6 +208,61 @@ class AuditToolGroup(BaseToolGroup):
         "events.dlq_replay": "_handle_dlq_replay",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "audit.query",
+            "description": "Query the audit log with filters (admin-only, read).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "actor": {"type": "string", "description": "Actor user/agent id filter."},
+                    "operation": {
+                        "type": "string",
+                        "description": "Operation filter (create|update|delete|transition).",
+                    },
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "Reserved forward-compat UUID (validated, not applied).",
+                    },
+                    "start_time": {
+                        "type": "string",
+                        "description": "ISO-8601 inclusive lower bound on timestamp.",
+                    },
+                    "end_time": {
+                        "type": "string",
+                        "description": "ISO-8601 inclusive upper bound on timestamp.",
+                    },
+                    "limit": {"type": "integer", "description": "Page size (1..200, default 100)."},
+                },
+            },
+        },
+        {
+            "name": "events.dlq_list",
+            "description": "List Domain-Event dead-letter-queue entries (admin-only, read).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "event_type": {"type": "string", "description": "Optional event_type filter."},
+                    "limit": {"type": "integer", "description": "Page size (1..1000, default 100)."},
+                },
+            },
+        },
+        {
+            "name": "events.dlq_replay",
+            "description": "Replay a single DLQ event back into the outbox (admin-only, write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "string",
+                        "description": "UUID of the original DomainEventDLQ.event_id.",
+                    },
+                },
+                "required": ["event_id"],
+            },
+        },
+    ]
+
     def __init__(self, dlq_service: Optional[DlqService] = None) -> None:
         # No constructor injection for the audit query — we always go
         # through the module-level ``audit.services.query`` facade so

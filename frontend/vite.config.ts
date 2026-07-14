@@ -29,7 +29,7 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    // Include test files
+    // Include test files (see TESTING_CONVENTIONS.md for layout rules)
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     // Resolve stubs for packages that are installed in Docker but not locally
     alias: {

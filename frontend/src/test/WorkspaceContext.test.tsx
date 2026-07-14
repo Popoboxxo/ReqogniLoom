@@ -60,8 +60,14 @@ function ControlledWorkspace({
 
 beforeEach(() => {
   sessionStorage.clear();
-  sessionStorage.setItem("reqflow_token", "test-token");
   vi.clearAllMocks();
+  // Auth is restored via GET /auth/me/ (httpOnly cookie, REQ-052). These tests
+  // drive the workspace directly via setActiveWorkspace, so a 401 (anonymous)
+  // is sufficient and keeps the bootstrap effect from hitting the network.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }) as unknown as Response)
+  );
 });
 
 describe("WorkspaceContext / Terminology Profile (REQ-L2-RF-008)", () => {

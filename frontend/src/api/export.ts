@@ -9,7 +9,6 @@
  * browser download of the returned CSV file.
  */
 
-import { getAuthToken } from "./client";
 import type { UUID } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -31,17 +30,14 @@ export const exportApi = {
    * @param entityType - Entity type to export.
    */
   async downloadCsv(workspaceId: UUID, entityType: ExportEntityType): Promise<void> {
-    const token = getAuthToken();
+    // Auth flows via the httpOnly cookie (REQ-052) — send credentials, no header.
     const headers: Record<string, string> = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
     const lang = document.documentElement.lang || "en";
     headers["Accept-Language"] = lang;
 
     const resp = await fetch(
       `/api/v1/workspaces/${workspaceId}/export/csv/?entity_type=${encodeURIComponent(entityType)}`,
-      { method: "GET", headers }
+      { method: "GET", headers, credentials: "same-origin" }
     );
 
     if (!resp.ok) {

@@ -1,43 +1,65 @@
-import { useState, useEffect, useCallback } from 'react';
-import { risksApi } from '../../api/risks';
-import { useWorkspace } from '../../context/WorkspaceContext';
-import type { Risk } from '../../types';
+/**
+ * ARCH-L1-001 ReactFrontend — Risk Data Hook.
+ *
+ * req_id: REQ-049 (TanStack Query migration)
+ *
+ * TanStack Query replacement for the hand-rolled fetch/loading/error state.
+ * The return shape is preserved so RiskEditors is unchanged.
+ */
 
-export function useRiskData(selectedId?: string) {
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { risksApi } from "../../api/risks";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { asError } from "../../queries/query-error";
+import type { Risk } from "../../types";
+
+export const riskKeys = {
+  all: ["risks"] as const,
+  list: (workspaceId: string) => ["risks", "list", workspaceId] as const,
+  detail: (id: string) => ["risks", "detail", id] as const,
+};
+
+export interface RiskData {
+  items: Risk[];
+  item: Risk | null;
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => void;
+}
+
+export function useRiskData(selectedId?: string): RiskData {
   const { activeWorkspace } = useWorkspace();
-  const [items, setItems] = useState<Risk[]>([]);
-  const [item, setItem] = useState<Risk | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const workspaceId = activeWorkspace?.id;
+  const queryClient = useQueryClient();
 
-  const loadList = useCallback(async () => {
-    if (!activeWorkspace) return;
-    setIsLoading(true);
-    try {
-      const resp = await risksApi.list(activeWorkspace.id);
-      setItems(resp.results || []);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setIsLoading(false);
+  const listQuery = useQuery({
+    queryKey: riskKeys.list(workspaceId ?? ""),
+    queryFn: async () => (await risksApi.list(workspaceId as string)).results ?? [],
+    enabled: !!workspaceId,
+  });
+
+  const detailQuery = useQuery({
+    queryKey: riskKeys.detail(selectedId ?? ""),
+    queryFn: () => risksApi.get(selectedId as string),
+    enabled: !!selectedId,
+  });
+
+  const refresh = (): void => {
+    if (workspaceId) {
+      void queryClient.invalidateQueries({ queryKey: riskKeys.list(workspaceId) });
     }
-  }, [activeWorkspace]);
-
-  const loadDetail = useCallback(async () => {
-    if (!selectedId) { setItem(null); return; }
-    setIsLoading(true);
-    try {
-      const resp = await risksApi.get(selectedId);
-      setItem(resp);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setIsLoading(false);
+    if (selectedId) {
+      void queryClient.invalidateQueries({ queryKey: riskKeys.detail(selectedId) });
     }
-  }, [selectedId]);
+  };
 
-  useEffect(() => { loadList(); }, [loadList]);
-  useEffect(() => { loadDetail(); }, [loadDetail]);
+  const rawError = detailQuery.error ?? listQuery.error;
 
-  return { items, item, isLoading, error, refresh: () => { loadList(); loadDetail(); } };
+  return {
+    items: listQuery.data ?? [],
+    item: selectedId ? detailQuery.data ?? null : null,
+    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    error: rawError ? asError(rawError) : null,
+    refresh,
+  };
 }
