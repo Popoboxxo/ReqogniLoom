@@ -134,6 +134,9 @@ class TestLlmCapabilityInterface:
             def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
                 return LlmDecompositionResult(score=0.5, suggestions=[], provider="test", model="t", token_usage=None)
 
+            def complete(self, prompt: str, *, purpose: str = "", context=None) -> str:
+                return ""
+
         provider = CompleteProvider()
         assert isinstance(provider, LlmCapabilityInterface)
 
@@ -196,6 +199,9 @@ class TestProviderRegistry:
 
             def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
                 return LlmDecompositionResult(score=0.1, suggestions=[], provider="custom", model="c", token_usage=None)
+
+            def complete(self, prompt: str, *, purpose: str = "", context=None) -> str:
+                return ""
 
         provider = get_provider()
         assert isinstance(provider, CustomProvider)

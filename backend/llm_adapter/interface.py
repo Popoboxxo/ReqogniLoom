@@ -143,6 +143,29 @@ class LlmCapabilityInterface(ABC):
             LlmDecompositionResult with derived requirements.
         """
 
+    @abstractmethod
+    def complete(
+        self,
+        prompt: str,
+        *,
+        purpose: str = "",
+        context: Optional[dict] = None,
+    ) -> str:
+        """Return the raw completion text for a free-form prompt (REQ-L2-AI-002).
+
+        Provides a stable static contract for the free-form completion
+        capability already offered by the concrete providers (REQ-048).
+
+        Args:
+            prompt: Free-form prompt sent to the underlying model.
+            purpose: Optional hint used by deterministic mocks; real
+                providers may ignore it.
+            context: Optional structured context; real providers may ignore it.
+
+        Returns:
+            The raw completion text produced by the model.
+        """
+
 
 __all__ = [
     "LlmCapabilityInterface",
