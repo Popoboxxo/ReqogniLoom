@@ -6,11 +6,13 @@
  *
  * All REST calls go through this module.
  * - Attaches Authorization: Bearer <token> to every request.
- * - On 401 or 403 → emits a redirect event; caller redirects to /login.
+ * - On 401 → clears auth state; caller redirects to /login.
+ * - On 403 → throws ForbiddenError (permission error, no logout — REQ-051).
  * - Accepts/sends JSON; sends Accept-Language from i18n.
  */
 
 import type { ApiError, PaginatedResponse } from "../types";
+import { ForbiddenError } from "./errors";
 
 // ---------------------------------------------------------------------------
 // Token storage (IF-RF-INT — NavigationShell.TokenManager owns the token)
@@ -60,8 +62,9 @@ async function apiFetch<T>(
     headers,
   });
 
-  // Treat both 401 and 403 as "not authenticated" (REQ-L2-RF-010)
-  if (response.status === 401 || response.status === 403) {
+  // 401 → not authenticated: clear auth state and redirect to login
+  // (REQ-L2-RF-010).
+  if (response.status === 401) {
     _onUnauthorized?.();
     const err: ApiError = {
       error: {
@@ -71,6 +74,12 @@ async function apiFetch<T>(
       },
     };
     throw err;
+  }
+
+  // 403 → authenticated but lacking permission: surface the error without
+  // logging the user out (REQ-051).
+  if (response.status === 403) {
+    throw new ForbiddenError();
   }
 
   if (!response.ok) {
