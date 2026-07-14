@@ -18,6 +18,7 @@ import pytest
 
 from diagram.services import (
     create_diagram,
+    delete_diagram,
     get_diagram,
     get_mcp_artifact,
     list_versions,
@@ -94,6 +95,41 @@ class TestServiceFacadeGet:
 
         assert result.diagram.id == diagram.id
         assert result.renderable is not None
+
+
+class TestServiceFacadeDelete:
+    """REQ-066: delete_diagram facade (ORM out of the REST view)."""
+
+    def test_delete_diagram_removes_row(self, tenant_a, workspace_a):
+        from diagram.models import Diagram
+
+        with active_tenant(tenant_a):
+            diagram = create_diagram(
+                name="Delete Target",
+                diagram_type="block",
+                payload_format="mermaid",
+                content=VALID_MERMAID_BLOCK,
+                tenant=tenant_a,
+            )
+            delete_diagram(diagram.id, tenant_a.id)
+
+        assert not Diagram.unscoped.filter(id=diagram.id).exists()
+
+    def test_delete_other_tenant_raises(self, tenant_a, tenant_b, workspace_a):
+        from diagram.models import Diagram
+
+        with active_tenant(tenant_a):
+            diagram = create_diagram(
+                name="Isolated",
+                diagram_type="block",
+                payload_format="mermaid",
+                content=VALID_MERMAID_BLOCK,
+                tenant=tenant_a,
+            )
+
+        with active_tenant(tenant_b):
+            with pytest.raises(Diagram.DoesNotExist):
+                delete_diagram(diagram.id, tenant_b.id)
 
 
 class TestServiceFacadeListVersions:

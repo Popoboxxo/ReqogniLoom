@@ -24,6 +24,8 @@ from rest_framework.viewsets import ViewSet
 from icd.models import Icd, IcdDirection
 from icd.services import (
     create_icd,
+    delete_icd,
+    get_icd,
     update_icd,
     get_icd_history,
     find_similar_icds,
@@ -163,7 +165,7 @@ class IcdViewSet(ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            icd = Icd.objects.get(id=UUID(pk), tenant_id=ctx.tenant_id)
+            icd = get_icd(UUID(pk), ctx.tenant_id)
             # Get version info
             versions = get_icd_history(icd_id=UUID(pk))
             current_version = versions[-1] if versions else None
@@ -240,32 +242,7 @@ class IcdViewSet(ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            icd = Icd.objects.get(id=UUID(pk), tenant_id=ctx.tenant_id)
-
-            from django.db import connection
-
-            with connection.cursor() as cursor:
-                # Temporarily disable immutability trigger
-                cursor.execute(
-                    "ALTER TABLE icd_version DISABLE TRIGGER trg_icd_version_immutable"
-                )
-                try:
-                    # Nullify FK to avoid constraint issues
-                    icd.current_version = None
-                    icd.save(update_fields=["current_version"])
-                    # Delete versions
-                    cursor.execute(
-                        "DELETE FROM icd_version WHERE icd_id = %s",
-                        [str(icd.id)],
-                    )
-                finally:
-                    # Re-enable trigger
-                    cursor.execute(
-                        "ALTER TABLE icd_version ENABLE TRIGGER trg_icd_version_immutable"
-                    )
-
-            # Now delete the ICD itself (no child FK references remain)
-            icd.delete()
+            delete_icd(UUID(pk), ctx.tenant_id)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Icd.DoesNotExist:
             return Response(
@@ -286,7 +263,7 @@ class IcdViewSet(ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            icd = Icd.objects.get(id=UUID(pk), tenant_id=ctx.tenant_id)
+            icd = get_icd(UUID(pk), ctx.tenant_id)
             version_list = get_icd_history(icd_id=icd.id)
             result = [{"version": 0, "label": "Creation baseline"}]
             for v in version_list:
@@ -318,7 +295,7 @@ class IcdViewSet(ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            icd = Icd.objects.get(id=UUID(pk), tenant_id=ctx.tenant_id)
+            icd = get_icd(UUID(pk), ctx.tenant_id)
 
             from_version = int(request.query_params.get("from_version", "0"))
             current_ver = icd.current_version.version_number if icd.current_version else 1

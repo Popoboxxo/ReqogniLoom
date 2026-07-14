@@ -38,12 +38,76 @@ from icd.icd_manager import (
     SimilarIcdDTO,
     get_manager,
 )
-from icd.models import IcdVersion
+from icd.models import Icd, IcdVersion
 
 
 # ---------------------------------------------------------------------------
 # IF-L1-037: ApplicationService CRUD
 # ---------------------------------------------------------------------------
+
+
+def get_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> Icd:
+    """Return a single tenant-scoped ICD by id (REQ-066).
+
+    Encapsulates the tenant-scoped ORM lookup so REST views stay ORM-free.
+
+    Args:
+        icd_id:    UUID of the target Icd.
+        tenant_id: Active tenant primary key (isolation boundary).
+
+    Returns:
+        The matching :class:`Icd` instance.
+
+    Raises:
+        Icd.DoesNotExist: When no ICD with the given id exists for the tenant.
+
+    req_id: REQ-066, REQ-L2-ICD-001
+    leaf_id: COMP-ICD-001
+    """
+    return Icd.objects.get(id=icd_id, tenant_id=tenant_id)
+
+
+def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    """Delete a tenant-scoped ICD and all its immutable versions (REQ-066).
+
+    IcdVersion rows are immutable via a DB trigger (ADR-ICD-01); the trigger is
+    temporarily disabled to permit cascade deletion, then re-enabled in a
+    ``finally`` block so it always survives the operation.
+
+    Args:
+        icd_id:    UUID of the Icd to delete.
+        tenant_id: Active tenant primary key (isolation boundary).
+
+    Raises:
+        Icd.DoesNotExist: When no ICD with the given id exists for the tenant.
+
+    req_id: REQ-066, REQ-L2-ICD-001
+    leaf_id: COMP-ICD-001
+    """
+    from django.db import connection
+
+    icd = Icd.objects.get(id=icd_id, tenant_id=tenant_id)
+
+    with connection.cursor() as cursor:
+        # Temporarily disable the immutability trigger to allow deletion.
+        cursor.execute(
+            "ALTER TABLE icd_version DISABLE TRIGGER trg_icd_version_immutable"
+        )
+        try:
+            # Nullify FK to avoid constraint issues, then delete versions.
+            icd.current_version = None
+            icd.save(update_fields=["current_version"])
+            cursor.execute(
+                "DELETE FROM icd_version WHERE icd_id = %s",
+                [str(icd.id)],
+            )
+        finally:
+            cursor.execute(
+                "ALTER TABLE icd_version ENABLE TRIGGER trg_icd_version_immutable"
+            )
+
+    # Now delete the ICD itself (no child FK references remain).
+    icd.delete()
 
 
 def create_icd(payload: IcdCreateDTO) -> IcdResult:
@@ -191,6 +255,8 @@ def find_similar_icds(
 __all__ = [
     # Service functions
     "create_icd",
+    "get_icd",
+    "delete_icd",
     "update_icd",
     "validate_compatibility",
     "get_icd_history",

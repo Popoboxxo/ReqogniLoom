@@ -344,6 +344,52 @@ class TestIcdCreate:
 
 
 @pytest.mark.django_db
+class TestIcdGetAndDelete:
+    """REQ-066: get_icd / delete_icd service entry points (ORM out of views)."""
+
+    def _create(self, tenant_a, workspace_id, src_id, tgt_id):
+        from icd.services import create_icd
+
+        dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+        with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+            return create_icd(dto)
+
+    def test_get_icd_returns_tenant_scoped_row(self, tenant_a, workspace_id, src_id, tgt_id):
+        from icd.services import get_icd
+
+        with active_tenant(tenant_a):
+            result = self._create(tenant_a, workspace_id, src_id, tgt_id)
+            fetched = get_icd(result.icd.id, tenant_a.id)
+
+        assert fetched.id == result.icd.id
+
+    def test_get_icd_other_tenant_raises(self, tenant_a, tenant_b, workspace_id, src_id, tgt_id):
+        from icd.models import Icd
+        from icd.services import get_icd
+
+        with active_tenant(tenant_a):
+            result = self._create(tenant_a, workspace_id, src_id, tgt_id)
+
+        with active_tenant(tenant_b):
+            with pytest.raises(Icd.DoesNotExist):
+                get_icd(result.icd.id, tenant_b.id)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_delete_icd_removes_row(self, tenant_a, workspace_id, src_id, tgt_id):
+        # transaction=True: delete_icd toggles the icd_version immutability
+        # trigger via ALTER TABLE, which cannot run with pending trigger events
+        # inside the default wrapping test transaction.
+        from icd.models import Icd
+        from icd.services import delete_icd
+
+        with active_tenant(tenant_a):
+            result = self._create(tenant_a, workspace_id, src_id, tgt_id)
+            delete_icd(result.icd.id, tenant_a.id)
+
+        assert not Icd.unscoped.filter(id=result.icd.id).exists()
+
+
+@pytest.mark.django_db
 class TestIcdVersionImmutability:
     """REQ-L2-ICD-001: versions cannot be modified (Python-layer guard).
 
