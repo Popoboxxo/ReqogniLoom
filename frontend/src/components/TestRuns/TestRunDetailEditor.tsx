@@ -1,0 +1,458 @@
+/**
+ * ARCH-L1-001 ReactFrontend — TestRun Detail Editor (Presenter).
+ *
+ * leaf_id: COMP-RF-003
+ * req_id:  REQ-L2-AS-030 (Test-Run-Protokollierung), REQ-012 (close-in-place),
+ *          REQ-050 (Container/Presenter decomposition of TestRunsList)
+ *
+ * Right-panel detail view for a single test run. Loads the run's per-TestCase
+ * results (C5) and offers the close-in-place action (REQ-012). Receives the
+ * run and lifecycle callbacks as props from the TestRunsList container.
+ *
+ * TODO(REQ-050): the results fetch (testRunsApi.listResults) still lives here
+ * as local state; a future pass can lift it into a useTestRunResults query hook.
+ */
+
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { testRunsApi } from "../../api/test-runs";
+import { VersionBadge } from "../shared/VersionBadge";
+import type { TestRun, TestRunResult } from "../../types";
+import { StatusBadge } from "./StatusBadge";
+
+export interface TestRunDetailEditorProps {
+  testRun: TestRun;
+  onClose: () => void;
+  onRefresh: () => Promise<void> | void;
+  onUpdated: (run: TestRun) => void;
+}
+
+export function TestRunDetailEditor({
+  testRun,
+  onClose,
+  onRefresh,
+  onUpdated,
+}: TestRunDetailEditorProps): JSX.Element {
+  const { t } = useTranslation();
+  const [isClosing, setIsClosing] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
+  const [closeSuccess, setCloseSuccess] = useState(false);
+  const [results, setResults] = useState<TestRunResult[]>([]);
+  const [resultsLoading, setResultsLoading] = useState(true);
+  const [resultsError, setResultsError] = useState<string | null>(null);
+
+  // Load the per-TestCase results belonging to this run (C5): the assigned
+  // test cases are otherwise invisible inside a TestRun's detail view.
+  useEffect(() => {
+    let cancelled = false;
+    setResultsLoading(true);
+    setResultsError(null);
+    testRunsApi
+      .listResults(testRun.id)
+      .then((items) => {
+        if (!cancelled) setResults(items);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to load test run results:", err);
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          t("testRuns.resultsLoadFailed", "Testfälle konnten nicht geladen werden.");
+        setResultsError(msg);
+      })
+      .finally(() => {
+        if (!cancelled) setResultsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [testRun.id, t]);
+
+  const handleClose = async (): Promise<void> => {
+    setIsClosing(true);
+    setCloseError(null);
+    setCloseSuccess(false);
+    try {
+      const closedRun = await testRunsApi.close(testRun.id);
+      // Update the detail panel in place with the closed run's new status
+      // instead of dismissing the panel — the user needs to see that the
+      // action actually took effect (REQ-012).
+      onUpdated(closedRun);
+      setConfirmClose(false);
+      setCloseSuccess(true);
+      await onRefresh();
+    } catch (err) {
+      console.error("Failed to close test run:", err);
+      const msg =
+        (err as { error?: { message?: string } })?.error?.message ??
+        t("testRuns.closeFailed", "Test-Run konnte nicht geschlossen werden.");
+      setCloseError(msg);
+      setConfirmClose(false);
+    } finally {
+      setIsClosing(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        background: "var(--color-surface)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-card)",
+        padding: "var(--space-6)",
+      }}
+    >
+      <div style={{ marginBottom: "var(--space-6)" }}>
+        <h2
+          style={{
+            fontSize: "var(--font-size-2xl)",
+            fontWeight: 700,
+            color: "var(--color-text)",
+            margin: 0,
+            marginBottom: "var(--space-2)",
+          }}
+        >
+          {testRun.name}
+        </h2>
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-3)",
+            alignItems: "center",
+          }}
+        >
+          <StatusBadge status={testRun.status} />
+          {typeof testRun.version === "number" && (
+            <VersionBadge version={testRun.version} />
+          )}
+          {testRun.uid ? (
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontSize: "0.75rem",
+                color: "var(--color-text-muted)",
+                userSelect: "all",
+              }}
+              title="Unique Identifier"
+            >
+              {testRun.uid}
+            </span>
+          ) : (
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontSize: "0.75rem",
+                color: "var(--color-text-muted)",
+                userSelect: "all",
+                opacity: 0.6,
+              }}
+              title="Short ID (UUID prefix, no semantic uid assigned yet)"
+            >
+              {testRun.id.slice(0, 8)}
+            </span>
+          )}
+          {testRun.ci_job_id && (
+            <span
+              style={{
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              CI: {testRun.ci_job_id}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Summary */}
+      {testRun.result_summary && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: "var(--space-3)",
+            marginBottom: "var(--space-6)",
+          }}
+        >
+          {[
+            {
+              label: "Total",
+              value: testRun.result_summary.total,
+              color: "var(--color-text)",
+            },
+            {
+              label: "Passed",
+              value: testRun.result_summary.passed,
+              color: "#22c55e",
+            },
+            {
+              label: "Failed",
+              value: testRun.result_summary.failed,
+              color: "#ef4444",
+            },
+            {
+              label: "Not Run",
+              value: testRun.result_summary.not_run,
+              color: "#64748b",
+            },
+          ].map((s) => (
+            <div
+              key={s.label}
+              style={{
+                padding: "var(--space-3)",
+                background: "var(--color-surface-raised)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+                textAlign: "center",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "1.5rem",
+                  fontWeight: 700,
+                  color: s.color,
+                }}
+              >
+                {s.value}
+              </div>
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  color: "var(--color-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                {s.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Metadata */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "var(--space-4)",
+          marginBottom: "var(--space-6)",
+        }}
+      >
+        {testRun.started_at && (
+          <div>
+            <label
+              style={{
+                display: "block",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                marginBottom: "var(--space-1)",
+              }}
+            >
+              {t("testRuns.startedAt", "Started")}
+            </label>
+            <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
+              {new Date(testRun.started_at).toLocaleString()}
+            </p>
+          </div>
+        )}
+        {testRun.finished_at && (
+          <div>
+            <label
+              style={{
+                display: "block",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+                marginBottom: "var(--space-1)",
+              }}
+            >
+              {t("testRuns.finishedAt", "Finished")}
+            </label>
+            <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
+              {new Date(testRun.finished_at).toLocaleString()}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Test cases (C5, REQ-012) */}
+      <div style={{ marginBottom: "var(--space-6)" }}>
+        <h3
+          style={{
+            fontSize: "var(--font-size-lg)",
+            fontWeight: 700,
+            color: "var(--color-text)",
+            margin: 0,
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          {t("testRuns.testCases", "Testfälle")}
+        </h3>
+        {resultsLoading ? (
+          <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+            {t("testRuns.resultsLoading", "Lade Testfälle...")}
+          </p>
+        ) : resultsError ? (
+          <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)" }}>
+            {resultsError}
+          </p>
+        ) : results.length === 0 ? (
+          <p
+            data-testid="testrun-results-empty"
+            style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}
+          >
+            {t("testRuns.resultsEmpty", "Diesem Testlauf sind keine Testfälle zugewiesen.")}
+          </p>
+        ) : (
+          <ul
+            data-testid="testrun-results-list"
+            style={{ listStyle: "none", padding: 0, margin: 0 }}
+          >
+            {results.map((result) => (
+              <li
+                key={result.id}
+                data-testid={`testrun-result-${result.id}`}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-2) var(--space-3)",
+                  marginBottom: "var(--space-2)",
+                  background: "var(--color-surface-raised)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                }}
+              >
+                <span style={{ color: "var(--color-text)" }}>
+                  {result.test_case_title || result.test_case_id}
+                </span>
+                <StatusBadge status={result.status} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Close success */}
+      {closeSuccess && (
+        <p
+          role="status"
+          data-testid="testrun-close-success"
+          style={{
+            color: "var(--color-text)",
+            fontSize: "var(--font-size-sm)",
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          {t("testRuns.closeSuccess", "Test-Run wurde abgeschlossen.")}
+        </p>
+      )}
+
+      {/* Close error */}
+      {closeError && (
+        <p
+          role="alert"
+          data-testid="testrun-close-error"
+          style={{
+            color: "var(--color-danger)",
+            fontSize: "var(--font-size-sm)",
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          {closeError}
+        </p>
+      )}
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+        {testRun.status === "in_progress" &&
+          (!confirmClose ? (
+            <button
+              type="button"
+              data-testid="testrun-close-btn"
+              onClick={() => setConfirmClose(true)}
+              style={{
+                padding: "var(--space-2) var(--space-4)",
+                background: "var(--color-primary)",
+                color: "white",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                cursor: "pointer",
+                fontSize: "var(--font-size-sm)",
+                fontWeight: 600,
+              }}
+            >
+              {t("testRuns.closeRun", "Close Run")}
+            </button>
+          ) : (
+            <>
+              <span
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                {t("testRuns.closeConfirm", "Close this test run?")}
+              </span>
+              <button
+                type="button"
+                data-testid="testrun-confirm-close-btn"
+                onClick={() => void handleClose()}
+                disabled={isClosing}
+                style={{
+                  padding: "var(--space-2) var(--space-4)",
+                  background: "var(--color-primary)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  cursor: isClosing ? "not-allowed" : "pointer",
+                  fontSize: "var(--font-size-sm)",
+                  fontWeight: 600,
+                  opacity: isClosing ? 0.6 : 1,
+                }}
+              >
+                {isClosing
+                  ? t("actions.closing", "Closing...")
+                  : t("actions.confirm", "Confirm")}
+              </button>
+              <button
+                type="button"
+                data-testid="testrun-cancel-close-btn"
+                onClick={() => setConfirmClose(false)}
+                disabled={isClosing}
+                style={{
+                  padding: "var(--space-2) var(--space-4)",
+                  background: "transparent",
+                  color: "var(--color-text-muted)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  cursor: isClosing ? "not-allowed" : "pointer",
+                  fontSize: "var(--font-size-sm)",
+                }}
+              >
+                {t("actions.cancel")}
+              </button>
+            </>
+          ))}
+        <button
+          type="button"
+          data-testid="testrun-detail-close-btn"
+          onClick={onClose}
+          style={{
+            padding: "var(--space-2) var(--space-4)",
+            background: "transparent",
+            color: "var(--color-text-muted)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-md)",
+            cursor: "pointer",
+            fontSize: "var(--font-size-sm)",
+          }}
+        >
+          {t("actions.back", "Back")}
+        </button>
+      </div>
+    </div>
+  );
+}
