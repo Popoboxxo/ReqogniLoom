@@ -53,6 +53,22 @@ ERROR_CODES = {
     "INVALID_REQUEST": "Malformed JSON-RPC request frame.",
 }
 
+# Protocol-level error codes (REQ-086 / MCP spec).
+# These are transport/JSON-RPC concerns — malformed frames, unknown tools,
+# authentication, authorization and preset gating. They are always reported
+# as JSON-RPC errors, even for a ``tools/call`` request. Every other error
+# code originates from the tool actually executing and is therefore a
+# tool-execution error, which the MCP spec requires to be returned as a
+# successful JSON-RPC response carrying ``isError: true`` in its result.
+_PROTOCOL_ERROR_CODES = frozenset({
+    "PARSE_ERROR",
+    "INVALID_REQUEST",
+    "UNKNOWN_TOOL",
+    "AUTH_FAILED",
+    "PERMISSION_DENIED",
+    "FEATURE_NOT_ENABLED",
+})
+
 # JSON-RPC 2.0 Error Code Mapping
 # See: https://www.jsonrpc.org/specification#error_object
 # Standard codes: -32700 to -32603; Server-defined: -32000 to -32768
@@ -475,12 +491,32 @@ class ProtocolHandler:
                 response_data = result.data
             response = ErrorFormatter.format_jsonrpc_result(request_id, response_data)
         else:
-            response = ErrorFormatter.format_jsonrpc_error(
-                request_id,
-                result.error_code or "INTERNAL_ERROR",
-                result.message,
-                result.details,
-            )
+            error_code = result.error_code or "INTERNAL_ERROR"
+            # MCP spec (REQ-086 / F8.2): a tool-execution error must be
+            # returned as a *successful* JSON-RPC response whose result
+            # carries ``isError: true``. Protocol-level errors (auth,
+            # unknown tool, malformed request, RBAC/preset gating) stay
+            # JSON-RPC errors. The isError shape only applies to the
+            # standard ``tools/call`` surface; direct-method dispatch keeps
+            # the legacy JSON-RPC-error contract.
+            if method == "tools/call" and error_code not in _PROTOCOL_ERROR_CODES:
+                error_text = result.message or ERROR_CODES.get(error_code, error_code)
+                response = ErrorFormatter.format_jsonrpc_result(
+                    request_id,
+                    {
+                        "content": [
+                            {"type": "text", "text": f"Error: {error_text}"}
+                        ],
+                        "isError": True,
+                    },
+                )
+            else:
+                response = ErrorFormatter.format_jsonrpc_error(
+                    request_id,
+                    error_code,
+                    result.message,
+                    result.details,
+                )
 
         adapter.write_response(response)
         return response

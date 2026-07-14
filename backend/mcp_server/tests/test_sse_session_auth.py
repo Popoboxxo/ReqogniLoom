@@ -106,10 +106,10 @@ def test_messages_valid_session_is_accepted_without_api_key_in_url() -> None:
     ), mock.patch(
         "mcp_server.views._get_handler", return_value=fake_handler
     ), mock.patch(
-        "threading.Thread"
-    ) as thread_cls:
-        # Run the background work synchronously so we can assert on it.
-        thread_cls.side_effect = lambda target: mock.Mock(start=target)
+        "mcp_server.views._message_executor"
+    ) as executor:
+        # Run the bounded-pool work synchronously so we can assert on it.
+        executor.submit.side_effect = lambda fn, *a, **kw: fn(*a, **kw)
         response = McpMessagesView().post(request)
 
     assert response.status_code == 202
@@ -137,14 +137,14 @@ def test_messages_invalid_session_is_rejected() -> None:
     with mock.patch(
         "mcp_server.sse_pubsub.get_session_api_key", return_value=unbound
     ), mock.patch("mcp_server.views._get_handler") as get_handler, mock.patch(
-        "threading.Thread"
-    ) as thread_cls:
+        "mcp_server.views._message_executor"
+    ) as executor:
         response = McpMessagesView().post(request)
 
     assert response.status_code == 401
-    # No handler dispatch and no background thread for an unauthorised session.
+    # No handler dispatch and no background work for an unauthorised session.
     get_handler.assert_not_called()
-    thread_cls.assert_not_called()
+    executor.submit.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

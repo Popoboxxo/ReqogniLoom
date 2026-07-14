@@ -225,3 +225,80 @@ class TestProtocolHandler:
         body = _make_valid_body()
         response = handler.handle_http_request(body=body)
         assert response["error"]["code"] == -32603  # JSON-RPC Internal error
+
+
+def _make_tools_call_body(
+    tool_name: str, arguments: dict = None, request_id: int = 1
+) -> bytes:
+    """Build a standard MCP ``tools/call`` request body."""
+    frame = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "id": request_id,
+        "params": {
+            "api_key": "rf_validkey",
+            "name": tool_name,
+            "arguments": arguments or {},
+        },
+    }
+    return json.dumps(frame).encode()
+
+
+class TestToolsCallIsError:
+    """REQ-086 / F8.2: tool-execution errors surface as isError results."""
+
+    def test_tool_execution_error_returned_as_iserror_result(self):
+        registry = _make_registry_mock(
+            ToolResult.error("NOT_FOUND", "Requirement not found")
+        )
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_tools_call_body("requirement.get", {"id": "x"}, request_id=7)
+        response = handler.handle_http_request(body=body)
+
+        # Successful JSON-RPC response, error carried inside the result.
+        assert "error" not in response
+        assert response["id"] == 7
+        assert response["result"]["isError"] is True
+        content = response["result"]["content"]
+        assert content[0]["type"] == "text"
+        assert "Requirement not found" in content[0]["text"]
+
+    def test_validation_error_is_iserror_result_under_tools_call(self):
+        registry = _make_registry_mock(
+            ToolResult.error("VALIDATION_ERROR", "bad field")
+        )
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_tools_call_body("requirement.create", {}, request_id=8)
+        response = handler.handle_http_request(body=body)
+        assert "error" not in response
+        assert response["result"]["isError"] is True
+
+    def test_permission_denied_stays_jsonrpc_error_under_tools_call(self):
+        registry = _make_registry_mock(
+            ToolResult.error("PERMISSION_DENIED", "no access")
+        )
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_tools_call_body("requirement.create", {}, request_id=9)
+        response = handler.handle_http_request(body=body)
+        # Protocol-level error remains a JSON-RPC error.
+        assert "result" not in response
+        assert response["error"]["code"] == -32001  # PERMISSION_DENIED
+
+    def test_success_under_tools_call_has_no_iserror_flag(self):
+        registry = _make_registry_mock(ToolResult.ok({"requirement": {"id": "abc"}}))
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_tools_call_body("requirement.get", {"id": "abc"}, request_id=10)
+        response = handler.handle_http_request(body=body)
+        assert "error" not in response
+        assert "isError" not in response["result"]
+
+    def test_tool_error_direct_dispatch_stays_jsonrpc_error(self):
+        # Direct-method dispatch (not tools/call) keeps the legacy contract.
+        registry = _make_registry_mock(
+            ToolResult.error("NOT_FOUND", "Requirement not found")
+        )
+        handler = ProtocolHandler(tool_registry=registry)
+        body = _make_valid_body("requirement.get", request_id=11)
+        response = handler.handle_http_request(body=body)
+        assert "result" not in response
+        assert response["error"]["code"] == -32004  # NOT_FOUND

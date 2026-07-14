@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from asgiref.sync import sync_to_async
 from django.http import (
@@ -43,6 +44,16 @@ logger = logging.getLogger(__name__)
 _tool_registry: ToolRegistry | None = None
 _protocol_handler: ProtocolHandler | None = None
 _auth_service: AuthenticationService | None = None
+
+# Bounded worker pool for asynchronous SSE message processing (REQ-086 / F8.4).
+# A single, process-wide pool caps the number of concurrent background threads
+# so that a burst of messages can no longer spawn unbounded threads (OOM risk).
+# Excess work queues instead of allocating a new OS thread per message.
+_MESSAGE_POOL_MAX_WORKERS = 10
+_message_executor = ThreadPoolExecutor(
+    max_workers=_MESSAGE_POOL_MAX_WORKERS,
+    thread_name_prefix="mcp-msg",
+)
 
 
 def _get_auth_service() -> AuthenticationService:
@@ -207,14 +218,17 @@ class McpMessagesView(CorsMixin, View):
         headers["X-API-Key"] = session_api_key
         headers["HTTP_AUTHORIZATION"] = f"Bearer {session_api_key}"
 
-        # In a production system, this should be a Celery task.
-        # For simplicity and to avoid Celery dependencies here, we use a thread.
-        import threading
+        # Capture the request body now: the executor runs the closure after
+        # this view has returned, at which point the request may be closed.
+        body = request.body
 
+        # In a production system, this should be a Celery task. To avoid a
+        # Celery dependency here we offload to a bounded thread pool
+        # (REQ-086 / F8.4) instead of spawning one thread per message.
         def _process():
             try:
                 response_frame = handler.handle_http_request(
-                    body=request.body,
+                    body=body,
                     headers=headers,
                 )
                 publish_mcp_message(session_id, response_frame)
@@ -225,8 +239,8 @@ class McpMessagesView(CorsMixin, View):
                     "id": None,
                     "error": {"error_code": "INTERNAL_ERROR", "message": "Internal server error."}
                 })
-                
-        threading.Thread(target=_process).start()
+
+        _message_executor.submit(_process)
         return HttpResponse(status=202)
 
 
