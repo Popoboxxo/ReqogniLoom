@@ -66,3 +66,54 @@ erzeugen, ohne die Semantik zu verändern.
 
 `trace_link_service.query_trace_links` und andere reine Read-Pfade laufen
 bewusst ohne Transaktions-Wrapper (ADR-L3-AS005-02).
+
+## Service-Layer-Grenzen (REQ-066, A-16, BE-10)
+
+ReqFlow trennt HTTP-Concerns (`rest_api/`) strikt von Persistenz-Zugriff. Die
+gewählte Ausprägung ist **Option B (Django-idiomatisch)** — kein hexagonaler
+Repository-Layer über alle ORM-Call-Sites, sondern ORM-Zugriff gekapselt in
+Application-/Domain-Services mit Custom Managern/QuerySets für wiederverwendete
+oder komplexe Queries.
+
+### Regeln
+
+1. **`rest_api/` (ViewSets, APIViews):** KEIN direkter ORM-Zugriff.
+   - Verboten: `Model.objects.*`, `Model.unscoped.*`, `from persistence.models
+     import ...` in View-Dateien (`views.py`, `*_views.py`).
+   - Ausnahme: Serializer-Validatoren und Choice-Felder in `serializers.py`
+     dürfen Modelle referenzieren (Validierung ist kein Persistenz-Concern).
+   - Views rufen ausschließlich Service-Methoden auf und übersetzen deren
+     Domain-Exceptions (`ValidationError`, `NotFoundError`,
+     `PermissionDeniedError`) via `_service_error_response` in HTTP-Codes.
+
+2. **Application-Services (`application/`) und Domain-Services
+   (`icd/services.py`, `diagram/services.py`, `auth_tenancy/services/*`):**
+   dürfen ORM nutzen. Wiederverwendete/komplexe Queries (≥2 Nutzungsstellen,
+   CTE, Aggregation, Bulk-Update, `unscoped`) gehören als benannte Methode in
+   ein Custom-Manager/QuerySet unter `persistence/managers.py`.
+
+3. **`unscoped` (tenant-übergreifend):** nur in Persistence-/Application-Layer
+   und stets mit dokumentierter Begründung. NIE in `rest_api/`.
+
+### Durchsetzung
+
+Ein Ratchet-Guardrail-Test (`rest_api/tests/test_architecture.py`) zählt die
+verbliebenen direkten ORM-Zeilen pro View-Datei gegen eine **schrumpfende
+Allowlist** (`MAX_ORM_LINES`). Die Werte dürfen nur sinken, nie steigen — jeder
+neue Verstoß bricht den Build. Ein Wert `0` (Datei nicht in der Allowlist)
+bedeutet: vollständig sauber, muss so bleiben.
+
+### Migrationsstand REQ-066
+
+- **Phase 1 (Writes) — erledigt:** `AttributeVisibilityConfigService`,
+  `CustomFieldService`, `SettingsService`, `UserProfileService` neu;
+  `WorkspaceService.update_metadata`/Preset-Switch, `IcdService`/`DiagramService`
+  um `get`/`delete` ergänzt. `settings_views.py` und `auth_views.py` sind damit
+  ORM-frei.
+- **Phase 2 (Reads) — offen:** `_resolve_artifact_titles` (views.py),
+  Baseline-Titel-Helper (`unscoped`), RequirementViewSet-Allocations,
+  ArtifactViewSet `unscoped`-Filter, Tenant/User-Lookup-Duplikate in
+  `icd_views`/`diagram_views`/`diagram_canvas_views`.
+- **Phase 3 (BE-10-Hotspots) — offen:** `RequirementQuerySet.with_artifact()`
+  (6× dupliziertes `select_related("artifact").filter`), Entity-Typ-Auflösung
+  in `trace_link_service`.
