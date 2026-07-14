@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
+from django.middleware.csrf import get_token
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -29,9 +31,33 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from auth_tenancy.errors import AuthError, build_error_body
+from auth_tenancy.rest import ACCESS_COOKIE_NAME, HasOperationPermission
 from auth_tenancy.services import PasswordAuthenticationService
 from persistence.models import User
 from rest_api.serializers import UserProfileSerializer
+
+# The access cookie is scoped to the API mount so it is never sent to unrelated
+# paths (e.g. static assets). Login/logout must use the same path or the browser
+# will not match the cookie for deletion (REQ-052).
+_ACCESS_COOKIE_PATH = "/api"
+
+
+def _set_access_cookie(response: Response, token: str) -> None:
+    """Attach the signed JWT as an httpOnly access cookie (REQ-052).
+
+    ``Secure`` is derived from ``DEBUG`` so local HTTP development still works
+    while production (``DEBUG=False``) requires HTTPS. ``SameSite=Lax`` blocks
+    the cookie on cross-site POST navigations, a first CSRF line of defence.
+    """
+    response.set_cookie(
+        ACCESS_COOKIE_NAME,
+        token,
+        max_age=int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 43200)),
+        httponly=True,
+        samesite="Lax",
+        secure=not settings.DEBUG,
+        path=_ACCESS_COOKIE_PATH,
+    )
 
 
 def _auth_error_response(
@@ -93,7 +119,10 @@ class LoginView(APIView):
                 http_status=exc.status_code,
             )
 
-        return Response(
+        # Phase 1 (REQ-052): the token is ALSO returned in the body for backward
+        # compatibility with the e2e login helper and API tooling; the browser
+        # SPA ignores it and relies on the httpOnly cookie set below.
+        response = Response(
             {
                 "token": token,
                 "user": _user_payload(user, roles),
@@ -102,6 +131,28 @@ class LoginView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+        _set_access_cookie(response, token)
+        # Force a CSRF cookie so the SPA can echo X-CSRFToken on cookie-authed
+        # mutations (CsrfViewMiddleware writes it on the response).
+        get_token(request)
+        return response
+
+
+class LogoutView(APIView):
+    """``POST /api/v1/auth/logout/`` — clear the httpOnly access cookie (REQ-052).
+
+    Requires a valid credential (any authenticated role) and, on the cookie auth
+    path, a CSRF token — both enforced by the global authentication layer. The
+    response deletes ``reqflow_access`` so a subsequent request is anonymous.
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Delete the access cookie and return 204."""
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        response.delete_cookie(ACCESS_COOKIE_NAME, path=_ACCESS_COOKIE_PATH)
+        return response
 
 
 class MeView(APIView):
@@ -178,4 +229,4 @@ class MeView(APIView):
         )
 
 
-__all__ = ["LoginView", "MeView"]
+__all__ = ["LoginView", "LogoutView", "MeView"]
