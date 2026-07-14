@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 from typing import AsyncGenerator, Dict, Any, Optional
@@ -14,6 +16,14 @@ SESSION_TTL_SECONDS = 8 * 3600
 # Django signing derives its HMAC from SECRET_KEY, so a raw Redis dump cannot
 # be reversed without the server secret.
 _API_KEY_SIGNING_SALT = "sse-api-key"
+
+# Bounded per-session replay buffer for SSE Last-Event-ID recovery (REQ-107 /
+# audit F8.3). Every published event gets a monotonic id and is appended to a
+# capped Redis list; on reconnect the client sends the last id it saw and we
+# replay the tail of the buffer with a larger id. This upgrades the transport
+# from at-most-once to best-effort at-least-once within the buffer window.
+EVENT_BUFFER_MAX = 100
+EVENT_BUFFER_TTL_SECONDS = SESSION_TTL_SECONDS
 
 # Module-level Redis connection pool (REQ-035 / audit BE-4). Reusing a single
 # pool avoids opening a fresh TCP connection on every publish/store/lookup call.
@@ -39,6 +49,30 @@ def _get_redis_client():
 def _session_auth_key(session_id: str) -> str:
     """Return the Redis key holding the API key bound to an SSE session."""
     return f"mcp:session:{session_id}:auth"
+
+def _event_counter_key(session_id: str) -> str:
+    """Return the Redis key holding the monotonic event-id counter (REQ-107)."""
+    return f"mcp:session:{session_id}:eventid"
+
+def _event_buffer_key(session_id: str) -> str:
+    """Return the Redis key holding the capped replay buffer (REQ-107)."""
+    return f"mcp:session:{session_id}:buffer"
+
+def _parse_event_envelope(raw: str) -> tuple[Optional[int], str]:
+    """Split a stored/published event into ``(event_id, data_json)``.
+
+    Events are wrapped as ``{"id": <int>, "data": <message>}`` (REQ-107).
+    A payload that does not match this shape (e.g. a legacy plain message) is
+    returned with ``event_id = None`` and the raw string as data, so the stream
+    degrades gracefully instead of dropping the event.
+    """
+    try:
+        envelope = json.loads(raw)
+        if isinstance(envelope, dict) and "id" in envelope and "data" in envelope:
+            return int(envelope["id"]), json.dumps(envelope["data"])
+    except (ValueError, TypeError):
+        pass
+    return None, raw
 
 def store_session_api_key(
     session_id: str, api_key: str, ttl: int = SESSION_TTL_SECONDS
@@ -79,16 +113,77 @@ def get_session_api_key(session_id: str) -> Optional[str]:
         return None
 
 def publish_mcp_message(session_id: str, message: Dict[str, Any]) -> None:
-    """Publish a JSON-RPC message to a specific SSE session."""
+    """Publish a JSON-RPC message to a specific SSE session.
+
+    Each message is assigned a monotonic per-session event id and appended to a
+    capped replay buffer before being published, so a client that reconnects
+    with a ``Last-Event-ID`` header can recover events it missed during a
+    connection drop (REQ-107 / audit F8.3).
+    """
     try:
         r = _get_redis_client()
         channel = f"mcp:session:{session_id}"
-        r.publish(channel, json.dumps(message))
+
+        # Monotonic id per session; INCR is atomic so concurrent publishers on
+        # the bounded worker pool never collide on an id.
+        event_id = r.incr(_event_counter_key(session_id))
+        envelope = json.dumps({"id": event_id, "data": message})
+
+        # Append to the capped buffer and keep only the newest EVENT_BUFFER_MAX
+        # entries. Both keys expire with the session so stale sessions do not
+        # leak memory in Redis.
+        buffer_key = _event_buffer_key(session_id)
+        pipe = r.pipeline()
+        pipe.rpush(buffer_key, envelope)
+        pipe.ltrim(buffer_key, -EVENT_BUFFER_MAX, -1)
+        pipe.expire(buffer_key, EVENT_BUFFER_TTL_SECONDS)
+        pipe.expire(_event_counter_key(session_id), EVENT_BUFFER_TTL_SECONDS)
+        pipe.execute()
+
+        r.publish(channel, envelope)
     except Exception:
         logger.exception(f"Failed to publish MCP message to session {session_id}")
 
-async def async_sse_generator(session_id: str, endpoint_url: str) -> AsyncGenerator[str, None]:
-    """Async generator that yields SSE events from Redis PubSub."""
+def get_buffered_events(
+    session_id: str, after_event_id: Optional[int] = None
+) -> list[Dict[str, Any]]:
+    """Return buffered replay events for a session (REQ-107).
+
+    Yields the wrapped ``{"id", "data"}`` envelopes still held in the capped
+    buffer, oldest first. When ``after_event_id`` is given, only events with a
+    strictly larger id are returned — the exact set a reconnecting client needs.
+    """
+    try:
+        r = _get_redis_client()
+        raw_items = r.lrange(_event_buffer_key(session_id), 0, -1)
+    except Exception:
+        logger.exception(f"Failed to read replay buffer for session {session_id}")
+        return []
+
+    events: list[Dict[str, Any]] = []
+    for item in raw_items:
+        raw = item.decode("utf-8") if isinstance(item, bytes) else str(item)
+        try:
+            envelope = json.loads(raw)
+        except ValueError:
+            continue
+        if after_event_id is not None and envelope.get("id", 0) <= after_event_id:
+            continue
+        events.append(envelope)
+    return events
+
+async def async_sse_generator(
+    session_id: str,
+    endpoint_url: str,
+    last_event_id: Optional[int] = None,
+) -> AsyncGenerator[str, None]:
+    """Async generator that yields SSE events from Redis PubSub.
+
+    Every ``message`` event carries an ``id:`` line so clients can track their
+    position in the stream (REQ-107). When ``last_event_id`` is supplied (from a
+    reconnecting client's ``Last-Event-ID`` header) the buffered events with a
+    larger id are replayed first, then live streaming continues.
+    """
     import redis.asyncio as redis
     import asyncio
 
@@ -98,16 +193,46 @@ async def async_sse_generator(session_id: str, endpoint_url: str) -> AsyncGenera
     channel = f"mcp:session:{session_id}"
 
     try:
+        # Subscribe before reading the buffer so no live event is lost in the
+        # gap between replay and the streaming loop.
         await pubsub.subscribe(channel)
         # Yield the endpoint event per MCP spec
         yield "event: endpoint\n"
         yield f"data: {endpoint_url}\n\n"
 
+        # Replay missed events for a reconnecting client (REQ-107).
+        replayed_ids: set[int] = set()
+        if last_event_id is not None:
+            try:
+                raw_items = await r.lrange(_event_buffer_key(session_id), 0, -1)
+            except Exception:
+                logger.exception(
+                    f"Failed to replay buffer for session {session_id}"
+                )
+                raw_items = []
+            for item in raw_items:
+                raw = item.decode("utf-8") if isinstance(item, bytes) else str(item)
+                event_id, data = _parse_event_envelope(raw)
+                if event_id is None or event_id <= last_event_id:
+                    continue
+                replayed_ids.add(event_id)
+                yield f"id: {event_id}\n"
+                yield "event: message\n"
+                yield f"data: {data}\n\n"
+
         while True:
             # Wait for message with timeout to send keepalives
             message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15.0)
             if message is not None:
-                data = message["data"].decode("utf-8")
+                raw = message["data"].decode("utf-8")
+                event_id, data = _parse_event_envelope(raw)
+                # Skip an event already delivered via replay to avoid a
+                # duplicate in the tiny subscribe/replay overlap window.
+                if event_id is not None and event_id in replayed_ids:
+                    replayed_ids.discard(event_id)
+                    continue
+                if event_id is not None:
+                    yield f"id: {event_id}\n"
                 yield "event: message\n"
                 yield f"data: {data}\n\n"
             else:

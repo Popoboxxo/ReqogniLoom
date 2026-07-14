@@ -165,6 +165,11 @@ class McpHttpTransportView(CorsMixin, View):
                 status=500,
             )
 
+        # Notifications carry no id and must not be answered (REQ-108). The
+        # handler returns None; acknowledge with an empty 202 body.
+        if response_frame is None:
+            return HttpResponse(status=202)
+
         # Determine HTTP status from JSON-RPC error code
         http_status = 200
         if "error" in response_frame:
@@ -243,7 +248,9 @@ class McpMessagesView(CorsMixin, View):
                     body=body,
                     headers=headers,
                 )
-                publish_mcp_message(session_id, response_frame)
+                # Notifications (REQ-108) return None and must not be answered.
+                if response_frame is not None:
+                    publish_mcp_message(session_id, response_frame)
             except Exception:
                 logger.exception("Error processing MCP message background task")
                 publish_mcp_message(session_id, {
@@ -286,6 +293,49 @@ class McpSseTransportView(View):
             return header_key
         return request.GET.get("api_key", "")
 
+    @staticmethod
+    def _parse_last_event_id(request: HttpRequest) -> int | None:
+        """Return the numeric ``Last-Event-ID`` header, or None if absent/invalid.
+
+        EventSource clients resend the last id they received on reconnect
+        (REQ-107). A missing or malformed value simply means "no replay" and
+        must never break the handshake.
+        """
+        raw = request.META.get("HTTP_LAST_EVENT_ID", "")
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    async def _resolve_session_id(
+        request: HttpRequest,
+        api_key: str,
+        get_session_api_key,
+        store_session_api_key,
+    ) -> str:
+        """Resume a matching existing session or mint and bind a fresh one (REQ-107).
+
+        A reconnecting client passes its ``session_id`` so it keeps the same
+        replay buffer. The session is only reused when its server-side binding
+        matches the authenticated key; this prevents a client from hijacking
+        another session's stream (REQ-018). Any mismatch, unknown, or missing
+        session falls back to a new, freshly bound session.
+        """
+        requested = request.GET.get("session_id", "")
+        if requested:
+            bound_key = await sync_to_async(get_session_api_key)(requested)
+            if bound_key == api_key:
+                return requested
+
+        session_id = str(uuid.uuid4())
+        # Bind the authenticated key to the session server-side so the secret
+        # never travels in the message-endpoint URL (REQ-018 / SYSTEM_AUDIT P-02).
+        await sync_to_async(store_session_api_key)(session_id, api_key)
+        return session_id
+
     async def options(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Answer CORS preflight for the SSE endpoint."""
         return _apply_cors_headers(
@@ -299,7 +349,11 @@ class McpSseTransportView(View):
         for a request carrying a valid API key. This closes the unauthenticated
         DoS vector where any client could hold a streaming connection open.
         """
-        from mcp_server.sse_pubsub import async_sse_generator, store_session_api_key
+        from mcp_server.sse_pubsub import (
+            async_sse_generator,
+            get_session_api_key,
+            store_session_api_key,
+        )
 
         # Authenticate the handshake before allocating a streaming connection.
         api_key = self._resolve_api_key(request)
@@ -318,11 +372,18 @@ class McpSseTransportView(View):
                 methods=self._CORS_METHODS,
             )
 
-        session_id = str(uuid.uuid4())
+        # Resume an existing session when the client reconnects with a known
+        # session_id whose server-side binding matches the authenticated key
+        # (REQ-107). Reusing the session keeps the same replay buffer/channel so
+        # Last-Event-ID recovery can actually find the missed events. Any other
+        # case (no session_id, unknown, or key mismatch) mints a fresh session.
+        session_id = await self._resolve_session_id(
+            request, api_key, get_session_api_key, store_session_api_key
+        )
 
-        # Bind the authenticated key to the session server-side so the secret
-        # never travels in the message-endpoint URL (REQ-018 / SYSTEM_AUDIT P-02).
-        await sync_to_async(store_session_api_key)(session_id, api_key)
+        # A reconnecting EventSource replays from the last id it received; parse
+        # it defensively so a malformed header just starts a fresh stream.
+        last_event_id = self._parse_last_event_id(request)
 
         # The message endpoint carries ONLY the session id — never the
         # api_key, which would otherwise leak into access/proxy logs and
@@ -330,7 +391,7 @@ class McpSseTransportView(View):
         endpoint = f"/mcp/messages/?session_id={session_id}"
 
         response = StreamingHttpResponse(
-            async_sse_generator(session_id, endpoint),
+            async_sse_generator(session_id, endpoint, last_event_id=last_event_id),
             content_type="text/event-stream",
             status=200,
         )

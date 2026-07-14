@@ -39,7 +39,9 @@ def test_sse_endpoint_url_excludes_api_key() -> None:
     """The SSE ``endpoint`` event URL carries only ``session_id`` — no api_key."""
     captured: List[Tuple[str, str]] = []
 
-    def _fake_generator(session_id: str, endpoint_url: str) -> AsyncGenerator[str, None]:
+    def _fake_generator(
+        session_id: str, endpoint_url: str, last_event_id: Optional[int] = None
+    ) -> AsyncGenerator[str, None]:
         captured.append((session_id, endpoint_url))
 
         async def _gen() -> AsyncGenerator[str, None]:
@@ -209,7 +211,9 @@ def test_tampered_session_api_key_returns_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _fake_sse_generator(session_id: str, endpoint_url: str) -> AsyncGenerator[str, None]:
+def _fake_sse_generator(
+    session_id: str, endpoint_url: str, last_event_id: Optional[int] = None
+) -> AsyncGenerator[str, None]:
     """Redis-free stand-in for the SSE event generator."""
 
     async def _gen() -> AsyncGenerator[str, None]:
