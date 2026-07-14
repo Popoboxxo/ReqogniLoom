@@ -36,7 +36,7 @@ from application.base import (
 )
 from application.dlq_service import _DlqSnapshot
 
-from mcp_server.protocol_handler import ProtocolHandler
+from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.tools.audit import AuditToolGroup
 
@@ -818,7 +818,7 @@ class TestE2EAuditQuery:
         )
 
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
         mock_query.assert_not_called()
 
     def test_query_with_invalid_api_key_returns_auth_failed(self):
@@ -834,7 +834,7 @@ class TestE2EAuditQuery:
         )
 
         assert "error" in response
-        assert response["error"]["error_code"] == "AUTH_FAILED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["AUTH_FAILED"]
 
 
 class TestE2EDlqReplay:
@@ -871,5 +871,5 @@ class TestE2EDlqReplay:
         )
 
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
         dlq.replay_dlq_event.assert_not_called()

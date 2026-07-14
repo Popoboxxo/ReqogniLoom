@@ -29,7 +29,7 @@ from application.base import (
     PermissionDeniedError,
 )
 
-from mcp_server.protocol_handler import ProtocolHandler
+from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.tools.users import UsersToolGroup
 
@@ -987,7 +987,7 @@ class TestE2EUserList:
         )
 
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
 
     def test_list_with_invalid_api_key_returns_auth_failed(self):
         registry, auth_svc, _ = _build_registry()
@@ -1002,7 +1002,7 @@ class TestE2EUserList:
         )
 
         assert "error" in response
-        assert response["error"]["error_code"] == "AUTH_FAILED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["AUTH_FAILED"]
 
 
 class TestE2EUserCreate:
@@ -1061,7 +1061,7 @@ class TestE2EUserCreate:
         )
 
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
 
 
 class TestE2EUserAssignRole:

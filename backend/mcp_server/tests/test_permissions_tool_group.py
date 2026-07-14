@@ -631,7 +631,8 @@ class TestE2EPermissions:
         )
 
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        from mcp_server.protocol_handler import ERROR_CODE_MAP
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
         svc.grant_permission.assert_not_called()
 
     def test_list_e2e_returns_jsonrpc_result(self):

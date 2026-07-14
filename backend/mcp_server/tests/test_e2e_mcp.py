@@ -38,7 +38,7 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
 
-from mcp_server.protocol_handler import ProtocolHandler
+from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 
 
@@ -178,7 +178,7 @@ class TestE2EWorkspaceClose:
         )
 
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
         # Service must NOT be reached because the RBAC gate blocked it
         svc.close_workspace.assert_not_called()
 
@@ -194,7 +194,7 @@ class TestE2EWorkspaceClose:
             {"workspace_id": str(WORKSPACE_ID)},
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "AUTH_FAILED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["AUTH_FAILED"]
         svc.close_workspace.assert_not_called()
 
     def test_close_not_found_propagates_as_jsonrpc_error(self):
@@ -211,7 +211,7 @@ class TestE2EWorkspaceClose:
             {"workspace_id": str(WORKSPACE_ID)},
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "NOT_FOUND"
+        assert response["error"]["code"] == ERROR_CODE_MAP["NOT_FOUND"]
         assert "Workspace not found" in response["error"]["message"]
 
     def test_close_missing_workspace_id_returns_validation_error(self):
@@ -221,7 +221,7 @@ class TestE2EWorkspaceClose:
 
         response = _post(handler, "workspace.close", {})
         assert "error" in response
-        assert response["error"]["error_code"] == "VALIDATION_ERROR"
+        assert response["error"]["code"] == ERROR_CODE_MAP["VALIDATION_ERROR"]
         svc.close_workspace.assert_not_called()
 
 
@@ -269,7 +269,7 @@ class TestE2EWorkspaceReactivate:
             {"workspace_id": str(WORKSPACE_ID)},
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "VALIDATION_ERROR"
+        assert response["error"]["code"] == ERROR_CODE_MAP["VALIDATION_ERROR"]
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +325,7 @@ class TestE2EWorkspaceDelete:
             },
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "VALIDATION_ERROR"
+        assert response["error"]["code"] == ERROR_CODE_MAP["VALIDATION_ERROR"]
         assert "Confirmation mismatch" in response["error"]["message"]
 
     def test_delete_missing_confirmation_text_returns_validation_error(self):
@@ -339,7 +339,7 @@ class TestE2EWorkspaceDelete:
             {"workspace_id": str(WORKSPACE_ID)},
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "VALIDATION_ERROR"
+        assert response["error"]["code"] == ERROR_CODE_MAP["VALIDATION_ERROR"]
         svc.delete_workspace.assert_not_called()
 
     def test_delete_with_viewer_role_is_blocked_by_rbac(self):
@@ -357,7 +357,7 @@ class TestE2EWorkspaceDelete:
             },
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
         svc.delete_workspace.assert_not_called()
 
 
@@ -390,7 +390,7 @@ class TestE2EWorkspaceNamespace:
 
         response = _post(handler, "workspace.does_not_exist", {})
         assert "error" in response
-        assert response["error"]["error_code"] == "UNKNOWN_TOOL"
+        assert response["error"]["code"] == ERROR_CODE_MAP["UNKNOWN_TOOL"]
 
 
 # ---------------------------------------------------------------------------

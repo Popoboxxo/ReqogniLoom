@@ -34,7 +34,7 @@ from application.base import (
     PermissionDeniedError,
 )
 
-from mcp_server.protocol_handler import ProtocolHandler
+from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.tools.backup import BackupToolGroup
 
@@ -644,7 +644,7 @@ class TestE2EAdminBackupCreate:
         response = _post(handler, "admin.backup_create", {})
 
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
         backup.create_backup.assert_not_called()
 
     def test_create_with_invalid_api_key_returns_auth_failed(self):
@@ -656,7 +656,7 @@ class TestE2EAdminBackupCreate:
         response = _post(handler, "admin.backup_create", {}, api_key="rf_bad_key")
 
         assert "error" in response
-        assert response["error"]["error_code"] == "AUTH_FAILED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["AUTH_FAILED"]
         backup.create_backup.assert_not_called()
 
 
@@ -695,7 +695,7 @@ class TestE2EAdminRestore:
             },
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "VALIDATION_ERROR"
+        assert response["error"]["code"] == ERROR_CODE_MAP["VALIDATION_ERROR"]
         assert "Captcha" in response["error"]["message"]
         restore.restore.assert_not_called()
 
@@ -710,7 +710,7 @@ class TestE2EAdminRestore:
             {"backup_id": str(BACKUP_UUID)},
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "VALIDATION_ERROR"
+        assert response["error"]["code"] == ERROR_CODE_MAP["VALIDATION_ERROR"]
         restore.restore.assert_not_called()
 
     def test_restore_with_viewer_role_is_blocked_by_rbac(self):
@@ -728,5 +728,5 @@ class TestE2EAdminRestore:
             },
         )
         assert "error" in response
-        assert response["error"]["error_code"] == "PERMISSION_DENIED"
+        assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
         restore.restore.assert_not_called()
