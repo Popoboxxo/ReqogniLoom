@@ -47,6 +47,11 @@ from application.base import NotFoundError, ServiceBase, ValidationError
 
 logger = logging.getLogger(__name__)
 
+# Prefix stamped onto completions that were served by the mock provider after a
+# real provider failed (REQ-078). Callers can test for it to warn the user that
+# the content is a deterministic placeholder, not a genuine LLM answer.
+MOCK_FALLBACK_MARKER = "[MOCK FALLBACK] "
+
 
 class LlmResponseError(RuntimeError):
     """Raised when the LLM returns a response that cannot be parsed as JSON.
@@ -332,6 +337,8 @@ class AiDerivationService(ServiceBase):
         configured, so the flows degrade to deterministic output instead of
         failing hard (REQ-L2-AI-002; default provider is ``mock``).
         """
+        from django.conf import settings
+
         from llm_adapter.providers import (
             LlmNotConfiguredError,
             LlmProviderUnknownError,
@@ -341,8 +348,20 @@ class AiDerivationService(ServiceBase):
 
         try:
             provider = get_provider()
-        except (LlmNotConfiguredError, LlmProviderUnknownError):
-            provider = MockLlmProvider()
+        except (LlmNotConfiguredError, LlmProviderUnknownError) as error:
+            # Silent degradation hides that the caller is looking at mock output
+            # instead of a real LLM answer (REQ-078). Emit a WARNING and tag the
+            # response so downstream code / the UI can flag it to the user.
+            provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
+            logger.warning(
+                "LLM provider %s failed, falling back to mock. Error: %s",
+                provider_name,
+                error,
+            )
+            result = MockLlmProvider().complete(
+                prompt, purpose=purpose, context=context
+            )
+            return f"{MOCK_FALLBACK_MARKER}{result}"
 
         return provider.complete(prompt, purpose=purpose, context=context)
 
@@ -354,6 +373,10 @@ class AiDerivationService(ServiceBase):
             LlmResponseError: When *raw* is not valid JSON or not a list.
         """
         text = raw.strip()
+        # Strip the mock-fallback marker (REQ-078) so a degraded response still
+        # parses; the marker is only a user-facing signal, not part of the JSON.
+        if text.startswith(MOCK_FALLBACK_MARKER):
+            text = text[len(MOCK_FALLBACK_MARKER):].strip()
         if text.startswith("```"):
             # Strip a leading ```json / ``` fence and the trailing ```.
             text = text.replace("```json", "").replace("```", "").strip()
@@ -370,4 +393,4 @@ class AiDerivationService(ServiceBase):
         return parsed
 
 
-__all__ = ["AiDerivationService", "LlmResponseError"]
+__all__ = ["AiDerivationService", "LlmResponseError", "MOCK_FALLBACK_MARKER"]
