@@ -402,3 +402,4 @@ Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einflie
 | REQ-091 | FE-14 | — | ✅ done — WorkspaceTree opt-in virtualization (@tanstack/react-virtual, threshold 100) |
 | REQ-102 | INF-21 | — | ✅ done — pg_dump backup sidecar + postgres_backup_data volume, 7-backup retention |
 | REQ-109 | P2-Bericht | — | ✅ done — pgvector>=0.3.0 present in requirements.txt (line 15), built via Dockerfile pip install |
+| REQ-110 | P2-Bericht | — | ✅ done — python-json-logger>=2.0.7 present in requirements.txt (line 39), built via Dockerfile pip install |
