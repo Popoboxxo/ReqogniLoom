@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+from collections import OrderedDict
 from typing import Any, Dict, Optional, Tuple
 from uuid import UUID
 
@@ -126,19 +127,40 @@ class _PresetCacheEntry:
 
 
 class PresetCache:
-    """LRU-style cache for preset feature flags keyed by workspace_id."""
+    """Bounded LRU cache for preset feature flags keyed by workspace_id.
 
-    def __init__(self) -> None:
-        self._cache: Dict[str, _PresetCacheEntry] = {}
+    Entries expire via TTL (:class:`_PresetCacheEntry`) and the total number of
+    entries is capped at ``maxsize`` (REQ-108). Once the cap is reached the
+    least-recently-used entry is evicted, so the cache cannot grow without bound
+    under a large or adversarial set of workspace ids.
+    """
+
+    DEFAULT_MAXSIZE = 256
+
+    def __init__(self, maxsize: int = DEFAULT_MAXSIZE) -> None:
+        if maxsize <= 0:
+            raise ValueError("PresetCache maxsize must be positive")
+        self._maxsize = maxsize
+        self._cache: "OrderedDict[str, _PresetCacheEntry]" = OrderedDict()
 
     def get(self, workspace_id: str) -> Optional[Dict[str, bool]]:
         entry = self._cache.get(workspace_id)
-        if entry and entry.is_valid():
-            return entry.features
-        return None
+        if entry is None:
+            return None
+        if not entry.is_valid():
+            # Drop the stale entry so it does not occupy a cache slot.
+            self._cache.pop(workspace_id, None)
+            return None
+        # Mark as most-recently-used for LRU eviction ordering.
+        self._cache.move_to_end(workspace_id)
+        return entry.features
 
     def set(self, workspace_id: str, features: Dict[str, bool]) -> None:
         self._cache[workspace_id] = _PresetCacheEntry(features)
+        self._cache.move_to_end(workspace_id)
+        # Evict least-recently-used entries until within the size bound.
+        while len(self._cache) > self._maxsize:
+            self._cache.popitem(last=False)
 
     def invalidate(self, workspace_id: str) -> None:
         self._cache.pop(workspace_id, None)
@@ -272,33 +294,52 @@ class ToolRegistry:
             "ai_derivation": AiDerivationToolGroup(),
         })
 
-    def list_tools(self, api_key: str) -> list[Dict[str, Any]]:
-        """List all tools available to the given API key.
-        
-        Evaluates RBAC and Preset feature gates.
+    def list_tools(
+        self, api_key: str, workspace_id: Optional[str] = None
+    ) -> list[Dict[str, Any]]:
+        """List the tools available to the given API key.
+
+        Applies the same RBAC gate as :meth:`dispatch_request` (REQ-108): a
+        caller without WRITE permission (e.g. a Viewer) does not see write
+        tools, so the advertised tool surface matches what the caller may
+        actually execute. Preset feature gating stays an execution-time concern.
+
+        Args:
+            api_key: Raw API key for validation.
+            workspace_id: Optional workspace to resolve roles against. When
+                omitted, roles are aggregated across all of the caller's
+                non-suspended assignments (MCP ``tools/list`` is workspace-less).
         """
         self._ensure_groups()
-        
+
         auth_ctx, auth_error = self._validate_api_key(api_key)
-        if auth_error:
-            # If auth fails, return empty list or raise (we just return empty for safety)
+        if auth_error or auth_ctx is None:
+            # Auth failure → no tools are visible.
             return []
-            
+
         from persistence.tenancy import TenantContext
         try:
-            if auth_ctx is not None and auth_ctx.tenant_id is not None:
+            if auth_ctx.tenant_id is not None:
                 TenantContext.set_tenant(auth_ctx.tenant_id)
-            # Resolve global roles (we don't have a specific workspace context here, 
-            # so we only list tools that are globally available or don't require specific workspace permissions,
-            # or we just list all tools since MCP tools/list is often global).
-            # We will list all tools that the groups expose. The strict RBAC is enforced on execution.
-            tools = []
+
+            roles = self._resolve_list_roles(auth_ctx, workspace_id)
+            can_write = self._authz_service.decide_access(
+                roles, Operation.WRITE
+            ).allow
+
+            tools: list[Dict[str, Any]] = []
             for group in self._groups.values():
                 if hasattr(group, "get_tool_schemas"):
                     tools.extend(group.get_tool_schemas())
+
+            if not can_write:
+                # Hide write tools from read-only callers (Viewer role).
+                tools = [
+                    t for t in tools if not self._is_write_tool(t.get("name", ""))
+                ]
             return tools
         finally:
-            if auth_ctx is not None and auth_ctx.tenant_id is not None:
+            if auth_ctx.tenant_id is not None:
                 TenantContext.clear_tenant()
 
     def dispatch_request(
@@ -443,6 +484,31 @@ class ToolRegistry:
             auth_method=ctx.auth_method,
             api_key_id=ctx.api_key_id,
         )
+
+    def _resolve_list_roles(
+        self, ctx: AuthContext, workspace_id: Optional[str]
+    ) -> Tuple[str, ...]:
+        """Resolve the caller's active roles for the ``tools/list`` RBAC gate.
+
+        With a workspace context we reuse the workspace-scoped resolution.
+        Without one (the common ``tools/list`` case) we aggregate every
+        non-suspended role the caller holds across all workspaces, so a caller
+        that may write anywhere still sees the write tools while a pure Viewer
+        does not (REQ-108).
+        """
+        if workspace_id:
+            return self._resolve_roles(ctx, workspace_id).active_roles
+
+        try:
+            from auth_tenancy.models import UserRole
+
+            assignments = UserRole.objects.filter(
+                user_id=ctx.user_id, suspended_at__isnull=True
+            ).values_list("role", flat=True)
+            return tuple(sorted(set(assignments)))
+        except Exception:
+            logger.debug("Global role resolution failed for tools/list")
+            return ()
 
     def _is_write_tool(self, tool_name: str) -> bool:
         """Return True if tool_name is a write operation."""

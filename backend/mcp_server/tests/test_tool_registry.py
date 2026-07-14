@@ -76,6 +76,39 @@ class TestPresetCache:
         cache.invalidate("ws-1")
         assert cache.get("ws-1") is None
 
+    def test_evicts_lru_entry_when_maxsize_exceeded(self):
+        # REQ-108: the cache must stay bounded and drop the oldest entry.
+        cache = PresetCache(maxsize=2)
+        cache.set("ws-1", {"a": True})
+        cache.set("ws-2", {"b": True})
+        cache.set("ws-3", {"c": True})  # evicts ws-1 (least recently used)
+        assert cache.get("ws-1") is None
+        assert cache.get("ws-2") == {"b": True}
+        assert cache.get("ws-3") == {"c": True}
+
+    def test_recent_access_protects_entry_from_eviction(self):
+        # REQ-108: touching ws-1 must move it to most-recently-used.
+        cache = PresetCache(maxsize=2)
+        cache.set("ws-1", {"a": True})
+        cache.set("ws-2", {"b": True})
+        cache.get("ws-1")  # ws-1 now most-recently-used
+        cache.set("ws-3", {"c": True})  # evicts ws-2 instead of ws-1
+        assert cache.get("ws-1") == {"a": True}
+        assert cache.get("ws-2") is None
+
+    def test_never_exceeds_maxsize_under_many_keys(self):
+        # REQ-108: unbounded growth guard — cache size stays capped.
+        cache = PresetCache(maxsize=8)
+        for i in range(200):
+            cache.set(f"ws-{i}", {"x": True})
+        assert len(cache._cache) == 8
+
+    def test_maxsize_must_be_positive(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            PresetCache(maxsize=0)
+
 
 # ---------------------------------------------------------------------------
 # ToolGroupRouter tests
@@ -316,6 +349,54 @@ class TestToolRegistryDispatch:
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
+
+    # ------------------------------------------------------------------
+    # list_tools RBAC filtering (REQ-108)
+    # ------------------------------------------------------------------
+
+    _WORKSPACE_ID = "00000000-0000-0000-0000-000000000010"
+
+    def _register_mixed_tools(self, registry):
+        """Register a group exposing one read and one write tool schema."""
+        group = MagicMock()
+        group.get_tool_schemas.return_value = [
+            {"name": "requirement.get", "description": "read"},
+            {"name": "requirement.create", "description": "write"},
+        ]
+        registry.register_groups({"requirement": group})
+        return group
+
+    def test_list_tools_hides_write_tools_from_viewer(self):
+        registry, _, authz_svc = self._make_registry(roles=("viewer",))
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+        self._register_mixed_tools(registry)
+
+        tools = registry.list_tools(
+            api_key="rf_validkey", workspace_id=self._WORKSPACE_ID
+        )
+        names = {t["name"] for t in tools}
+        assert "requirement.get" in names
+        assert "requirement.create" not in names
+
+    def test_list_tools_shows_write_tools_to_editor(self):
+        registry, _, authz_svc = self._make_registry(roles=("editor",))
+        authz_svc.decide_access.return_value = MagicMock(allow=True)
+        self._register_mixed_tools(registry)
+
+        tools = registry.list_tools(
+            api_key="rf_validkey", workspace_id=self._WORKSPACE_ID
+        )
+        names = {t["name"] for t in tools}
+        assert "requirement.get" in names
+        assert "requirement.create" in names
+
+    def test_list_tools_invalid_api_key_returns_empty(self):
+        registry, auth_svc, _ = self._make_registry()
+        auth_svc.validate_api_key.side_effect = AuthenticationFailed("invalid_api_key")
+        self._register_mixed_tools(registry)
+
+        tools = registry.list_tools(api_key="bad", workspace_id=self._WORKSPACE_ID)
+        assert tools == []
 
     def test_prompt_template_write_tools_protected_by_rbac(self):
         """Verify prompt_template.* write operations are protected by RBAC (REQ-043).

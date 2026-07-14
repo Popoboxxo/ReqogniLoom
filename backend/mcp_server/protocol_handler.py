@@ -37,6 +37,14 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# MCP protocol version (REQ-108)
+# ---------------------------------------------------------------------------
+# Single source of truth for the negotiated MCP protocol revision. Kept as a
+# module-level constant instead of a scattered string literal so a version bump
+# touches exactly one line. See https://modelcontextprotocol.io/specification.
+MCP_PROTOCOL_VERSION = "2024-11-05"
+
+# ---------------------------------------------------------------------------
 # Error codes (REQ-L2-MC-011, JSON-RPC 2.0 compliant)
 # ---------------------------------------------------------------------------
 
@@ -351,8 +359,11 @@ class ProtocolHandler:
         self,
         adapter: TransportAdapter,
         headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> Optional[Dict[str, Any]]:
         """Handle one MCP request via *adapter* and return the response frame.
+
+        Returns ``None`` for JSON-RPC notifications, which must not be
+        answered (REQ-108).
 
         Steps (ADR-L3-MC001-02):
           1. Read request from transport adapter.
@@ -402,7 +413,7 @@ class ProtocolHandler:
             
         if method == "initialize":
             response = ErrorFormatter.format_jsonrpc_result(request_id, {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": {
                     "tools": {}
                 },
@@ -414,10 +425,12 @@ class ProtocolHandler:
             adapter.write_response(response)
             return response
             
-        if method == "notifications/initialized":
-            # Just ignore and return empty (or don't return anything)
-            # Since our adapter write_response might expect something, we return dummy
-            return {}
+        # JSON-RPC notifications (method prefix "notifications/") carry no id and
+        # MUST NOT receive a response (MCP spec / JSON-RPC 2.0, REQ-108). We
+        # acknowledge them by returning ``None`` — the transport layer maps this
+        # to an empty 202 body and never writes a JSON-RPC frame back.
+        if method.startswith("notifications/"):
+            return None
 
         # API-key extraction (ADR-L3-MC001-03 / REQ-L2-MC-006)
         effective_headers: Dict[str, str] = {}
@@ -442,7 +455,10 @@ class ProtocolHandler:
         # 2. Handle standard MCP methods (tools/list, tools/call)
         if method == "tools/list":
             try:
-                tools_list = self._registry.list_tools(api_key=api_key)
+                tools_list = self._registry.list_tools(
+                    api_key=api_key,
+                    workspace_id=clean_params.get("workspace_id"),
+                )
                 response = ErrorFormatter.format_jsonrpc_result(request_id, {"tools": tools_list})
             except Exception as exc:
                 logger.exception("Error listing tools")
@@ -525,7 +541,7 @@ class ProtocolHandler:
         self,
         body: bytes,
         headers: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> Optional[Dict[str, Any]]:
         """Convenience wrapper for HTTP transport (Django view integration).
 
         Args:
@@ -533,7 +549,7 @@ class ProtocolHandler:
             headers: Django META-style or plain header dict.
 
         Returns:
-            JSON-RPC 2.0 response frame.
+            JSON-RPC 2.0 response frame, or ``None`` for notifications (REQ-108).
         """
         adapter = HttpTransportAdapter(body=body, headers=headers or {})
         return self.handle(adapter, headers=headers)
