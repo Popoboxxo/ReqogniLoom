@@ -51,6 +51,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from llm_adapter.interface import LlmResult
 from llm_adapter.router import CapabilityRouter
+from llm_adapter.token_tracking import aggregate_usage as _aggregate_usage
+from llm_adapter.token_tracking import get_daily_usage as _get_daily_usage
 
 # Module-level router instance — shared across all callers in a process.
 # For test isolation, callers may construct their own CapabilityRouter.
@@ -204,6 +206,28 @@ def get_task_status(task_id: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Token usage query API (REQ-106)
+# ---------------------------------------------------------------------------
+
+
+def get_token_usage(days: int = 30) -> Dict[str, Any]:
+    """Return the active tenant's aggregated token usage over ``days`` days.
+
+    Args:
+        days: Rolling window size in days (default 30).
+
+    Returns:
+        {"days": <int>, "total_tokens": <int>, "by_provider": {...}}.
+    """
+    return _aggregate_usage(days=days)
+
+
+def get_daily_token_usage() -> int:
+    """Return the active tenant's total tokens consumed in the last 24 hours."""
+    return _get_daily_usage(days=1)
+
+
+# ---------------------------------------------------------------------------
 # Re-exports for downstream consumers
 # ---------------------------------------------------------------------------
 
@@ -213,6 +237,9 @@ __all__ = [
     "decompose_requirement",
     "check_consistency",
     "get_task_status",
+    # Token usage query API (REQ-106)
+    "get_token_usage",
+    "get_daily_token_usage",
     # Result dataclasses re-exported for type annotations
     "LlmResult",
 ]

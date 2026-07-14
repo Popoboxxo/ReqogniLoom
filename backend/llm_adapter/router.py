@@ -56,6 +56,11 @@ from llm_adapter.providers import (
     LlmProviderUnknownError,
     get_provider,
 )
+from llm_adapter.token_tracking import (
+    LLM_TOKEN_LIMIT_EXCEEDED,
+    is_over_daily_limit,
+    record_token_usage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +126,22 @@ def _not_configured_response(message: str = "LLM not configured") -> Dict[str, A
 def _provider_error_response(message: str) -> Dict[str, Any]:
     """Build a LLM_PROVIDER_ERROR response dict."""
     return {"error": {"code": LLM_PROVIDER_ERROR, "message": message}}
+
+
+def _token_limit_response(message: str) -> Dict[str, Any]:
+    """Build a LLM_TOKEN_LIMIT_EXCEEDED response dict (REQ-106).
+
+    Includes ``http_status: 429`` so a REST/MCP boundary can map the structured
+    error to an HTTP 429 (Too Many Requests) response without inspecting the
+    message text.
+    """
+    return {
+        "error": {
+            "code": LLM_TOKEN_LIMIT_EXCEEDED,
+            "message": message,
+            "http_status": 429,
+        }
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +217,26 @@ class CapabilityRouter:
                 "Set LLM_CAPABILITIES to include it."
             )
 
+        # --- Per-tenant daily token limit (REQ-106) ---
+        # Enforced at the adapter boundary so every consumer (REST, MCP,
+        # application services) is protected uniformly. Fail-open: a broken
+        # accounting layer never blocks LLM calls (see token_tracking).
+        if is_over_daily_limit():
+            self._audit_logger.log_llm_call(
+                provider="none",
+                capability=capability_name,
+                artifact_id=kwargs.get("artifact_id")
+                or kwargs.get("requirement_id")
+                or kwargs.get("workspace_id"),
+                token_usage=None,
+                success=False,
+                error=LLM_TOKEN_LIMIT_EXCEEDED,
+            )
+            return _token_limit_response(
+                "Daily token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
+
         # --- Async routing (REQ-L3-LA003-001) ---
         if capability_name in _ASYNC_CAPABILITIES:
             return self._dispatch_async(capability_name, kwargs)
@@ -234,6 +275,15 @@ class CapabilityRouter:
                 token_usage=result.token_usage,
                 success=True,
                 error=None,
+            )
+            # REQ-106: persist token consumption for per-tenant aggregation and
+            # daily-limit enforcement. Best-effort — never breaks the result.
+            record_token_usage(
+                provider=provider_name,
+                capability=capability_name,
+                input_tokens=result.token_usage or 0,
+                output_tokens=0,
+                workspace_id=kwargs.get("workspace_id"),
             )
             return result
 

@@ -1389,6 +1389,70 @@ class PromptTemplate(TenantScopedModel):
             setattr(self, slot_name, default)
 
 
+# ---------------------------------------------------------------------------
+# Token usage accounting (REQ-106) — tenant-scoped, append-only
+# ---------------------------------------------------------------------------
+
+
+class TokenUsageRecord(TenantScopedModel):
+    """Per-call LLM token consumption record (REQ-106).
+
+    One row is written after every successful LLM capability call so token
+    consumption can be aggregated per tenant and enforced against a configurable
+    daily limit (``settings.TENANT_TOKEN_LIMIT_PER_DAY``).
+
+    The stable LLM interface (``LlmResult.token_usage``) only exposes a single
+    combined total, so callers that only know the total store it in
+    ``input_tokens`` and leave ``output_tokens`` at 0. Aggregation always sums
+    both columns, so the total is preserved regardless of how a provider splits
+    the count. ``workspace_id`` is an optional soft reference (no FK) because the
+    workspace is not always known at the LLM adapter boundary.
+    """
+
+    workspace_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Optional workspace this call is attributed to (soft reference).",
+    )
+    provider = models.CharField(
+        max_length=64,
+        help_text="Provider name that served the call (e.g. 'anthropic', 'mock').",
+    )
+    capability = models.CharField(
+        max_length=64,
+        help_text="Capability invoked (e.g. 'validate_artifact').",
+    )
+    input_tokens = models.IntegerField(
+        default=0,
+        help_text="Prompt/input tokens (holds the combined total when a provider "
+        "only exposes a single token count).",
+    )
+    output_tokens = models.IntegerField(
+        default=0,
+        help_text="Completion/output tokens (0 when only a combined total is known).",
+    )
+
+    class Meta:
+        db_table = "pl_token_usage_record"
+        indexes = [
+            # REQ-106: aggregation queries filter by tenant and time window.
+            models.Index(
+                fields=["tenant", "created_at"], name="idx_tokenusage_tnt_created"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"TokenUsage(tenant={self.tenant_id}, provider={self.provider}, "
+            f"total={self.total_tokens})"
+        )
+
+    @property
+    def total_tokens(self) -> int:
+        """Return the combined input + output token count for this record."""
+        return int(self.input_tokens or 0) + int(self.output_tokens or 0)
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -1419,6 +1483,7 @@ __all__ = [
     "GlossaryTermVersion",
     "LlmProvider",
     "LlmSettings",
+    "TokenUsageRecord",
     "PromptTemplate",
     "PROMPT_TEMPLATE_DEFAULTS",
     "DEFAULT_NEED_TO_SYSREQ",

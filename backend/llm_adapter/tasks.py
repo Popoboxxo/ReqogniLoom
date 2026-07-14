@@ -103,6 +103,17 @@ def run_capability(
         provider = get_provider(config)
         method = getattr(provider, capability)
         result = method(**kwargs)
+        # REQ-106: record token consumption for the active tenant (best-effort;
+        # never fails the task). Runs while the tenant context is still active.
+        from llm_adapter.token_tracking import record_token_usage  # noqa: PLC0415
+
+        record_token_usage(
+            provider=getattr(provider, "PROVIDER_NAME", config.provider_name or "unknown"),
+            capability=capability,
+            input_tokens=getattr(result, "token_usage", None) or 0,
+            output_tokens=0,
+            workspace_id=kwargs.get("workspace_id"),
+        )
         return _serialise(result)
     except Exception as exc:  # noqa: BLE001 — re-raised so Celery records FAILURE
         logger.error("LLM task failed for capability %s: %s", capability, exc, exc_info=True)

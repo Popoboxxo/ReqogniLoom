@@ -285,6 +285,14 @@ LLM_MODEL: str = config("LLM_MODEL", default="")
 # in the CapabilityRouter sync path; async Celery calls are NOT capped by this.
 LLM_SYNC_TIMEOUT_SECONDS: int = config("LLM_SYNC_TIMEOUT", default=25, cast=int)
 
+# REQ-106: per-tenant daily token budget. When set (a positive integer), the
+# CapabilityRouter rejects further LLM calls for a tenant that has already
+# consumed this many tokens in the last 24 hours, returning a structured
+# LLM_TOKEN_LIMIT_EXCEEDED error (http_status 429). Default None = unlimited.
+TENANT_TOKEN_LIMIT_PER_DAY: int | None = config(
+    "TENANT_TOKEN_LIMIT_PER_DAY", default=None, cast=lambda v: int(v) if v else None
+)
+
 # ---------------------------------------------------------------------------
 # Celery — ARCH-L1-016 ResilienceOrchestrator (async task queue)
 # REQ-057: Support Redis authentication. If REDIS_PASSWORD is set, both URLs
