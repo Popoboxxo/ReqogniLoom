@@ -496,6 +496,16 @@ class Artifact(TenantScopedModel):
         indexes = [
             # REQ-L3-PL005-001: BTree on parent for hierarchy / recursive CTE.
             models.Index(fields=["parent"], name="idx_artifact_parent_btree"),
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            # RLS always filters on tenant; list endpoints add workspace / type.
+            models.Index(fields=["tenant", "workspace"], name="idx_artifact_tnt_ws"),
+            models.Index(
+                fields=["tenant", "artifact_type"], name="idx_artifact_tnt_type"
+            ),
+            models.Index(
+                fields=["tenant", "workspace", "artifact_type"],
+                name="idx_artifact_tnt_ws_type",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -541,6 +551,13 @@ class StakeholderNeed(TenantScopedModel):
 
     class Meta:
         db_table = "pl_stakeholder_need"
+        indexes = [
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            models.Index(fields=["tenant", "status"], name="idx_sn_tnt_status"),
+            models.Index(
+                fields=["tenant", "lifecycle_status"], name="idx_sn_tnt_lifecycle"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -622,6 +639,11 @@ class Requirement(TenantScopedModel):
                 ef_construction=64,
                 opclasses=["vector_cosine_ops"],
             ),
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            models.Index(fields=["tenant", "status"], name="idx_req_tnt_status"),
+            models.Index(
+                fields=["tenant", "lifecycle_status"], name="idx_req_tnt_lifecycle"
+            ),
         ]
 
     def __str__(self) -> str:
@@ -694,6 +716,16 @@ class ArchitectureElement(TenantScopedModel):
 
     class Meta:
         db_table = "pl_architecture_element"
+        indexes = [
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            models.Index(
+                fields=["tenant", "element_type"], name="idx_archelem_tnt_type"
+            ),
+            models.Index(
+                fields=["tenant", "lifecycle_status"],
+                name="idx_archelem_tnt_lifecyc",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -916,6 +948,11 @@ class TestRun(TenantScopedModel):
         verbose_name_plural = "Test Runs"
         indexes = [
             models.Index(fields=["uid"], name="idx_test_run_uid_btree"),
+            # REQ-039: composite indexes for dominant list-filter combinations.
+            models.Index(fields=["tenant", "workspace"], name="idx_testrun_tnt_ws"),
+            models.Index(
+                fields=["tenant", "status"], name="idx_testrun_tnt_status"
+            ),
         ]
 
     def __str__(self) -> str:
