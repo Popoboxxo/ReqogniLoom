@@ -184,10 +184,13 @@ export function NeedList({
             flexDirection: 'column',
             gap: 'var(--space-2)',
             padding: 'var(--space-3)',
+            marginTop: 'var(--space-4)',
             marginBottom: 'var(--space-3)',
             background: 'var(--color-surface-raised)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-md)',
+            position: 'relative',
+            zIndex: 1,
           }}
         >
           <label
