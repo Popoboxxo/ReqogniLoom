@@ -231,3 +231,108 @@ class TestToolRegistryDispatch:
         hash_val = ToolRegistry.hash_api_key("rf_test")
         assert hash_val.startswith("sha256:")
         assert len(hash_val) == len("sha256:") + 64
+
+    def test_needs_write_tools_protected_by_rbac(self):
+        """Verify needs.* write operations are protected by RBAC (REQ-043)."""
+        registry, _, authz_svc = self._make_registry(roles=("viewer",))
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+
+        mock_group = MagicMock()
+        registry.register_groups({"needs": mock_group})
+
+        for tool_name in ["needs.create", "needs.update", "needs.delete"]:
+            result = registry.dispatch_request(
+                tool_name=tool_name,
+                params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
+                api_key="rf_validkey",
+            )
+            assert result.success is False
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_adr_write_tools_protected_by_rbac(self):
+        """Verify adr.* write operations are protected by RBAC (REQ-043)."""
+        registry, _, authz_svc = self._make_registry(roles=("viewer",))
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+
+        mock_group = MagicMock()
+        registry.register_groups({"adr": mock_group})
+
+        for tool_name in ["adr.create", "adr.update", "adr.delete"]:
+            result = registry.dispatch_request(
+                tool_name=tool_name,
+                params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
+                api_key="rf_validkey",
+            )
+            assert result.success is False
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_risk_write_tools_protected_by_rbac(self):
+        """Verify risk.* write operations are protected by RBAC (REQ-043)."""
+        registry, _, authz_svc = self._make_registry(roles=("viewer",))
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+
+        mock_group = MagicMock()
+        registry.register_groups({"risk": mock_group})
+
+        for tool_name in ["risk.create", "risk.update", "risk.delete"]:
+            result = registry.dispatch_request(
+                tool_name=tool_name,
+                params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
+                api_key="rf_validkey",
+            )
+            assert result.success is False
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_issue_write_tools_protected_by_rbac(self):
+        """Verify issue.* write operations are protected by RBAC (REQ-043)."""
+        registry, _, authz_svc = self._make_registry(roles=("viewer",))
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+
+        mock_group = MagicMock()
+        registry.register_groups({"issue": mock_group})
+
+        for tool_name in ["issue.create", "issue.update", "issue.delete"]:
+            result = registry.dispatch_request(
+                tool_name=tool_name,
+                params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
+                api_key="rf_validkey",
+            )
+            assert result.success is False
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_glossary_write_tools_protected_by_rbac(self):
+        """Verify glossary.* write operations are protected by RBAC (REQ-043)."""
+        registry, _, authz_svc = self._make_registry(roles=("viewer",))
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+
+        mock_group = MagicMock()
+        registry.register_groups({"glossary": mock_group})
+
+        for tool_name in ["glossary.create", "glossary.update", "glossary.delete"]:
+            result = registry.dispatch_request(
+                tool_name=tool_name,
+                params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
+                api_key="rf_validkey",
+            )
+            assert result.success is False
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_prompt_template_write_tools_protected_by_rbac(self):
+        """Verify prompt_template.* write operations are protected by RBAC (REQ-043).
+
+        This prevents prompt injection attacks via viewer-role API keys.
+        """
+        registry, _, authz_svc = self._make_registry(roles=("viewer",))
+        authz_svc.decide_access.return_value = MagicMock(allow=False)
+
+        mock_group = MagicMock()
+        registry.register_groups({"prompt_template": mock_group})
+
+        for tool_name in ["prompt_template.create", "prompt_template.update", "prompt_template.delete"]:
+            result = registry.dispatch_request(
+                tool_name=tool_name,
+                params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
+                api_key="rf_validkey",
+            )
+            assert result.success is False
+            assert result.error_code == "PERMISSION_DENIED"
