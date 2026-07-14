@@ -46,8 +46,19 @@ async function apiFetch<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
-    ...(options.headers as Record<string, string>),
   };
+
+  // Safely merge incoming headers: only record-like objects can be spread.
+  // HeadersInit can be Record<string, string>, Headers, or string[][], so we
+  // narrow to plain objects before merging.
+  if (
+    options.headers &&
+    typeof options.headers === "object" &&
+    !Array.isArray(options.headers) &&
+    !(options.headers instanceof Headers)
+  ) {
+    Object.assign(headers, options.headers as Record<string, string>);
+  }
 
   if (_token) {
     headers["Authorization"] = `Bearer ${_token}`;
@@ -99,7 +110,10 @@ async function apiFetch<T>(
   }
 
   if (response.status === 204) {
-    return undefined as unknown as T;
+    // HTTP 204 No Content: response body is empty. Callers should declare
+    // their response type as void, undefined, or a union (T | undefined).
+    // This cast is safe because 204 responses have no body by spec.
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;
