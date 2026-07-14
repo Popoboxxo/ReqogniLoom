@@ -1251,6 +1251,9 @@ class LlmSettings(TenantScopedModel):
         default="",
         help_text="Optional base URL override (e.g. for a local Ollama server).",
     )
+    # SECURITY: api_key is stored as plaintext. For production, this field should
+    # be encrypted using django-fernet-fields or similar. See REQ-081.
+    # Rotation: change the key and update the stored value.
     api_key = models.CharField(
         max_length=512,
         blank=True,
@@ -1274,6 +1277,18 @@ class LlmSettings(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"LlmSettings(provider={self.provider})"
+
+    def get_api_key_masked(self) -> str:
+        """Return a masked api_key safe for logging (REQ-081).
+
+        Exposes only the first and last four characters so operators can
+        correlate a key without leaking the plaintext secret. Short or empty
+        keys are fully masked.
+        """
+        key = self.api_key or ""
+        if len(key) <= 8:
+            return "***"
+        return f"{key[:4]}...{key[-4:]}"
 
 
 # ---------------------------------------------------------------------------

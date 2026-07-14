@@ -36,6 +36,19 @@ ALLOWED_HOSTS: list[str] = config(
 )
 
 # ---------------------------------------------------------------------------
+# CORS (REQ-081)
+# ---------------------------------------------------------------------------
+# SECURITY: Reflecting an arbitrary Origin together with
+# Access-Control-Allow-Credentials: true lets any site issue credentialed
+# cross-origin requests. Restrict allowed origins to an explicit allowlist
+# sourced from the environment instead of using a wildcard.
+CORS_ALLOWED_ORIGINS: list[str] = config(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:3000,http://localhost:5173",
+    cast=Csv(),
+)
+
+# ---------------------------------------------------------------------------
 # Installed Applications
 # ---------------------------------------------------------------------------
 DJANGO_APPS = [

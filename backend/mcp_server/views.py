@@ -29,6 +29,7 @@ from django.http import (
     JsonResponse,
     StreamingHttpResponse,
 )
+from django.conf import settings
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -95,9 +96,20 @@ def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS
     cannot mix in the synchronous ``dispatch`` override) can reuse the exact
     same CORS policy without inheriting the sync mixin.
     """
-    origin = request.headers.get("Origin", "*")
-    response["Access-Control-Allow-Origin"] = origin
-    response["Access-Control-Allow-Credentials"] = "true"
+    # SECURITY (REQ-081): never reflect an arbitrary Origin alongside
+    # Access-Control-Allow-Credentials. Only echo the Origin (and allow
+    # credentials) when it is on the configured allowlist; otherwise omit the
+    # credentials flag so browsers block credentialed cross-origin access.
+    allowed_origins = getattr(settings, "CORS_ALLOWED_ORIGINS", [])
+    origin = request.headers.get("Origin", "")
+    if origin and origin in allowed_origins:
+        response["Access-Control-Allow-Origin"] = origin
+        response["Access-Control-Allow-Credentials"] = "true"
+        response["Vary"] = "Origin"
+    elif allowed_origins:
+        # Default to the first configured origin for non-credentialed clients.
+        response["Access-Control-Allow-Origin"] = allowed_origins[0]
+        response["Vary"] = "Origin"
     response["Access-Control-Allow-Methods"] = methods
     response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
     return response
