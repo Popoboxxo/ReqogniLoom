@@ -185,12 +185,42 @@ def _resolve_workspace_id(instance) -> Optional[str]:
     return None
 
 
+def _resolve_artifact_id(instance) -> Optional[str]:
+    """Best-effort resolution of the source artifact id for *instance*.
+
+    Derivation results (REQ-105) are cached per source artifact, so a mutation
+    must invalidate them keyed by that artifact id:
+      * an ``Artifact`` invalidates its own id,
+      * a Requirement / ArchitectureElement invalidates via its ``artifact_id``.
+    """
+    if type(instance).__name__ == "Artifact":
+        return str(instance.pk)
+
+    artifact_id = getattr(instance, "artifact_id", None)
+    if artifact_id is not None:
+        return str(artifact_id)
+
+    return None
+
+
 def _on_change(sender, instance, **kwargs) -> None:
-    """post_save / post_delete handler: invalidate the workspace's caches."""
+    """post_save / post_delete handler: invalidate the affected caches."""
     workspace_id = _resolve_workspace_id(instance)
-    if workspace_id is None:
-        return
-    invalidate_workspace_caches(workspace_id)
+    if workspace_id is not None:
+        invalidate_workspace_caches(workspace_id)
+
+    # LLM derivation cache is keyed per source artifact (REQ-105).
+    artifact_id = _resolve_artifact_id(instance)
+    if artifact_id is not None:
+        try:
+            from application.ai_derivation_service import invalidate_derivation_cache
+
+            invalidate_derivation_cache(artifact_id)
+        except Exception:  # pragma: no cover - defensive; never break the write
+            logger.debug(
+                "cache_invalidation: derivation invalidate skip",
+                exc_info=True,
+            )
 
 
 # ---------------------------------------------------------------------------

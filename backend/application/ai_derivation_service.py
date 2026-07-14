@@ -27,10 +27,13 @@ Architecture:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
+
+from django.core.cache import cache
 
 from auth_tenancy.context import AuthContext
 from persistence.models import (
@@ -51,6 +54,87 @@ logger = logging.getLogger(__name__)
 # real provider failed (REQ-078). Callers can test for it to warn the user that
 # the content is a deterministic placeholder, not a genuine LLM answer.
 MOCK_FALLBACK_MARKER = "[MOCK FALLBACK] "
+
+# ---------------------------------------------------------------------------
+# LLM derivation response caching (REQ-105, DEEP_SYSTEM_ANALYSIS.md F5.1)
+#
+# Identical derivation requests (same provider, capability, source artifact and
+# rendered prompt) previously re-invoked the LLM on every call. Results are now
+# cached in the shared Django cache backend (Redis, REQ-033) keyed by a prompt
+# hash. Only genuine provider answers are cached — mock-fallback and error
+# results are always recomputed.
+# ---------------------------------------------------------------------------
+
+# Cache time-to-live for a derivation result, in seconds (1 hour).
+DERIVATION_CACHE_TTL_SECONDS = 3600
+
+# Shared-cache key namespace for cached derivation results.
+_DERIVATION_CACHE_PREFIX = "llm_derivation"
+
+# Namespace for the per-artifact cache-generation counter used to invalidate
+# every cached derivation of an artifact in O(1) (see _derivation_version).
+_DERIVATION_VERSION_PREFIX = "llm_derivation_ver"
+
+
+def _derivation_version(artifact_id: str) -> int:
+    """Return the current cache-generation counter for *artifact_id*.
+
+    The counter is folded into the cache key so bumping it (on artifact update)
+    orphans every previously cached derivation for that artifact in O(1); the
+    orphaned entries then expire naturally via their TTL. This pattern is used
+    because the built-in ``RedisCache`` backend offers no pattern deletion.
+    """
+    version_key = f"{_DERIVATION_VERSION_PREFIX}:{artifact_id}"
+    version = cache.get(version_key)
+    if version is None:
+        version = 1
+        # No expiry: the counter must outlive the results it namespaces.
+        cache.set(version_key, version, None)
+    return int(version)
+
+
+def _derivation_cache_key(
+    provider: str, capability: str, artifact_id: str, prompt: str
+) -> str:
+    """Build the shared-cache key for a derivation result.
+
+    Format: ``llm_derivation:{sha256(provider:capability:artifact_id:prompt_hash)}``
+    with the artifact's cache-generation counter folded into the hashed material
+    so invalidation can orphan stale entries.
+    """
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    version = _derivation_version(artifact_id)
+    material = f"{provider}:{capability}:{artifact_id}#v{version}:{prompt_hash}"
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+    return f"{_DERIVATION_CACHE_PREFIX}:{digest}"
+
+
+def invalidate_derivation_cache(artifact_id: UUID | str | None) -> None:
+    """Invalidate every cached LLM derivation for *artifact_id*.
+
+    Bumps the artifact's cache-generation counter so all previously cached
+    entries become unreachable. Never raises: invalidation must not break the
+    write that triggered it.
+
+    Args:
+        artifact_id: Source artifact primary key (UUID or string). ``None`` is
+            a no-op.
+    """
+    if artifact_id is None:
+        return
+    version_key = f"{_DERIVATION_VERSION_PREFIX}:{artifact_id}"
+    try:
+        cache.incr(version_key)
+    except ValueError:
+        # Counter absent (nothing cached yet) — start past the default
+        # generation so any concurrently written entry is superseded.
+        cache.set(version_key, 2, None)
+    except Exception:  # pragma: no cover - defensive; cache backend down
+        logger.warning(
+            "Failed to invalidate derivation cache for artifact %s",
+            artifact_id,
+            exc_info=True,
+        )
 
 
 class LlmResponseError(RuntimeError):
@@ -108,7 +192,10 @@ class AiDerivationService(ServiceBase):
         )
 
         raw = self._complete(
-            prompt, purpose="need_to_sysreq", context={"n": count}
+            prompt,
+            purpose="need_to_sysreq",
+            artifact_id=need.artifact_id,
+            context={"n": count},
         )
         items = self._parse_json_list(raw)
 
@@ -183,6 +270,7 @@ class AiDerivationService(ServiceBase):
         raw = self._complete(
             prompt,
             purpose="sysreq_to_arch_assign",
+            artifact_id=req.artifact_id,
             context={"arch_element_ids": [entry["id"] for entry in arch_payload]},
         )
         suggested = self._parse_json_list(raw)
@@ -253,6 +341,7 @@ class AiDerivationService(ServiceBase):
         raw = self._complete(
             prompt,
             purpose="sysreq_decompose_next_level",
+            artifact_id=req.artifact_id,
             context={"arch_element_ids": [entry["id"] for entry in arch_payload]},
         )
         items = self._parse_json_list(raw)
@@ -329,13 +418,19 @@ class AiDerivationService(ServiceBase):
         prompt: str,
         *,
         purpose: str,
+        artifact_id: UUID | str,
         context: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Run the configured provider's free-form completion.
+        """Run the configured provider's free-form completion (cached).
 
         Falls back to the credential-free mock provider when no provider is
         configured, so the flows degrade to deterministic output instead of
         failing hard (REQ-L2-AI-002; default provider is ``mock``).
+
+        Genuine provider answers are cached in the shared cache backend keyed by
+        provider, *purpose* (capability), *artifact_id* and a prompt hash
+        (REQ-105). Mock-fallback results are never cached — they are degraded
+        placeholders that must be recomputed once a real provider is available.
         """
         from django.conf import settings
 
@@ -346,13 +441,26 @@ class AiDerivationService(ServiceBase):
             get_provider,
         )
 
+        provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
+        cache_key = _derivation_cache_key(
+            provider_name, purpose, str(artifact_id), prompt
+        )
+
+        cached = cache.get(cache_key)
+        if cached is not None:
+            logger.debug(
+                "LLM derivation cache hit (purpose=%s, artifact=%s)",
+                purpose,
+                artifact_id,
+            )
+            return cached
+
         try:
             provider = get_provider()
         except (LlmNotConfiguredError, LlmProviderUnknownError) as error:
             # Silent degradation hides that the caller is looking at mock output
             # instead of a real LLM answer (REQ-078). Emit a WARNING and tag the
             # response so downstream code / the UI can flag it to the user.
-            provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
             logger.warning(
                 "LLM provider %s failed, falling back to mock. Error: %s",
                 provider_name,
@@ -361,9 +469,14 @@ class AiDerivationService(ServiceBase):
             result = MockLlmProvider().complete(
                 prompt, purpose=purpose, context=context
             )
+            # Fallback output is intentionally not cached (REQ-105).
             return f"{MOCK_FALLBACK_MARKER}{result}"
 
-        return provider.complete(prompt, purpose=purpose, context=context)
+        result = provider.complete(prompt, purpose=purpose, context=context)
+        # Never cache a fallback-marked (degraded) response (REQ-105).
+        if not result.startswith(MOCK_FALLBACK_MARKER):
+            cache.set(cache_key, result, DERIVATION_CACHE_TTL_SECONDS)
+        return result
 
     @staticmethod
     def _parse_json_list(raw: str) -> List[Any]:
@@ -393,4 +506,10 @@ class AiDerivationService(ServiceBase):
         return parsed
 
 
-__all__ = ["AiDerivationService", "LlmResponseError", "MOCK_FALLBACK_MARKER"]
+__all__ = [
+    "AiDerivationService",
+    "LlmResponseError",
+    "MOCK_FALLBACK_MARKER",
+    "DERIVATION_CACHE_TTL_SECONDS",
+    "invalidate_derivation_cache",
+]
