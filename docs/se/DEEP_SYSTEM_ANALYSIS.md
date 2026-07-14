@@ -357,11 +357,11 @@ Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einflie
 
 | REQ-ID | Ref | Commit | Status |
 |--------|-----|--------|--------|
-| REQ-049 | FE-3/4/6/7 | — | ⚠️ risk — L-Aufwand, 71 Dateien, React-Query-Migration auf P3 verschoben |
-| REQ-050 | FE-5 | — | ⚠️ risk — L-Aufwand, Monster-Komponenten-Zerlegung auf P3 verschoben |
+| REQ-049 | FE-3/4/6/7 | — | ⏸ zurückgestellt, wartet auf Freigabe |
+| REQ-050 | FE-5 | — | ⏸ zurückgestellt, wartet auf Freigabe |
 | REQ-051 | FE-8 | 1b4863f | ✅ done |
-| REQ-052 | FE-9 | — | ⚠️ risk — erfordert Backend httpOnly-Cookie-Support + Frontend-Umbau |
-| REQ-053 | FE-10 | — | ⚠️ risk — L-Aufwand, 5 große Views ungetestet, auf P3 verschoben |
+| REQ-052 | FE-9 | — | ⏸ zurückgestellt, wartet auf Freigabe |
+| REQ-053 | FE-10 | — | ⏸ zurückgestellt, wartet auf Freigabe |
 | REQ-054 | FE-11 | — | ✅ done — bereits implementiert (React.lazy + Suspense in NavigationShell.tsx) |
 | REQ-055 | FE-12 | — | ✅ done — Beschreibung korrigiert (i18n in 71 Dateien aktiv, Rollout als P3) |
 | REQ-056 | FE-13 | 986506e | ✅ done |
@@ -374,7 +374,7 @@ Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einflie
 | REQ-063 | INF-14 | d3fff9c | ✅ done — JSON-Logs + /health Endpoint; Prometheus-Metriken auf P3 |
 | REQ-064 | INF-15 | b9c97e0 | ✅ done |
 | REQ-065 | INF-16 | b4376d4 | ✅ done |
-| REQ-066 | BE-10 | — | ⚠️ risk — L-Aufwand, Service-Layer-Architektur auf P3 verschoben |
+| REQ-066 | BE-10 | — | ⏸ zurückgestellt, wartet auf Freigabe |
 | REQ-067 | BE-11 | 87aef2b | ✅ done |
 | REQ-068 | BE-12 | 16d8f9e | ✅ done |
 | REQ-069 | BE-13 | 692d1a8 | ✅ done |
@@ -399,7 +399,28 @@ Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einflie
 | REQ-088 | Service O(N) | 11c9db2 | ✅ done |
 | REQ-089 | check_consistency | 8ab74a0 | ✅ done |
 | REQ-090 | E2E-Failures | d266165 | ✅ done |
-| REQ-091 | FE-14 | — | ✅ done — WorkspaceTree opt-in virtualization (@tanstack/react-virtual, threshold 100) |
-| REQ-102 | INF-21 | — | ✅ done — pg_dump backup sidecar + postgres_backup_data volume, 7-backup retention |
-| REQ-109 | P2-Bericht | — | ✅ done — pgvector>=0.3.0 present in requirements.txt (line 15), built via Dockerfile pip install |
-| REQ-110 | P2-Bericht | — | ✅ done — python-json-logger>=2.0.7 present in requirements.txt (line 39), built via Dockerfile pip install |
+
+## Implementierungsstatus P3 (Welle 3 — 2026-07-14)
+
+| REQ-ID | Ref | Commit | Status |
+|--------|-----|--------|--------|
+| REQ-091 | FE-14 | cc6cbc3 | ✅ done |
+| REQ-092 | FE-15 | 1b72174 | ✅ done |
+| REQ-093 | FE-16 | c1fec65 | ✅ done |
+| REQ-094 | FE-17 | 95c90f8 | ✅ done |
+| REQ-095 | FE-18 | 21af62d | ✅ done |
+| REQ-096 | FE-19 | 3b1bfff | ✅ done |
+| REQ-097 | FE-20 | b66149b | ✅ done |
+| REQ-098 | INF-17 | c97f769 | ✅ done |
+| REQ-099 | INF-18 | a53906f | ✅ done |
+| REQ-100 | INF-19 | 236a8c6 | ✅ done |
+| REQ-101 | INF-20 | 32c9cb5 | ✅ done |
+| REQ-102 | INF-21 | 6abce6b | ✅ done |
+| REQ-103 | INF-22 | d65269e | ✅ done |
+| REQ-104 | BE-22 | 1a055e8 | ✅ done |
+| REQ-105 | F5.1 | 4e0082e | ✅ done |
+| REQ-106 | F5.3 | 0f22b30 | ✅ done |
+| REQ-107 | F8.3 | 30f07a5 | ✅ done |
+| REQ-108 | F8.5 | a8c9c79 | ✅ done |
+| REQ-109 | P2-Bericht | ed69a57 | ✅ done — bereits in requirements.txt vorhanden (pgvector), Container-Build abgesichert |
+| REQ-110 | P2-Bericht | daf34e9 | ✅ done — bereits in requirements.txt vorhanden (python-json-logger), Container-Build abgesichert |
