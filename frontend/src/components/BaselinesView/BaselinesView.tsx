@@ -19,7 +19,7 @@
  *   IF-RF-EXT-OUT-001 → GET /api/v1/artifacts/ (artifact picker for create form)
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   baselinesApi,
@@ -1274,7 +1274,10 @@ interface SummaryBadgeProps {
   testid: string;
 }
 
-function SummaryBadge({
+// REQ-092: memoized for performance — pure presentational badge that only
+// receives primitive props, so it never needs to re-render while its parent
+// (compare panel) updates unrelated state.
+const SummaryBadge = memo(function SummaryBadge({
   label,
   count,
   color,
@@ -1299,10 +1302,21 @@ function SummaryBadge({
       {label}
     </span>
   );
-}
+});
 
-/** A single diff item: added/removed as a row, changed as a collapsible table. */
-export function DiffItemRow({ item }: { item: DiffItem }): JSX.Element {
+/**
+ * A single diff item: added/removed as a row, changed as a collapsible table.
+ *
+ * REQ-092: memoized for performance — rendered once per diff entry in a list
+ * (potentially hundreds of rows). ``item`` is a stable reference from the diff
+ * payload, so memo prevents re-rendering every row when the parent re-renders
+ * for unrelated reasons (e.g. loading flags, hover state).
+ */
+export const DiffItemRow = memo(function DiffItemRow({
+  item,
+}: {
+  item: DiffItem;
+}): JSX.Element {
   const { t } = useTranslation();
   const hasFieldChanges =
     item.status === "changed" &&
@@ -1440,7 +1454,7 @@ export function DiffItemRow({ item }: { item: DiffItem }): JSX.Element {
       </details>
     </li>
   );
-}
+});
 
 const diffThStyle: React.CSSProperties = {
   textAlign: "left",

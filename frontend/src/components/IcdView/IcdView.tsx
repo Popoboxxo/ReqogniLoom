@@ -19,7 +19,7 @@
  * Use "archive" / "supersede" semantics via the new-version flow.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -1170,7 +1170,13 @@ interface ReadOnlyFieldProps {
   value: string;
 }
 
-function ReadOnlyField({ label, value }: ReadOnlyFieldProps): JSX.Element {
+// REQ-092: memoized for performance — pure read-only field. Its props derive
+// from the stable ``detail`` object, so it must not re-render while the sibling
+// new-version form drives parent (IcdDetailPane) re-renders on every keystroke.
+const ReadOnlyField = memo(function ReadOnlyField({
+  label,
+  value,
+}: ReadOnlyFieldProps): JSX.Element {
   return (
     <div style={{ marginBottom: "var(--space-3)" }}>
       <label
@@ -1198,14 +1204,20 @@ function ReadOnlyField({ label, value }: ReadOnlyFieldProps): JSX.Element {
       </div>
     </div>
   );
-}
+});
 
 interface ReadOnlyListProps {
   label: string;
   values: string[];
 }
 
-function ReadOnlyList({ label, values }: ReadOnlyListProps): JSX.Element {
+// REQ-092: memoized for performance — pure list. ``values`` is a stable array
+// reference off the ``detail`` object (preconditions/postconditions/invariants),
+// so memo skips re-rendering when the parent re-renders for form-input changes.
+const ReadOnlyList = memo(function ReadOnlyList({
+  label,
+  values,
+}: ReadOnlyListProps): JSX.Element {
   return (
     <div style={{ marginBottom: "var(--space-3)" }}>
       <label
@@ -1252,7 +1264,7 @@ function ReadOnlyList({ label, values }: ReadOnlyListProps): JSX.Element {
       )}
     </div>
   );
-}
+});
 
 interface VersionFieldsProps {
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -1378,13 +1390,16 @@ function SimilarIcdsPanel({
 }: SimilarIcdsPanelProps): JSX.Element {
   const { t } = useTranslation();
 
-  if (!currentICD) {
-    return <div />;
-  }
+  // REQ-092: memoized for performance — findSimilarICDs runs an O(n·m) Jaccard
+  // similarity over every ICD and sorts the result. Without memoization this
+  // recomputes on every parent re-render (e.g. new-version form keystrokes);
+  // memoizing on [currentICD, allICDs] recomputes only when the inputs change.
+  const similarICDs = useMemo(
+    () => (currentICD ? findSimilarICDs(currentICD, allICDs) : []),
+    [currentICD, allICDs]
+  );
 
-  const similarICDs = findSimilarICDs(currentICD, allICDs);
-
-  if (similarICDs.length === 0) {
+  if (!currentICD || similarICDs.length === 0) {
     return <div />;
   }
 
