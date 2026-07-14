@@ -41,6 +41,11 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-reqflow}"]
       interval: 10s
@@ -60,6 +65,11 @@ services:
       --maxmemory 256mb
       --maxmemory-policy volatile-lru
       --appendonly yes
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
       interval: 10s
@@ -99,6 +109,11 @@ services:
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
     ports:
       - "8000:8000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/schema/", "||", "exit", "1"]
       interval: 30s
@@ -131,6 +146,11 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -163,6 +183,11 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "celery", "-A", "reqflow", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
       interval: 30s
@@ -203,6 +228,11 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -229,6 +259,11 @@ services:
       VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
     ports:
       - "3000:80"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       backend:
         condition: service_healthy
