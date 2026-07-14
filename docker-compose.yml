@@ -259,6 +259,8 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      DJANGO_SETTINGS_MODULE: reqflow.settings
+      SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}

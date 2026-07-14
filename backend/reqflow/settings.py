@@ -63,6 +63,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "drf_spectacular",
+    "django_celery_beat",
 ]
 
 # ReqFlow L2 system apps — one per ARCH-L1 subsystem.
@@ -316,6 +317,10 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": timedelta(seconds=5),
     },
 }
+
+# Use database scheduler for Celery Beat (REQ-030)
+# Requires django_celery_beat to be in INSTALLED_APPS and initialized with migrations
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # ---------------------------------------------------------------------------
 # Cache — Redis-backed shared cache (REQ-033, DEEP_SYSTEM_ANALYSIS.md BE-2)
