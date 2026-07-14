@@ -32,8 +32,7 @@ from rest_framework.views import APIView
 
 from auth_tenancy.errors import AuthError, build_error_body
 from auth_tenancy.rest import ACCESS_COOKIE_NAME, HasOperationPermission
-from auth_tenancy.services import PasswordAuthenticationService
-from persistence.models import User
+from auth_tenancy.services import PasswordAuthenticationService, UserProfileService
 from rest_api.serializers import UserProfileSerializer
 
 # The access cookie is scoped to the API mount so it is never sent to unrelated
@@ -68,7 +67,7 @@ def _auth_error_response(
     return Response(body, status=http_status)
 
 
-def _user_payload(user: User, roles: tuple[str, ...]) -> dict[str, Any]:
+def _user_payload(user: Any, roles: tuple[str, ...]) -> dict[str, Any]:
     """Serialise the public-safe user fields for login / me responses."""
     return {
         "id": str(user.id),
@@ -174,7 +173,7 @@ class MeView(APIView):
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        user = User.objects.filter(id=ctx.user_id).first()
+        user = UserProfileService().get_current_user(ctx)
         if user is None:
             return _auth_error_response(
                 "authentication_required",
@@ -207,7 +206,8 @@ class MeView(APIView):
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        user = User.objects.filter(id=ctx.user_id).first()
+        svc = UserProfileService()
+        user = svc.get_current_user(ctx)
         if user is None:
             return _auth_error_response(
                 "authentication_required",
@@ -217,7 +217,7 @@ class MeView(APIView):
 
         serializer = UserProfileSerializer(instance=user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        user = svc.update_profile(ctx, dict(serializer.validated_data))
 
         return Response(
             {
