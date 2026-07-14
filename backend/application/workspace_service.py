@@ -24,6 +24,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from django.db.models import QuerySet
 from django.utils import timezone
 from persistence.models import (
     ArchitectureElement,
@@ -56,14 +57,17 @@ class WorkspaceService(ServiceBase):
 
     # ---------- Read API ----------
 
-    def list_workspaces(self, ctx: AuthContext) -> List[Workspace]:
+    def list_workspaces(self, ctx: AuthContext) -> QuerySet[Workspace]:
         """Return all workspaces visible to *ctx*'s tenant.
 
         Tenant scoping is enforced by ``TenantContext`` via the default
         ``objects`` manager. Order: most recently modified first.
+
+        REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
+        (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
-        return list(Workspace.objects.all().order_by("-modified_at"))
+        return Workspace.objects.all().order_by("-modified_at")
 
     def get_workspace(self, workspace_id: UUID, ctx: AuthContext) -> Workspace:
         """Return a single workspace by id, scoped to the active tenant.

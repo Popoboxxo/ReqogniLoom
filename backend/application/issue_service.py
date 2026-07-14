@@ -27,7 +27,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F
+from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -365,7 +365,7 @@ class IssueService(ServiceBase):
             raise NotFoundError(f"Issue {issue_id} not found")
         return issue
 
-    def list_issues(self, workspace_id: UUID, ctx: AuthContext) -> List[Issue]:
+    def list_issues(self, workspace_id: UUID, ctx: AuthContext) -> QuerySet[Issue]:
         """Return all Issues in *workspace_id* (tenant-scoped, REQ-L3-ISSUE-011).
 
         Args:
@@ -373,14 +373,15 @@ class IssueService(ServiceBase):
             ctx: Resolved AuthContext.
 
         Returns:
-            List of Issue ORM instances.
+            QuerySet of Issue ORM instances.
+
+        REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
+        (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
-        return list(
-            Issue.objects.filter(
-                workspace_id=workspace_id, tenant_id=ctx.tenant_id
-            ).order_by("created_at")
-        )
+        return Issue.objects.filter(
+            workspace_id=workspace_id, tenant_id=ctx.tenant_id
+        ).order_by("created_at")
 
     def list_issues_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext

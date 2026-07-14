@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F
+from django.db.models import F, QuerySet
 from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import Artifact, Requirement, Tenant, Workspace
 from persistence.transactions import TransactionContextManager, atomic_transaction
@@ -394,11 +394,15 @@ class RequirementService(ServiceBase):
 
     def list_requirements(
         self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
-    ) -> List[Requirement]:
+    ) -> QuerySet[Requirement]:
         """Return Requirements in *workspace_id*.
 
         REQ-006: Excludes soft-deleted requirements (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
+
+        REQ-088: Returns a lazy ``QuerySet`` (no ``list()``) so the caller —
+        e.g. the paginating ViewSet (REQ-034) — can slice with LIMIT/OFFSET
+        instead of materialising the full result set.
         """
         self._set_tenant_context(ctx)
         qs = Requirement.objects.select_related("artifact").filter(
@@ -406,7 +410,7 @@ class RequirementService(ServiceBase):
         )
         if not include_deleted:
             qs = qs.exclude(lifecycle_status="deleted")
-        return list(qs)
+        return qs
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 

@@ -27,7 +27,7 @@ import logging
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from django.db.models import F
+from django.db.models import F, QuerySet
 
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, TestCase, Tenant, Workspace
@@ -269,15 +269,19 @@ class TestService(ServiceBase):
         workspace_id: UUID,
         ctx: AuthContext,
         test_type: Optional[str] = None,
-    ) -> List[TestCase]:
-        """Return TestCases in *workspace_id*, optionally filtered by test_type."""
+    ) -> QuerySet[TestCase]:
+        """Return TestCases in *workspace_id*, optionally filtered by test_type.
+
+        REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
+        (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
+        """
         self._set_tenant_context(ctx)
         qs = TestCase.objects.select_related("artifact").filter(
             artifact__workspace_id=workspace_id
         )
         if test_type is not None:
             qs = qs.filter(artifact__artifact_type=f"TestCase:{test_type}")
-        return list(qs)
+        return qs
 
     # ---------- Coverage (REQ-L2-AS-025) ----------
 

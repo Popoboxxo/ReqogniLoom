@@ -27,7 +27,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F
+from django.db.models import F, QuerySet
 from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -338,7 +338,7 @@ class AdrService(ServiceBase):
 
     def list_adrs(
         self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
-    ) -> List[Adr]:
+    ) -> QuerySet[Adr]:
         """Return ADRs in *workspace_id* (tenant-scoped, REQ-L3-ADR-008).
 
         REQ-006: Excludes soft-deleted ADRs (status='Deleted') by default.
@@ -350,7 +350,10 @@ class AdrService(ServiceBase):
             include_deleted: If True, include ADRs with status='Deleted'.
 
         Returns:
-            List of Adr ORM instances.
+            QuerySet of Adr ORM instances.
+
+        REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
+        (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
         qs = Adr.objects.filter(
@@ -358,7 +361,7 @@ class AdrService(ServiceBase):
         )
         if not include_deleted:
             qs = qs.exclude(status=Adr.Status.DELETED)
-        return list(qs.order_by("created_at"))
+        return qs.order_by("created_at")
 
     def list_adrs_by_status(
         self, workspace_id: UUID, status: str, ctx: AuthContext
