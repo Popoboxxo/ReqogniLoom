@@ -272,6 +272,11 @@ LLM_MODEL: str = config("LLM_MODEL", default="")
 # REQ-057: Support Redis authentication. If REDIS_PASSWORD is set, both URLs
 # will include credentials. The password is optional for local development.
 # ---------------------------------------------------------------------------
+# REQ-057: Redis authentication support. REDIS_PASSWORD env var is optional;
+# if set, the URLs will include :password@ before the host. In development
+# (empty password), Redis operates without requirepass. Defined here because
+# it is consumed by both the Celery URLs below and the cache REDIS_URL.
+_REDIS_PASSWORD: str = config("REDIS_PASSWORD", default="")
 _CELERY_REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
 CELERY_BROKER_URL: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}redis:6379/0"
 CELERY_RESULT_BACKEND: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}redis:6379/0"
@@ -308,10 +313,8 @@ CELERY_BEAT_SCHEDULE = {
 #   potentially inconsistent until REQ-038 is closed. Do not scale beyond a
 #   single worker for correctness-critical cached reads before then.
 # ---------------------------------------------------------------------------
-# REQ-057: Redis authentication support. REDIS_PASSWORD env var is optional;
-# if set, the URL will include :password@ before the host. In development
-# (empty password), Redis operates without requirepass.
-_REDIS_PASSWORD: str = config("REDIS_PASSWORD", default="")
+# REQ-057: _REDIS_PASSWORD is defined above (Celery section) because the
+# Celery broker URLs are constructed first during module import.
 _REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
 REDIS_URL: str = f"redis://{_REDIS_PASSWORD_PART}redis:6379/1"
 CACHES = {
