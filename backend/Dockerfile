@@ -27,6 +27,7 @@ RUN python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
-# Production: Gunicorn WSGI application server
-# Multi-worker deployment for handling concurrent requests (4 workers)
-CMD ["gunicorn", "reqflow.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4"]
+# Production: Gunicorn managing uvicorn ASGI workers (REQ-044).
+# ASGI is required so the async MCP SSE transport streams without blocking a
+# sync worker per connected client. Multi-worker deployment (4 workers).
+CMD ["gunicorn", "reqflow.asgi:application", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "4"]

@@ -27,8 +27,11 @@ pypdf>=4.0,<6.0
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
 reportlab>=4.0,<5.0
 
-# WSGI HTTP Server (production deployment)
+# WSGI/ASGI HTTP Server (production deployment)
+# gunicorn runs the ASGI app via uvicorn workers so the async MCP SSE
+# transport streams without blocking a sync worker per client (REQ-044).
 gunicorn>=21.2,<22.0
+uvicorn[standard]>=0.30,<1.0
 
 # Utilities
 python-decouple>=3.8,<4.0

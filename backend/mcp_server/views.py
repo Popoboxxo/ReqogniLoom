@@ -19,12 +19,21 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 
-from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
+from asgiref.sync import sync_to_async
+from django.http import (
+    HttpRequest,
+    HttpResponse,
+    JsonResponse,
+    StreamingHttpResponse,
+)
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
+from auth_tenancy.errors import AuthenticationFailed
+from auth_tenancy.services.authentication import AuthenticationService
 from mcp_server.protocol_handler import ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 
@@ -33,6 +42,15 @@ logger = logging.getLogger(__name__)
 # Module-level shared instances (singleton pattern for Django process lifetime)
 _tool_registry: ToolRegistry | None = None
 _protocol_handler: ProtocolHandler | None = None
+_auth_service: AuthenticationService | None = None
+
+
+def _get_auth_service() -> AuthenticationService:
+    """Return a shared AuthenticationService instance (lazy singleton)."""
+    global _auth_service
+    if _auth_service is None:
+        _auth_service = AuthenticationService()
+    return _auth_service
 
 
 def _get_handler() -> ProtocolHandler:
@@ -59,6 +77,21 @@ def _extract_django_headers(request: HttpRequest) -> dict:
     return headers
 
 
+def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS"):
+    """Add CORS headers to an MCP response (framework-agnostic helper).
+
+    Extracted from :class:`CorsMixin` so that fully asynchronous views (which
+    cannot mix in the synchronous ``dispatch`` override) can reuse the exact
+    same CORS policy without inheriting the sync mixin.
+    """
+    origin = request.headers.get("Origin", "*")
+    response["Access-Control-Allow-Origin"] = origin
+    response["Access-Control-Allow-Credentials"] = "true"
+    response["Access-Control-Allow-Methods"] = methods
+    response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
+    return response
+
+
 class CorsMixin:
     """Mixin to add CORS headers to MCP responses."""
     def options(self, request, *args, **kwargs):
@@ -66,12 +99,7 @@ class CorsMixin:
         return self._add_cors_headers(request, response)
 
     def _add_cors_headers(self, request, response):
-        origin = request.headers.get("Origin", "*")
-        response["Access-Control-Allow-Origin"] = origin
-        response["Access-Control-Allow-Credentials"] = "true"
-        response["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
-        response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
-        return response
+        return _apply_cors_headers(request, response)
 
     def dispatch(self, request, *args, **kwargs):
         response = super().dispatch(request, *args, **kwargs)
@@ -203,8 +231,17 @@ class McpMessagesView(CorsMixin, View):
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class McpSseTransportView(CorsMixin, View):
-    """SSE transport endpoint — serves a continuous stream for MCP."""
+class McpSseTransportView(View):
+    """SSE transport endpoint — serves a continuous stream for MCP.
+
+    This view is **fully asynchronous** (all handlers are ``async def``). It
+    deliberately does NOT mix in :class:`CorsMixin`, whose synchronous
+    ``dispatch`` override is incompatible with async handlers and previously
+    raised a ``TypeError`` on every ``GET /mcp/sse/`` (REQ-044). CORS headers
+    are applied via the framework-agnostic :func:`_apply_cors_headers` helper.
+    """
+
+    _CORS_METHODS = "GET, OPTIONS"
 
     @staticmethod
     def _resolve_api_key(request: HttpRequest) -> str:
@@ -223,19 +260,43 @@ class McpSseTransportView(CorsMixin, View):
             return header_key
         return request.GET.get("api_key", "")
 
-    async def get(self, request: HttpRequest, *args, **kwargs) -> StreamingHttpResponse:
-        """Standard MCP SSE connection establishment."""
-        import uuid
-        from asgiref.sync import sync_to_async
+    async def options(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        """Answer CORS preflight for the SSE endpoint."""
+        return _apply_cors_headers(
+            request, HttpResponse(), methods=self._CORS_METHODS
+        )
+
+    async def get(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        """Standard MCP SSE connection establishment.
+
+        The handshake is authenticated (REQ-044): an SSE stream is only opened
+        for a request carrying a valid API key. This closes the unauthenticated
+        DoS vector where any client could hold a streaming connection open.
+        """
         from mcp_server.sse_pubsub import async_sse_generator, store_session_api_key
+
+        # Authenticate the handshake before allocating a streaming connection.
+        api_key = self._resolve_api_key(request)
+        if not api_key:
+            return _apply_cors_headers(
+                request,
+                JsonResponse({"error": "Authentication required"}, status=401),
+                methods=self._CORS_METHODS,
+            )
+        try:
+            await sync_to_async(_get_auth_service().validate_api_key)(api_key)
+        except AuthenticationFailed:
+            return _apply_cors_headers(
+                request,
+                JsonResponse({"error": "Authentication required"}, status=401),
+                methods=self._CORS_METHODS,
+            )
 
         session_id = str(uuid.uuid4())
 
-        # Resolve the API key once, at connection setup, and bind it to the
-        # session server-side (REQ-018 / SYSTEM_AUDIT P-02).
-        api_key = self._resolve_api_key(request)
-        if api_key:
-            await sync_to_async(store_session_api_key)(session_id, api_key)
+        # Bind the authenticated key to the session server-side so the secret
+        # never travels in the message-endpoint URL (REQ-018 / SYSTEM_AUDIT P-02).
+        await sync_to_async(store_session_api_key)(session_id, api_key)
 
         # The message endpoint carries ONLY the session id — never the
         # api_key, which would otherwise leak into access/proxy logs and
@@ -247,12 +308,7 @@ class McpSseTransportView(CorsMixin, View):
             content_type="text/event-stream",
             status=200,
         )
-        # CorsMixin is synchronous, so we add headers manually here
-        origin = request.headers.get("Origin", "*")
-        response["Access-Control-Allow-Origin"] = origin
-        response["Access-Control-Allow-Credentials"] = "true"
-        response["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-        response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
+        _apply_cors_headers(request, response, methods=self._CORS_METHODS)
         response["Cache-Control"] = "no-cache"
         response["Connection"] = "keep-alive"
         return response

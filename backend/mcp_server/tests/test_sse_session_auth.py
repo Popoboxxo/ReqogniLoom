@@ -51,10 +51,17 @@ def test_sse_endpoint_url_excludes_api_key() -> None:
     request = RequestFactory().get("/mcp/sse/", HTTP_X_API_KEY=_API_KEY)
     view = McpSseTransportView()
 
+    auth_svc = mock.Mock()
+    auth_svc.validate_api_key.return_value = mock.Mock()
+
     with mock.patch(
         "mcp_server.sse_pubsub.async_sse_generator", side_effect=_fake_generator
-    ), mock.patch("mcp_server.sse_pubsub.store_session_api_key") as store:
+    ), mock.patch("mcp_server.sse_pubsub.store_session_api_key") as store, mock.patch(
+        "mcp_server.views._get_auth_service", return_value=auth_svc
+    ):
         response = async_to_sync(view.get)(request)
+
+    auth_svc.validate_api_key.assert_called_once_with(_API_KEY)
 
     assert response.status_code == 200
     assert len(captured) == 1
@@ -191,3 +198,77 @@ def test_tampered_session_api_key_returns_none() -> None:
         "mcp_server.sse_pubsub._get_redis_client", return_value=fake
     ):
         assert sse_pubsub.get_session_api_key(session_id) is None
+
+
+# ---------------------------------------------------------------------------
+# (e) SSE handshake is authenticated over the async request path (REQ-044)
+#
+# The endpoint is fully async and must not crash (previously the sync CorsMixin
+# raised a TypeError on every GET). These tests exercise the real ASGI request
+# path via Django's AsyncClient.
+# ---------------------------------------------------------------------------
+
+
+def _fake_sse_generator(session_id: str, endpoint_url: str) -> AsyncGenerator[str, None]:
+    """Redis-free stand-in for the SSE event generator."""
+
+    async def _gen() -> AsyncGenerator[str, None]:
+        yield "event: endpoint\n"
+        yield f"data: {endpoint_url}\n\n"
+
+    return _gen()
+
+
+def test_sse_handshake_without_key_returns_401() -> None:
+    """GET /mcp/sse/ without any API key is rejected (401) — no stream opened."""
+    from django.test import AsyncClient
+
+    response = async_to_sync(AsyncClient().get)("/mcp/sse/")
+
+    assert response.status_code == 401
+    assert response["Content-Type"] == "application/json"
+    assert response.json() == {"error": "Authentication required"}
+
+
+def test_sse_handshake_with_valid_key_opens_event_stream() -> None:
+    """GET /mcp/sse/ with a valid API key returns a 200 text/event-stream."""
+    from django.test import AsyncClient
+
+    auth_svc = mock.Mock()
+    auth_svc.validate_api_key.return_value = mock.Mock()
+
+    with mock.patch(
+        "mcp_server.views._get_auth_service", return_value=auth_svc
+    ), mock.patch(
+        "mcp_server.sse_pubsub.async_sse_generator", side_effect=_fake_sse_generator
+    ), mock.patch("mcp_server.sse_pubsub.store_session_api_key") as store:
+        response = async_to_sync(AsyncClient().get)(
+            "/mcp/sse/", headers={"x-api-key": _API_KEY}
+        )
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "text/event-stream"
+    assert response["Cache-Control"] == "no-cache"
+    auth_svc.validate_api_key.assert_called_once_with(_API_KEY)
+    store.assert_called_once()
+
+
+def test_sse_handshake_with_invalid_key_returns_401() -> None:
+    """A syntactically present but invalid API key is rejected (401)."""
+    from django.test import AsyncClient
+
+    from auth_tenancy.errors import AuthenticationFailed
+
+    auth_svc = mock.Mock()
+    auth_svc.validate_api_key.side_effect = AuthenticationFailed("invalid_api_key")
+
+    with mock.patch(
+        "mcp_server.views._get_auth_service", return_value=auth_svc
+    ), mock.patch("mcp_server.sse_pubsub.store_session_api_key") as store:
+        response = async_to_sync(AsyncClient().get)(
+            "/mcp/sse/", headers={"x-api-key": "rfk_bogus"}
+        )
+
+    assert response.status_code == 401
+    assert response.json() == {"error": "Authentication required"}
+    store.assert_not_called()
