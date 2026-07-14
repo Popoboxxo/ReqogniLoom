@@ -273,6 +273,36 @@ CELERY_RESULT_BACKEND: str = config(
 )
 
 # ---------------------------------------------------------------------------
+# Cache — Redis-backed shared cache (REQ-033, DEEP_SYSTEM_ANALYSIS.md BE-2)
+#
+# Without an explicit CACHES setting Django falls back to LocMemCache, which is
+# per-process and never synchronised between workers. That is the root cause of
+# the four in-process caches becoming inconsistent under a multi-worker
+# deployment. Configuring a shared Redis backend gives every worker one cache.
+#
+# Uses django.core.cache.backends.redis.RedisCache (built into Django 4.0+);
+# no third-party django-redis dependency is required. A dedicated Redis logical
+# database (db 1) is used so cache keys never collide with the Celery
+# broker/result backend (db 0).
+#
+# WARNING — Multi-Worker Deployment Constraint (REQ-040, BE-9):
+#   A shared cache backend removes the per-process split, but it does NOT by
+#   itself guarantee consistency. Until the cache-invalidation strategy
+#   (REQ-038 / BE-7, signal- or TTL-based post_save/post_delete invalidation)
+#   is fully implemented, a stale entry written by one worker can remain visible
+#   to others. Deployments with more than one worker MUST be treated as
+#   potentially inconsistent until REQ-038 is closed. Do not scale beyond a
+#   single worker for correctness-critical cached reads before then.
+# ---------------------------------------------------------------------------
+REDIS_URL: str = config("REDIS_URL", default="redis://redis:6379/1")
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Tenant-Isolation placeholder — ADR-03
 # In v1: single default tenant. v2-activation requires no data migration.
 # TODO(ARCH-L1-011): Set DEFAULT_TENANT_ID via env once auth_tenancy is implemented.
