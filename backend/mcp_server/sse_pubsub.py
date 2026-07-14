@@ -9,9 +9,26 @@ logger = logging.getLogger(__name__)
 # Long enough for a normal SSE session, short enough to bound stale bindings.
 SESSION_TTL_SECONDS = 8 * 3600
 
+# Module-level Redis connection pool (REQ-035 / audit BE-4). Reusing a single
+# pool avoids opening a fresh TCP connection on every publish/store/lookup call.
+_redis_pool = None
+
 def _get_redis_url() -> str:
     # Use Celery broker URL as Redis URL
     return getattr(settings, "CELERY_BROKER_URL", "redis://redis:6379/0")
+
+def _get_redis_pool():
+    """Return the shared module-level Redis connection pool (lazy init)."""
+    global _redis_pool
+    if _redis_pool is None:
+        import redis
+        _redis_pool = redis.ConnectionPool.from_url(_get_redis_url())
+    return _redis_pool
+
+def _get_redis_client():
+    """Return a Redis client backed by the shared module-level pool."""
+    import redis
+    return redis.Redis(connection_pool=_get_redis_pool())
 
 def _session_auth_key(session_id: str) -> str:
     """Return the Redis key holding the API key bound to an SSE session."""
@@ -26,20 +43,16 @@ def store_session_api_key(
     subsequent POSTs by ``session_id`` alone, so the secret never has to
     travel in the SSE message URL (REQ-018 / SYSTEM_AUDIT P-02).
     """
-    import redis
-    redis_url = _get_redis_url()
     try:
-        r = redis.from_url(redis_url)
+        r = _get_redis_client()
         r.set(_session_auth_key(session_id), api_key, ex=ttl)
     except Exception:
         logger.exception(f"Failed to store session api key for {session_id}")
 
 def get_session_api_key(session_id: str) -> Optional[str]:
     """Return the API key bound to an SSE session, or None if unknown/expired."""
-    import redis
-    redis_url = _get_redis_url()
     try:
-        r = redis.from_url(redis_url)
+        r = _get_redis_client()
         value = r.get(_session_auth_key(session_id))
         if value is None:
             return None
@@ -50,10 +63,8 @@ def get_session_api_key(session_id: str) -> Optional[str]:
 
 def publish_mcp_message(session_id: str, message: Dict[str, Any]) -> None:
     """Publish a JSON-RPC message to a specific SSE session."""
-    import redis
-    redis_url = _get_redis_url()
     try:
-        r = redis.from_url(redis_url)
+        r = _get_redis_client()
         channel = f"mcp:session:{session_id}"
         r.publish(channel, json.dumps(message))
     except Exception:
