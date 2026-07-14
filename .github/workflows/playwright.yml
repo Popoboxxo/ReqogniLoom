@@ -112,6 +112,10 @@ jobs:
           echo "Waiting for frontend..."
           timeout 30 bash -c 'until curl -sf http://localhost:5173/ > /dev/null; do sleep 2; done'
 
+      - name: Verify prod Docker build (smoke test)
+        # Build the frontend production Docker image to ensure no build-time regressions
+        run: docker build -f frontend/Dockerfile --target production . --no-cache -t reqflow-frontend:latest
+
       - name: Run Playwright E2E tests
         working-directory: e2e
         env:
