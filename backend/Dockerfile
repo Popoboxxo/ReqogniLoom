@@ -22,10 +22,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Create non-root user for security
+RUN addgroup --system app && adduser --system --ingroup app app
+
+# Ensure working directory is owned by app user
+RUN chown -R app:app /app
+
 # Collect static files (required for production deployment)
 RUN python manage.py collectstatic --noinput
 
 EXPOSE 8000
+
+# Run as non-root user
+USER app
 
 # Production: Gunicorn managing uvicorn ASGI workers (REQ-044).
 # ASGI is required so the async MCP SSE transport streams without blocking a
