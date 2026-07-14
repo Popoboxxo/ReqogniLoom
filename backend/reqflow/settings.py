@@ -269,11 +269,12 @@ LLM_MODEL: str = config("LLM_MODEL", default="")
 
 # ---------------------------------------------------------------------------
 # Celery — ARCH-L1-016 ResilienceOrchestrator (async task queue)
+# REQ-057: Support Redis authentication. If REDIS_PASSWORD is set, both URLs
+# will include credentials. The password is optional for local development.
 # ---------------------------------------------------------------------------
-CELERY_BROKER_URL: str = config("CELERY_BROKER_URL", default="redis://redis:6379/0")
-CELERY_RESULT_BACKEND: str = config(
-    "CELERY_RESULT_BACKEND", default="redis://redis:6379/0"
-)
+_CELERY_REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
+CELERY_BROKER_URL: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}redis:6379/0"
+CELERY_RESULT_BACKEND: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}redis:6379/0"
 
 # Beat schedule — periodic outbox consumer (REQ-032, DEEP_SYSTEM_ANALYSIS.md BE-1).
 # Drains the domain-event outbox every 5 seconds. poll_and_dispatch claims each
@@ -307,7 +308,12 @@ CELERY_BEAT_SCHEDULE = {
 #   potentially inconsistent until REQ-038 is closed. Do not scale beyond a
 #   single worker for correctness-critical cached reads before then.
 # ---------------------------------------------------------------------------
-REDIS_URL: str = config("REDIS_URL", default="redis://redis:6379/1")
+# REQ-057: Redis authentication support. REDIS_PASSWORD env var is optional;
+# if set, the URL will include :password@ before the host. In development
+# (empty password), Redis operates without requirepass.
+_REDIS_PASSWORD: str = config("REDIS_PASSWORD", default="")
+_REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
+REDIS_URL: str = f"redis://{_REDIS_PASSWORD_PART}redis:6379/1"
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
