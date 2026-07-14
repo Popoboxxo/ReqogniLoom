@@ -37,7 +37,7 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Error codes (REQ-L2-MC-011)
+# Error codes (REQ-L2-MC-011, JSON-RPC 2.0 compliant)
 # ---------------------------------------------------------------------------
 
 ERROR_CODES = {
@@ -51,6 +51,22 @@ ERROR_CODES = {
     "INTERNAL_ERROR": "An internal server error occurred.",
     "PARSE_ERROR": "Failed to parse JSON-RPC request.",
     "INVALID_REQUEST": "Malformed JSON-RPC request frame.",
+}
+
+# JSON-RPC 2.0 Error Code Mapping
+# See: https://www.jsonrpc.org/specification#error_object
+# Standard codes: -32700 to -32603; Server-defined: -32000 to -32768
+ERROR_CODE_MAP = {
+    "PARSE_ERROR": -32700,           # JSON Parse error
+    "INVALID_REQUEST": -32600,       # Invalid Request
+    "UNKNOWN_TOOL": -32601,          # Method not found
+    "VALIDATION_ERROR": -32602,      # Invalid params
+    "INTERNAL_ERROR": -32603,        # Internal error
+    "AUTH_FAILED": -32000,           # Server-defined: Authentication
+    "PERMISSION_DENIED": -32001,     # Server-defined: Permission
+    "FEATURE_NOT_ENABLED": -32002,   # Server-defined: Feature
+    "LLM_NOT_CONFIGURED": -32003,    # Server-defined: LLM config
+    "NOT_FOUND": -32004,             # Server-defined: Not found
 }
 
 
@@ -141,9 +157,16 @@ class ErrorFormatter:
         message: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Return a structured error dict (REQ-L2-MC-011)."""
+        """Return a structured error dict (REQ-L2-MC-011, JSON-RPC 2.0 compliant).
+
+        Returns error object with 'code' (int) and 'message' (str) per
+        https://www.jsonrpc.org/specification#error_object
+        """
+        # Map error_code string to JSON-RPC numeric code
+        rpc_code = ERROR_CODE_MAP.get(error_code, -32603)  # Default to Internal Error
+
         body: Dict[str, Any] = {
-            "error_code": error_code,
+            "code": rpc_code,
             "message": message or ERROR_CODES.get(error_code, error_code),
         }
         if details:

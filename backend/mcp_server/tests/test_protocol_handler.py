@@ -72,12 +72,14 @@ class TestJsonRpcValidator:
 class TestErrorFormatter:
     def test_format_error_known_code(self):
         body = ErrorFormatter.format_error("AUTH_FAILED")
-        assert body["error_code"] == "AUTH_FAILED"
+        assert body["code"] == -32000  # JSON-RPC 2.0 error code for AUTH_FAILED
+        assert isinstance(body["code"], int)
         assert "message" in body
         assert "details" not in body
 
     def test_format_error_with_details(self):
         body = ErrorFormatter.format_error("VALIDATION_ERROR", details={"field": "id"})
+        assert body["code"] == -32602  # Invalid params
         assert body["details"] == {"field": "id"}
 
     def test_format_jsonrpc_error(self):
@@ -85,7 +87,9 @@ class TestErrorFormatter:
         assert frame["jsonrpc"] == "2.0"
         assert frame["id"] == 42
         assert "error" in frame
-        assert frame["error"]["error_code"] == "AUTH_FAILED"
+        assert frame["error"]["code"] == -32000  # JSON-RPC 2.0 error code
+        assert isinstance(frame["error"]["code"], int)
+        assert isinstance(frame["error"]["message"], str)
 
     def test_format_jsonrpc_result(self):
         frame = ErrorFormatter.format_jsonrpc_result(7, {"data": "ok"})
@@ -161,7 +165,7 @@ class TestProtocolHandler:
         handler = ProtocolHandler(tool_registry=registry)
         response = handler.handle_http_request(body=b"not-json")
         assert "error" in response
-        assert response["error"]["error_code"] == "PARSE_ERROR"
+        assert response["error"]["code"] == -32700  # JSON-RPC Parse error
         registry.dispatch_request.assert_not_called()
 
     def test_invalid_request_on_bad_frame(self):
@@ -169,7 +173,7 @@ class TestProtocolHandler:
         handler = ProtocolHandler(tool_registry=registry)
         body = json.dumps({"method": "x", "id": 1}).encode()  # missing jsonrpc
         response = handler.handle_http_request(body=body)
-        assert response["error"]["error_code"] == "INVALID_REQUEST"
+        assert response["error"]["code"] == -32600  # JSON-RPC Invalid Request
         registry.dispatch_request.assert_not_called()
 
     def test_missing_api_key_returns_auth_failed(self):
@@ -177,7 +181,7 @@ class TestProtocolHandler:
         handler = ProtocolHandler(tool_registry=registry)
         body = json.dumps({"jsonrpc": "2.0", "method": "requirement.get", "id": 1, "params": {}}).encode()
         response = handler.handle_http_request(body=body)
-        assert response["error"]["error_code"] == "AUTH_FAILED"
+        assert response["error"]["code"] == -32000  # JSON-RPC server error: AUTH_FAILED
         registry.dispatch_request.assert_not_called()
 
     def test_successful_dispatch_returns_result(self):
@@ -195,7 +199,7 @@ class TestProtocolHandler:
         body = _make_valid_body("requirement.get", request_id=3)
         response = handler.handle_http_request(body=body)
         assert "error" in response
-        assert response["error"]["error_code"] == "NOT_FOUND"
+        assert response["error"]["code"] == -32004  # JSON-RPC server error: NOT_FOUND
         assert response["id"] == 3
 
     def test_api_key_stripped_from_params_before_dispatch(self):
@@ -220,4 +224,4 @@ class TestProtocolHandler:
         handler = ProtocolHandler(tool_registry=registry)
         body = _make_valid_body()
         response = handler.handle_http_request(body=body)
-        assert response["error"]["error_code"] == "INTERNAL_ERROR"
+        assert response["error"]["code"] == -32603  # JSON-RPC Internal error
