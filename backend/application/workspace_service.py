@@ -51,6 +51,9 @@ logger = logging.getLogger(__name__)
 _VALID_PRESETS = {key for key, _ in PRESET_CHOICES}
 _VALID_TERMINOLOGY_PROFILES = {key for key, _ in TERMINOLOGY_CHOICES}
 
+# Sentinel distinguishing "field omitted" from an explicit ``None`` in PATCH.
+_UNSET: object = object()
+
 
 class WorkspaceService(ServiceBase):
     """COMP-AS-WS — Workspace queries + create scoped to the active tenant."""
@@ -437,6 +440,103 @@ class WorkspaceService(ServiceBase):
             entity_id=workspace_pk,
             details={"name": workspace.name, "artifact_count": len(artifact_ids)},
         )
+
+
+    # ---------- Metadata + preset orchestration (REQ-066, REQ-L2-RF-012) ----------
+
+    @atomic_transaction
+    def update_metadata(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        *,
+        name: object = _UNSET,
+        language: object = _UNSET,
+        decomposition_link_type: object = _UNSET,
+        terminology_profile: object = _UNSET,
+    ) -> Workspace:
+        """Update workspace metadata + optional terminology-profile switch (REQ-066).
+
+        Only fields passed explicitly (i.e. not ``_UNSET``) are touched, mirroring
+        the PATCH semantics of the former view. ``language`` and
+        ``terminology_profile`` are stored on the ``preset`` JSON blob; switching
+        the terminology profile also runs the ``presets`` orchestration.
+
+        Raises:
+            NotFoundError: workspace does not exist in the active tenant.
+            ValidationError: empty name or invalid terminology_profile.
+        """
+        self._set_tenant_context(ctx)
+        ws = Workspace.objects.filter(id=workspace_id).first()
+        if ws is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+        update_fields: list[str] = []
+        preset_blob = dict(ws.preset or {})
+
+        if name is not _UNSET:
+            new_name = str(name or "").strip()
+            if not new_name:
+                raise ValidationError("name must not be empty")
+            ws.name = new_name
+            update_fields.append("name")
+
+        if language is not _UNSET:
+            preset_blob["language"] = str(language)
+            ws.preset = preset_blob
+            if "preset" not in update_fields:
+                update_fields.append("preset")
+
+        if decomposition_link_type is not _UNSET:
+            ws.decomposition_link_type = str(decomposition_link_type)
+            if "decomposition_link_type" not in update_fields:
+                update_fields.append("decomposition_link_type")
+
+        if terminology_profile is not _UNSET:
+            target_profile = str(terminology_profile)
+            if target_profile not in ("dev_mode", "se_mode"):
+                raise ValidationError(
+                    "terminology_profile must be dev_mode or se_mode"
+                )
+            from presets.services import switch_terminology_profile
+            switch_terminology_profile(
+                workspace_id=str(workspace_id), target_profile=target_profile
+            )
+            preset_blob["terminology_profile"] = target_profile
+            ws.preset = preset_blob
+            if "preset" not in update_fields:
+                update_fields.append("preset")
+
+        if update_fields:
+            ws.save(update_fields=update_fields)
+        return ws
+
+    @atomic_transaction
+    def switch_preset_tier(
+        self, ctx: AuthContext, workspace_id: UUID, target_tier: str
+    ) -> Workspace:
+        """Switch the active preset tier and mirror it onto the preset blob (REQ-066).
+
+        Raises:
+            ValidationError: target_tier is not minimal/standard/extended.
+            NotFoundError: workspace does not exist in the active tenant.
+        """
+        if not target_tier or target_tier not in ("minimal", "standard", "extended"):
+            raise ValidationError("preset must be minimal, standard or extended")
+
+        from presets.services import switch_preset
+        switch_preset(workspace_id=str(workspace_id), target_preset=str(target_tier))
+
+        self._set_tenant_context(ctx)
+        ws = Workspace.objects.filter(id=workspace_id).first()
+        if ws is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+        preset_blob = dict(ws.preset or {})
+        preset_blob["tier"] = target_tier
+        preset_blob["name"] = target_tier
+        ws.preset = preset_blob
+        ws.save(update_fields=["preset"])
+        return ws
 
 
 __all__ = ["WorkspaceService"]
