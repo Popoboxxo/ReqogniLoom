@@ -1,7 +1,7 @@
 # Frontend Dockerfile — ARCH-L1-001 ReactFrontend
 # ADR-08: Self-Hosted via Docker Compose (no Kubernetes in v1)
 
-FROM node:22-slim AS base
+FROM node:22.17.0-slim AS base
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ COPY . .
 RUN npm run build
 
 # Production serve stage (nginx)
-FROM nginx:alpine AS production
+FROM nginx:1.27-alpine AS production
 
 # Create non-root user for security
 RUN addgroup -S app && adduser -S app -G app
