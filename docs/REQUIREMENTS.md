@@ -134,6 +134,12 @@
 | REQ-109 | Non-Functional | pgvector Python-Dependency ergänzen | Celery-Container crasht beim Start wegen fehlendem pgvector-Modul (ImportError). pgvector in backend/requirements.txt ergänzen und Dockerfile-Build sicherstellen. Neues Finding aus P2-Implementierungsbericht. | Done |
 | REQ-110 | Non-Functional | python-json-logger Dependency im Container sicherstellen | python-json-logger fehlt im laufenden Container-Image (aus REQ-063, JSON-Logging-Feature). Dependency in backend/requirements.txt ergänzen und im Backend-Dockerfile sicherstellen dass der Package-Build korrekt erfolgt. Neues Finding aus P2-Implementierungsbericht. | Done |
 
+## Auth Bugfixes (2026-07-14)
+
+| REQ-ID | Kategorie | Titel | Beschreibung | Status |
+|--------|-----------|-------|-------------|--------|
+| REQ-126 | Security | Symmetrische Rollen-Auflösung für Bearer-Tokens | Bearer-Token-Pfad verwendet JWT-Claims als einzige Rollen-Quelle. Wenn Rollen im JWT leer sind (neuer User / Rolle nach Login zugewiesen), erhalten Users 403 auf Schreib-Endpoints. Fix: DB-Fallback identisch dem API_KEY-Pfad wenn `claims.roles` leer ist (`auth_tenancy/rest.py`). | Active |
+
 ## Deep System Analysis Backlog — Architektur und Komponenten-Zerlegung (2026-07-14)
 
 | REQ-ID | Kategorie | Titel | Beschreibung | Status |
