@@ -30,7 +30,7 @@ Design decisions:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 import uuid
 from uuid import UUID
 
@@ -157,12 +157,34 @@ class BaseEntityViewSet(PresetGateMixin, viewsets.ViewSet):
             self._paginator = self.pagination_class()
         return self._paginator
 
-    def _paginate(self, request: Request, data: list) -> Response:
-        """Apply pagination to a list and return a paginated Response."""
-        page = self.paginator.paginate_queryset(data, request, view=self)
+    def _paginate(
+        self,
+        request: Request,
+        items: Any,
+        serialize: Callable[[Any], Any] | None = None,
+    ) -> Response:
+        """Paginate *items* and return a paginated Response.
+
+        REQ-034: ``items`` (a QuerySet or in-memory sequence) is handed straight
+        to the DRF paginator, which slices lazily — a QuerySet becomes a
+        ``LIMIT/OFFSET`` query instead of being materialised in full up front
+        (no ``list()``/``len()`` over the whole result set here).
+
+        When ``serialize`` is provided it is applied *only* to the current page,
+        so serialisation cost is O(page_size) instead of O(N). Call sites that
+        already pass a pre-serialised list may omit ``serialize`` (backwards
+        compatible).
+
+        Response shape is unchanged: ``{count, next, previous, results}``.
+        """
+        page = self.paginator.paginate_queryset(items, request, view=self)
         if page is not None:
-            return self.paginator.get_paginated_response(page)
-        return Response(data)
+            results = [serialize(obj) for obj in page] if serialize else page
+            return self.paginator.get_paginated_response(results)
+        # Pagination disabled for this request — serialise the full set.
+        if serialize is not None:
+            return Response([serialize(obj) for obj in items])
+        return Response(items)
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         raise NotImplementedError
@@ -208,9 +230,11 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         try:
             workspace_id = kwargs["workspace_pk"]
             items = self.service.list_by_workspace(get_auth_context(request), workspace_id)
-            serialized = [StakeholderNeedSerializer(item.to_dict()).data for item in items]
-            
-            return self._paginate(request, serialized)
+            return self._paginate(
+                request,
+                items,
+                lambda item: StakeholderNeedSerializer(item.to_dict()).data,
+            )
         except NotFoundError as e:
             return Response(build_error_response("NOT_FOUND", lang, message=str(e)), status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
@@ -454,8 +478,9 @@ class RequirementViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
 
-        serialized = [RequirementSerializer(_dto_from_orm(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: RequirementSerializer(_dto_from_orm(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/ — retrieve single requirement."""
@@ -969,16 +994,25 @@ class ArtifactViewSet(BaseEntityViewSet):
                 )
             self._svc()._set_tenant_context(ctx)
             from persistence.models import Artifact
+            # REQ-034: hand the QuerySet directly to the paginator so it slices
+            # lazily (LIMIT/OFFSET) instead of loading every row via list().
             qs = Artifact.unscoped.filter(workspace_id=UUID(workspace_id_str)).values(
                 "id", "parent_id", "artifact_type"
             )
-            items = list(qs)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [{"id": str(r["id"]), "parent_id": str(r["parent_id"]) if r["parent_id"] else None, "artifact_type": r["artifact_type"], "name": r.get("name", "")} for r in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request,
+            qs,
+            lambda r: {
+                "id": str(r["id"]),
+                "parent_id": str(r["parent_id"]) if r["parent_id"] else None,
+                "artifact_type": r["artifact_type"],
+                "name": r.get("name", ""),
+            },
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -1085,8 +1119,11 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [ArchitectureElementSerializer(_arch_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request,
+            items,
+            lambda item: ArchitectureElementSerializer(_arch_to_dict(item)).data,
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -1287,8 +1324,9 @@ class TestCaseViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [TestCaseSerializer(_test_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: TestCaseSerializer(_test_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -1468,8 +1506,9 @@ class TraceLinkViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [TraceLinkSerializer(item).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: TraceLinkSerializer(item).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -1967,8 +2006,9 @@ class BaselineViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [BaselineSerializer(_baseline_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: BaselineSerializer(_baseline_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         self._check_preset(request)
@@ -2718,8 +2758,9 @@ class WorkspaceViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [WorkspaceSerializer(_workspace_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: WorkspaceSerializer(_workspace_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/workspaces/{pk}/ — fetch a single workspace by id."""
@@ -3089,8 +3130,9 @@ class AdrViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [AdrSerializer(_adr_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: AdrSerializer(_adr_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/adrs/{pk}/ — retrieve single ADR."""
@@ -3273,8 +3315,9 @@ class RiskViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [RiskSerializer(_risk_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: RiskSerializer(_risk_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/risks/{pk}/ — retrieve single Risk."""
@@ -3463,8 +3506,9 @@ class IssueViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [IssueSerializer(_issue_to_dict(item)).data for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(
+            request, items, lambda item: IssueSerializer(_issue_to_dict(item)).data
+        )
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/issues/{pk}/ — retrieve single Issue."""
@@ -3653,8 +3697,7 @@ class TestRunViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        serialized = [_test_run_to_dict(item) for item in items]
-        return self._paginate(request, serialized)
+        return self._paginate(request, items, _test_run_to_dict)
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/test-runs/{id}/ — retrieve single test run."""
@@ -4172,8 +4215,7 @@ class GlossaryTermViewSet(BaseEntityViewSet):
             # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
             include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
             terms = self._svc().list_by_workspace(ctx, workspace_id, include_deleted=include_deleted)
-            data = [t.__dict__ for t in terms]
-            return self._paginate(request, data)
+            return self._paginate(request, terms, lambda t: t.__dict__)
         except Exception as e:
             logger.exception("Error in GlossaryTermViewSet.list")
             return _service_error_response(e, lang)
