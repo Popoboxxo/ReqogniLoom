@@ -790,3 +790,89 @@ class TestEndToEndWithMockProvider:
             result = router.execute_capability("check_consistency", workspace_id="ws1")
 
         assert result["error"]["code"] == "LLM_NOT_CONFIGURED"
+
+
+# ---------------------------------------------------------------------------
+# COMP-LA-002 — derive_requirements across HTTP providers (REQ-041)
+# ---------------------------------------------------------------------------
+
+
+class TestDeriveRequirementsAcrossProviders:
+    """REQ-041: Anthropic, Ollama and Azure implement derive_requirements.
+
+    Before REQ-041 these providers left ``derive_requirements`` abstract and
+    raised ``TypeError`` on instantiation. These tests use mocked transports
+    (no network, no provider SDK) to verify the shared free-form flow.
+    """
+
+    _DERIVED_JSON = (
+        '{"score": 0.9, "suggestions": ["s1"], '
+        '"children": [{"title": "SyReq 1", "description": "System shall X.", '
+        '"type": "SyReq"}]}'
+    )
+
+    def _make_providers(self):
+        from llm_adapter.providers import (
+            AnthropicProvider,
+            AzureOpenAiProvider,
+            OllamaProvider,
+            ProviderConfig,
+        )
+
+        return [
+            AnthropicProvider(ProviderConfig(provider_name="anthropic")),
+            OllamaProvider(ProviderConfig(provider_name="ollama")),
+            AzureOpenAiProvider(
+                ProviderConfig(provider_name="azure", azure_deployment="dep")
+            ),
+        ]
+
+    def test_all_providers_instantiate_without_type_error(self):
+        # Core REQ-041 regression: instantiation must not raise TypeError.
+        providers = self._make_providers()
+        assert len(providers) == 3
+
+    def test_derive_requirements_parses_children(self, monkeypatch):
+        from llm_adapter.interface import LlmDecompositionResult
+
+        for provider in self._make_providers():
+            monkeypatch.setattr(
+                provider, "_chat", lambda prompt: (self._DERIVED_JSON, 7)
+            )
+            result = provider.derive_requirements("need-1")
+            assert isinstance(result, LlmDecompositionResult)
+            assert result.provider == provider.PROVIDER_NAME
+            assert result.score == 0.9
+            assert result.suggestions == ["s1"]
+            assert len(result.children) == 1
+            assert result.children[0]["title"] == "SyReq 1"
+
+    def test_derive_requirements_strips_markdown_fences(self, monkeypatch):
+        fenced = "```json\n" + self._DERIVED_JSON + "\n```"
+        for provider in self._make_providers():
+            monkeypatch.setattr(provider, "_chat", lambda prompt: (fenced, None))
+            result = provider.derive_requirements("need-1")
+            assert len(result.children) == 1
+            assert result.children[0]["type"] == "SyReq"
+
+    def test_derive_requirements_invalid_json_falls_back(self, monkeypatch):
+        for provider in self._make_providers():
+            monkeypatch.setattr(
+                provider, "_chat", lambda prompt: ("not json at all", None)
+            )
+            result = provider.derive_requirements("need-1")
+            # Fallback wraps the raw text into a single generated requirement.
+            assert len(result.children) == 1
+            assert result.children[0]["description"] == "not json at all"
+
+    def test_derive_requirements_passes_need_id_into_prompt(self, monkeypatch):
+        captured = {}
+
+        def _capture(prompt):
+            captured["prompt"] = prompt
+            return self._DERIVED_JSON, None
+
+        provider = self._make_providers()[0]
+        monkeypatch.setattr(provider, "_chat", _capture)
+        provider.derive_requirements("need-XYZ")
+        assert "need-XYZ" in captured["prompt"]

@@ -359,6 +359,37 @@ class _BaseHttpProvider(LlmCapabilityInterface):
 
 
 # ---------------------------------------------------------------------------
+# Shared parsing helper for derive_requirements (REQ-041)
+# ---------------------------------------------------------------------------
+
+
+def _parse_derivation_response(text: str) -> dict:
+    """Parse a derive_requirements completion into a data dict.
+
+    Some models wrap the JSON payload in markdown fences; these are stripped
+    before parsing. On malformed JSON the response is wrapped into a single
+    generated requirement so callers always receive a usable structure. This
+    mirrors the fallback behaviour of :class:`OpenAiProvider`.
+
+    Args:
+        text: The raw completion text returned by the provider.
+
+    Returns:
+        A dict with (at least) a ``children`` key.
+    """
+    import json
+
+    try:
+        cleaned = text.replace("```json", "").replace("```", "").strip()
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.warning(
+            "Provider returned invalid JSON for derive_requirements: %s", text
+        )
+        return {"children": [{"title": "Generated Req", "description": text}]}
+
+
+# ---------------------------------------------------------------------------
 # Anthropic provider
 # ---------------------------------------------------------------------------
 
@@ -372,6 +403,35 @@ class AnthropicProvider(_BaseHttpProvider):
 
     PROVIDER_NAME = "anthropic"
     MODEL_NAME = "claude-3-opus-20240229"
+
+    def _chat(self, prompt: str) -> tuple[str, Optional[int]]:
+        """Send a message to the Anthropic API and return (text, token_usage).
+
+        Provides the free-form transport used by the inherited ``complete``
+        method (REQ-048) so free-form flows such as derive_requirements
+        (REQ-041) work without duplicating SDK plumbing.
+        """
+        try:
+            import anthropic  # noqa: PLC0415 (lazy import intentional)
+        except ImportError as exc:
+            raise RuntimeError(
+                "anthropic SDK not installed. Run: pip install anthropic"
+            ) from exc
+
+        client = anthropic.Anthropic(api_key=self._config.api_key)
+        message = client.messages.create(
+            model=self.MODEL_NAME,
+            max_tokens=4096,
+            timeout=self._config.timeout,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = message.content[0].text
+        token_usage = (
+            message.usage.input_tokens + message.usage.output_tokens
+            if hasattr(message, "usage")
+            else None
+        )
+        return text, token_usage
 
     def validate_artifact(self, artifact_id: str) -> LlmResult:
         """Call Anthropic API to validate an artifact."""
@@ -497,6 +557,31 @@ class AnthropicProvider(_BaseHttpProvider):
             raise RuntimeError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
+
+    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need (REQ-041, REQ-048).
+
+        The provider works only with the identifier it is handed; fetching the
+        StakeholderNeed and rendering configured prompt templates is the
+        responsibility of the application layer (AiDerivationService), which
+        keeps this Layer-3 provider free of direct persistence access. The
+        full artifact content is injected by that layer in REQ-046.
+        """
+        text = self.complete(
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}",
+            purpose="derive_requirements",
+        )
+        data = _parse_derivation_response(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self.MODEL_NAME,
+            token_usage=None,
+            children=data.get("children", []),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -714,6 +799,29 @@ class OllamaProvider(_BaseHttpProvider):
             issues=data.get("issues", []),
         )
 
+    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need (REQ-041, REQ-048).
+
+        Fetching the StakeholderNeed and rendering configured prompt templates
+        is the responsibility of the application layer (AiDerivationService);
+        the full artifact content is injected by that layer in REQ-046.
+        """
+        text = self.complete(
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}",
+            purpose="derive_requirements",
+        )
+        data = _parse_derivation_response(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._model,
+            token_usage=None,
+            children=data.get("children", []),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Azure OpenAI provider (REQ-L2-LA-007)
@@ -805,6 +913,29 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             model=self._config.azure_deployment or self.MODEL_NAME,
             token_usage=token_usage,
             issues=data.get("issues", []),
+        )
+
+    def derive_requirements(self, need_id: str) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need (REQ-041, REQ-048).
+
+        Fetching the StakeholderNeed and rendering configured prompt templates
+        is the responsibility of the application layer (AiDerivationService);
+        the full artifact content is injected by that layer in REQ-046.
+        """
+        text = self.complete(
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}",
+            purpose="derive_requirements",
+        )
+        data = _parse_derivation_response(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._config.azure_deployment or self.MODEL_NAME,
+            token_usage=None,
+            children=data.get("children", []),
         )
 
 
