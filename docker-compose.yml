@@ -129,6 +129,35 @@ services:
       sh -c "celery -A reqflow worker --loglevel=info"
 
   # ─────────────────────────────────────────────────────────
+  # Celery Beat Scheduler — Periodic Tasks (REQ-030)
+  # ─────────────────────────────────────────────────────────
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DEBUG: ${DEBUG:-False}
+      DB_NAME: ${DB_NAME:-reqflow}
+      DB_USER: ${DB_USER:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD:-reqflow}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "celery -A reqflow beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+
+  # ─────────────────────────────────────────────────────────
   # React Frontend — ARCH-L1-001 ReactFrontend
   # ─────────────────────────────────────────────────────────
   frontend:
