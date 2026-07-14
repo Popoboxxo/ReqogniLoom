@@ -5,7 +5,7 @@ FROM node:22-slim AS base
 
 WORKDIR /app
 
-COPY package.json ./
+COPY package.json package-lock.json ./
 
 # Development stage
 FROM base AS development
@@ -21,7 +21,7 @@ CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
 # Production build stage
 FROM base AS builder
 
-RUN npm ci --only=production
+RUN npm ci
 
 COPY . .
 
