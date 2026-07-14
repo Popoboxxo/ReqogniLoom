@@ -16,6 +16,7 @@ Environment variables (see .env.example for full list):
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from decouple import Csv, config
@@ -271,6 +272,16 @@ CELERY_BROKER_URL: str = config("CELERY_BROKER_URL", default="redis://redis:6379
 CELERY_RESULT_BACKEND: str = config(
     "CELERY_RESULT_BACKEND", default="redis://redis:6379/0"
 )
+
+# Beat schedule — periodic outbox consumer (REQ-032, DEEP_SYSTEM_ANALYSIS.md BE-1).
+# Drains the domain-event outbox every 5 seconds. poll_and_dispatch claims each
+# row with SELECT FOR UPDATE (skip_locked), so overlapping runs stay idempotent.
+CELERY_BEAT_SCHEDULE = {
+    "dispatch-outbox-events": {
+        "task": "application.dispatch_outbox_events",
+        "schedule": timedelta(seconds=5),
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Cache — Redis-backed shared cache (REQ-033, DEEP_SYSTEM_ANALYSIS.md BE-2)
