@@ -360,7 +360,7 @@ Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einflie
 | REQ-049 | FE-3/4/6/7 | — | ⏸ zurückgestellt, wartet auf Freigabe |
 | REQ-050 | FE-5 | — | ⏸ zurückgestellt, wartet auf Freigabe |
 | REQ-051 | FE-8 | 1b4863f | ✅ done |
-| REQ-052 | FE-9 | — | ⏸ zurückgestellt, wartet auf Freigabe |
+| REQ-052 | FE-9 | 5ff58a4, f6aa4d6 | ✅ done — httpOnly-Cookie (`reqflow_access`), Dual-Read, CSRF-Enforcement (Cookie-Pfad), `/auth/logout/`, `/auth/me/`-Bootstrap; sessionStorage-Token entfernt (Phase 1 vollständig inkl. CSRF) |
 | REQ-053 | FE-10 | — | ⏸ zurückgestellt, wartet auf Freigabe |
 | REQ-054 | FE-11 | — | ✅ done — bereits implementiert (React.lazy + Suspense in NavigationShell.tsx) |
 | REQ-055 | FE-12 | — | ✅ done — Beschreibung korrigiert (i18n in 71 Dateien aktiv, Rollout als P3) |
