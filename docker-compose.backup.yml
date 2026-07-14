@@ -1,0 +1,30 @@
+version: '3.8'
+
+# Backup service for postgres_data volume
+# Usage: docker compose -f docker-compose.yml -f docker-compose.backup.yml run --rm backup
+
+services:
+  backup:
+    image: postgres:16
+    container_name: reqflow_backup
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-reqflow}
+    volumes:
+      - ./backups:/backups
+    command: >
+      sh -c "
+        echo 'Starting PostgreSQL backup...' &&
+        pg_dump \
+          -h postgres \
+          -U ${DB_USER:-reqflow} \
+          -d ${DB_NAME:-reqflow} \
+          -F custom \
+          -f /backups/reqflow_$(date +%Y%m%d_%H%M%S).dump &&
+        echo 'Backup completed successfully'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - reqflow_network
+    restart: "no"
