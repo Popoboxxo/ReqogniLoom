@@ -145,6 +145,22 @@ def _read_config() -> ProviderConfig:
     return _apply_db_settings(_read_env_config())
 
 
+def resolve_provider_config() -> ProviderConfig:
+    """Return the effective provider configuration for the active context.
+
+    REQ-083: public accessor so out-of-request callers (Celery workers) can
+    resolve the per-tenant LLM configuration explicitly after restoring the
+    tenant context. With an active tenant context the persisted
+    :class:`~persistence.models.LlmSettings` row wins; without one the
+    environment (global ``LLM_PROVIDER`` etc.) is the fallback.
+
+    Returns:
+        The effective :class:`ProviderConfig` (tenant settings overlaid on
+        environment defaults).
+    """
+    return _read_config()
+
+
 # ---------------------------------------------------------------------------
 # Prompt content embedding helpers (REQ-046)
 # ---------------------------------------------------------------------------
@@ -1253,6 +1269,7 @@ __all__ = [
     # Public API
     "get_provider",
     "register_provider",
+    "resolve_provider_config",
     "ProviderConfig",
     # Provider implementations
     "MockLlmProvider",

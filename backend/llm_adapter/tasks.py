@@ -70,6 +70,14 @@ def run_capability(
     Raises:
         ValueError: If ``capability`` is not in the whitelist. Celery marks the
             task FAILURE and stores the exception in the result backend.
+
+    Tenant configuration (REQ-083):
+        Only the ``tenant_id`` crosses the queue boundary — never the raw API
+        key. After restoring the tenant context the worker resolves the
+        tenant's persisted LlmSettings (provider, api_key, base_url,
+        model_name) from the database and instantiates the matching provider.
+        Without a ``tenant_id`` the global environment configuration
+        (``LLM_PROVIDER`` etc.) is used, preserving backward compatibility.
     """
     if capability not in ALLOWED_CAPABILITIES:
         raise ValueError(f"Unknown capability: {capability}")
@@ -77,12 +85,22 @@ def run_capability(
     # Imported here to avoid import-time coupling and keep the module importable
     # in contexts where these deps are not needed.
     from persistence.tenancy import TenantContext
-    from llm_adapter.providers import get_provider
+    from llm_adapter.providers import get_provider, resolve_provider_config
 
     try:
         if tenant_id:
             TenantContext.set_tenant(tenant_id)
-        provider = get_provider()
+        # REQ-083: resolve per-tenant LLM settings from the DB (tenant context
+        # is active now); falls back to the environment when no tenant_id was
+        # dispatched or no settings row exists.
+        config = resolve_provider_config()
+        logger.info(
+            "LLM worker resolved provider %s for tenant %s (capability=%s)",
+            config.provider_name or "<unset>",
+            tenant_id or "<none>",
+            capability,
+        )
+        provider = get_provider(config)
         method = getattr(provider, capability)
         result = method(**kwargs)
         return _serialise(result)
