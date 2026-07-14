@@ -26,7 +26,7 @@ from typing import Any
 from rest_framework import authentication, exceptions, permissions
 from rest_framework.authentication import CSRFCheck
 
-from .context import AuthContext
+from .context import AuthContext, AuthMethod
 from .errors import AuthError, build_error_body
 from .services import (
     AuthenticationService,
@@ -105,6 +105,18 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
             # Resolve effective roles. Bearer tokens may carry role claims; API
             # keys resolve from UserRole within the (now active) tenant scope.
             active_roles = claims.roles
+            if claims.auth_method == AuthMethod.API_KEY:
+                # For API keys, roles are empty in claims; resolve from UserRole.
+                from auth_tenancy.models import UserRole
+                role_entries = (
+                    UserRole.objects.filter(
+                        user_id=claims.user_id,
+                        suspended_at__isnull=True,
+                    )
+                    .values_list("role", flat=True)
+                    .distinct()
+                )
+                active_roles = tuple(sorted({str(r).lower() for r in role_entries}))
             auth_context = self._tenancy.build_auth_context(
                 claims, tenant_context, active_roles
             )

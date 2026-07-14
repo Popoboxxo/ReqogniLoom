@@ -25,6 +25,7 @@
     "tests": "Tests",
     "baselines": "Baselines",
     "traceability": "Trace Links",
+    "impact": "Impact",
     "metrics": "SE Metrics",
     "adrs": "ADRs",
     "risks": "Risks",
