@@ -96,6 +96,80 @@ class PermissionsToolGroup(BaseToolGroup):
         "permissions.check": "_handle_check",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "permissions.set_rule",
+            "description": "Grant or upsert an item-permission rule (admin-only, write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
+                    "user_id": {"type": "string", "description": "UUID of the user receiving the rule."},
+                    "permission_level": {
+                        "type": "string",
+                        "enum": ["read", "write", "none"],
+                        "description": "Permission level to grant.",
+                    },
+                    "artifact_id": {
+                        "type": "string",
+                        "description": "Optional artifact UUID; omit for a workspace-wide default rule.",
+                    },
+                },
+                "required": ["workspace_id", "user_id", "permission_level"],
+            },
+        },
+        {
+            "name": "permissions.list",
+            "description": "List permission rules for a (user, workspace) pair (admin-only, read).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "user_id": {"type": "string", "description": "UUID of the user."},
+                    "artifact_id": {
+                        "type": "string",
+                        "description": "Optional artifact UUID to filter on.",
+                    },
+                },
+                "required": ["workspace_id", "user_id"],
+            },
+        },
+        {
+            "name": "permissions.revoke",
+            "description": "Revoke a permission rule by its ID (admin-only, write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "permission_id": {
+                        "type": "string",
+                        "description": "UUID of the permission row to delete.",
+                    },
+                },
+                "required": ["permission_id"],
+            },
+        },
+        {
+            "name": "permissions.check",
+            "description": "Evaluate the caller's effective permission (read).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
+                    "permission_level": {
+                        "type": "string",
+                        "enum": ["read", "write"],
+                        "description": "Permission level being queried.",
+                    },
+                    "artifact_id": {
+                        "type": "string",
+                        "description": "Optional artifact UUID; omit for a workspace-wide check.",
+                    },
+                },
+                "required": ["workspace_id", "permission_level"],
+            },
+        },
+    ]
+
     def __init__(self, service: Optional[ItemPermissionService] = None) -> None:
         self._service = service or ItemPermissionService()
 

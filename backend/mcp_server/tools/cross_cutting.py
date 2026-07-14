@@ -63,6 +63,69 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "workspace.get_context": "_handle_workspace_get_context",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "traceability.query",
+            "description": "Return the upstream/downstream TraceLink graph for an artifact.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "artifact_id": {"type": "string", "description": "UUID of the artifact."},
+                    "direction": {
+                        "type": "string",
+                        "enum": ["upstream", "downstream", "both"],
+                        "description": "Traversal direction (default 'both').",
+                    },
+                },
+                "required": ["artifact_id"],
+            },
+        },
+        {
+            "name": "artifact.search",
+            "description": "Full-text search across all artifact types.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query string."},
+                    "workspace_id": {"type": "string", "description": "Optional workspace UUID filter."},
+                    "type_filter": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of artifact types to include.",
+                    },
+                    "page": {"type": "integer", "description": "Page number (default 1)."},
+                    "limit": {"type": "integer", "description": "Page size (default 20)."},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "artifact.get_tree",
+            "description": "Return the hierarchical artifact structure rooted at an artifact.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "root_id": {"type": "string", "description": "UUID of the root artifact."},
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                },
+                "required": ["root_id", "workspace_id"],
+            },
+        },
+        {
+            "name": "workspace.get_context",
+            "description": "Return a workspace status summary for agent orientation.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "Optional UUID of the workspace to summarise.",
+                    },
+                },
+            },
+        },
+    ]
+
     def __init__(
         self,
         artifact_service: Optional[ArtifactService] = None,

@@ -142,6 +142,55 @@ class BackupToolGroup(BaseToolGroup):
         "admin.restore": "_handle_restore",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "admin.backup_create",
+            "description": "Create a new backup (admin-only, write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "Optional free-form change reason."},
+                    "backup_type": {
+                        "type": "string",
+                        "description": "Backup type ('full' default or 'partial').",
+                    },
+                },
+            },
+        },
+        {
+            "name": "admin.backup_list",
+            "description": "List backups newest-first (admin-only, read).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "description": "Optional BackupStatus filter."},
+                    "backup_type": {"type": "string", "description": "Optional BackupType filter."},
+                    "limit": {"type": "integer", "description": "Page size (1..1000, default 100)."},
+                    "offset": {"type": "integer", "description": "Rows to skip (default 0)."},
+                },
+            },
+        },
+        {
+            "name": "admin.restore",
+            "description": "Restore from a backup with captcha 'RESTORE' (admin-only, write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "backup_id": {"type": "string", "description": "UUID of the backup to restore."},
+                    "confirmation_text": {
+                        "type": "string",
+                        "description": "Must equal the literal 'RESTORE' (case-sensitive captcha).",
+                    },
+                    "restore_type": {
+                        "type": "string",
+                        "description": "Advisory restore type ('full' default or 'partial').",
+                    },
+                },
+                "required": ["backup_id", "confirmation_text"],
+            },
+        },
+    ]
+
     def __init__(
         self,
         backup_service: Optional[BackupService] = None,

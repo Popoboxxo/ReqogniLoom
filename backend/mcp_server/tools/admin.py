@@ -98,6 +98,46 @@ class AdminToolGroup(BaseToolGroup):
         "workspace.delete": "_handle_delete",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "workspace.close",
+            "description": "Soft-delete a workspace (is_active=False), admin-only, audited.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace to close."},
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "workspace.reactivate",
+            "description": "Undo a workspace close (is_active=True), admin-only, audited.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace to reactivate."},
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "workspace.delete",
+            "description": "Hard-delete a workspace with captcha confirmation, admin-only, audited.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace to delete."},
+                    "confirmation_text": {
+                        "type": "string",
+                        "description": "Must equal the workspace name (case-sensitive captcha).",
+                    },
+                },
+                "required": ["workspace_id", "confirmation_text"],
+            },
+        },
+    ]
+
     def __init__(
         self,
         service: Optional[WorkspaceService] = None,

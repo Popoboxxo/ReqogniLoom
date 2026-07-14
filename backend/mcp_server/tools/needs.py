@@ -38,6 +38,77 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         "needs.derive_requirements": "_handle_derive",
     }
 
+    _TOOL_SCHEMAS = [
+        {
+            "name": "needs.read",
+            "description": "Fetch a single StakeholderNeed by ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "needs.create",
+            "description": "Create a new StakeholderNeed (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
+                    "title": {"type": "string", "description": "Need title."},
+                    "description": {"type": "string", "description": "Need description."},
+                    "category": {"type": "string", "description": "Need category."},
+                    "moscow_priority": {
+                        "type": "string",
+                        "description": "MoSCoW priority (Must/Should/Could/Won't).",
+                    },
+                },
+                "required": ["workspace_id", "title"],
+            },
+        },
+        {
+            "name": "needs.update",
+            "description": "Update an existing StakeholderNeed (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "category": {"type": "string"},
+                    "status": {"type": "string"},
+                    "moscow_priority": {"type": "string"},
+                    "change_reason": {"type": "string", "description": "Reason for the change."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "needs.get_traces",
+            "description": "List incoming and outgoing TraceLinks for a StakeholderNeed.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "needs.derive_requirements",
+            "description": "Derive system requirements from a StakeholderNeed asynchronously (LLM).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                },
+                "required": ["id"],
+            },
+        },
+    ]
+
     def __init__(self, service: Optional[StakeholderNeedService] = None) -> None:
         self._service = service or StakeholderNeedService()
 

@@ -18,6 +18,58 @@ class GenericCrudToolGroup(BaseToolGroup):
             f"{prefix}.update": "_handle_update",
             f"{prefix}.delete": "_handle_delete",
         }
+        # Instance-level JSON schemas (prefix is only known at construction).
+        self._TOOL_SCHEMAS = [
+            {
+                "name": f"{prefix}.read",
+                "description": f"Fetch a single {prefix} entity by ID.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
+                    },
+                    "required": ["id"],
+                },
+            },
+            {
+                "name": f"{prefix}.create",
+                "description": f"Create a new {prefix} entity (write). Additional fields are forwarded to the service.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "workspace_id": {
+                            "type": "string",
+                            "description": "UUID of the target workspace.",
+                        },
+                    },
+                    "required": ["workspace_id"],
+                    "additionalProperties": True,
+                },
+            },
+            {
+                "name": f"{prefix}.update",
+                "description": f"Update a {prefix} entity (write). Additional fields are forwarded to the service.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
+                    },
+                    "required": ["id"],
+                    "additionalProperties": True,
+                },
+            },
+            {
+                "name": f"{prefix}.delete",
+                "description": f"Delete a {prefix} entity (write).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
+                    },
+                    "required": ["id"],
+                },
+            },
+        ]
     
     def _to_dict(self, obj: Any) -> Dict[str, Any]:
         """Convert object to dict dynamically."""
