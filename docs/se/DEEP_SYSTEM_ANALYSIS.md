@@ -399,3 +399,4 @@ Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einflie
 | REQ-088 | Service O(N) | 11c9db2 | ✅ done |
 | REQ-089 | check_consistency | 8ab74a0 | ✅ done |
 | REQ-090 | E2E-Failures | d266165 | ✅ done |
+| REQ-091 | FE-14 | — | ✅ done — WorkspaceTree opt-in virtualization (@tanstack/react-virtual, threshold 100) |

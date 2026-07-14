@@ -254,12 +254,14 @@ export function NeedList({
       )}
 
       {/* Unified tree navigation — REQ-003 */}
+      {/* REQ-091: enable virtualization for this hot-path list (threshold 100). */}
       <WorkspaceTree
         data-testid="need-list-tree"
         nodes={treeNodes}
         selectedId={selectedId}
         onSelect={(id) => navigate(`/needs/${id}`)}
         showSearch={false}
+        virtualize
         emptyLabel={t('editor.empty', 'No needs available.')}
         noMatchesLabel={t('editor.noMatches', 'No matches found.')}
       />
