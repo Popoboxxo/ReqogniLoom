@@ -141,6 +141,17 @@ class TestStandardPagination:
         p = StandardPagination()
         assert p.page_size_query_param == "page_size"
 
+    def test_paginated_response_schema_declares_envelope(self) -> None:
+        # REQ-076: OpenAPI schema pins the count/next/previous/results envelope.
+        p = StandardPagination()
+        item_schema = {"type": "array", "items": {"type": "object"}}
+        schema = p.get_paginated_response_schema(item_schema)
+        assert schema["type"] == "object"
+        assert set(schema["properties"]) == {"count", "next", "previous", "results"}
+        assert schema["properties"]["results"] is item_schema
+        assert "count" in schema["required"]
+        assert schema["properties"]["next"]["nullable"] is True
+
 
 # ---------------------------------------------------------------------------
 # RequirementSerializer — field validation (REQ-L3-RA002-001)
