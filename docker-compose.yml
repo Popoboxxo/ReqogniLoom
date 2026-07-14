@@ -22,6 +22,11 @@
 # • Keep DEBUG=False in production
 # • Use strong POSTGRES_PASSWORD (32+ random chars)
 # • Restrict network access to ports 5432 (postgres) and 6379 (redis)
+#
+# SECRET MANAGEMENT (REQ-062):
+# All services load configuration from .env via env_file directives.
+# Sensitive values: SECRET_KEY, DB_PASSWORD, REDIS_PASSWORD, LLM_API_KEY.
+# Environment variables override defaults throughout — zero secrets in compose file.
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -70,6 +75,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
       SECRET_KEY: ${SECRET_KEY}
@@ -114,6 +120,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
       SECRET_KEY: ${SECRET_KEY}
@@ -139,6 +146,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
       SECRET_KEY: ${SECRET_KEY}
@@ -180,6 +188,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file: .env
     environment:
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqflow}
@@ -213,6 +222,7 @@ services:
       # For development: use 'development' target with 'docker-compose.override.yml'
       target: production
     restart: unless-stopped
+    env_file: .env
     environment:
       # Environment variables used at build time for Vite
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
