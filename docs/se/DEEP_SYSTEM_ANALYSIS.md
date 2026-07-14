@@ -374,7 +374,7 @@ Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einflie
 | REQ-063 | INF-14 | d3fff9c | ✅ done — JSON-Logs + /health Endpoint; Prometheus-Metriken auf P3 |
 | REQ-064 | INF-15 | b9c97e0 | ✅ done |
 | REQ-065 | INF-16 | b4376d4 | ✅ done |
-| REQ-066 | BE-10 | — | ⏸ zurückgestellt, wartet auf Freigabe |
+| REQ-066 | BE-10 | — | 🟡 Phase 1 erledigt (Writes aus Views hinter Services + Guardrail + Doku); Phase 2 (Reads) + Phase 3 (BE-10-Hotspots) offen |
 | REQ-067 | BE-11 | 87aef2b | ✅ done |
 | REQ-068 | BE-12 | 16d8f9e | ✅ done |
 | REQ-069 | BE-13 | 692d1a8 | ✅ done |
