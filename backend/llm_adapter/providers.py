@@ -144,6 +144,67 @@ def _read_config() -> ProviderConfig:
 
 
 # ---------------------------------------------------------------------------
+# Prompt content embedding helpers (REQ-046)
+# ---------------------------------------------------------------------------
+
+
+def _format_artifact_context(
+    title: Optional[str], content: Optional[str]
+) -> str:
+    """Render an artifact's title/content as a prompt-embeddable block (REQ-046).
+
+    Providers previously interpolated only the opaque artifact UUID, forcing the
+    model to hallucinate. This helper turns the real text supplied by the
+    application layer into a labelled block appended to the prompt.
+
+    Returns an empty string when neither title nor content is supplied, so
+    id-only prompts stay byte-for-byte backward compatible.
+
+    Args:
+        title: Optional artifact title.
+        content: Optional artifact body/description.
+
+    Returns:
+        A leading-newline block such as ``"\\n\\nTitle: ...\\nContent:\\n..."`` or
+        ``""`` when nothing was provided.
+    """
+    parts: List[str] = []
+    if title:
+        parts.append(f"Title: {title}")
+    if content:
+        parts.append(f"Content:\n{content}")
+    if not parts:
+        return ""
+    return "\n\n" + "\n".join(parts)
+
+
+def _format_artifacts_list(artifacts: Optional[List[dict]]) -> str:
+    """Render a list of artifact summaries as a prompt-embeddable block (REQ-046).
+
+    Each entry is expected to be a ``{"id", "title", "content"}`` dict. Returns
+    an empty string for an empty/None list so id-only prompts stay backward
+    compatible.
+
+    Args:
+        artifacts: Optional list of artifact summary dicts.
+
+    Returns:
+        A leading-newline block enumerating the artifacts, or ``""`` when empty.
+    """
+    if not artifacts:
+        return ""
+    lines: List[str] = ["\n\nArtifacts:"]
+    for entry in artifacts:
+        if not isinstance(entry, dict):
+            continue
+        identifier = entry.get("id", "")
+        title = entry.get("title", "")
+        content = entry.get("content", "")
+        lines.append(f"- [{identifier}] {title}: {content}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # MockLlmProvider — always-available test/CI/graceful-degradation provider
 # ---------------------------------------------------------------------------
 
@@ -176,8 +237,19 @@ class MockLlmProvider(LlmCapabilityInterface):
             if random.random() < self._config.mock_error_rate:
                 raise RuntimeError("MockLlmProvider: simulated error")
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
-        """Return a fixed validation result for the given artifact."""
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmResult:
+        """Return a fixed validation result for the given artifact.
+
+        The mock returns deterministic values and builds no real prompt, so the
+        ``title`` / ``content`` injected by the application layer (REQ-046) are
+        accepted for interface parity but do not alter the output.
+        """
         self._simulate()
         return LlmResult(
             score=0.85,
@@ -187,8 +259,18 @@ class MockLlmProvider(LlmCapabilityInterface):
             token_usage=42,
         )
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
-        """Return a fixed decomposition result for the given requirement."""
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmDecompositionResult:
+        """Return a fixed decomposition result for the given requirement.
+
+        ``title`` / ``content`` (REQ-046) are accepted for interface parity but
+        do not alter the deterministic mock output.
+        """
         self._simulate()
         return LlmDecompositionResult(
             score=0.90,
@@ -202,8 +284,17 @@ class MockLlmProvider(LlmCapabilityInterface):
             ],
         )
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
-        """Return a fixed consistency result for the given workspace."""
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+    ) -> LlmConsistencyResult:
+        """Return a fixed consistency result for the given workspace.
+
+        ``artifacts`` (REQ-046) are accepted for interface parity but do not
+        alter the deterministic mock output.
+        """
         self._simulate()
         return LlmConsistencyResult(
             score=0.95,
@@ -433,8 +524,14 @@ class AnthropicProvider(_BaseHttpProvider):
         )
         return text, token_usage
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
-        """Call Anthropic API to validate an artifact."""
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmResult:
+        """Call Anthropic API to validate an artifact (content embedded, REQ-046)."""
         try:
             import anthropic  # noqa: PLC0415 (lazy import intentional)
 
@@ -447,7 +544,8 @@ class AnthropicProvider(_BaseHttpProvider):
                     {
                         "role": "user",
                         "content": (
-                            f"Validate artifact {artifact_id}. "
+                            f"Validate the following artifact (id: {artifact_id})."
+                            f"{_format_artifact_context(title, content)}\n\n"
                             "Return a JSON object with keys: score (0-1), suggestions (list of strings)."
                         ),
                     }
@@ -474,8 +572,14 @@ class AnthropicProvider(_BaseHttpProvider):
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
-        """Call Anthropic API to decompose a requirement."""
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmDecompositionResult:
+        """Call Anthropic API to decompose a requirement (content embedded, REQ-046)."""
         try:
             import anthropic  # noqa: PLC0415
 
@@ -488,7 +592,8 @@ class AnthropicProvider(_BaseHttpProvider):
                     {
                         "role": "user",
                         "content": (
-                            f"Decompose requirement {requirement_id} into sub-requirements. "
+                            f"Decompose the following requirement (id: {requirement_id}) "
+                            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
                             "Return JSON: {score, suggestions, children: [{id, title, type}]}"
                         ),
                     }
@@ -516,8 +621,13 @@ class AnthropicProvider(_BaseHttpProvider):
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
-        """Call Anthropic API to check workspace consistency."""
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+    ) -> LlmConsistencyResult:
+        """Call Anthropic API to check workspace consistency (content embedded, REQ-046)."""
         try:
             import anthropic  # noqa: PLC0415
 
@@ -530,7 +640,8 @@ class AnthropicProvider(_BaseHttpProvider):
                     {
                         "role": "user",
                         "content": (
-                            f"Check consistency for workspace {workspace_id}. "
+                            f"Check consistency across the artifacts in workspace "
+                            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
                             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
                         ),
                     }
@@ -619,11 +730,19 @@ class OpenAiProvider(_BaseHttpProvider):
         )
         return text, token_usage
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmResult:
         import json
 
         text, token_usage = self._chat(
-            f"Validate artifact {artifact_id}. Return JSON: {{score, suggestions}}"
+            f"Validate the following artifact (id: {artifact_id})."
+            f"{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions}"
         )
         data = json.loads(text)
         return LlmResult(
@@ -634,11 +753,18 @@ class OpenAiProvider(_BaseHttpProvider):
             token_usage=token_usage,
         )
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmDecompositionResult:
         import json
 
         text, token_usage = self._chat(
-            f"Decompose requirement {requirement_id}. "
+            f"Decompose the following requirement (id: {requirement_id}) "
+            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
             "Return JSON: {score, suggestions, children: [{id, title, type}]}"
         )
         data = json.loads(text)
@@ -686,11 +812,17 @@ class OpenAiProvider(_BaseHttpProvider):
             children=data.get("children", []),
         )
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+    ) -> LlmConsistencyResult:
         import json
 
         text, token_usage = self._chat(
-            f"Check consistency for workspace {workspace_id}. "
+            f"Check consistency across the artifacts in workspace "
+            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
         )
         data = json.loads(text)
@@ -750,11 +882,19 @@ class OllamaProvider(_BaseHttpProvider):
         token_usage = data.get("eval_count") or None
         return text, token_usage
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmResult:
         import json
 
         text, token_usage = self._chat(
-            f"Validate artifact {artifact_id}. Return JSON: {{score, suggestions}}"
+            f"Validate the following artifact (id: {artifact_id})."
+            f"{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions}"
         )
         data = json.loads(text)
         return LlmResult(
@@ -765,11 +905,18 @@ class OllamaProvider(_BaseHttpProvider):
             token_usage=token_usage,
         )
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmDecompositionResult:
         import json
 
         text, token_usage = self._chat(
-            f"Decompose requirement {requirement_id}. "
+            f"Decompose the following requirement (id: {requirement_id}) "
+            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
             "Return JSON: {score, suggestions, children: [{id, title, type}]}"
         )
         data = json.loads(text)
@@ -782,11 +929,17 @@ class OllamaProvider(_BaseHttpProvider):
             children=data.get("children", []),
         )
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+    ) -> LlmConsistencyResult:
         import json
 
         text, token_usage = self._chat(
-            f"Check consistency for workspace {workspace_id}. "
+            f"Check consistency across the artifacts in workspace "
+            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
         )
         data = json.loads(text)
@@ -866,11 +1019,19 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         token_usage = response.usage.total_tokens if response.usage else None
         return text, token_usage
 
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmResult:
         import json
 
         text, token_usage = self._chat(
-            f"Validate artifact {artifact_id}. Return JSON: {{score, suggestions}}"
+            f"Validate the following artifact (id: {artifact_id})."
+            f"{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions}"
         )
         data = json.loads(text)
         return LlmResult(
@@ -881,11 +1042,18 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             token_usage=token_usage,
         )
 
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmDecompositionResult:
         import json
 
         text, token_usage = self._chat(
-            f"Decompose requirement {requirement_id}. "
+            f"Decompose the following requirement (id: {requirement_id}) "
+            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
             "Return JSON: {score, suggestions, children: [{id, title, type}]}"
         )
         data = json.loads(text)
@@ -898,11 +1066,17 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             children=data.get("children", []),
         )
 
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+    ) -> LlmConsistencyResult:
         import json
 
         text, token_usage = self._chat(
-            f"Check consistency for workspace {workspace_id}. "
+            f"Check consistency across the artifacts in workspace "
+            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
             "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
         )
         data = json.loads(text)

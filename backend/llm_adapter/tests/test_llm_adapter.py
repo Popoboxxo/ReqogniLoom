@@ -267,6 +267,112 @@ class TestMockLlmProvider:
         assert r1.score == r2.score
         assert r1.token_usage == r2.token_usage
 
+    def test_mock_accepts_content_kwargs(self):
+        """REQ-046: mock accepts title/content for interface parity."""
+        from llm_adapter.providers import MockLlmProvider, ProviderConfig
+
+        provider = MockLlmProvider(ProviderConfig(provider_name="mock"))
+        # Must not raise even though the mock ignores the injected content.
+        result = provider.validate_artifact(
+            "a", title="A title", content="A body"
+        )
+        assert result.provider == "mock"
+        decomposition = provider.decompose_requirement(
+            "r", title="Req", content="The system shall foo."
+        )
+        assert len(decomposition.children) >= 1
+        consistency = provider.check_consistency(
+            "ws", artifacts=[{"id": "x", "title": "t", "content": "c"}]
+        )
+        assert isinstance(consistency.issues, list)
+
+
+# ---------------------------------------------------------------------------
+# REQ-046 — artifact content embedded into provider prompts
+# ---------------------------------------------------------------------------
+
+
+class TestArtifactContentEmbedding:
+    """REQ-046: providers embed real artifact text, not only the UUID."""
+
+    def test_format_artifact_context_embeds_title_and_content(self):
+        from llm_adapter.providers import _format_artifact_context
+
+        block = _format_artifact_context("My Title", "My Content")
+        assert "Title: My Title" in block
+        assert "Content:\nMy Content" in block
+
+    def test_format_artifact_context_empty_when_nothing_supplied(self):
+        from llm_adapter.providers import _format_artifact_context
+
+        assert _format_artifact_context(None, None) == ""
+        assert _format_artifact_context("", "") == ""
+
+    def test_format_artifacts_list_enumerates_entries(self):
+        from llm_adapter.providers import _format_artifacts_list
+
+        block = _format_artifacts_list(
+            [{"id": "i1", "title": "T1", "content": "C1"}]
+        )
+        assert "[i1] T1: C1" in block
+
+    def test_format_artifacts_list_empty_for_none(self):
+        from llm_adapter.providers import _format_artifacts_list
+
+        assert _format_artifacts_list(None) == ""
+        assert _format_artifacts_list([]) == ""
+
+    def test_openai_validate_embeds_content_into_prompt(self):
+        """The prompt sent to the model must carry the real artifact text."""
+        from llm_adapter.providers import OpenAiProvider, ProviderConfig
+
+        provider = OpenAiProvider(ProviderConfig(provider_name="openai"))
+        captured: Dict[str, str] = {}
+
+        def fake_chat(prompt: str):
+            captured["prompt"] = prompt
+            return '{"score": 0.5, "suggestions": []}', 10
+
+        with patch.object(provider, "_chat", side_effect=fake_chat):
+            provider.validate_artifact(
+                "req-1", title="Login", content="The system shall log in users."
+            )
+
+        assert "Login" in captured["prompt"]
+        assert "The system shall log in users." in captured["prompt"]
+        assert "req-1" in captured["prompt"]
+
+    def test_openai_decompose_embeds_content_into_prompt(self):
+        from llm_adapter.providers import OpenAiProvider, ProviderConfig
+
+        provider = OpenAiProvider(ProviderConfig(provider_name="openai"))
+        captured: Dict[str, str] = {}
+
+        def fake_chat(prompt: str):
+            captured["prompt"] = prompt
+            return '{"score": 0.5, "suggestions": [], "children": []}', 10
+
+        with patch.object(provider, "_chat", side_effect=fake_chat):
+            provider.decompose_requirement(
+                "req-2", title="Auth", content="The system shall authenticate."
+            )
+
+        assert "Auth" in captured["prompt"]
+        assert "The system shall authenticate." in captured["prompt"]
+
+    def test_services_facade_forwards_content_kwargs(self):
+        """REQ-046: the facade forwards title/content down to the router."""
+        import llm_adapter.services as services
+
+        fake_router = MagicMock()
+        with patch.object(services, "_router", fake_router):
+            services.validate_artifact(
+                "req-3", title="T", content="C"
+            )
+        fake_router.execute_capability.assert_called_once_with(
+            "validate_artifact", artifact_id="req-3", title="T", content="C"
+        )
+
 
 # ---------------------------------------------------------------------------
 # COMP-LA-003 — CapabilityRouter

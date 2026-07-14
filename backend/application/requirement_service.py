@@ -564,7 +564,11 @@ class RequirementService(ServiceBase):
         workspace_id = parent_req.artifact.workspace_id
 
         if children is None:
-            children = self._decompose_via_llm(str(requirement_id))
+            children = self._decompose_via_llm(
+                str(requirement_id),
+                title=parent_req.title,
+                content=parent_req.description or "",
+            )
 
         # REQ-L1-043: Validate target_architecture_elements if provided
         if target_architecture_elements is not None:
@@ -642,15 +646,28 @@ class RequirementService(ServiceBase):
         return result
 
     @staticmethod
-    def _decompose_via_llm(requirement_id: str) -> List[Dict[str, Any]]:
+    def _decompose_via_llm(
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Call LlmAdapter to generate child requirements.
+
+        The parent requirement's ``title`` / ``content`` are forwarded so the
+        provider embeds the real requirement text into the prompt instead of
+        only the opaque UUID (REQ-046).
 
         ADR-L3-AS002-03: explicit LlmNotConfiguredError if LLM unavailable.
         REQ-L2-AS-013 / REQ-L2-AS-024.
         """
         from llm_adapter.services import decompose_requirement
 
-        response = decompose_requirement(requirement_id=requirement_id)
+        response = decompose_requirement(
+            requirement_id=requirement_id,
+            title=title,
+            content=content,
+        )
 
         if "error" in response:
             code = response["error"].get("code", "")
@@ -693,7 +710,19 @@ class RequirementService(ServiceBase):
 
         from llm_adapter.services import validate_artifact
 
-        result = validate_artifact(artifact_id=str(requirement_id))
+        # REQ-046: fetch the requirement so the provider embeds its real text
+        # into the prompt instead of only the opaque UUID. A missing row simply
+        # degrades to an id-only prompt (title/content stay None).
+        req = (
+            Requirement.objects.filter(id=requirement_id)
+            .only("id", "title", "description")
+            .first()
+        )
+        result = validate_artifact(
+            artifact_id=str(requirement_id),
+            title=req.title if req is not None else None,
+            content=(req.description or "") if req is not None else None,
+        )
         if isinstance(result, dict) and "error" in result:
             code = result["error"].get("code", "")
             if "NOT_CONFIGURED" in code:

@@ -100,33 +100,74 @@ class LlmCapabilityInterface(ABC):
     """
 
     @abstractmethod
-    def validate_artifact(self, artifact_id: str) -> LlmResult:
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmResult:
         """Validate a single artifact using the LLM.
+
+        The caller (application layer) is responsible for fetching the artifact
+        and passing its ``title`` / ``content`` so the provider can embed the
+        real text into the prompt instead of only the opaque identifier
+        (REQ-046). ``title`` / ``content`` are optional to preserve backward
+        compatibility; when omitted the provider falls back to an id-only
+        prompt.
 
         Args:
             artifact_id: Identifier of the artifact to validate.
+            title: Optional artifact title to embed into the prompt.
+            content: Optional artifact body/description to embed into the prompt.
 
         Returns:
             LlmResult containing score, suggestions, and usage metadata.
         """
 
     @abstractmethod
-    def decompose_requirement(self, requirement_id: str) -> LlmDecompositionResult:
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> LlmDecompositionResult:
         """Decompose a requirement into child items using the LLM.
+
+        The caller (application layer) passes the requirement ``title`` /
+        ``content`` so the provider embeds the real text into the prompt
+        instead of only the opaque identifier (REQ-046). Both are optional to
+        preserve backward compatibility.
 
         Args:
             requirement_id: Identifier of the requirement to decompose.
+            title: Optional requirement title to embed into the prompt.
+            content: Optional requirement body/description to embed into the
+                prompt.
 
         Returns:
             LlmDecompositionResult with children list and usage metadata.
         """
 
     @abstractmethod
-    def check_consistency(self, workspace_id: str) -> LlmConsistencyResult:
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+    ) -> LlmConsistencyResult:
         """Check consistency across all artifacts in a workspace.
+
+        The caller (application layer) passes an ``artifacts`` summary (each a
+        ``{"id", "title", "content"}`` dict) so the provider embeds the real
+        artifact text into the prompt instead of only the workspace identifier
+        (REQ-046). ``artifacts`` is optional to preserve backward
+        compatibility.
 
         Args:
             workspace_id: Identifier of the workspace to check.
+            artifacts: Optional list of artifact summary dicts to embed.
 
         Returns:
             LlmConsistencyResult with issues list and usage metadata.
