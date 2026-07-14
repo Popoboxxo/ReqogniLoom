@@ -164,6 +164,29 @@ def resolve_provider_config() -> ProviderConfig:
 # ---------------------------------------------------------------------------
 # Prompt content embedding helpers (REQ-046)
 # ---------------------------------------------------------------------------
+# Security: user content is delimited to reduce prompt injection surface
+# (REQ-080). Artifact titles, descriptions and requirement text are user-
+# controlled; wrapping them in an unambiguous delimiter keeps them from being
+# interpreted as model instructions.
+
+_USER_CONTENT_DELIMITER = "###"
+
+
+def _delimit_user_content(content: str) -> str:
+    """Wrap user-controlled content in delimiters (REQ-080).
+
+    The returned block clearly separates untrusted artifact/requirement text
+    from the surrounding instructions so the model treats it as data, not as
+    commands. This reduces the prompt-injection surface without changing the
+    embedded text itself.
+
+    Args:
+        content: The user-controlled text to delimit.
+
+    Returns:
+        The content fenced between ``###`` delimiter lines.
+    """
+    return f"{_USER_CONTENT_DELIMITER}\n{content}\n{_USER_CONTENT_DELIMITER}"
 
 
 def _format_artifact_context(
@@ -193,7 +216,8 @@ def _format_artifact_context(
         parts.append(f"Content:\n{content}")
     if not parts:
         return ""
-    return "\n\n" + "\n".join(parts)
+    # Security: delimit user-controlled content (REQ-080).
+    return "\n\n" + _delimit_user_content("\n".join(parts))
 
 
 def _format_artifacts_list(artifacts: Optional[List[dict]]) -> str:
@@ -211,7 +235,7 @@ def _format_artifacts_list(artifacts: Optional[List[dict]]) -> str:
     """
     if not artifacts:
         return ""
-    lines: List[str] = ["\n\nArtifacts:"]
+    lines: List[str] = []
     for entry in artifacts:
         if not isinstance(entry, dict):
             continue
@@ -219,7 +243,9 @@ def _format_artifacts_list(artifacts: Optional[List[dict]]) -> str:
         title = entry.get("title", "")
         content = entry.get("content", "")
         lines.append(f"- [{identifier}] {title}: {content}")
-    return "\n".join(lines)
+    # Security: delimit user-controlled content (REQ-080). The "Artifacts:"
+    # label stays outside the fence; the enumerated user text stays inside.
+    return "\n\nArtifacts:\n" + _delimit_user_content("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
