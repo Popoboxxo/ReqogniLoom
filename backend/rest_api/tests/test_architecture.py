@@ -39,7 +39,6 @@ _MODEL_IMPORT_RE = re.compile(r"^\s*from persistence\.models import")
 # Per-file ceiling of tolerated direct-ORM lines. Files not listed must be 0.
 # NEVER raise a value here — REQ-066 only lowers them.
 MAX_ORM_LINES: dict[str, int] = {
-    "views.py": 2,
     "icd_views.py": 3,
     "diagram_views.py": 3,
     "diagram_canvas_views.py": 3,
@@ -47,8 +46,8 @@ MAX_ORM_LINES: dict[str, int] = {
 
 # Files still permitted to ``from persistence.models import`` directly. Shrinks
 # as service methods replace the last direct model references in each file.
+# views.py fully cleaned in REQ-066 Phase 2/3 — no longer allowlisted.
 MODEL_IMPORT_ALLOWLIST: set[str] = {
-    "views.py",
     "icd_views.py",
     "diagram_views.py",
     "diagram_canvas_views.py",

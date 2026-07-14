@@ -765,34 +765,13 @@ class RequirementViewSet(BaseEntityViewSet):
             ctx = get_auth_context(request)
             req = self._svc().get_requirement(UUID(pk), ctx)
 
-            # Query TraceLinks for this requirement
-            from persistence.models import TraceLink, ArchitectureElement
-            from django.db.models import Prefetch
+            # REQ-066: allocation resolution (ORM + prefetch) lives in the
+            # service layer (REQ-L2-RA-013 CTE prefetch avoids N+1).
+            from application.trace_link_service import TraceLinkService
 
-            # Get all TraceLinks where source is this requirement's artifact
-            # with CTE-annotated level to avoid N+1 queries (REQ-L2-RA-013)
-            trace_links = TraceLink.objects.filter(
-                source_id=req.artifact_id,
-                link_type="allocated-to",
-                tenant_id=req.tenant_id,
-            ).select_related("target").prefetch_related(
-                Prefetch(
-                    'target__architecture_element',
-                    queryset=ArchitectureElement.objects.get_with_level()
-                )
+            allocations = TraceLinkService().get_requirement_allocations(
+                req.artifact_id, req.tenant_id, ctx
             )
-
-            allocations = []
-            for tl in trace_links:
-                if tl.target and hasattr(tl.target, 'architecture_element'):
-                    ae = tl.target.architecture_element
-                    allocations.append({
-                        "architecture_element_id": str(ae.id),
-                        "architecture_element_title": ae.title,
-                        "target_level": ae.level,
-                        "asil_level": ae.asil_level,
-                        "make_or_buy": ae.make_or_buy,
-                    })
 
             return Response({
                 "requirement_id": str(req.id),

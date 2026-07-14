@@ -559,6 +559,69 @@ class TraceLinkService(ServiceBase):
             "unallocated_requirements": unallocated_list,
         }
 
+    def get_requirement_allocations(
+        self,
+        requirement_artifact_id: UUID,
+        tenant_id: UUID,
+        ctx: AuthContext,
+    ) -> list[dict]:
+        """Return the ArchitectureElements a requirement is allocated to.
+
+        REQ-L1-058 AC3: resolves all ``allocated-to`` TraceLinks whose source is
+        the requirement's artifact and returns the target ArchitectureElement
+        details. REQ-066: ORM access lives in the service layer.
+
+        Note: the target level is read via ``ArchitectureElement.level`` which
+        falls back to a per-instance computation. A previous ``get_with_level()``
+        prefetch was dead code — ``objects`` is a plain ``TenantManager`` without
+        that method, so the endpoint raised ``AttributeError`` on every call; the
+        annotation would also have been shadowed by the ``level`` property.
+
+        Args:
+            requirement_artifact_id: Artifact UUID of the source requirement.
+            tenant_id: Tenant UUID for row scoping.
+            ctx: AuthContext for tenant scoping.
+
+        Returns:
+            List of dicts with architecture_element_id, architecture_element_title,
+            target_level, asil_level, make_or_buy.
+        """
+        from django.db.models import Prefetch
+
+        from persistence.models import ArchitectureElement, TraceLink
+
+        self._set_tenant_context(ctx)
+
+        trace_links = (
+            TraceLink.objects.filter(
+                source_id=requirement_artifact_id,
+                link_type="allocated-to",
+                tenant_id=tenant_id,
+            )
+            .select_related("target")
+            .prefetch_related(
+                Prefetch(
+                    "target__architecture_element",
+                    queryset=ArchitectureElement.objects.all(),
+                )
+            )
+        )
+
+        allocations: list[dict] = []
+        for tl in trace_links:
+            if tl.target and hasattr(tl.target, "architecture_element"):
+                ae = tl.target.architecture_element
+                allocations.append(
+                    {
+                        "architecture_element_id": str(ae.id),
+                        "architecture_element_title": ae.title,
+                        "target_level": ae.level,
+                        "asil_level": ae.asil_level,
+                        "make_or_buy": ae.make_or_buy,
+                    }
+                )
+        return allocations
+
     # ---------- Query ----------
 
     def query_trace_links(
