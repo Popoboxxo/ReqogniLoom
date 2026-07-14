@@ -319,3 +319,27 @@ CACHES = {
 # TODO(ARCH-L1-011): Set DEFAULT_TENANT_ID via env once auth_tenancy is implemented.
 # ---------------------------------------------------------------------------
 DEFAULT_TENANT_ID: int = config("DEFAULT_TENANT_ID", default=1, cast=int)
+
+# ---------------------------------------------------------------------------
+# Logging — SQL query logging in DEBUG mode (REQ-074)
+# Only active when DEBUG=True so production/test runs are not flooded with
+# per-query output. Emits every executed SQL statement to the console, which
+# makes N+1 queries and missing indexes visible during local development.
+# ---------------------------------------------------------------------------
+if DEBUG:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+            },
+        },
+        "loggers": {
+            "django.db.backends": {
+                "handlers": ["console"],
+                "level": "DEBUG",
+                "propagate": False,
+            },
+        },
+    }
