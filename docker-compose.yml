@@ -54,6 +54,44 @@ services:
       start_period: 30s
 
   # ─────────────────────────────────────────────────────────
+  # PostgreSQL Backup — REQ-102 (INF-21) backup strategy
+  # ─────────────────────────────────────────────────────────
+  # Sidecar that runs backend/scripts/backup_postgres.sh on a fixed interval
+  # (BACKUP_INTERVAL seconds, default 24h). Each run writes a timestamped,
+  # gzip-compressed pg_dump to the postgres_backup_data volume and prunes all
+  # but the newest BACKUP_RETENTION (default 7) dumps. Restore with:
+  #   gunzip -c reqflow_<ts>.sql.gz | psql -h postgres -U $DB_USER -d $DB_NAME
+  postgres-backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${DB_NAME:-reqflow}
+      POSTGRES_USER: ${DB_USER:-reqflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-7}
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
+    volumes:
+      - postgres_backup_data:/backups
+      - ./backend/scripts/backup_postgres.sh:/usr/local/bin/backup_postgres.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          /bin/sh /usr/local/bin/backup_postgres.sh || echo "[backup] run failed";
+          sleep "${BACKUP_INTERVAL:-86400}";
+        done
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────────────────
   # Redis — ARCH-L1-016 ResilienceOrchestrator (Celery broker)
   # ─────────────────────────────────────────────────────────
   redis:
@@ -270,3 +308,4 @@ services:
 
 volumes:
   postgres_data:
+  postgres_backup_data:  # REQ-102: retained pg_dump backups

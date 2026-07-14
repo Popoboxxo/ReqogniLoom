@@ -342,6 +342,45 @@ describe('WorkspaceTree — status badge', () => {
 // onAddChild button
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Virtualization opt-in (REQ-091)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — virtualization (REQ-091)', () => {
+  // 120 flat nodes → exceeds the 100-item threshold.
+  const LARGE_NODES: WorkspaceTreeNode[] = Array.from({ length: 120 }, (_, i) => ({
+    id: `v${i}`,
+    name: `Node ${i}`,
+    parentId: null,
+  }));
+
+  it('renders the virtualized scroll container when virtualize=true and rows exceed threshold', () => {
+    renderTree({ nodes: LARGE_NODES, virtualize: true });
+    expect(screen.getByTestId('workspace-tree-scroll')).toBeInTheDocument();
+  });
+
+  it('does not virtualize small lists even when virtualize=true', () => {
+    renderTree({ nodes: FLAT_NODES, virtualize: true });
+    // 3 nodes < 100 threshold → normal rendering, no scroll container
+    expect(screen.queryByTestId('workspace-tree-scroll')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('treeitem')).toHaveLength(3);
+  });
+
+  it('does not virtualize large lists when virtualize is not opted in', () => {
+    renderTree({ nodes: LARGE_NODES });
+    expect(screen.queryByTestId('workspace-tree-scroll')).not.toBeInTheDocument();
+  });
+
+  it('mounts far fewer DOM rows than total nodes when virtualized', () => {
+    // jsdom reports 0 layout height, so the virtualizer windows down to a small
+    // subset — the key guarantee: not all 120 rows hit the DOM at once.
+    renderTree({ nodes: LARGE_NODES, virtualize: true });
+    expect(screen.queryAllByRole('treeitem').length).toBeLessThan(
+      LARGE_NODES.length,
+    );
+  });
+});
+
 describe('WorkspaceTree — onAddChild', () => {
   it('renders add-child button when onAddChild is provided', () => {
     renderTree({ nodes: FLAT_NODES, onAddChild: vi.fn() });
