@@ -185,12 +185,21 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
     nextGetReturn = wrapPref({}); // default: no overrides
     nextUpdateReturn = null;
     sessionStorage.clear();
-    // AuthProvider reads the token from sessionStorage on mount; without
-    // a token, isAuthenticated=false and the fetch effect never runs.
-    sessionStorage.setItem("reqflow_token", "test-token");
-    sessionStorage.setItem(
-      "reqflow_user",
-      JSON.stringify({ id: "u-1", username: "tester", email: "t@x", is_active: true, tenant_id: null, roles: [] })
+    // AuthProvider restores the session via GET /auth/me/ (httpOnly cookie,
+    // REQ-052). Return a user so isAuthenticated becomes true and the
+    // WorkspaceContext bootstrap/preference effects run. Non-auth API calls in
+    // these tests go through mocked api modules, not fetch.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          user: { id: "u-1", username: "tester", email: "t@x", first_name: "", last_name: "", is_active: true, tenant_id: null, roles: ["admin"] },
+          tenant_id: null,
+          roles: ["admin"],
+        }),
+      }) as unknown as Response)
     );
   });
 
@@ -287,6 +296,12 @@ describe("WorkspaceContext / User-preference overrides (REQ-L1-027)", () => {
     // initial: standard preset → adr visible
     await waitFor(() => {
       expect(screen.getByTestId("visible-adr").textContent).toBe("visible");
+    });
+    // Wait until the real workspace (ws-test) is active — the preference effect
+    // only queries once the workspace list has loaded post-auth. Otherwise the
+    // click would run against the DEFAULT_WORKSPACE placeholder.
+    await waitFor(() => {
+      expect(mockGet).toHaveBeenCalledWith("ws-test");
     });
 
     // click → calls setFeatureVisible("adr", false)

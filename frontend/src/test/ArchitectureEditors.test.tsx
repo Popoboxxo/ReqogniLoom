@@ -30,7 +30,26 @@ vi.mock("../api/client", () => ({
   setAuthToken: vi.fn(),
   setUnauthorizedHandler: vi.fn(),
   apiClient: {
-    get: vi.fn().mockResolvedValue({}),
+    get: vi.fn((path?: string) =>
+      Promise.resolve(
+        path === "/auth/me/"
+          ? {
+              user: {
+                id: "u-1",
+                username: "tester",
+                email: "t@x.test",
+                first_name: "",
+                last_name: "",
+                is_active: true,
+                tenant_id: "t-1",
+                roles: ["admin"],
+              },
+              tenant_id: "t-1",
+              roles: ["admin"],
+            }
+          : {}
+      )
+    ),
     post: vi.fn().mockResolvedValue({}),
     put: vi.fn().mockResolvedValue({}),
     patch: vi.fn().mockResolvedValue({}),

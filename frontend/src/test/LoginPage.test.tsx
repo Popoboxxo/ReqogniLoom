@@ -83,7 +83,27 @@ function renderLoginPage(
 // Tests
 // ---------------------------------------------------------------------------
 
+/**
+ * Route fetch by URL: the AuthProvider mount fires GET /auth/me/ (session
+ * restore, REQ-052) before any login attempt. Default it to 401 (anonymous)
+ * and let ``loginResponse`` drive POST /auth/login/.
+ */
+function installFetch(loginResponse?: Partial<Response> & { json?: () => Promise<unknown> }): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url.endsWith("/auth/me/")) {
+      return { ok: false, status: 401, json: async () => ({}) } as Response;
+    }
+    return (loginResponse ?? { ok: false, status: 401, json: async () => ({}) }) as Response;
+  });
+  vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock as typeof fetch);
+  return fetchMock;
+}
+
 describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
+  beforeEach(() => {
+    installFetch();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     sessionStorage.clear();
@@ -121,7 +141,9 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
     ).toHaveTextContent("Please enter a password.");
   });
 
-  it("stores token and navigates on successful login", async () => {
+  it("authenticates and navigates on successful login", async () => {
+    // The token is delivered as an httpOnly cookie (REQ-052); the SPA no longer
+    // persists it to sessionStorage. Success is observed via navigation.
     const mockLoginResponse = {
       token: "test-jwt-token-123",
       user: {
@@ -136,11 +158,11 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
       roles: ["viewer"],
     };
 
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+    installFetch({
       ok: true,
       status: 200,
       json: async () => mockLoginResponse,
-    } as Response);
+    });
 
     const user = userEvent.setup();
     renderLoginPage();
@@ -149,9 +171,8 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
     await user.type(screen.getByLabelText("Password"), "secret123");
     await user.click(screen.getByRole("button", { name: "Sign In" }));
 
-    await waitFor(() => {
-      expect(sessionStorage.getItem("reqflow_token")).toBe("test-jwt-token-123");
-    });
+    // The access token must never be written to sessionStorage (XSS-fix).
+    expect(sessionStorage.getItem("reqflow_token")).toBeNull();
 
     // Navigated away from login
     await waitFor(() => {
@@ -160,14 +181,14 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
   });
 
   it("shows invalidCredentials error on 401 response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+    installFetch({
       ok: false,
       status: 401,
       json: async () => ({
         error: "invalid_token",
         message: "Invalid username or password",
       }),
-    } as Response);
+    });
 
     const user = userEvent.setup();
     renderLoginPage();
@@ -186,8 +207,8 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
     expect(sessionStorage.getItem("reqflow_token")).toBeNull();
   });
 
-  it("sends POST to /api/v1/auth/login/ with correct payload", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+  it("sends POST to /api/v1/auth/login/ with credentials and correct payload", async () => {
+    const fetchSpy = installFetch({
       ok: true,
       status: 200,
       json: async () => ({
@@ -203,7 +224,7 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
         tenant_id: "t1",
         roles: [],
       }),
-    } as Response);
+    });
 
     const user = userEvent.setup();
     renderLoginPage();
@@ -217,6 +238,7 @@ describe("LoginPage (COMP-RF-001 / REQ-L2-RF-010)", () => {
         "/api/v1/auth/login/",
         expect.objectContaining({
           method: "POST",
+          credentials: "same-origin",
           body: JSON.stringify({ username: "admin", password: "pass" }),
         })
       );
