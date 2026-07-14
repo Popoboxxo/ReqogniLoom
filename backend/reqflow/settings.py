@@ -350,25 +350,54 @@ CACHES = {
 DEFAULT_TENANT_ID: int = config("DEFAULT_TENANT_ID", default=1, cast=int)
 
 # ---------------------------------------------------------------------------
-# Logging — SQL query logging in DEBUG mode (REQ-074)
-# Only active when DEBUG=True so production/test runs are not flooded with
-# per-query output. Emits every executed SQL statement to the console, which
-# makes N+1 queries and missing indexes visible during local development.
+# Logging — Structured JSON logging for observability (REQ-063)
+# REQ-074: SQL query logging in DEBUG mode for visibility into N+1 queries.
+# REQ-063: All environments use JSON format except DEBUG (verbose for local dev).
+# Emits structured logs to console for container aggregation and analysis.
 # ---------------------------------------------------------------------------
-if DEBUG:
-    LOGGING = {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-            },
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json": {
+            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
         },
-        "loggers": {
-            "django.db.backends": {
-                "handlers": ["console"],
-                "level": "DEBUG",
-                "propagate": False,
-            },
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {message}",
+            "style": "{",
         },
-    }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose" if DEBUG else "json",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "handlers": ["console"],
+            "level": "DEBUG" if DEBUG else "WARNING",
+            "propagate": False,
+        },
+        "reqflow": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "celery": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}

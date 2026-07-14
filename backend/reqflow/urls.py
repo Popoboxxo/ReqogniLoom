@@ -19,7 +19,11 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from reqflow.health import HealthView
+
 urlpatterns = [
+    # Health check endpoint (REQ-063) — for container readiness probes
+    path("health/", HealthView.as_view(), name="health"),
     # Django admin
     path("admin/", admin.site.urls),
     # OpenAPI schema (drf-spectacular)
