@@ -280,6 +280,7 @@ class TestDispatchWithRetry:
                 "_send_http_post",
                 return_value=(404, False, "Not Found"),
             ) as mock_send,
+            patch.object(dispatcher, "_already_delivered", return_value=False),
             patch("application.models.WebhookDeliveryLog.objects.create"),
         ):
             dispatcher._dispatch_with_retry(sub, event, payload)
@@ -300,6 +301,7 @@ class TestDispatchWithRetry:
                 "_send_http_post",
                 return_value=(503, False, "Service Unavailable"),
             ) as mock_send,
+            patch.object(dispatcher, "_already_delivered", return_value=False),
             patch("application.models.WebhookDeliveryLog.objects.create"),
             patch("application.webhook_dispatcher.time.sleep"),
         ):
@@ -319,11 +321,34 @@ class TestDispatchWithRetry:
                 "_send_http_post",
                 return_value=(200, True, ""),
             ) as mock_send,
+            patch.object(dispatcher, "_already_delivered", return_value=False),
             patch("application.models.WebhookDeliveryLog.objects.create"),
         ):
             dispatcher._dispatch_with_retry(sub, event, payload)
 
         assert mock_send.call_count == 1
+
+    def test_skips_delivery_when_already_delivered(self):
+        """REQ-072: at-least-once redelivery must not re-send the webhook."""
+        dispatcher = WebhookDispatcher()
+        sub = _make_subscription()
+        event = _make_event()
+        payload = b"payload"
+
+        with (
+            patch.object(
+                dispatcher,
+                "_send_http_post",
+                return_value=(200, True, ""),
+            ) as mock_send,
+            patch.object(dispatcher, "_already_delivered", return_value=True),
+            patch("application.models.WebhookDeliveryLog.objects.create") as mock_create,
+        ):
+            dispatcher._dispatch_with_retry(sub, event, payload)
+
+        # Idempotent: no HTTP send, no new delivery-log row.
+        assert mock_send.call_count == 0
+        assert mock_create.call_count == 0
 
 
 # ---------- Singleton ----------

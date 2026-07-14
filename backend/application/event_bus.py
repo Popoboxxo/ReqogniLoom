@@ -282,6 +282,9 @@ def poll_and_dispatch(batch_size: int = POLL_BATCH_SIZE) -> int:
                 payload=record.payload,
             )
             try:
+                # at-least-once: handlers must be idempotent — a worker crash
+                # after dispatch but before the row below is marked published
+                # will re-deliver this event on the next poll cycle (REQ-072).
                 bus.dispatch_to_subscribers(domain_event)
                 record.published = True
                 record.published_at = timezone.now()
