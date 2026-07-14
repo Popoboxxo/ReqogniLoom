@@ -422,7 +422,7 @@ class RequirementsToolGroup(BaseToolGroup):
         try:
             from llm_adapter.services import validate_artifact  # type: ignore[import]
 
-            validation_result = validate_artifact(str(req_id), ctx=auth_context)
+            validation_result = validate_artifact(str(req_id))
         except ImportError:
             return ToolResult.error(
                 "LLM_NOT_CONFIGURED",
