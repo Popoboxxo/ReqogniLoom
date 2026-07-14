@@ -649,29 +649,135 @@ class TestAsyncTaskDispatcher:
         assert r.status == "done"
         assert r.result == {"score": 0.9}
 
-    def test_dispatch_async_with_mock_celery(self, monkeypatch):
-        """Verify dispatch returns a UUID string when Celery is available."""
+    def test_dispatch_async_enqueues_shared_task(self, monkeypatch):
+        """Dispatch returns the task id produced by run_capability.apply_async."""
         monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
         fake_task_id = str(uuid.uuid4())
+        mock_async_result = MagicMock()
+        mock_async_result.id = fake_task_id
 
-        # Mock out the entire Celery app and task application
-        mock_app = MagicMock()
-        mock_task = MagicMock()
-        mock_task.apply_async = MagicMock()
+        from llm_adapter import tasks
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
 
-        with patch("llm_adapter.dispatcher._get_celery_app", return_value=mock_app):
-            with patch("llm_adapter.dispatcher._make_task", return_value=mock_task):
-                from llm_adapter.dispatcher import AsyncTaskDispatcher
+        with patch.object(
+            tasks.run_capability, "apply_async", return_value=mock_async_result
+        ) as mock_apply:
+            dispatcher = AsyncTaskDispatcher()
+            result = dispatcher.dispatch_async(
+                "decompose_requirement", {"requirement_id": "r1"}
+            )
 
-                dispatcher = AsyncTaskDispatcher()
-                # Patch uuid to get predictable result
-                with patch("llm_adapter.dispatcher.uuid.uuid4", return_value=uuid.UUID(fake_task_id)):
-                    result = dispatcher.dispatch_async(
-                        "decompose_requirement", {"requirement_id": "r1"}
-                    )
-                assert result == fake_task_id
-                mock_task.apply_async.assert_called_once()
+        assert result == fake_task_id
+        mock_apply.assert_called_once()
+        # Capability, kwargs and tenant_id are passed positionally to the task.
+        _, call_kwargs = mock_apply.call_args
+        assert call_kwargs["args"] == [
+            "decompose_requirement",
+            {"requirement_id": "r1"},
+            None,
+        ]
+
+    def test_dispatch_async_propagates_tenant_id(self, monkeypatch):
+        """The active tenant context is forwarded to the task as a string."""
+        monkeypatch.setenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
+        tenant_uuid = uuid.uuid4()
+        from llm_adapter import tasks
+        from llm_adapter.dispatcher import AsyncTaskDispatcher
+
+        mock_async_result = MagicMock()
+        mock_async_result.id = str(uuid.uuid4())
+
+        with patch(
+            "llm_adapter.dispatcher._resolve_tenant_id",
+            return_value=str(tenant_uuid),
+        ):
+            with patch.object(
+                tasks.run_capability, "apply_async", return_value=mock_async_result
+            ) as mock_apply:
+                AsyncTaskDispatcher().dispatch_async(
+                    "check_consistency", {"workspace_id": "ws1"}
+                )
+
+        _, call_kwargs = mock_apply.call_args
+        assert call_kwargs["args"][2] == str(tenant_uuid)
+
+
+# ---------------------------------------------------------------------------
+# COMP-LA-005 — run_capability shared task (REQ-042)
+# ---------------------------------------------------------------------------
+
+
+class TestRunCapabilityTask:
+    """REQ-042: run_capability is a registered @shared_task with a whitelist."""
+
+    def test_task_is_registered_under_stable_name(self):
+        from llm_adapter.tasks import run_capability
+
+        assert run_capability.name == "llm_adapter.run_capability"
+
+    def test_rejects_unknown_capability(self):
+        from llm_adapter.tasks import run_capability
+
+        with pytest.raises(ValueError, match="Unknown capability"):
+            run_capability.run("os.system", {})
+
+    def test_rejects_non_whitelisted_provider_method(self):
+        # 'complete' exists on the provider but must not be dispatchable.
+        from llm_adapter.tasks import run_capability
+
+        with pytest.raises(ValueError, match="Unknown capability"):
+            run_capability.run("complete", {})
+
+    def test_serialises_dataclass_result(self):
+        from llm_adapter.interface import LlmResult
+        from llm_adapter import tasks
+
+        expected = LlmResult(
+            score=0.9, suggestions=[], provider="mock", model="m", token_usage=5
+        )
+        provider = MagicMock()
+        provider.validate_artifact.return_value = expected
+
+        with patch("llm_adapter.providers.get_provider", return_value=provider):
+            result = tasks.run_capability.run(
+                "validate_artifact", {"artifact_id": "a1"}
+            )
+
+        assert isinstance(result, dict)
+        assert result["score"] == 0.9
+        assert result["provider"] == "mock"
+
+    def test_sets_and_clears_tenant_context(self):
+        from persistence.tenancy import TenantContext
+        from llm_adapter.interface import LlmResult
+        from llm_adapter import tasks
+
+        tenant_uuid = str(uuid.uuid4())
+        seen = {}
+
+        def _capture(artifact_id):
+            seen["tenant"] = TenantContext.get_tenant()
+            return LlmResult(
+                score=0.5, suggestions=[], provider="mock", model="m", token_usage=1
+            )
+
+        provider = MagicMock()
+        provider.validate_artifact.side_effect = _capture
+
+        try:
+            with patch("llm_adapter.providers.get_provider", return_value=provider):
+                tasks.run_capability.run(
+                    "validate_artifact", {"artifact_id": "a1"}, tenant_uuid
+                )
+            # Context is set during execution ...
+            assert str(seen["tenant"]) == tenant_uuid
+            # ... and cleared afterwards (finally block).
+            with pytest.raises(Exception):
+                TenantContext.get_tenant()
+        finally:
+            TenantContext.clear_tenant()
 
 
 # ---------------------------------------------------------------------------
