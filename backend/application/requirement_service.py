@@ -735,6 +735,44 @@ class RequirementService(ServiceBase):
 
         return result if isinstance(result, dict) else {"result": str(result)}
 
+    def check_consistency(
+        self, workspace_id: UUID, ctx: AuthContext
+    ) -> Dict[str, Any]:
+        """Check consistency across a workspace's requirements via the LlmAdapter.
+
+        REQ-089: wires the previously unreachable ``check_consistency``
+        capability into the application layer — before this, the LlmAdapter
+        exposed it but no service or MCP tool ever invoked it.
+
+        REQ-046: forwards each requirement's real title/content as artifact
+        summary dicts so the provider embeds the artifact text into the
+        consistency prompt instead of only opaque IDs.
+
+        The capability is asynchronous: it returns a ``{"task_id": ...}`` dict
+        immediately; poll the outcome via ``llm_adapter.services.get_task_status``.
+        """
+        self._set_tenant_context(ctx)
+
+        from llm_adapter.services import check_consistency as _llm_check_consistency
+
+        rows = (
+            Requirement.objects.filter(artifact__workspace_id=workspace_id)
+            .exclude(lifecycle_status="deleted")
+            .only("id", "title", "description")
+        )
+        artifacts = [
+            {"id": str(r.id), "title": r.title, "content": r.description or ""}
+            for r in rows
+        ]
+        result = _llm_check_consistency(str(workspace_id), artifacts=artifacts)
+        if isinstance(result, dict) and "error" in result:
+            code = result["error"].get("code", "")
+            if "NOT_CONFIGURED" in code:
+                raise LlmNotConfiguredError("LLM not configured")
+            raise ValueError(result["error"].get("message", str(result)))
+
+        return result if isinstance(result, dict) else {"result": str(result)}
+
 
 __all__ = [
     "RequirementService",

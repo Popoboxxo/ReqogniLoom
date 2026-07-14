@@ -248,6 +248,62 @@ class TestRequirementsToolGroup:
         assert result.success is False
         assert result.error_code == "LLM_NOT_CONFIGURED"
 
+    @patch.dict(os.environ, {"LLM_PROVIDER": "mock"}, clear=True)
+    def test_requirement_validate_delegates_to_service_content_path(self):
+        """REQ-089: validate routes through the content-bearing service method.
+
+        Before REQ-089 the tool called llm_adapter.validate_artifact(id) with an
+        ID only. It must now delegate to RequirementService.validate_requirement,
+        which forwards the requirement's title/content (REQ-046).
+        """
+        req_uuid = "00000000-0000-0000-0000-000000000001"
+        group, svc = self._group()
+        svc.validate_requirement.return_value = {"valid": True, "issues": []}
+
+        result = group.execute_tool(
+            tool_name="requirement.validate",
+            params={"requirement_id": req_uuid},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        svc.validate_requirement.assert_called_once_with(UUID(req_uuid), EDITOR_CTX)
+        assert result.data["validation_result"] == {"valid": True, "issues": []}
+
+    @patch.dict(os.environ, {"LLM_PROVIDER": "mock"}, clear=True)
+    def test_requirement_check_consistency_delegates_to_service(self):
+        """REQ-089: the newly wired tool delegates to the service capability."""
+        group, svc = self._group()
+        svc.check_consistency.return_value = {"task_id": "task-123"}
+
+        result = group.execute_tool(
+            tool_name="requirement.check_consistency",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        svc.check_consistency.assert_called_once_with(WORKSPACE_UUID, EDITOR_CTX)
+        assert result.data["consistency_result"] == {"task_id": "task-123"}
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_requirement_check_consistency_without_llm_returns_llm_error(self):
+        for key in ("LLM_PROVIDER", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+            os.environ.pop(key, None)
+
+        group, svc = self._group()
+        result = group.execute_tool(
+            tool_name="requirement.check_consistency",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "LLM_NOT_CONFIGURED"
+        svc.check_consistency.assert_not_called()
+
     def test_requirement_query_requires_workspace_id(self):
         group, svc = self._group()
         result = group.execute_tool(

@@ -925,6 +925,43 @@ class TestDecompose:
 # ---------------------------------------------------------------------------
 
 
+class TestCheckConsistency:
+    """REQ-089: check_consistency wiring + REQ-046 content forwarding."""
+
+    def test_check_consistency_forwards_artifact_content(self):
+        """Service collects each requirement's title/content and forwards them.
+
+        Proves the capability is reachable (REQ-089) and that the provider
+        receives real artifact text, not opaque IDs (REQ-046).
+        """
+        svc = RequirementService()
+        ctx = _make_ctx()
+        ws_id = uuid.uuid4()
+        r1 = MagicMock(id=uuid.uuid4(), title="R1", description="body-1")
+        r2 = MagicMock(id=uuid.uuid4(), title="R2", description="")
+
+        rows = MagicMock()
+        rows.exclude.return_value.only.return_value = [r1, r2]
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.filter",
+                return_value=rows,
+            ),
+            patch(
+                "llm_adapter.services.check_consistency",
+                return_value={"task_id": "t-1"},
+            ) as mock_cc,
+        ):
+            result = svc.check_consistency(ws_id, ctx)
+
+        assert result == {"task_id": "t-1"}
+        forwarded = mock_cc.call_args.kwargs["artifacts"]
+        assert {"id": str(r1.id), "title": "R1", "content": "body-1"} in forwarded
+        assert {"id": str(r2.id), "title": "R2", "content": ""} in forwarded
+
+
 class TestRequirementDTO:
     def test_from_orm_maps_fields(self):
         """RequirementDTO.from_orm maps all Requirement fields correctly."""

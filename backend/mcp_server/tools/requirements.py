@@ -80,7 +80,7 @@ def _check_llm_configured() -> bool:
 
 
 class RequirementsToolGroup(BaseToolGroup):
-    """COMP-MC-003 — Requirements tool group (6 tools)."""
+    """COMP-MC-003 — Requirements tool group (8 tools)."""
 
     _TOOL_MAP = {
         "requirement.get": "_handle_get",
@@ -90,6 +90,7 @@ class RequirementsToolGroup(BaseToolGroup):
         "requirement.decompose": "_handle_decompose",
         "requirement.validate": "_handle_validate",
         "requirement.derive": "_handle_derive",
+        "requirement.check_consistency": "_handle_check_consistency",
     }
     
     _TOOL_SCHEMAS = [
@@ -160,9 +161,9 @@ class RequirementsToolGroup(BaseToolGroup):
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string"}
+                    "requirement_id": {"type": "string", "description": "UUID of the requirement."}
                 },
-                "required": ["id"]
+                "required": ["requirement_id"]
             }
         },
         {
@@ -174,6 +175,17 @@ class RequirementsToolGroup(BaseToolGroup):
                     "id": {"type": "string"}
                 },
                 "required": ["id"]
+            }
+        },
+        {
+            "name": "requirement.check_consistency",
+            "description": "AI consistency check across a workspace's requirements.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."}
+                },
+                "required": ["workspace_id"]
             }
         }
     ]
@@ -400,6 +412,57 @@ class RequirementsToolGroup(BaseToolGroup):
         })
 
     # ------------------------------------------------------------------
+    # requirement.check_consistency
+    # ------------------------------------------------------------------
+
+    def _handle_check_consistency(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.check_consistency — AI consistency check across a workspace.
+
+        REQ-089: exposes the previously unreachable ``check_consistency``
+        capability as a callable MCP tool. Delegates to the service, which
+        forwards each requirement's title/content to the provider (REQ-046).
+        Asynchronous — returns a ``task_id`` to poll via ``requirement`` status.
+        """
+        # ADR-L3-MC003-02: Early LLM check
+        if not _check_llm_configured():
+            return ToolResult.error(
+                "LLM_NOT_CONFIGURED",
+                "requirement.check_consistency requires an LLM provider. "
+                "Set LLM_PROVIDER env variable.",
+            )
+
+        workspace_id = require_uuid(params, "workspace_id")
+
+        try:
+            result = self._service.check_consistency(workspace_id, auth_context)
+        except LlmNotConfiguredError:
+            return ToolResult.error(
+                "LLM_NOT_CONFIGURED",
+                "LLM provider not configured for consistency check.",
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="check_consistency",
+            entity_type="Workspace",
+            entity_id=workspace_id,
+            tool_name="requirement.check_consistency",
+            api_key=api_key,
+        )
+        return ToolResult.ok({
+            "workspace_id": str(workspace_id),
+            "consistency_result": result,
+        })
+
+    # ------------------------------------------------------------------
     # requirement.validate
     # ------------------------------------------------------------------
 
@@ -417,22 +480,23 @@ class RequirementsToolGroup(BaseToolGroup):
 
         req_id = require_uuid(params, "requirement_id")
 
-        # ApplicationService does not yet expose a standalone validate method.
-        # Delegate to LlmAdapter directly if available, else raise configured error.
+        # REQ-089: route through the service's content-bearing entry point.
+        # RequirementService.validate_requirement fetches the requirement and
+        # forwards its title/description to the provider (REQ-046) instead of
+        # this tool calling validate_artifact() with an ID only.
         try:
-            from llm_adapter.services import validate_artifact  # type: ignore[import]
-
-            validation_result = validate_artifact(str(req_id))
-        except ImportError:
-            return ToolResult.error(
-                "LLM_NOT_CONFIGURED",
-                "LLM adapter not installed. Cannot validate requirement.",
+            validation_result = self._service.validate_requirement(
+                req_id, auth_context
             )
         except LlmNotConfiguredError:
             return ToolResult.error(
                 "LLM_NOT_CONFIGURED",
                 "LLM provider not configured for validation.",
             )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         except Exception as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
 
@@ -446,8 +510,7 @@ class RequirementsToolGroup(BaseToolGroup):
         )
         return ToolResult.ok({
             "requirement_id": str(req_id),
-            "validation_result": validation_result if isinstance(validation_result, dict)
-            else {"result": str(validation_result)},
+            "validation_result": validation_result,
         })
 
 
