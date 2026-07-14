@@ -23,3 +23,9 @@ class ApplicationConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "application"
     verbose_name = "ARCH-L1-004 ApplicationService"
+
+    def ready(self) -> None:
+        """Wire signal-based cache invalidation (REQ-038, BE-7)."""
+        from application.cache_invalidation import register_signals
+
+        register_signals()
