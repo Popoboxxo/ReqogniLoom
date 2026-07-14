@@ -171,6 +171,12 @@ class ServiceBase:
     def _emit_event(event: DomainEvent) -> None:
         """Schedule *event* for post-commit outbox insertion.
 
+        Transaction boundary (REQ-073, see docs/ARCHITECTURE.md):
+        Domain events fire *after* the surrounding transaction commits. The
+        outbox row is written in a ``transaction.on_commit`` hook, so a rolled
+        back transaction never produces an event. Contrast with ``_audit``,
+        which writes synchronously inside the same transaction.
+
         REQ-L2-AS-029: Event is atomically bound to the current transaction.
         Must be called inside an active transaction.atomic() block.
         """
