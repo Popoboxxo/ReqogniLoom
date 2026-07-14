@@ -62,7 +62,7 @@ jobs:
           LLM_PROVIDER: mock
         run: |
           python manage.py migrate --noinput
-          python manage.py loaddata initial_data || true
+          python manage.py loaddata initial_data
 
       - name: Start Django backend
         working-directory: backend
