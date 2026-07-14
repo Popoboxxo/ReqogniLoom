@@ -35,6 +35,8 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
+from django.core.cache import cache
+
 from traceability.coverage_calculator import CoverageCalculator
 from traceability.exceptions import (  # noqa: F401  (re-exported for callers)
     CycleDetectedError,
@@ -70,6 +72,33 @@ _vcrm_gen = VCRMReportGenerator(
     coverage_calculator=_coverage_calc,
     query_engine=_query_engine,
 )
+
+
+# ---------------------------------------------------------------------------
+# REQ-104 (DEEP_SYSTEM_ANALYSIS.md BE-22): VCRM matrix read-model cache
+# ---------------------------------------------------------------------------
+#
+# Extended-rigor workspaces with thousands of trace links make the live graph
+# traversal behind ``generate_vcrm`` expensive. The computed matrix is cached in
+# the shared Redis cache (REQ-033) with a short TTL and invalidated on any
+# TraceLink mutation (see application.cache_invalidation).
+TRACEABILITY_MATRIX_CACHE_TTL = 300  # seconds (5 minutes)
+_MATRIX_CACHE_PREFIX = "reqflow:traceability-matrix"
+
+
+def traceability_matrix_cache_key(
+    workspace_id: uuid.UUID | str,
+    baseline_id: Optional[uuid.UUID | str] = None,
+) -> str:
+    """Return the shared-cache key for a workspace's VCRM matrix (REQ-104).
+
+    The key is workspace-scoped and varies by baseline snapshot so baseline
+    diffs never collide with the live matrix. It shares the ``reqflow:``
+    namespace used by ``application.cache_invalidation`` so the existing
+    workspace pattern-invalidation also reaches these keys.
+    """
+    variant = str(baseline_id) if baseline_id is not None else "live"
+    return f"{_MATRIX_CACHE_PREFIX}:{workspace_id}:{variant}"
 
 
 # ---------------------------------------------------------------------------
@@ -252,11 +281,22 @@ def generate_vcrm(
     """Generate the VCRM matrix.
 
     REQ-L2-TE-013.
+    REQ-104: served from the shared cache when a fresh entry exists; otherwise
+    recomputed via live graph traversal and cached for
+    ``TRACEABILITY_MATRIX_CACHE_TTL`` seconds. Entries are invalidated on any
+    TraceLink mutation (see ``application.cache_invalidation``).
     """
-    return _vcrm_gen.generate_vcrm(
+    cache_key = traceability_matrix_cache_key(workspace_id, baseline_id)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    matrix = _vcrm_gen.generate_vcrm(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
     )
+    cache.set(cache_key, matrix, TRACEABILITY_MATRIX_CACHE_TTL)
+    return matrix
 
 
 def export_vcrm_csv(
@@ -332,6 +372,9 @@ __all__ = [
     "generate_vcrm",
     "export_vcrm_csv",
     "export_vcrm_pdf",
+    # VCRM matrix cache (REQ-104)
+    "traceability_matrix_cache_key",
+    "TRACEABILITY_MATRIX_CACHE_TTL",
     # PDF Report
     "generate_pdf_report",
     # Integrity

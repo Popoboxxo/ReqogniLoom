@@ -80,6 +80,25 @@ def _workspace_keys(workspace_id: str) -> list[str]:
     ]
 
 
+def _matrix_cache_keys(workspace_id: str) -> list[str]:
+    """Return the VCRM matrix cache keys for *workspace_id* (REQ-104, BE-22).
+
+    Only the live (no-baseline) key is returned for deterministic
+    ``delete_many`` invalidation, which every cache backend supports (the test
+    suite runs on LocMemCache). Baseline-scoped variants are additionally
+    covered by the pattern deletion in :func:`invalidate_workspace_caches` when
+    the backend exposes ``delete_pattern`` (django-redis). Imported lazily to
+    keep this module importable during app loading and to respect the layer
+    boundary (application → traceability is a downward dependency).
+    """
+    try:
+        from traceability.services import traceability_matrix_cache_key
+
+        return [traceability_matrix_cache_key(workspace_id)]
+    except Exception:  # pragma: no cover - defensive; never break invalidation
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Invalidation entry point
 # ---------------------------------------------------------------------------
@@ -102,7 +121,7 @@ def invalidate_workspace_caches(workspace_id: Optional[str | UUID]) -> None:
 
     # 1. Shared cache (cross-worker correct).
     try:
-        cache.delete_many(_workspace_keys(ws_key))
+        cache.delete_many(_workspace_keys(ws_key) + _matrix_cache_keys(ws_key))
         # django-redis exposes pattern deletion; the built-in RedisCache does
         # not. Use it when available to catch any finer-grained sub-keys.
         delete_pattern = getattr(cache, "delete_pattern", None)
@@ -182,6 +201,30 @@ def _resolve_workspace_id(instance) -> Optional[str]:
     if type(instance).__name__ == "Workspace":
         return str(instance.pk)
 
+    # TraceLink carries the workspace via its source artifact (REQ-104, BE-22).
+    # A trace link never crosses workspaces (ADR-L3-AS005-01), so the source
+    # endpoint's workspace is authoritative. Resolve it via source_id to avoid
+    # loading the full related Artifact on post_delete.
+    if type(instance).__name__ == "TraceLink":
+        source_id = getattr(instance, "source_id", None)
+        if source_id is not None:
+            try:
+                from persistence.models import Artifact
+
+                artifact = (
+                    Artifact.objects.filter(id=source_id)
+                    .values_list("workspace_id", flat=True)
+                    .first()
+                )
+                if artifact is not None:
+                    return str(artifact)
+            except Exception:  # pragma: no cover - defensive; never break write
+                logger.debug(
+                    "cache_invalidation: TraceLink workspace resolve skip",
+                    exc_info=True,
+                )
+        return None
+
     return None
 
 
@@ -238,6 +281,7 @@ def register_signals() -> None:
         Artifact,
         ArchitectureElement,
         Requirement,
+        TraceLink,
         Workspace,
     )
     from presets.models import WorkspacePresetConfig
@@ -248,6 +292,8 @@ def register_signals() -> None:
         Artifact,
         Requirement,
         ArchitectureElement,
+        # REQ-104 (BE-22): invalidate the cached VCRM matrix on link changes.
+        TraceLink,
     )
 
     for model in watched_models:
