@@ -352,3 +352,50 @@ Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einflie
 | REQ-046 | F3.1 | de32284 | ✅ done |
 | REQ-047 | F8.1 | c706260 | ✅ done |
 | REQ-048 | F2.2/F2.3 | 71e8758 | ✅ done |
+
+## Implementierungsstatus P2 (Welle 2 — 2026-07-14)
+
+| REQ-ID | Ref | Commit | Status |
+|--------|-----|--------|--------|
+| REQ-049 | FE-3/4/6/7 | — | ⚠️ risk — L-Aufwand, 71 Dateien, React-Query-Migration auf P3 verschoben |
+| REQ-050 | FE-5 | — | ⚠️ risk — L-Aufwand, Monster-Komponenten-Zerlegung auf P3 verschoben |
+| REQ-051 | FE-8 | 1b4863f | ✅ done |
+| REQ-052 | FE-9 | — | ⚠️ risk — erfordert Backend httpOnly-Cookie-Support + Frontend-Umbau |
+| REQ-053 | FE-10 | — | ⚠️ risk — L-Aufwand, 5 große Views ungetestet, auf P3 verschoben |
+| REQ-054 | FE-11 | — | ✅ done — bereits implementiert (React.lazy + Suspense in NavigationShell.tsx) |
+| REQ-055 | FE-12 | — | ✅ done — Beschreibung korrigiert (i18n in 71 Dateien aktiv, Rollout als P3) |
+| REQ-056 | FE-13 | 986506e | ✅ done |
+| REQ-057 | INF-8 | 1596e40 | ✅ done |
+| REQ-058 | INF-9 | cf6ea3a | ✅ done |
+| REQ-059 | INF-10 | 5fcdae9 | ✅ done |
+| REQ-060 | INF-11 | a2c4305 | ✅ done |
+| REQ-061 | INF-12 | cc1f698 | ✅ done |
+| REQ-062 | INF-13 | c759aed | ✅ done |
+| REQ-063 | INF-14 | d3fff9c | ✅ done — JSON-Logs + /health Endpoint; Prometheus-Metriken auf P3 |
+| REQ-064 | INF-15 | b9c97e0 | ✅ done |
+| REQ-065 | INF-16 | b4376d4 | ✅ done |
+| REQ-066 | BE-10 | — | ⚠️ risk — L-Aufwand, Service-Layer-Architektur auf P3 verschoben |
+| REQ-067 | BE-11 | 87aef2b | ✅ done |
+| REQ-068 | BE-12 | 16d8f9e | ✅ done |
+| REQ-069 | BE-13 | 692d1a8 | ✅ done |
+| REQ-070 | BE-14 | 5950055 | ✅ done |
+| REQ-071 | BE-15 | 6e385e0 | ✅ done |
+| REQ-072 | BE-16 | bec2a80 | ✅ done |
+| REQ-073 | BE-17 | ab593dd | ✅ done |
+| REQ-074 | BE-18 | 383f213 | ✅ done |
+| REQ-075 | BE-19 | 032760f | ✅ done — Wiring-Tests (Beat, Celery, SSE-async); Test-Pyramide-Rebalancing auf P3 |
+| REQ-076 | BE-20 | e7841dd | ✅ done |
+| REQ-077 | BE-21 | 6515a2e | ✅ done |
+| REQ-078 | F4.3 | c3c536c | ✅ done |
+| REQ-079 | F1.1 | 484506a | ✅ done |
+| REQ-080 | F6.3 | 32fcebe | ✅ done |
+| REQ-081 | F6.4 | f8f3ed4 | ✅ done — CORS-Fix + api_key-Masking; Feld-Verschlüsselung auf P3 |
+| REQ-082 | F4.2 | ce3a64a | ✅ done |
+| REQ-083 | F4.4 | 081440b | ✅ done |
+| REQ-084 | F5.2 | e726323 | ✅ done — 25s Timeout; vollständige Async-Umleitung auf P3 |
+| REQ-085 | F7.1/F7.2 | 12cea5f | ✅ done |
+| REQ-086 | F8.2/F8.4 | 67407cb | ✅ done |
+| REQ-087 | docs | 3ea0680 | ✅ done |
+| REQ-088 | Service O(N) | 11c9db2 | ✅ done |
+| REQ-089 | check_consistency | 8ab74a0 | ✅ done |
+| REQ-090 | E2E-Failures | d266165 | ✅ done |
