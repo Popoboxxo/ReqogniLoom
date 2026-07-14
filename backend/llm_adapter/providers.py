@@ -18,11 +18,13 @@ Provider isolation:
     the module is importable without them installed. MockLlmProvider is always
     available and requires no external SDK.
 
-Note on ResilienceOrchestrator (IF-L1-050, ADR-LA-04):
-    In this implementation the provider classes are responsible for their own
-    HTTP transport. Integration with the ResilienceOrchestrator (circuit-breaker,
-    retry, backoff) is deferred to the infrastructure layer and does not change
-    the interface contracts defined here.
+Note on ResilienceOrchestrator (IF-L1-050, ADR-LA-04, REQ-082):
+    Provider classes own their HTTP transport, but every outbound HTTP/SDK
+    call is wrapped by ``llm_adapter.resilient_transport.resilient_call``:
+    3 retries with exponential backoff (1s/2s/4s) on transient failures
+    (connection errors, timeouts, 5xx, 429), no retry on permanent 4xx
+    failures, and one circuit breaker per provider class. The interface
+    contracts defined here are unchanged.
 """
 from __future__ import annotations
 
@@ -31,7 +33,7 @@ import os
 import time
 import warnings
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from llm_adapter.interface import (
     LlmCapabilityInterface,
@@ -423,6 +425,30 @@ class _BaseHttpProvider(LlmCapabilityInterface):
             "Install the provider SDK and override this method."
         )
 
+    def _resilient(self, call: Callable[[], Any]) -> Any:
+        """Run an outbound HTTP/SDK call under the resilience policy (REQ-082).
+
+        Applies retry with exponential backoff (1s/2s/4s) on transient
+        failures, no retry on permanent 4xx failures, and the per-provider
+        circuit breaker. Raises
+        :class:`~llm_adapter.resilient_transport.LlmTransportError` on final
+        failure so the CapabilityRouter maps it to LLM_PROVIDER_ERROR.
+
+        Args:
+            call: Zero-arg callable performing the actual outbound request.
+
+        Returns:
+            The transport call's result.
+        """
+        # Lazy import to avoid import-time coupling to the resilience app.
+        from llm_adapter.resilient_transport import resilient_call  # noqa: PLC0415
+
+        return resilient_call(
+            call,
+            provider_name=self.PROVIDER_NAME,
+            timeout_seconds=self._config.timeout,
+        )
+
     def complete(
         self,
         prompt: str,
@@ -510,11 +536,13 @@ class AnthropicProvider(_BaseHttpProvider):
             ) from exc
 
         client = anthropic.Anthropic(api_key=self._config.api_key)
-        message = client.messages.create(
-            model=self.MODEL_NAME,
-            max_tokens=4096,
-            timeout=self._config.timeout,
-            messages=[{"role": "user", "content": prompt}],
+        message = self._resilient(
+            lambda: client.messages.create(
+                model=self.MODEL_NAME,
+                max_tokens=4096,
+                timeout=self._config.timeout,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
         text = message.content[0].text
         token_usage = (
@@ -536,20 +564,22 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415 (lazy import intentional)
 
             client = anthropic.Anthropic(api_key=self._config.api_key)
-            message = client.messages.create(
-                model=self.MODEL_NAME,
-                max_tokens=1024,
-                timeout=self._config.timeout,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Validate the following artifact (id: {artifact_id})."
-                            f"{_format_artifact_context(title, content)}\n\n"
-                            "Return a JSON object with keys: score (0-1), suggestions (list of strings)."
-                        ),
-                    }
-                ],
+            message = self._resilient(
+                lambda: client.messages.create(
+                    model=self.MODEL_NAME,
+                    max_tokens=1024,
+                    timeout=self._config.timeout,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Validate the following artifact (id: {artifact_id})."
+                                f"{_format_artifact_context(title, content)}\n\n"
+                                "Return a JSON object with keys: score (0-1), suggestions (list of strings)."
+                            ),
+                        }
+                    ],
+                )
             )
             import json
 
@@ -584,20 +614,22 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415
 
             client = anthropic.Anthropic(api_key=self._config.api_key)
-            message = client.messages.create(
-                model=self.MODEL_NAME,
-                max_tokens=4096,
-                timeout=self._config.timeout,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Decompose the following requirement (id: {requirement_id}) "
-                            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
-                            "Return JSON: {score, suggestions, children: [{id, title, type}]}"
-                        ),
-                    }
-                ],
+            message = self._resilient(
+                lambda: client.messages.create(
+                    model=self.MODEL_NAME,
+                    max_tokens=4096,
+                    timeout=self._config.timeout,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Decompose the following requirement (id: {requirement_id}) "
+                                f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
+                                "Return JSON: {score, suggestions, children: [{id, title, type}]}"
+                            ),
+                        }
+                    ],
+                )
             )
             import json
 
@@ -632,20 +664,22 @@ class AnthropicProvider(_BaseHttpProvider):
             import anthropic  # noqa: PLC0415
 
             client = anthropic.Anthropic(api_key=self._config.api_key)
-            message = client.messages.create(
-                model=self.MODEL_NAME,
-                max_tokens=4096,
-                timeout=self._config.timeout,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Check consistency across the artifacts in workspace "
-                            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
-                            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
-                        ),
-                    }
-                ],
+            message = self._resilient(
+                lambda: client.messages.create(
+                    model=self.MODEL_NAME,
+                    max_tokens=4096,
+                    timeout=self._config.timeout,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Check consistency across the artifacts in workspace "
+                                f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
+                                "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
+                            ),
+                        }
+                    ],
+                )
             )
             import json
 
@@ -720,9 +754,11 @@ class OpenAiProvider(_BaseHttpProvider):
             ) from exc
 
         client = OpenAI(api_key=self._config.api_key, timeout=self._config.timeout)
-        response = client.chat.completions.create(
-            model=self.MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
+        response = self._resilient(
+            lambda: client.chat.completions.create(
+                model=self.MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
         text = response.choices[0].message.content or ""
         token_usage = (
@@ -870,12 +906,19 @@ class OllamaProvider(_BaseHttpProvider):
             ) from exc
 
         url = f"{self._base_url}/api/generate"
-        resp = requests.post(
-            url,
-            json={"model": self._model, "prompt": prompt, "stream": False},
-            timeout=self._config.timeout,
-        )
-        resp.raise_for_status()
+
+        def _post():
+            # raise_for_status inside the resilient call so 5xx responses are
+            # classified (and retried) by status code (REQ-082).
+            response = requests.post(
+                url,
+                json={"model": self._model, "prompt": prompt, "stream": False},
+                timeout=self._config.timeout,
+            )
+            response.raise_for_status()
+            return response
+
+        resp = self._resilient(_post)
         data = resp.json()
         text = data.get("response", "")
         # Ollama does not expose token counts in the same format; use eval_count
@@ -1011,9 +1054,11 @@ class AzureOpenAiProvider(_BaseHttpProvider):
             api_version=self._config.azure_api_version or "2024-02-01",
             timeout=self._config.timeout,
         )
-        response = client.chat.completions.create(
-            model=self._config.azure_deployment or self.MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
+        response = self._resilient(
+            lambda: client.chat.completions.create(
+                model=self._config.azure_deployment or self.MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
         text = response.choices[0].message.content or ""
         token_usage = response.usage.total_tokens if response.usage else None
