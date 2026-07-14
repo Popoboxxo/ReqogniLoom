@@ -320,3 +320,35 @@ Vier Befunde, davon einer kritisch:
 3. **Tests messen Funktionen, nicht Systemverhalten** — grüne Suiten bei totem Async-Pfad, crashendem SSE und nicht instanziierbaren Providern.
 
 Diese drei Muster sollten als Abnahmekriterien in die Definition of Done einfließen (z.B. "neue Async-Tasks brauchen einen Wiring-Test", "CI testet den Prod-Build").
+
+---
+
+## Implementierungsstatus P1 (Welle 1 — 2026-07-14)
+
+| REQ-ID | Ref | Commit | Status |
+|--------|-----|--------|--------|
+| REQ-024 | FE-1/INF-1 | — | ✅ done |
+| REQ-025 | FE-2 | f821c25 | ✅ done |
+| REQ-026 | INF-2 | — | ✅ done |
+| REQ-027 | INF-3 | 4dd71ff | ✅ done |
+| REQ-028 | INF-4 | 97b6d73 | ✅ done |
+| REQ-029 | INF-5 | c4b65de | ✅ done |
+| REQ-030 | INF-6 | 990ddef | ✅ done |
+| REQ-031 | INF-7 | 536f64b | ✅ done |
+| REQ-032 | BE-1 | b7e1a56 | ✅ done |
+| REQ-033 | BE-2 | 446ba73 | ✅ done |
+| REQ-034 | BE-3 | 7b2b3c5 | ✅ done |
+| REQ-035 | BE-4 | ae37923 | ✅ done |
+| REQ-036 | BE-5 | 71763d8 | ✅ done |
+| REQ-037 | BE-6 | f89344c | ✅ done |
+| REQ-038 | BE-7 | 752cded | ✅ done |
+| REQ-039 | BE-8 | fa3702b | ✅ done |
+| REQ-040 | BE-9 | 446ba73 | ✅ done |
+| REQ-041 | F2.1 | 588535a | ✅ done |
+| REQ-042 | F4.1 | cea3300 | ✅ done |
+| REQ-043 | F6.1 | daf4323 | ✅ done |
+| REQ-044 | F6.2 | 958f75e | ✅ done |
+| REQ-045 | F1.2 | — | ✅ done |
+| REQ-046 | F3.1 | de32284 | ✅ done |
+| REQ-047 | F8.1 | c706260 | ✅ done |
+| REQ-048 | F2.2/F2.3 | 71e8758 | ✅ done |
