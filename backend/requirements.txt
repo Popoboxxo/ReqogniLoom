@@ -27,5 +27,8 @@ pypdf>=4.0,<6.0
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
 reportlab>=4.0,<5.0
 
+# WSGI HTTP Server (production deployment)
+gunicorn>=21.2,<22.0
+
 # Utilities
 python-decouple>=3.8,<4.0

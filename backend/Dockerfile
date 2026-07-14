@@ -22,11 +22,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Collect static files (for production; dev uses runserver)
-# RUN python manage.py collectstatic --noinput
+# Collect static files (required for production deployment)
+RUN python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
-# Default: Django development server
-# Production: replace with gunicorn
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Production: Gunicorn WSGI application server
+# Multi-worker deployment for handling concurrent requests (4 workers)
+CMD ["gunicorn", "reqflow.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4"]
