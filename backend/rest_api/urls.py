@@ -66,6 +66,7 @@ from rest_api.views import (
     CsvImportView,
     GlossaryTermViewSet,
     IssueViewSet,
+    ReqifExportView,
     RequirementHistoryView,
     RequirementViewSet,
     StakeholderNeedViewSet,
@@ -140,6 +141,12 @@ urlpatterns = [
         "workspaces/<uuid:pk>/export/csv/",
         CsvExportView.as_view(),
         name="workspace-csv-export",
+    ),
+    # ReqIF 1.2 export (REQ-146, COMP-AS-008) — workspace-scoped.
+    path(
+        "workspaces/<uuid:pk>/export/reqif/",
+        ReqifExportView.as_view(),
+        name="workspace-reqif-export",
     ),
     # Needs routing by workspace
     path(
