@@ -49,6 +49,21 @@ CORS_ALLOWED_ORIGINS: list[str] = config(
 )
 
 # ---------------------------------------------------------------------------
+# CSRF (REQ-138)
+# ---------------------------------------------------------------------------
+# The cookie-based session auth path enforces Django's CSRF origin check.
+# Browser SPA origins (Vite dev server, production frontend) must be listed
+# here or all state-changing requests (POST/PATCH/PUT/DELETE) fail with 403.
+CSRF_TRUSTED_ORIGINS: list[str] = config(
+    "CSRF_TRUSTED_ORIGINS",
+    default=(
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:3000,http://127.0.0.1:3000"
+    ),
+    cast=Csv(),
+)
+
+# ---------------------------------------------------------------------------
 # Installed Applications
 # ---------------------------------------------------------------------------
 DJANGO_APPS = [

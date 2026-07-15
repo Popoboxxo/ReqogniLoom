@@ -119,7 +119,19 @@ async function apiFetch<T>(
   // 403 → authenticated but lacking permission: surface the error without
   // logging the user out (REQ-051).
   if (response.status === 403) {
-    throw new ForbiddenError();
+    // Pass through the server-provided detail (e.g. a CSRF failure reason)
+    // instead of masking every 403 with a generic permission text (REQ-138).
+    let detail: string | undefined;
+    try {
+      const body = await response.json();
+      detail =
+        (typeof body?.detail === "string" && body.detail) ||
+        (typeof body?.error?.message === "string" && body.error.message) ||
+        undefined;
+    } catch {
+      // Non-JSON body → fall back to the default message.
+    }
+    throw new ForbiddenError(detail);
   }
 
   if (!response.ok) {

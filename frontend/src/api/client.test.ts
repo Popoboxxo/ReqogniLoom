@@ -46,6 +46,32 @@ describe("apiClient — 401 vs 403 handling (REQ-051)", () => {
     expect(unauthorizedHandler).not.toHaveBeenCalled();
   });
 
+  it("on 403 passes through the server detail message (REQ-138)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockResponse(403, {
+        detail: "CSRF Failed: Origin checking failed.",
+      })
+    );
+
+    await expect(apiClient.get("/requirements")).rejects.toThrow(
+      "CSRF Failed: Origin checking failed."
+    );
+  });
+
+  it("on 403 without JSON detail falls back to the default message (REQ-138)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => {
+        throw new Error("no body");
+      },
+    } as unknown as Response);
+
+    await expect(apiClient.get("/requirements")).rejects.toThrow(
+      /permission/i
+    );
+  });
+
   it("ForbiddenError carries status 403 and a permission message", () => {
     const err = new ForbiddenError();
     expect(err.status).toBe(403);
