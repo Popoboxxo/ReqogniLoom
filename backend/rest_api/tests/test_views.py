@@ -349,6 +349,122 @@ class TestRequirementViewSetRouting:
 
 
 # ---------------------------------------------------------------------------
+# REQ-143 — status is a read-only WorkflowEngine mirror; transitions endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestRequirementStatusSingleSource:
+    """REQ-143 — REST must not write `status`; transitions drive the state."""
+
+    def _svc_mock(self, status: str = "draft") -> MagicMock:
+        svc = MagicMock()
+        req = MagicMock()
+        req.id = uuid.uuid4()
+        req.artifact.workspace_id = uuid.uuid4()
+        req.title = "Test"
+        req.description = ""
+        req.uid = None
+        req.category = ""
+        req.status = status
+        req.type = "SyReq"
+        req.version = 1
+        req.created_at = None
+        req.modified_at = None
+        svc.update_requirement.return_value = req
+        svc.get_requirement.return_value = req
+        return svc
+
+    def test_partial_update_ignores_status(self) -> None:
+        """A client-sent `status` is neither forwarded to the service nor 4xx'd,
+        and the response reflects the true engine-owned value."""
+        data = {"title": "Updated", "status": "approved"}
+        factory = APIRequestFactory()
+        req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
+        req.auth_context = _make_auth_context()
+        view = RequirementViewSet.as_view({"patch": "partial_update"})
+        svc_mock = self._svc_mock(status="draft")
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = view(req, pk=str(uuid.uuid4()))
+        assert response.status_code == 200
+        # Ignored on write:
+        assert "status" not in svc_mock.update_requirement.call_args.kwargs
+        # Response shows the true (mirror) value, not the client's "approved":
+        assert response.data["status"] == "draft"
+
+    def test_transitions_get_lists_allowed(self) -> None:
+        """GET transitions returns current_state + allowed target states."""
+        from types import SimpleNamespace
+
+        avail = SimpleNamespace(
+            current_state="draft",
+            states=("draft", "in_review", "approved", "deprecated"),
+            transitions=(
+                SimpleNamespace(
+                    to_state="in_review",
+                    requires_change_reason=True,
+                    signature_gate=False,
+                ),
+            ),
+        )
+        facade = MagicMock()
+        facade.get_available_transitions.return_value = avail
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/requirements/123/transitions/")
+        req.auth_context = _make_auth_context()
+        view = RequirementViewSet.as_view({"get": "transitions"})
+        with (
+            patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()),
+            patch("rest_api.views.WorkflowFacade", return_value=facade),
+        ):
+            response = view(req, pk=str(uuid.uuid4()))
+        assert response.status_code == 200
+        assert response.data["current_state"] == "draft"
+        assert response.data["allowed_transitions"][0]["target_state"] == "in_review"
+        assert response.data["allowed_transitions"][0]["requires_change_reason"] is True
+
+    def test_transitions_post_performs_transition(self) -> None:
+        """POST transitions delegates to WorkflowFacade and returns new state."""
+        from types import SimpleNamespace
+
+        facade = MagicMock()
+        facade.transition.return_value = SimpleNamespace(
+            previous_state="draft", new_state="in_review"
+        )
+        data = {"target_state": "in_review", "change_reason": "go"}
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/requirements/123/transitions/", data=data, format="json"
+        )
+        req.auth_context = _make_auth_context()
+        view = RequirementViewSet.as_view({"post": "transitions"})
+        # After the transition the mirror shows the new state.
+        svc_mock = self._svc_mock(status="in_review")
+        with (
+            patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock),
+            patch("rest_api.views.WorkflowFacade", return_value=facade),
+        ):
+            response = view(req, pk=str(uuid.uuid4()))
+        assert response.status_code == 200
+        assert response.data["new_state"] == "in_review"
+        assert response.data["requirement"]["status"] == "in_review"
+        assert facade.transition.call_args.kwargs["item_type"] == "Requirement"
+
+    def test_transitions_post_without_target_returns_400(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/requirements/123/transitions/", data={}, format="json"
+        )
+        req.auth_context = _make_auth_context()
+        view = RequirementViewSet.as_view({"post": "transitions"})
+        with (
+            patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()),
+            patch("rest_api.views.WorkflowFacade", return_value=MagicMock()),
+        ):
+            response = view(req, pk=str(uuid.uuid4()))
+        assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
 # ArchitectureElementViewSet — PATCH wires expected_version
 # ---------------------------------------------------------------------------
 

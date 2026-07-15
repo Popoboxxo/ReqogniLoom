@@ -456,3 +456,99 @@ class TestTenantIsolation:
         assert result is None, "Tenant-B item must not be visible under Tenant-A"
 
         TenantContext.clear_tenant()
+
+
+# ---------------------------------------------------------------------------
+# REQ-143: denormalized `status` mirror kept in sync by transitions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+class TestStatusMirror:
+    """REQ-143 — perform_transition updates the persistence `status` mirror atomically."""
+
+    def setup_method(self):
+        self._tenant_id = _tenant_id()
+        from persistence.tenancy import TenantContext
+
+        TenantContext.set_tenant(self._tenant_id)
+
+    def teardown_method(self):
+        from persistence.tenancy import TenantContext
+
+        TenantContext.clear_tenant()
+
+    def _make_requirement(self, ws: uuid.UUID):
+        from persistence.models import Artifact, Requirement, Workspace
+
+        workspace = Workspace.unscoped.create(
+            tenant_id=self._tenant_id, id=ws, name="Mirror WS"
+        )
+        artifact = Artifact.unscoped.create(
+            tenant_id=self._tenant_id,
+            workspace=workspace,
+            artifact_type="Requirement",
+        )
+        return Requirement.unscoped.create(
+            tenant_id=self._tenant_id,
+            artifact=artifact,
+            title="Mirror req",
+            status="draft",
+        )
+
+    def test_transition_updates_status_mirror(self):
+        """A transition writes both current_state and the Requirement.status mirror."""
+        from persistence.models import Requirement
+
+        ws = _ws()
+        requirement = self._make_requirement(ws)
+        def_record = _make_def_record(self._tenant_id, ws)
+        item_state = WorkflowItemState.unscoped.create(
+            tenant_id=self._tenant_id,
+            item_id=requirement.id,  # mirror keyed by the requirement's own id
+            item_type="Requirement",
+            workspace_id=ws,
+            definition=def_record,
+            current_state="draft",
+        )
+        mgr = StateLifecycleManager(definition_store=_mock_store(_dto(ws)))
+
+        mgr.perform_transition(
+            item_id=item_state.item_id,
+            item_type="Requirement",
+            workspace_id=ws,
+            target_state="in_review",
+            transitioned_by=str(uuid.uuid4()),
+            validation_result=_ok_result(),
+            change_reason="to review",
+        )
+
+        # Both representations must now agree.
+        updated_state = WorkflowItemState.unscoped.get(pk=item_state.pk)
+        assert updated_state.current_state == "in_review"
+        mirrored = Requirement.unscoped.get(pk=requirement.id)
+        assert mirrored.status == "in_review"
+
+    def test_unknown_item_type_is_noop(self):
+        """A transition for an item_type not in the mirror map does not error."""
+        ws = _ws()
+        def_record = _make_def_record(self._tenant_id, ws)
+        item_state = WorkflowItemState.unscoped.create(
+            tenant_id=self._tenant_id,
+            item_id=uuid.uuid4(),
+            item_type="Artifact",  # not wired into _STATUS_MIRROR_MODELS
+            workspace_id=ws,
+            definition=def_record,
+            current_state="draft",
+        )
+        mgr = StateLifecycleManager(definition_store=_mock_store(_dto(ws)))
+
+        outcome = mgr.perform_transition(
+            item_id=item_state.item_id,
+            item_type="Artifact",
+            workspace_id=ws,
+            target_state="in_review",
+            transitioned_by=str(uuid.uuid4()),
+            validation_result=_ok_result(),
+        )
+        assert outcome.new_state == "in_review"
