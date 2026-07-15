@@ -16,12 +16,10 @@
  * The 8 link types surfaced as filter chips are the public frontend
  * subset of the 12-value backend enum (UI standards §5.1).
  *
- * TODO(backend): replace `mockFetchTraceLinks` with
- *   `tracelinksApi.listForArtifact(workspaceId, artifactId)`. The
- *   mock returns an empty array; the panel renders the
- *   "No trace links" empty state in that case.
- * TODO(backend): wire `resolveArtifactRef` for each link's
- *   `otherArtifact.id` once the parent passes `workspaceId` through.
+ * Data fetching (REQ-141): uses tracelinksApi.listForArtifact() to
+ *   fetch links from the backend. Handles loading/error/empty states
+ *   and maps backend TraceLink records to TraceLinkRow with artifact
+ *   titles and kinds pre-resolved from the API response.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
