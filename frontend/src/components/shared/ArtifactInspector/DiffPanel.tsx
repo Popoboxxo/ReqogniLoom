@@ -8,16 +8,9 @@
  *          REQ-L0-062 AC6 (field-level diff between two versions)
  *
  * Wraps the existing `ArtifactDiff` component into a 360-px-friendly
- * column and renders a "Diff not yet available" empty state for the 8
- * artifact kinds whose backend has no `/diff/` endpoint today
- * (UI standards §4.5, §11).
- *
- * TODO(backend): extend `DiffEntityType` in
- *   `frontend/src/components/ArtifactDiff/ArtifactDiff.tsx` from
- *   `"requirement" | "architecture"` to the full 10-value union and
- *   wire `diffFetcher`/`versionsFetcher` per kind (see UI standards
- *   §4.5). Today: only requirement + architecture are supported; the
- *   other 8 kinds show the "unsupported" empty state.
+ * column. As of REQ-142 all 10 artifact kinds expose a `/diff/` endpoint,
+ * so the "unsupported" empty state below is now unreachable in practice
+ * but kept as a defensive fallback (UI standards §4.5).
  */
 import { useTranslation } from "react-i18next";
 import { requirementsApi } from "../../../api/requirements";
@@ -28,6 +21,8 @@ import { risksApi } from "../../../api/risks";
 import { issuesApi } from "../../../api/issues";
 import { testcasesApi } from "../../../api/testcases";
 import { icdsApi } from "../../../api/icds";
+import { diagramsApi } from "../../../api/diagrams";
+import { glossaryApi } from "../../../api/glossary";
 import type { ArtifactDiffResult, ArtifactVersion } from "../../../types";
 import { ArtifactDiff, type DiffEntityType } from "../../ArtifactDiff/ArtifactDiff";
 import { DIFF_SUPPORTED_KINDS, type ArtifactKind } from "./types";
@@ -49,6 +44,8 @@ const DIFF_FETCHERS: Partial<Record<ArtifactKind, DiffFetcher>> = {
   issue: (id, from, to) => issuesApi.diff(id, from, to),
   testCase: (id, from, to) => testcasesApi.diff(id, from, to),
   icd: (id, from, to) => icdsApi.diff(id, from, to),
+  diagram: (id, from, to) => diagramsApi.diff(id, from, to),
+  glossary: (id, from, to) => glossaryApi.diff(id, from, to),
 };
 
 const VERSIONS_FETCHERS: Partial<Record<ArtifactKind, VersionsFetcher>> = {
@@ -60,6 +57,8 @@ const VERSIONS_FETCHERS: Partial<Record<ArtifactKind, VersionsFetcher>> = {
   issue: (id) => issuesApi.versions(id),
   testCase: (id) => testcasesApi.versions(id),
   icd: (id) => icdsApi.versions(id),
+  diagram: (id) => diagramsApi.versions(id),
+  glossary: (id) => glossaryApi.versions(id),
 };
 
 function diffFetcherFor(kind: ArtifactKind): DiffFetcher {

@@ -12,16 +12,13 @@
  * - Version selector dropdowns for from/to
  * - Close button
  *
- * Today: rich field-level rendering is implemented for `requirement` and
- * `architecture` only (the two kinds the backend exposes a `/diff/`
- * endpoint for — see `docs/UI_STANDARDS.md` §4.5 and §11 Backend gaps
- * column). The 8 remaining kinds (`icd`, `diagram`, `adr`, `risk`,
- * `issue`, `glossary`, `stakeholderNeed`, `testCase`) fall through to a
- * generic "no field-level renderer for this kind" view that shows a
- * `from: X, to: Y` summary plus the raw `ArtifactDiffResult` JSON in a
- * `<details>` block. DiffPanel already short-circuits to an empty state
- * for the unsupported kinds (UI standards §4.5), so this fallback is a
- * safety net, not the primary path.
+ * As of REQ-142, rich field-level rendering is implemented for all 10
+ * artifact kinds — every kind now exposes a `/diff/` endpoint on the
+ * backend (diagram and glossary were the last two, wired against their
+ * immutable DiagramVersion / GlossaryTermVersion history tables). The
+ * generic "no field-level renderer for this kind" fallback below is kept
+ * as a defensive safety net for any future kind added ahead of its
+ * backend endpoint, not the primary path.
  *
  * Interfaces:
  *   IF-RF-INT-001  ← RequirementEditor / ArchitectureEditor opens this view
@@ -477,13 +474,14 @@ export function ArtifactDiff({
         </div>
       )}
 
-      {/* Fallback — generic summary for the 8 kinds without a field-level
-          renderer. The DiffPanel already short-circuits to an empty state
-          for these (UI standards §4.5), so this branch is a safety net
-          for the day a backend endpoint is wired for one of them. */}
+      {/* Fallback — generic summary for any kind without a field-level
+          renderer. All 10 kinds are backend-backed as of REQ-142
+          (RICH_DIFF_KINDS === DIFF_SUPPORTED_KINDS === all kinds), so
+          this branch is unreachable today; kept as a defensive safety
+          net for a future 11th kind added ahead of its backend
+          endpoint. */}
       {diffResult && !loading && !RICH_DIFF_KINDS.has(entityType) && (
         <div data-testid="diff-generic-fallback" data-kind={entityType}>
-          {/* TODO(backend): wire real diff for {entityType}. */}
           <p
             style={{
               fontSize: "13px",

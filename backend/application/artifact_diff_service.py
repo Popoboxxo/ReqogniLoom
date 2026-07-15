@@ -54,7 +54,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Fields that contain Markdown / multiline text → line-level diff
-_TEXT_FIELDS = frozenset({"description"})
+# "payload" holds diagram source (Mermaid/PlantUML) — also line-diffed.
+_TEXT_FIELDS = frozenset({"description", "payload"})
 
 # Fields that contain JSON-serialisable data → serialise before comparison
 _JSON_FIELDS = frozenset({"steps"})
@@ -69,6 +70,9 @@ _ENTITY_FIELDS: Dict[str, List[str]] = {
     "Risk": ["title", "description", "category", "probability", "impact", "status"],
     "Issue": ["title", "description", "severity", "category", "status"],
     "GlossaryTerm": ["term", "definition", "synonyms", "abbreviation"],
+    # REQ-142: Diagram has real per-version snapshots (DiagramVersion), unlike
+    # the single-row entities above — see diff_for_diagram()/list_versions_for_diagram().
+    "Diagram": ["payload_format", "payload", "canvas_json"],
 }
 
 _ENTITY_MODELS = {
@@ -496,6 +500,211 @@ class ArtifactDiffService(ServiceBase):
             return None
 
         return self._entity_to_snapshot(entity, entity_type)
+
+    # ------------------------------------------------------------------
+    # Diagram version/diff helpers (REQ-142)
+    #
+    # Unlike the single-row entities above, Diagram has a real immutable
+    # version table (DiagramVersion). Snapshots below are read directly
+    # from historical rows instead of the "current state only" fallback,
+    # and the field-level comparison reuses _compute_fields_diff — no new
+    # diff algorithm is introduced.
+    # ------------------------------------------------------------------
+
+    def list_versions_for_diagram(
+        self,
+        diagram_id: UUID,
+        ctx: AuthContext,
+    ) -> List[Dict[str, Any]]:
+        """List all DiagramVersions for a diagram, chronologically (REQ-142)."""
+        self._set_tenant_context(ctx)
+
+        from diagram.models import Diagram, DiagramVersion
+
+        if not Diagram.objects.filter(id=diagram_id).exists():
+            raise NotFoundError(f"Diagram {diagram_id} not found")
+
+        versions = DiagramVersion.objects.filter(diagram_id=diagram_id).order_by(
+            "version_number"
+        )
+        return [
+            {
+                "version": v.version_number,
+                "label": f"v{v.version_number}",
+                "modified_at": v.created_at.isoformat() if v.created_at else None,
+            }
+            for v in versions
+        ]
+
+    def diff_for_diagram(
+        self,
+        diagram_id: UUID,
+        from_version: int,
+        to_version: int,
+        ctx: AuthContext,
+    ) -> Dict[str, Any]:
+        """Compute structured diff between two DiagramVersions (REQ-142).
+
+        Both versions must actually exist (version 0 is the empty creation
+        baseline). Unlike diff()/diff_for_entity(), this does not degrade to
+        a "current state only" comparison — Diagram has real history.
+        """
+        self._set_tenant_context(ctx)
+
+        from diagram.models import Diagram
+
+        if not Diagram.objects.filter(id=diagram_id).exists():
+            raise NotFoundError(f"Diagram {diagram_id} not found")
+
+        from_snapshot = self._resolve_diagram_snapshot(diagram_id, from_version)
+        if from_snapshot is None and from_version != 0:
+            raise NotFoundError(
+                f"Version {from_version} not available for diagram {diagram_id}"
+            )
+
+        to_snapshot = self._resolve_diagram_snapshot(diagram_id, to_version)
+        if to_snapshot is None:
+            raise NotFoundError(
+                f"Version {to_version} not available for diagram {diagram_id}"
+            )
+
+        fields = self._compute_fields_diff(from_snapshot or {}, to_snapshot, "Diagram")
+
+        return {
+            "from_version": from_version,
+            "to_version": to_version,
+            "entity_type": "Diagram",
+            "fields": fields,
+        }
+
+    @staticmethod
+    def _resolve_diagram_snapshot(
+        diagram_id: UUID, version_number: int
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve field values for a specific DiagramVersion row.
+
+        Version 0 → None (empty creation baseline).
+        """
+        if version_number == 0:
+            return None
+
+        from diagram.models import DiagramVersion
+
+        v = (
+            DiagramVersion.objects.filter(
+                diagram_id=diagram_id, version_number=version_number
+            )
+            .first()
+        )
+        if v is None:
+            return None
+
+        return {
+            "payload_format": v.payload_format,
+            "payload": v.payload,
+            "canvas_json": v.canvas_json,
+        }
+
+    # ------------------------------------------------------------------
+    # GlossaryTerm version/diff helpers (REQ-142)
+    #
+    # GlossaryTerm also has a real immutable version table
+    # (GlossaryTermVersion). Same rationale as the Diagram helpers above.
+    # ------------------------------------------------------------------
+
+    def list_versions_for_glossary_term(
+        self,
+        term_id: UUID,
+        ctx: AuthContext,
+    ) -> List[Dict[str, Any]]:
+        """List all GlossaryTermVersions for a term, chronologically (REQ-142)."""
+        self._set_tenant_context(ctx)
+
+        if not GlossaryTerm.objects.filter(id=term_id).exists():
+            raise NotFoundError(f"GlossaryTerm {term_id} not found")
+
+        from persistence.models import GlossaryTermVersion
+
+        versions = GlossaryTermVersion.objects.filter(term_fk_id=term_id).order_by(
+            "term_version"
+        )
+        return [
+            {
+                "version": v.term_version,
+                "label": f"v{v.term_version}",
+                "modified_at": v.created_at.isoformat() if v.created_at else None,
+            }
+            for v in versions
+        ]
+
+    def diff_for_glossary_term(
+        self,
+        term_id: UUID,
+        from_version: int,
+        to_version: int,
+        ctx: AuthContext,
+    ) -> Dict[str, Any]:
+        """Compute structured diff between two GlossaryTermVersions (REQ-142).
+
+        Both versions must actually exist (version 0 is the empty creation
+        baseline).
+        """
+        self._set_tenant_context(ctx)
+
+        term = GlossaryTerm.objects.filter(id=term_id).first()
+        if term is None:
+            raise NotFoundError(f"GlossaryTerm {term_id} not found")
+
+        from_snapshot = self._resolve_glossary_term_snapshot(term, from_version)
+        if from_snapshot is None and from_version != 0:
+            raise NotFoundError(
+                f"Version {from_version} not available for glossary term {term_id}"
+            )
+
+        to_snapshot = self._resolve_glossary_term_snapshot(term, to_version)
+        if to_snapshot is None:
+            raise NotFoundError(
+                f"Version {to_version} not available for glossary term {term_id}"
+            )
+
+        fields = self._compute_fields_diff(
+            from_snapshot or {}, to_snapshot, "GlossaryTerm"
+        )
+
+        return {
+            "from_version": from_version,
+            "to_version": to_version,
+            "entity_type": "GlossaryTerm",
+            "fields": fields,
+        }
+
+    @staticmethod
+    def _resolve_glossary_term_snapshot(
+        term: Any, version_number: int
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve field values for a specific GlossaryTermVersion row.
+
+        Version 0 → None (empty creation baseline). ``term`` (the name) is
+        immutable once created, so it is taken from the parent GlossaryTerm
+        for every version.
+        """
+        if version_number == 0:
+            return None
+
+        from persistence.models import GlossaryTermVersion
+
+        v = GlossaryTermVersion.objects.filter(
+            term_fk_id=term.id, term_version=version_number
+        ).first()
+        if v is None:
+            return None
+
+        return {
+            "term": term.term,
+            "definition": v.definition,
+            "synonyms": v.synonyms,
+            "abbreviation": v.abbreviation,
+        }
 
 
 __all__ = [

@@ -4207,6 +4207,61 @@ class GlossaryTermViewSet(BaseEntityViewSet):
         except Exception as e:
             return _service_error_response(e, lang)
 
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/glossary/{pk}/versions/ — list GlossaryTermVersions
+        chronologically.
+
+        REQ-142: delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            result = ArtifactDiffService().list_versions_for_glossary_term(
+                UUID(pk), ctx
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/glossary/{pk}/diff/?from_version=0&to_version=2
+
+        REQ-142: Structured field-level diff between two GlossaryTermVersions.
+        Delegates to ArtifactDiffService (COMP-AS-019); reuses the same
+        diff computation as the requirement diff endpoint.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            term_id = UUID(pk)
+            term = self._svc().get(ctx, term_id)
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(
+                request.query_params.get("to_version", str(term.version))
+            )
+
+            result = ArtifactDiffService().diff_for_glossary_term(
+                term_id=term_id,
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
 
 class AttributeVisibilityConfigViewSet(BaseEntityViewSet):
     """ViewSet for AttributeVisibilityConfig (REQ-L1-058 AC2).

@@ -36,34 +36,25 @@ export const glossaryApi = {
   },
 
   // -----------------------------------------------------------------------
-  // Diff / Versions — stubs (UI standards §4.5 / §11 Backend gaps)
+  // Diff / Versions (REQ-142)
   // -----------------------------------------------------------------------
 
   /**
    * Field-level diff between two Glossary term versions. Signature
    * mirrors `requirementsApi.diff` / `architectureApi.diff` so the
    * DiffPanel can swap fetchers per kind without changing the call site.
-   * TODO(backend): wire to GET /api/v1/glossary/{id}/diff/ (not exposed yet).
    */
   diff: async (id: string, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> => {
-    return Promise.reject(
-      new Error(
-        `Not Implemented: Glossary /diff/ endpoint for ${id} (from v${fromVersion} to v${toVersion}) — see UI standards §11.`
-      )
+    return apiClient.get<ArtifactDiffResult>(
+      `/glossary/${id}/diff/?from_version=${fromVersion}&to_version=${toVersion}`
     );
   },
 
   /**
-   * Version list for a Glossary term. The backend does not expose a
-   * `/versions/` endpoint for Glossary terms. DiffPanel will short-circuit
-   * to its empty state for Glossary in the meantime.
-   * TODO(backend): wire to GET /api/v1/glossary/{id}/versions/.
+   * Version list for a Glossary term, backed by the immutable
+   * GlossaryTermVersion history table (REQ-142).
    */
   versions: async (id: string): Promise<ArtifactVersion[]> => {
-    return Promise.reject(
-      new Error(
-        `Not Implemented: Glossary /versions/ endpoint for ${id} — see UI standards §11.`
-      )
-    );
+    return apiClient.get<ArtifactVersion[]>(`/glossary/${id}/versions/`);
   },
 };

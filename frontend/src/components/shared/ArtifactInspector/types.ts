@@ -11,12 +11,12 @@
  * The 10 artifact kinds that this sidebar is reused across. Order is fixed
  * and matches the design contract in docs/UI_STANDARDS.md §4.0.
  *
- * The first 7 kinds (icd, diagram, adr, risk, issue, glossary,
- * stakeholderNeed) do NOT yet expose a `/versions/` REST endpoint on the
- * backend — VersionPanel must render an empty state for those (UI standards
- * §5.1). The first 8 kinds do NOT expose a `/diff/` endpoint — DiffPanel
- * must render the "Diff not yet available for {kind}" empty state for
- * those (UI standards §4.5 / §11 open question #1).
+ * As of REQ-142 all 10 kinds expose `/versions/` and `/diff/` REST
+ * endpoints on the backend — diagram and glossary were the last two,
+ * backed by their immutable DiagramVersion / GlossaryTermVersion history
+ * tables (see ArtifactDiffService.list_versions_for_diagram /
+ * .diff_for_diagram / .list_versions_for_glossary_term /
+ * .diff_for_glossary_term).
  */
 export type ArtifactKind =
   | "icd"
@@ -102,8 +102,8 @@ export interface BaselineSummary {
  *
  * Backend coverage (GET /api/v1/<kind>/<id>/{diff,versions}/):
  *   requirement, architecture, stakeholderNeed (/needs/), adr, risk,
- *   issue, testCase (/testcases/), icd.
- * Not yet backend-backed: diagram, glossary.
+ *   issue, testCase (/testcases/), icd, diagram, glossary (REQ-142).
+ * All 10 kinds are now backend-backed.
  */
 export const DIFF_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
   "requirement",
@@ -114,6 +114,8 @@ export const DIFF_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
   "issue",
   "testCase",
   "icd",
+  "diagram",
+  "glossary",
 ]);
 
 /** The 8 link types — exported as a stable list for chip rendering. */

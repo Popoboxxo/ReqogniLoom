@@ -164,35 +164,25 @@ export const diagramsApi = {
   },
 
   // -----------------------------------------------------------------------
-  // Diff / Versions — stubs (UI standards §4.5 / §11 Backend gaps)
+  // Diff / Versions (REQ-142)
   // -----------------------------------------------------------------------
 
   /**
    * Field-level diff between two diagram versions. Signature mirrors
    * `requirementsApi.diff` / `architectureApi.diff` so the DiffPanel can
    * swap fetchers per kind without changing the call site.
-   * TODO(backend): wire to GET /api/v1/diagrams/{id}/diff/ (not exposed yet).
    */
   diff(id: UUID, fromVersion: number, toVersion: number): Promise<ArtifactDiffResult> {
-    return Promise.reject(
-      new Error(
-        `Not Implemented: Diagram /diff/ endpoint for ${id} (from v${fromVersion} to v${toVersion}) — see UI standards §11.`
-      )
+    return apiClient.get<ArtifactDiffResult>(
+      `/diagrams/${id}/diff/?from_version=${fromVersion}&to_version=${toVersion}`
     );
   },
 
   /**
-   * Version list for a diagram. The backend's PATCH /diagrams/<id>/
-   * returns the new `version_number` on every update, but there is no
-   * `/versions/` endpoint that lists them. DiffPanel will short-circuit
-   * to its empty state for Diagrams in the meantime.
-   * TODO(backend): wire to GET /api/v1/diagrams/{id}/versions/.
+   * Version list for a diagram, backed by the immutable DiagramVersion
+   * history table (REQ-142).
    */
   versions(id: UUID): Promise<ArtifactVersion[]> {
-    return Promise.reject(
-      new Error(
-        `Not Implemented: Diagram /versions/ endpoint for ${id} — see UI standards §11.`
-      )
-    );
+    return apiClient.get<ArtifactVersion[]>(`/diagrams/${id}/versions/`);
   },
 };
