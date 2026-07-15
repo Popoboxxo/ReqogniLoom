@@ -196,7 +196,10 @@ class TestTransitionValidatorRules:
         result = validator.validate(req)
         assert result.valid is False
         assert result.error_code == EC_CHANGE_REASON_REQUIRED
-        assert "change_reason required" in (result.error_message or "")
+        # REQ-135: message now carries workspace/preset context for the user.
+        message = result.error_message or ""
+        assert "change_reason" in message
+        assert "extended preset" in message
 
     def test_change_reason_provided(self):
         """in_review→approved with change_reason → valid=True."""
