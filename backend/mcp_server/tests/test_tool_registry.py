@@ -16,7 +16,7 @@ Covers:
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 
@@ -417,3 +417,89 @@ class TestToolRegistryDispatch:
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
+
+
+# ---------------------------------------------------------------------------
+# API-key global role resolution (REQ-127)
+# ---------------------------------------------------------------------------
+
+
+class TestApiKeyGlobalRoleResolution:
+    """REQ-127: API-key callers without a workspace_id param must still get
+    their globally-held roles loaded, not an empty tuple.
+
+    Most MCP tool calls (user.list, requirement.create, ...) carry no
+    ``workspace_id``. Before the fix, ``_resolve_roles`` returned the context
+    unchanged with ``active_roles=()`` there, so every write failed with
+    PERMISSION_DENIED for API-key users.
+    """
+
+    def _api_key_ctx(self):
+        return AuthContext(
+            user_id=UUID("00000000-0000-0000-0000-000000000001"),
+            tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+            active_roles=(),
+            auth_method=AuthMethod.API_KEY,
+            api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+        )
+
+    def _patch_user_role(self, roles):
+        """Patch auth_tenancy.models.UserRole so no DB access is needed."""
+        user_role = MagicMock()
+        user_role.objects.filter.return_value.values_list.return_value = list(roles)
+        return patch("auth_tenancy.models.UserRole", user_role)
+
+    def test_api_key_without_workspace_loads_global_roles(self):
+        registry = ToolRegistry(
+            auth_service=MagicMock(), authz_service=MagicMock()
+        )
+        ctx = self._api_key_ctx()
+
+        with self._patch_user_role(["admin", "editor"]):
+            resolved = registry._resolve_roles(ctx, workspace_id=None)
+
+        assert resolved.active_roles == ("admin", "editor")
+        assert resolved.user_id == ctx.user_id
+        assert resolved.auth_method == AuthMethod.API_KEY
+
+    def test_api_key_without_workspace_empty_when_no_roles(self):
+        registry = ToolRegistry(
+            auth_service=MagicMock(), authz_service=MagicMock()
+        )
+        ctx = self._api_key_ctx()
+
+        with self._patch_user_role([]):
+            resolved = registry._resolve_roles(ctx, workspace_id=None)
+
+        assert resolved.active_roles == ()
+
+    def test_api_key_with_workspace_uses_scoped_lookup(self):
+        """When workspace_id IS provided, the workspace-scoped lookup wins."""
+        authz_svc = MagicMock()
+        authz_svc.active_roles_for.return_value = ("editor",)
+        registry = ToolRegistry(auth_service=MagicMock(), authz_service=authz_svc)
+        ctx = self._api_key_ctx()
+
+        resolved = registry._resolve_roles(
+            ctx, workspace_id="00000000-0000-0000-0000-000000000010"
+        )
+
+        assert resolved.active_roles == ("editor",)
+        authz_svc.active_roles_for.assert_called_once()
+
+    def test_non_api_key_without_workspace_unchanged(self):
+        """Bearer-token callers without a workspace keep existing behaviour."""
+        registry = ToolRegistry(
+            auth_service=MagicMock(), authz_service=MagicMock()
+        )
+        ctx = AuthContext(
+            user_id=UUID("00000000-0000-0000-0000-000000000001"),
+            tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+            active_roles=(),
+            auth_method=AuthMethod.BEARER_TOKEN,
+            api_key_id=None,
+        )
+
+        resolved = registry._resolve_roles(ctx, workspace_id=None)
+
+        assert resolved is ctx

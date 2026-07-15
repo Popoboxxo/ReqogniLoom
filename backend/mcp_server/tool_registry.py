@@ -463,9 +463,24 @@ class ToolRegistry:
     ) -> AuthContext:
         """Resolve active roles for ctx in workspace_id.
 
-        Falls back to empty roles if workspace_id is absent or role lookup fails.
+        With a workspace context, roles are resolved workspace-scoped. Without
+        one, API-key callers fall back to a global aggregate of every
+        non-suspended role they hold (REQ-127): most MCP tool calls carry no
+        ``workspace_id`` param, and returning an empty role tuple there caused
+        every write operation to fail with PERMISSION_DENIED. This mirrors the
+        REST path (auth_tenancy/rest.py), which always loads API-key roles
+        globally. Falls back to empty roles only if lookup fails.
         """
         if not workspace_id:
+            if ctx.auth_method == AuthMethod.API_KEY:
+                roles = self._resolve_global_roles(ctx)
+                return AuthContext(
+                    user_id=ctx.user_id,
+                    tenant_id=ctx.tenant_id,
+                    active_roles=roles,
+                    auth_method=ctx.auth_method,
+                    api_key_id=ctx.api_key_id,
+                )
             return ctx
 
         try:
@@ -485,6 +500,23 @@ class ToolRegistry:
             api_key_id=ctx.api_key_id,
         )
 
+    def _resolve_global_roles(self, ctx: AuthContext) -> Tuple[str, ...]:
+        """Aggregate every non-suspended role the caller holds across workspaces.
+
+        Used when no workspace context is available (REQ-127, REQ-108). Returns
+        an empty tuple if the lookup fails.
+        """
+        try:
+            from auth_tenancy.models import UserRole
+
+            assignments = UserRole.objects.filter(
+                user_id=ctx.user_id, suspended_at__isnull=True
+            ).values_list("role", flat=True)
+            return tuple(sorted(set(assignments)))
+        except Exception:
+            logger.debug("Global role resolution failed for user=%s", ctx.user_id)
+            return ()
+
     def _resolve_list_roles(
         self, ctx: AuthContext, workspace_id: Optional[str]
     ) -> Tuple[str, ...]:
@@ -499,16 +531,7 @@ class ToolRegistry:
         if workspace_id:
             return self._resolve_roles(ctx, workspace_id).active_roles
 
-        try:
-            from auth_tenancy.models import UserRole
-
-            assignments = UserRole.objects.filter(
-                user_id=ctx.user_id, suspended_at__isnull=True
-            ).values_list("role", flat=True)
-            return tuple(sorted(set(assignments)))
-        except Exception:
-            logger.debug("Global role resolution failed for tools/list")
-            return ()
+        return self._resolve_global_roles(ctx)
 
     def _is_write_tool(self, tool_name: str) -> bool:
         """Return True if tool_name is a write operation."""
