@@ -17,7 +17,12 @@
 import { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { importApi, type EntityType, type ImportResult } from "../../api/import";
+import {
+  importApi,
+  type EntityType,
+  type ImportResult,
+  type ReqifImportResult,
+} from "../../api/import";
 import { exportApi, type ExportEntityType } from "../../api/export";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +51,7 @@ export function CsvImport(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const reqifFileInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [entityType, setEntityType] = useState<EntityType>("Requirement");
@@ -61,6 +67,13 @@ export function CsvImport(): JSX.Element {
   // REQ-146: ReqIF 1.2 export (StakeholderNeeds, Requirements, TraceLinks).
   const [isExportingReqif, setIsExportingReqif] = useState(false);
   const [reqifExportError, setReqifExportError] = useState<string | null>(null);
+
+  // REQ-147: ReqIF 1.2 import (StakeholderNeeds, Requirements, TraceLinks).
+  const [selectedReqifFile, setSelectedReqifFile] = useState<File | null>(null);
+  const [reqifDryRun, setReqifDryRun] = useState(false);
+  const [isImportingReqif, setIsImportingReqif] = useState(false);
+  const [reqifImportResult, setReqifImportResult] = useState<ReqifImportResult | null>(null);
+  const [reqifImportError, setReqifImportError] = useState<string | null>(null);
 
   const handleFileSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>): void => {
@@ -166,6 +179,49 @@ export function CsvImport(): JSX.Element {
     setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+  }, []);
+
+  // REQ-147: ReqIF 1.2 import (StakeholderNeeds, Requirements, TraceLinks).
+  const handleReqifFileSelect = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      const file = event.target.files?.[0] ?? null;
+      setSelectedReqifFile(file);
+      setReqifImportResult(null);
+      setReqifImportError(null);
+    },
+    []
+  );
+
+  const handleReqifImport = useCallback(async (): Promise<void> => {
+    if (!selectedReqifFile || !activeWorkspace) return;
+
+    setIsImportingReqif(true);
+    setReqifImportError(null);
+    setReqifImportResult(null);
+
+    try {
+      const importResult = await importApi.importReqif(
+        activeWorkspace.id,
+        selectedReqifFile,
+        reqifDryRun
+      );
+      setReqifImportResult(importResult);
+    } catch (err) {
+      setReqifImportError(
+        err instanceof Error ? err.message : t("import.errorGeneric", "Import failed")
+      );
+    } finally {
+      setIsImportingReqif(false);
+    }
+  }, [selectedReqifFile, activeWorkspace, reqifDryRun, t]);
+
+  const handleReqifReset = useCallback((): void => {
+    setSelectedReqifFile(null);
+    setReqifImportResult(null);
+    setReqifImportError(null);
+    if (reqifFileInputRef.current) {
+      reqifFileInputRef.current.value = "";
     }
   }, []);
 
@@ -456,6 +512,265 @@ export function CsvImport(): JSX.Element {
           )}
         </div>
       )}
+
+      {/* ReqIF Import (REQ-147) */}
+      <h2
+        style={{
+          fontSize: "var(--font-size-2xl)",
+          fontWeight: 700,
+          color: "var(--color-text)",
+          margin: "var(--space-8) 0 var(--space-6) 0",
+        }}
+      >
+        {t("import.reqifTitle", "ReqIF Import")}
+      </h2>
+
+      <section
+        data-testid="reqif-import-page"
+        style={{
+          background: "var(--color-surface)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-lg)",
+          padding: "var(--space-5)",
+          marginBottom: "var(--space-5)",
+          boxShadow: "var(--shadow-card)",
+        }}
+      >
+        <h3
+          style={{
+            fontSize: "var(--font-size-lg)",
+            fontWeight: 600,
+            color: "var(--color-text)",
+            margin: "0 0 var(--space-4) 0",
+          }}
+        >
+          {t("import.reqifSelectFile", "Select ReqIF File")}
+        </h3>
+        <div
+          data-testid="reqif-file-picker"
+          onClick={() => reqifFileInputRef.current?.click()}
+          style={{
+            border: "2px dashed var(--color-border)",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-6)",
+            textAlign: "center",
+            cursor: "pointer",
+            marginBottom: "var(--space-4)",
+          }}
+        >
+          <input
+            ref={reqifFileInputRef}
+            type="file"
+            accept=".reqif,.xml"
+            onChange={handleReqifFileSelect}
+            data-testid="reqif-file-input"
+            style={{ display: "none" }}
+          />
+          {selectedReqifFile ? (
+            <div>
+              <p style={{ fontWeight: 600, margin: "0 0 var(--space-1) 0" }}>
+                {selectedReqifFile.name}
+              </p>
+              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
+                {(selectedReqifFile.size / 1024).toFixed(1)} KB
+              </p>
+            </div>
+          ) : (
+            <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+              {t("import.reqifDropHint", "Click to select a .reqif or .xml file")}
+            </p>
+          )}
+        </div>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-2)",
+            marginBottom: "var(--space-4)",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text)",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={reqifDryRun}
+            onChange={(e) => setReqifDryRun(e.target.checked)}
+            data-testid="reqif-dry-run-checkbox"
+          />
+          {t(
+            "import.reqifDryRun",
+            "Dry run (preview the report without saving any changes)"
+          )}
+        </label>
+
+        <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+          <button
+            type="button"
+            data-testid="reqif-import-btn"
+            onClick={() => void handleReqifImport()}
+            disabled={!selectedReqifFile || isImportingReqif}
+            style={{
+              background: "var(--color-primary)",
+              color: "white",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-5)",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              cursor: !selectedReqifFile || isImportingReqif ? "not-allowed" : "pointer",
+              opacity: !selectedReqifFile || isImportingReqif ? 0.5 : 1,
+              transition: "var(--transition-fast)",
+            }}
+          >
+            {isImportingReqif
+              ? t("import.uploading", "Importing...")
+              : reqifDryRun
+              ? t("import.reqifPreview", "Preview Import")
+              : t("import.reqifUpload", "Import ReqIF")}
+          </button>
+          {(reqifImportResult || reqifImportError) && (
+            <button
+              type="button"
+              data-testid="reqif-import-reset"
+              onClick={handleReqifReset}
+              style={{
+                background: "transparent",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                padding: "var(--space-2) var(--space-4)",
+                fontSize: "var(--font-size-sm)",
+                cursor: "pointer",
+              }}
+            >
+              {t("actions.reset", "Reset")}
+            </button>
+          )}
+        </div>
+
+        {reqifImportError && (
+          <div
+            data-testid="reqif-import-error"
+            role="alert"
+            style={{
+              padding: "var(--space-3)",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-danger, #f87171)",
+              borderRadius: "var(--radius-md)",
+              marginBottom: "var(--space-5)",
+              color: "var(--color-danger, #f87171)",
+            }}
+          >
+            {reqifImportError}
+          </div>
+        )}
+
+        {reqifImportResult && (
+          <div
+            data-testid="reqif-import-result"
+            style={{
+              padding: "var(--space-4)",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-success, #16a34a)",
+              borderRadius: "var(--radius-md)",
+            }}
+          >
+            {reqifImportResult.dry_run && (
+              <p
+                data-testid="reqif-import-dry-run-badge"
+                style={{
+                  fontWeight: 600,
+                  color: "var(--color-primary)",
+                  margin: "0 0 var(--space-3) 0",
+                }}
+              >
+                {t("import.reqifDryRunBadge", "Dry run — nothing was saved")}
+              </p>
+            )}
+
+            {(
+              [
+                ["needs", t("import.reqifNeeds", "Stakeholder Needs")],
+                ["requirements", t("import.reqifRequirements", "Requirements")],
+                ["relations", t("import.reqifRelations", "Trace Links")],
+              ] as const
+            ).map(([key, label]) => {
+              const report = reqifImportResult[key];
+              return (
+                <div key={key} style={{ marginBottom: "var(--space-3)" }}>
+                  <p
+                    style={{
+                      fontWeight: 600,
+                      color: "var(--color-text)",
+                      margin: "0 0 var(--space-1) 0",
+                    }}
+                  >
+                    {label}: {t("import.reqifCreated", "created")} {report.created},{" "}
+                    {t("import.reqifUpdated", "updated")} {report.updated},{" "}
+                    {t("import.reqifSkipped", "skipped")} {report.skipped}
+                  </p>
+                  {report.errors.length > 0 && (
+                    <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
+                      {report.errors.slice(0, 10).map((err, idx) => (
+                        <li
+                          key={idx}
+                          style={{
+                            fontSize: "var(--font-size-sm)",
+                            color: "var(--color-text-muted)",
+                            marginBottom: "var(--space-1)",
+                          }}
+                        >
+                          {err.identifier}: {err.message}
+                        </li>
+                      ))}
+                      {report.errors.length > 10 && (
+                        <li style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                          ... and {report.errors.length - 10} more errors
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+
+            {reqifImportResult.warnings.length > 0 && (
+              <div>
+                <p
+                  style={{
+                    fontWeight: 600,
+                    color: "var(--color-text)",
+                    margin: "0 0 var(--space-1) 0",
+                  }}
+                >
+                  {t("import.reqifWarnings", "Warnings")}
+                </p>
+                <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
+                  {reqifImportResult.warnings.slice(0, 10).map((warning, idx) => (
+                    <li
+                      key={idx}
+                      style={{
+                        fontSize: "var(--font-size-sm)",
+                        color: "var(--color-text-muted)",
+                        marginBottom: "var(--space-1)",
+                      }}
+                    >
+                      {warning}
+                    </li>
+                  ))}
+                  {reqifImportResult.warnings.length > 10 && (
+                    <li style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
+                      ... and {reqifImportResult.warnings.length - 10} more warnings
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* CSV Export (C7 — frontend-feedback Cluster C, MVP) */}
       <h2

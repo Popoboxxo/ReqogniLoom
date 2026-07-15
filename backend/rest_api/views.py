@@ -59,6 +59,7 @@ from application.services import (
     WorkspaceService,
     ExportService,
     ReqifExportService,
+    ReqifImportService,
     ImportService,
     AdrService,
     RiskService,
@@ -4222,6 +4223,107 @@ class ReqifExportView(APIView):
         response = HttpResponse(result.content, content_type=result.media_type)
         response["Content-Disposition"] = f'attachment; filename="{result.filename}"'
         return response
+
+
+# ---------------------------------------------------------------------------
+# ReqifImportView — COMP-AS-008b REST facade (REQ-147)
+# ---------------------------------------------------------------------------
+
+
+class ReqifImportView(APIView):
+    """POST /api/v1/workspaces/{id}/import/reqif/ — ReqIF 1.2 import.
+
+    REQ-147: Imports a ReqIF 1.2 XML document (DOORS/Polarion
+    interoperability) into the workspace's StakeholderNeeds, Requirements,
+    and TraceLinks — the inverse of ReqifExportView (REQ-146). Mirrors
+    CsvImportView's multipart upload handling and RBAC; wires
+    application.reqif_import_service.ReqifImportService.
+
+    Body: multipart/form-data with:
+        - ``file``: ReqIF 1.2 XML file (.reqif / .xml, UTF-8).
+
+    Query params:
+        - ``dry_run``: "true" | "false" (default "false"). When true, the
+          whole import pipeline runs and is rolled back — the response
+          report reflects what a real import would do without persisting.
+
+    Returns:
+        200 with the import report (counts + errors per entity kind, plus
+        relation counts and warnings) on success, including dry-run.
+        400 on a hard error (missing/empty file, unparseable XML, ReqIF
+        structural violation) — nothing is persisted.
+    """
+
+    def post(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """Handle ReqIF import POST request."""
+        lang = detect_lang(request)
+
+        if not pk:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="Workspace ID is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        uploaded_file = request.FILES.get("file")
+        if not uploaded_file:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="No ReqIF file uploaded. Provide a 'file' field in multipart/form-data.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            reqif_text = uploaded_file.read().decode("utf-8")
+        except UnicodeDecodeError:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="ReqIF file must be UTF-8 encoded.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not reqif_text.strip():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang,
+                    message="ReqIF file is empty.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        dry_run_raw = request.query_params.get("dry_run", "false")
+        dry_run = str(dry_run_raw).strip().lower() in ("1", "true", "yes")
+
+        try:
+            svc = ReqifImportService()
+            result = svc.import_reqif(
+                reqif_text=reqif_text,
+                workspace_id=pk,
+                ctx=ctx,
+                dry_run=dry_run,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("ReqifImportView: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        return Response(result.to_dict(), status=status.HTTP_200_OK)
 
 
 class GlossaryTermViewSet(BaseEntityViewSet):

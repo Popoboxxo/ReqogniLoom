@@ -67,6 +67,7 @@ from rest_api.views import (
     GlossaryTermViewSet,
     IssueViewSet,
     ReqifExportView,
+    ReqifImportView,
     RequirementHistoryView,
     RequirementViewSet,
     StakeholderNeedViewSet,
@@ -147,6 +148,12 @@ urlpatterns = [
         "workspaces/<uuid:pk>/export/reqif/",
         ReqifExportView.as_view(),
         name="workspace-reqif-export",
+    ),
+    # ReqIF 1.2 import (REQ-147, COMP-AS-008b) — workspace-scoped.
+    path(
+        "workspaces/<uuid:pk>/import/reqif/",
+        ReqifImportView.as_view(),
+        name="workspace-reqif-import",
     ),
     # Needs routing by workspace
     path(

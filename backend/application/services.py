@@ -168,6 +168,15 @@ from application.glossary_service import GlossaryService, GlossaryTermDTO  # noq
 # ---------------------------------------------------------------------------
 from application.reqif_export_service import ReqifExportService  # noqa: F401,E402
 
+# ---------------------------------------------------------------------------
+# COMP-AS-008b ReqIF 1.2 import (REQ-147)
+# ---------------------------------------------------------------------------
+from application.reqif_import_service import (  # noqa: F401,E402
+    ReqifEntityReport,
+    ReqifImportResult,
+    ReqifImportService,
+)
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -235,4 +244,8 @@ __all__ = [
     "GlossaryTermDTO",
     # COMP-AS-008 ReqIF 1.2 export (REQ-146)
     "ReqifExportService",
+    # COMP-AS-008b ReqIF 1.2 import (REQ-147)
+    "ReqifImportService",
+    "ReqifImportResult",
+    "ReqifEntityReport",
 ]
