@@ -272,14 +272,20 @@ class ToolRegistry:
         from application.issue_service import IssueService
         from application.glossary_service import GlossaryService
 
+        # REQ-129: share ONE instance across prefixes that belong to the same
+        # tool group. CrossCuttingToolGroup owns both the ``traceability`` and
+        # ``artifact`` namespaces; AuditToolGroup owns both ``audit`` and
+        # ``events``. Registering distinct instances per prefix duplicated the
+        # group's schemas in tools/list.
         audit_tool_group = AuditToolGroup()
+        cross_cutting_tool_group = CrossCuttingToolGroup()
         self.register_groups({
             "requirement": RequirementsToolGroup(),
             "needs": StakeholderNeedsToolGroup(),
             "architecture": ArchitectureToolGroup(),
             "test": TestToolGroup(),
-            "traceability": CrossCuttingToolGroup(),
-            "artifact": CrossCuttingToolGroup(),
+            "traceability": cross_cutting_tool_group,
+            "artifact": cross_cutting_tool_group,
             "workspace": AdminToolGroup(),
             "permissions": PermissionsToolGroup(),
             "admin": BackupToolGroup(),
@@ -327,8 +333,18 @@ class ToolRegistry:
                 roles, Operation.WRITE
             ).allow
 
+            # Deduplicate by group object identity (REQ-129): several prefixes
+            # intentionally share a single instance (e.g. "audit"/"events" →
+            # one AuditToolGroup, "traceability"/"artifact" → one
+            # CrossCuttingToolGroup). Iterating _groups.values() naively would
+            # emit each shared group's schemas once per prefix, producing
+            # duplicate tool entries in tools/list.
             tools: list[Dict[str, Any]] = []
+            seen_group_ids: set[int] = set()
             for group in self._groups.values():
+                if id(group) in seen_group_ids:
+                    continue
+                seen_group_ids.add(id(group))
                 if hasattr(group, "get_tool_schemas"):
                     tools.extend(group.get_tool_schemas())
 

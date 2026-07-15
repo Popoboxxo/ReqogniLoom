@@ -503,3 +503,70 @@ class TestApiKeyGlobalRoleResolution:
         resolved = registry._resolve_roles(ctx, workspace_id=None)
 
         assert resolved is ctx
+
+
+# ---------------------------------------------------------------------------
+# tools/list deduplication (REQ-129)
+# ---------------------------------------------------------------------------
+
+
+class TestListToolsDeduplication:
+    """REQ-129: tools/list must not emit duplicate tool entries.
+
+    Several prefixes deliberately map to a single shared ToolGroup instance
+    (e.g. "audit"/"events", "traceability"/"artifact"). Without dedup by
+    object identity, each shared group's schemas were emitted once per prefix.
+    """
+
+    def _make_registry(self, roles=("editor",)):
+        auth_svc = MagicMock()
+        authz_svc = MagicMock()
+        from auth_tenancy.context import IdentityClaims
+
+        auth_svc.validate_api_key.return_value = IdentityClaims(
+            user_id=UUID("00000000-0000-0000-0000-000000000001"),
+            tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+            roles=(),
+            auth_method=AuthMethod.API_KEY,
+            api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+        )
+        authz_svc.decide_access.return_value = MagicMock(allow=True)
+        return ToolRegistry(auth_service=auth_svc, authz_service=authz_svc)
+
+    def test_shared_group_not_emitted_per_prefix(self):
+        registry = self._make_registry()
+
+        shared = MagicMock()
+        shared.get_tool_schemas.return_value = [
+            {"name": "audit.query", "description": "read"},
+            {"name": "events.dlq_replay", "description": "write"},
+        ]
+        # Same instance under two prefixes — mirrors audit/events wiring.
+        registry.register_groups({"audit": shared, "events": shared})
+
+        with patch("auth_tenancy.models.UserRole") as user_role:
+            user_role.objects.filter.return_value.values_list.return_value = [
+                "editor"
+            ]
+            tools = registry.list_tools(api_key="rf_validkey")
+
+        names = [t["name"] for t in tools]
+        assert len(names) == len(set(names)), f"duplicate tool names: {names}"
+        assert names.count("audit.query") == 1
+
+    def test_no_duplicate_names_across_full_registry(self):
+        """The real, fully-wired registry exposes unique tool names."""
+        registry = self._make_registry()
+        registry._ensure_groups()
+
+        with patch("auth_tenancy.models.UserRole") as user_role:
+            user_role.objects.filter.return_value.values_list.return_value = [
+                "editor"
+            ]
+            tools = registry.list_tools(api_key="rf_validkey")
+
+        names = [t["name"] for t in tools]
+        assert len(names) == len(set(names)), (
+            f"duplicate tool names in registry: "
+            f"{[n for n in names if names.count(n) > 1]}"
+        )
