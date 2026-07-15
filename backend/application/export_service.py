@@ -12,8 +12,8 @@ single artifact. Embeds active terminology profile as metadata.
 C7 (frontend-feedback Cluster C): StakeholderNeed added to enable CSV export
 of Bedarfe alongside Requirements and ArchitectureElements.
 
-PDF support: stub/NotImplemented — reportlab/weasyprint not available in the
-current container image. See TODO-PDF below.
+PDF support: Implemented via reportlab. Delegates to pdf_report_generator
+for workspace-level document exports.
 
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: export_json, export_csv, export_markdown, export_pdf

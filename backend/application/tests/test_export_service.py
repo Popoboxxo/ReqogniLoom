@@ -262,3 +262,40 @@ class TestExportPdf:
         with patch("application.export_service.TenantContext"):
             with pytest.raises(ValidationError, match="Unsupported entity_type"):
                 svc.export_pdf("UnknownType", WS_ID, ctx)
+
+    def test_pdf_requirement_entity_uses_requirement_document_layout(self):
+        """PDF export for Requirement entity uses 'requirement_document' layout."""
+        svc = ExportService()
+        ctx = _make_ctx()
+        fake_pdf = b"%PDF-1.4 fake"
+
+        with patch("application.export_service.TenantContext"):
+            with patch(
+                "traceability.pdf_report_generator.generate_pdf_report",
+                return_value=fake_pdf,
+            ) as mock_gen:
+                result = svc.export_pdf("Requirement", WS_ID, ctx)
+
+                # Verify generate_pdf_report was called with requirement_document layout
+                mock_gen.assert_called_once()
+                call_kwargs = mock_gen.call_args[1]
+                assert call_kwargs["layout"] == "requirement_document"
+
+    def test_pdf_non_requirement_entity_uses_traceability_matrix_layout(self):
+        """PDF export for non-Requirement entity uses 'traceability_matrix' layout."""
+        svc = ExportService()
+        ctx = _make_ctx()
+        fake_pdf = b"%PDF-1.4 fake"
+
+        for entity_type in ["ArchitectureElement", "TestCase", "StakeholderNeed"]:
+            with patch("application.export_service.TenantContext"):
+                with patch(
+                    "traceability.pdf_report_generator.generate_pdf_report",
+                    return_value=fake_pdf,
+                ) as mock_gen:
+                    result = svc.export_pdf(entity_type, WS_ID, ctx)
+
+                    # Verify generate_pdf_report was called with traceability_matrix layout
+                    mock_gen.assert_called_once()
+                    call_kwargs = mock_gen.call_args[1]
+                    assert call_kwargs["layout"] == "traceability_matrix"
