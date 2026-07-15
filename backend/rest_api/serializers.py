@@ -330,7 +330,20 @@ class RequirementSerializer(
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
-    status = serializers.CharField(max_length=64, default="draft")
+    # REQ-143: `status` is a read-only mirror of the WorkflowEngine state. The
+    # WorkflowEngine is the single source of truth; any `status` sent by a client
+    # is silently ignored (not a 400) and the response always reflects the true,
+    # engine-owned value. Change the lifecycle state via
+    # POST /api/v1/requirements/{id}/transitions/.
+    status = serializers.CharField(
+        max_length=64,
+        read_only=True,
+        help_text=(
+            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-143). "
+            "Writes are ignored; transition via "
+            "POST /api/v1/requirements/{id}/transitions/."
+        ),
+    )
     type = serializers.ChoiceField(
         choices=['SyReq', 'UseCase', 'FeatureReq'],
         default='SyReq',
@@ -384,7 +397,16 @@ class StakeholderNeedSerializer(
     title = serializers.CharField(max_length=500)
     description = serializers.CharField(allow_blank=True, default="")
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
-    status = serializers.CharField(max_length=64, default="draft")
+    # REQ-143: read-only mirror of the WorkflowEngine state (see RequirementSerializer).
+    # Writes are ignored; the response always reflects the true, engine-owned value.
+    status = serializers.CharField(
+        max_length=64,
+        read_only=True,
+        help_text=(
+            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-143). "
+            "Writes are ignored."
+        ),
+    )
     moscow_priority = serializers.ChoiceField(
         choices=['Must', 'Should', 'Could', "Won't"],
         required=False,

@@ -565,13 +565,15 @@ class RequirementViewSet(BaseEntityViewSet):
             extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
+            # REQ-143: `status` is intentionally NOT forwarded. The serializer
+            # marks it read-only, so a client-sent status is ignored here and the
+            # lifecycle state can only change via the transitions endpoint.
             item = self._svc().update_requirement(
                 requirement_id=UUID(pk),
                 ctx=ctx,
                 title=data.get("title"),
                 description=data.get("description"),
                 category=data.get("category"),
-                status=data.get("status"),
                 change_reason=data.get("change_reason"),
                 type=data.get("type"),
                 complexity_fibonacci=data.get("complexity_fibonacci"),
@@ -597,6 +599,95 @@ class RequirementViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get", "post"], url_path="transitions")
+    def transitions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """Workflow transitions for a requirement (REQ-143).
+
+        GET  /api/v1/requirements/{pk}/transitions/
+            → {current_state, states, allowed_transitions[]} — the moves allowed
+              from the current state. Drives a transition-aware UI.
+
+        POST /api/v1/requirements/{pk}/transitions/
+            body: {target_state, change_reason?, credential?}
+            → performs the transition through the WorkflowEngine (role /
+              change_reason / signature gates enforced) and returns the refreshed
+              requirement whose `status` mirror now reflects the new state.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            req = self._svc().get_requirement(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        workspace_id = req.artifact.workspace_id
+        facade = WorkflowFacade()
+
+        if request.method.upper() == "GET":
+            avail = facade.get_available_transitions(
+                item_id=req.id,
+                ctx=ctx,
+                item_type="Requirement",
+                workspace_id=workspace_id,
+            )
+            return Response(
+                {
+                    "current_state": avail.current_state,
+                    "states": list(avail.states),
+                    "allowed_transitions": [
+                        {
+                            "target_state": t.to_state,
+                            "requires_change_reason": t.requires_change_reason,
+                            "signature_gate": t.signature_gate,
+                        }
+                        for t in avail.transitions
+                    ],
+                }
+            )
+
+        # POST → perform the transition.
+        target_state = request.data.get("target_state")
+        if not target_state:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="target_state is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        change_reason = request.data.get("change_reason", "") or ""
+        credential = request.data.get("credential", "") or ""
+        try:
+            result = facade.transition(
+                item_id=req.id,
+                target_state=target_state,
+                change_reason=change_reason,
+                ctx=ctx,
+                credential=credential,
+                item_type="Requirement",
+                workspace_id=workspace_id,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        updated = self._svc().get_requirement(UUID(pk), ctx)
+        return Response(
+            {
+                "id": pk,
+                "previous_state": result.previous_state,
+                "new_state": result.new_state,
+                "requirement": RequirementSerializer(_dto_from_orm(updated)).data,
+            }
+        )
 
     @action(detail=True, methods=["get"], url_path="diff")
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:

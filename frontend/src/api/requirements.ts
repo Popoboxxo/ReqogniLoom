@@ -17,6 +17,35 @@ import type {
   SimilarRequirement,
 } from "../types";
 
+/**
+ * REQ-143: a single allowed workflow transition from the current state.
+ */
+export interface AllowedTransition {
+  target_state: string;
+  requires_change_reason: boolean;
+  signature_gate: boolean;
+}
+
+/**
+ * REQ-143: response of GET /requirements/{id}/transitions/ — the current
+ * WorkflowEngine state plus the moves allowed from it.
+ */
+export interface RequirementTransitions {
+  current_state: string | null;
+  states: string[];
+  allowed_transitions: AllowedTransition[];
+}
+
+/**
+ * REQ-143: response of POST /requirements/{id}/transitions/.
+ */
+export interface RequirementTransitionResult {
+  id: string;
+  previous_state: string;
+  new_state: string;
+  requirement: Requirement;
+}
+
 export const requirementsApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<Requirement>> {
     return getList<Requirement>("/requirements/", {
@@ -79,11 +108,32 @@ export const requirementsApi = {
     return apiClient.post<Requirement>("/requirements/", data);
   },
 
+  // REQ-143: `status` is intentionally NOT part of the update contract — it is
+  // a read-only WorkflowEngine mirror. Use `transition()` to change the state.
   update(
     id: UUID,
-    data: Partial<Pick<Requirement, "title" | "description" | "category" | "status" | "change_reason" | "type" | "moscow_priority" | "complexity_fibonacci" | "verification_method" | "custom_fields">>
+    data: Partial<Pick<Requirement, "title" | "description" | "category" | "change_reason" | "type" | "moscow_priority" | "complexity_fibonacci" | "verification_method" | "custom_fields">>
   ): Promise<Requirement> {
     return apiClient.patch<Requirement>(`/requirements/${id}/`, data);
+  },
+
+  /** REQ-143: GET the current workflow state and allowed next transitions. */
+  getTransitions(id: UUID): Promise<RequirementTransitions> {
+    return apiClient.get<RequirementTransitions>(
+      `/requirements/${id}/transitions/`
+    );
+  },
+
+  /** REQ-143: perform a workflow transition (role/change_reason/gate enforced). */
+  transition(
+    id: UUID,
+    targetState: string,
+    changeReason?: string
+  ): Promise<RequirementTransitionResult> {
+    return apiClient.post<RequirementTransitionResult>(
+      `/requirements/${id}/transitions/`,
+      { target_state: targetState, change_reason: changeReason ?? "" }
+    );
   },
 
   delete(id: UUID): Promise<void> {

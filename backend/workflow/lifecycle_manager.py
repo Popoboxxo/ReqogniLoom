@@ -70,6 +70,19 @@ class TransitionOutcome:
     signature_seal: Optional[str] = None
 
 
+# REQ-143: denormalized `status` mirror on persistence-layer entities.
+# The workflow engine is the single source of truth for the lifecycle state;
+# these persistence models carry a read-only `status` column that is a pure
+# projection of WorkflowItemState.current_state and must only ever be written
+# from within a workflow transition. Maps the engine ``item_type`` to the
+# (module, class) of the mirroring model. Extend this map when a new entity is
+# wired into the WorkflowEngine.
+_STATUS_MIRROR_MODELS: dict[str, tuple[str, str]] = {
+    "Requirement": ("persistence.models", "Requirement"),
+    "StakeholderNeed": ("persistence.models", "StakeholderNeed"),
+}
+
+
 class StateLifecycleManager:
     """Manages WorkflowItemState lifecycle and append-only history.
 
@@ -240,6 +253,11 @@ class StateLifecycleManager:
                 f"(409 Conflict)"
             )
 
+        # REQ-143: update the denormalized `status` mirror on the persistence
+        # entity atomically within this same transaction, so the read-only
+        # projection can never diverge from WorkflowItemState.current_state.
+        self._sync_status_mirror(item_id, item_type, target_state)
+
         # Append-only history entry (REQ-L2-WE-003, ADR-L3-WE003-03).
         # Use the unscoped manager to bypass TenantManager.get_queryset()
         # during INSERT (tenant_id comes from item_state.tenant_id).
@@ -263,6 +281,31 @@ class StateLifecycleManager:
             new_state=target_state,
             signature_seal=validation_result.seal,
         )
+
+    @staticmethod
+    def _sync_status_mirror(item_id: UUID, item_type: str, new_state: str) -> None:
+        """Write the denormalized ``status`` mirror on the persistence entity (REQ-143).
+
+        The persistence-layer ``status`` field is a read-only projection of the
+        workflow state. It is updated ONLY here, inside the transition's atomic
+        transaction, so it can never diverge from ``current_state``.
+
+        Uses the ``unscoped`` manager and filters by primary key (a globally
+        unique UUID) so the update does not depend on an active TenantContext.
+        A bare ``.update()`` is used deliberately: it neither bumps the entity
+        ``version`` nor emits a domain event — a workflow transition is not a
+        content edit of the artifact.
+
+        Unknown item types (not wired into the mirror map) are a silent no-op.
+        """
+        mapping = _STATUS_MIRROR_MODELS.get(item_type)
+        if mapping is None:
+            return
+        from importlib import import_module
+
+        module = import_module(mapping[0])
+        model = getattr(module, mapping[1])
+        model.unscoped.filter(pk=item_id).update(status=new_state)
 
     # -- Read helpers ---------------------------------------------------------
 

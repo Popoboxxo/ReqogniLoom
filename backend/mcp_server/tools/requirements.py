@@ -131,7 +131,11 @@ class RequirementsToolGroup(BaseToolGroup):
         },
         {
             "name": "requirement.update",
-            "description": "Update an existing requirement.",
+            "description": (
+                "Update an existing requirement. Note: `status` is read-only "
+                "(REQ-143) — the WorkflowEngine owns the lifecycle state; use the "
+                "transitions endpoint to change it."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -139,7 +143,13 @@ class RequirementsToolGroup(BaseToolGroup):
                     "title": {"type": "string"},
                     "description": {"type": "string"},
                     "category": {"type": "string"},
-                    "status": {"type": "string"}
+                    "status": {
+                        "type": "string",
+                        "description": (
+                            "READ-ONLY (REQ-143). Ignored on write — the "
+                            "WorkflowEngine owns the lifecycle state."
+                        ),
+                    }
                 },
                 "required": ["id"]
             }
