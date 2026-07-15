@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import os
 
+from decouple import config
+
 # ---------------------------------------------------------------------------
 # Required secrets — set before importing settings (REQ-115, REQ-081).
 # settings.py reads these at module load time and fails fast
@@ -48,11 +50,14 @@ from reqflow.settings import *  # noqa: F401,F403,E402 — intentional settings 
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "reqflow",
-        "USER": "reqflow",
-        "PASSWORD": "reqflow",
-        "HOST": "postgres",
-        "PORT": "5432",
+        # Defaults match the CI postgres service; DB_* env vars override so
+        # the suite also runs against a local compose stack whose credentials
+        # come from .env (no trivial defaults there since REQ-058).
+        "NAME": config("DB_NAME", default="reqflow"),
+        "USER": config("DB_USER", default="reqflow"),
+        "PASSWORD": config("DB_PASSWORD", default="reqflow"),
+        "HOST": config("DB_HOST", default="postgres"),
+        "PORT": config("DB_PORT", default="5432"),
     }
 }
 
