@@ -601,6 +601,19 @@ docker-compose up -d
 docker-compose exec backend python manage.py migrate
 ```
 
+### Test Coverage & Known Gaps
+
+**Coverage:** ~1,400 pytest unit and integration tests (auth, models, API, workflows, traceability) + 111 Playwright E2E tests (UI flows, MCP tooling).
+
+**Known gaps (by design):**
+
+- **CSRF/Cross-Origin enforcement** — pytest's `APIRequestFactory` and `django.test.Client` disable CSRF checks by default (`enforce_csrf_checks=False`), so CSRF token validation is rarely triggered in automated tests. Playwright API tests using the `request.post` fixture send no `Origin` header (triggering no CSRF origin check), and Playwright UI tests ran against `localhost:5173`, which is already whitelisted in the default `CSRF_TRUSTED_ORIGINS` (so no rejection is visible).
+  - **Concrete example:** REQ-138 identified a missing `CSRF_TRUSTED_ORIGINS` entry that blocked all cross-origin POST/PATCH/DELETE from the frontend in production, but passed 38+ automated tests undetected.
+  - **Fix:** REQ-139 adds a targeted regression test using `Client(enforce_csrf_checks=True)`.
+  - **Test infrastructure:** See `backend/reqflow/settings_test.py` for test-specific Django settings.
+
+**Recommendation:** After release-critical changes to auth or cross-origin handling, manually verify CSRF rejection with a real browser or add targeted tests using strict CSRF enforcement.
+
 ### Troubleshooting Tests
 
 ```bash
