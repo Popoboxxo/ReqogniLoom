@@ -17,8 +17,10 @@ from application.base import NotFoundError, ValidationError
 from application.requirement_service import RequirementService
 from application.trace_link_service import TraceLinkService
 from auth_tenancy.context import AuthContext
+from llm_adapter.providers import MAX_PROMPT_CONTENT_CHARS
 from persistence.models import (
     Artifact,
+    PromptTemplate,
     StakeholderNeed,
     Tenant,
     User,
@@ -234,3 +236,90 @@ def test_decompose_without_allocation_is_validation_error(auth_context, workspac
 
     with pytest.raises(ValidationError):
         AiDerivationService().decompose_requirement_next_level(auth_context, req.id)
+
+
+# ---------------------------------------------------------------------------
+# REQ-046 — long descriptions are truncated before being embedded in a prompt
+# ---------------------------------------------------------------------------
+
+
+def test_derive_requirements_truncates_long_need_description(
+    auth_context, workspace, monkeypatch
+):
+    """An oversized need description is bounded, not embedded verbatim."""
+    long_description = "d" * (MAX_PROMPT_CONTENT_CHARS + 500)
+    need = _make_need(auth_context, workspace, "N", long_description)
+    provider = _CaptureProvider(
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}])
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_requirements_from_need(auth_context, need.id, n=1)
+
+    prompt = provider.calls[0]["prompt"]
+    assert long_description not in prompt
+    assert "[truncated]" in prompt
+
+
+def test_suggest_architecture_truncates_long_requirement_description(
+    auth_context, workspace, monkeypatch
+):
+    """An oversized requirement description is bounded before prompt embedding."""
+    long_description = "r" * (MAX_PROMPT_CONTENT_CHARS + 500)
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Some requirement",
+        description=long_description,
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().suggest_architecture_for_requirement(auth_context, req.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert long_description not in prompt
+    assert "[truncated]" in prompt
+
+
+# ---------------------------------------------------------------------------
+# REQ-046 — backward compatibility with pre-existing user-defined templates
+# ---------------------------------------------------------------------------
+
+
+def test_old_template_with_only_req_title_still_renders(
+    auth_context, workspace, monkeypatch
+):
+    """A tenant template written before REQ-046 (no {req_description}/
+    {arch_elements_json} placeholders) must still render without error —
+    `_render` substitutes known placeholders individually instead of using
+    `str.format`, so extra values that have no matching placeholder are
+    simply not inserted, and missing placeholders never raise KeyError.
+    """
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        PromptTemplate.objects.create(
+            tenant_id=auth_context.tenant_id,
+            sysreq_to_arch_assign="Legacy prompt for {req_title} only.",
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Legacy Requirement Title",
+        description="Some description that the old template ignores.",
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    # Must not raise despite the template lacking {req_description} /
+    # {arch_elements_json} placeholders that the service always supplies.
+    result = AiDerivationService().suggest_architecture_for_requirement(
+        auth_context, req.id
+    )
+
+    assert result == {"suggested_arch_element_ids": []}
+    prompt = provider.calls[0]["prompt"]
+    assert prompt == "Legacy prompt for Legacy Requirement Title only."

@@ -162,7 +162,11 @@ export function PromptTemplateSection(): JSX.Element {
       >
         {t(
           "settings.promptTemplates.description",
-          "Customise the prompts used for AI-assisted derivation. Placeholders like {n}, {req_title} and {arch_elements_json} are substituted at runtime."
+          "Customise the prompts used for AI-assisted derivation. Available placeholders: " +
+            "{n} (number of drafts requested), {need_title} and {need_description} " +
+            "(stakeholder need), {req_title} and {req_description} (requirement), and " +
+            "{arch_elements_json} (candidate architecture elements). Unknown or omitted " +
+            "placeholders are left as-is, so existing templates keep working (REQ-046)."
         )}
       </p>
 

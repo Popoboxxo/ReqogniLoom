@@ -171,6 +171,42 @@ def resolve_provider_config() -> ProviderConfig:
 
 _USER_CONTENT_DELIMITER = "###"
 
+# Maximum number of characters of artifact/requirement content embedded into a
+# single prompt (REQ-046). Descriptions can be arbitrarily long free text;
+# without a bound a single oversized artifact would blow up prompt size,
+# token cost, and — for some providers — the request itself. Content beyond
+# the limit is truncated and marked with an ellipsis so the model (and any
+# human reviewing the prompt) can tell the text was cut short.
+MAX_PROMPT_CONTENT_CHARS = 4000
+
+_TRUNCATION_MARKER = "... [truncated]"
+
+
+def truncate_prompt_content(
+    text: str, limit: int = MAX_PROMPT_CONTENT_CHARS
+) -> str:
+    """Truncate *text* to *limit* characters, appending an ellipsis marker.
+
+    Applied to every piece of user-controlled content embedded into a prompt
+    (artifact descriptions, requirement text, architecture element
+    descriptions) so a single oversized field cannot dominate the prompt.
+    Text that already fits within *limit* is returned unchanged.
+
+    Args:
+        text: The candidate text to bound.
+        limit: Maximum number of characters to keep (default
+            :data:`MAX_PROMPT_CONTENT_CHARS`).
+
+    Returns:
+        *text* unchanged, or its first *limit* characters followed by the
+        truncation marker.
+    """
+    if text is None:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + _TRUNCATION_MARKER
+
 
 def _delimit_user_content(content: str) -> str:
     """Wrap user-controlled content in delimiters (REQ-080).
@@ -213,7 +249,7 @@ def _format_artifact_context(
     if title:
         parts.append(f"Title: {title}")
     if content:
-        parts.append(f"Content:\n{content}")
+        parts.append(f"Content:\n{truncate_prompt_content(content)}")
     if not parts:
         return ""
     # Security: delimit user-controlled content (REQ-080).
@@ -241,7 +277,7 @@ def _format_artifacts_list(artifacts: Optional[List[dict]]) -> str:
             continue
         identifier = entry.get("id", "")
         title = entry.get("title", "")
-        content = entry.get("content", "")
+        content = truncate_prompt_content(entry.get("content", "") or "")
         lines.append(f"- [{identifier}] {title}: {content}")
     # Security: delimit user-controlled content (REQ-080). The "Artifacts:"
     # label stays outside the fence; the enumerated user text stays inside.
@@ -1412,6 +1448,9 @@ __all__ = [
     "register_provider",
     "resolve_provider_config",
     "ProviderConfig",
+    # Prompt content helpers (REQ-046)
+    "truncate_prompt_content",
+    "MAX_PROMPT_CONTENT_CHARS",
     # Provider implementations
     "MockLlmProvider",
     "AnthropicProvider",
