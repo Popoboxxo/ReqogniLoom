@@ -10,17 +10,11 @@
  * ArtifactInspector right sidebar.
  *
  * Data source (per UI standards §5.1):
- *   GET /api/v1/<kind>/<id>/versions/   (for requirement/architecture/testCase)
+ *   GET /api/v1/<kind>/<id>/versions/   (all 10 kinds, REQ-142)
  *
- * For the 7 other kinds the backend has no `/versions/` endpoint yet;
- * the panel detects the 404 and renders the "No version history for
- * this artifact" empty state. This is the documented behaviour for
- * Phase A/B/C adoption (UI standards §11).
- *
- * TODO(backend): replace `mockFetchVersions` with the real
- *   `tracelinksApi` / `<kind>Api.versions(id)` call when the endpoint
- *   exists. Today: icd, diagram, adr, risk, issue, glossary and
- *   stakeholderNeed have no versions endpoint.
+ * All 10 artifact kinds now expose a `/versions/` endpoint. diagram and
+ * glossary were the last two, wired in REQ-142 against their immutable
+ * DiagramVersion / GlossaryTermVersion history tables.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,6 +26,8 @@ import { risksApi } from "../../../api/risks";
 import { issuesApi } from "../../../api/issues";
 import { testcasesApi } from "../../../api/testcases";
 import { icdsApi } from "../../../api/icds";
+import { diagramsApi } from "../../../api/diagrams";
+import { glossaryApi } from "../../../api/glossary";
 import type { ArtifactVersion } from "../../../types";
 import {
   DIFF_SUPPORTED_KINDS,
@@ -60,6 +56,8 @@ const VERSIONS_FETCHERS: Partial<
   issue: (id) => issuesApi.versions(id),
   testCase: (id) => testcasesApi.versions(id),
   icd: (id) => icdsApi.versions(id),
+  diagram: (id) => diagramsApi.versions(id),
+  glossary: (id) => glossaryApi.versions(id),
 };
 
 function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise<VersionRef[]> {
