@@ -271,4 +271,126 @@ describe("ReviewsView (REQ-144 smoke tests)", () => {
       );
     });
   });
+
+  it("[REQ-144] Approve opens the signature dialog when the transition has signature_gate", async () => {
+    vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
+      count: 2,
+      next: null,
+      previous: null,
+      results: MOCK_REQUIREMENTS,
+    } as any);
+    vi.mocked(requirementsModule.requirementsApi.getTransitions).mockResolvedValue({
+      current_state: "in_review",
+      states: ["draft", "in_review", "approved", "deprecated"],
+      allowed_transitions: [
+        { target_state: "approved", requires_change_reason: true, signature_gate: true },
+        { target_state: "draft", requires_change_reason: true, signature_gate: false },
+      ],
+    } as any);
+    const user = userEvent.setup();
+
+    renderReviewsView();
+
+    await waitFor(() => {
+      expect(screen.getByText("Brake-by-wire latency budget")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("review-list-item-req-001"));
+    await waitFor(() => {
+      expect(screen.getByTestId("review-approve-btn")).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByTestId("review-approve-btn"));
+
+    // The gated transition must NOT be posted directly — it waits for the
+    // signature dialog to collect a credential first.
+    expect(requirementsModule.requirementsApi.transition).not.toHaveBeenCalled();
+    expect(screen.getByTestId("signature-dialog")).toBeInTheDocument();
+  });
+
+  it("[REQ-144] confirming the signature dialog posts the transition with the credential", async () => {
+    vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
+      count: 2,
+      next: null,
+      previous: null,
+      results: MOCK_REQUIREMENTS,
+    } as any);
+    vi.mocked(requirementsModule.requirementsApi.getTransitions).mockResolvedValue({
+      current_state: "in_review",
+      states: ["draft", "in_review", "approved", "deprecated"],
+      allowed_transitions: [
+        { target_state: "approved", requires_change_reason: false, signature_gate: true },
+        { target_state: "draft", requires_change_reason: true, signature_gate: false },
+      ],
+    } as any);
+    vi.mocked(requirementsModule.requirementsApi.transition).mockResolvedValue({
+      id: "req-001",
+      previous_state: "in_review",
+      new_state: "approved",
+      requirement: MOCK_REQUIREMENTS[0],
+    } as any);
+    const user = userEvent.setup();
+
+    renderReviewsView();
+
+    await waitFor(() => {
+      expect(screen.getByText("Brake-by-wire latency budget")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("review-list-item-req-001"));
+    await waitFor(() => {
+      expect(screen.getByTestId("review-approve-btn")).not.toBeDisabled();
+    });
+    await user.click(screen.getByTestId("review-approve-btn"));
+
+    await user.type(screen.getByTestId("signature-dialog-credential-input"), "s3cr3t");
+    await user.click(screen.getByTestId("signature-dialog-submit"));
+
+    await waitFor(() => {
+      expect(requirementsModule.requirementsApi.transition).toHaveBeenCalledWith(
+        "req-001",
+        "approved",
+        "",
+        "s3cr3t"
+      );
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("signature-dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("[REQ-144] renders the workflow history in the History tab", async () => {
+    vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
+      count: 2,
+      next: null,
+      previous: null,
+      results: MOCK_REQUIREMENTS,
+    } as any);
+    vi.mocked(requirementsModule.requirementsApi.getTransitions).mockResolvedValue(
+      TRANSITIONS_APPROVE_AND_REJECT as any
+    );
+    vi.mocked(requirementsModule.requirementsApi.getWorkflowHistory).mockResolvedValue([
+      {
+        id: "hist-1",
+        from_state: "draft",
+        to_state: "in_review",
+        actor: "alice",
+        change_reason: "ready for review",
+        transitioned_at: "2026-06-01T10:00:00Z",
+        sealed: false,
+      },
+    ] as any);
+    const user = userEvent.setup();
+
+    renderReviewsView();
+
+    await waitFor(() => {
+      expect(screen.getByText("Brake-by-wire latency budget")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("review-list-item-req-001"));
+    await user.click(screen.getByTestId("review-detail-tab-history"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("review-history-entry-hist-1")).toBeInTheDocument();
+    });
+    expect(screen.getByText("draft → in_review")).toBeInTheDocument();
+  });
 });
