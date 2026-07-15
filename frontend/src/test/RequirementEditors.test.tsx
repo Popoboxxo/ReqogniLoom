@@ -69,6 +69,13 @@ vi.mock("../api/requirements", () => ({
     get: vi.fn(),
     versions: vi.fn().mockResolvedValue([]),
     diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
+    // REQ-143: workflow transitions endpoint mocks (RequirementForm loads these).
+    getTransitions: vi.fn().mockResolvedValue({
+      current_state: "approved",
+      states: ["draft", "approved", "deprecated"],
+      allowed_transitions: [],
+    }),
+    transition: vi.fn().mockResolvedValue({}),
     // REQ-008: AI decompose endpoint mock
     aiDecomposeNextLevel: vi.fn().mockResolvedValue({
       drafts: [],
