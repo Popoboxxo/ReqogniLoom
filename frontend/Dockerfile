@@ -10,7 +10,7 @@ COPY package.json package-lock.json ./
 # Development stage
 FROM base AS development
 
-RUN npm install --legacy-peer-deps
+RUN npm install
 
 COPY . .
 
