@@ -25,6 +25,7 @@ import {
   getAuthToken,
   setWorkspaceId,
   setWorkspacePreset,
+  revokeAllApiKeys,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 
@@ -190,6 +191,10 @@ test.describe('[REQ-134] API-Key Management — retrieve endpoint', () => {
 
   test.beforeAll(async () => {
     token = await getAuthToken();
+    // Backend caps active API keys at 10 per user — purge stale keys from prior
+    // runs so key creation stays under the cap (otherwise create returns 400
+    // and keyId becomes undefined, cascading into flaky failures).
+    await revokeAllApiKeys(token);
     // Create a fresh API key for testing
     const ctx = await import('@playwright/test').then(m => m.request.newContext({ baseURL: BACKEND_URL }));
     const resp = await ctx.post('/api/v1/api-keys/', {
@@ -677,11 +682,16 @@ test.describe('[REQ-129] MCP tools/list deduplication', () => {
 
   test.beforeAll(async () => {
     const token = await getAuthToken();
+    // Backend caps active API keys at 10 per user — purge stale keys from prior
+    // runs so this MCP key creation stays under the cap (otherwise create
+    // returns 400, mcpKey is undefined, and the MCP request 400s).
+    await revokeAllApiKeys(token);
     const ctx = await import('@playwright/test').then(m => m.request.newContext({ baseURL: BACKEND_URL }));
     const resp = await ctx.post('/api/v1/api-keys/', {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       data: { name: `MCP-REQ129-${Date.now()}` },
     });
+    expect(resp.status(), 'MCP API key creation must return 201').toBe(201);
     const body = await resp.json();
     mcpKey = body.plaintext;
     await ctx.dispose();
