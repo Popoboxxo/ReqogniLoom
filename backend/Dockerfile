@@ -52,8 +52,14 @@ RUN addgroup --system app && adduser --system --ingroup app app
 # Ensure working directory is owned by app user
 RUN chown -R app:app /app
 
-# Collect static files (required for production deployment)
-RUN python manage.py collectstatic --noinput
+# Collect static files (required for production deployment).
+# Settings fail fast when secrets are unset (REQ-115/REQ-081); collectstatic
+# only needs importable settings, so build-only dummy values are injected for
+# this single step. They are not baked into the image environment.
+RUN SECRET_KEY=build-only-dummy \
+    AUTH_JWT_SECRET=build-only-dummy \
+    FIELD_ENCRYPTION_KEY=build-only-dummy \
+    python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
