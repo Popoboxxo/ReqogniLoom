@@ -124,9 +124,13 @@ def test_migration_encrypts_plaintext_and_skips_already_encrypted(
     plaintext_row.api_key_encrypted = "sk-plaintext-legacy"
     plaintext_row.save(update_fields=["api_key_encrypted"])
 
+    # uq_llm_settings_tenant allows only one LlmSettings row per tenant, so
+    # the already-encrypted row needs its own tenant. Created via unscoped to
+    # stay independent of the request-tenant context of the fixture.
     already_encrypted_value = encrypt_secret("sk-already-encrypted")
-    encrypted_row = LlmSettings.objects.create(
-        tenant_id=llm_encryption_tenant.id, provider="openai"
+    tenant_two = Tenant.objects.create(name="Enc T2", slug="enc-t2", is_active=True)
+    encrypted_row = LlmSettings.unscoped.create(
+        tenant_id=tenant_two.id, provider="openai"
     )
     encrypted_row.api_key_encrypted = already_encrypted_value
     encrypted_row.save(update_fields=["api_key_encrypted"])
@@ -134,12 +138,14 @@ def test_migration_encrypts_plaintext_and_skips_already_encrypted(
     _migration._encrypt_existing_keys(real_apps, None)
 
     plaintext_row.refresh_from_db()
-    encrypted_row.refresh_from_db()
+    # refresh_from_db would be scoped to the fixture tenant's context, so the
+    # cross-tenant row is reloaded explicitly via the unscoped manager.
+    encrypted_reloaded = LlmSettings.unscoped.get(pk=encrypted_row.pk)
 
     assert plaintext_row.api_key_encrypted.startswith(ENCRYPTED_PREFIX)
     assert plaintext_row.api_key == "sk-plaintext-legacy"
     # Already-encrypted row is untouched — identical ciphertext as before.
-    assert encrypted_row.api_key_encrypted == already_encrypted_value
+    assert encrypted_reloaded.api_key_encrypted == already_encrypted_value
 
     # Running it again is a no-op — the ciphertext does not change.
     first_pass_ciphertext = plaintext_row.api_key_encrypted
