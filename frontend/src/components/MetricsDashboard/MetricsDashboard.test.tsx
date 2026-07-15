@@ -5,17 +5,18 @@
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
+import { vi } from "vitest";
 import { ReactNode } from "react";
 import MetricsDashboard from "./MetricsDashboard";
 
 // Mock dependencies
-jest.mock("react-i18next", () => ({
+vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, fallback?: string) => fallback ?? key,
   }),
 }));
 
-jest.mock("../../context/WorkspaceContext", () => ({
+vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({
     activeWorkspace: {
       id: "test-workspace-id",
@@ -24,9 +25,9 @@ jest.mock("../../context/WorkspaceContext", () => ({
   }),
 }));
 
-jest.mock("../../api/metrics", () => ({
+vi.mock("../../api/metrics", () => ({
   metricsApi: {
-    list: jest.fn().mockResolvedValue({
+    list: vi.fn().mockResolvedValue({
       computed_at: new Date().toISOString(),
       timeframe: "Last 7 days",
       workspace_id: "test-workspace-id",
@@ -46,7 +47,7 @@ const MockWrapper = ({ children }: { children: ReactNode }) => (
 
 describe("MetricsDashboard", () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe("Help Mode Toggle", () => {
