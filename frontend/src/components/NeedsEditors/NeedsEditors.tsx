@@ -27,7 +27,7 @@ export default function NeedsEditors(): JSX.Element {
   const { t } = useTranslation();
   const { id: selectedId } = useParams<{ id?: string }>();
   const navigate = useNavigate();
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, workspaces } = useWorkspace();
   const { needs, need, isLoading, error, refresh } = useNeedData(selectedId);
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -54,7 +54,9 @@ export default function NeedsEditors(): JSX.Element {
   }, []);
 
   const handleCreateNew = async () => {
-    if (!activeWorkspace) return;
+    // Guard against firing a create with the placeholder DEFAULT_WORKSPACE id
+    // (null-UUID) before reloadWorkspaces() has populated the real workspaces.
+    if (!activeWorkspace || workspaces.length === 0) return;
     if (!newTitle.trim()) return;
     setCreateError(null);
     try {
@@ -109,7 +111,13 @@ export default function NeedsEditors(): JSX.Element {
         <NeedList
           needs={needs}
           selectedId={selectedId}
-          onCreateNew={() => { setCreateError(null); setShowCreate(true); }}
+          onCreateNew={() => {
+            // Do not open the create form until real workspaces are loaded —
+            // prevents a POST against the null-UUID placeholder workspace.
+            if (workspaces.length === 0) return;
+            setCreateError(null);
+            setShowCreate(true);
+          }}
           showCreateForm={showCreate}
           setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
           newTitle={newTitle}
