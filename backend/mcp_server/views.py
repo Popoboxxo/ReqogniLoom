@@ -199,7 +199,9 @@ class McpHttpTransportView(CorsMixin, View):
             json.dumps({
                 "server": "ReqFlow MCP Server",
                 "protocol": "JSON-RPC 2.0",
-                "transports": ["http", "sse", "stdio"],
+                # REQ-131: advertise only implemented transports. SSE is not
+                # a functional transport, so declaring it here misleads clients.
+                "transports": ["http", "stdio"],
                 "version": "1.0.0",
             }),
             content_type="application/json",
