@@ -185,6 +185,32 @@ class WorkflowFacade(ServiceBase):
         except Exception as exc:
             _remap_workflow_exc(exc)
 
+    def get_available_transitions(
+        self,
+        item_id: UUID | str,
+        ctx: AuthContext,
+        *,
+        item_type: str = "Requirement",
+        workspace_id: UUID | str,
+    ):
+        """Return current state + allowed next transitions for an item (REQ-143).
+
+        Read-only. Sets the tenant context and delegates to
+        ``workflow.services.get_available_transitions``. Returns an
+        ``AvailableTransitions`` DTO (never raises for "not configured").
+        """
+        self._set_tenant_context(ctx)
+
+        from workflow.services import (
+            get_available_transitions as wf_available_transitions,
+        )
+
+        return wf_available_transitions(
+            item_id=item_id,
+            item_type=item_type,
+            workspace_id=workspace_id,
+        )
+
     # ---------- Private helpers ----------
 
     @staticmethod

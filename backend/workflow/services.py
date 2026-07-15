@@ -48,6 +48,7 @@ from auth_tenancy.context import AuthContext
 from .definition_store import (
     OrphanedStateError,
     PresetDowngradeBlockedError,
+    TransitionDefinitionDTO,
     WorkflowDefinitionDTO,
     WorkflowDefinitionError,
     WorkflowDefinitionStore,
@@ -119,6 +120,24 @@ class TransitionResult:
     new_state: str
     history_entry_id: UUID
     signature_seal: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class AvailableTransitions:
+    """Allowed next transitions for an item (REQ-143).
+
+    Attributes:
+        current_state: The item's current workflow state, or None when the item
+            has no WorkflowItemState yet (no workflow initialised).
+        states:        All valid states of the active definition (empty when no
+            definition exists for the workspace/item_type).
+        transitions:   Transitions whose ``from_state`` equals ``current_state``
+            — i.e. the moves the caller may perform right now.
+    """
+
+    current_state: Optional[str]
+    states: tuple[str, ...]
+    transitions: tuple[TransitionDefinitionDTO, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +315,54 @@ def get_definition(
     return _get_store().get_definition(workspace_id, item_type)
 
 
+def get_available_transitions(
+    item_id: UUID | str,
+    item_type: str,
+    workspace_id: UUID | str,
+) -> AvailableTransitions:
+    """Return the current state and allowed next transitions for an item (REQ-143).
+
+    Read-only. Used by the REST/MCP layers to drive a transition-aware UI: the
+    caller renders only the returned ``transitions`` as available moves and shows
+    ``current_state`` read-only when the list is empty.
+
+    Never raises for the "no definition" / "no state yet" cases — it returns an
+    ``AvailableTransitions`` with an empty ``transitions`` tuple so callers can
+    treat "not configured" and "no move available" uniformly.
+
+    Args:
+        item_id:      UUID of the item.
+        item_type:    Entity type (e.g. "Requirement").
+        workspace_id: Workspace UUID.
+
+    Returns:
+        AvailableTransitions(current_state, states, transitions).
+    """
+    item_id_uuid = UUID(str(item_id))
+    workspace_uuid = UUID(str(workspace_id))
+
+    item_state = _get_lifecycle().get_item_state(
+        item_id_uuid, item_type, workspace_uuid
+    )
+    current_state = item_state.current_state if item_state is not None else None
+
+    try:
+        dto = _get_store().get_definition(workspace_uuid, item_type)
+    except WorkflowDefinitionError:
+        return AvailableTransitions(
+            current_state=current_state, states=(), transitions=()
+        )
+
+    allowed = tuple(
+        t
+        for t in dto.transitions
+        if current_state is not None and t.from_state == current_state
+    )
+    return AvailableTransitions(
+        current_state=current_state, states=dto.states, transitions=allowed
+    )
+
+
 def create_default_workflow(
     workspace_id: UUID | str,
     preset: str,
@@ -396,10 +463,12 @@ __all__ = [
     "transition",
     "initialize_workflow_states",
     "get_definition",
+    "get_available_transitions",
     "create_default_workflow",
     "update_custom_workflow",
     "check_downgrade_compatibility",
     "TransitionResult",
+    "AvailableTransitions",
     "WorkflowTransitionError",
     "WorkflowNotConfigurableError",
     "WorkflowDowngradeBlockedError",

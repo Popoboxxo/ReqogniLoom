@@ -266,6 +266,12 @@ class RequirementService(ServiceBase):
         REQ-L3-RF003-005: Accepts SE mask fields (type, moscow_priority,
         complexity_fibonacci, verification_method).
         REQ-L2-RF-025 AC3: Accepts uid for stable identification.
+
+        REQ-143: `status` is the WorkflowEngine-owned lifecycle mirror. The REST
+        and MCP boundaries no longer forward it — a client-sent status is
+        ignored there. The parameter is retained on this internal method for
+        low-level/administrative callers only; normal state changes must go
+        through a workflow transition (see docs/architecture/ADR-status-single-source.md).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)

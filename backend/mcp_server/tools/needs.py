@@ -78,7 +78,14 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                     "title": {"type": "string"},
                     "description": {"type": "string"},
                     "category": {"type": "string"},
-                    "status": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "description": (
+                            "READ-ONLY (REQ-143). Ignored on write — the "
+                            "WorkflowEngine owns the lifecycle state. Present "
+                            "for backward compatibility only."
+                        ),
+                    },
                     "moscow_priority": {"type": "string"},
                     "change_reason": {"type": "string", "description": "Reason for the change."},
                 },
@@ -153,10 +160,12 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         need_id = require_uuid(params, "id")
         change_reason = params.get("change_reason", "Update via MCP")
         
-        # Use Unset magic value if not provided
-        
+        # Use Unset magic value if not provided.
+        # REQ-143: `status` is deliberately excluded — the WorkflowEngine is the
+        # single source of truth for the lifecycle state. A client-sent `status`
+        # is ignored (not an error) and the response reflects the true value.
         kwargs = {}
-        for f in ["title", "description", "category", "status", "moscow_priority"]:
+        for f in ["title", "description", "category", "moscow_priority"]:
             if f in params:
                 kwargs[f] = params[f]
 
