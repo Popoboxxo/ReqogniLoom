@@ -9,6 +9,12 @@ Endpoints:
   GET    /api/v1/diagrams/<pk>/      — retrieve diagram details
   PATCH  /api/v1/diagrams/<pk>/      — update diagram (creates new version)
   DELETE /api/v1/diagrams/<pk>/      — delete diagram
+  GET    /api/v1/diagrams/<pk>/versions/ — list DiagramVersions chronologically
+  GET    /api/v1/diagrams/<pk>/diff/     — field-level diff between two versions
+                                            (?from_version=&to_version=)
+
+REQ-142: versions/diff delegate to ArtifactDiffService (COMP-AS-019), reusing
+the same field-level diff computation as the requirement endpoints.
 """
 from __future__ import annotations
 
@@ -16,10 +22,13 @@ from typing import Any
 from uuid import UUID
 
 from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from application.artifact_diff_service import ArtifactDiffService
+from application.base import NotFoundError
 from diagram.models import Diagram, DiagramType, PayloadFormat
 from diagram.services import (
     create_diagram,
@@ -221,6 +230,84 @@ class DiagramViewSet(ViewSet):
             return Response(
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # -- versions (REQ-142) -------------------------------------------------
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/diagrams/<pk>/versions/ — list DiagramVersions chronologically.
+
+        REQ-142: delegates to ArtifactDiffService (COMP-AS-019).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            result = ArtifactDiffService().list_versions_for_diagram(UUID(pk), ctx)
+            return Response(result)
+        except NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # -- diff (REQ-142) ------------------------------------------------------
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/diagrams/<pk>/diff/?from_version=0&to_version=2
+
+        REQ-142: Structured field-level diff between two DiagramVersions.
+        Delegates to ArtifactDiffService (COMP-AS-019); reuses the same
+        diff computation as the requirement diff endpoint.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            diagram_id = UUID(pk)
+
+            try:
+                result: DiagramResult = get_diagram(diagram_id=diagram_id)
+            except Diagram.DoesNotExist:
+                return Response(
+                    build_error_response("NOT_FOUND", lang),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            default_to_version = (
+                result.version.version_number if result.version else 0
+            )
+
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(
+                request.query_params.get("to_version", str(default_to_version))
+            )
+
+            result = ArtifactDiffService().diff_for_diagram(
+                diagram_id=diagram_id,
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+            return Response(result)
+        except NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as exc:
             return Response(
