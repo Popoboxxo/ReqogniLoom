@@ -28,14 +28,18 @@ from __future__ import annotations
 import os
 
 # ---------------------------------------------------------------------------
-# Secrets — set required secrets before importing settings (REQ-115).
-# settings.py._get_required_secret() is called at module load time, so we must
-# ensure these environment variables are set before the import below.
+# Required secrets — set before importing settings (REQ-115, REQ-081).
+# settings.py reads these at module load time and fails fast
+# (ImproperlyConfigured) if they are absent, so they must be set before the
+# import below. Test-only values — never used outside this settings module.
 # ---------------------------------------------------------------------------
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-do-not-use-in-production")
 os.environ.setdefault("AUTH_JWT_SECRET", "test-auth-jwt-secret-for-pytest-do-not-use-in-production")
+os.environ.setdefault(
+    "FIELD_ENCRYPTION_KEY", "KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis="
+)
 
-from reqflow.settings import *  # noqa: F401,F403 — intentional settings re-export
+from reqflow.settings import *  # noqa: F401,F403,E402 — intentional settings re-export
 
 # ---------------------------------------------------------------------------
 # Database — explicit PostgreSQL test database (docker-compose service).

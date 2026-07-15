@@ -12,6 +12,7 @@ Environment variables (see .env.example for full list):
   LLM_PROVIDER (mock|anthropic|openai|ollama)
   LLM_API_KEY
   DEBUG
+  FIELD_ENCRYPTION_KEY (REQ-081 — Fernet key, required, no default)
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
-from decouple import Csv, config
+from decouple import Csv, UndefinedValueError, config
 from django.core.exceptions import ImproperlyConfigured
 
 
@@ -59,6 +60,27 @@ DEBUG: bool = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS: list[str] = config(
     "ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv()
 )
+
+# ---------------------------------------------------------------------------
+# Field-level encryption key (REQ-081)
+# ---------------------------------------------------------------------------
+# Encrypts persistence.LlmSettings.api_key at rest (see persistence/encryption.py
+# and persistence/migrations/0037_encrypt_llm_api_key.py). Fails fast at process
+# start rather than lazily the first time a key is encrypted/decrypted — a
+# missing key would otherwise surface as a confusing crash deep inside a
+# request. There is no safe default: a key generated on the fly here would
+# silently differ across processes/restarts and permanently orphan any
+# ciphertext already stored under the real key.
+try:
+    FIELD_ENCRYPTION_KEY: str = config("FIELD_ENCRYPTION_KEY")
+except UndefinedValueError as exc:
+    raise ImproperlyConfigured(
+        "FIELD_ENCRYPTION_KEY is not set. Generate one with:\n"
+        '  python3 -c "from cryptography.fernet import Fernet; '
+        'print(Fernet.generate_key().decode())"\n'
+        "and set it as the FIELD_ENCRYPTION_KEY environment variable "
+        "(see .env.example)."
+    ) from exc
 
 # ---------------------------------------------------------------------------
 # CORS (REQ-081)

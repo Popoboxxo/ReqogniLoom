@@ -94,6 +94,10 @@ jobs:
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
           REDIS_URL: redis://localhost:6379
+          # REQ-081: fixed Fernet key so CI never depends on an ambient value.
+          # Matches the settings_test.py fallback; explicit here for parity
+          # with the other required vars in this job.
+          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
         run: pytest
 
   frontend-test:
