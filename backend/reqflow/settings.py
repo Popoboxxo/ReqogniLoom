@@ -36,7 +36,9 @@ def _get_required_secret(key: str) -> str:
     Raises:
         ImproperlyConfigured: If the environment variable is not set.
     """
-    value = os.environ.get(key)
+    # Use decouple so values from a local .env file keep working (not only
+    # process environment variables, e.g. for manage.py outside Docker).
+    value = config(key, default=None)
     if not value:
         raise ImproperlyConfigured(
             f"The {key} environment variable must be set and non-empty in production. "
