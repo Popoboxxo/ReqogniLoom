@@ -13,7 +13,8 @@
 # Optional:
 #   BACKUP_DIR         — output directory (default: /backups)
 #   BACKUP_RETENTION   — number of backups to keep (default: 7)
-set -eu
+set -e
+set -u
 
 POSTGRES_HOST="${POSTGRES_HOST:-postgres}"
 BACKUP_DIR="${BACKUP_DIR:-/backups}"

@@ -75,39 +75,36 @@ AuditLogEntry(tenant, entity_type, entity_id, operation, old_value, new_value, .
 ---
 
 #### `auth_tenancy/` (ARCH-L1-011)
-**Modell:** Authentifizierung (Bearer JWT + Passwort-Login), Autorisierung, Tenant-Context-Management.
+**Modell:** Authentifizierung (Bearer JWT + API-Key), Autorisierung (RBAC), Tenant-Context-Management.
 
 **Exportierte API:**
 ```python
-# Services
-from auth_tenancy.services.tenant_context import TenantContext, TenantContextNotSetError, get_active_tenant
-from auth_tenancy.services.authentication import authenticate_user, create_api_token, validate_password
-from auth_tenancy.services.authorization import has_permission, get_user_roles
+from auth_tenancy.rest import AuthTenancyAuthentication, HasOperationPermission
+# request.auth_context -> auth_tenancy.context.AuthContext
 
-# REST Utilities
-from auth_tenancy.rest import TenantPermission, AdminOnlyPermission  # DRF Permission-Klassen
-
-# Exceptions
-from auth_tenancy.errors import TenantContextError, UnauthorizedError
-
-# Settings Keys
-AUTH_JWT_SECRET, AUTH_JWT_ALGORITHM, AUTH_JWT_EXPIRY, DEMO_ADMIN_PASSWORD
+from auth_tenancy.services import AuthenticationService, AuthorizationService, Operation
+from auth_tenancy.context import AuthContext, AuthMethod
 ```
 
 **Komponenten:**
-- `TenantMiddleware` — Extrahiert Tenant aus Request-Header/JWT
-- `AuthenticationService` — Passwort-Validierung, Token-Generierung (neue Feature Wave 7)
-- `AuthorizationService` — Role-Based Access Control (RBAC)
-- `jwt_tokens.py` — Bearer-Token-Codecs (RS256 oder HS256)
-- DRF Permission-Classes in `rest.py`
+- `rest.py` — `AuthTenancyAuthentication` (DRF BaseAuthentication): validiert Bearer JWT oder API-Key,
+  aktiviert Tenant-Context, baut immutables `AuthContext`; `HasOperationPermission` (DRF BasePermission)
+- `services/authentication.py` — `AuthenticationService`: JWT-Validierung, API-Key-Lifecycle
+- `services/authorization.py` — `AuthorizationService`: RBAC-Matrix (admin/editor/viewer/approver)
+- `services/password_authentication.py` — Login-Flow: Credentials → JWT-Minting
+- `jwt_tokens.py` — HS256 Bearer-Token-Codec
 
-**Passwort-Login (REQ-L1-033, COMP-AT-004):**
-- Endpoint: `POST /api/v1/auth/login` mit `email`, `password`
-- Response: JWT Token + User-Details
-- `manage.py seed_demo` erstellt Admin-Account (admin/admin12345)
-- Passwort-Hash via `TenantScopedModel`; persistiert in `User.password_hash`
+**Rollen-Auflösung (REQ-126):**
+- Bearer-Token: `claims.roles` aus JWT-Claims. Sind diese leer (neuer User / Rolle nach Login vergeben),
+  folgt ein DB-Fallback via `UserRole`-Tabelle — identisch dem API-Key-Pfad.
+- API-Key: Claims tragen immer `roles=()` → immer DB-Lookup aus `UserRole`.
+- DB-Fallback erfolgt nach Tenant-Aktivierung (tenant-scoped Query via TenantManager).
 
-**Test-Coverage:** 10+ Integration-Tests (auth, tenant-isolation, JWT)
+**Passwort-Login:**
+- `POST /api/v1/auth/login/` → JWT + httpOnly-Cookie `reqflow_access` (REQ-052)
+- `manage.py seed_demo` erstellt Admin-Account
+
+**Test-Coverage:** 115+ Tests (auth, RBAC, tenant-isolation, JWT, Rollen-Resolution)
 
 ---
 

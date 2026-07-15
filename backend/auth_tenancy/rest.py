@@ -17,7 +17,7 @@ Import paths for downstream apps:
     from auth_tenancy.rest import AuthTenancyAuthentication, HasOperationPermission
     request.auth_context   # -> auth_tenancy.context.AuthContext
 
-Requirements: REQ-L2-AT-001/002/003/007, REQ-L3-AT001-*, REQ-L3-AT002-001.
+Requirements: REQ-L2-AT-001/002/003/007, REQ-L3-AT001-*, REQ-L3-AT002-001, REQ-126.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from typing import Any
 from rest_framework import authentication, exceptions, permissions
 from rest_framework.authentication import CSRFCheck
 
-from .context import AuthContext
+from .context import AuthContext, AuthMethod
 from .errors import AuthError, build_error_body
 from .services import (
     AuthenticationService,
@@ -45,6 +45,30 @@ _API_KEY_PLAINTEXT_PREFIX = "rf_"
 # the browser attaches it automatically on same-origin requests, which keeps
 # the JWT out of JavaScript reach (XSS mitigation). See LoginView/LogoutView.
 ACCESS_COOKIE_NAME = "reqflow_access"
+
+
+def _resolve_roles_from_db(user_id: Any) -> tuple[str, ...]:
+    """Return active roles for *user_id* from the :class:`UserRole` table (REQ-126).
+
+    Must be called **after** tenant activation so the ``UserRole`` queryset is
+    scoped to the current tenant via the RLS thread-local.
+
+    Used by :class:`AuthTenancyAuthentication` as a role fallback when:
+    * Auth method is ``API_KEY`` (claims always carry ``roles=()``)
+    * Auth method is ``BEARER_TOKEN`` but claims carry no roles (new user /
+      role assigned after token issuance — stale JWT).
+    """
+    from auth_tenancy.models import UserRole  # local import avoids circular dep
+
+    role_entries = (
+        UserRole.objects.filter(
+            user_id=user_id,
+            suspended_at__isnull=True,
+        )
+        .values_list("role", flat=True)
+        .distinct()
+    )
+    return tuple(sorted({str(r).lower() for r in role_entries}))
 
 
 class _StandardAuthError(exceptions.APIException):
@@ -102,9 +126,19 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
             tenant_context = self._tenancy.resolve_tenant_context(claims)
             self._tenancy.activate(tenant_context)
 
-            # Resolve effective roles. Bearer tokens may carry role claims; API
-            # keys resolve from UserRole within the (now active) tenant scope.
+            # Resolve effective roles (REQ-126).
+            #
+            # API_KEY claims always carry roles=() — resolve from UserRole.
+            # BEARER_TOKEN claims carry roles at token-issuance time; if empty
+            # (new user, or role assigned after token was minted), fall back to
+            # a DB lookup for symmetric behaviour with the API_KEY path.
+            # When the JWT carries non-empty roles those are used as-is (fast
+            # path — no extra DB query).
             active_roles = claims.roles
+            if claims.auth_method == AuthMethod.API_KEY or (
+                claims.auth_method == AuthMethod.BEARER_TOKEN and not active_roles
+            ):
+                active_roles = _resolve_roles_from_db(claims.user_id)
             auth_context = self._tenancy.build_auth_context(
                 claims, tenant_context, active_roles
             )
