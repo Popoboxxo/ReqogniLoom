@@ -120,6 +120,72 @@ export async function setWorkspacePreset(preset: WorkspacePresetName): Promise<v
   }
 }
 
+/**
+ * Name markers that identify API keys created by the E2E test suite.
+ * Only keys whose name contains one of these substrings are eligible for
+ * automatic cleanup — real/manually-created keys are never touched.
+ */
+const E2E_API_KEY_MARKERS = [
+  'E2E',
+  'REQ129',
+  'REQ-129',
+  'REQ134',
+  'REQ-134',
+  'REQ-127',
+  'MCP-REQ',
+  'MCP test key',
+  'UI-REQ',
+  'Hermes-',
+];
+
+/**
+ * Revoke stale *E2E-test-created* API keys for the authenticated user.
+ *
+ * The backend enforces a hard cap of 10 *active* API keys per user
+ * (VALIDATION_ERROR "User already has the maximum of 10 active API keys.").
+ * The API-key E2E tests create fresh keys in their `beforeAll` hooks but never
+ * clean them up, so across repeated runs the active-key count climbs until the
+ * cap is hit. Once capped, `POST /api/v1/api-keys/` returns 400 and the created
+ * key id / plaintext becomes undefined — which cascades into non-deterministic
+ * failures in any test that depends on that key (REQ-129 MCP tools/list,
+ * REQ-134 list/retrieve).
+ *
+ * Calling this in a `beforeAll` before creating new keys keeps the active-key
+ * count under the cap. Cleanup is scoped by name marker: only keys created by
+ * the E2E suite (see {@link E2E_API_KEY_MARKERS}) are revoked — user-owned or
+ * manually-created keys are left untouched. Revoking (DELETE) marks a key
+ * inactive, which frees a slot against the cap.
+ */
+export async function revokeAllApiKeys(token: string): Promise<void> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  try {
+    const listResp = await ctx.get('/api/v1/api-keys/', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (listResp.ok()) {
+      const body = await listResp.json();
+      const keys: Array<{ id: string; name?: string; revoked?: boolean }> = Array.isArray(body)
+        ? body
+        : body.results ?? [];
+      for (const key of keys) {
+        if (key.revoked) {
+          continue; // already inactive — does not count against the cap
+        }
+        const name = key.name ?? '';
+        const isE2eKey = E2E_API_KEY_MARKERS.some((marker) => name.includes(marker));
+        if (!isE2eKey) {
+          continue; // not created by the E2E suite — never touch it
+        }
+        await ctx.delete(`/api/v1/api-keys/${key.id}/`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    }
+  } finally {
+    await ctx.dispose();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Seeded workspace ID — matches what seed_demo creates for the demo tenant.
 // Resolved once at module load via a synchronous env var or hardcoded fallback.

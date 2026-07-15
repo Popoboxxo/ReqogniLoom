@@ -240,7 +240,10 @@ class TransitionValidator:
             return ValidationResult(
                 valid=False,
                 error_code=EC_CHANGE_REASON_REQUIRED,
-                error_message="change_reason required",
+                error_message=(
+                    "This workspace (extended preset) requires a change_reason "
+                    "for all modifications. Please describe your change."
+                ),
             )
 
         # ---- Rule 4: SignatureGate -------------------------------------------

@@ -92,6 +92,102 @@ class TestApiKeyList:
             assert "plaintext" not in entry  # Never leaked!
 
 
+class TestApiKeyRetrieve:
+    """GET /api/v1/api-keys/<pk>/ (REQ-134)"""
+
+    @patch("rest_api.api_key_views.AuthenticationService")
+    def test_retrieve_returns_key_metadata(self, mock_authn_cls: MagicMock) -> None:
+        """Retrieving an owned key returns its metadata without plaintext."""
+        from rest_api.api_key_views import ApiKeyViewSet
+
+        mock_instance = mock_authn_cls.return_value
+        key_id = str(uuid.uuid4())
+        mock_instance.list_api_keys.return_value = [
+            {
+                "id": key_id,
+                "name": "key-1",
+                "created_at": "2026-06-27T12:00:00+00:00",
+                "last_used_at": None,
+                "revoked": False,
+            }
+        ]
+
+        factory = APIRequestFactory()
+        request = factory.get(f"/api/v1/api-keys/{key_id}/")
+        request.auth_context = _make_auth_context()
+
+        view = ApiKeyViewSet()
+        view._authn = mock_instance
+        response = view.retrieve(request, pk=key_id)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["id"] == key_id
+        assert response.data["name"] == "key-1"
+        assert "plaintext" not in response.data
+
+    @patch("rest_api.api_key_views.AuthenticationService")
+    def test_retrieve_unknown_key_returns_404(
+        self, mock_authn_cls: MagicMock
+    ) -> None:
+        """A key id not owned by the caller yields 404, never another tenant's key."""
+        from rest_api.api_key_views import ApiKeyViewSet
+
+        mock_instance = mock_authn_cls.return_value
+        mock_instance.list_api_keys.return_value = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": "key-1",
+                "created_at": "2026-06-27T12:00:00+00:00",
+                "last_used_at": None,
+                "revoked": False,
+            }
+        ]
+
+        factory = APIRequestFactory()
+        other_id = "00000000-0000-0000-0000-000000000999"
+        request = factory.get(f"/api/v1/api-keys/{other_id}/")
+        request.auth_context = _make_auth_context()
+
+        view = ApiKeyViewSet()
+        view._authn = mock_instance
+        response = view.retrieve(request, pk=other_id)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("rest_api.api_key_views.AuthenticationService")
+    def test_retrieve_invalid_uuid_returns_404(
+        self, mock_authn_cls: MagicMock
+    ) -> None:
+        """A non-UUID pk is rejected with 404 before any service call."""
+        from rest_api.api_key_views import ApiKeyViewSet
+
+        mock_instance = mock_authn_cls.return_value
+
+        factory = APIRequestFactory()
+        request = factory.get("/api/v1/api-keys/not-a-uuid/")
+        request.auth_context = _make_auth_context()
+
+        view = ApiKeyViewSet()
+        view._authn = mock_instance
+        response = view.retrieve(request, pk="not-a-uuid")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_instance.list_api_keys.assert_not_called()
+
+    def test_retrieve_unauthenticated_returns_401(self) -> None:
+        """GET detail without auth context returns 401."""
+        from rest_api.api_key_views import ApiKeyViewSet
+
+        factory = APIRequestFactory()
+        request = factory.get("/api/v1/api-keys/00000000-0000-0000-0000-000000000001/")
+
+        view = ApiKeyViewSet()
+        response = view.retrieve(
+            request, pk="00000000-0000-0000-0000-000000000001"
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
 class TestApiKeyDestroy:
     """DELETE /api/v1/api-keys/<pk>/"""
 

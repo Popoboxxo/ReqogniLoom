@@ -57,6 +57,33 @@ class LlmSettingsSerializer(serializers.Serializer):
         """Return whether a non-empty API key is stored."""
         return bool(getattr(obj, "api_key", ""))
 
+    def validate(self, attrs: dict) -> dict:
+        """Reject Ollama configurations that leave ``base_url`` blank.
+
+        Ollama has no default endpoint that ReqFlow can assume; without a
+        base_url every derivation call would fail at request time. On partial
+        updates the effective provider/base_url falls back to the persisted
+        instance so a PATCH that only touches one field is validated correctly.
+        """
+        provider = attrs.get("provider") or getattr(
+            self.instance, "provider", None
+        )
+        if provider == "ollama":
+            base_url = attrs.get("base_url")
+            if base_url is None:
+                base_url = getattr(self.instance, "base_url", "")
+            if not (base_url or "").strip():
+                raise serializers.ValidationError(
+                    {
+                        "base_url": (
+                            "Ollama requires a base_url. Set the "
+                            "OLLAMA_BASE_URL environment variable or provide a "
+                            "URL (e.g. http://localhost:11434)"
+                        )
+                    }
+                )
+        return attrs
+
 
 # ---------------------------------------------------------------------------
 # View

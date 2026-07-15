@@ -428,6 +428,12 @@ class Workspace(TenantScopedModel):
         default="parent-child",
         help_text="Default link type used when decomposing requirements.",
     )
+    language = models.CharField(
+        max_length=8,
+        default="en",
+        blank=True,
+        help_text="Per-workspace UI/content language (REQ-133).",
+    )
     is_active = models.BooleanField(
         default=True,
         help_text="Soft-delete flag. False = workspace is closed (REQ-L1-042).",

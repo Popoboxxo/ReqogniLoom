@@ -212,6 +212,12 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
     """ViewSet for Stakeholder Need entity."""
 
     serializer_class = StakeholderNeedSerializer
+    # REQ-128: constrain the detail lookup to a UUID. The DRF router's default
+    # pk pattern ([^/.]+) otherwise matches custom action segments such as
+    # "derive-requirements" as a pk, so GET /api/v1/needs/derive-requirements/
+    # reached retrieve() and 500ed on UUID parsing. With a UUID-only regex the
+    # segment no longer matches the detail route and routing 404s correctly.
+    lookup_value_regex = r"[0-9a-f-]{36}"
 
     @property
     def service(self):

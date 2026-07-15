@@ -66,16 +66,23 @@ def _auth(client: APIClient, token: str) -> None:
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-def test_get_preferences_404_when_none(pref_user):
-    """GET returns 404 when no preference row exists yet."""
+def test_req137_get_returns_200_with_empty_defaults_when_no_row(pref_user):
+    """[REQ-137] GET returns 200 with empty defaults when no preference row exists yet.
+
+    Previously returned 404 (NOT_FOUND). Fix: get_or_create semantics so first
+    access auto-creates a row with optional_artifact_visibility={} instead of
+    raising an error.
+    """
     client = APIClient()
     token = _login(client)
     _auth(client, token)
 
     ws = Workspace.objects.get(name="Pref WS")
     resp = client.get(f"/api/v1/users/me/preferences/?workspace_id={ws.id}")
-    assert resp.status_code == 404
-    assert resp.json()["error"]["code"] == "NOT_FOUND"
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["optional_artifact_visibility"] == {}
+    assert body["workspace_id"] == str(ws.id)
 
 
 @override_settings(**_JWT_OVERRIDES)

@@ -49,7 +49,10 @@ export default function NeedsEditors(): JSX.Element {
         if (!('moscow_priority' in vMap)) vMap['moscow_priority'] = true;
         setAttributeVisibility(vMap);
       })
-      .catch(err => console.error('Failed to load attribute configs', err));
+      // An empty config set is a valid, expected state (no seed data by
+      // design); only genuine HTTP/network failures reach here — log them as a
+      // warning, not an error (REQ-136).
+      .catch(err => console.warn('Could not load attribute configs; using defaults', err));
     return () => { isMounted = false; };
   }, []);
 

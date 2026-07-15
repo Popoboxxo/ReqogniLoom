@@ -4,7 +4,7 @@ COMP-RA-001 — UserWorkspacePreference REST endpoints (REQ-L1-027).
 Endpoints:
   GET  /api/v1/users/me/preferences/?workspace_id=<uuid>
       Return the authenticated user's preference for the given workspace.
-      404 when no preference row exists yet.
+      200 with empty defaults on first access (get-or-create semantics, REQ-137).
 
   PATCH /api/v1/users/me/preferences/
       Merge caller-supplied visibility overrides into the preference row.
@@ -101,15 +101,12 @@ class UserPreferenceView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # REQ-137: use get_or_create so first access returns 200 with empty defaults
+        # instead of 404, consistent with PATCH which already uses get_or_create.
         ctx = get_auth_context(request)
-        pref = self._svc.get_preference(
+        pref = self._svc.get_or_create_preference(
             user_id=ctx.user_id, workspace_id=workspace_id, ctx=ctx
         )
-        if pref is None:
-            return Response(
-                build_error_response("NOT_FOUND", lang, message="No preferences found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
         return Response(UserWorkspacePreferenceSerializer(pref).data)
 
     # ---- PATCH --------------------------------------------------------

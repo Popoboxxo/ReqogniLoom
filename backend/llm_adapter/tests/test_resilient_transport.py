@@ -269,7 +269,11 @@ class TestProviderTransportUsesResilience:
         fake_requests = types.ModuleType("requests")
         fake_requests.post = post
 
-        provider = OllamaProvider(ProviderConfig(provider_name="ollama"))
+        provider = OllamaProvider(
+            ProviderConfig(
+                provider_name="ollama", api_base_url="http://localhost:11434"
+            )
+        )
         with patch.dict(sys.modules, {"requests": fake_requests}):
             text, token_usage = provider._chat("prompt")
 
@@ -291,7 +295,11 @@ class TestProviderTransportUsesResilience:
         fake_requests = types.ModuleType("requests")
         fake_requests.post = post
 
-        provider = OllamaProvider(ProviderConfig(provider_name="ollama"))
+        provider = OllamaProvider(
+            ProviderConfig(
+                provider_name="ollama", api_base_url="http://localhost:11434"
+            )
+        )
         with patch.dict(sys.modules, {"requests": fake_requests}):
             with pytest.raises(LlmTransportError):
                 provider._chat("prompt")

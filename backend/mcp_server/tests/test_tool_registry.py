@@ -16,7 +16,7 @@ Covers:
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 
@@ -417,3 +417,156 @@ class TestToolRegistryDispatch:
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
+
+
+# ---------------------------------------------------------------------------
+# API-key global role resolution (REQ-127)
+# ---------------------------------------------------------------------------
+
+
+class TestApiKeyGlobalRoleResolution:
+    """REQ-127: API-key callers without a workspace_id param must still get
+    their globally-held roles loaded, not an empty tuple.
+
+    Most MCP tool calls (user.list, requirement.create, ...) carry no
+    ``workspace_id``. Before the fix, ``_resolve_roles`` returned the context
+    unchanged with ``active_roles=()`` there, so every write failed with
+    PERMISSION_DENIED for API-key users.
+    """
+
+    def _api_key_ctx(self):
+        return AuthContext(
+            user_id=UUID("00000000-0000-0000-0000-000000000001"),
+            tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+            active_roles=(),
+            auth_method=AuthMethod.API_KEY,
+            api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+        )
+
+    def _patch_user_role(self, roles):
+        """Patch auth_tenancy.models.UserRole so no DB access is needed."""
+        user_role = MagicMock()
+        user_role.objects.filter.return_value.values_list.return_value = list(roles)
+        return patch("auth_tenancy.models.UserRole", user_role)
+
+    def test_api_key_without_workspace_loads_global_roles(self):
+        registry = ToolRegistry(
+            auth_service=MagicMock(), authz_service=MagicMock()
+        )
+        ctx = self._api_key_ctx()
+
+        with self._patch_user_role(["admin", "editor"]):
+            resolved = registry._resolve_roles(ctx, workspace_id=None)
+
+        assert resolved.active_roles == ("admin", "editor")
+        assert resolved.user_id == ctx.user_id
+        assert resolved.auth_method == AuthMethod.API_KEY
+
+    def test_api_key_without_workspace_empty_when_no_roles(self):
+        registry = ToolRegistry(
+            auth_service=MagicMock(), authz_service=MagicMock()
+        )
+        ctx = self._api_key_ctx()
+
+        with self._patch_user_role([]):
+            resolved = registry._resolve_roles(ctx, workspace_id=None)
+
+        assert resolved.active_roles == ()
+
+    def test_api_key_with_workspace_uses_scoped_lookup(self):
+        """When workspace_id IS provided, the workspace-scoped lookup wins."""
+        authz_svc = MagicMock()
+        authz_svc.active_roles_for.return_value = ("editor",)
+        registry = ToolRegistry(auth_service=MagicMock(), authz_service=authz_svc)
+        ctx = self._api_key_ctx()
+
+        resolved = registry._resolve_roles(
+            ctx, workspace_id="00000000-0000-0000-0000-000000000010"
+        )
+
+        assert resolved.active_roles == ("editor",)
+        authz_svc.active_roles_for.assert_called_once()
+
+    def test_non_api_key_without_workspace_unchanged(self):
+        """Bearer-token callers without a workspace keep existing behaviour."""
+        registry = ToolRegistry(
+            auth_service=MagicMock(), authz_service=MagicMock()
+        )
+        ctx = AuthContext(
+            user_id=UUID("00000000-0000-0000-0000-000000000001"),
+            tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+            active_roles=(),
+            auth_method=AuthMethod.BEARER_TOKEN,
+            api_key_id=None,
+        )
+
+        resolved = registry._resolve_roles(ctx, workspace_id=None)
+
+        assert resolved is ctx
+
+
+# ---------------------------------------------------------------------------
+# tools/list deduplication (REQ-129)
+# ---------------------------------------------------------------------------
+
+
+class TestListToolsDeduplication:
+    """REQ-129: tools/list must not emit duplicate tool entries.
+
+    Several prefixes deliberately map to a single shared ToolGroup instance
+    (e.g. "audit"/"events", "traceability"/"artifact"). Without dedup by
+    object identity, each shared group's schemas were emitted once per prefix.
+    """
+
+    def _make_registry(self, roles=("editor",)):
+        auth_svc = MagicMock()
+        authz_svc = MagicMock()
+        from auth_tenancy.context import IdentityClaims
+
+        auth_svc.validate_api_key.return_value = IdentityClaims(
+            user_id=UUID("00000000-0000-0000-0000-000000000001"),
+            tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+            roles=(),
+            auth_method=AuthMethod.API_KEY,
+            api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+        )
+        authz_svc.decide_access.return_value = MagicMock(allow=True)
+        return ToolRegistry(auth_service=auth_svc, authz_service=authz_svc)
+
+    def test_shared_group_not_emitted_per_prefix(self):
+        registry = self._make_registry()
+
+        shared = MagicMock()
+        shared.get_tool_schemas.return_value = [
+            {"name": "audit.query", "description": "read"},
+            {"name": "events.dlq_replay", "description": "write"},
+        ]
+        # Same instance under two prefixes — mirrors audit/events wiring.
+        registry.register_groups({"audit": shared, "events": shared})
+
+        with patch("auth_tenancy.models.UserRole") as user_role:
+            user_role.objects.filter.return_value.values_list.return_value = [
+                "editor"
+            ]
+            tools = registry.list_tools(api_key="rf_validkey")
+
+        names = [t["name"] for t in tools]
+        assert len(names) == len(set(names)), f"duplicate tool names: {names}"
+        assert names.count("audit.query") == 1
+
+    def test_no_duplicate_names_across_full_registry(self):
+        """The real, fully-wired registry exposes unique tool names."""
+        registry = self._make_registry()
+        registry._ensure_groups()
+
+        with patch("auth_tenancy.models.UserRole") as user_role:
+            user_role.objects.filter.return_value.values_list.return_value = [
+                "editor"
+            ]
+            tools = registry.list_tools(api_key="rf_validkey")
+
+        names = [t["name"] for t in tools]
+        assert len(names) == len(set(names)), (
+            f"duplicate tool names in registry: "
+            f"{[n for n in names if names.count(n) > 1]}"
+        )
