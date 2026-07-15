@@ -37,6 +37,7 @@ from django.db import models
 # Requirement.embedding field references VectorField/HnswIndex directly.
 from pgvector.django import HnswIndex, VectorField
 
+from persistence.encryption import decrypt_secret, encrypt_secret
 from persistence.tenancy import TenantManager, UnscopedManager
 
 
@@ -1244,6 +1245,11 @@ class LlmSettings(TenantScopedModel):
 
     ``api_key`` holds the raw provider secret. It is never exposed through the
     REST serializer (write-only); readers only learn whether a key is set.
+
+    REQ-081: the secret is encrypted at rest. ``api_key`` is a Python property
+    over the ``api_key_encrypted`` column so every existing caller (llm_adapter,
+    SettingsService, the REST serializer) keeps reading/writing plaintext
+    without changes — only the storage representation changed.
     """
 
     provider = models.CharField(
@@ -1257,14 +1263,17 @@ class LlmSettings(TenantScopedModel):
         default="",
         help_text="Optional base URL override (e.g. for a local Ollama server).",
     )
-    # SECURITY: api_key is stored as plaintext. For production, this field should
-    # be encrypted using django-fernet-fields or similar. See REQ-081.
-    # Rotation: change the key and update the stored value.
-    api_key = models.CharField(
-        max_length=512,
+    # REQ-081: Fernet ciphertext, not plaintext. Never read/write this field
+    # directly — use the ``api_key`` property below, which transparently
+    # encrypts/decrypts using FIELD_ENCRYPTION_KEY (reqflow/settings.py).
+    api_key_encrypted = models.TextField(
         blank=True,
         default="",
-        help_text="Provider API key. Never returned via the REST API.",
+        help_text=(
+            "Encrypted provider API key (Fernet ciphertext, REQ-081). "
+            "Never returned via the REST API. Access via the `api_key` "
+            "property, not this field."
+        ),
     )
     model_name = models.CharField(
         max_length=255,
@@ -1283,6 +1292,20 @@ class LlmSettings(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"LlmSettings(provider={self.provider})"
+
+    @property
+    def api_key(self) -> str:
+        """Return the decrypted plaintext API key (REQ-081).
+
+        Transparent over ``api_key_encrypted`` so every pre-existing caller
+        that reads ``instance.api_key`` keeps getting plaintext back.
+        """
+        return decrypt_secret(self.api_key_encrypted)
+
+    @api_key.setter
+    def api_key(self, value: str) -> None:
+        """Encrypt ``value`` and store it in ``api_key_encrypted`` (REQ-081)."""
+        self.api_key_encrypted = encrypt_secret(value or "")
 
     def get_api_key_masked(self) -> str:
         """Return a masked api_key safe for logging (REQ-081).

@@ -36,5 +36,9 @@ uvicorn[standard]>=0.30,<1.0
 # Utilities
 python-decouple>=3.8,<4.0
 
+# Field-level encryption (REQ-081) — Fernet symmetric encryption for
+# persistence.LlmSettings.api_key at rest.
+cryptography>=42.0,<45.0
+
 # Observability (REQ-063)
 python-json-logger>=2.0.7,<3.0

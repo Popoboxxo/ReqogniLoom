@@ -8,6 +8,8 @@ Covers:
 - Singleton semantics (one row per tenant, lazily created).
 - llm_adapter config resolution: DB settings override env, env fallback when
   no row exists.
+- REQ-081: the persisted api_key is encrypted at rest (Fernet ciphertext),
+  never plaintext.
 
 Uses the same JWT + APIClient pattern as test_preference_views.py.
 """
@@ -18,6 +20,7 @@ from django.test import override_settings
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, UserRole
+from persistence.encryption import ENCRYPTED_PREFIX
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import LlmSettings, Tenant, User, Workspace
 
@@ -123,6 +126,9 @@ def test_put_updates_provider_and_stores_api_key_write_only(llm_tenant):
     set_request_tenant(llm_tenant.id)
     row = LlmSettings.objects.get(tenant_id=llm_tenant.id)
     assert row.api_key == "sk-secret-value"
+    # REQ-081: the DB column holds Fernet ciphertext, not the plaintext key.
+    assert row.api_key_encrypted != "sk-secret-value"
+    assert row.api_key_encrypted.startswith(ENCRYPTED_PREFIX)
 
 
 @override_settings(**_JWT_OVERRIDES)

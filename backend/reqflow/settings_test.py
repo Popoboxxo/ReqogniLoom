@@ -25,7 +25,20 @@ Note on the database:
 """
 from __future__ import annotations
 
-from reqflow.settings import *  # noqa: F401,F403 — intentional settings re-export
+import os
+
+# ---------------------------------------------------------------------------
+# Field-level encryption key (REQ-081) — fixed so the test suite is
+# deterministic and never depends on an ambient FIELD_ENCRYPTION_KEY. Must be
+# set before importing reqflow.settings below: that module reads it at
+# import time and fails fast (ImproperlyConfigured) if it is absent.
+# Test-only value — never used outside this settings module.
+# ---------------------------------------------------------------------------
+os.environ.setdefault(
+    "FIELD_ENCRYPTION_KEY", "KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis="
+)
+
+from reqflow.settings import *  # noqa: F401,F403,E402 — intentional settings re-export
 
 # ---------------------------------------------------------------------------
 # Database — explicit PostgreSQL test database (docker-compose service).
