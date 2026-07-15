@@ -46,11 +46,31 @@ export interface RequirementTransitionResult {
   requirement: Requirement;
 }
 
+/**
+ * REQ-144: a single entry of the append-only workflow transition history,
+ * as returned by GET /requirements/{id}/workflow-history/. Mirrors the
+ * WorkflowHistoryEntry model, minus the raw signature_seal (only a derived
+ * `sealed` boolean crosses the API boundary).
+ */
+export interface WorkflowHistoryEntry {
+  id: string;
+  from_state: string | null;
+  to_state: string;
+  actor: string;
+  change_reason: string;
+  transitioned_at: string;
+  sealed: boolean;
+}
+
 export const requirementsApi = {
-  list(workspaceId: UUID): Promise<PaginatedResponse<Requirement>> {
-    return getList<Requirement>("/requirements/", {
-      workspace_id: workspaceId,
-    });
+  /**
+   * REQ-144: optional `status` filters the list by the WorkflowEngine
+   * lifecycle mirror (e.g. "in_review" for the review queue).
+   */
+  list(workspaceId: UUID, status?: string): Promise<PaginatedResponse<Requirement>> {
+    const params: Record<string, string> = { workspace_id: workspaceId };
+    if (status) params.status = status;
+    return getList<Requirement>("/requirements/", params);
   },
 
   /**
@@ -124,15 +144,31 @@ export const requirementsApi = {
     );
   },
 
-  /** REQ-143: perform a workflow transition (role/change_reason/gate enforced). */
+  /**
+   * REQ-143: perform a workflow transition (role/change_reason/gate enforced).
+   * REQ-144: `credential` carries the password/TOTP token for transitions
+   * whose `signature_gate` is true (see SignatureDialog).
+   */
   transition(
     id: UUID,
     targetState: string,
-    changeReason?: string
+    changeReason?: string,
+    credential?: string
   ): Promise<RequirementTransitionResult> {
     return apiClient.post<RequirementTransitionResult>(
       `/requirements/${id}/transitions/`,
-      { target_state: targetState, change_reason: changeReason ?? "" }
+      {
+        target_state: targetState,
+        change_reason: changeReason ?? "",
+        credential: credential ?? "",
+      }
+    );
+  },
+
+  /** REQ-144: GET the append-only workflow transition history for a requirement. */
+  getWorkflowHistory(id: UUID): Promise<WorkflowHistoryEntry[]> {
+    return apiClient.get<WorkflowHistoryEntry[]>(
+      `/requirements/${id}/workflow-history/`
     );
   },
 

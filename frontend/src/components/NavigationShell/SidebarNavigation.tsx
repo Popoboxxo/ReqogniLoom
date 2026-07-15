@@ -44,6 +44,9 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/testcases", labelKey: "nav.testCases", feature: "testCases" },
   { path: "/test-runs", labelKey: "nav.testRuns", feature: "testRuns" },
   { path: "/baselines", labelKey: "nav.baselines", feature: "baselines" },
+  // REQ-144: reuses the pre-existing (previously unused) `approver_ui`
+  // preset-visibility flag — true only for the extended preset.
+  { path: "/reviews", labelKey: "nav.reviews", feature: "approver_ui" },
   { path: "/import", labelKey: "nav.import", feature: "csv_import" },
   { path: "/icds", labelKey: "nav.icds", feature: "icds" },
   { path: "/diagrams", labelKey: "nav.diagrams", feature: "diagrams" },
