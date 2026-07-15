@@ -163,6 +163,11 @@ from application.artifact_diff_service import ArtifactDiffService  # noqa: F401,
 # ---------------------------------------------------------------------------
 from application.glossary_service import GlossaryService, GlossaryTermDTO  # noqa: F401,E402
 
+# ---------------------------------------------------------------------------
+# COMP-AS-008 ReqIF 1.2 export (REQ-146)
+# ---------------------------------------------------------------------------
+from application.reqif_export_service import ReqifExportService  # noqa: F401,E402
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -228,4 +233,6 @@ __all__ = [
     # COMP-AS-020 Semantic Glossary
     "GlossaryService",
     "GlossaryTermDTO",
+    # COMP-AS-008 ReqIF 1.2 export (REQ-146)
+    "ReqifExportService",
 ]

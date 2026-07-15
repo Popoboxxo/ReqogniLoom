@@ -58,6 +58,7 @@ from application.services import (
     WorkflowFacade,
     WorkspaceService,
     ExportService,
+    ReqifExportService,
     ImportService,
     AdrService,
     RiskService,
@@ -4120,6 +4121,56 @@ class CsvExportView(APIView):
         return response
 
 
+# ---------------------------------------------------------------------------
+# ReqifExportView — COMP-AS-008 REST facade (REQ-146)
+# ---------------------------------------------------------------------------
+
+
+class ReqifExportView(APIView):
+    """GET /api/v1/workspaces/{id}/export/reqif/ — ReqIF 1.2 workspace export.
+
+    REQ-146: Exports the workspace's StakeholderNeeds, Requirements, and
+    TraceLinks between them as a ReqIF 1.2 XML document (DOORS/Polarion
+    interoperability). Mirrors CsvExportView's RBAC/auth handling; wires
+    application.reqif_export_service.ReqifExportService.
+
+    Returns:
+        200 with a ReqIF XML document (Content-Disposition: attachment,
+        filename "<workspace-slug>.reqif").
+        404 if the workspace does not exist in the active tenant.
+    """
+
+    def get(self, request: Request, pk: str = None, **kwargs: Any) -> HttpResponse | Response:
+        """Handle ReqIF export GET request."""
+        lang = detect_lang(request)
+
+        if not pk:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="Workspace ID is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        try:
+            svc = ReqifExportService()
+            result = svc.export_reqif(workspace_id=pk, ctx=ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("ReqifExportView: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        response = HttpResponse(result.content, content_type=result.media_type)
+        response["Content-Disposition"] = f'attachment; filename="{result.filename}"'
+        return response
+
+
 class GlossaryTermViewSet(BaseEntityViewSet):
     """ViewSet for Semantic Project Glossary (REQ-L1-044)."""
 
@@ -4672,5 +4723,6 @@ __all__ = [
     "SearchViewSet",
     "CsvImportView",
     "CsvExportView",
+    "ReqifExportView",
     "ArtifactDiffService",
 ]

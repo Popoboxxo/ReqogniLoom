@@ -42,3 +42,7 @@ cryptography>=42.0,<45.0
 
 # Observability (REQ-063)
 python-json-logger>=2.0.7,<3.0
+
+# ReqIF 1.2 export (REQ-146) — DOORS/Polarion interoperability.
+# StrictDoc project, Apache-2.0 license (verified via `pip show reqif`).
+reqif>=0.0.52,<0.1
