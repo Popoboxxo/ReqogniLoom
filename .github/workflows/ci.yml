@@ -83,6 +83,7 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: reqflow.settings_test
           SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
           DEBUG: 'True'
           DB_NAME: reqflow_test
           DB_USER: reqflow

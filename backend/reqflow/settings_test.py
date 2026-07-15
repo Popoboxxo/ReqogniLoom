@@ -25,6 +25,16 @@ Note on the database:
 """
 from __future__ import annotations
 
+import os
+
+# ---------------------------------------------------------------------------
+# Secrets — set required secrets before importing settings (REQ-115).
+# settings.py._get_required_secret() is called at module load time, so we must
+# ensure these environment variables are set before the import below.
+# ---------------------------------------------------------------------------
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-do-not-use-in-production")
+os.environ.setdefault("AUTH_JWT_SECRET", "test-auth-jwt-secret-for-pytest-do-not-use-in-production")
+
 from reqflow.settings import *  # noqa: F401,F403 — intentional settings re-export
 
 # ---------------------------------------------------------------------------

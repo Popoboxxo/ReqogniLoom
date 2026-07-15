@@ -20,6 +20,29 @@ from datetime import timedelta
 from pathlib import Path
 
 from decouple import Csv, config
+from django.core.exceptions import ImproperlyConfigured
+
+
+def _get_required_secret(key: str) -> str:
+    """
+    Retrieve a required secret from the environment.
+
+    If the environment variable is not set, raise ImproperlyConfigured
+    with a clear error message including generation instructions.
+
+    Args:
+        key: Environment variable name (e.g., 'SECRET_KEY', 'AUTH_JWT_SECRET')
+
+    Raises:
+        ImproperlyConfigured: If the environment variable is not set.
+    """
+    value = os.environ.get(key)
+    if not value:
+        raise ImproperlyConfigured(
+            f"The {key} environment variable must be set and non-empty in production. "
+            f"Generate a value with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+    return value
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -29,7 +52,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ---------------------------------------------------------------------------
 # Security
 # ---------------------------------------------------------------------------
-SECRET_KEY: str = config("SECRET_KEY", default="CHANGE-ME-IN-PRODUCTION")
+SECRET_KEY: str = _get_required_secret("SECRET_KEY")
 DEBUG: bool = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS: list[str] = config(
     "ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv()
@@ -276,12 +299,10 @@ SPECTACULAR_SETTINGS = {
 # (AuthenticationService.issue_token, password login) and the validator
 # (AuthenticationService.validate_bearer_token). Both ends MUST read these same
 # values so issued tokens round-trip through BearerTokenAuthentication.
-# No secret is hard-coded in code; the default below is for local/dev only and
-# MUST be overridden via the AUTH_JWT_SECRET env var in any real deployment.
+# No secret is hard-coded in code; this MUST be set via the AUTH_JWT_SECRET env var
+# in all environments (both test and production).
 # ---------------------------------------------------------------------------
-AUTH_JWT_SECRET: str = config(
-    "AUTH_JWT_SECRET", default="CHANGE-ME-AUTH-JWT-SECRET-IN-PRODUCTION"
-)
+AUTH_JWT_SECRET: str = _get_required_secret("AUTH_JWT_SECRET")
 AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqflow")
 AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqflow-api")
 # Access-token lifetime in seconds (default 12h).
