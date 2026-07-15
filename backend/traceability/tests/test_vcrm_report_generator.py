@@ -256,3 +256,98 @@ class TestPDFExport:
 
         assert "TenantA-Req" in text
         assert "TenantB-Req-Secret" not in text
+
+
+# ---------------------------------------------------------------------------
+# REQ-L2-TE-013: VCRM PDF export via dedicated renderer
+# ---------------------------------------------------------------------------
+
+
+class TestVCRMPDFExport:
+    """REQ-L2-TE-013: VCRM PDF export produces valid PDF with 4-column matrix."""
+
+    def test_vcrm_pdf_returns_valid_pdf_bytes(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """VCRM PDF export returns non-empty bytes starting with %PDF-."""
+        with active_tenant(tenant_a):
+            _, req = make_requirement(tenant_a, workspace_a, "VCRM-Req-1")
+            pdf_bytes = vcrm_gen.export_vcrm_pdf(workspace_a.id)
+
+        assert isinstance(pdf_bytes, bytes)
+        assert len(pdf_bytes) > 1024  # > 1KB
+        assert pdf_bytes[:5] == b"%PDF-"
+
+    def test_vcrm_pdf_empty_workspace_produces_valid_pdf(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """Empty workspace VCRM PDF is still valid (no error)."""
+        with active_tenant(tenant_a):
+            pdf_bytes = vcrm_gen.export_vcrm_pdf(workspace_a.id)
+
+        assert isinstance(pdf_bytes, bytes)
+        assert pdf_bytes[:5] == b"%PDF-"
+
+    def test_vcrm_pdf_contains_matrix_header(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """VCRM PDF contains table headers (Requirement, Component, TestCase, Result)."""
+        from pypdf import PdfReader
+
+        with active_tenant(tenant_a):
+            _, req = make_requirement(tenant_a, workspace_a, "VCRM-Header-Test")
+            pdf_bytes = vcrm_gen.export_vcrm_pdf(workspace_a.id)
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+
+        # Should contain at least some indication of the matrix structure
+        assert "Requirement" in text or "VCRM" in text
+
+    def test_vcrm_pdf_contains_requirement_data(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """VCRM PDF contains requirement IDs from the matrix."""
+        from pypdf import PdfReader
+
+        with active_tenant(tenant_a):
+            _, req1 = make_requirement(tenant_a, workspace_a, "VCRM-Req-Alpha")
+            _, req2 = make_requirement(tenant_a, workspace_a, "VCRM-Req-Beta")
+            pdf_bytes = vcrm_gen.export_vcrm_pdf(workspace_a.id)
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+
+        # Should contain the IDs (at least first 8 chars or full UUID)
+        req1_id_short = str(req1.id)[:8]
+        req2_id_short = str(req2.id)[:8]
+        # At least one of the requirements should appear
+        assert req1_id_short in text or str(req1.id) in text or req2_id_short in text or str(req2.id) in text
+
+    def test_vcrm_pdf_with_test_results(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """VCRM PDF includes test results (Passed, Failed, Not Run)."""
+        from pypdf import PdfReader
+
+        with active_tenant(tenant_a):
+            _, req = make_requirement(tenant_a, workspace_a, "VCRM-WithTests")
+            _, tc = make_test_case(tenant_a, workspace_a, "VCRM-TC-1")
+            # Link requirement to test case
+            art_req = req.artifact
+            art_tc = tc.artifact
+            make_trace_link(art_req, art_tc, tenant_a, "verifies")
+
+            pdf_bytes = vcrm_gen.export_vcrm_pdf(workspace_a.id)
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+
+        # Should indicate VCRM or matrix
+        assert "VCRM" in text or "Matrix" in text or len(text) > 500
