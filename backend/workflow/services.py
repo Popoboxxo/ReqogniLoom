@@ -363,6 +363,35 @@ def get_available_transitions(
     )
 
 
+def get_history(
+    item_id: UUID | str,
+    item_type: str,
+    workspace_id: UUID | str,
+) -> list[WorkflowHistoryEntry]:
+    """Return the append-only transition history for an item (REQ-144).
+
+    Read-only. Used by the REST/MCP layers to render a "History" view of
+    workflow transitions (state changes, actor, timestamp, whether the
+    transition passed a SignatureGate). Never raises for the "no state yet"
+    case — returns an empty list so callers can treat "not configured" and
+    "no history yet" uniformly.
+
+    Args:
+        item_id:      UUID of the item.
+        item_type:    Entity type (e.g. "Requirement").
+        workspace_id: Workspace UUID.
+
+    Returns:
+        WorkflowHistoryEntry list ordered oldest-first (chronological).
+    """
+    item_id_uuid = UUID(str(item_id))
+    workspace_uuid = UUID(str(workspace_id))
+
+    return _get_lifecycle().get_history(
+        item_id_uuid, item_type, workspace_uuid
+    )
+
+
 def create_default_workflow(
     workspace_id: UUID | str,
     preset: str,
@@ -464,6 +493,7 @@ __all__ = [
     "initialize_workflow_states",
     "get_definition",
     "get_available_transitions",
+    "get_history",
     "create_default_workflow",
     "update_custom_workflow",
     "check_downgrade_compatibility",

@@ -399,12 +399,22 @@ class RequirementService(ServiceBase):
         return req
 
     def list_requirements(
-        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        include_deleted: bool = False,
+        status: Optional[str] = None,
     ) -> QuerySet[Requirement]:
         """Return Requirements in *workspace_id*.
 
         REQ-006: Excludes soft-deleted requirements (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
+
+        REQ-144: Pass ``status`` to filter by the WorkflowEngine-owned lifecycle
+        mirror (e.g. ``status="in_review"`` for the review queue). ``status`` is
+        a pure read filter on the denormalized mirror column — it does not
+        affect the workflow engine and does not accept the client to *write*
+        status (see ``update_requirement``).
 
         REQ-088: Returns a lazy ``QuerySet`` (no ``list()``) so the caller —
         e.g. the paginating ViewSet (REQ-034) — can slice with LIMIT/OFFSET
@@ -416,6 +426,8 @@ class RequirementService(ServiceBase):
         )
         if not include_deleted:
             qs = qs.exclude(lifecycle_status="deleted")
+        if status:
+            qs = qs.filter(status=status)
         return qs
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------

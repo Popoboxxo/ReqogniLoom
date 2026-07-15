@@ -211,6 +211,30 @@ class WorkflowFacade(ServiceBase):
             workspace_id=workspace_id,
         )
 
+    def get_history(
+        self,
+        item_id: UUID | str,
+        ctx: AuthContext,
+        *,
+        item_type: str = "Requirement",
+        workspace_id: UUID | str,
+    ) -> list:
+        """Return the workflow transition history for an item (REQ-144).
+
+        Read-only. Sets the tenant context and delegates to
+        ``workflow.services.get_history``. Returns a chronological list of
+        ``WorkflowHistoryEntry`` ORM instances (never raises for "no history").
+        """
+        self._set_tenant_context(ctx)
+
+        from workflow.services import get_history as wf_get_history
+
+        return wf_get_history(
+            item_id=item_id,
+            item_type=item_type,
+            workspace_id=workspace_id,
+        )
+
     # ---------- Private helpers ----------
 
     @staticmethod
