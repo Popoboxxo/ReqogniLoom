@@ -9,6 +9,7 @@ Architecture:
 
 Endpoints:
   GET    /api/v1/api-keys/         — list keys (metadata only)
+  GET    /api/v1/api-keys/<pk>/    — retrieve one key (metadata only)
   POST   /api/v1/api-keys/         — create key (plaintext returned ONCE)
   DELETE /api/v1/api-keys/<pk>/    — revoke key
 """
@@ -27,9 +28,10 @@ from auth_tenancy.services.authentication import AuthenticationService
 class ApiKeyViewSet(ViewSet):
     """REST ViewSet for API key lifecycle management.
 
-    list:   GET  /api/v1/api-keys/          — metadata-only listing
-    create: POST /api/v1/api-keys/          — create, plaintext returned once
-    destroy:DEL  /api/v1/api-keys/<pk>/     — revoke key
+    list:    GET  /api/v1/api-keys/         — metadata-only listing
+    retrieve:GET  /api/v1/api-keys/<pk>/    — metadata for one key
+    create:  POST /api/v1/api-keys/         — create, plaintext returned once
+    destroy: DEL  /api/v1/api-keys/<pk>/    — revoke key
 
     Authentication: Bearer token (AuthTenancyAuthentication via DRF default classes).
     Permissions:  IsAuthenticated (any authenticated user may manage own keys).
@@ -74,6 +76,51 @@ class ApiKeyViewSet(ViewSet):
         from uuid import UUID
         keys = self._authn.list_api_keys(user_id=UUID(user_id))
         return Response(keys, status=status.HTTP_200_OK)
+
+    # -- retrieve (GET /api/v1/api-keys/<pk>/) -----------------------------
+
+    def retrieve(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        """Return metadata for a single API key owned by the caller.
+
+        Mirrors :meth:`list` — the plaintext is never returned; it is only
+        available once at creation time. Keys belonging to other users (and
+        therefore other tenants) are never exposed: the lookup is scoped to the
+        authenticated user's keys, so a foreign key id yields 404.
+
+        Returns 200 with the key metadata, 404 if the key does not exist or is
+        not owned by the caller, 401 if unauthenticated.
+        """
+        user_id = self._get_user_id(request)
+        if user_id is None:
+            return Response(
+                {"error": "authentication_required", "message": "Not authenticated"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if not pk:
+            return Response(
+                {"error": "NOT_FOUND", "message": "Key ID is required."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from uuid import UUID
+        try:
+            key_uuid = UUID(pk)
+        except (ValueError, AttributeError):
+            return Response(
+                {"error": "NOT_FOUND", "message": "Invalid key ID."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        keys = self._authn.list_api_keys(user_id=UUID(user_id))
+        match = next((k for k in keys if k.get("id") == str(key_uuid)), None)
+        if match is None:
+            return Response(
+                {"error": "NOT_FOUND", "message": "Key not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(match, status=status.HTTP_200_OK)
 
     # -- create (POST /api/v1/api-keys/) -----------------------------------
 
