@@ -83,7 +83,29 @@ cd ai-native-reqflow-POC
 docker-compose build
 ```
 
-### 2. Start the Stack
+### 2. Configure Secrets (REQUIRED)
+
+Before starting the stack, you **must** set up two critical secrets in a `.env` file:
+
+```bash
+# Copy the example .env
+cp .env.example .env
+
+# Generate SECRET_KEY
+python3 -c "import secrets; print(secrets.token_urlsafe(64))" >> /tmp/secret_key.txt
+
+# Generate AUTH_JWT_SECRET  
+python3 -c "import secrets; print(secrets.token_urlsafe(64))" >> /tmp/auth_jwt_secret.txt
+
+# Edit .env and fill in BOTH variables (use the generated values):
+# SECRET_KEY=<value-from-above>
+# AUTH_JWT_SECRET=<value-from-above>
+vim .env
+```
+
+**Why this is required:** Both `SECRET_KEY` and `AUTH_JWT_SECRET` are critical for security and workflow integrity. They are not defaulted in production — the application will fail to start if either is missing or empty.
+
+### 3. Start the Stack
 
 ```bash
 docker-compose up
@@ -92,7 +114,7 @@ docker-compose up
 Wait for all services to be ready (backend and frontend should show "ready" or similar log messages).
 Open a new terminal for the next step.
 
-### 3. Initialize Database
+### 4. Initialize Database
 
 ```bash
 # Run migrations
@@ -102,7 +124,7 @@ docker-compose exec backend python manage.py migrate
 docker-compose exec backend python manage.py seed_demo
 ```
 
-### 4. Initialize Admin User (REQUIRED for first run)
+### 5. Initialize Admin User (REQUIRED for first run)
 
 The database is empty after migrations. You must seed the demo admin user before logging in:
 
@@ -118,7 +140,7 @@ docker-compose exec -e DEMO_ADMIN_PASSWORD="my-secure-pw" backend python manage.
 
 The command prints the active credentials at the end. Re-running is safe (idempotent).
 
-### 5. Access the Application
+### 6. Access the Application
 
 - **Frontend:** http://localhost:5173
   - **Default credentials:** username=`admin`, password=`admin12345` (from step 4)
