@@ -461,7 +461,11 @@ class RequirementViewSet(BaseEntityViewSet):
         return RequirementService()
 
     def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET /api/v1/requirements/ — list all requirements."""
+        """GET /api/v1/requirements/ — list all requirements.
+
+        REQ-144: optional ``?status=<state>`` filters by the WorkflowEngine
+        lifecycle mirror (e.g. ``?status=in_review`` for the review queue).
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -472,7 +476,10 @@ class RequirementViewSet(BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             workspace_id = UUID(workspace_id_str)
-            items = self._svc().list_requirements(workspace_id=workspace_id, ctx=ctx)
+            status_filter = request.query_params.get("status") or None
+            items = self._svc().list_requirements(
+                workspace_id=workspace_id, ctx=ctx, status=status_filter
+            )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
         except PermissionDeniedError as exc:
@@ -688,6 +695,52 @@ class RequirementViewSet(BaseEntityViewSet):
                 "new_state": result.new_state,
                 "requirement": RequirementSerializer(_dto_from_orm(updated)).data,
             }
+        )
+
+    @action(detail=True, methods=["get"], url_path="workflow-history")
+    def workflow_history(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/requirements/{pk}/workflow-history/ — transition audit trail (REQ-144).
+
+        Returns the append-only WorkflowHistoryEntry list for this requirement,
+        oldest first: actor, from/to state, change_reason, timestamp, and
+        whether the transition was signature-sealed. The seal value itself
+        (``signature_seal``) is never exposed — only a ``sealed`` boolean.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            req = self._svc().get_requirement(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        workspace_id = req.artifact.workspace_id
+        facade = WorkflowFacade()
+        entries = facade.get_history(
+            item_id=req.id,
+            ctx=ctx,
+            item_type="Requirement",
+            workspace_id=workspace_id,
+        )
+        return Response(
+            [
+                {
+                    "id": str(entry.id),
+                    "from_state": entry.from_state,
+                    "to_state": entry.to_state,
+                    "actor": entry.transitioned_by,
+                    "change_reason": entry.change_reason,
+                    "transitioned_at": entry.transitioned_at.isoformat(),
+                    "sealed": bool(entry.signature_seal),
+                }
+                for entry in entries
+            ]
         )
 
     @action(detail=True, methods=["get"], url_path="diff")

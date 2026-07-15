@@ -465,6 +465,121 @@ class TestRequirementStatusSingleSource:
 
 
 # ---------------------------------------------------------------------------
+# RequirementViewSet.workflow_history — REQ-144 review UI history endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestRequirementWorkflowHistory:
+    """GET /api/v1/requirements/{pk}/workflow-history/ (REQ-144)."""
+
+    def _svc_mock(self) -> MagicMock:
+        svc = MagicMock()
+        req = MagicMock()
+        req.id = uuid.uuid4()
+        req.artifact.workspace_id = uuid.uuid4()
+        svc.get_requirement.return_value = req
+        return svc
+
+    def test_workflow_history_returns_entries_without_seal_value(self) -> None:
+        """Entries expose a `sealed` boolean, never the raw signature_seal."""
+        from datetime import datetime, timezone
+
+        entry_gated = MagicMock()
+        entry_gated.id = uuid.uuid4()
+        entry_gated.from_state = "in_review"
+        entry_gated.to_state = "approved"
+        entry_gated.transitioned_by = "user-1"
+        entry_gated.change_reason = "looks good"
+        entry_gated.transitioned_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        entry_gated.signature_seal = "some-hmac-seal-value"
+
+        entry_plain = MagicMock()
+        entry_plain.id = uuid.uuid4()
+        entry_plain.from_state = "draft"
+        entry_plain.to_state = "in_review"
+        entry_plain.transitioned_by = "user-2"
+        entry_plain.change_reason = ""
+        entry_plain.transitioned_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        entry_plain.signature_seal = ""
+
+        facade = MagicMock()
+        facade.get_history.return_value = [entry_plain, entry_gated]
+
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/requirements/123/workflow-history/")
+        req.auth_context = _make_auth_context()
+        view = RequirementViewSet.as_view({"get": "workflow_history"})
+        with (
+            patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()),
+            patch("rest_api.views.WorkflowFacade", return_value=facade),
+        ):
+            response = view(req, pk=str(uuid.uuid4()))
+
+        assert response.status_code == 200
+        assert len(response.data) == 2
+        assert response.data[0]["to_state"] == "in_review"
+        assert response.data[0]["sealed"] is False
+        assert response.data[1]["to_state"] == "approved"
+        assert response.data[1]["sealed"] is True
+        # The raw seal value must never leak into the response body.
+        for entry in response.data:
+            assert "signature_seal" not in entry
+            assert "some-hmac-seal-value" not in str(entry)
+
+    def test_workflow_history_returns_404_for_unknown_requirement(self) -> None:
+        from application.services import NotFoundError
+
+        svc = MagicMock()
+        svc.get_requirement.side_effect = NotFoundError("not found")
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/requirements/999/workflow-history/")
+        req.auth_context = _make_auth_context()
+        view = RequirementViewSet.as_view({"get": "workflow_history"})
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc):
+            response = view(req, pk=str(uuid.uuid4()))
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# RequirementViewSet.list — REQ-144 ?status= filter for the review queue
+# ---------------------------------------------------------------------------
+
+
+class TestRequirementListStatusFilter:
+    """GET /api/v1/requirements/?workspace_id=...&status=in_review (REQ-144)."""
+
+    def _svc_mock(self) -> MagicMock:
+        svc = MagicMock()
+        svc.list_requirements.return_value = []
+        return svc
+
+    def test_list_forwards_status_query_param_to_service(self) -> None:
+        workspace_id = uuid.uuid4()
+        req = _make_request(
+            "get", params={"workspace_id": str(workspace_id), "status": "in_review"}
+        )
+        view = RequirementViewSet.as_view({"get": "list"})
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = view(req)
+
+        assert response.status_code == 200
+        svc_mock.list_requirements.assert_called_once()
+        assert svc_mock.list_requirements.call_args.kwargs["status"] == "in_review"
+
+    def test_list_without_status_passes_none(self) -> None:
+        workspace_id = uuid.uuid4()
+        req = _make_request("get", params={"workspace_id": str(workspace_id)})
+        view = RequirementViewSet.as_view({"get": "list"})
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = view(req)
+
+        assert response.status_code == 200
+        assert svc_mock.list_requirements.call_args.kwargs["status"] is None
+
+
+# ---------------------------------------------------------------------------
 # ArchitectureElementViewSet — PATCH wires expected_version
 # ---------------------------------------------------------------------------
 
