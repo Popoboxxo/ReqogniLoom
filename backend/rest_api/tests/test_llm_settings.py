@@ -127,6 +127,39 @@ def test_put_updates_provider_and_stores_api_key_write_only(llm_tenant):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
+def test_ollama_without_base_url_is_rejected(llm_tenant):
+    """[REQ-132] Selecting the Ollama provider without a base_url is a 400 —
+    the backend must not silently fall back to localhost:11434."""
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    resp = client.put(
+        "/api/v1/llm-settings/",
+        {"provider": "ollama", "base_url": ""},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "base_url" in resp.content.decode().lower()
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_ollama_with_base_url_is_accepted(llm_tenant):
+    """[REQ-132] Ollama with an explicit base_url saves successfully."""
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    resp = client.put(
+        "/api/v1/llm-settings/",
+        {"provider": "ollama", "base_url": "http://localhost:11434"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.json()["provider"] == "ollama"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
 def test_patch_partial_update_keeps_existing_api_key(llm_tenant):
     """PATCH without api_key leaves the stored key intact."""
     client = APIClient()

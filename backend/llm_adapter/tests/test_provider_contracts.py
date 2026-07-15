@@ -21,6 +21,7 @@ from llm_adapter.interface import LlmCapabilityInterface
 from llm_adapter.providers import (
     AnthropicProvider,
     AzureOpenAiProvider,
+    LlmNotConfiguredError,
     MockLlmProvider,
     OllamaProvider,
     OpenAiProvider,
@@ -37,6 +38,7 @@ from llm_adapter.providers import (
 _DUMMY_CONFIG = ProviderConfig(
     provider_name="test-dummy",
     api_key="sk-dummy-key-for-contract-tests-only",
+    api_base_url="http://localhost:11434",
     timeout=5,
 )
 
@@ -135,6 +137,26 @@ def test_mock_provider_instantiable_without_config() -> None:
 def test_http_provider_instantiable_with_config(provider_cls: type) -> None:
     """[REQ-085] HTTP-backed providers are instantiable given a ProviderConfig."""
     provider = _instantiate(provider_cls)
+    assert isinstance(provider, LlmCapabilityInterface)
+
+
+@pytest.mark.parametrize("base_url", ["", "   ", None], ids=["empty", "blank", "none"])
+def test_ollama_requires_base_url(base_url) -> None:
+    """[REQ-132] OllamaProvider rejects a blank base_url instead of silently
+    falling back to localhost — misconfiguration must surface at init time."""
+    with pytest.raises(LlmNotConfiguredError):
+        OllamaProvider(
+            ProviderConfig(provider_name="ollama", api_base_url=base_url)
+        )
+
+
+def test_ollama_accepts_configured_base_url() -> None:
+    """[REQ-132] A configured base_url instantiates OllamaProvider normally."""
+    provider = OllamaProvider(
+        ProviderConfig(
+            provider_name="ollama", api_base_url="http://localhost:11434"
+        )
+    )
     assert isinstance(provider, LlmCapabilityInterface)
 
 

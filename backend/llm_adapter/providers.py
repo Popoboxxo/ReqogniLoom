@@ -1012,7 +1012,12 @@ class OllamaProvider(_BaseHttpProvider):
 
     def __init__(self, config: ProviderConfig) -> None:
         super().__init__(config)
-        self._base_url = config.api_base_url or self.DEFAULT_BASE_URL
+        if not (config.api_base_url or "").strip():
+            raise LlmNotConfiguredError(
+                "Ollama base_url is not configured. "
+                "Set OLLAMA_BASE_URL environment variable."
+            )
+        self._base_url = config.api_base_url
         self._model = os.environ.get("LLM_MODEL", self.MODEL_NAME)
 
     def _chat(

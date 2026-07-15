@@ -1033,7 +1033,11 @@ class TestDeriveRequirementsAcrossProviders:
 
         return [
             AnthropicProvider(ProviderConfig(provider_name="anthropic")),
-            OllamaProvider(ProviderConfig(provider_name="ollama")),
+            OllamaProvider(
+                ProviderConfig(
+                    provider_name="ollama", api_base_url="http://localhost:11434"
+                )
+            ),
             AzureOpenAiProvider(
                 ProviderConfig(provider_name="azure", azure_deployment="dep")
             ),
