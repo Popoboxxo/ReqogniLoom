@@ -58,6 +58,10 @@ export function CsvImport(): JSX.Element {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // REQ-146: ReqIF 1.2 export (StakeholderNeeds, Requirements, TraceLinks).
+  const [isExportingReqif, setIsExportingReqif] = useState(false);
+  const [reqifExportError, setReqifExportError] = useState<string | null>(null);
+
   const handleFileSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>): void => {
       const file = event.target.files?.[0] ?? null;
@@ -137,6 +141,24 @@ export function CsvImport(): JSX.Element {
       setIsExporting(false);
     }
   }, [activeWorkspace, exportEntityType, t]);
+
+  // REQ-146: ReqIF 1.2 export (StakeholderNeeds, Requirements, TraceLinks).
+  const handleExportReqif = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace) return;
+
+    setIsExportingReqif(true);
+    setReqifExportError(null);
+
+    try {
+      await exportApi.downloadReqif(activeWorkspace.id);
+    } catch (err) {
+      setReqifExportError(
+        err instanceof Error ? err.message : t("export.errorGeneric", "Export failed")
+      );
+    } finally {
+      setIsExportingReqif(false);
+    }
+  }, [activeWorkspace, t]);
 
   const handleReset = useCallback((): void => {
     setSelectedFile(null);
@@ -501,28 +523,59 @@ export function CsvImport(): JSX.Element {
           ))}
         </div>
 
-        <button
-          type="button"
-          data-testid="csv-export-btn"
-          onClick={() => void handleExport()}
-          disabled={isExporting}
-          style={{
-            background: "var(--color-primary)",
-            color: "white",
-            border: "none",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-2) var(--space-5)",
-            fontSize: "var(--font-size-sm)",
-            fontWeight: 600,
-            cursor: isExporting ? "not-allowed" : "pointer",
-            opacity: isExporting ? 0.5 : 1,
-            transition: "var(--transition-fast)",
-          }}
-        >
-          {isExporting
-            ? t("export.downloading", "Exporting...")
-            : t("export.download", "Export CSV")}
-        </button>
+        <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            data-testid="csv-export-btn"
+            onClick={() => void handleExport()}
+            disabled={isExporting}
+            style={{
+              background: "var(--color-primary)",
+              color: "white",
+              border: "none",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-5)",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              cursor: isExporting ? "not-allowed" : "pointer",
+              opacity: isExporting ? 0.5 : 1,
+              transition: "var(--transition-fast)",
+            }}
+          >
+            {isExporting
+              ? t("export.downloading", "Exporting...")
+              : t("export.download", "Export CSV")}
+          </button>
+
+          {/* REQ-146: ReqIF 1.2 export — whole-workspace (Needs + Requirements
+              + TraceLinks), independent of the entity-type radio above. */}
+          <button
+            type="button"
+            data-testid="reqif-export-btn"
+            onClick={() => void handleExportReqif()}
+            disabled={isExportingReqif}
+            title={t(
+              "export.reqifHint",
+              "Exports the whole workspace (Needs, Requirements, TraceLinks) as ReqIF 1.2 for DOORS/Polarion"
+            )}
+            style={{
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2) var(--space-5)",
+              fontSize: "var(--font-size-sm)",
+              fontWeight: 600,
+              cursor: isExportingReqif ? "not-allowed" : "pointer",
+              opacity: isExportingReqif ? 0.5 : 1,
+              transition: "var(--transition-fast)",
+            }}
+          >
+            {isExportingReqif
+              ? t("export.downloading", "Exporting...")
+              : t("export.downloadReqif", "Export ReqIF")}
+          </button>
+        </div>
 
         {exportError && (
           <div
@@ -538,6 +591,23 @@ export function CsvImport(): JSX.Element {
             }}
           >
             {exportError}
+          </div>
+        )}
+
+        {reqifExportError && (
+          <div
+            data-testid="reqif-export-error"
+            role="alert"
+            style={{
+              marginTop: "var(--space-4)",
+              padding: "var(--space-3)",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-danger, #f87171)",
+              borderRadius: "var(--radius-md)",
+              color: "var(--color-danger, #f87171)",
+            }}
+          >
+            {reqifExportError}
           </div>
         )}
       </section>
