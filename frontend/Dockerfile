@@ -40,7 +40,10 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Ensure nginx html directory is owned by app user
 RUN chown -R app:app /usr/share/nginx/html
 
-EXPOSE 80
+# Create necessary nginx directories for cache/pid (required for non-root operation)
+RUN mkdir -p /var/cache/nginx /var/run && chown -R app:app /var/cache/nginx /var/run
+
+EXPOSE 8080
 
 # Run as non-root user
 USER app
