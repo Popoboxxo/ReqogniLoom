@@ -158,19 +158,32 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const [configs, setConfigs] = useState<AttributeVisibilityConfig[]>([]);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
     attributeVisibilityApi.list()
       .then((data) => {
-        if (isMounted) setConfigs(data);
+        if (isMounted) {
+          setConfigs(data);
+          setHasLoaded(true);
+        }
       })
       .catch((err) => {
-        if (isMounted) {
+        if (!isMounted) return;
+        // An empty ruleset is a valid, expected state — no seed data exists by
+        // design. A 404 means the same thing, so treat it as "nothing
+        // configured yet" (informational) rather than a user-facing error
+        // (REQ-136). Only genuine failures surface as an error.
+        const code = (err as { error?: { code?: string } } | null)?.error?.code;
+        if (code === 'NOT_FOUND') {
+          setConfigs([]);
+        } else {
           const msg = extractErrorMessage(err);
           setSaveError(msg);
           onError?.(new Error(msg));
         }
+        setHasLoaded(true);
       });
     return () => { isMounted = false; };
   }, [onError]);
@@ -450,6 +463,28 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
           </table>
         </div>
       </div>
+
+      {/* Informational empty state: an empty ruleset is valid by design and
+          must not read as an error (REQ-136). */}
+      {hasLoaded && !saveError && configs.length === 0 && (
+        <div
+          role="status"
+          data-testid="attr-visibility-empty-info"
+          style={{
+            padding: 'var(--space-3)',
+            background: 'var(--color-surface-raised)',
+            color: 'var(--color-text-muted)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-md)',
+            fontSize: 'var(--font-size-sm)',
+          }}
+        >
+          {t(
+            'admin.attributeVisibilityEmpty',
+            'No attribute visibility rules configured yet. Defaults apply until you save a configuration.'
+          )}
+        </div>
+      )}
 
       {/* Error/Success Messages */}
       {saveError && (
