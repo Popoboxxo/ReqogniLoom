@@ -47,6 +47,7 @@ from persistence.models import (
 from traceability.types import LinkType
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from llm_adapter.providers import truncate_prompt_content
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +189,7 @@ class AiDerivationService(ServiceBase):
             template,
             n=count,
             need_title=need.title,
-            need_description=need.description or "",
+            need_description=truncate_prompt_content(need.description or ""),
         )
 
         raw = self._complete(
@@ -253,7 +254,7 @@ class AiDerivationService(ServiceBase):
             {
                 "id": str(ae.id),
                 "name": ae.title,
-                "description": ae.description or "",
+                "description": truncate_prompt_content(ae.description or ""),
             }
             for ae in arch_elements
         ]
@@ -263,7 +264,7 @@ class AiDerivationService(ServiceBase):
         prompt = self._render(
             template,
             req_title=req.title,
-            req_description=req.description or "",
+            req_description=truncate_prompt_content(req.description or ""),
             arch_elements_json=json.dumps(arch_payload),
         )
 
@@ -325,7 +326,7 @@ class AiDerivationService(ServiceBase):
             {
                 "id": str(ae.id),
                 "name": ae.title,
-                "description": ae.description or "",
+                "description": truncate_prompt_content(ae.description or ""),
             }
             for ae in arch_elements
         ]
@@ -334,7 +335,7 @@ class AiDerivationService(ServiceBase):
         prompt = self._render(
             template,
             req_title=req.title,
-            req_description=req.description or "",
+            req_description=truncate_prompt_content(req.description or ""),
             arch_elements_json=json.dumps(arch_payload),
         )
 

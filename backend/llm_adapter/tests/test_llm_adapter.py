@@ -375,6 +375,68 @@ class TestArtifactContentEmbedding:
 
 
 # ---------------------------------------------------------------------------
+# REQ-046 — long content is truncated before being embedded into a prompt
+# ---------------------------------------------------------------------------
+
+
+class TestPromptContentTruncation:
+    """REQ-046: content embedded into a prompt is bounded in length."""
+
+    def test_short_content_is_unchanged(self):
+        from llm_adapter.providers import truncate_prompt_content
+
+        assert truncate_prompt_content("short text") == "short text"
+
+    def test_long_content_is_truncated_with_ellipsis_marker(self):
+        from llm_adapter.providers import (
+            MAX_PROMPT_CONTENT_CHARS,
+            truncate_prompt_content,
+        )
+
+        long_text = "x" * (MAX_PROMPT_CONTENT_CHARS + 500)
+        result = truncate_prompt_content(long_text)
+
+        assert len(result) < len(long_text)
+        assert result.startswith("x" * MAX_PROMPT_CONTENT_CHARS)
+        assert result.endswith("[truncated]")
+
+    def test_none_content_becomes_empty_string(self):
+        from llm_adapter.providers import truncate_prompt_content
+
+        assert truncate_prompt_content(None) == ""
+
+    def test_custom_limit_is_respected(self):
+        from llm_adapter.providers import truncate_prompt_content
+
+        result = truncate_prompt_content("abcdefghij", limit=5)
+        assert result.startswith("abcde")
+        assert "[truncated]" in result
+
+    def test_format_artifact_context_truncates_long_content(self):
+        from llm_adapter.providers import (
+            MAX_PROMPT_CONTENT_CHARS,
+            _format_artifact_context,
+        )
+
+        block = _format_artifact_context("Title", "y" * (MAX_PROMPT_CONTENT_CHARS + 100))
+        assert "[truncated]" in block
+        # The block must not carry the full untruncated content.
+        assert "y" * (MAX_PROMPT_CONTENT_CHARS + 100) not in block
+
+    def test_format_artifacts_list_truncates_each_entry(self):
+        from llm_adapter.providers import (
+            MAX_PROMPT_CONTENT_CHARS,
+            _format_artifacts_list,
+        )
+
+        block = _format_artifacts_list(
+            [{"id": "i1", "title": "T1", "content": "z" * (MAX_PROMPT_CONTENT_CHARS + 100)}]
+        )
+        assert "[truncated]" in block
+        assert "z" * (MAX_PROMPT_CONTENT_CHARS + 100) not in block
+
+
+# ---------------------------------------------------------------------------
 # COMP-LA-003 — CapabilityRouter
 # ---------------------------------------------------------------------------
 
