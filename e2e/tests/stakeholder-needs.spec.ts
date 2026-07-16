@@ -77,7 +77,8 @@ test.describe('[REQ-L0-003] Traceability — create TraceLink via UI', () => {
     const createBtn = page.locator('[data-testid="tracelink-create-btn"]');
     await expect(createBtn).toBeVisible({ timeout: 10000 });
     await createBtn.click();
-    await expect(page.locator('[data-testid="tracelink-create-form"]')).toBeVisible({ timeout: 8000 });
+    // REQ-005: inline form replaced by the unified CreateTraceLinkDialog modal.
+    await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
   });
 
   test('[REQ-L0-003] TraceLink creation form source and target dropdowns are populated', async ({ page }) => {
@@ -85,23 +86,24 @@ test.describe('[REQ-L0-003] Traceability — create TraceLink via UI', () => {
     const createBtn = page.locator('[data-testid="tracelink-create-btn"]');
     await expect(createBtn).toBeVisible({ timeout: 10000 });
     await createBtn.click();
-    await expect(page.locator('[data-testid="tracelink-create-form"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
 
-    const sourceSelect = page.locator('[data-testid="tracelink-source-select"]');
-    const targetSelect = page.locator('[data-testid="tracelink-target-select"]');
+    // Global mode (no fixed sourceId on /traceability) shows a plain source
+    // <select>; target is a searchable ElementPicker (list), not a <select>.
+    const sourceSelect = page.locator('[data-testid="create-trace-link-source-select"]');
+    const targetList = page.locator('[data-testid="create-trace-link-target-list"]');
     await expect(sourceSelect).toBeVisible({ timeout: 6000 });
-    await expect(targetSelect).toBeVisible({ timeout: 6000 });
+    await expect(targetList).toBeVisible({ timeout: 6000 });
 
-    // Count non-placeholder options
     const sourceOptions = await sourceSelect.locator('option').count();
-    const targetOptions = await targetSelect.locator('option').count();
+    const targetEntries = await targetList.locator('button[data-testid^="create-trace-link-target-element-"]').count();
 
-    if (sourceOptions <= 1 || targetOptions <= 1) {
+    if (sourceOptions <= 1 || targetEntries === 0) {
       // No artifacts seeded — graceful skip
       test.skip(true, 'Dropdowns empty — no artifacts seeded for this workspace');
     }
     expect(sourceOptions).toBeGreaterThan(1);
-    expect(targetOptions).toBeGreaterThan(1);
+    expect(targetEntries).toBeGreaterThan(0);
   });
 });
 
@@ -130,10 +132,14 @@ test.describe('[REQ-L0-004] Baselines — create via UI', () => {
     await page.locator('[data-testid="create-baseline-btn"]').click();
     await expect(page.locator('[data-testid="create-baseline-form"]')).toBeVisible({ timeout: 6000 });
 
-    // Artifact select must be present
+    // REQ-L1-049: free-text scope input replaced by a radio group with
+    // "document" / "project" / "global" options; the artifact select is
+    // only rendered once the "document" scope is chosen.
+    await expect(page.locator('[data-testid="baseline-scope-group"]')).toBeVisible({ timeout: 5000 });
+    await page.locator('[data-testid="baseline-scope-document"]').click();
+
+    // Artifact select must be present (document scope only)
     await expect(page.locator('[data-testid="baseline-artifact-select"]')).toBeVisible({ timeout: 5000 });
-    // Scope input must be present
-    await expect(page.locator('[data-testid="baseline-scope-input"]')).toBeVisible({ timeout: 5000 });
     // Submit button must be present
     await expect(page.locator('[data-testid="baseline-submit-btn"]')).toBeVisible({ timeout: 5000 });
   });
@@ -150,11 +156,20 @@ test.describe('[REQ-L0-005] Configurable lifecycle — workflow states', () => {
 
   test('[REQ-L0-005] req-workflow selector exists with draft / review / approved options', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
+    // "+ New" only opens an inline quick-create form; the full editor (with
+    // req-workflow) only renders after Save navigates to the detail route.
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-save-btn"]').click();
+
+    // REQ-143: current state is always shown read-only; a transitions
+    // <select> ("req-workflow") only renders when the backend reports
+    // allowed transitions from the current state, otherwise
+    // "req-workflow-locked" is shown. Literal states are no longer a fixed
+    // enum rendered as option text.
+    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 10000 });
     const workflow = page.locator('[data-testid="req-workflow"]');
-    await expect(workflow).toBeVisible({ timeout: 10000 });
-    const options = await workflow.locator('option').allTextContents();
-    expect(options).toEqual(expect.arrayContaining(['draft', 'review', 'approved']));
+    const locked = page.locator('[data-testid="req-workflow-locked"]');
+    await expect(workflow.or(locked)).toBeVisible({ timeout: 6000 });
   });
 });
 
@@ -291,7 +306,10 @@ test.describe('[REQ-L0-011] Audit trail', () => {
 
   test('[REQ-L0-011] change_reason field is visible in requirement editor (extended preset)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
+    // "+ New" only opens an inline quick-create form; the full editor (with
+    // req-title) only renders after Save navigates to the detail route.
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     const changeReasonInput = page.locator('[data-testid="change-reason-input"]');

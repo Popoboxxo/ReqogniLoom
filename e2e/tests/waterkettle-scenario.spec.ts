@@ -317,11 +317,14 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="req-title"]')).toHaveValue(/Wasser auf 100/);
 
-    // Workflow-Select mit Standard-States
+    // REQ-143: aktueller Status wird immer read-only angezeigt; das
+    // Transitions-Select ("req-workflow") rendert nur, wenn vom aktuellen
+    // Status Übergänge verfügbar sind — sonst "req-workflow-locked".
+    // States sind kein festes Enum mehr, sondern dynamische Backend-Transitionen.
+    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 5000 });
     const workflow = page.locator('[data-testid="req-workflow"]');
-    await expect(workflow).toBeVisible({ timeout: 5000 });
-    const options = await workflow.locator('option').allTextContents();
-    expect(options).toEqual(expect.arrayContaining(['draft', 'review', 'approved']));
+    const locked = page.locator('[data-testid="req-workflow-locked"]');
+    await expect(workflow.or(locked)).toBeVisible({ timeout: 5000 });
 
     // Category sichtbar
     const category = page.locator('[data-testid="req-category"]');
@@ -345,15 +348,15 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
     await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="arch-title"]')).toHaveValue(/Steuerungs-Platine/);
 
-    const typeSelect = page.locator('[data-testid="arch-element-type-select"]');
-    await expect(typeSelect).toBeVisible({ timeout: 6000 });
-    const options = await typeSelect.locator('option').allTextContents();
-    expect(options).toEqual(
-      expect.arrayContaining(['Component', 'Interface', 'Subsystem', 'Layer', 'Module'])
-    );
+    // REQ-006/D5: element_type ist ein Freitext-Input mit Autocomplete-
+    // Vorschlägen, kein festes <select> mit 5 Optionen mehr.
+    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    await expect(typeInput).toBeVisible({ timeout: 6000 });
+    await typeInput.fill('Module');
+    await expect(typeInput).toHaveValue('Module');
 
-    // TraceLink-Panel im Architecture-Editor
-    const panel = page.locator('[data-testid="arch-tracelink-panel"]');
+    // TraceLink-Panel im Architecture-Editor — umbenannt in "arch-linked-reqs-panel"
+    const panel = page.locator('[data-testid="arch-linked-reqs-panel"]');
     await expect(panel).toBeVisible({ timeout: 6000 });
   });
 
@@ -402,6 +405,9 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
     const closeBtn = page.getByRole('button', { name: /close test run/i });
     await expect(closeBtn).toBeVisible({ timeout: 8000 });
     await closeBtn.click();
+    // Two-step inline confirmation (REQ-012) — the first click only reveals
+    // the confirm button, it doesn't call the close API by itself.
+    await page.getByTestId('testrun-confirm-close-btn').click();
     await page.waitForTimeout(1500);
 
     // Nach dem Close: aggregate status "failed" + finished_at gesetzt

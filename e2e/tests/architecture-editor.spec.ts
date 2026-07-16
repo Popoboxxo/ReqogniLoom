@@ -1,8 +1,18 @@
 // REQ-L2-RF-004, REQ-L3-RF004-001/002/003: Architecture editor (CRUD, markdown, linked reqs)
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+// "+ New" only opens an inline quick-create form (title input + Create/Cancel,
+// Create disabled until a title is entered); the full editor (arch-title etc.)
+// only renders after Create navigates to the created element's detail route.
+async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {
+  await page.locator('[data-testid="create-arch-btn"]').click();
+  await page.locator('[data-testid="arch-new-title-input"]').fill(title);
+  await page.locator('[data-testid="arch-new-save-btn"]').click();
+  await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+}
 
 test.describe('[COMP-RF-004] ArchitectureEditors', () => {
   test.beforeEach(async ({ page }) => {
@@ -12,16 +22,14 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
 
   test('[REQ-L3-RF004-001] element-type dropdown and delete confirmation dialog work', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
-    await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+    await createArchElementViaQuickForm(page);
 
-    // Element-type dropdown is visible with the 5 ADR-L3-RF-007 options
-    const typeSelect = page.locator('[data-testid="arch-element-type-select"]');
-    await expect(typeSelect).toBeVisible();
-    const options = await typeSelect.locator('option').allTextContents();
-    expect(options).toEqual(
-      expect.arrayContaining(['Component', 'Interface', 'Subsystem', 'Layer', 'Module'])
-    );
+    // REQ-006/D5: element type is now a free-text input with autocomplete
+    // suggestions (types can be extended freely), not a fixed <select>.
+    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    await expect(typeInput).toBeVisible();
+    await typeInput.fill('Interface');
+    await expect(typeInput).toHaveValue('Interface');
 
     // Delete button is visible
     const deleteBtn = page.locator('[data-testid="arch-delete-btn"]');
@@ -39,8 +47,7 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
 
   test('[REQ-L3-RF004-002] description field with markdown preview toggle is present', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
-    await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+    await createArchElementViaQuickForm(page);
 
     // Markdown toggle controls exist for the description field
     const previewBtn = page.locator('[data-testid="md-preview-btn"]').first();
@@ -55,8 +62,7 @@ test.describe('[COMP-RF-004] ArchitectureEditors', () => {
 
   test('[REQ-L3-RF004-003] linked-requirements sidebar is rendered (empty state ok)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
-    await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+    await createArchElementViaQuickForm(page);
 
     // Linked-requirements panel must be rendered
     const panel = page.locator('[data-testid="arch-linked-reqs-panel"]');

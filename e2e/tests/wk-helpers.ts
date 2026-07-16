@@ -56,7 +56,9 @@ export async function createRequirementViaUI(
     }
   }
   if (data.category) {
-    await page.locator('[data-testid="req-category"]').selectOption(data.category).catch(() => null);
+    // REQ_CATEGORIES option values are lowercase (frontend/src/types/index.ts) —
+    // normalize so callers can pass human-readable category names.
+    await page.locator('[data-testid="req-category"]').selectOption(data.category.toLowerCase());
     await page.locator('[data-testid="save-btn"]').click();
     await page.waitForLoadState('networkidle');
   }
@@ -72,6 +74,11 @@ export async function createArchitectureElementViaUI(
 ): Promise<string> {
   await page.goto(`${FRONTEND_URL}/architecture`);
   await page.locator('[data-testid="create-arch-btn"]').click();
+  // "+ New" only opens an inline quick-create form (title input + Save);
+  // the full editor only renders after Save navigates to the detail route.
+  await page.locator('[data-testid="arch-new-title-input"]').waitFor({ timeout: 8000 });
+  await page.locator('[data-testid="arch-new-title-input"]').fill(data.title);
+  await page.locator('[data-testid="arch-new-save-btn"]').click();
   await page.waitForURL(/\/architecture\/[0-9a-f-]+/, { timeout: 12000 });
 
   const url = page.url();
@@ -80,8 +87,9 @@ export async function createArchitectureElementViaUI(
   const id = match[1];
 
   await page.locator('[data-testid="arch-title"]').waitFor({ timeout: 8000 });
-  await page.locator('[data-testid="arch-title"]').fill(data.title);
-  await page.locator('[data-testid="arch-element-type-select"]').selectOption(data.elementType);
+  // REQ-006/D5: arch-element-type-select is a free-text autocomplete input,
+  // not a <select>, since backend element types are workspace-defined.
+  await page.locator('[data-testid="arch-element-type-select"]').fill(data.elementType);
   if (data.description) {
     const descArea = page.locator('textarea').first();
     if (await descArea.count() > 0) {
@@ -128,14 +136,17 @@ export async function createArchTraceLinkViaUI(
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/architecture/${sourceArchId}`);
   await page.locator('[data-testid="arch-title"]').waitFor({ timeout: 12000 });
-  const panel = page.locator('[data-testid="arch-tracelink-panel"]');
+  const panel = page.locator('[data-testid="arch-linked-reqs-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
-  await page.locator('[data-testid="arch-tracelink-create-btn"]').click();
-  await page.locator('[data-testid="arch-tracelink-source-select"]').waitFor({ timeout: 6000 });
-  await page.locator('[data-testid="arch-tracelink-target-select"]').waitFor({ timeout: 6000 });
-  await page.locator('[data-testid="arch-tracelink-target-select"]').selectOption(targetReqId);
-  await page.locator('[data-testid="arch-tracelink-type-select"]').selectOption(linkType);
-  await page.locator('[data-testid="arch-tracelink-save-btn"]').click();
+  // The architecture side uses the unified CreateTraceLinkDialog (REQ-005),
+  // not an inline form. With a fixed sourceId (this element), the dialog has
+  // no source-select — only a searchable target picker and link-type select.
+  await page.locator('[data-testid="trace-link-panel-open-dialog"]').click();
+  await page.locator('[data-testid="create-trace-link-dialog"]').waitFor({ timeout: 8000 });
+  await page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`).waitFor({ timeout: 8000 });
+  await page.locator(`[data-testid="create-trace-link-target-element-${targetReqId}"]`).click();
+  await page.locator('[data-testid="create-trace-link-type-select"]').selectOption(linkType);
+  await page.locator('[data-testid="create-trace-link-submit"]').click();
   await page.waitForLoadState('networkidle');
 }
 
@@ -189,7 +200,9 @@ export async function createIcdViaUI(
   if (data.direction) {
     await page.locator('[data-testid="icd-direction-select"]').selectOption(data.direction);
   }
-  await page.locator('[data-testid="icd-interface-type-input"]').fill(data.interfaceType);
+  // icd-interface-type-select is a fixed-enum <select> (provides/requires/
+  // event-in/event-out/data/control), not free text.
+  await page.locator('[data-testid="icd-interface-type-select"]').selectOption(data.interfaceType);
   await page.locator('[data-testid="icd-contract-textarea"]').fill(data.contract);
   await page.locator('[data-testid="create-icd-submit"]').click();
   await page.waitForLoadState('networkidle');
@@ -235,21 +248,20 @@ export async function createIssueViaUI(
   data: { title: string; description?: string; severity?: string; status?: string }
 ): Promise<string> {
   await page.goto(`${FRONTEND_URL}/issues`);
-  await page.locator('[data-testid="issue-create-btn"]').click();
-  await page.locator('[data-testid="issue-create-form"]').waitFor({ timeout: 8000 });
-  await page.locator('[data-testid="issue-title-input"]').fill(data.title);
-  if (data.description) {
-    await page.locator('[data-testid="issue-description-input"]').fill(data.description);
-  }
-  if (data.severity) {
-    await page.locator('[data-testid="issue-severity-select"]').selectOption(data.severity);
-  }
-  if (data.status) {
-    await page.locator('[data-testid="issue-status-select"]').selectOption(data.status);
-  }
-  await page.locator('[data-testid="issue-save-btn"]').click();
-  const item = page.locator('[data-testid^="issue-item-"]').first();
-  return extractIdFromTestid(item, 'issue-item-');
+  await page.locator('[data-testid="create-issue-btn"]').click();
+  // "+ New" only opens an inline quick-create form (title input + Save);
+  // the full editor navigates to /issues/:id afterwards. The detail form's
+  // description/severity/status fields have no data-testid, so they can't
+  // be set here without further UI-testability changes.
+  await page.locator('[data-testid="issue-new-title-input"]').waitFor({ timeout: 8000 });
+  await page.locator('[data-testid="issue-new-title-input"]').fill(data.title);
+  await page.locator('[data-testid="issue-new-save-btn"]').click();
+  await page.waitForURL(/\/issues\/[0-9a-f-]+/, { timeout: 12000 });
+
+  const url = page.url();
+  const match = url.match(/\/issues\/([0-9a-f-]+)/);
+  if (!match) throw new Error(`expected /issues/:id URL, got: ${url}`);
+  return match[1];
 }
 
 /**
@@ -260,24 +272,18 @@ export async function createRiskViaUI(
   data: { title: string; description?: string; severity?: string; probability?: string; impact?: string }
 ): Promise<string> {
   await page.goto(`${FRONTEND_URL}/risks`);
-  await page.locator('[data-testid="risk-create-btn"]').click();
-  await page.locator('[data-testid="risk-create-form"]').waitFor({ timeout: 8000 });
-  await page.locator('[data-testid="risk-title-input"]').fill(data.title);
-  if (data.description) {
-    await page.locator('[data-testid="risk-description-input"]').fill(data.description);
-  }
-  if (data.severity) {
-    await page.locator('[data-testid="risk-severity-select"]').selectOption(data.severity);
-  }
-  if (data.probability) {
-    await page.locator('[data-testid="risk-probability-select"]').selectOption(data.probability);
-  }
-  if (data.impact) {
-    await page.locator('[data-testid="risk-impact-select"]').selectOption(data.impact);
-  }
-  await page.locator('[data-testid="risk-save-btn"]').click();
-  const item = page.locator('[data-testid^="risk-item-"]').first();
-  return extractIdFromTestid(item, 'risk-item-');
+  await page.locator('[data-testid="create-risk-btn"]').click();
+  // Same inline quick-create-form pattern as Issues; detail-view
+  // description/severity/probability/impact fields have no data-testid.
+  await page.locator('[data-testid="risk-new-title-input"]').waitFor({ timeout: 8000 });
+  await page.locator('[data-testid="risk-new-title-input"]').fill(data.title);
+  await page.locator('[data-testid="risk-new-save-btn"]').click();
+  await page.waitForURL(/\/risks\/[0-9a-f-]+/, { timeout: 12000 });
+
+  const url = page.url();
+  const match = url.match(/\/risks\/([0-9a-f-]+)/);
+  if (!match) throw new Error(`expected /risks/:id URL, got: ${url}`);
+  return match[1];
 }
 
 /**
@@ -288,21 +294,18 @@ export async function createAdrViaUI(
   data: { title: string; context?: string; decision?: string; status?: string }
 ): Promise<string> {
   await page.goto(`${FRONTEND_URL}/adrs`);
-  await page.locator('[data-testid="adr-create-btn"]').click();
-  await page.locator('[data-testid="adr-create-form"]').waitFor({ timeout: 8000 });
-  await page.locator('[data-testid="adr-title-input"]').fill(data.title);
-  if (data.context) {
-    await page.locator('[data-testid="adr-context-input"]').fill(data.context);
-  }
-  if (data.decision) {
-    await page.locator('[data-testid="adr-decision-input"]').fill(data.decision);
-  }
-  if (data.status) {
-    await page.locator('[data-testid="adr-status-select"]').selectOption(data.status);
-  }
-  await page.locator('[data-testid="adr-save-btn"]').click();
-  const item = page.locator('[data-testid^="adr-item-"]').first();
-  return extractIdFromTestid(item, 'adr-item-');
+  await page.locator('[data-testid="create-adr-btn"]').click();
+  // Same inline quick-create-form pattern as Issues/Risks; detail-view
+  // context/decision/status fields have no data-testid.
+  await page.locator('[data-testid="adr-new-title-input"]').waitFor({ timeout: 8000 });
+  await page.locator('[data-testid="adr-new-title-input"]').fill(data.title);
+  await page.locator('[data-testid="adr-new-save-btn"]').click();
+  await page.waitForURL(/\/adrs\/[0-9a-f-]+/, { timeout: 12000 });
+
+  const url = page.url();
+  const match = url.match(/\/adrs\/([0-9a-f-]+)/);
+  if (!match) throw new Error(`expected /adrs/:id URL, got: ${url}`);
+  return match[1];
 }
 
 /**
@@ -313,21 +316,18 @@ export async function createTestCaseViaUI(
   data: { title: string; description?: string; status?: string; priority?: string }
 ): Promise<string> {
   await page.goto(`${FRONTEND_URL}/testcases`);
-  await page.locator('[data-testid="testcase-create-btn"]').click();
-  await page.locator('[data-testid="testcase-create-form"]').waitFor({ timeout: 8000 });
-  await page.locator('[data-testid="testcase-title-input"]').fill(data.title);
-  if (data.description) {
-    await page.locator('[data-testid="testcase-description-input"]').fill(data.description);
-  }
-  if (data.status) {
-    await page.locator('[data-testid="testcase-status-select"]').selectOption(data.status);
-  }
-  if (data.priority) {
-    await page.locator('[data-testid="testcase-priority-select"]').selectOption(data.priority);
-  }
-  await page.locator('[data-testid="testcase-save-btn"]').click();
-  const item = page.locator('[data-testid^="testcase-item-"]').first();
-  return extractIdFromTestid(item, 'testcase-item-');
+  await page.locator('[data-testid="create-tc-btn"]').click();
+  // Same inline quick-create-form pattern as Issues/Risks/ADRs; detail-view
+  // description/status/priority fields have no data-testid.
+  await page.locator('[data-testid="tc-new-title-input"]').waitFor({ timeout: 8000 });
+  await page.locator('[data-testid="tc-new-title-input"]').fill(data.title);
+  await page.locator('[data-testid="tc-new-save-btn"]').click();
+  await page.waitForURL(/\/testcases\/[0-9a-f-]+/, { timeout: 12000 });
+
+  const url = page.url();
+  const match = url.match(/\/testcases\/([0-9a-f-]+)/);
+  if (!match) throw new Error(`expected /testcases/:id URL, got: ${url}`);
+  return match[1];
 }
 
 /**
@@ -341,10 +341,10 @@ export async function createTestRunViaUI(
   await page.locator('[data-testid="testrun-create-btn"]').click();
   await page.locator('[data-testid="testrun-create-form"]').waitFor({ timeout: 8000 });
   await page.locator('[data-testid="testrun-name-input"]').fill(data.name);
-  if (data.status) {
-    await page.locator('[data-testid="testrun-status-select"]').selectOption(data.status);
-  }
-  await page.locator('[data-testid="testrun-save-btn"]').click();
+  // No status select exists in the create form (TestRunsList.tsx) — a new
+  // TestRun is always created server-side with status='in_progress'; use
+  // transitionTestRunViaUI afterwards to reach closed/failed.
+  await page.locator('[data-testid="testrun-create-submit-btn"]').click();
   // Suche das gerade erstellte Item anhand des Namens (robust gegen alte Runs)
   const item = page.locator('[data-testid^="testrun-item-"]').filter({ hasText: data.name }).first();
   await item.waitFor({ timeout: 8000 });

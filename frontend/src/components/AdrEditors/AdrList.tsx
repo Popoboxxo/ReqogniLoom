@@ -133,6 +133,7 @@ export function AdrList({
             {t('editor.title', 'Title')}
           </label>
           <input
+            data-testid="adr-new-title-input"
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
             placeholder={t('editor.newNeedTitle', 'e.g. As a user, I need...')}
             style={{
@@ -159,6 +160,7 @@ export function AdrList({
               {t('cancel', 'Cancel')}
             </button>
             <button
+              data-testid="adr-new-save-btn"
               type="submit"
               disabled={!(newTitle || '').trim()}
               style={{
