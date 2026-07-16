@@ -454,12 +454,16 @@ class ProtocolHandler:
 
         # 2. Handle standard MCP methods (tools/list, tools/call)
         if method == "tools/list":
+            from mcp_server.tool_registry import McpAuthenticationError
+
             try:
                 tools_list = self._registry.list_tools(
                     api_key=api_key,
                     workspace_id=clean_params.get("workspace_id"),
                 )
                 response = ErrorFormatter.format_jsonrpc_result(request_id, {"tools": tools_list})
+            except McpAuthenticationError as exc:
+                response = ErrorFormatter.format_jsonrpc_error(request_id, "AUTH_FAILED", str(exc))
             except Exception as exc:
                 logger.exception("Error listing tools")
                 response = ErrorFormatter.format_jsonrpc_error(request_id, "INTERNAL_ERROR", str(exc))

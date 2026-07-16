@@ -24,7 +24,12 @@ from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
 
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tool_registry import ToolRegistry, PresetCache, ToolGroupRouter
+from mcp_server.tool_registry import (
+    ToolRegistry,
+    PresetCache,
+    ToolGroupRouter,
+    McpAuthenticationError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -390,13 +395,24 @@ class TestToolRegistryDispatch:
         assert "requirement.get" in names
         assert "requirement.create" in names
 
-    def test_list_tools_invalid_api_key_returns_empty(self):
+    def test_list_tools_invalid_api_key_raises_auth_error(self):
+        import pytest
+
         registry, auth_svc, _ = self._make_registry()
         auth_svc.validate_api_key.side_effect = AuthenticationFailed("invalid_api_key")
         self._register_mixed_tools(registry)
 
-        tools = registry.list_tools(api_key="bad", workspace_id=self._WORKSPACE_ID)
-        assert tools == []
+        with pytest.raises(McpAuthenticationError):
+            registry.list_tools(api_key="rf_badkey", workspace_id=self._WORKSPACE_ID)
+
+    def test_list_tools_bearer_jwt_raises_auth_error(self):
+        import pytest
+
+        registry, _, _ = self._make_registry()
+        self._register_mixed_tools(registry)
+
+        with pytest.raises(McpAuthenticationError):
+            registry.list_tools(api_key="not-a-jwt-or-key", workspace_id=self._WORKSPACE_ID)
 
     def test_prompt_template_write_tools_protected_by_rbac(self):
         """Verify prompt_template.* write operations are protected by RBAC (REQ-043).

@@ -108,6 +108,12 @@ _TOOL_FEATURE_MAP: Dict[str, str] = {
     "artifact.get_tree": "artifact_tree",
 }
 
+class McpAuthenticationError(Exception):
+    """Raised by :meth:`ToolRegistry.list_tools` when the credential is
+    missing or invalid, so the caller can surface AUTH_FAILED/401 instead of
+    silently returning an empty tool list."""
+
+
 # ---------------------------------------------------------------------------
 # Preset cache (ADR-L3-MC002-02)
 # ---------------------------------------------------------------------------
@@ -320,8 +326,10 @@ class ToolRegistry:
 
         auth_ctx, auth_error = self._validate_api_key(api_key)
         if auth_error or auth_ctx is None:
-            # Auth failure → no tools are visible.
-            return []
+            # Auth failure must surface as AUTH_FAILED/401 like every other
+            # MCP method — an empty list here reads as "authenticated, zero
+            # tools" and hides invalid/missing credentials from the caller.
+            raise McpAuthenticationError(auth_error or "invalid_api_key")
 
         from persistence.tenancy import TenantContext
         try:
@@ -455,6 +463,18 @@ class ToolRegistry:
             (partial_auth_ctx, None) on success.
             (None, error_message) on failure.
         """
+        if not api_key.startswith("rf_"):
+            # MCP only accepts API keys (rf_...), never JWT bearer tokens
+            # (REQ-052 cookie/JWT auth is REST-only). A JWT sent via
+            # Authorization: Bearer would otherwise fail key lookup with the
+            # misleading "invalid_api_key" — this makes the real cause explicit.
+            logger.debug("MCP auth: credential does not match API-key format")
+            return None, (
+                "Authentication failed: bearer_not_supported — MCP requires an "
+                "API key (X-API-Key header or 'Authorization: Bearer rf_...'), "
+                "not a JWT bearer token"
+            )
+
         try:
             claims = self._auth_service.validate_api_key(api_key)
         except AuthenticationFailed as exc:
