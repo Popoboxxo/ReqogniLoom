@@ -12,8 +12,15 @@ steps:
       registry: codeberg.org
       repo: codeberg.org/dduchrow/reqflow-backend
       tags: latest
+      platforms: linux/amd64
       dockerfile: backend/Dockerfile
       context: backend
+      # Provenance/SBOM-Attestations deaktivieren: sonst pusht Buildx einen
+      # OCI-Manifest-Index statt eines einfachen v2-Manifests, den ältere
+      # Docker-Engines (z.B. auf Unraid) beim Pull nicht auflösen können
+      # ("no matching manifest for linux/amd64 in the manifest list entries").
+      provenance: false
+      sbom: false
       # Die Logindaten für die Codeberg Container Registry
       username: dduchrow
       # Das Passwort (Token) muss als Secret in Woodpecker hinterlegt werden!
@@ -29,8 +36,12 @@ steps:
       registry: codeberg.org
       repo: codeberg.org/dduchrow/reqflow-frontend
       tags: latest
+      platforms: linux/amd64
       dockerfile: frontend/Dockerfile
       context: frontend
+      # Provenance/SBOM-Attestations deaktivieren (siehe Backend-Step oben)
+      provenance: false
+      sbom: false
       # Für das Frontend benötigen wir Build-Argumente (falls vorhanden)
       # build_args:
       #   - VITE_API_BASE_URL=https://api.deine-domain.de

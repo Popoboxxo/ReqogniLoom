@@ -2,15 +2,27 @@
 # Based on ai-native-reqflow-POC/docker-compose.yml (production target)
 # Unraid-specific: Bind mounts to /mnt/user/reqflow_prod/, custom network, icon labels
 #
-# REGISTRY AUTHENTICATION REQUIRED
+# REGISTRY AUTHENTICATION REQUIRED (only once CI pushes images)
 # ────────────────────────────────
 # Images are hosted in Codeberg Container Registry (private).
-# Before starting this stack, authenticate to Codeberg:
+# Before starting this stack against pre-built images, authenticate to Codeberg:
 #   docker login codeberg.org
 #   (Use Codeberg username and personal access token or password)
 #
 # Images are automatically built and pushed by Woodpecker CI (.woodpecker.yml in ai-native-reqflow-POC)
 # on every push to the main branch.
+#
+# LOCAL BUILD (no registry / no CI access needed)
+# ────────────────────────────────
+# Every custom service below also has a `build:` section. Compose builds
+# locally and tags with `image:` whenever both keys are present — so
+#   docker compose -f deployment/unraid/docker-compose.yaml build
+#   docker compose -f deployment/unraid/docker-compose.yaml up -d
+# works entirely offline against a full repo checkout, no registry login
+# needed. Requires the full repo checked out on this host (build contexts
+# are relative: ../../backend, ../../frontend). Once CI access is approved
+# and images are pushed, just delete the `build:` blocks to go back to
+# pure registry pulls.
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -119,6 +131,10 @@ services:
   # ─────────────────────────────────────────────────────────
   migrate:
     image: codeberg.org/dduchrow/reqflow-backend:latest
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    platform: linux/amd64
     restart: "no"
     env_file: .env
     environment:
@@ -148,6 +164,10 @@ services:
   # ─────────────────────────────────────────────────────────
   seed:
     image: codeberg.org/dduchrow/reqflow-backend:latest
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    platform: linux/amd64
     restart: "no"
     env_file: .env
     environment:
@@ -177,6 +197,10 @@ services:
   # ─────────────────────────────────────────────────────────
   backend:
     image: codeberg.org/dduchrow/reqflow-backend:latest
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    platform: linux/amd64
     labels:
       net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/django.png"
     restart: unless-stopped
@@ -234,6 +258,10 @@ services:
   # ─────────────────────────────────────────────────────────
   celery:
     image: codeberg.org/dduchrow/reqflow-backend:latest
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    platform: linux/amd64
     labels:
       net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/celery.png"
     restart: unless-stopped
@@ -280,6 +308,10 @@ services:
   # ─────────────────────────────────────────────────────────
   celery-beat:
     image: codeberg.org/dduchrow/reqflow-backend:latest
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    platform: linux/amd64
     labels:
       net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/celery.png"
     restart: unless-stopped
@@ -320,6 +352,11 @@ services:
   # ─────────────────────────────────────────────────────────
   frontend:
     image: codeberg.org/dduchrow/reqflow-frontend:latest
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      target: production
+    platform: linux/amd64
     labels:
       net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/react.png"
       net.unraid.docker.webui: "http://172.20.4.255:5554"
