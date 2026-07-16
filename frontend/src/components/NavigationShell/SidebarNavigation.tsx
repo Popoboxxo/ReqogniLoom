@@ -71,6 +71,7 @@ export function SidebarNavigation(): JSX.Element {
     isFeatureVisible,
     activeWorkspace,
     workspaces,
+    isLoadingWorkspace,
     setActiveWorkspace,
     terminologyLabel,
     reloadWorkspaces,
@@ -507,8 +508,10 @@ export function SidebarNavigation(): JSX.Element {
         </span>
       </button>
 
-      {/* Workspace switcher (REQ-L2-RF-012) */}
-      {activeWorkspace && (
+      {/* Workspace switcher (REQ-L2-RF-012). Hidden while workspaces are
+          still loading so the DEFAULT_WORKSPACE placeholder name never
+          flashes as if it were the real active workspace (issue #24). */}
+      {activeWorkspace && !isLoadingWorkspace && (
         <div
           ref={switcherRef}
           style={{

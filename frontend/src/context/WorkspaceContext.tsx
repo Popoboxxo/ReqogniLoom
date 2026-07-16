@@ -127,7 +127,11 @@ export function WorkspaceProvider({
     DEFAULT_WORKSPACE
   );
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState<boolean>(false);
+  // Starts true: until the bootstrap effect below resolves the real
+  // auth/workspace state, activeWorkspace is only the DEFAULT_WORKSPACE
+  // placeholder (fake UUID), so consumers must treat it as "not ready yet"
+  // rather than fetch/display against it (issues #19, #24).
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState<boolean>(true);
   // True once reloadWorkspaces has completed at least once after auth.
   // The per-user-preference fetch only runs after this flag flips to true
   // (or the user explicitly picks a workspace via setActiveWorkspace),
@@ -201,6 +205,7 @@ export function WorkspaceProvider({
     if (!isAuthenticated) {
       setWorkspaces([]);
       setIsWorkspaceReady(false);
+      setIsLoadingWorkspace(false);
       return;
     }
     let cancelled = false;
