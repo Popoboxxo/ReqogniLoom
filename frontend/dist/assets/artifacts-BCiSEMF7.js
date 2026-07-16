@@ -1,0 +1,1 @@
+import{a,g as s}from"./index-CzRHqfo3.js";const c={list(t,r){const e={workspace_id:t};return r&&(e.parent_id=r),s("/artifacts/",e)},get(t){return a.get(`/artifacts/${t}/`)},create(t){return a.post("/artifacts/",t)},delete(t){return a.delete(`/artifacts/${t}/`)}};export{c as a};

@@ -7,7 +7,6 @@ ai-providers:
 - Claude
 - Opencode
 - Gemini
-- Continue
 platforms: []
 roles:
 - orchestrator
@@ -493,6 +492,7 @@ orchestrator:
     main-chat: true
     ask-user: true
     meta-feedback: false
+  mode: main-chat
 viz:
   enabled: false
   mode: 'off'
