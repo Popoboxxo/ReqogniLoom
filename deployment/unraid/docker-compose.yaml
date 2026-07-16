@@ -19,10 +19,19 @@
 #   docker compose -f deployment/unraid/docker-compose.yaml build
 #   docker compose -f deployment/unraid/docker-compose.yaml up -d
 # works entirely offline against a full repo checkout, no registry login
-# needed. Requires the full repo checked out on this host (build contexts
-# are relative: ../../backend, ../../frontend). Once CI access is approved
-# and images are pushed, just delete the `build:` blocks to go back to
-# pure registry pulls.
+# needed. Once CI access is approved and images are pushed, just delete
+# the `build:` blocks to go back to pure registry pulls.
+#
+# REPO_ROOT: build contexts resolve to ${REPO_ROOT:-../..}/backend and
+# ${REPO_ROOT:-../..}/frontend. The default (../..) only works if this file
+# is run in place from deployment/unraid/ inside a full repo checkout.
+# Unraid's Docker Compose Manager plugin does NOT run the file in place —
+# it stores its own copy under /boot/config/plugins/compose.manager/projects/<name>/,
+# so the relative default resolves to the wrong place and the build fails
+# with "unable to prepare context: path ... not found". If you're deploying
+# via Compose Manager, set REPO_ROOT in your .env to the absolute path of
+# the actual repo checkout on this host, e.g.:
+#   REPO_ROOT=/mnt/user/appdata/ai-native-reqflow-POC
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -132,7 +141,7 @@ services:
   migrate:
     image: codeberg.org/dduchrow/reqflow-backend:latest
     build:
-      context: ../../backend
+      context: ${REPO_ROOT:-../..}/backend
       dockerfile: Dockerfile
     platform: linux/amd64
     restart: "no"
@@ -165,7 +174,7 @@ services:
   seed:
     image: codeberg.org/dduchrow/reqflow-backend:latest
     build:
-      context: ../../backend
+      context: ${REPO_ROOT:-../..}/backend
       dockerfile: Dockerfile
     platform: linux/amd64
     restart: "no"
@@ -198,7 +207,7 @@ services:
   backend:
     image: codeberg.org/dduchrow/reqflow-backend:latest
     build:
-      context: ../../backend
+      context: ${REPO_ROOT:-../..}/backend
       dockerfile: Dockerfile
     platform: linux/amd64
     labels:
@@ -259,7 +268,7 @@ services:
   celery:
     image: codeberg.org/dduchrow/reqflow-backend:latest
     build:
-      context: ../../backend
+      context: ${REPO_ROOT:-../..}/backend
       dockerfile: Dockerfile
     platform: linux/amd64
     labels:
@@ -309,7 +318,7 @@ services:
   celery-beat:
     image: codeberg.org/dduchrow/reqflow-backend:latest
     build:
-      context: ../../backend
+      context: ${REPO_ROOT:-../..}/backend
       dockerfile: Dockerfile
     platform: linux/amd64
     labels:
@@ -353,7 +362,7 @@ services:
   frontend:
     image: codeberg.org/dduchrow/reqflow-frontend:latest
     build:
-      context: ../../frontend
+      context: ${REPO_ROOT:-../..}/frontend
       dockerfile: Dockerfile
       target: production
     platform: linux/amd64
