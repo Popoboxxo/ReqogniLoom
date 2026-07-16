@@ -16,6 +16,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from application.base import NotFoundError
+from application.workspace_service import WorkspaceService
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 from se_metrics.services import compute_metrics
@@ -48,6 +50,22 @@ class MetricsViewSet(ViewSet):
             return Response(
                 build_error_response("VALIDATION_ERROR", lang, message="workspace_id query parameter is required"),
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            workspace_uuid = UUID(str(workspace_id))
+        except ValueError:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            WorkspaceService().get_workspace(workspace_uuid, ctx)
+        except NotFoundError:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=f"Workspace {workspace_id} not found"),
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         try:
