@@ -38,6 +38,8 @@ export { apiKeysApi } from "./api-keys";
 export type { ApiKeyMetadata, ApiKeyCreateResult } from "./api-keys";
 export { adminOpsApi, RESTORE_CONFIRMATION_TEXT } from "./admin-ops";
 export type { BackupMetadata, RestoreResult } from "./admin-ops";
+export { versionApi } from "./version";
+export type { VersionInfo } from "./version";
 export { itemPermissionsApi } from "./item-permissions";
 export type { ItemPermission, ItemPermissionLevel } from "./item-permissions";
 export { attributeVisibilityApi } from "./attribute-visibility";

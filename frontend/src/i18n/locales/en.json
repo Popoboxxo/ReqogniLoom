@@ -42,7 +42,9 @@
     "diagrams": "Diagrams",
     "toggleTheme": "Toggle light/dark mode",
     "lightMode": "Light mode",
-    "darkMode": "Dark mode"
+    "darkMode": "Dark mode",
+    "buildVersion": "Build {{sha}}",
+    "systemHealth": "System Health"
   },
   "workspaceCreate": {
     "button": "Create workspace",

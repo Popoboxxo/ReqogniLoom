@@ -28,6 +28,19 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # ─────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
+# Build metadata stamping — exposed via GET /api/v1/version/ (reqflow/version.py).
+# A runtime image built from this Dockerfile ships no .git directory, so these
+# build args are the authoritative source of the deployed commit/build time.
+# Stamp them at build time, e.g.:
+#   docker build \
+#     --build-arg GIT_COMMIT_SHA=$(git rev-parse HEAD) \
+#     --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+#     -t reqflow-backend .
+ARG GIT_COMMIT_SHA=unknown
+ARG BUILD_TIME=
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+ENV BUILD_TIME=${BUILD_TIME}
+
 WORKDIR /app
 
 # Prevent interactive prompts during package installation

@@ -20,10 +20,14 @@ from drf_spectacular.views import (
 )
 
 from reqflow.health import HealthView
+from reqflow.version import VersionView
 
 urlpatterns = [
     # Health check endpoint (REQ-063) — for container readiness probes
     path("health/", HealthView.as_view(), name="health"),
+    # Deployed build/version metadata — public, precedes the rest_api include
+    # so it can never be shadowed by a future "version/" route there.
+    path("api/v1/version/", VersionView.as_view(), name="version"),
     # Django admin
     path("admin/", admin.site.urls),
     # OpenAPI schema (drf-spectacular)

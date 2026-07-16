@@ -42,7 +42,9 @@
     "diagrams": "Diagramme",
     "toggleTheme": "Hell-/Dunkelmodus umschalten",
     "lightMode": "Heller Modus",
-    "darkMode": "Dunkler Modus"
+    "darkMode": "Dunkler Modus",
+    "buildVersion": "Build {{sha}}",
+    "systemHealth": "Systemstatus"
   },
   "workspaceCreate": {
     "button": "Workspace erstellen",

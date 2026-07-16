@@ -19,6 +19,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { i18n } from "../../i18n/index";
 import { searchApi, type SearchHit } from "../../api/search";
+import { versionApi, type VersionInfo } from "../../api/version";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
 import type { Workspace } from "../../types";
 
@@ -106,6 +107,24 @@ export function SidebarNavigation(): JSX.Element {
     await reloadWorkspaces(ws.id);
     navigate("/");
   };
+
+  // ---- Build/version indicator (deployed commit, fetched once on mount) --
+  const [versionInfo, setVersionInfo] = React.useState<VersionInfo | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void versionApi
+      .getVersion()
+      .then((info) => {
+        if (!cancelled) setVersionInfo(info);
+      })
+      .catch(() => {
+        // Non-critical, non-blocking build indicator — silently omit on failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Click-outside handler for search dropdown
   React.useEffect(() => {
@@ -816,6 +835,24 @@ export function SidebarNavigation(): JSX.Element {
         >
           {t("nav.logout")}
         </button>
+        {versionInfo && (
+          <span
+            data-testid="build-version-indicator"
+            title={
+              versionInfo.build_time
+                ? `${versionInfo.commit} (${versionInfo.build_time})`
+                : versionInfo.commit
+            }
+            style={{
+              padding: "var(--space-1) var(--space-3)",
+              fontSize: "var(--font-size-xs)",
+              color: "var(--color-text-muted)",
+              opacity: 0.7,
+            }}
+          >
+            {t("nav.buildVersion", { sha: versionInfo.commit_short, defaultValue: `Build ${versionInfo.commit_short}` })}
+          </span>
+        )}
       </div>
     </nav>
     <CreateWorkspaceModal
