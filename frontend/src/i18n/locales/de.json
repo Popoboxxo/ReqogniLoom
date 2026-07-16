@@ -26,6 +26,7 @@
     "baselines": "Baselines",
     "reviews": "Freigaben",
     "traceability": "Verknüpfungen",
+    "impact": "Auswirkungsanalyse",
     "metrics": "SE-Metriken",
     "adrs": "ADRs",
     "risks": "Risiken",
