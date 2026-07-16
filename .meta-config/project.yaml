@@ -1,4 +1,4 @@
-agent-meta-version: 0.67.0
+agent-meta-version: 0.75.0
 test-repo:
   enabled: false
   path: ''
@@ -50,6 +50,11 @@ roles:
 - se-developer
 - se-junior-developer
 - se-senior-developer
+- dependency-auditor
+- e2e-tester
+- intern-developer
+- refactoring-specialist
+- technical-writer
 systems-engineering:
   enabled: true
   focus: V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems
@@ -533,7 +538,7 @@ hooks:
   lifecycle-check:
     enabled: true
 agent-prompts:
-  default: legacy
+  default: modern
   modes:
     orchestrator: modern
     developer: modern
@@ -546,3 +551,5 @@ provider-options:
 model-overrides:
   Claude:
     senior-developer: claude-opus-4-8
+    developer: claude-sonnet-5
+    principal-developer: claude-fable-5
