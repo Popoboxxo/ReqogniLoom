@@ -228,10 +228,15 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         return StakeholderNeedService(preset_policy_service=PresetPolicyService())
 
     def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs."""
+        """GET /api/v1/needs/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs."""
         lang = detect_lang(request)
         try:
-            workspace_id = kwargs["workspace_pk"]
+            workspace_id = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
+            if not workspace_id:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             items = self.service.list_by_workspace(get_auth_context(request), workspace_id)
             return self._paginate(
                 request,
