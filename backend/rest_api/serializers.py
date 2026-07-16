@@ -328,7 +328,7 @@ class RequirementSerializer(
     workspace_id = serializers.UUIDField(required=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = serializers.CharField(max_length=500)
-    description = serializers.CharField(allow_blank=True, default="")
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
     # REQ-143: `status` is a read-only mirror of the WorkflowEngine state. The
     # WorkflowEngine is the single source of truth; any `status` sent by a client
@@ -395,7 +395,7 @@ class StakeholderNeedSerializer(
     workspace_id = serializers.UUIDField(required=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True, read_only=True)
     title = serializers.CharField(max_length=500)
-    description = serializers.CharField(allow_blank=True, default="")
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
     # REQ-143: read-only mirror of the WorkflowEngine state (see RequirementSerializer).
     # Writes are ignored; the response always reflects the true, engine-owned value.
@@ -441,7 +441,7 @@ class ArchitectureElementSerializer(
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = serializers.CharField(max_length=500)
-    description = serializers.CharField(allow_blank=True, default="")
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
     # REQ-006 (D5): free-form field — no longer restricted to ElementType.choices,
     # so users can introduce new workspace-defined element types.
     element_type = serializers.CharField(
@@ -506,7 +506,7 @@ class TestCaseSerializer(
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = serializers.CharField(max_length=500)
-    description = serializers.CharField(allow_blank=True, default="")
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.CharField(max_length=64, default="draft")
     suspect = serializers.BooleanField(required=False, default=False)
@@ -644,7 +644,7 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         max_length=500, required=False, allow_blank=True, default=""
     )
     scope = serializers.CharField(max_length=32)
-    description = serializers.CharField(allow_blank=True, required=False, default="")
+    description = serializers.CharField(allow_blank=True, required=False, default="", max_length=20000)
     artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
@@ -750,7 +750,7 @@ class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = serializers.CharField(max_length=200)
-    description = serializers.CharField(allow_blank=True, default="")
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
     context = serializers.CharField(allow_blank=True, default="")
     consequences = serializers.CharField(allow_blank=True, default="")
     uid = serializers.CharField(read_only=True, allow_null=True)
@@ -769,7 +769,7 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = serializers.CharField(max_length=200)
-    description = serializers.CharField(allow_blank=True, default="")
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
     probability = serializers.ChoiceField(
         choices=["low", "medium", "high"], default="medium"
     )
@@ -843,7 +843,7 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     title = serializers.CharField(max_length=200)
-    description = serializers.CharField(allow_blank=True, default="")
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
     severity = serializers.ChoiceField(
         choices=["critical", "high", "medium", "low"], default="medium"
     )
@@ -855,6 +855,12 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     status = serializers.ChoiceField(
         choices=["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
         default="Open",
+        error_messages={
+            "invalid_choice": (
+                '"{input}" is not a valid choice. Valid choices are: '
+                "Open, In Progress, Resolved, Closed, Wontfix."
+            )
+        },
     )
     tags = serializers.JSONField(required=False, default=list)
     version = serializers.IntegerField(read_only=True)

@@ -22,6 +22,7 @@ import pytest
 
 from rest_api.serializers import (
     QUERYSET_OPTIMIZATIONS,
+    IssueSerializer,
     RequirementSerializer,
     StandardPagination,
     TraceLinkSerializer,
@@ -194,6 +195,54 @@ class TestRequirementSerializer:
         assert not ser.is_valid()
         # Both title and workspace_id should be reported individually
         assert "title" in ser.errors or len(ser.errors) > 0
+
+    def test_oversized_description_rejected(self) -> None:
+        """Regression (issue #4): description had no max_length, allowing
+        unbounded payloads to be stored."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "description": "A" * 20001,
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "description" in ser.errors
+
+
+# ---------------------------------------------------------------------------
+# IssueSerializer
+# ---------------------------------------------------------------------------
+
+
+class TestIssueSerializerStatusField:
+    def test_invalid_status_error_lists_valid_choices(self) -> None:
+        """Regression (issue #26): DRF's default invalid_choice message
+        ('"<value>" is not a valid choice.') didn't enumerate the valid
+        status values, forcing MCP/API callers to guess."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test issue",
+            "severity": "high",
+            "category": "defect",
+            "status": "bogus-status",
+        }
+        ser = IssueSerializer(data=data)
+        assert not ser.is_valid()
+        assert "status" in ser.errors
+        message = str(ser.errors["status"][0])
+        for choice in ("Open", "In Progress", "Resolved", "Closed", "Wontfix"):
+            assert choice in message
+
+    def test_valid_status_accepted(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test issue",
+            "severity": "high",
+            "category": "defect",
+            "status": "In Progress",
+        }
+        ser = IssueSerializer(data=data)
+        assert ser.is_valid(), ser.errors
 
 
 # ---------------------------------------------------------------------------
