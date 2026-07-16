@@ -1,16 +1,50 @@
 """Generic MCP Tool Group for standard CRUD entities."""
-from typing import Any, Dict
+import inspect
+from typing import Any, Callable, Dict
 
 from application.base import NotFoundError
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import BaseToolGroup, ToolResult, require_uuid
 
+
+def _resolve_method(service: Any, prefix: str, action: str) -> Callable[..., Any]:
+    """Resolve a service's create/update/delete method.
+
+    Services expose either an entity-specific method (AdrService.create_adr,
+    IssueService.delete_issue, ...) or a generic one (GlossaryService.create).
+    """
+    method = getattr(service, f"{action}_{prefix}", None) or getattr(service, action, None)
+    if method is None:
+        raise AttributeError(
+            f"{service.__class__.__name__} exposes neither '{action}_{prefix}' nor '{action}'"
+        )
+    return method
+
+
+def _resolve_id_param(method: Callable[..., Any]) -> str:
+    """Find the required, non-``ctx`` parameter an update/delete method
+    expects for the entity ID (e.g. ``adr_id``, ``term_id``)."""
+    for name, param in inspect.signature(method).parameters.items():
+        if name in ("self", "ctx") or param.default is not inspect.Parameter.empty:
+            continue
+        return name
+    raise TypeError(f"Could not resolve ID parameter for {method!r}")
+
+
 class GenericCrudToolGroup(BaseToolGroup):
     """Generic tool group for standard CRUD operations."""
-    
+
     def __init__(self, prefix: str, service_class: Any):
         self.prefix = prefix
         self._service = service_class()
+        # Resolved once so the handlers below don't need per-entity branching.
+        self._read_method = _resolve_method(self._service, prefix, "get")
+        self._create_method = _resolve_method(self._service, prefix, "create")
+        self._update_method = _resolve_method(self._service, prefix, "update")
+        self._delete_method = _resolve_method(self._service, prefix, "delete")
+        self._read_id_param = _resolve_id_param(self._read_method)
+        self._update_id_param = _resolve_id_param(self._update_method)
+        self._delete_id_param = _resolve_id_param(self._delete_method)
         # Dynamically define the TOOL_MAP for this instance
         self._TOOL_MAP = {
             f"{prefix}.read": "_handle_read",
@@ -86,7 +120,7 @@ class GenericCrudToolGroup(BaseToolGroup):
     def _handle_read(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         try:
-            obj = self._service.get(auth_context, obj_id)
+            obj = self._read_method(ctx=auth_context, **{self._read_id_param: obj_id})
             return ToolResult.ok({"data": self._to_dict(obj)})
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -95,8 +129,7 @@ class GenericCrudToolGroup(BaseToolGroup):
         workspace_id = require_uuid(params, "workspace_id")
         kwargs = {k: v for k, v in params.items() if k != "workspace_id"}
         try:
-            # Most services have create(ctx, workspace_id, ...)
-            obj = self._service.create(ctx=auth_context, workspace_id=workspace_id, **kwargs)
+            obj = self._create_method(ctx=auth_context, workspace_id=workspace_id, **kwargs)
             return ToolResult.ok({"data": self._to_dict(obj)})
         except Exception as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
@@ -105,26 +138,15 @@ class GenericCrudToolGroup(BaseToolGroup):
         obj_id = require_uuid(params, "id")
         kwargs = {k: v for k, v in params.items() if k != "id"}
         try:
-            # Using basic update contract
-            obj = self._service.update(ctx=auth_context, **{f"{self.prefix}_id": obj_id}, **kwargs)
+            obj = self._update_method(ctx=auth_context, **{self._update_id_param: obj_id}, **kwargs)
             return ToolResult.ok({"data": self._to_dict(obj)})
-        except Exception:
-            # Fallback for services using generic ID
-            try:
-                obj = self._service.update(ctx=auth_context, id=obj_id, **kwargs)
-                return ToolResult.ok({"data": self._to_dict(obj)})
-            except Exception as e2:
-                return ToolResult.error("INTERNAL_ERROR", str(e2))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
 
     def _handle_delete(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         try:
-            # Using basic delete contract
-            self._service.delete(ctx=auth_context, **{f"{self.prefix}_id": obj_id})
+            self._delete_method(ctx=auth_context, **{self._delete_id_param: obj_id})
             return ToolResult.ok({"status": "deleted"})
-        except Exception:
-            try:
-                self._service.delete(ctx=auth_context, id=obj_id)
-                return ToolResult.ok({"status": "deleted"})
-            except Exception as e2:
-                return ToolResult.error("INTERNAL_ERROR", str(e2))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
