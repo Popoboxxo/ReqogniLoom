@@ -57,6 +57,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ---------------------------------------------------------------------------
 SECRET_KEY: str = _get_required_secret("SECRET_KEY")
 DEBUG: bool = config("DEBUG", default=False, cast=bool)
+# Deliberately decoupled from DEBUG: some deployments run with DEBUG=False
+# (the correct production default, REQ-115) but are only reachable over plain
+# HTTP (e.g. an internal/sandbox IP with no TLS-terminating reverse proxy).
+# Browsers silently drop a `Secure` cookie on such a connection, so the
+# httpOnly access cookie would never round-trip. This lets those deployments
+# opt out of `Secure` without disabling other DEBUG-driven behavior.
+AUTH_COOKIE_SECURE: bool = config("AUTH_COOKIE_SECURE", default=not DEBUG, cast=bool)
 ALLOWED_HOSTS: list[str] = config(
     "ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv()
 )

@@ -44,9 +44,11 @@ _ACCESS_COOKIE_PATH = "/api"
 def _set_access_cookie(response: Response, token: str) -> None:
     """Attach the signed JWT as an httpOnly access cookie (REQ-052).
 
-    ``Secure`` is derived from ``DEBUG`` so local HTTP development still works
-    while production (``DEBUG=False``) requires HTTPS. ``SameSite=Lax`` blocks
-    the cookie on cross-site POST navigations, a first CSRF line of defence.
+    ``Secure`` follows ``settings.AUTH_COOKIE_SECURE`` (defaults to
+    ``not DEBUG``, but is independently configurable) so HTTP-only internal
+    deployments can opt out of ``Secure`` without also flipping ``DEBUG``.
+    ``SameSite=Lax`` blocks the cookie on cross-site POST navigations, a
+    first CSRF line of defence.
     """
     response.set_cookie(
         ACCESS_COOKIE_NAME,
@@ -54,7 +56,7 @@ def _set_access_cookie(response: Response, token: str) -> None:
         max_age=int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 43200)),
         httponly=True,
         samesite="Lax",
-        secure=not settings.DEBUG,
+        secure=settings.AUTH_COOKIE_SECURE,
         path=_ACCESS_COOKIE_PATH,
     )
 

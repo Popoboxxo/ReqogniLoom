@@ -72,7 +72,7 @@ def _login(client: APIClient) -> "object":
 # ---------------------------------------------------------------------------
 
 
-@override_settings(DEBUG=True, **_JWT_OVERRIDES)
+@override_settings(DEBUG=True, AUTH_COOKIE_SECURE=False, **_JWT_OVERRIDES)
 @pytest.mark.django_db
 def test_login_sets_httponly_access_cookie(admin_user):
     """Login response carries an HttpOnly; SameSite=Lax; Path=/api cookie."""
@@ -88,17 +88,45 @@ def test_login_sets_httponly_access_cookie(admin_user):
     assert cookie["httponly"] is True
     assert cookie["samesite"] == "Lax"
     assert cookie["path"] == "/api"
-    # DEBUG=True → Secure omitted so local HTTP works.
+    # AUTH_COOKIE_SECURE=False → Secure omitted so local HTTP works.
     assert cookie["secure"] == ""
 
 
-@override_settings(DEBUG=False, ALLOWED_HOSTS=["testserver"], **_JWT_OVERRIDES)
+@override_settings(
+    DEBUG=False,
+    AUTH_COOKIE_SECURE=True,
+    ALLOWED_HOSTS=["testserver"],
+    **_JWT_OVERRIDES,
+)
 @pytest.mark.django_db
 def test_login_cookie_is_secure_when_not_debug(admin_user):
-    """With DEBUG=False the access cookie is marked Secure (HTTPS-only)."""
+    """With AUTH_COOKIE_SECURE=True the access cookie is marked Secure (HTTPS-only).
+
+    AUTH_COOKIE_SECURE defaults to ``not DEBUG`` but is resolved once at
+    settings-load time, so the test overrides it explicitly rather than
+    relying on ``override_settings(DEBUG=...)`` alone (REQ-052/REQ-115).
+    """
     client = APIClient()
     resp = _login(client)
     assert resp.cookies[ACCESS_COOKIE_NAME]["secure"] is True
+
+
+@override_settings(
+    DEBUG=False,
+    AUTH_COOKIE_SECURE=False,
+    ALLOWED_HOSTS=["testserver"],
+    **_JWT_OVERRIDES,
+)
+@pytest.mark.django_db
+def test_login_cookie_secure_follows_dedicated_setting_not_debug(admin_user):
+    """AUTH_COOKIE_SECURE=False omits Secure even with DEBUG=False.
+
+    Covers HTTP-only internal/sandbox deployments (REQ-115) that must run
+    with DEBUG=False but have no TLS termination in front of them.
+    """
+    client = APIClient()
+    resp = _login(client)
+    assert resp.cookies[ACCESS_COOKIE_NAME]["secure"] == ""
 
 
 # ---------------------------------------------------------------------------
