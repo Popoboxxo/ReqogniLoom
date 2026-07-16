@@ -303,6 +303,7 @@ export default function ArchitectureEditors(): JSX.Element {
             {t('editor.title', 'Title')}
           </label>
           <input
+            data-testid="arch-new-title-input"
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
             placeholder={t('arch.newElementTitle')}
             style={{
@@ -312,14 +313,14 @@ export default function ArchitectureEditors(): JSX.Element {
             }}
           />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button type="button" onClick={() => { setShowCreateForm(false); setNewTitle(''); }}
+            <button data-testid="arch-new-cancel-btn" type="button" onClick={() => { setShowCreateForm(false); setNewTitle(''); }}
               style={{
                 background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
                 fontSize: 'var(--font-size-sm)', cursor: 'pointer',
               }}
             >{t('cancel', 'Cancel')}</button>
-            <button type="submit" disabled={!newTitle.trim()}
+            <button data-testid="arch-new-save-btn" type="submit" disabled={!newTitle.trim()}
               style={{
                 background: 'var(--color-primary)', color: 'white', border: 'none',
                 borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',

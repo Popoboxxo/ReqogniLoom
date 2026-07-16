@@ -132,6 +132,7 @@ export function TestCaseList({
             {t('editor.title', 'Title')}
           </label>
           <input
+            data-testid="tc-new-title-input"
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
             placeholder={t('editor.newNeedTitle', 'e.g. Test case title...')}
             style={{
@@ -158,6 +159,7 @@ export function TestCaseList({
               {t('cancel', 'Cancel')}
             </button>
             <button
+              data-testid="tc-new-save-btn"
               type="submit"
               disabled={!(newTitle || '').trim()}
               style={{

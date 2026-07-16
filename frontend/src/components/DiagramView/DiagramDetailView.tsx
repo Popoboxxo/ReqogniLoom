@@ -227,7 +227,10 @@ export function DiagramDetailView({
             <button
               type="button"
               data-testid="diagram-edit-btn"
-              onClick={() => setIsEditing(true)}
+              onClick={() => {
+                setIsEditing(true);
+                setViewMode("code");
+              }}
               style={formPrimaryButtonStyle}
               // For canvas diagrams the button opens the canvas editor; hide when already in canvas mode
               hidden={detail.payload_format === "canvas_stroke"}

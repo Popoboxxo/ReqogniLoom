@@ -1,6 +1,6 @@
 // TraceLink creation feature — Bug A1/A2/A3 coverage
 // REQ-L0-003, REQ-L2-RF-005, REQ-L2-RF-006
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   loginAsAdmin,
   getAuthToken,
@@ -10,6 +10,15 @@ import {
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+// "+ New" only opens an inline quick-create form; the full editor only
+// renders after Save/Create navigates to the created artifact's detail route.
+async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {
+  await page.locator('[data-testid="create-arch-btn"]').click();
+  await page.locator('[data-testid="arch-new-title-input"]').fill(title);
+  await page.locator('[data-testid="arch-new-save-btn"]').click();
+  await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+}
 
 test.describe('[COMP-RF-006] TraceLink Creation', () => {
   test.beforeEach(async ({ page }) => {
@@ -29,18 +38,21 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   test('[REQ-L0-003] clicking create button shows creation form', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/traceability`);
     await page.locator('[data-testid="tracelink-create-btn"]').click();
-    await expect(page.locator('[data-testid="tracelink-create-form"]')).toBeVisible({ timeout: 8000 });
+    // REQ-005: inline form replaced by the unified CreateTraceLinkDialog modal.
+    await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
   });
 
   test('[REQ-L0-003] creation form has source, target and type dropdowns', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/traceability`);
     await page.locator('[data-testid="tracelink-create-btn"]').click();
-    await expect(page.locator('[data-testid="tracelink-create-form"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
 
-    await expect(page.locator('[data-testid="tracelink-source-select"]')).toBeVisible({ timeout: 6000 });
-    await expect(page.locator('[data-testid="tracelink-target-select"]')).toBeVisible({ timeout: 6000 });
-    await expect(page.locator('[data-testid="tracelink-type-select"]')).toBeVisible({ timeout: 6000 });
-    await expect(page.locator('[data-testid="tracelink-submit-btn"]')).toBeVisible({ timeout: 6000 });
+    // Global mode (no fixed sourceId on /traceability) shows a plain source <select>...
+    await expect(page.locator('[data-testid="create-trace-link-source-select"]')).toBeVisible({ timeout: 6000 });
+    // ...and the target is a searchable ElementPicker (list), not a <select>.
+    await expect(page.locator('[data-testid="create-trace-link-target-list"]')).toBeVisible({ timeout: 6000 });
+    await expect(page.locator('[data-testid="create-trace-link-type-select"]')).toBeVisible({ timeout: 6000 });
+    await expect(page.locator('[data-testid="create-trace-link-submit"]')).toBeVisible({ timeout: 6000 });
   });
 
   // -------------------------------------------------------------------------
@@ -64,40 +76,21 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
 
     await page.goto(`${FRONTEND_URL}/traceability`);
     await page.locator('[data-testid="tracelink-create-btn"]').click();
-    await expect(page.locator('[data-testid="tracelink-create-form"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 8000 });
 
-    const sourceSelect = page.locator('[data-testid="tracelink-source-select"]');
-    const targetSelect = page.locator('[data-testid="tracelink-target-select"]');
+    // Global mode (no fixed sourceId on /traceability): source is a plain
+    // <select> keyed by element id; target is a searchable ElementPicker
+    // whose entries are addressable directly by id via data-testid.
+    const sourceSelect = page.locator('[data-testid="create-trace-link-source-select"]');
     await expect(sourceSelect).toBeVisible({ timeout: 6000 });
-    await expect(targetSelect).toBeVisible({ timeout: 6000 });
+    await sourceSelect.selectOption(reqs[0].id);
 
-    const sourceOptionCount = await sourceSelect.locator('option').count();
-    const targetOptionCount = await targetSelect.locator('option').count();
-
-    if (sourceOptionCount <= 1 || targetOptionCount <= 1) {
-      test.skip(true, 'Source or target dropdown is empty — artifacts not loaded');
-      return;
-    }
-
-    // Select first non-placeholder options
-    const sourceOptions = await sourceSelect.locator('option').allInnerTexts();
-    const targetOptions = await targetSelect.locator('option').allInnerTexts();
-
-    // Pick the first real (non-empty, non-placeholder) option
-    const sourceValue = sourceOptions.find((o) => o.trim() && !/select|choose|--/i.test(o));
-    const targetValue = targetOptions.find((o) => o.trim() && !/select|choose|--/i.test(o));
-    if (!sourceValue || !targetValue) {
-      test.skip(true, 'No selectable options found in dropdowns');
-      return;
-    }
-
-    await sourceSelect.selectOption({ label: sourceValue });
-
-    // Target may be a different element after source selection
-    await targetSelect.selectOption({ label: targetValue });
+    const targetEl = page.locator(`[data-testid="create-trace-link-target-element-${reqs[1].id}"]`);
+    await expect(targetEl).toBeVisible({ timeout: 6000 });
+    await targetEl.click();
 
     // Select link type if options available
-    const typeSelect = page.locator('[data-testid="tracelink-type-select"]');
+    const typeSelect = page.locator('[data-testid="create-trace-link-type-select"]');
     const typeCount = await typeSelect.locator('option').count();
     if (typeCount > 1) {
       const typeOptions = await typeSelect.locator('option').allInnerTexts();
@@ -107,7 +100,7 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
       }
     }
 
-    await page.locator('[data-testid="tracelink-submit-btn"]').click();
+    await page.locator('[data-testid="create-trace-link-submit"]').click();
     await page.waitForLoadState('networkidle');
 
     // After creation, either the list (with items) or the empty state must be visible
@@ -141,10 +134,12 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-006] architecture editor shows arch-tracelink-panel (Bug A2)', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
-    await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+    await createArchElementViaQuickForm(page);
 
-    const panel = page.locator('[data-testid="arch-tracelink-panel"]');
+    // Renamed to "arch-linked-reqs-panel": linked-requirements management
+    // lives here now (via the shared TraceLinkPanel); the read-only trace
+    // view moved to the ArtifactInspector.
+    const panel = page.locator('[data-testid="arch-linked-reqs-panel"]');
     await expect(panel).toBeVisible({ timeout: 8000 });
   });
 
@@ -153,19 +148,15 @@ test.describe('[COMP-RF-006] TraceLink Creation', () => {
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-005] architecture editor has element_type selector with correct testid and 5 options', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
-    await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
+    await createArchElementViaQuickForm(page);
 
-    // Bug A3: testid should be "arch-element-type-select" (not "arch-element-type")
-    const typeSelect = page.locator('[data-testid="arch-element-type-select"]');
-    await expect(typeSelect).toBeVisible({ timeout: 6000 });
+    // Bug A3: testid should be "arch-element-type-select" (not "arch-element-type").
+    // REQ-006/D5 later replaced the fixed 5-option <select> with a free-text
+    // autocomplete input (types can be extended freely, no longer an enum).
+    const typeInput = page.locator('[data-testid="arch-element-type-select"]');
+    await expect(typeInput).toBeVisible({ timeout: 6000 });
 
-    const options = await typeSelect.locator('option').allTextContents();
-    expect(options).toEqual(
-      expect.arrayContaining(['Component', 'Interface', 'Subsystem', 'Layer', 'Module'])
-    );
-    // Must have exactly the 5 ADR-L3-RF-007 options (plus possible placeholder)
-    const realOptions = options.filter((o) => o.trim() && !/select|choose|--/i.test(o));
-    expect(realOptions.length).toBeGreaterThanOrEqual(5);
+    await typeInput.fill('Layer');
+    await expect(typeInput).toHaveValue('Layer');
   });
 });

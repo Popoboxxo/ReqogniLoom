@@ -20,17 +20,16 @@ test.describe('Workspace Settings', () => {
   });
 
   test('[REQ-L1-087] access denied warning is shown for non-admins', async ({ page }) => {
-    // Modify sessionStorage directly because AuthContext reads from it
-    await page.evaluate(() => {
-      const stored = sessionStorage.getItem('reqflow_user');
-      if (stored) {
-        const user = JSON.parse(stored);
-        user.roles = user.roles.filter((r: string) => r !== 'admin');
-        sessionStorage.setItem('reqflow_user', JSON.stringify(user));
-      }
+    // AuthContext derives `roles` from the GET /auth/me/ response (REQ-052
+    // httpOnly-cookie session restore), not from sessionStorage — intercept
+    // that response and strip the admin role to simulate a non-admin session.
+    await page.route('**/api/v1/auth/me/', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.roles = (body.roles ?? []).filter((r: string) => r !== 'admin');
+      await route.fulfill({ response, json: body });
     });
 
-    await page.reload();
     await page.goto(`${FRONTEND_URL}/workspace-settings`);
     
     // Admin features should not be visible

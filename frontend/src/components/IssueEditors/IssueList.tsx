@@ -130,6 +130,7 @@ export function IssueList({
             {t('editor.title', 'Title')}
           </label>
           <input
+            data-testid="issue-new-title-input"
             type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
             placeholder={t('editor.newNeedTitle', 'e.g. Issue title...')}
             style={{
@@ -156,6 +157,7 @@ export function IssueList({
               {t('cancel', 'Cancel')}
             </button>
             <button
+              data-testid="issue-new-save-btn"
               type="submit"
               disabled={!(newTitle || '').trim()}
               style={{

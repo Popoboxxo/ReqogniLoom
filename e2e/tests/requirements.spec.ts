@@ -21,8 +21,10 @@ test.describe('Requirements Management', () => {
 
   test('[REQ-L1-002] can open new requirement form', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
+    // "+ New" opens an inline quick-create form first; Save navigates to
+    // /requirements/:id where the title input renders.
     await page.locator('[data-testid="create-req-btn"]').click();
-    // Title input should appear after successful create + navigation to /requirements/:id
+    await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
   });
 
@@ -51,6 +53,7 @@ test.describe('Requirements Management', () => {
   test('[REQ-L1-002] create and edit requirement via UI', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-save-btn"]').click();
 
     // Wait for navigation to /requirements/:id and the title input to appear
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });

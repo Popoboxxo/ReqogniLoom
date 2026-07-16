@@ -423,8 +423,10 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     }
     await createArchTraceLinkViaUI(page, archId, reqId, 'satisfies');
     await page.goto(`${FRONTEND_URL}/architecture/${archId}`);
-    await expect(page.locator('[data-testid="arch-tracelink-panel"]')).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('[data-testid="arch-tracelink-item"]')).toBeVisible({ timeout: 8000 });
+    // Renamed to arch-linked-reqs-panel; link items carry a per-type badge
+    // testid (trace-type-<linkType>), not a generic "-item" wrapper.
+    await expect(page.locator('[data-testid="arch-linked-reqs-panel"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="trace-type-satisfies"]')).toBeVisible({ timeout: 8000 });
   });
 
   // ===========================================================================
@@ -485,7 +487,9 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
       name: 'WK-ICD-001: MCU ↔ Temperatursensor',
       sourceArchId: sourceId,
       targetArchId: targetId,
-      interfaceType: 'ADC + 3.3V',
+      // icd-interface-type-select is a fixed enum (provides/requires/
+      // event-in/event-out/data/control); ADC voltage reading is a data feed.
+      interfaceType: 'data',
       contract: 'ADC1_IN1 liest NTC-Spannung; Update-Rate ≥ 1 Hz.',
       direction: 'unidirectional',
     });

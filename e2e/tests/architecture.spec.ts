@@ -20,8 +20,11 @@ test.describe('Architecture Management', () => {
 
   test('[REQ-L1-004] can open new architecture element form', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
+    // "+ New" opens an inline quick-create form first; title is required
+    // before Create is enabled, then it navigates to /architecture/:id.
     await page.locator('[data-testid="create-arch-btn"]').click();
-    // Title input should appear after successful create + navigation to /architecture/:id
+    await page.locator('[data-testid="arch-new-title-input"]').fill('E2E Arch Element');
+    await page.locator('[data-testid="arch-new-save-btn"]').click();
     await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
   });
 
@@ -49,6 +52,8 @@ test.describe('Architecture Management', () => {
   test('[REQ-L1-004] create and save architecture element via UI', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
+    await page.locator('[data-testid="arch-new-title-input"]').fill('E2E Arch Element');
+    await page.locator('[data-testid="arch-new-save-btn"]').click();
 
     // Wait for navigation to /architecture/:id and the title input to appear
     await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });

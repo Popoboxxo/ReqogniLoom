@@ -66,9 +66,9 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     // ---------------------------------------------------------
     await page.goto(`${FRONTEND_URL}/architecture`);
     await page.locator('[data-testid="create-arch-btn"]').click();
-    await expect(page.locator('[data-testid="arch-title"]')).toBeVisible({ timeout: 10000 });
-    await page.locator('[data-testid="arch-title"]').fill('SYS-ARCH-001: Core System Component');
-    await page.locator('[data-testid="arch-save-btn"]').click();
+    await expect(page.locator('[data-testid="arch-new-title-input"]')).toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="arch-new-title-input"]').fill('SYS-ARCH-001: Core System Component');
+    await page.locator('[data-testid="arch-new-save-btn"]').click();
     await expect(page.locator('[data-testid="arch-title"]')).toHaveValue('SYS-ARCH-001: Core System Component', { timeout: 8000 });
 
     const archUrl = page.url();
@@ -76,41 +76,50 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     expect(l1ArchId).toBeDefined();
 
     // ---------------------------------------------------------
-    // 3. Link them via satisfies
+    // 3. Link them via allocated-to
     // ---------------------------------------------------------
     // Go back to the Requirement
     await page.goto(`${FRONTEND_URL}/requirements/${l1ReqId}`);
-    
-    // Create new trace link
+
+    // ReqTraceLinkPanel always creates the link with the current requirement
+    // as source_id. SE-mode ontology semantics (backend/traceability/types.py
+    // SE_LINK_SEMANTICS) constrain "satisfies" to ArchitectureElement->Requirement
+    // (or Requirement->StakeholderNeed) — never Requirement->ArchitectureElement
+    // — so it can't be created from here. "allocated-to" permits
+    // Requirement->ArchitectureElement and expresses the same intent (this
+    // requirement is allocated to this architecture element).
     await page.locator('[data-testid="req-tracelink-create-btn"]').click();
     await page.locator('[data-testid="req-tracelink-target-select"]').selectOption(l1ArchId!);
-    await page.locator('[data-testid="req-tracelink-type-select"]').selectOption('satisfies');
+    await page.locator('[data-testid="req-tracelink-type-select"]').selectOption('allocated-to');
     await page.locator('[data-testid="req-tracelink-submit-btn"]').click();
 
     // Verify link appears in the UI
-    await expect(page.locator('[data-testid="req-tracelink-item"]').filter({ hasText: 'satisfies' })).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('[data-testid="req-tracelink-item"]').filter({ hasText: /allocated/i })).toBeVisible({ timeout: 8000 });
 
     // ---------------------------------------------------------
     // 4. Derive L2 Requirement (Subsystem Req)
     // ---------------------------------------------------------
-    // Use the derive functionality from the L1 requirement
-    await page.locator('[data-testid="req-tracelink-derive-btn"]').click();
-    
+    // Use the derive functionality from the L1 requirement. The button and
+    // its form fields come from the shared DeriveRequirementForm, mounted
+    // here with testIdPrefix="req" (not "req-tracelink").
+    await page.locator('[data-testid="req-derive-btn"]').click();
+
     // The inline form opens for derivation
     await expect(page.locator('[data-testid="req-derive-title-input"]')).toBeVisible({ timeout: 8000 });
     await page.locator('[data-testid="req-derive-title-input"]').fill('SUB-REQ-001: Subsystem Function');
-    
+
     // Choose the architecture element for the derived requirement
-    await page.locator('[data-testid="req-derive-architecture-select"]').selectOption(l1ArchId!);
-    
-    // Submit the form (it has no explicit submit testid in the view snippet, but it's a form submit button. Let's find it. Wait, the snippet showed it as a form submit button. I will press Enter inside the input or click the generic submit if possible. Let's just use Enter key)
-    await page.locator('[data-testid="req-derive-title-input"]').press('Enter');
+    await page.locator('[data-testid="req-derive-arch-select"]').selectOption(l1ArchId!);
+
+    // Submit the form
+    await page.locator('[data-testid="req-derive-submit-btn"]').click();
 
     // Wait for the new child requirement to load
     await expect(page.locator('[data-testid="req-title"]')).toHaveValue('SUB-REQ-001: Subsystem Function', { timeout: 10000 });
 
-    // Check its traceability to confirm it's linked via derives-from instead of parent-child
-    // We look for 'derives-from' text inside the trace link item list
-    await expect(page.locator('[data-testid="req-tracelink-item"]').filter({ hasText: 'derives-from' })).toBeVisible({ timeout: 8000 });
+    // Check its traceability to confirm it's linked via derives-from instead
+    // of parent-child. Rendered label is "Derives From" (getLinkTypeLabel),
+    // not the raw enum value, so match on the display text.
+    await expect(page.locator('[data-testid="req-tracelink-item"]').filter({ hasText: /derives from/i })).toBeVisible({ timeout: 8000 });
   });
 });
