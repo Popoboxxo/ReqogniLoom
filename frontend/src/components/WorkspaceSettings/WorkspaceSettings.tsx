@@ -34,6 +34,7 @@ import { WorkflowsSection } from "./WorkflowsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { BackupRestoreSection } from "./BackupRestoreSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
+import { SystemHealthDialog } from "../AdminDialog/SystemHealthDialog";
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { PromptTemplateSection } from "./PromptTemplateSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
@@ -69,6 +70,7 @@ export default function WorkspaceSettings(): JSX.Element {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
+  const [showSystemHealth, setShowSystemHealth] = useState(false);
 
   // Lifecycle state (REQ-L1-042)
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -579,6 +581,46 @@ export default function WorkspaceSettings(): JSX.Element {
         {/* ---------------- Administration ---------------- */}
         {activeTab === "admin" && (
           <>
+            {/* System Health dashboard — infra status + recent audit log */}
+            <section style={cardStyle} data-testid="system-health-section">
+              <h3 style={headingStyle}>{t("systemHealth.title", "System Health")}</h3>
+              <p
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-muted)",
+                  marginTop: 0,
+                  marginBottom: "var(--space-3)",
+                }}
+              >
+                {t(
+                  "systemHealth.sectionHint",
+                  "Live status of database, redis, celery worker/beat, MCP server and LLM provider, plus recent audit-log entries."
+                )}
+              </p>
+              <button
+                type="button"
+                data-testid="system-health-open-btn"
+                onClick={() => setShowSystemHealth(true)}
+                style={{
+                  background: "var(--color-primary)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-4)",
+                  fontSize: "var(--font-size-sm)",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                {t("systemHealth.openButton", "View System Health")}
+              </button>
+            </section>
+
+            <SystemHealthDialog
+              isOpen={showSystemHealth}
+              onClose={() => setShowSystemHealth(false)}
+            />
+
             {/* Feature-flagged: Baselines & Backup/Restore (REQ-L1-046) */}
             {isFeatureVisible("baselines") && <BackupRestoreSection />}
 

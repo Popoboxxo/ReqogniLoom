@@ -19,6 +19,7 @@ Registers:
   /api/v1/issues/             IssueViewSet (REQ-L1-029)
   /api/v1/admin/backups/      BackupListCreateView (REQ-L1-046)
   /api/v1/admin/restore/      AdminRestoreView   (REQ-L1-046)
+  /api/v1/admin/health/       SystemHealthView   (system health dashboard)
   /api/v1/users/me/preferences/ UserPreferenceView (REQ-L1-027)
 
 Schema endpoints (served at project-level via drf-spectacular):
@@ -36,6 +37,7 @@ from rest_framework.routers import DefaultRouter
 
 from auth_tenancy.rest_item_permission import ItemPermissionViewSet
 from auth_tenancy.rest_workspace_members import WorkspaceMembersView
+from admin_ops.health_rest import SystemHealthView
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
@@ -206,6 +208,13 @@ urlpatterns = [
         "admin/restore/",
         AdminRestoreView.as_view(),
         name="admin-restore",
+    ),
+    # System health dashboard — admin-only, non-blocking infra snapshot.
+    # /admin/health/  -> GET components status + recent audit-log entries
+    path(
+        "admin/health/",
+        SystemHealthView.as_view(),
+        name="admin-health",
     ),
     # User workspace preferences (REQ-L1-027) — per-user visibility overrides.
     path(

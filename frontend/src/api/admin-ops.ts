@@ -1,5 +1,5 @@
 /**
- * ARCH-L1-001 ReactFrontend — Admin Ops (Disaster Recovery) API.
+ * ARCH-L1-001 ReactFrontend — Admin Ops (Disaster Recovery + System Health) API.
  *
  * leaf_id: COMP-RF-001 (NavigationShell — WorkspaceSettings scope)
  * req_id:  REQ-L1-046 (Disaster Recovery: Backup / Restore)
@@ -8,6 +8,7 @@
  *   GET  /api/v1/admin/backups/   — list backups (newest first)
  *   POST /api/v1/admin/backups/   — create a backup
  *   POST /api/v1/admin/restore/   — restore from a backup (captcha "RESTORE")
+ *   GET  /api/v1/admin/health/    — system health snapshot + recent audit log
  */
 
 import { apiClient } from "./client";
@@ -41,6 +42,31 @@ export interface RestoreResult {
 
 /** Captcha text the backend requires for a restore (REQ-L1-046). */
 export const RESTORE_CONFIRMATION_TEXT = "RESTORE";
+
+export type SystemHealthStatus = "ok" | "degraded" | "down" | "unknown";
+
+export interface SystemHealthComponent {
+  name: string;
+  status: SystemHealthStatus;
+  detail: string;
+}
+
+export interface SystemHealthAuditEvent {
+  id: string;
+  actor: string;
+  actor_type: string;
+  op: string;
+  entity_type: string;
+  entity_id: string;
+  source: string;
+  change_reason: string;
+  timestamp: string | null;
+}
+
+export interface SystemHealthSnapshot {
+  components: SystemHealthComponent[];
+  recent_events: SystemHealthAuditEvent[];
+}
 
 export const adminOpsApi = {
   /** GET /api/v1/admin/backups/ — admin-only backup listing. */
@@ -88,5 +114,14 @@ export const adminOpsApi = {
       data
     );
     return resp.restore;
+  },
+
+  /**
+   * GET /api/v1/admin/health/ — system health snapshot (admin-only).
+   * Returns per-component status (database, redis, celery worker/beat,
+   * MCP server, LLM provider) plus the most recent audit-log entries.
+   */
+  async getSystemHealth(): Promise<SystemHealthSnapshot> {
+    return apiClient.get<SystemHealthSnapshot>("/admin/health/");
   },
 };

@@ -43,8 +43,30 @@
     "toggleTheme": "Toggle light/dark mode",
     "lightMode": "Light mode",
     "darkMode": "Dark mode",
-    "buildVersion": "Build {{sha}}",
-    "systemHealth": "System Health"
+    "buildVersion": "Build {{sha}}"
+  },
+  "systemHealth": {
+    "title": "System Health",
+    "sectionHint": "Live status of database, redis, celery worker/beat, MCP server and LLM provider, plus recent audit-log entries.",
+    "openButton": "View System Health",
+    "components": "Components",
+    "recentEvents": "Recent Audit Events",
+    "noEvents": "No recent events.",
+    "refresh": "Refresh",
+    "status": {
+      "ok": "OK",
+      "degraded": "Degraded",
+      "down": "Down",
+      "unknown": "Unknown"
+    },
+    "componentNames": {
+      "database": "Database",
+      "redis": "Redis",
+      "celery_worker": "Celery Worker",
+      "celery_beat": "Celery Beat",
+      "mcp_server": "MCP Server",
+      "llm_provider": "LLM Provider"
+    }
   },
   "workspaceCreate": {
     "button": "Create workspace",

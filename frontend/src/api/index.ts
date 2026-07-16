@@ -37,7 +37,14 @@ export type {
 export { apiKeysApi } from "./api-keys";
 export type { ApiKeyMetadata, ApiKeyCreateResult } from "./api-keys";
 export { adminOpsApi, RESTORE_CONFIRMATION_TEXT } from "./admin-ops";
-export type { BackupMetadata, RestoreResult } from "./admin-ops";
+export type {
+  BackupMetadata,
+  RestoreResult,
+  SystemHealthStatus,
+  SystemHealthComponent,
+  SystemHealthAuditEvent,
+  SystemHealthSnapshot,
+} from "./admin-ops";
 export { versionApi } from "./version";
 export type { VersionInfo } from "./version";
 export { itemPermissionsApi } from "./item-permissions";

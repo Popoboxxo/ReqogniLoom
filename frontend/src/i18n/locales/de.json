@@ -43,8 +43,30 @@
     "toggleTheme": "Hell-/Dunkelmodus umschalten",
     "lightMode": "Heller Modus",
     "darkMode": "Dunkler Modus",
-    "buildVersion": "Build {{sha}}",
-    "systemHealth": "Systemstatus"
+    "buildVersion": "Build {{sha}}"
+  },
+  "systemHealth": {
+    "title": "Systemstatus",
+    "sectionHint": "Live-Status von Datenbank, Redis, Celery Worker/Beat, MCP-Server und LLM-Provider, sowie die letzten Audit-Log-Einträge.",
+    "openButton": "Systemstatus anzeigen",
+    "components": "Komponenten",
+    "recentEvents": "Letzte Audit-Ereignisse",
+    "noEvents": "Keine aktuellen Ereignisse.",
+    "refresh": "Aktualisieren",
+    "status": {
+      "ok": "OK",
+      "degraded": "Eingeschränkt",
+      "down": "Ausgefallen",
+      "unknown": "Unbekannt"
+    },
+    "componentNames": {
+      "database": "Datenbank",
+      "redis": "Redis",
+      "celery_worker": "Celery Worker",
+      "celery_beat": "Celery Beat",
+      "mcp_server": "MCP-Server",
+      "llm_provider": "LLM-Provider"
+    }
   },
   "workspaceCreate": {
     "button": "Workspace erstellen",
