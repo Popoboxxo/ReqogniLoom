@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { TraceLink, UUID } from "../../types";
+import { TraceLink, UUID, type LinkType } from "../../types";
 import { tracelinksApi } from "../../api/tracelinks";
 import { resolveArtifactRef, type ArtifactRef } from "../../api/artifactRefs";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { CreateTraceLinkDialog } from "./CreateTraceLinkDialog";
+import { useWorkspace } from "../../context/WorkspaceContext";
 
 
 interface TraceLinkPanelProps {
@@ -23,6 +24,7 @@ export function TraceLinkPanel({
 }: TraceLinkPanelProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { activeWorkspace } = useWorkspace();
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [loading, setLoading] = useState(false);
   // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
@@ -236,6 +238,7 @@ export function TraceLinkPanel({
         isOpen={showDialog}
         onClose={() => setShowDialog(false)}
         onCreated={() => { setShowDialog(false); loadLinks(); }}
+        defaultLinkType={(activeWorkspace?.default_link_type as LinkType) || 'derives-from'}
       />
 
       {loading && (

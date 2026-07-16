@@ -23,10 +23,9 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { EntityType, EntitySubType, AttributeVisibilityConfig, VisibleFieldsMap } from '../../context/EntityTypeContext';
+import type { EntityType, AttributeVisibilityConfig } from '../../context/EntityTypeContext';
 import { attributeVisibilityApi } from '../../api';
 import { extractErrorMessage } from '../../api/client';
-import { useWorkspace } from '../../context/WorkspaceContext';
 
 /**
  * Available attributes per entity type.
@@ -144,7 +143,6 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
   onError,
 }) => {
   const { t } = useTranslation();
-  const { activeWorkspace } = useWorkspace();
 
   // -----------------------------------------------------------------------
   // State: selected entity type, visibility toggles, loading/error

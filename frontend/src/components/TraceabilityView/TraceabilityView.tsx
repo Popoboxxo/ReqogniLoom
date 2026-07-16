@@ -39,6 +39,7 @@ import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog";
 import type {
   ArchitectureElement,
   Artifact,
+  LinkType,
   Requirement,
   TraceLink,
   UUID,
@@ -665,6 +666,7 @@ export default function TraceabilityView(): JSX.Element {
           isOpen={showCreateDialog}
           onClose={() => setShowCreateDialog(false)}
           onCreated={() => { setShowCreateDialog(false); setReloadKey((k) => k + 1); }}
+          defaultLinkType={(activeWorkspace.default_link_type as LinkType) || 'derives-from'}
         />
       )}
 

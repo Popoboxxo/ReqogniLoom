@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { glossaryApi } from "../../api/glossary";
-import type { GlossaryTerm } from "../../types";
+import type { GlossaryTerm, LinkType } from "../../types";
 import { PlusCircle, Search, Edit2, Trash2, Link2 } from "lucide-react";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
@@ -276,6 +276,7 @@ export default function GlossaryView(): JSX.Element {
                 onClose={() => setShowLinkDialog(false)}
                 onCreated={() => { setShowLinkDialog(false); loadTerms(); }}
                 allowedTypes={["requirement", "architecture", "testcase"]}
+                defaultLinkType={(activeWorkspace.default_link_type as LinkType) || 'derives-from'}
               />
             </div>
           )}

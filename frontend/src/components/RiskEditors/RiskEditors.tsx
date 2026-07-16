@@ -7,6 +7,7 @@ import { RiskForm } from './RiskForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { CreateTraceLinkDialog } from '../shared/CreateTraceLinkDialog/create-trace-link-dialog';
+import type { LinkType } from '../../types';
 import { useRiskData } from './useRiskData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { risksApi } from '../../api/risks';
@@ -95,6 +96,7 @@ export default function RiskEditors(): JSX.Element {
                   isOpen={showLinkDialog}
                   onClose={() => setShowLinkDialog(false)}
                   onCreated={() => { setShowLinkDialog(false); refresh(); }}
+                  defaultLinkType={(activeWorkspace.default_link_type as LinkType) || 'derives-from'}
                 />
               </>
             )}

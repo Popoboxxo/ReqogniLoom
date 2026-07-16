@@ -39,7 +39,6 @@ import { workspacesApi } from "../api/workspaces";
 import {
   preferencesApi,
   OPTIONAL_FEATURES,
-  type FeatureVisibility,
   type FeatureOverrides,
   type OptionalArtifactFeature,
 } from "../api/preferences";

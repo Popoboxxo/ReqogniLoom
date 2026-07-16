@@ -100,7 +100,7 @@ export function MermaidEditor({
         { EditorState },
         { EditorView, keymap },
         { defaultKeymap },
-        { history, historyKeymap, undo: cmUndo, redo: cmRedo },
+        { history, historyKeymap },
       ] = await Promise.all([
         import("@codemirror/state"),
         import("@codemirror/view"),

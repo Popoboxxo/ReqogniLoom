@@ -453,6 +453,7 @@ class WorkspaceService(ServiceBase):
         name: object = _UNSET,
         language: object = _UNSET,
         decomposition_link_type: object = _UNSET,
+        default_link_type: object = _UNSET,
         terminology_profile: object = _UNSET,
     ) -> Workspace:
         """Update workspace metadata + optional terminology-profile switch (REQ-066).
@@ -491,6 +492,11 @@ class WorkspaceService(ServiceBase):
             ws.decomposition_link_type = str(decomposition_link_type)
             if "decomposition_link_type" not in update_fields:
                 update_fields.append("decomposition_link_type")
+
+        if default_link_type is not _UNSET:
+            ws.default_link_type = str(default_link_type)
+            if "default_link_type" not in update_fields:
+                update_fields.append("default_link_type")
 
         if terminology_profile is not _UNSET:
             target_profile = str(terminology_profile)

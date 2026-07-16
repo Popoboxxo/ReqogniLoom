@@ -429,6 +429,11 @@ class Workspace(TenantScopedModel):
         default="parent-child",
         help_text="Default link type used when decomposing requirements.",
     )
+    default_link_type = models.CharField(
+        max_length=50,
+        default="derives-from",
+        help_text="Link type pre-selected when creating a new trace link.",
+    )
     language = models.CharField(
         max_length=8,
         default="en",

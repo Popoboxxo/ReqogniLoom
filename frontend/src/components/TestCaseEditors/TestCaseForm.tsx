@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { testcasesApi, type TestCase } from '../../api/testcases';
-import type { CustomFields } from '../../types';
 import { VersionBadge } from '../shared/VersionBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';

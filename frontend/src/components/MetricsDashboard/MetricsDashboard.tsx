@@ -17,11 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import {
-  metricsApi,
-  type MetricsResult,
-  type RiskSeverity,
-} from "../../api/metrics";
+import { metricsApi, type MetricsResult } from "../../api/metrics";
 
 // ---------------------------------------------------------------------------
 // Tile model
@@ -372,7 +368,7 @@ export default function MetricsDashboard(): JSX.Element {
   // Per-tile value history. Keys match MetricTileSpec.name.
   const [history, setHistory] = useState<Record<string, number[]>>({});
   // Last successful fetch timestamp — drives the "isStale" flag after a refresh error.
-  const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
+  const [, setLastSuccessAt] = useState<number | null>(null);
   // Help mode toggle
   const [helpMode, setHelpMode] = useState<boolean>(false);
 

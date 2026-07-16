@@ -729,6 +729,9 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     decomposition_link_type = serializers.CharField(
         required=False, default="parent-child", max_length=50
     )
+    default_link_type = serializers.CharField(
+        required=False, default="derives-from", max_length=50
+    )
     terminology_profile = serializers.CharField(
         required=False, default="se_mode", max_length=32
     )

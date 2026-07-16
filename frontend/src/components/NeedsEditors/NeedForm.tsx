@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import type { ArchitectureElement, StakeholderNeed, CustomFields } from '../../types';
+import type { ArchitectureElement, StakeholderNeed } from '../../types';
 import { WORKFLOW_STATES } from '../../types';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
 import { requirementsApi } from '../../api/requirements';

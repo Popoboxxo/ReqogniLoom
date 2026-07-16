@@ -6,6 +6,7 @@ import { IssueList } from './IssueList';
 import { IssueForm } from './IssueForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import { CreateTraceLinkDialog } from '../shared/CreateTraceLinkDialog/create-trace-link-dialog';
+import type { LinkType } from '../../types';
 import { useIssueData } from './useIssueData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { issuesApi } from '../../api/issues';
@@ -94,6 +95,7 @@ export default function IssueEditors(): JSX.Element {
                   isOpen={showLinkDialog}
                   onClose={() => setShowLinkDialog(false)}
                   onCreated={() => { setShowLinkDialog(false); refresh(); }}
+                  defaultLinkType={(activeWorkspace.default_link_type as LinkType) || 'derives-from'}
                 />
               </>
             )}

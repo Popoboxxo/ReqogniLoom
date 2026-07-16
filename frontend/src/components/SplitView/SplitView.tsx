@@ -24,10 +24,8 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 /**
  * Props for the generic SplitView component.
- *
- * @template T - The entity type being edited (for future use with Context)
  */
-export interface SplitViewProps<T = unknown> {
+export interface SplitViewProps {
   /** Left panel content (typically a list/tree component) */
   leftPanel: React.ReactNode;
 

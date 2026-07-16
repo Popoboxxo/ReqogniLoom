@@ -41,6 +41,7 @@ export interface Workspace {
   language: string;
   ai_prompts?: Record<string, string>;
   decomposition_link_type?: string;
+  default_link_type?: string;
   is_active: boolean;
   closed_at: ISODateTime | null;
   closed_by: UUID | null;

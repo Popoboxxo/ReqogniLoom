@@ -16,7 +16,6 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useWorkspace } from '../../context/WorkspaceContext';
 import { useEntityType } from '../../context/EntityTypeContext';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
@@ -198,7 +197,6 @@ export function ArchitectureForm({
   isExtendedPreset,
 }: ArchitectureFormProps): JSX.Element {
   const { t } = useTranslation();
-  const { activeWorkspace } = useWorkspace();
   const { visibleFields } = useEntityType();
 
   // Form state
@@ -271,8 +269,8 @@ export function ArchitectureForm({
     const existing = Array.from(
       new Set(
         elements
-          .map((el) => el.element_type)
-          .filter((type): type is string => Boolean(type))
+          .map((el): string => el.element_type)
+          .filter((type) => Boolean(type))
       )
     ).sort();
     return existing.length > 0 ? existing : DEFAULT_ELEMENT_TYPE_SUGGESTIONS;

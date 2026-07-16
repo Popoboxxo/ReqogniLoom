@@ -37,6 +37,7 @@ import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmi
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { PromptTemplateSection } from "./PromptTemplateSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
+import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -523,13 +524,12 @@ export default function WorkspaceSettings(): JSX.Element {
                 {t("settings.defaultLinkType", "Standard-Linktyp")}
               </label>
               <select
-                value={(activeWorkspace.preset as Record<string, unknown>)?.default_link_type as string ?? "derives_from"}
+                value={activeWorkspace.default_link_type || "derives-from"}
                 onChange={(e) => {
                   const val = e.target.value;
                   setSaveError(null);
                   setSavedOk(false);
-                  const newPreset = { ...(activeWorkspace.preset as Record<string, unknown> || {}), default_link_type: val };
-                  workspacesApi.update(activeWorkspace.id, { preset: newPreset })
+                  workspacesApi.update(activeWorkspace.id, { default_link_type: val })
                     .then(() => reloadWorkspaces(activeWorkspace.id))
                     .then(() => setSavedOk(true))
                     .catch(err => setSaveError(err?.error?.message ?? String(err)));
@@ -537,14 +537,9 @@ export default function WorkspaceSettings(): JSX.Element {
                 style={selectStyle}
                 data-testid="default-link-type-select"
               >
-                <option value="derives_from">derives_from</option>
-                <option value="satisfies">satisfies</option>
-                <option value="refines">refines</option>
-                <option value="implements">implements</option>
-                <option value="traces_to">traces_to</option>
-                <option value="verifies">verifies</option>
-                <option value="validates">validates</option>
-                <option value="allocates_to">allocates_to</option>
+                {ALL_LINK_TYPES.map((lt) => (
+                  <option key={lt} value={lt}>{getLinkTypeLabel(lt)}</option>
+                ))}
               </select>
             </div>
           </section>
