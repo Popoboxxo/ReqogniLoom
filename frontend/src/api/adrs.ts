@@ -43,7 +43,10 @@ export const adrsApi = {
 
   update(
     id: UUID,
-    data: Partial<Pick<Adr, "title" | "description" | "context" | "consequences" | "status">>
+    data: Partial<Pick<Adr, "title" | "description" | "context" | "consequences" | "status">> & {
+      /** Extended preset: audit rationale forwarded to the backend audit log. */
+      change_reason?: string;
+    }
   ): Promise<Adr> {
     return apiClient.patch<Adr>(`/adrs/${id}/`, data);
   },

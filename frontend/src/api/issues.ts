@@ -44,7 +44,10 @@ export const issuesApi = {
 
   update(
     id: UUID,
-    data: Partial<Pick<Issue, "title" | "description" | "severity" | "category" | "status" | "tags">>
+    data: Partial<Pick<Issue, "title" | "description" | "severity" | "category" | "status" | "tags">> & {
+      /** Extended preset: audit rationale forwarded to the backend audit log. */
+      change_reason?: string;
+    }
   ): Promise<Issue> {
     return apiClient.patch<Issue>(`/issues/${id}/`, data);
   },

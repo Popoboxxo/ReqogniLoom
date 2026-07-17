@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import type { Risk } from '../../types';
 import { risksApi } from '../../api/risks';
 import { VersionBadge } from '../shared/VersionBadge';
@@ -18,7 +19,12 @@ const CATEGORY_OPTIONS = ['technical', 'operational', 'organizational', 'busines
 
 export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Element {
   const { t } = useTranslation();
+  const { activeWorkspace } = useWorkspace();
+  // REQ-162: Extended preset captures a change_reason on every update
+  // (forwarded to the backend audit log).
+  const isExtendedPreset = activeWorkspace?.preset === 'extended';
   const [formData, setFormData] = useState<Partial<Risk>>({});
+  const [changeReason, setChangeReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -32,6 +38,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
     if (risk) setFormData({ ...risk });
     else setFormData({});
     // Reset transient action state when switching to a different risk.
+    setChangeReason('');
     setConfirmDelete(false);
     setSaveError(null);
     setDeleteError(null);
@@ -94,10 +101,18 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
 
   const handleSave = async () => {
     if (!risk) return;
+    // REQ-162: Extended preset requires a change_reason before saving.
+    if (isExtendedPreset && !changeReason.trim()) {
+      setSaveError(t('req.changeReasonRequired'));
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
-      await risksApi.update(risk.id, saveFields() as any);
+      await risksApi.update(risk.id, {
+        ...saveFields(),
+        ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
+      } as any);
       onSaved();
     } catch (err) {
       console.error(err);
@@ -319,6 +334,27 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
             <label style={labelStyle}>{t('risks.mitigationStrategy')}</label>
             <textarea value={formData.mitigation_strategy || ''} onChange={(e) => handleChange('mitigation_strategy', e.target.value)} rows={3} style={inputStyle} />
           </div>
+
+          {/* REQ-162: Change Control — Extended preset only. */}
+          {isExtendedPreset && (
+            <div>
+              <label htmlFor="risk-change-reason" style={labelStyle}>
+                {t('req.changeReason')} <span style={{ color: 'var(--color-danger)' }}>*</span>
+              </label>
+              <textarea
+                id="risk-change-reason"
+                data-testid="risk-change-reason-input"
+                value={changeReason}
+                onChange={(e) => {
+                  setChangeReason(e.target.value);
+                  if (saveError) setSaveError(null);
+                }}
+                rows={2}
+                style={{ ...inputStyle, resize: 'vertical' }}
+                placeholder={t('req.changeReasonPlaceholder')}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

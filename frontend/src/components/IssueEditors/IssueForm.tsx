@@ -5,6 +5,7 @@ import { issuesApi } from '../../api/issues';
 import { VersionBadge } from '../shared/VersionBadge';
 import { TagInput } from '../shared/tag-input';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
+import { useWorkspace } from '../../context/WorkspaceContext';
 
 interface IssueFormProps {
   issue: Issue | null;
@@ -17,7 +18,12 @@ const CATEGORY_OPTIONS = ['defect', 'improvement', 'documentation', 'question'];
 
 export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.Element {
   const { t } = useTranslation();
+  const { activeWorkspace } = useWorkspace();
+  // REQ-162: Extended preset captures a change_reason on every update
+  // (forwarded to the backend audit log).
+  const isExtendedPreset = activeWorkspace?.preset === 'extended';
   const [formData, setFormData] = useState<Partial<Issue>>({});
+  const [changeReason, setChangeReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -28,6 +34,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
     if (issue) setFormData({ ...issue });
     else setFormData({});
     // Reset transient action state when switching to a different issue.
+    setChangeReason('');
     setConfirmDelete(false);
     setSaveError(null);
     setDeleteError(null);
@@ -41,6 +48,11 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
 
   const handleSave = async () => {
     if (!issue) return;
+    // REQ-162: Extended preset requires a change_reason before saving.
+    if (isExtendedPreset && !changeReason.trim()) {
+      setSaveError(t('req.changeReasonRequired'));
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -51,6 +63,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
         category: formData.category,
         status: formData.status,
         tags: formData.tags,
+        ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
       });
       onSaved();
     } catch (err) {
@@ -204,6 +217,27 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
               placeholder={t('issues.tagsPlaceholder', 'tag1, tag2 ...')}
             />
           </div>
+
+          {/* REQ-162: Change Control — Extended preset only. */}
+          {isExtendedPreset && (
+            <div>
+              <label htmlFor="issue-change-reason" style={labelStyle}>
+                {t('req.changeReason')} <span style={{ color: 'var(--color-danger)' }}>*</span>
+              </label>
+              <textarea
+                id="issue-change-reason"
+                data-testid="issue-change-reason-input"
+                value={changeReason}
+                onChange={(e) => {
+                  setChangeReason(e.target.value);
+                  if (saveError) setSaveError(null);
+                }}
+                rows={2}
+                style={{ ...inputStyle, resize: 'vertical' }}
+                placeholder={t('req.changeReasonPlaceholder')}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

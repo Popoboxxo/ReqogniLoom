@@ -5,6 +5,7 @@ import { VersionBadge } from '../shared/VersionBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
+import { useWorkspace } from '../../context/WorkspaceContext';
 
 interface TestCaseFormProps {
   testCase: TestCase | null;
@@ -14,7 +15,12 @@ interface TestCaseFormProps {
 
 export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps): JSX.Element {
   const { t } = useTranslation();
+  const { activeWorkspace } = useWorkspace();
+  // REQ-162: Extended preset captures a change_reason on every update
+  // (forwarded to the backend audit log).
+  const isExtendedPreset = activeWorkspace?.preset === 'extended';
   const [formData, setFormData] = useState<Partial<TestCase>>({});
+  const [changeReason, setChangeReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -25,6 +31,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
     if (testCase) setFormData({ ...testCase });
     else setFormData({});
     // Reset transient action state when switching to a different test case.
+    setChangeReason('');
     setConfirmDelete(false);
     setSaveError(null);
     setDeleteError(null);
@@ -38,6 +45,11 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
 
   const handleSave = async () => {
     if (!testCase) return;
+    // REQ-162: Extended preset requires a change_reason before saving.
+    if (isExtendedPreset && !changeReason.trim()) {
+      setSaveError(t('req.changeReasonRequired'));
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -46,6 +58,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
         description: formData.description,
         status: formData.status,
         custom_fields: formData.custom_fields,
+        ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
       });
       onSaved();
     } catch (err) {
@@ -178,6 +191,27 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
               />
             </div>
           </div>
+
+          {/* REQ-162: Change Control — Extended preset only. */}
+          {isExtendedPreset && (
+            <div>
+              <label htmlFor="tc-change-reason" style={labelStyle}>
+                {t('req.changeReason')} <span style={{ color: 'var(--color-danger)' }}>*</span>
+              </label>
+              <textarea
+                id="tc-change-reason"
+                data-testid="tc-change-reason-input"
+                value={changeReason}
+                onChange={(e) => {
+                  setChangeReason(e.target.value);
+                  if (saveError) setSaveError(null);
+                }}
+                rows={2}
+                style={{ ...inputStyle, resize: 'vertical' }}
+                placeholder={t('req.changeReasonPlaceholder')}
+              />
+            </div>
+          )}
         </div>
 
         {/* SECTION: Custom Fields */}
