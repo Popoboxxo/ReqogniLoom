@@ -78,6 +78,9 @@ const UserProfileSettings = lazy(
   () => import("../UserProfileSettings/UserProfileSettings")
 );
 const GlossaryView = lazy(() => import("../GlossaryView"));
+const WorkflowEditorPage = lazy(
+  () => import("../WorkflowEditor/WorkflowEditorPage")
+);
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -140,6 +143,11 @@ function AppShell(): JSX.Element {
                 element={<Navigate to="/settings" replace />}
               />
               <Route path="/glossary" element={<GlossaryView />} />
+              <Route path="/workflows" element={<WorkflowEditorPage />} />
+              <Route
+                path="/workflows/:entityType"
+                element={<WorkflowEditorPage />}
+              />
               <Route path="/profile" element={<UserProfileSettings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

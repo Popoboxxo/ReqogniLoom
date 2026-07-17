@@ -53,6 +53,8 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/icds", labelKey: "nav.icds", feature: "icds" },
   { path: "/diagrams", labelKey: "nav.diagrams", feature: "diagrams" },
   { path: "/glossary", labelKey: "nav.glossary", feature: "dashboard" },
+  // REQ-176: Visual Workflow Editor — always visible (like glossary/settings).
+  { path: "/workflows", labelKey: "nav.workflows", feature: "dashboard" },
   { path: "/metrics", labelKey: "nav.metrics", feature: "metrics" },
   { path: "/settings", labelKey: "nav.settings", feature: "dashboard" },
 ];

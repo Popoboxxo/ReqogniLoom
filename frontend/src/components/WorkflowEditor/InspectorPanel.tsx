@@ -1,0 +1,331 @@
+/**
+ * REQ-176 — InspectorPanel: right-hand details panel (read-only, Phase 1).
+ *
+ * Collapsible + resizable (280–400px, persisted under
+ * ``reqflow_workflow_inspector_width``) following the RightSidebar pattern.
+ * Shows an empty prompt, a State inspector, or a Transition inspector depending
+ * on the current selection (design brief §8). Edit actions are Phase 2 and are
+ * intentionally absent here.
+ */
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { ArrowRight, MousePointerClick, Workflow } from "lucide-react";
+import type {
+  WorkflowGraph,
+  WorkflowState,
+  WorkflowStateType,
+  WorkflowTransition,
+} from "../../api/workflows";
+import type { Selection } from "./constants";
+import styles from "./WorkflowEditor.module.css";
+
+const DEFAULT_WIDTH_PX = 320;
+const MIN_WIDTH_PX = 280;
+const MAX_WIDTH_PX = 400;
+const COLLAPSED_WIDTH_PX = 40;
+const WIDTH_KEY = "reqflow_workflow_inspector_width";
+
+const TYPE_BADGE_CLASS: Record<WorkflowStateType, string> = {
+  initial: styles.typeBadgeInitial,
+  active: styles.typeBadgeActive,
+  terminal: styles.typeBadgeTerminal,
+  error: styles.typeBadgeError,
+};
+
+function readWidth(): number {
+  if (typeof window === "undefined") return DEFAULT_WIDTH_PX;
+  try {
+    const raw = window.localStorage.getItem(WIDTH_KEY);
+    if (raw !== null) {
+      const n = parseInt(raw, 10);
+      if (Number.isFinite(n)) return Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, n));
+    }
+  } catch {
+    /* localStorage may be disabled */
+  }
+  return DEFAULT_WIDTH_PX;
+}
+
+interface InspectorPanelProps {
+  graph: WorkflowGraph | null;
+  selection: Selection;
+  onSelect: (selection: Selection) => void;
+}
+
+export function InspectorPanel({
+  graph,
+  selection,
+  onSelect,
+}: InspectorPanelProps): JSX.Element {
+  const [collapsed, setCollapsed] = useState(false);
+  const [width, setWidth] = useState<number>(readWidth);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(WIDTH_KEY, String(width));
+    } catch {
+      /* ignore */
+    }
+  }, [width]);
+
+  // ---- resize (handle on the left edge; dragging left widens) -------------
+  const isResizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+
+  const onResizeMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>): void => {
+      isResizingRef.current = true;
+      startXRef.current = e.clientX;
+      startWidthRef.current = width;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+      e.preventDefault();
+    },
+    [width]
+  );
+
+  useEffect(() => {
+    function onMove(e: MouseEvent): void {
+      if (!isResizingRef.current) return;
+      const delta = startXRef.current - e.clientX; // drag left → wider
+      const next = Math.max(
+        MIN_WIDTH_PX,
+        Math.min(MAX_WIDTH_PX, startWidthRef.current + delta)
+      );
+      setWidth(next);
+    }
+    function onUp(): void {
+      if (!isResizingRef.current) return;
+      isResizingRef.current = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const selectedState = useMemo<WorkflowState | null>(() => {
+    if (!graph || selection.kind !== "state") return null;
+    return graph.states.find((s) => s.id === selection.id) ?? null;
+  }, [graph, selection]);
+
+  const selectedTransition = useMemo<WorkflowTransition | null>(() => {
+    if (!graph || selection.kind !== "transition") return null;
+    return graph.transitions.find((t) => t.id === selection.id) ?? null;
+  }, [graph, selection]);
+
+  const effectiveWidth = collapsed ? COLLAPSED_WIDTH_PX : width;
+  const asideStyle: CSSProperties = {
+    width: `${effectiveWidth}px`,
+    flex: `0 0 ${effectiveWidth}px`,
+  };
+
+  if (collapsed) {
+    return (
+      <aside
+        className={styles.inspector}
+        style={asideStyle}
+        aria-label="Inspector (collapsed)"
+        data-testid="workflow-inspector"
+      >
+        <div className={styles.inspectorCollapsed}>
+          <button
+            type="button"
+            className={styles.iconButton}
+            aria-label="Expand inspector"
+            title="Expand inspector"
+            onClick={() => setCollapsed(false)}
+            data-testid="workflow-inspector-expand"
+          >
+            «
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
+  return (
+    <aside
+      className={styles.inspector}
+      style={asideStyle}
+      aria-label="Inspector"
+      data-testid="workflow-inspector"
+    >
+      <div
+        className={styles.inspectorResize}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize inspector"
+        onMouseDown={onResizeMouseDown}
+        data-testid="workflow-inspector-resize"
+      />
+      <header className={styles.inspectorHeader}>
+        <span className={styles.inspectorTitle}>Inspector</span>
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-label="Collapse inspector"
+          title="Collapse inspector"
+          onClick={() => setCollapsed(true)}
+          data-testid="workflow-inspector-collapse"
+        >
+          »
+        </button>
+      </header>
+
+      <div className={styles.inspectorBody} aria-live="polite">
+        {selectedState && graph ? (
+          <StateInspector state={selectedState} graph={graph} onSelect={onSelect} />
+        ) : selectedTransition ? (
+          <TransitionInspector transition={selectedTransition} />
+        ) : (
+          <div className={styles.inspectorEmpty}>
+            <Workflow size={32} aria-hidden="true" />
+            <div className={styles.overlayText}>
+              Select a state or transition to inspect it.
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// State inspector
+// ---------------------------------------------------------------------------
+
+function StateInspector({
+  state,
+  graph,
+  onSelect,
+}: {
+  state: WorkflowState;
+  graph: WorkflowGraph;
+  onSelect: (selection: Selection) => void;
+}): JSX.Element {
+  const outgoing = graph.transitions.filter((t) => t.from_state === state.id);
+  const incoming = graph.transitions.filter((t) => t.to_state === state.id);
+
+  return (
+    <div data-testid="workflow-inspector-state">
+      <div className={styles.inspectorStateHeader}>
+        <span className={styles.stateDot} aria-hidden="true" />
+        <span className={styles.inspectorStateName}>{state.name}</span>
+        <span className={`${styles.typeBadge} ${TYPE_BADGE_CLASS[state.type]}`}>
+          {state.type}
+        </span>
+      </div>
+
+      <div className={styles.sectionLabel}>Outgoing Transitions ({outgoing.length})</div>
+      {outgoing.length === 0 ? (
+        <div className={styles.emptyHint}>
+          Terminal state — no outgoing transitions.
+        </div>
+      ) : (
+        outgoing.map((t) => (
+          <TransitionRow key={t.id} transition={t} onSelect={onSelect} />
+        ))
+      )}
+
+      <div className={styles.sectionLabel}>Incoming Transitions ({incoming.length})</div>
+      {incoming.length === 0 ? (
+        <div className={styles.emptyHint}>
+          Initial state — no incoming transitions.
+        </div>
+      ) : (
+        incoming.map((t) => (
+          <TransitionRow key={t.id} transition={t} onSelect={onSelect} showSource />
+        ))
+      )}
+    </div>
+  );
+}
+
+function TransitionRow({
+  transition,
+  onSelect,
+  showSource = false,
+}: {
+  transition: WorkflowTransition;
+  onSelect: (selection: Selection) => void;
+  showSource?: boolean;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className={styles.transitionRow}
+      onClick={() => onSelect({ kind: "transition", id: transition.id })}
+      data-testid={`workflow-inspector-transition-${transition.id}`}
+    >
+      <ArrowRight size={14} className={styles.transitionRowArrow} aria-hidden="true" />
+      <span className={styles.transitionRowLabel}>
+        {showSource ? transition.from_state : transition.to_state}
+      </span>
+      {transition.change_reason_required && (
+        <span aria-label="requires change reason" title="Requires change reason">
+          🔒
+        </span>
+      )}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Transition inspector
+// ---------------------------------------------------------------------------
+
+function TransitionInspector({
+  transition,
+}: {
+  transition: WorkflowTransition;
+}): JSX.Element {
+  return (
+    <div data-testid="workflow-inspector-transition">
+      <div className={styles.inspectorStateHeader}>
+        <MousePointerClick size={16} aria-hidden="true" />
+        <span className={styles.inspectorStateName}>{transition.name}</span>
+      </div>
+
+      <div className={styles.sectionLabel}>Flow</div>
+      <div className={styles.flowRow}>
+        <span className={styles.flowState}>{transition.from_state}</span>
+        <ArrowRight size={14} aria-hidden="true" />
+        <span className={styles.flowState}>{transition.to_state}</span>
+      </div>
+
+      <div className={styles.sectionLabel}>Rules</div>
+      <div className={styles.rulesGrid}>
+        <span className={styles.ruleKey}>Required Role</span>
+        <span className={styles.ruleValue}>{transition.required_role ?? "—"}</span>
+        <span className={styles.ruleKey}>Change Reason</span>
+        <span className={styles.ruleValue}>
+          {transition.change_reason_required ? (
+            <>
+              Required
+              <span aria-hidden="true">🔒</span>
+            </>
+          ) : (
+            "Optional"
+          )}
+        </span>
+        <span className={styles.ruleKey}>Signature Gate</span>
+        <span className={styles.ruleValue}>
+          {transition.signature_gate ? "Required" : "—"}
+        </span>
+      </div>
+    </div>
+  );
+}
