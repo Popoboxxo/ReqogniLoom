@@ -204,7 +204,8 @@ class StakeholderNeedService(ServiceBase):
 
         if changes:
             need.version = F("version") + 1
-            need.modified_by = ctx.user
+            # REQ-159: AuthContext exposes user_id, not user.
+            need.modified_by_id = ctx.user_id
             need.save()
             need.refresh_from_db()
 

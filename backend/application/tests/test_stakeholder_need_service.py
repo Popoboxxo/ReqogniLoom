@@ -245,7 +245,8 @@ class TestUpdateStakeholderNeed:
         need.created_by_id = uuid.uuid4()
 
         ctx = _make_ctx(tenant_id=TENANT_ID)
-        ctx.user = MagicMock()
+        # REQ-159: AuthContext exposes user_id, not user.
+        ctx.user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
         with patch(
             "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
@@ -289,7 +290,8 @@ class TestUpdateStakeholderNeed:
         need.created_by_id = uuid.uuid4()
 
         ctx = _make_ctx(tenant_id=TENANT_ID)
-        ctx.user = MagicMock()
+        # REQ-159: AuthContext exposes user_id, not user.
+        ctx.user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
         with patch(
             "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
@@ -593,7 +595,8 @@ class TestStakeholderNeedEventEmission:
         need.version = 1
 
         ctx = _make_ctx(tenant_id=TENANT_ID)
-        ctx.user = MagicMock()
+        # REQ-159: AuthContext exposes user_id, not user.
+        ctx.user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
         with patch(
             "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
@@ -620,7 +623,8 @@ class TestStakeholderNeedEventEmission:
         need.version = 1
 
         ctx = _make_ctx(tenant_id=TENANT_ID)
-        ctx.user = MagicMock()
+        # REQ-159: AuthContext exposes user_id, not user.
+        ctx.user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
         with patch(
             "application.stakeholder_need_service.StakeholderNeed.objects.select_related"
