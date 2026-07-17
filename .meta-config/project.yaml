@@ -55,6 +55,12 @@ roles:
 - intern-developer
 - refactoring-specialist
 - technical-writer
+- data-engineer
+- database-engineer
+- incident-responder
+- principal-developer
+- sre-engineer
+- accessibility-specialist
 systems-engineering:
   enabled: true
   focus: V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems
@@ -497,7 +503,7 @@ orchestrator:
     main-chat: true
     ask-user: true
     meta-feedback: false
-  mode: main-chat
+  mode: strict
 viz:
   enabled: false
   mode: 'off'
@@ -516,7 +522,7 @@ admin-ui:
   auto-sync-on-save: true
   watch-config: false
 rules-preset: ''
-speech-mode: short
+speech-mode: caveman
 dod-preset: spec-driven
 tier-preset: Normal
 se-focus: false
