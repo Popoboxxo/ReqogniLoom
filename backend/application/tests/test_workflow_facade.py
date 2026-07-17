@@ -122,7 +122,7 @@ class TestTransition:
             )
 
         mock_audit.assert_called_once()
-        assert mock_audit.call_args.kwargs["operation"] == "workflow.transition"
+        assert mock_audit.call_args.kwargs["operation"] == "transition"
 
     def test_workflow_transitioned_event_emitted(self):
         facade = WorkflowFacade()

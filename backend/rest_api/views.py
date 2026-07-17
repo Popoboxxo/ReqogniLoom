@@ -70,6 +70,7 @@ from application.services import (
 )
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.mixins import WorkflowTransitionsMixin
 
 logger = logging.getLogger(__name__)
 from rest_api.preset_guard import PresetError, PresetGateMixin
@@ -212,10 +213,11 @@ class BaseEntityViewSet(PresetGateMixin, viewsets.ViewSet):
 # ---------------------------------------------------------------------------
 
 
-class StakeholderNeedViewSet(BaseEntityViewSet):
+class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for Stakeholder Need entity."""
 
     serializer_class = StakeholderNeedSerializer
+    workflow_item_type = "StakeholderNeed"
     # REQ-128: constrain the detail lookup to a UUID. The DRF router's default
     # pk pattern ([^/.]+) otherwise matches custom action segments such as
     # "derive-requirements" as a pk, so GET /api/v1/needs/derive-requirements/
@@ -228,6 +230,14 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
         from application.stakeholder_need_service import StakeholderNeedService
         from application.preset_policy_service import PresetPolicyService
         return StakeholderNeedService(preset_policy_service=PresetPolicyService())
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        need = self.service.get(ctx, UUID(pk))
+        return need.id, need.workspace_id
+
+    def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
+        updated = self.service.get(ctx, item_id)
+        return {"need": StakeholderNeedSerializer(updated.to_dict()).data}
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/needs/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs."""
@@ -451,7 +461,7 @@ class StakeholderNeedViewSet(BaseEntityViewSet):
 
 
 
-class RequirementViewSet(BaseEntityViewSet):
+class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for Requirement CRUD operations.
 
     Delegates to RequirementService (ApplicationService facade, ADR-01).
@@ -460,10 +470,20 @@ class RequirementViewSet(BaseEntityViewSet):
     REQ-L2-RA-001: GET list, GET detail, POST, PATCH, DELETE.
     REQ-L2-RA-007: Audit context is passed through service methods.
     REQ-L2-RA-013: Queryset uses select_related (applied in service layer).
+    REQ-143/REQ-144: transitions/ and workflow-history/ via WorkflowTransitionsMixin.
     """
 
     serializer_class = RequirementSerializer
     preset_endpoint_key = ""  # Requirements are always visible
+    workflow_item_type = "Requirement"
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        req = self._svc().get_requirement(UUID(pk), ctx)
+        return req.id, req.artifact.workspace_id
+
+    def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
+        updated = self._svc().get_requirement(item_id, ctx)
+        return {"requirement": RequirementSerializer(_dto_from_orm(updated)).data}
 
     def _svc(self) -> RequirementService:
         return RequirementService()
@@ -615,141 +635,6 @@ class RequirementViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=True, methods=["get", "post"], url_path="transitions")
-    def transitions(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """Workflow transitions for a requirement (REQ-143).
-
-        GET  /api/v1/requirements/{pk}/transitions/
-            → {current_state, states, allowed_transitions[]} — the moves allowed
-              from the current state. Drives a transition-aware UI.
-
-        POST /api/v1/requirements/{pk}/transitions/
-            body: {target_state, change_reason?, credential?}
-            → performs the transition through the WorkflowEngine (role /
-              change_reason / signature gates enforced) and returns the refreshed
-              requirement whose `status` mirror now reflects the new state.
-        """
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            req = self._svc().get_requirement(UUID(pk), ctx)
-        except NotFoundError as exc:
-            return _service_error_response(exc, lang)
-        except PermissionDeniedError as exc:
-            return _service_error_response(exc, lang)
-        except ValueError:
-            return Response(
-                build_error_response("NOT_FOUND", lang),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        workspace_id = req.artifact.workspace_id
-        facade = WorkflowFacade()
-
-        if request.method.upper() == "GET":
-            avail = facade.get_available_transitions(
-                item_id=req.id,
-                ctx=ctx,
-                item_type="Requirement",
-                workspace_id=workspace_id,
-            )
-            return Response(
-                {
-                    "current_state": avail.current_state,
-                    "states": list(avail.states),
-                    "allowed_transitions": [
-                        {
-                            "target_state": t.to_state,
-                            "requires_change_reason": t.requires_change_reason,
-                            "signature_gate": t.signature_gate,
-                        }
-                        for t in avail.transitions
-                    ],
-                }
-            )
-
-        # POST → perform the transition.
-        target_state = request.data.get("target_state")
-        if not target_state:
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR", lang, message="target_state is required"
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        change_reason = request.data.get("change_reason", "") or ""
-        credential = request.data.get("credential", "") or ""
-        try:
-            result = facade.transition(
-                item_id=req.id,
-                target_state=target_state,
-                change_reason=change_reason,
-                ctx=ctx,
-                credential=credential,
-                item_type="Requirement",
-                workspace_id=workspace_id,
-            )
-        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            return _service_error_response(exc, lang)
-
-        updated = self._svc().get_requirement(UUID(pk), ctx)
-        return Response(
-            {
-                "id": pk,
-                "previous_state": result.previous_state,
-                "new_state": result.new_state,
-                "requirement": RequirementSerializer(_dto_from_orm(updated)).data,
-            }
-        )
-
-    @action(detail=True, methods=["get"], url_path="workflow-history")
-    def workflow_history(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/requirements/{pk}/workflow-history/ — transition audit trail (REQ-144).
-
-        Returns the append-only WorkflowHistoryEntry list for this requirement,
-        oldest first: actor, from/to state, change_reason, timestamp, and
-        whether the transition was signature-sealed. The seal value itself
-        (``signature_seal``) is never exposed — only a ``sealed`` boolean.
-        """
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            req = self._svc().get_requirement(UUID(pk), ctx)
-        except NotFoundError as exc:
-            return _service_error_response(exc, lang)
-        except PermissionDeniedError as exc:
-            return _service_error_response(exc, lang)
-        except ValueError:
-            return Response(
-                build_error_response("NOT_FOUND", lang),
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        workspace_id = req.artifact.workspace_id
-        facade = WorkflowFacade()
-        entries = facade.get_history(
-            item_id=req.id,
-            ctx=ctx,
-            item_type="Requirement",
-            workspace_id=workspace_id,
-        )
-        return Response(
-            [
-                {
-                    "id": str(entry.id),
-                    "from_state": entry.from_state,
-                    "to_state": entry.to_state,
-                    "actor": entry.transitioned_by,
-                    "change_reason": entry.change_reason,
-                    "transitioned_at": entry.transitioned_at.isoformat(),
-                    "sealed": bool(entry.signature_seal),
-                }
-                for entry in entries
-            ]
-        )
 
     @action(detail=True, methods=["get"], url_path="diff")
     def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -1433,14 +1318,23 @@ class ArchitectureElementViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
-class TestCaseViewSet(BaseEntityViewSet):
+class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for TestCase CRUD operations (REQ-L2-RA-001)."""
 
     serializer_class = TestCaseSerializer
     preset_endpoint_key = ""
+    workflow_item_type = "TestCase"
 
     def _svc(self) -> TestService:
         return TestService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        item = self._svc().get_test_case(UUID(pk), ctx)
+        return item.id, item.artifact.workspace_id
+
+    def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
+        updated = self._svc().get_test_case(item_id, ctx)
+        return {"test_case": TestCaseSerializer(_test_to_dict(updated)).data}
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -3117,7 +3011,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
-class AdrViewSet(BaseEntityViewSet):
+class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for ADR CRUD operations (REQ-L1-029).
 
     Delegates to AdrService (COMP-AS-013, ADR-01).
@@ -3126,9 +3020,18 @@ class AdrViewSet(BaseEntityViewSet):
 
     serializer_class = AdrSerializer
     preset_endpoint_key = ""
+    workflow_item_type = "Adr"
 
     def _svc(self) -> AdrService:
         return AdrService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        item = self._svc().get_adr(UUID(pk), ctx)
+        return item.id, item.workspace_id
+
+    def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
+        updated = self._svc().get_adr(item_id, ctx)
+        return {"adr": AdrSerializer(_adr_to_dict(updated)).data}
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/adrs/ — list ADRs in a workspace.
@@ -3308,7 +3211,7 @@ class AdrViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
-class RiskViewSet(BaseEntityViewSet):
+class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for Risk CRUD operations (REQ-L1-029).
 
     Delegates to RiskService (COMP-AS-014, ADR-01).
@@ -3317,9 +3220,18 @@ class RiskViewSet(BaseEntityViewSet):
 
     serializer_class = RiskSerializer
     preset_endpoint_key = ""
+    workflow_item_type = "Risk"
 
     def _svc(self) -> RiskService:
         return RiskService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        item = self._svc().get_risk(UUID(pk), ctx)
+        return item.id, item.workspace_id
+
+    def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
+        updated = self._svc().get_risk(item_id, ctx)
+        return {"risk": RiskSerializer(_risk_to_dict(updated)).data}
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/risks/ — list all Risks in a workspace."""
@@ -3503,7 +3415,7 @@ class RiskViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
-class IssueViewSet(BaseEntityViewSet):
+class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for Issue CRUD operations (REQ-L1-029).
 
     Delegates to IssueService (COMP-AS-015, ADR-01).
@@ -3512,9 +3424,18 @@ class IssueViewSet(BaseEntityViewSet):
 
     serializer_class = IssueSerializer
     preset_endpoint_key = ""
+    workflow_item_type = "Issue"
 
     def _svc(self) -> IssueService:
         return IssueService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        item = self._svc().get_issue(UUID(pk), ctx)
+        return item.id, item.workspace_id
+
+    def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
+        updated = self._svc().get_issue(item_id, ctx)
+        return {"issue": IssueSerializer(_issue_to_dict(updated)).data}
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/issues/ — list all Issues in a workspace."""
@@ -3690,7 +3611,7 @@ class IssueViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
-class ChangeRequestViewSet(BaseEntityViewSet):
+class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for Change Request CRUD + CCB workflow (REQ-157).
 
     Delegates to ChangeRequestService (COMP-AS-021).
@@ -3702,14 +3623,25 @@ class ChangeRequestViewSet(BaseEntityViewSet):
       GET    /api/v1/change-requests/{pk}/
       PATCH  /api/v1/change-requests/{pk}/
       DELETE /api/v1/change-requests/{pk}/
-      POST   /api/v1/change-requests/{pk}/transition/
+      POST   /api/v1/change-requests/{pk}/transition/   (legacy CCB shortcut)
+      GET/POST /api/v1/change-requests/{pk}/transitions/  (generic engine, REQ-143)
+      GET    /api/v1/change-requests/{pk}/workflow-history/  (REQ-144)
     """
 
     serializer_class = ChangeRequestSerializer
     preset_endpoint_key = ""
+    workflow_item_type = "ChangeRequest"
 
     def _svc(self) -> ChangeRequestService:
         return ChangeRequestService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        item = self._svc().get_change_request(UUID(pk), ctx)
+        return item.id, item.workspace_id
+
+    def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
+        updated = self._svc().get_change_request(item_id, ctx)
+        return {"change_request": ChangeRequestSerializer(_cr_to_dict(updated)).data}
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/change-requests/?workspace_id=<id> — list CRs in a workspace."""

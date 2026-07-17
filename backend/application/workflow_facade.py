@@ -121,10 +121,15 @@ class WorkflowFacade(ServiceBase):
             except Exception as exc:
                 _remap_workflow_exc(exc)
 
-            # REQ-L3-WF-003: audit inside same transaction
+            # REQ-L3-WF-003: audit inside same transaction. The operation MUST be
+            # one of AuditEntry.OP_CHOICES ("transition"); "workflow.transition"
+            # is not a valid choice and made AuditEntry.full_clean reject every
+            # engine-audited transition (latent: unit tests mock _audit, so it was
+            # only reachable once the service-level transition_status bypass — which
+            # swallowed the resulting error — was retired in REQ-165/REQ-167).
             self._audit(
                 ctx=ctx,
-                operation="workflow.transition",
+                operation="transition",
                 entity_type=item_type,
                 entity_id=item_uuid,
                 change_reason=change_reason,

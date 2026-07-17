@@ -540,6 +540,7 @@ class IssueService(ServiceBase):
         target_status: str,
         ctx: AuthContext,
         change_reason: Optional[str] = None,
+        credential: Optional[str] = None,
     ) -> Issue:
         """Transition an Issue's workflow status (REQ-L3-ISSUE-005).
 
@@ -565,37 +566,32 @@ class IssueService(ServiceBase):
                 f"must be one of {sorted(IssueValidator.VALID_STATUSES)}"
             )
 
-        try:
-            from application.workflow_facade import WorkflowFacade
+        # REQ-165/REQ-167: the WorkflowEngine is the SOLE authority for the
+        # transition (IF-AS-INT-003). Role, change_reason and signature gates are
+        # enforced by the engine; their errors propagate and abort this atomic
+        # transaction instead of being swallowed (the previous bare
+        # ``except Exception: pass`` silently flipped the status even when a gate
+        # denied the move). The engine also writes the denormalized ``status``
+        # mirror inside its own transaction (StateLifecycleManager
+        # ._sync_status_mirror), so no direct status assignment is done here. A
+        # workflow transition is not a content edit, so ``version`` is not bumped.
+        from application.workflow_facade import WorkflowFacade
 
-            wf = WorkflowFacade()
-            wf.transition(
-                item_id=issue_id,
-                item_type="Issue",
-                target_state=target_status,
-                ctx=ctx,
-                change_reason=change_reason,
-            )
-        except Exception:
-            logger.debug(
-                "IssueService.transition_status: WorkflowFacade skipped for issue=%s",
-                issue_id,
-            )
-
-        issue.status = target_status
-        # Atomic version increment (REQ-L3-PL001-002)
-        issue.save()
-        Issue.objects.filter(id=issue.id).update(version=F("version") + 1)
-        issue.refresh_from_db(fields=["version"])
-
-        self._audit(
+        WorkflowFacade().transition(
+            item_id=issue_id,
+            item_type="Issue",
+            target_state=target_status,
+            workspace_id=issue.workspace_id,
             ctx=ctx,
-            operation="transition",
-            entity_type="Issue",
-            entity_id=issue_id,
-            change_reason=change_reason,
-            details={"target_status": target_status},
+            change_reason=change_reason or "",
+            credential=credential or "",
         )
+        issue.refresh_from_db(fields=["status", "version"])
+
+        # The transition audit entry is written authoritatively by the
+        # WorkflowEngine (WorkflowFacade._audit, op="transition") inside the same
+        # atomic transaction — a second service-level audit here would duplicate
+        # that row (details are v1-ignored), so it is intentionally omitted.
         return issue
 
     # ---------- TraceLink management (REQ-L3-ISSUE-006, IF-AS-INT-002) ----------

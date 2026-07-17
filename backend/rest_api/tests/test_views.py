@@ -414,7 +414,7 @@ class TestRequirementStatusSingleSource:
         view = RequirementViewSet.as_view({"get": "transitions"})
         with (
             patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()),
-            patch("rest_api.views.WorkflowFacade", return_value=facade),
+            patch("rest_api.mixins.workflow_transitions.WorkflowFacade", return_value=facade),
         ):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200
@@ -441,7 +441,7 @@ class TestRequirementStatusSingleSource:
         svc_mock = self._svc_mock(status="in_review")
         with (
             patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock),
-            patch("rest_api.views.WorkflowFacade", return_value=facade),
+            patch("rest_api.mixins.workflow_transitions.WorkflowFacade", return_value=facade),
         ):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 200
@@ -458,7 +458,7 @@ class TestRequirementStatusSingleSource:
         view = RequirementViewSet.as_view({"post": "transitions"})
         with (
             patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()),
-            patch("rest_api.views.WorkflowFacade", return_value=MagicMock()),
+            patch("rest_api.mixins.workflow_transitions.WorkflowFacade", return_value=MagicMock()),
         ):
             response = view(req, pk=str(uuid.uuid4()))
         assert response.status_code == 400
@@ -511,7 +511,7 @@ class TestRequirementWorkflowHistory:
         view = RequirementViewSet.as_view({"get": "workflow_history"})
         with (
             patch("rest_api.views.RequirementViewSet._svc", return_value=self._svc_mock()),
-            patch("rest_api.views.WorkflowFacade", return_value=facade),
+            patch("rest_api.mixins.workflow_transitions.WorkflowFacade", return_value=facade),
         ):
             response = view(req, pk=str(uuid.uuid4()))
 

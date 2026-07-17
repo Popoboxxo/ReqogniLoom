@@ -330,10 +330,7 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._set_tenant_context"),
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
-            patch(
-                "application.workflow_facade.WorkflowFacade",
-                side_effect=RuntimeError("workflow engine not configured"),
-            ),
+            patch("application.workflow_facade.WorkflowFacade"),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             result = svc.transition_status(
@@ -343,7 +340,6 @@ class TestTransitionStatus:
                 superseded_by_id=successor_id,
             )
 
-        assert result.status == Adr.Status.SUPERSEDED
         mock_tls.create_trace_link.assert_called_once_with(
             source_id=successor_id,
             target_id=ADR_ID,
@@ -364,10 +360,7 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._set_tenant_context"),
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
-            patch(
-                "application.workflow_facade.WorkflowFacade",
-                side_effect=RuntimeError("workflow engine not configured"),
-            ),
+            patch("application.workflow_facade.WorkflowFacade"),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.transition_status(
@@ -389,10 +382,7 @@ class TestTransitionStatus:
             patch("application.adr_service.AdrService._set_tenant_context"),
             patch("application.adr_service.AdrService._assert_write_permission"),
             patch("application.adr_service.AdrService._audit"),
-            patch(
-                "application.workflow_facade.WorkflowFacade",
-                side_effect=RuntimeError("workflow engine not configured"),
-            ),
+            patch("application.workflow_facade.WorkflowFacade"),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.transition_status(
