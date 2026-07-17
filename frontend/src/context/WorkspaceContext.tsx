@@ -99,7 +99,7 @@ const _storedWorkspaceId =
 
 const DEFAULT_WORKSPACE: Workspace = {
   id: _storedWorkspaceId ?? "00000000-0000-0000-0000-000000000000",
-  name: "Default Workspace",
+  name: "",
   preset: "standard",
   terminology_profile: "se_mode",
   language: "en",
