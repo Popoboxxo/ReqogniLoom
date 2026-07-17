@@ -119,11 +119,15 @@
     "delete": "Delete",
     "cancel": "Cancel",
     "create": "Create",
+    "creating": "Creating...",
     "copy": "Copy",
     "dismiss": "Dismiss",
     "clear": "Clear",
     "derive": "Derive",
-    "deriving": "Deriving..."
+    "deriving": "Deriving...",
+    "deleting": "Deleting...",
+    "confirmDelete": "Yes, delete",
+    "deleteConfirmPrompt": "Delete?"
   },
   "admin": {
     "attributeVisibility": "Attribute Configuration",

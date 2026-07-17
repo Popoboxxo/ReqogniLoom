@@ -644,7 +644,7 @@ export function SidebarNavigation(): JSX.Element {
               transition: "var(--transition-fast)",
             }}
           >
-            + Workspace
+            {t("workspaceCreate.button")}
           </button>
 
           {/* Dropdown */}
