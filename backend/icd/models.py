@@ -53,6 +53,35 @@ class IcdType(models.TextChoices):
     EVENT_OUT = "event-out", "Event Out"
     DATA = "data", "Data"
     CONTROL = "control", "Control"
+    MECHANICAL = "mechanical", "Mechanical"
+    ELECTRICAL = "electrical", "Electrical"
+
+
+class IcdParameterDataType(models.TextChoices):
+    """Data type of a structured interface parameter (REQ-L2-ICD-002).
+
+    Classifies the value domain so consumers can interpret ``min_value`` /
+    ``max_value`` / ``nominal_value`` correctly.
+    """
+
+    FLOAT = "float", "Float"
+    INT = "int", "Integer"
+    STRING = "string", "String"
+    BOOLEAN = "boolean", "Boolean"
+    ENUM = "enum", "Enum"
+    OTHER = "other", "Other"
+
+
+class IcdParameterDirection(models.TextChoices):
+    """Data-flow direction of a structured interface parameter.
+
+    Independent from the ICD-level :class:`IcdDirection`: describes the flow of
+    a single parameter across the interface, not the overall contract.
+    """
+
+    INPUT = "input", "Input"
+    OUTPUT = "output", "Output"
+    BIDIRECTIONAL = "bidirectional", "Bidirectional"
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +226,90 @@ class IcdVersion(TenantScopedModel):
         return f"IcdVersion(icd={self.icd_id}, v{self.version_number})"
 
 
+# ---------------------------------------------------------------------------
+# IcdParameter — structured, version-specific interface parameter
+# REQ-L2-ICD-002 (Design-by-Contract): extends the free-text pre/post/invariant
+# JSON lists with structured parameters carrying units, value ranges and
+# tolerances. Parameters are attached to a concrete IcdVersion (append-only),
+# so a parameter set is immutable together with the version it belongs to.
+# ---------------------------------------------------------------------------
+
+
+class IcdParameter(TenantScopedModel):
+    """A single structured parameter of an interface contract revision.
+
+    Parameters are version-specific: each :class:`IcdVersion` owns its own set
+    of parameters, mirroring the append-only immutability of the version itself.
+    Numeric bounds live in ``min_value``/``max_value``; symbolic or string
+    defaults live in ``nominal_value``; ``tolerance`` stays free text (e.g.
+    ``"±5%"`` or ``"0.1"``) as it varies by engineering domain.
+
+    leaf_id: COMP-ICD-001
+    req_id: REQ-L2-ICD-002
+    IF: IF-L1-040 (output to PersistenceLayer)
+    """
+
+    icd_version = models.ForeignKey(
+        IcdVersion,
+        on_delete=models.CASCADE,
+        related_name="parameters",
+        db_index=True,
+    )
+    name = models.CharField(max_length=200)
+    description = models.CharField(max_length=2000, blank=True, default="")
+    unit = models.CharField(max_length=50, blank=True, default="")
+    data_type = models.CharField(
+        max_length=20,
+        choices=IcdParameterDataType.choices,
+        default=IcdParameterDataType.OTHER,
+    )
+    direction = models.CharField(
+        max_length=15,
+        choices=IcdParameterDirection.choices,
+        default=IcdParameterDirection.INPUT,
+    )
+    min_value = models.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    max_value = models.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    # Nominal/default value for enum and string types (kept as text so it can
+    # carry symbolic values that do not fit the numeric min/max bounds).
+    nominal_value = models.CharField(max_length=200, blank=True, default="")
+    # Free-text tolerance such as "±5%" or "0.1" — format varies by domain.
+    tolerance = models.CharField(max_length=100, blank=True, default="")
+    ordering = models.PositiveSmallIntegerField(default=0)
+
+    objects = TenantManager()
+    unscoped = UnscopedManager()
+
+    class Meta:
+        db_table = "icd_parameter"
+        ordering = ["ordering", "name"]
+        indexes = [
+            models.Index(
+                fields=["icd_version", "ordering"],
+                name="idx_icd_param_version_order",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"IcdParameter({self.name}, v={self.icd_version_id})"
+
+
 __all__ = [
     "Icd",
     "IcdDirection",
+    "IcdParameter",
+    "IcdParameterDataType",
+    "IcdParameterDirection",
     "IcdType",
     "IcdVersion",
 ]
