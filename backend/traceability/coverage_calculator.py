@@ -176,16 +176,17 @@ class CoverageCalculator:
             tenant_id=tenant_id,
         )
 
-        # Build per-requirement test-case map
+        # Build per-requirement test-case map. The Requirement is the link
+        # TARGET and the TestCase is the SOURCE (SE `verifies` convention).
         req_testcases: dict[str, list[dict]] = {
             str(r["id"]): [] for r in requirements
         }
         for link_info in verifies_links:
-            req_art_id = link_info["source_artifact_id"]
+            req_art_id = link_info["req_artifact_id"]
             if req_art_id in req_id_map:
                 req_id = req_id_map[req_art_id]
                 req_testcases[req_id].append({
-                    "id": link_info["target_artifact_id"],
+                    "id": link_info["testcase_artifact_id"],
                     "result": "Not Run",  # test_result is managed by TestManagement
                 })
 
@@ -215,12 +216,16 @@ class CoverageCalculator:
         if not req_artifact_ids:
             return set()
 
-        # Build parameterized IN clause
+        # Build parameterized IN clause.
+        # SE link convention (traceability/types.py SE_LINK_SEMANTICS): for a
+        # `verifies` link the TestCase is the SOURCE and the Requirement is the
+        # TARGET (TC --verifies--> Req). A Requirement is therefore "covered"
+        # when its artifact id appears as the link TARGET, not the source.
         placeholders = ", ".join(["%s"] * len(req_artifact_ids))
         sql = f"""
-            SELECT DISTINCT source_id
+            SELECT DISTINCT target_id
             FROM pl_tracelink
-            WHERE source_id IN ({placeholders})
+            WHERE target_id IN ({placeholders})
               AND link_type = %s
               AND tenant_id = %s
         """
@@ -241,11 +246,14 @@ class CoverageCalculator:
         if not req_artifact_ids:
             return []
 
+        # SE link convention: TestCase is the SOURCE, Requirement the TARGET
+        # of a `verifies` link. Select links whose TARGET is a requirement
+        # artifact; the SOURCE is then the verifying TestCase.
         placeholders = ", ".join(["%s"] * len(req_artifact_ids))
         sql = f"""
             SELECT source_id, target_id
             FROM pl_tracelink
-            WHERE source_id IN ({placeholders})
+            WHERE target_id IN ({placeholders})
               AND link_type = 'verifies'
               AND tenant_id = %s
         """
@@ -256,7 +264,7 @@ class CoverageCalculator:
             rows = cur.fetchall()
 
         return [
-            {"source_artifact_id": str(row[0]), "target_artifact_id": str(row[1])}
+            {"testcase_artifact_id": str(row[0]), "req_artifact_id": str(row[1])}
             for row in rows
         ]
 

@@ -70,7 +70,8 @@ class TestVCRMGeneration:
         with active_tenant(tenant_a):
             art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
             tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-1")
-            make_trace_link(art_req, tc_art, tenant_a, "verifies")
+            # SE convention: TestCase is source, Requirement is target.
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
 
             matrix = vcrm_gen.generate_vcrm(workspace_a.id)
 
@@ -205,9 +206,9 @@ class TestPDFExport:
             _, req1 = make_requirement(tenant_a, workspace_a, "Matrix-Req-1")
             _, req2 = make_requirement(tenant_a, workspace_a, "Matrix-Req-2")
             tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-1")
-            # Link req1 -> tc via verifies
+            # Link tc -> req1 via verifies (TestCase is source, Req is target)
             art_req1 = req1.artifact
-            make_trace_link(art_req1, tc_art, tenant_a, "verifies")
+            make_trace_link(tc_art, art_req1, tenant_a, "verifies")
 
             pdf_bytes = generate_pdf_report(
                 workspace_a.id, layout="traceability_matrix"
@@ -337,10 +338,10 @@ class TestVCRMPDFExport:
         with active_tenant(tenant_a):
             _, req = make_requirement(tenant_a, workspace_a, "VCRM-WithTests")
             _, tc = make_test_case(tenant_a, workspace_a, "VCRM-TC-1")
-            # Link requirement to test case
+            # Link test case to requirement (TestCase is source, Req is target)
             art_req = req.artifact
             art_tc = tc.artifact
-            make_trace_link(art_req, art_tc, tenant_a, "verifies")
+            make_trace_link(art_tc, art_req, tenant_a, "verifies")
 
             pdf_bytes = vcrm_gen.export_vcrm_pdf(workspace_a.id)
 
