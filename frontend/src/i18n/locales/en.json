@@ -126,6 +126,8 @@
     "derive": "Derive",
     "deriving": "Deriving...",
     "deleting": "Deleting...",
+    "closing": "Closing...",
+    "confirm": "Confirm",
     "confirmDelete": "Yes, delete",
     "deleteConfirmPrompt": "Delete?"
   },
