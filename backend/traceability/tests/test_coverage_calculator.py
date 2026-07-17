@@ -230,3 +230,59 @@ class TestGetCoverageData:
             data = calc.get_coverage_data(workspace_a.id)
 
         assert data.entries == []
+
+    def test_test_case_without_run_defaults_to_not_run(
+        self, calc, tenant_a, workspace_a
+    ):
+        """K4: a TestCase with no recorded run reports 'Not Run'."""
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-1")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
+
+            data = calc.get_coverage_data(workspace_a.id)
+
+        entry = next(e for e in data.entries if e.requirement_id == str(req.id))
+        assert entry.test_cases[0]["result"] == "Not Run"
+
+    def test_test_case_result_reflects_latest_testrun_status(
+        self, calc, tenant_a, workspace_a
+    ):
+        """K4: get_coverage_data wires the latest TestRunResult into the VCRM."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from persistence.models import TestRun, TestRunResult
+
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-1")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
+
+            run = TestRun.objects.create(
+                tenant=tenant_a, workspace=workspace_a, name="Run-1"
+            )
+            # Older failed result ...
+            TestRunResult.objects.create(
+                tenant=tenant_a,
+                test_run=run,
+                test_case=tc,
+                test_case_title="TC-1",
+                status="failed",
+                executed_at=timezone.now() - timedelta(hours=1),
+            )
+            # ... superseded by a newer passed result.
+            TestRunResult.objects.create(
+                tenant=tenant_a,
+                test_run=run,
+                test_case=tc,
+                test_case_title="TC-1",
+                status="passed",
+                executed_at=timezone.now(),
+            )
+
+            data = calc.get_coverage_data(workspace_a.id)
+
+        entry = next(e for e in data.entries if e.requirement_id == str(req.id))
+        assert entry.test_cases[0]["result"] == "Passed"

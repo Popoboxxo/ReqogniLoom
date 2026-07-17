@@ -176,6 +176,13 @@ class CoverageCalculator:
             tenant_id=tenant_id,
         )
 
+        # Resolve the latest TestRun result per verifying TestCase so the VCRM
+        # reflects actual execution status instead of a hard-coded "Not Run".
+        testcase_artifact_ids = {
+            link_info["testcase_artifact_id"] for link_info in verifies_links
+        }
+        result_by_testcase = self._latest_testrun_status(testcase_artifact_ids)
+
         # Build per-requirement test-case map. The Requirement is the link
         # TARGET and the TestCase is the SOURCE (SE `verifies` convention).
         req_testcases: dict[str, list[dict]] = {
@@ -185,9 +192,10 @@ class CoverageCalculator:
             req_art_id = link_info["req_artifact_id"]
             if req_art_id in req_id_map:
                 req_id = req_id_map[req_art_id]
+                tc_art_id = link_info["testcase_artifact_id"]
                 req_testcases[req_id].append({
-                    "id": link_info["testcase_artifact_id"],
-                    "result": "Not Run",  # test_result is managed by TestManagement
+                    "id": tc_art_id,
+                    "result": result_by_testcase.get(tc_art_id, "Not Run"),
                 })
 
         entries = [
@@ -202,6 +210,50 @@ class CoverageCalculator:
     # -----------------------------------------------------------------------
     # Internal helpers
     # -----------------------------------------------------------------------
+
+    def _latest_testrun_status(
+        self,
+        testcase_artifact_ids: set[str],
+    ) -> dict[str, str]:
+        """Map TestCase artifact id -> display label of its latest run result.
+
+        IF-TE-INT-004: wires the most recent ``TestRunResult`` status into the
+        VCRM coverage data. TestCases without any recorded run are absent from
+        the returned map, so callers fall back to "Not Run".
+
+        "Latest" is the result with the most recent ``executed_at`` (NULLs —
+        never-executed rows — rank last), tie-broken by insertion id.
+        """
+        if not testcase_artifact_ids:
+            return {}
+
+        from django.db.models import F
+
+        from persistence.models import TestRunResult
+
+        status_labels = dict(
+            TestRunResult._meta.get_field("status").choices
+        )
+
+        rows = (
+            TestRunResult.objects.filter(
+                test_case__artifact_id__in=testcase_artifact_ids
+            )
+            .order_by(
+                "test_case__artifact_id",
+                F("executed_at").desc(nulls_last=True),
+                "-id",
+            )
+            .values("test_case__artifact_id", "status")
+        )
+
+        latest: dict[str, str] = {}
+        for row in rows:
+            tc_art_id = str(row["test_case__artifact_id"])
+            if tc_art_id in latest:
+                continue  # first row per TestCase is the latest (ordering)
+            latest[tc_art_id] = status_labels.get(row["status"], "Not Run")
+        return latest
 
     def _get_covered_artifact_ids(
         self,
