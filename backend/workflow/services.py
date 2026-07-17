@@ -322,11 +322,19 @@ def get_available_transitions(
 ) -> AvailableTransitions:
     """Return the current state and allowed next transitions for an item (REQ-143).
 
-    Read-only. Used by the REST/MCP layers to drive a transition-aware UI: the
-    caller renders only the returned ``transitions`` as available moves and shows
+    Used by the REST/MCP layers to drive a transition-aware UI: the caller
+    renders only the returned ``transitions`` as available moves and shows
     ``current_state`` read-only when the list is empty.
 
-    Never raises for the "no definition" / "no state yet" cases — it returns an
+    REQ-160: when the item has no ``WorkflowItemState`` yet but a workflow
+    definition exists for its workspace/type, the state is lazily created at the
+    definition's initial state instead of returning a dead, empty transition
+    list. This is idempotent and race-safe (see
+    ``StateLifecycleManager.ensure_item_state``), so a subsequent call is a
+    no-op and never resets an existing state. The tenant context must be active
+    (the WorkflowFacade sets it before delegating here).
+
+    Never raises for the "no definition configured" case — it returns an
     ``AvailableTransitions`` with an empty ``transitions`` tuple so callers can
     treat "not configured" and "no move available" uniformly.
 
@@ -341,22 +349,36 @@ def get_available_transitions(
     item_id_uuid = UUID(str(item_id))
     workspace_uuid = UUID(str(workspace_id))
 
-    item_state = _get_lifecycle().get_item_state(
-        item_id_uuid, item_type, workspace_uuid
-    )
-    current_state = item_state.current_state if item_state is not None else None
+    lifecycle = _get_lifecycle()
+    item_state = lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid)
 
     try:
         dto = _get_store().get_definition(workspace_uuid, item_type)
     except WorkflowDefinitionError:
+        # No workflow configured at all for this workspace/type — cannot
+        # initialise a state without a definition. Degrade to a read-only view.
+        current_state = item_state.current_state if item_state is not None else None
         return AvailableTransitions(
             current_state=current_state, states=(), transitions=()
         )
 
+    # REQ-160: lazily auto-initialise a missing state to the initial state.
+    # Best-effort: a failure to create (e.g. no active tenant context in a
+    # direct low-level call) must not break the read — fall back to the
+    # definition's initial state for display without persisting.
+    if item_state is None:
+        try:
+            item_state = lifecycle.ensure_item_state(
+                item_id_uuid, item_type, workspace_uuid, dto.initial_state
+            )
+        except Exception:  # noqa: BLE001 — read path must never hard-fail
+            item_state = None
+
+    current_state = (
+        item_state.current_state if item_state is not None else dto.initial_state
+    )
     allowed = tuple(
-        t
-        for t in dto.transitions
-        if current_state is not None and t.from_state == current_state
+        t for t in dto.transitions if t.from_state == current_state
     )
     return AvailableTransitions(
         current_state=current_state, states=dto.states, transitions=allowed

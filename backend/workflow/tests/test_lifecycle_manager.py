@@ -152,6 +152,61 @@ class TestStateInitialization:
         with pytest.raises(WorkflowDefinitionError):
             mgr.initialize_workflow_states([uuid.uuid4()], "Requirement", ws)
 
+    # -- REQ-160: lazy, idempotent state provisioning ------------------------
+
+    def test_ensure_item_state_creates_when_absent(self):
+        """ensure_item_state creates a state at the given initial state (REQ-160)."""
+        ws = _ws()
+        _make_def_record(self._tenant_id, ws)
+        mgr = StateLifecycleManager(definition_store=_mock_store(_dto(ws)))
+
+        item_id = uuid.uuid4()
+        state = mgr.ensure_item_state(item_id, "Requirement", ws, "draft")
+
+        assert state.item_id == item_id
+        assert state.current_state == "draft"
+        assert (
+            WorkflowItemState.objects.filter(
+                item_id=item_id, item_type="Requirement", workspace_id=ws
+            ).count()
+            == 1
+        )
+
+    def test_ensure_item_state_is_idempotent(self):
+        """A second call returns the existing row without resetting it (REQ-160)."""
+        ws = _ws()
+        def_record = _make_def_record(self._tenant_id, ws)
+        item_id = uuid.uuid4()
+        existing = WorkflowItemState.unscoped.create(
+            tenant_id=self._tenant_id,
+            item_id=item_id,
+            item_type="Requirement",
+            workspace_id=ws,
+            definition=def_record,
+            current_state="approved",
+        )
+        mgr = StateLifecycleManager(definition_store=_mock_store(_dto(ws)))
+
+        state = mgr.ensure_item_state(item_id, "Requirement", ws, "draft")
+
+        # Existing "approved" state must survive — no reset to the initial state.
+        assert state.pk == existing.pk
+        assert state.current_state == "approved"
+        assert (
+            WorkflowItemState.objects.filter(
+                item_id=item_id, item_type="Requirement", workspace_id=ws
+            ).count()
+            == 1
+        )
+
+    def test_ensure_item_state_missing_definition_raises(self):
+        """No WorkflowEngineDefinition record → WorkflowStateError (REQ-160)."""
+        ws = _ws()
+        mgr = StateLifecycleManager(definition_store=_mock_store(_dto(ws)))
+
+        with pytest.raises(WorkflowStateError):
+            mgr.ensure_item_state(uuid.uuid4(), "Requirement", ws, "draft")
+
 
 # ---------------------------------------------------------------------------
 # REQ-L3-WE003-002: State mutation with Optimistic Locking + history

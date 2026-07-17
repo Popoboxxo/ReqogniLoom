@@ -154,6 +154,70 @@ class StateLifecycleManager:
 
         return created
 
+    @transaction.atomic
+    def ensure_item_state(
+        self,
+        item_id: UUID,
+        item_type: str,
+        workspace_id: UUID,
+        initial_state: str,
+    ) -> WorkflowItemState:
+        """Idempotently return the item's WorkflowItemState, creating it if absent.
+
+        REQ-160: an artifact that never received a WorkflowItemState (legacy /
+        seeded rows, or a create-time init that was skipped) must not be a dead
+        end. This lazily provisions the state at ``initial_state`` so the
+        transitions API can expose the allowed moves instead of an empty list.
+
+        Idempotent and race-safe: if a row already exists — or a concurrent
+        writer wins the insert (violating the unique (tenant, item_id,
+        item_type) constraint) — the existing row is returned unchanged, so no
+        state or version is ever reset (no breaking change for initialised
+        items).
+
+        Args:
+            item_id:       UUID of the item.
+            item_type:     Entity type string.
+            workspace_id:  Workspace UUID.
+            initial_state: State to seed a freshly created row with (the
+                           definition's initial state).
+
+        Returns:
+            The existing or newly created WorkflowItemState.
+
+        Raises:
+            WorkflowStateError: No WorkflowDefinition record for the FK.
+        """
+        existing = self.get_item_state(item_id, item_type, workspace_id)
+        if existing is not None:
+            return existing
+
+        definition_record = WorkflowEngineDefinition.objects.filter(
+            workspace_id=str(workspace_id), item_type=item_type
+        ).first()
+        if definition_record is None:
+            raise WorkflowStateError(
+                f"No WorkflowDefinition found for workspace={workspace_id}, "
+                f"item_type={item_type}"
+            )
+
+        from django.db import IntegrityError
+
+        try:
+            return WorkflowItemState.objects.create(
+                item_id=item_id,
+                item_type=item_type,
+                workspace_id=workspace_id,
+                definition=definition_record,
+                current_state=initial_state,
+            )
+        except IntegrityError:
+            # A concurrent request created the row first — return that one.
+            row = self.get_item_state(item_id, item_type, workspace_id)
+            if row is None:
+                raise
+            return row
+
     # -- State mutation (REQ-L2-WE-003, REQ-L3-WE003-002) ---------------------
 
     @transaction.atomic
