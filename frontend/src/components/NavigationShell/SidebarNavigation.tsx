@@ -207,7 +207,11 @@ export function SidebarNavigation(): JSX.Element {
         ? `/risks/${hit.id}`
         : hit.artifact_type === "Issue"
         ? `/issues/${hit.id}`
-        : `/tests/${hit.id}`;
+        : hit.artifact_type === "TestCase"
+        ? `/testcases/${hit.id}`
+        : hit.artifact_type === "StakeholderNeed"
+        ? `/needs/${hit.id}`
+        : `/requirements/${hit.id}`;
     navigate(route);
   };
 
