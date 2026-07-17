@@ -28,7 +28,27 @@ export const stakeholderNeedApi = {
     return apiClient.post<StakeholderNeed>(`/workspaces/${workspaceId}/needs/`, data);
   },
 
-  update: async (id: string, data: Partial<StakeholderNeed>): Promise<StakeholderNeed> => {
+  /**
+   * REQ-162: `change_reason` is mandatory when the workspace preset requires
+   * it (Extended preset — see backend/application/preset_policy_service.py,
+   * `is_change_reason_required`). Whitelisted like requirementsApi.update /
+   * architectureApi.update so the contract stays explicit.
+   */
+  update: async (
+    id: string,
+    data: Partial<
+      Pick<
+        StakeholderNeed,
+        | "title"
+        | "description"
+        | "category"
+        | "status"
+        | "moscow_priority"
+        | "custom_fields"
+        | "change_reason"
+      >
+    >
+  ): Promise<StakeholderNeed> => {
     return apiClient.patch<StakeholderNeed>(`/needs/${id}/`, data);
   },
 

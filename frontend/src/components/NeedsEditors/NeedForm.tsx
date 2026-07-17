@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { ArchitectureElement, StakeholderNeed } from '../../types';
 import { WORKFLOW_STATES } from '../../types';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
 import { requirementsApi } from '../../api/requirements';
 import { architectureApi } from '../../api/architecture';
@@ -24,7 +25,12 @@ interface NeedFormProps {
 export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, onNeedsChanged }: NeedFormProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { activeWorkspace } = useWorkspace();
+  // REQ-162: Extended preset requires a change_reason on every update
+  // (backend/application/preset_policy_service.py: is_change_reason_required).
+  const isExtendedPreset = activeWorkspace?.preset === 'extended';
   const [formData, setFormData] = useState<Partial<StakeholderNeed>>({});
+  const [changeReason, setChangeReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -120,8 +126,10 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
   useEffect(() => {
     if (need) {
       setFormData({ ...need });
+      setChangeReason(need.change_reason || '');
     } else {
       setFormData({});
+      setChangeReason('');
     }
     // Reset transient action state when switching to a different need.
     setConfirmDelete(false);
@@ -138,17 +146,28 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
 
   const handleSave = async () => {
     if (!need) return;
+    // REQ-162: Extended preset enforces a mandatory change_reason on every
+    // update (backend returns HTTP 400 otherwise) — block the save client-side
+    // with the same message pattern used in RequirementForm/ArchitectureForm.
+    if (isExtendedPreset && !changeReason.trim()) {
+      setSaveError(t('req.changeReasonRequired'));
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
-      await stakeholderNeedApi.update(need.id, {
+      const updateData: Partial<StakeholderNeed> = {
         title: formData.title,
         description: formData.description,
         category: formData.category,
         moscow_priority: formData.moscow_priority,
         status: formData.status,
         custom_fields: formData.custom_fields,
-      });
+      };
+      if (isExtendedPreset) {
+        updateData.change_reason = changeReason.trim();
+      }
+      await stakeholderNeedApi.update(need.id, updateData);
       onSaved();
     } catch (err) {
       console.error(err);
@@ -374,6 +393,32 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             disabled={isSaving}
           />
         </div>
+
+        {/* SECTION: Change Control (REQ-162) — Extended preset only, mirrors
+            RequirementForm/ArchitectureForm change_reason handling. */}
+        {isExtendedPreset && (
+          <div style={{ marginBottom: 'var(--space-6)' }}>
+            <h3 style={{ fontSize: 'var(--font-size-md)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
+              Change Control
+            </h3>
+
+            <label htmlFor="need-change-reason" style={labelStyle}>
+              {t('req.changeReason')} <span style={{ color: 'var(--color-danger)' }}>*</span>
+            </label>
+            <textarea
+              id="need-change-reason"
+              data-testid="need-change-reason-input"
+              value={changeReason}
+              onChange={(e) => {
+                setChangeReason(e.target.value);
+                if (saveError) setSaveError(null);
+              }}
+              rows={2}
+              style={{ ...inputStyle, resize: 'vertical' }}
+              placeholder={t('req.changeReasonPlaceholder')}
+            />
+          </div>
+        )}
 
         <TraceLinkPanel
           workspaceId={need.workspace_id}
