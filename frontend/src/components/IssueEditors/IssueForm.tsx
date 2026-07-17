@@ -162,29 +162,29 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
-            <label style={labelStyle}>{t('editor.title')}</label>
-            <input type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} />
+            <label htmlFor="issue-title" style={labelStyle}>{t('editor.title')}</label>
+            <input id="issue-title" type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} />
           </div>
           <div>
-            <label style={labelStyle}>{t('editor.description')}</label>
-            <textarea value={formData.description || ''} onChange={(e) => handleChange('description', e.target.value)} rows={4} style={inputStyle} />
+            <label htmlFor="issue-description" style={labelStyle}>{t('editor.description')}</label>
+            <textarea id="issue-description" value={formData.description || ''} onChange={(e) => handleChange('description', e.target.value)} rows={4} style={inputStyle} />
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('issues.severity')}</label>
-              <select value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value)} style={inputStyle}>
+              <label htmlFor="issue-severity" style={labelStyle}>{t('issues.severity')}</label>
+              <select id="issue-severity" value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value)} style={inputStyle}>
                 {SEVERITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('editor.status')}</label>
-              <select value={formData.status || 'Open'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
+              <label htmlFor="issue-status" style={labelStyle}>{t('editor.status')}</label>
+              <select id="issue-status" value={formData.status || 'Open'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
                 {STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('issues.category')}</label>
-              <select value={formData.category || 'defect'} onChange={(e) => handleChange('category', e.target.value)} style={inputStyle}>
+              <label htmlFor="issue-category" style={labelStyle}>{t('issues.category')}</label>
+              <select id="issue-category" value={formData.category || 'defect'} onChange={(e) => handleChange('category', e.target.value)} style={inputStyle}>
                 {CATEGORY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>

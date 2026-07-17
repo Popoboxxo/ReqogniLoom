@@ -158,8 +158,8 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
-            <label style={labelStyle}>{t('editor.title')}</label>
-            <input type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} />
+            <label htmlFor="tc-title" style={labelStyle}>{t('editor.title')}</label>
+            <input id="tc-title" type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>{t('editor.description')}</label>
@@ -167,8 +167,8 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>{t('editor.status')}</label>
-              <select value={formData.status || 'draft'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
+              <label htmlFor="tc-status" style={labelStyle}>{t('editor.status')}</label>
+              <select id="tc-status" value={formData.status || 'draft'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
                 {STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>

@@ -91,7 +91,7 @@ export function TestRunsList(): JSX.Element {
   }
 
   if (isLoading) {
-    return <p>{t("loading")}</p>;
+    return <p role="status">{t("loading")}</p>;
   }
 
   return (
