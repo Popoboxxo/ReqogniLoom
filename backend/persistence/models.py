@@ -157,6 +157,24 @@ class VerificationMethod(models.TextChoices):
     REVIEW = "Review", "Review"
     ANALYSIS = "Analysis", "Analysis"
     INSPECTION = "Inspection", "Inspection"
+    DEMONSTRATION = "Demonstration", "Demonstration"
+
+
+class TestCaseType(models.TextChoices):
+    """Test case type (B6a).
+
+    Promotes the test type from an ``artifact_type`` string prefix
+    (e.g. "TestCase:System") to a first-class field. The artifact_type prefix
+    approach is deprecated for test typing going forward. NULL means the type
+    is unknown / not derivable from the legacy prefix.
+    """
+
+    SYSTEM = "system", "System"
+    INTEGRATION = "integration", "Integration"
+    UNIT = "unit", "Unit"
+    INSPECTION = "inspection", "Inspection"
+    ANALYSIS = "analysis", "Analysis"
+    DEMONSTRATION = "demonstration", "Demonstration"
 
 
 class ASILLevel(models.TextChoices):
@@ -880,6 +898,17 @@ class TestCase(TenantScopedModel):
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     steps = models.JSONField(default=list, blank=True)
+    test_type = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=TestCaseType.choices,
+        help_text=(
+            "B6a: Test type (system/integration/unit/inspection/analysis/"
+            "demonstration). Replaces the deprecated 'TestCase:<Type>' "
+            "artifact_type prefix. NULL when not derivable."
+        ),
+    )
     uid = models.CharField(
         max_length=64,
         null=True,
@@ -1554,6 +1583,7 @@ __all__ = [
     "AttributeVisibilityConfig",
     "TraceLink",
     "TestCase",
+    "TestCaseType",
     "WorkflowDefinition",
     "WorkflowState",
     "AuditLogEntry",
