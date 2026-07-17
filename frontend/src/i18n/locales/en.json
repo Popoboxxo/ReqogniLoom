@@ -53,6 +53,9 @@
     "recentEvents": "Recent Audit Events",
     "noEvents": "No recent events.",
     "refresh": "Refresh",
+    "version": "Version: {{sha}}",
+    "versionBuiltAt": "Version: {{sha}} · built {{buildTime}}",
+    "versionUnavailable": "Version: unavailable",
     "status": {
       "ok": "OK",
       "degraded": "Degraded",

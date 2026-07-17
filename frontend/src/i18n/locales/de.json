@@ -53,6 +53,9 @@
     "recentEvents": "Letzte Audit-Ereignisse",
     "noEvents": "Keine aktuellen Ereignisse.",
     "refresh": "Aktualisieren",
+    "version": "Version: {{sha}}",
+    "versionBuiltAt": "Version: {{sha}} · gebaut am {{buildTime}}",
+    "versionUnavailable": "Version: nicht verfügbar",
     "status": {
       "ok": "OK",
       "degraded": "Eingeschränkt",

@@ -19,6 +19,7 @@ import {
   type SystemHealthSnapshot,
   type SystemHealthStatus,
 } from "../../api/admin-ops";
+import { versionApi, type VersionInfo } from "../../api/version";
 
 export interface SystemHealthDialogProps {
   /** Controls modal visibility. */
@@ -154,6 +155,8 @@ export function SystemHealthDialog({
   const [snapshot, setSnapshot] = useState<SystemHealthSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const [versionFailed, setVersionFailed] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     setIsLoading(true);
@@ -173,6 +176,29 @@ export function SystemHealthDialog({
     if (!isOpen) return;
     void load();
   }, [isOpen, load]);
+
+  // Fetch the deployed build/commit info independently of the health snapshot
+  // (public, unauthenticated endpoint — meant to work even when other
+  // components are degraded). Non-critical: fail silently, dialog still works.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    setVersionInfo(null);
+    setVersionFailed(false);
+    void versionApi
+      .getVersion()
+      .then((info) => {
+        if (!cancelled) setVersionInfo(info);
+      })
+      .catch(() => {
+        // Non-critical build indicator — surface a terse "unavailable"
+        // marker instead of crashing the dialog.
+        if (!cancelled) setVersionFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   // Prevent background scroll while the dialog is open (same as CreateWorkspaceModal).
   useEffect(() => {
@@ -203,9 +229,37 @@ export function SystemHealthDialog({
         style={dialogStyle}
       >
         <div style={headerStyle}>
-          <h2 style={{ margin: 0, fontSize: "1.1rem", color: "var(--color-text)" }}>
-            {t("systemHealth.title", "System Health")}
-          </h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+            <h2 style={{ margin: 0, fontSize: "1.1rem", color: "var(--color-text)" }}>
+              {t("systemHealth.title", "System Health")}
+            </h2>
+            {(versionInfo || versionFailed) && (
+              <span
+                data-testid="system-health-version"
+                title={
+                  versionInfo
+                    ? versionInfo.build_time
+                      ? `${versionInfo.commit} (${versionInfo.build_time})`
+                      : versionInfo.commit
+                    : undefined
+                }
+                style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}
+              >
+                {versionInfo
+                  ? versionInfo.build_time
+                    ? t("systemHealth.versionBuiltAt", {
+                        sha: versionInfo.commit_short,
+                        buildTime: formatDate(versionInfo.build_time),
+                        defaultValue: `Version: ${versionInfo.commit_short} · built ${formatDate(versionInfo.build_time)}`,
+                      })
+                    : t("systemHealth.version", {
+                        sha: versionInfo.commit_short,
+                        defaultValue: `Version: ${versionInfo.commit_short}`,
+                      })
+                  : t("systemHealth.versionUnavailable", "Version: unavailable")}
+              </span>
+            )}
+          </div>
           <button
             type="button"
             data-testid="system-health-close"
