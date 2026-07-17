@@ -891,6 +891,32 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
+class ChangeRequestSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for ChangeRequest entity (REQ-157, COMP-AS-017).
+
+    Covers the full CCB approval lifecycle:
+    draft → submitted → under_review → approved|rejected → implemented
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
+    impact_assessment = serializers.CharField(allow_blank=True, default="")
+    change_reason = serializers.CharField(allow_blank=True, default="")
+    status = serializers.ChoiceField(
+        choices=["draft", "submitted", "under_review", "approved", "rejected", "implemented"],
+        default="draft",
+    )
+    requestor_id = serializers.UUIDField(read_only=True, allow_null=True)
+    assigned_reviewer_id = serializers.UUIDField(
+        allow_null=True, required=False, default=None
+    )
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
 class IcdParameterSerializer(serializers.Serializer):
     """Serializer for IcdParameter entity (REQ-L2-ICD-002, COMP-ICD-001).
 

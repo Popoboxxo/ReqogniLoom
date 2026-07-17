@@ -58,6 +58,9 @@ class DomainEventOutbox(models.Model):
         ISSUE_CREATED = "IssueCreated"
         ISSUE_UPDATED = "IssueUpdated"
         ISSUE_DELETED = "IssueDeleted"
+        CHANGE_REQUEST_CREATED = "ChangeRequestCreated"
+        CHANGE_REQUEST_UPDATED = "ChangeRequestUpdated"
+        CHANGE_REQUEST_DELETED = "ChangeRequestDeleted"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
@@ -502,6 +505,72 @@ class Issue(models.Model):
         return f"Issue:{self.id}:{self.title[:40]}"
 
 
+class ChangeRequest(models.Model):
+    """Change Request entity — CCB approval workflow (REQ-157).
+
+    Tracks proposed changes through a formal Configuration Control Board (CCB)
+    approval process. Reuses the WorkflowEngine (ccb_approval preset) for
+    state machine transitions with role checks and change_reason enforcement.
+
+    Status lifecycle: draft → submitted → under_review → approved|rejected → implemented
+
+    leaf_id : COMP-AS-021
+    req_id  : REQ-157
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SUBMITTED = "submitted", "Submitted"
+        UNDER_REVIEW = "under_review", "Under Review"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        IMPLEMENTED = "implemented", "Implemented"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace_id = models.UUIDField(db_index=True)
+    tenant_id = models.UUIDField(db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    impact_assessment = models.TextField(
+        blank=True,
+        help_text="Assessment of the impact this change will have on the system.",
+    )
+    change_reason = models.TextField(
+        blank=True,
+        help_text="Reason for the change request (required for submit and reject transitions).",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    requestor_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="UUID of the user who created this change request.",
+    )
+    assigned_reviewer_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="UUID of the user assigned as CCB reviewer.",
+    )
+    version = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_change_request"
+        indexes = [
+            models.Index(fields=["workspace_id", "status"], name="idx_cr_ws_status"),
+            models.Index(fields=["tenant_id", "workspace_id"], name="idx_cr_tenant_ws"),
+            models.Index(fields=["workspace_id", "requestor_id"], name="idx_cr_ws_requestor"),
+        ]
+
+    def __str__(self) -> str:
+        return f"CR:{self.id}:{self.title[:40]}"
+
+
 __all__ = [
     "DomainEventOutbox",
     "DomainEventDLQ",
@@ -510,4 +579,5 @@ __all__ = [
     "Adr",
     "Risk",
     "Issue",
+    "ChangeRequest",
 ]

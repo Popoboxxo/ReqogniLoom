@@ -204,6 +204,69 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         "states": ["draft", "in_review", "approved", "implemented", "verified", "deprecated"],
         "transitions": _extended_transitions(),
     },
+    "ccb_approval": {
+        # REQ-157: CCB (Configuration Control Board) approval workflow for
+        # Change Requests. Reuses the WorkflowEngine state machine with role
+        # checks and change_reason enforcement on critical transitions.
+        #
+        # States: draft → submitted → under_review → approved|rejected → implemented
+        # rejected allows rework back to draft.
+        #
+        # Role mapping uses existing RBAC roles (admin/editor/viewer/approver
+        # from auth_tenancy/models.py). "requestor" maps to "editor" in the
+        # existing role set since a dedicated requestor role does not exist.
+        "states": ["draft", "submitted", "under_review", "approved", "rejected", "implemented"],
+        "transitions": [
+            {
+                # Requestor submits the CR for CCB review.
+                "from_state": "draft",
+                "to_state": "submitted",
+                "allowed_roles": ["editor", "admin"],
+                "requires_change_reason": True,
+                "signature_gate": False,
+            },
+            {
+                # CCB reviewer takes the CR into active review.
+                "from_state": "submitted",
+                "to_state": "under_review",
+                "allowed_roles": ["approver", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+            {
+                # CCB approves the change. change_reason documents the rationale.
+                "from_state": "under_review",
+                "to_state": "approved",
+                "allowed_roles": ["approver", "admin"],
+                "requires_change_reason": True,
+                "signature_gate": False,
+            },
+            {
+                # CCB rejects the change. change_reason mandatory (REQ-157).
+                "from_state": "under_review",
+                "to_state": "rejected",
+                "allowed_roles": ["approver", "admin"],
+                "requires_change_reason": True,
+                "signature_gate": False,
+            },
+            {
+                # Implementation team marks the approved CR as implemented.
+                "from_state": "approved",
+                "to_state": "implemented",
+                "allowed_roles": ["editor", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+            {
+                # Requestor reworks a rejected CR and resubmits for CCB.
+                "from_state": "rejected",
+                "to_state": "draft",
+                "allowed_roles": ["editor", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+        ],
+    },
 }
 
 

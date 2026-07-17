@@ -234,9 +234,12 @@ __all__ = [
     "IssueService",
     "IssueDTO",
     "ISSUE_LINK_TYPES",
-    # Step-4 services (COMP-AS-017..018)
+    # Step-4 services (COMP-AS-017..018, COMP-AS-021)
     "TestRunService",
     "VALID_RESULT_STATUSES",
+    "ChangeRequestService",
+    "ChangeRequestDTO",
+    "ChangeRequestValidator",
     # COMP-AS-019 (REQ-L2-AS-032, REQ-L1-040)
     "ArtifactDiffService",
     # COMP-AS-020 Semantic Glossary
