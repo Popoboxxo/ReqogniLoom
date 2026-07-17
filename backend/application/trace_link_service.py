@@ -35,6 +35,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 from uuid import UUID
 
+from django.conf import settings
+
 from auth_tenancy.context import AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
@@ -659,11 +661,23 @@ class TraceLinkService(ServiceBase):
         return results
 
     def propagate_suspect_status(self, source_id: UUID, ctx: AuthContext) -> None:
-        """Propagate 'suspect' status to downstream artifacts (SN-30).
+        """Propagate 'suspect' status to dependent artifacts (SN-30).
 
-        Queries the transitive closure of outgoing links (downstream) and marks
-        all reachable Requirement, ArchitectureElement, and TestCase entities
-        as suspect = True.
+        When the artifact ``source_id`` changes, every artifact that DEPENDS ON
+        it must be flagged as suspect. In the SE link convention the dependent
+        is the SOURCE of the link and the changed artifact is the TARGET
+        (e.g. ``TestCase --verifies--> Requirement`` or
+        ``ChildReq --derives-from--> ParentReq``). Dependents are therefore
+        reached by traversing INCOMING edges — the ``upstream`` direction, where
+        the QueryEngine returns the link sources for links whose target is
+        ``source_id``.
+
+        The transitive upstream closure is computed by the recursive CTE in the
+        QueryEngine, which has built-in cycle detection and no hard depth cap,
+        so no dependent is silently truncated (the previous BFS stopped at a
+        hard-coded depth of 5). An optional
+        ``settings.SUSPECT_PROPAGATION_MAX_DEPTH`` (int) bounds the traversal
+        explicitly when configured; the default (``None``) keeps the full hull.
         """
         if ctx is not None:
             self._set_tenant_context(ctx)
@@ -673,47 +687,56 @@ class TraceLinkService(ServiceBase):
         except NotFoundError:
             return  # Source does not exist or isn't an artifact
 
-        # Get all downstream artifacts (transitive hull).
-        # We query the engine for outgoing links recursively.
         from traceability.services import query
-        # Fetch up to 5 levels deep
-        results = []
+
         try:
-            # Depending on engine implementation, query might not do transitive closures.
-            # Assuming query() returns immediate targets, we'll do a simple BFS here.
-            # Alternatively, if query() is recursive, we just use it.
-            # Here we do BFS up to depth 5:
-            queue = [resolved_id]
-            visited = set()
-            depth = 0
-            while queue and depth < 5:
-                next_queue = []
-                for node_id in queue:
-                    if node_id in visited:
-                        continue
-                    visited.add(node_id)
-                    edges = query(artifact_id=node_id, direction="outgoing")
-                    for edge in edges:
-                        target = getattr(edge, "target_id", None)
-                        if target and target not in visited:
-                            next_queue.append(target)
-                queue = next_queue
-                depth += 1
-            
-            # Now update all visited downstream (excluding the source itself)
-            visited.discard(resolved_id)
-            if not visited:
+            # Dependents are UPSTREAM nodes: links where target == resolved_id.
+            # transitive=True returns the full (cycle-safe) closure.
+            results = query(
+                artifact_id=resolved_id,
+                direction="upstream",
+                transitive=True,
+            )
+
+            max_depth = getattr(settings, "SUSPECT_PROPAGATION_MAX_DEPTH", None)
+            dependent_ids = {
+                r.entity_id
+                for r in results
+                if max_depth is None or getattr(r, "depth", 1) <= max_depth
+            }
+            dependent_ids.discard(resolved_id)  # never flag the source itself
+            if not dependent_ids:
                 return
 
-            from persistence.models import Requirement, ArchitectureElement, TestCase
-            # Update all reachable entities
-            Requirement.objects.filter(artifact_id__in=visited).update(suspect=True)
-            ArchitectureElement.objects.filter(artifact_id__in=visited).update(suspect=True)
-            TestCase.objects.filter(artifact_id__in=visited).update(suspect=True)
+            from persistence.models import (
+                ArchitectureElement,
+                Requirement,
+                TestCase,
+            )
 
-            logger.info(f"Propagated suspect status to {len(visited)} artifacts from {source_id}")
-        except Exception as exc:
-            logger.error(f"Error propagating suspect status for {source_id}: {exc}")
+            # Update every reachable dependent entity type.
+            Requirement.objects.filter(
+                artifact_id__in=dependent_ids
+            ).update(suspect=True)
+            ArchitectureElement.objects.filter(
+                artifact_id__in=dependent_ids
+            ).update(suspect=True)
+            TestCase.objects.filter(
+                artifact_id__in=dependent_ids
+            ).update(suspect=True)
+
+            logger.info(
+                "Propagated suspect status to %d artifacts from %s",
+                len(dependent_ids),
+                source_id,
+            )
+        except Exception:
+            # SN-30 must not silently swallow failures: surface the full stack
+            # trace and re-raise so callers (and the audit trail) see the error.
+            logger.exception(
+                "Error propagating suspect status for %s", source_id
+            )
+            raise
 
 
 

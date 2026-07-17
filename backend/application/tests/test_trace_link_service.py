@@ -663,3 +663,127 @@ class TestAllocationInvariantHook:
             svc._check_allocation_invariant(SOURCE_ID, TARGET_ID)
 
         mock_for_ws.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# propagate_suspect_status (SN-30)
+# ---------------------------------------------------------------------------
+
+
+class TestPropagateSuspectStatus:
+    """SN-30: suspect status propagates to DEPENDENTS via INCOMING edges.
+
+    Dependents are the SOURCES of links whose TARGET is the changed artifact
+    (TC --verifies--> Req, ChildReq --derives-from--> ParentReq), i.e. the
+    ``upstream`` transitive closure.
+    """
+
+    def test_traverses_incoming_edges_and_marks_dependents(self):
+        """query() is called upstream+transitive; dependents flagged suspect."""
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+        resolved = uuid.uuid4()
+        dep_1 = uuid.uuid4()
+        dep_2 = uuid.uuid4()
+
+        result_1 = MagicMock(entity_id=dep_1, depth=1)
+        result_2 = MagicMock(entity_id=dep_2, depth=2)
+
+        req_qs = MagicMock()
+        arch_qs = MagicMock()
+        tc_qs = MagicMock()
+
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", return_value=resolved),
+            patch(
+                "traceability.services.query",
+                return_value=[result_1, result_2],
+            ) as mock_query,
+            patch("persistence.models.Requirement") as mock_req,
+            patch("persistence.models.ArchitectureElement") as mock_arch,
+            patch("persistence.models.TestCase") as mock_tc,
+        ):
+            mock_req.objects.filter.return_value = req_qs
+            mock_arch.objects.filter.return_value = arch_qs
+            mock_tc.objects.filter.return_value = tc_qs
+
+            svc.propagate_suspect_status(SOURCE_ID, ctx)
+
+        # INCOMING edges = upstream direction, full transitive closure.
+        mock_query.assert_called_once_with(
+            artifact_id=resolved, direction="upstream", transitive=True
+        )
+        flagged = mock_req.objects.filter.call_args.kwargs["artifact_id__in"]
+        assert dep_1 in flagged
+        assert dep_2 in flagged
+        assert resolved not in flagged  # source itself is never flagged
+        req_qs.update.assert_called_once_with(suspect=True)
+        arch_qs.update.assert_called_once_with(suspect=True)
+        tc_qs.update.assert_called_once_with(suspect=True)
+
+    def test_respects_configured_max_depth(self, settings):
+        """SUSPECT_PROPAGATION_MAX_DEPTH bounds the traversal when set."""
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+        settings.SUSPECT_PROPAGATION_MAX_DEPTH = 1
+
+        near = uuid.uuid4()
+        far = uuid.uuid4()
+        near_result = MagicMock(entity_id=near, depth=1)
+        far_result = MagicMock(entity_id=far, depth=2)
+
+        req_qs = MagicMock()
+
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", return_value=uuid.uuid4()),
+            patch(
+                "traceability.services.query",
+                return_value=[near_result, far_result],
+            ),
+            patch("persistence.models.Requirement") as mock_req,
+            patch("persistence.models.ArchitectureElement"),
+            patch("persistence.models.TestCase"),
+        ):
+            mock_req.objects.filter.return_value = req_qs
+            svc.propagate_suspect_status(SOURCE_ID, ctx)
+
+        flagged = mock_req.objects.filter.call_args.kwargs["artifact_id__in"]
+        assert near in flagged
+        assert far not in flagged  # beyond configured depth
+
+    def test_missing_source_returns_without_query(self):
+        """A source that resolves to nothing is a no-op (no traversal)."""
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(
+                svc, "_resolve_artifact_id", side_effect=NotFoundError("x")
+            ),
+            patch("traceability.services.query") as mock_query,
+        ):
+            svc.propagate_suspect_status(SOURCE_ID, ctx)
+
+        mock_query.assert_not_called()
+
+    def test_reraises_and_logs_on_error(self):
+        """Traversal errors are logged with a stack trace and re-raised."""
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact_id", return_value=uuid.uuid4()),
+            patch(
+                "traceability.services.query",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("application.trace_link_service.logger") as mock_logger,
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                svc.propagate_suspect_status(SOURCE_ID, ctx)
+
+        mock_logger.exception.assert_called_once()
