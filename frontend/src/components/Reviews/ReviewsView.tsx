@@ -48,11 +48,44 @@ import { ReviewHistoryPanel } from "./ReviewHistoryPanel";
 
 type ReviewTab = "details" | "history";
 
-// The two moves the review queue cares about — REQ-144 keeps the queue
+// REQ-168: per-type approve/reject targets. The review queue keeps the queue
 // scoped to the `in_review` state, so these are the only transitions the
-// Approve/Reject buttons ever attempt to resolve.
-const APPROVE_TARGET = "approved";
-const REJECT_TARGET = "draft";
+// Approve/Reject buttons ever attempt to resolve — but the concrete target
+// state depends on the selected entity type's workflow (e.g. a risk moves to
+// `mitigated`, an ADR to `accepted`). The server re-validates every move
+// against the configured state machine regardless (REQ-L3-WF-004).
+const REVIEW_ACTION_CONFIG: Record<
+  WorkflowArtifactType,
+  { approve: string; reject: string }
+> = {
+  requirement: { approve: "approved", reject: "draft" },
+  need: { approve: "approved", reject: "draft" },
+  adr: { approve: "accepted", reject: "draft" },
+  "test-case": { approve: "approved", reject: "draft" },
+  risk: { approve: "mitigated", reject: "open" },
+  issue: { approve: "resolved", reject: "open" },
+  architecture: { approve: "approved", reject: "draft" },
+  // REQ-168: icd/glossary lifecycles land on the default approved/draft pair
+  // until their state machines diverge; the server stays authoritative.
+  icd: { approve: "approved", reject: "draft" },
+  glossary: { approve: "approved", reject: "draft" },
+};
+
+// REQ-168: the entity types the review queue can switch between, derived from
+// the action config so both stay in lockstep as new workflow types land.
+const ARTIFACT_TYPE_OPTIONS = Object.keys(
+  REVIEW_ACTION_CONFIG
+) as WorkflowArtifactType[];
+
+// REQ-168: render a workflow target state / entity type as a human label
+// ("mitigated" -> "Mitigated", "test-case" -> "Test Case").
+function toTitleCase(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 // REQ-167: map the workflow artifact type to the ArtifactDiff entity kind so
 // the shared diff renderer labels/routes correctly for every entity type.
@@ -64,6 +97,8 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
   risk: "risk",
   issue: "issue",
   architecture: "architecture",
+  icd: "icd",
+  glossary: "glossary",
 };
 
 function findTransition(
@@ -83,9 +118,14 @@ export interface ReviewsViewProps {
 }
 
 export default function ReviewsView({
-  artifactType = "requirement",
+  artifactType: initialArtifactType = "requirement",
 }: ReviewsViewProps = {}): JSX.Element {
   const { t } = useTranslation();
+  // REQ-168: the entity type is now selectable in the list toolbar. The prop
+  // seeds the initial type so callers passing an explicit type (and the
+  // historical Requirement-only behavior) keep working.
+  const [selectedArtifactType, setSelectedArtifactType] =
+    useState<WorkflowArtifactType>(initialArtifactType);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<ReviewTab>("details");
@@ -94,6 +134,9 @@ export default function ReviewsView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [isActing, setIsActing] = useState(false);
   const [pendingTransition, setPendingTransition] = useState<AllowedTransition | null>(null);
+
+  const { approve: APPROVE_TARGET, reject: REJECT_TARGET } =
+    REVIEW_ACTION_CONFIG[selectedArtifactType];
 
   const {
     items,
@@ -107,7 +150,11 @@ export default function ReviewsView({
     transition,
     diff,
     versions,
-  } = useReviewsData({ selectedId, includeHistory: tab === "history", artifactType });
+  } = useReviewsData({
+    selectedId,
+    includeHistory: tab === "history",
+    artifactType: selectedArtifactType,
+  });
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -129,6 +176,20 @@ export default function ReviewsView({
     setTab("details");
     setShowDiff(false);
     setChangeReason("");
+    setActionError(null);
+    setPendingTransition(null);
+  }, []);
+
+  // REQ-168: switching the entity type reloads a different review queue, so
+  // clear every selection-scoped piece of state to avoid carrying a stale
+  // selection / search / reason across types.
+  const handleTypeChange = useCallback((type: WorkflowArtifactType): void => {
+    setSelectedArtifactType(type);
+    setSelectedId(null);
+    setSearch("");
+    setChangeReason("");
+    setTab("details");
+    setShowDiff(false);
     setActionError(null);
     setPendingTransition(null);
   }, []);
@@ -196,8 +257,63 @@ export default function ReviewsView({
   const approveAllowed = findTransition(transitions?.allowed_transitions, APPROVE_TARGET);
   const rejectAllowed = findTransition(transitions?.allowed_transitions, REJECT_TARGET);
 
+  // REQ-168: keep the generic "Approve"/"Reject" wording for the default
+  // requirement-style targets, but surface the concrete state name for types
+  // whose approve/reject lands somewhere else (e.g. "Mitigated", "Accepted").
+  const approveLabel =
+    APPROVE_TARGET === "approved"
+      ? t("reviews.approve", "Approve")
+      : toTitleCase(APPROVE_TARGET);
+  const rejectLabel =
+    REJECT_TARGET === "draft"
+      ? t("reviews.reject", "Reject")
+      : toTitleCase(REJECT_TARGET);
+
   const listPanel = (
     <div data-testid="reviews-list">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-2)",
+          marginBottom: "var(--space-2)",
+        }}
+      >
+        <label
+          htmlFor="reviews-type-select"
+          style={{ fontWeight: 600, fontSize: "var(--font-size-sm)" }}
+        >
+          {t("reviews.typeLabel", "Type")}
+        </label>
+        <select
+          id="reviews-type-select"
+          data-testid="reviews-type-select"
+          value={selectedArtifactType}
+          onChange={(e) =>
+            handleTypeChange(e.target.value as WorkflowArtifactType)
+          }
+          style={{
+            height: "32px",
+            flex: "1 1 0",
+            minWidth: 0,
+            borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--color-border)",
+            padding: "0 var(--space-2)",
+            fontSize: "var(--font-size-sm)",
+            fontFamily: "inherit",
+            background: "var(--color-surface)",
+            color: "var(--color-text)",
+            boxSizing: "border-box",
+          }}
+        >
+          {ARTIFACT_TYPE_OPTIONS.map((type) => (
+            <option key={type} value={type}>
+              {t(`reviews.type.${type}`, toTitleCase(type))}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <ListToolbar
         searchValue={search}
         onSearchChange={setSearch}
@@ -304,7 +420,7 @@ export default function ReviewsView({
           {showDiff && (
             <ArtifactDiff
               entityId={selected.id}
-              entityType={DIFF_KIND[artifactType]}
+              entityType={DIFF_KIND[selectedArtifactType]}
               currentVersion={selected.version ?? 1}
               diffFetcher={diff}
               versionsFetcher={versions}
@@ -348,7 +464,7 @@ export default function ReviewsView({
               disabled={isActing || transitionsLoading || !approveAllowed}
               onClick={() => handleAction(APPROVE_TARGET)}
             >
-              {isActing ? t("reviews.approving", "Approving...") : t("reviews.approve", "Approve")}
+              {isActing ? t("reviews.approving", "Approving...") : approveLabel}
             </button>
             <button
               type="button"
@@ -357,7 +473,7 @@ export default function ReviewsView({
               disabled={isActing || transitionsLoading || !rejectAllowed}
               onClick={() => handleAction(REJECT_TARGET)}
             >
-              {isActing ? t("reviews.rejecting", "Rejecting...") : t("reviews.reject", "Reject")}
+              {isActing ? t("reviews.rejecting", "Rejecting...") : rejectLabel}
             </button>
           </div>
         </>

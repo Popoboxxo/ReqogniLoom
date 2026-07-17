@@ -282,6 +282,18 @@
   },
   "reviews": {
     "searchPlaceholder": "Search reviews...",
+    "typeLabel": "Type",
+    "type": {
+      "requirement": "Requirement",
+      "need": "Stakeholder Need",
+      "adr": "ADR",
+      "test-case": "Test Case",
+      "risk": "Risk",
+      "issue": "Issue",
+      "architecture": "Architecture",
+      "icd": "ICD",
+      "glossary": "Glossary Term"
+    },
     "empty": "No requirements pending review.",
     "selectPrompt": "Select a requirement from the list.",
     "changeReasonLabel": "Reason",

@@ -278,6 +278,18 @@
   },
   "reviews": {
     "searchPlaceholder": "Freigaben durchsuchen...",
+    "typeLabel": "Typ",
+    "type": {
+      "requirement": "Anforderung",
+      "need": "Stakeholder-Bedarf",
+      "adr": "ADR",
+      "test-case": "Testfall",
+      "risk": "Risiko",
+      "issue": "Issue",
+      "architecture": "Architektur",
+      "icd": "ICD",
+      "glossary": "Glossarbegriff"
+    },
     "empty": "Keine Anforderungen zur Prüfung.",
     "selectPrompt": "Wähle eine Anforderung aus der Liste.",
     "changeReasonLabel": "Begründung",
