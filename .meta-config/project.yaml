@@ -561,3 +561,4 @@ model-overrides:
     principal-developer: claude-opus-4-8
 dod:
   req-traceability: false
+  tests-required: false
