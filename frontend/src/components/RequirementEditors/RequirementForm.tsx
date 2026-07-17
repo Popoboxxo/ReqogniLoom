@@ -53,6 +53,8 @@ interface RequirementFormProps {
   requirements: Requirement[];
   workspaceId: UUID;
   onSaved: () => void;
+  /** Optional: invoked when the user cancels editing (e.g. deselect / back to list). */
+  onCancel?: () => void;
 }
 
 /**
@@ -69,6 +71,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   requirements: _requirements,
   workspaceId: _workspaceId,  // retained for API compatibility; not consumed here
   onSaved,
+  onCancel,
 }) => {
   const { t } = useTranslation();
   const { isFieldVisible, isFieldRequired } = useEntityType();
@@ -473,6 +476,16 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
           >
             {isSaving ? t('actions.saving') : t('actions.save')}
           </button>
+          {onCancel && (
+            <button
+              data-testid="cancel-btn"
+              className="btn-ghost"
+              onClick={onCancel}
+              disabled={isSaving}
+            >
+              {t('actions.cancel')}
+            </button>
+          )}
         </div>
 
       </div>
