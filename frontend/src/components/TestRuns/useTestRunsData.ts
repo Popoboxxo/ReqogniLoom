@@ -66,7 +66,12 @@ export function useTestRunsData(
 
   const listQuery = useQuery({
     queryKey: testRunKeys.list(workspaceId ?? ""),
-    queryFn: async () => (await testRunsApi.list(workspaceId as string)).results,
+    // Issue C: list() only returned page 1 (PAGE_SIZE=25) — listAll()
+    // follows pagination until exhaustion.
+    queryFn: async () => testRunsApi.listAll(workspaceId as string),
+    // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
+    // (truthy fake UUID), so !!workspaceId alone fires this query before the
+    // real workspace has loaded, hitting the backend with a bogus id (401).
     enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
@@ -79,8 +84,7 @@ export function useTestRunsData(
   // Assignable test cases are only needed while the create form is open (C4).
   const optionsQuery = useQuery({
     queryKey: testRunKeys.testCaseOptions(workspaceId ?? ""),
-    queryFn: async () =>
-      (await testcasesApi.list(workspaceId as string)).results,
+    queryFn: async () => testcasesApi.listAll(workspaceId as string),
     enabled: !!workspaceId && !isLoadingWorkspace && createFormOpen,
   });
 

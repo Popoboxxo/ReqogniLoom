@@ -119,6 +119,9 @@ export default function TraceabilityView(): JSX.Element {
   const [impactRan, setImpactRan] = useState<boolean>(false);
 
   useEffect(() => {
+    // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
+    // (truthy fake UUID) until isLoadingWorkspace flips to false, so a bare
+    // `!activeWorkspace` guard fires against the fake id (401).
     if (!activeWorkspace || isLoadingWorkspace) {
       setState({
         links: [],
@@ -135,7 +138,7 @@ export default function TraceabilityView(): JSX.Element {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     async function load(): Promise<void> {
-      if (!activeWorkspace || isLoadingWorkspace) return;
+      if (!activeWorkspace) return;
       try {
         // Load links, requirements, architecture elements, test cases and
         // artifacts in parallel.
@@ -148,7 +151,11 @@ export default function TraceabilityView(): JSX.Element {
         // (REQ-L1-035). Non-Artifact-backed types (risk, issue, adr, need,
         // icd) are fetched too so endpoints never fall back to a raw UUID.
         // Each side fetch tolerates 404/failure via a catch → empty results.
-        const emptyPage = { results: [] as unknown[] };
+        // Issue C: links/testcases/risks/issues/adrs/needs/icds are fetched
+        // via listAll() so results beyond the backend's PAGE_SIZE=25 default
+        // aren't silently dropped (both from the main list and from title
+        // resolution).
+        const emptyList: unknown[] = [];
         const emptyCycles = { cycles: [] as UUID[][], count: 0 };
         const [
           linksResp,
@@ -163,16 +170,16 @@ export default function TraceabilityView(): JSX.Element {
           icdResp,
           cyclesResp,
         ] = await Promise.all([
-          tracelinksApi.list(activeWorkspace.id),
+          tracelinksApi.listAll(activeWorkspace.id),
           requirementsApi.list(activeWorkspace.id),
           architectureApi.list(activeWorkspace.id),
-          testcasesApi.list(activeWorkspace.id),
+          testcasesApi.listAll(activeWorkspace.id),
           artifactsApi.list(activeWorkspace.id),
-          risksApi.list(activeWorkspace.id).catch(() => emptyPage),
-          issuesApi.list(activeWorkspace.id).catch(() => emptyPage),
-          adrsApi.list(activeWorkspace.id).catch(() => emptyPage),
-          stakeholderNeedApi.listByWorkspace(activeWorkspace.id).catch(() => emptyPage),
-          icdsApi.list(activeWorkspace.id).catch(() => emptyPage),
+          risksApi.listAll(activeWorkspace.id).catch(() => emptyList),
+          issuesApi.listAll(activeWorkspace.id).catch(() => emptyList),
+          adrsApi.listAll(activeWorkspace.id).catch(() => emptyList),
+          stakeholderNeedApi.listAll(activeWorkspace.id).catch(() => emptyList),
+          icdsApi.listAll(activeWorkspace.id).catch(() => emptyList),
           traceabilityApi.cycles(activeWorkspace.id).catch(() => emptyCycles),
         ]);
         if (cancelled) return;
@@ -184,27 +191,27 @@ export default function TraceabilityView(): JSX.Element {
         for (const el of archResp.results as ArchitectureElement[]) {
           titles[el.id] = el.title || t("editor.untitled");
         }
-        for (const tc of tcResp.results) {
+        for (const tc of tcResp) {
           titles[tc.id] = tc.title || t("editor.untitled");
         }
-        for (const rk of riskResp.results as { id: UUID; title?: string }[]) {
+        for (const rk of riskResp as { id: UUID; title?: string }[]) {
           titles[rk.id] = rk.title || t("editor.untitled");
         }
-        for (const is of issueResp.results as { id: UUID; title?: string }[]) {
+        for (const is of issueResp as { id: UUID; title?: string }[]) {
           titles[is.id] = is.title || t("editor.untitled");
         }
-        for (const ad of adrResp.results as { id: UUID; title?: string }[]) {
+        for (const ad of adrResp as { id: UUID; title?: string }[]) {
           titles[ad.id] = ad.title || t("editor.untitled");
         }
-        for (const nd of needResp.results as { id: UUID; title?: string }[]) {
+        for (const nd of needResp as { id: UUID; title?: string }[]) {
           titles[nd.id] = nd.title || t("editor.untitled");
         }
-        for (const ic of icdResp.results as { id: UUID; name?: string }[]) {
+        for (const ic of icdResp as { id: UUID; name?: string }[]) {
           titles[ic.id] = ic.name || t("editor.untitled");
         }
 
         setState({
-          links: linksResp.results,
+          links: linksResp,
           titles,
           artifacts: artifactsResp.results,
           cycles: cyclesResp.cycles,

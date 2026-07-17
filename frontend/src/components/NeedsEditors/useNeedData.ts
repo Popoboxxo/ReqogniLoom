@@ -34,8 +34,12 @@ export function useNeedData(selectedId?: string): NeedData {
 
   const listQuery = useQuery({
     queryKey: needKeys.list(workspaceId ?? ""),
-    queryFn: async () =>
-      (await stakeholderNeedApi.listByWorkspace(workspaceId as string)).results ?? [],
+    // Issue C: listByWorkspace() only returned page 1 (PAGE_SIZE=25) —
+    // listAll() follows pagination until exhaustion.
+    queryFn: async () => stakeholderNeedApi.listAll(workspaceId as string),
+    // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
+    // (truthy fake UUID), so !!workspaceId alone fires this query before the
+    // real workspace has loaded, hitting /workspaces/<fake-id>/needs/ (401).
     enabled: !!workspaceId && !isLoadingWorkspace,
   });
 

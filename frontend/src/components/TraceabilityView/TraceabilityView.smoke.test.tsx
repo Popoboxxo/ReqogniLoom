@@ -86,6 +86,8 @@ const MOCK_LINKS = [
 ];
 
 const EMPTY_PAGE = { results: [] };
+// listAll()-backed APIs (issue C) return a plain array, not a paginated page.
+const EMPTY_LIST: unknown[] = [];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,16 +97,16 @@ function setupDefaultMocks(): void {
   vi.mocked(workspaceContext.useWorkspace).mockReturnValue({
     activeWorkspace: MOCK_WORKSPACE,
   } as any);
-  vi.mocked(tracelinksModule.tracelinksApi.list).mockResolvedValue(EMPTY_PAGE as any);
+  vi.mocked(tracelinksModule.tracelinksApi.listAll).mockResolvedValue(EMPTY_LIST as any);
   vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue(EMPTY_PAGE as any);
   vi.mocked(archModule.architectureApi.list).mockResolvedValue(EMPTY_PAGE as any);
-  vi.mocked(testcasesModule.testcasesApi.list).mockResolvedValue(EMPTY_PAGE as any);
+  vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue(EMPTY_LIST as any);
   vi.mocked(artifactsModule.artifactsApi.list).mockResolvedValue(EMPTY_PAGE as any);
-  vi.mocked(risksModule.risksApi.list).mockResolvedValue(EMPTY_PAGE as any);
-  vi.mocked(issuesModule.issuesApi.list).mockResolvedValue(EMPTY_PAGE as any);
-  vi.mocked(adrsModule.adrsApi.list).mockResolvedValue(EMPTY_PAGE as any);
-  vi.mocked(needsModule.stakeholderNeedApi.listByWorkspace).mockResolvedValue(EMPTY_PAGE as any);
-  vi.mocked(icdsModule.icdsApi.list).mockResolvedValue(EMPTY_PAGE as any);
+  vi.mocked(risksModule.risksApi.listAll).mockResolvedValue(EMPTY_LIST as any);
+  vi.mocked(issuesModule.issuesApi.listAll).mockResolvedValue(EMPTY_LIST as any);
+  vi.mocked(adrsModule.adrsApi.listAll).mockResolvedValue(EMPTY_LIST as any);
+  vi.mocked(needsModule.stakeholderNeedApi.listAll).mockResolvedValue(EMPTY_LIST as any);
+  vi.mocked(icdsModule.icdsApi.listAll).mockResolvedValue(EMPTY_LIST as any);
   vi.mocked(traceabilityModule.traceabilityApi.cycles).mockResolvedValue({
     cycles: [],
     count: 0,
@@ -123,7 +125,7 @@ describe("TraceabilityView (REQ-053 smoke tests)", () => {
 
   it("[REQ-053] shows loading indicator initially while fetching trace data", () => {
     // Make the primary list call never resolve so loading stays true
-    vi.mocked(tracelinksModule.tracelinksApi.list).mockReturnValue(new Promise(() => {}));
+    vi.mocked(tracelinksModule.tracelinksApi.listAll).mockReturnValue(new Promise(() => {}));
 
     render(<TraceabilityView />);
 
@@ -152,9 +154,7 @@ describe("TraceabilityView (REQ-053 smoke tests)", () => {
   });
 
   it("[REQ-053] renders links grouped by type after data resolves", async () => {
-    vi.mocked(tracelinksModule.tracelinksApi.list).mockResolvedValue({
-      results: MOCK_LINKS,
-    } as any);
+    vi.mocked(tracelinksModule.tracelinksApi.listAll).mockResolvedValue(MOCK_LINKS as any);
     vi.mocked(requirementsModule.requirementsApi.list).mockResolvedValue({
       results: [
         { id: "req-001", title: "Navigation accuracy <= 1m CEP", workspace_id: "ws-trace-001" },
@@ -180,7 +180,7 @@ describe("TraceabilityView (REQ-053 smoke tests)", () => {
   });
 
   it("[REQ-053] renders error alert when API fetch fails with a non-404 error", async () => {
-    vi.mocked(tracelinksModule.tracelinksApi.list).mockRejectedValue(
+    vi.mocked(tracelinksModule.tracelinksApi.listAll).mockRejectedValue(
       { error: { message: "internal server error" } }
     );
 

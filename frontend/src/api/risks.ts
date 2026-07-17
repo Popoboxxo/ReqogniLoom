@@ -7,7 +7,7 @@
  * Wraps /api/v1/risks/ endpoints.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type { Risk, ArtifactDiffResult, ArtifactVersion, PaginatedResponse, UUID } from "../types";
 
 export const risksApi = {
@@ -15,6 +15,15 @@ export const risksApi = {
     return getList<Risk>("/risks/", {
       workspace_id: workspaceId,
     });
+  },
+
+  /**
+   * Fetch all Risks for a workspace, following pagination links until
+   * exhaustion (issue C — list() only returned the first page, capped at
+   * PAGE_SIZE=25).
+   */
+  async listAll(workspaceId: UUID): Promise<Risk[]> {
+    return getAllPages<Risk>("/risks/", { workspace_id: workspaceId });
   },
 
   get(id: UUID): Promise<Risk> {

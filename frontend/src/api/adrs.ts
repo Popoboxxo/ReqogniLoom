@@ -7,7 +7,7 @@
  * Wraps /api/v1/adrs/ endpoints.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type { Adr, ArtifactDiffResult, ArtifactVersion, PaginatedResponse, UUID } from "../types";
 
 export const adrsApi = {
@@ -15,6 +15,15 @@ export const adrsApi = {
     return getList<Adr>("/adrs/", {
       workspace_id: workspaceId,
     });
+  },
+
+  /**
+   * Fetch all ADRs for a workspace, following pagination links until
+   * exhaustion (issue C — list() only returned the first page, capped at
+   * PAGE_SIZE=25).
+   */
+  async listAll(workspaceId: UUID): Promise<Adr[]> {
+    return getAllPages<Adr>("/adrs/", { workspace_id: workspaceId });
   },
 
   get(id: UUID): Promise<Adr> {

@@ -72,7 +72,7 @@ describe("useAdrData (REQ-049)", () => {
 
   it("[REQ-049] returns isLoading=true initially while list query is in-flight", () => {
     // Never-resolving promise keeps the query pending
-    vi.mocked(adrsModule.adrsApi.list).mockReturnValue(new Promise(() => {}));
+    vi.mocked(adrsModule.adrsApi.listAll).mockReturnValue(new Promise(() => {}));
 
     const { result } = renderHook(() => useAdrData(), { wrapper: createWrapper() });
 
@@ -81,10 +81,7 @@ describe("useAdrData (REQ-049)", () => {
   });
 
   it("[REQ-049] populates items after list query resolves", async () => {
-    vi.mocked(adrsModule.adrsApi.list).mockResolvedValue({
-      results: [MOCK_ADR],
-      count: 1,
-    } as any);
+    vi.mocked(adrsModule.adrsApi.listAll).mockResolvedValue([MOCK_ADR] as any);
 
     const { result } = renderHook(() => useAdrData(), { wrapper: createWrapper() });
 
@@ -95,10 +92,7 @@ describe("useAdrData (REQ-049)", () => {
   });
 
   it("[REQ-049] populates item after detail query resolves when selectedId is provided", async () => {
-    vi.mocked(adrsModule.adrsApi.list).mockResolvedValue({
-      results: [MOCK_ADR],
-      count: 1,
-    } as any);
+    vi.mocked(adrsModule.adrsApi.listAll).mockResolvedValue([MOCK_ADR] as any);
     vi.mocked(adrsModule.adrsApi.get).mockResolvedValue(MOCK_ADR as any);
 
     const { result } = renderHook(() => useAdrData("adr-001"), { wrapper: createWrapper() });
@@ -109,7 +103,7 @@ describe("useAdrData (REQ-049)", () => {
   });
 
   it("[REQ-049] surfaces list error via error property", async () => {
-    vi.mocked(adrsModule.adrsApi.list).mockRejectedValue(
+    vi.mocked(adrsModule.adrsApi.listAll).mockRejectedValue(
       { error: { message: "Forbidden: missing workspace access" } }
     );
 
@@ -124,10 +118,7 @@ describe("useAdrData (REQ-049)", () => {
     vi.mocked(workspaceContext.useWorkspace).mockReturnValue({
       activeWorkspace: null,
     } as any);
-    vi.mocked(adrsModule.adrsApi.list).mockResolvedValue({
-      results: [],
-      count: 0,
-    } as any);
+    vi.mocked(adrsModule.adrsApi.listAll).mockResolvedValue([] as any);
 
     const { result } = renderHook(() => useAdrData(), { wrapper: createWrapper() });
 

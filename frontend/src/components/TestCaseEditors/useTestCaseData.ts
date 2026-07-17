@@ -10,11 +10,16 @@ export function useTestCaseData(selectedId?: string) {
   const [error, setError] = useState<Error | null>(null);
 
   const loadList = useCallback(async () => {
+    // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
+    // (truthy fake UUID) until isLoadingWorkspace flips to false, so a bare
+    // `!activeWorkspace` guard fires against the fake id (401).
     if (!activeWorkspace || isLoadingWorkspace) return;
     setIsLoading(true);
     try {
-      const resp = await testcasesApi.list(activeWorkspace.id);
-      setItems(resp.results || []);
+      // Issue C: list() only returned page 1 (PAGE_SIZE=25) — listAll()
+      // follows pagination until exhaustion.
+      const results = await testcasesApi.listAll(activeWorkspace.id);
+      setItems(results);
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
     } finally {

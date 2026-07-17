@@ -229,3 +229,51 @@ export async function getList<T>(
   const fullPath = qs ? `${path}?${qs}` : path;
   return apiClient.get<PaginatedResponse<T>>(fullPath);
 }
+
+// ---------------------------------------------------------------------------
+// Full-pagination list helper (issue C — the backend's default page size of
+// 25 silently truncated workspace entity lists that only fetched page 1).
+// Follows the paginator's `next` link until exhaustion and returns the
+// de-duplicated full result set. Mirrors the listAll() pattern already used
+// by requirementsApi.listAll / architectureApi.listAll.
+// ---------------------------------------------------------------------------
+
+export async function getAllPages<T extends { id: string }>(
+  path: string,
+  params: Record<string, string> = {}
+): Promise<T[]> {
+  const seen = new Set<string>();
+  const all: T[] = [];
+  const collect = (page: PaginatedResponse<T>): void => {
+    for (const item of page.results) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        all.push(item);
+      }
+    }
+  };
+
+  const resp = await getList<T>(path, {
+    ...params,
+    page_size: params.page_size ?? "100",
+  });
+  collect(resp);
+
+  let nextUrl: string | null = resp.next;
+  let pageCount = 0;
+
+  while (nextUrl && pageCount < 100) {
+    pageCount += 1;
+    // The backend may return `next` as an absolute URL, a path starting
+    // with /api/v1, or a path relative to /api/v1. apiClient.get prepends
+    // /api/v1, so we always need the path relative to that prefix.
+    const m = nextUrl.match(/^(https?:\/\/[^/]+)?(\/api\/v1)?(\/.*)$/);
+    const pathWithQuery = m ? m[3] : nextUrl;
+    const nextResp = await apiClient.get<PaginatedResponse<T>>(
+      pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`
+    );
+    collect(nextResp);
+    nextUrl = nextResp.next;
+  }
+  return all;
+}

@@ -34,7 +34,12 @@ export function useIssueData(selectedId?: string): IssueData {
 
   const listQuery = useQuery({
     queryKey: issueKeys.list(workspaceId ?? ""),
-    queryFn: async () => (await issuesApi.list(workspaceId as string)).results ?? [],
+    // Issue C: list() only returned page 1 (PAGE_SIZE=25) — listAll()
+    // follows pagination until exhaustion.
+    queryFn: async () => issuesApi.listAll(workspaceId as string),
+    // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
+    // (truthy fake UUID), so !!workspaceId alone fires this query before the
+    // real workspace has loaded, hitting the backend with a bogus id (401).
     enabled: !!workspaceId && !isLoadingWorkspace,
   });
 

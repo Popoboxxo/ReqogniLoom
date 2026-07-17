@@ -7,7 +7,7 @@
  * Wraps /api/v1/tracelinks/ endpoints.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type {
   TraceLink,
   PaginatedResponse,
@@ -52,6 +52,15 @@ export const tracelinksApi = {
     return getList<TraceLink>("/tracelinks/", {
       workspace_id: workspaceId,
     });
+  },
+
+  /**
+   * Fetch all TraceLinks for a workspace, following pagination links until
+   * exhaustion (issue C — list() only returned the first page, capped at
+   * PAGE_SIZE=25).
+   */
+  async listAll(workspaceId: UUID): Promise<TraceLink[]> {
+    return getAllPages<TraceLink>("/tracelinks/", { workspace_id: workspaceId });
   },
 
   listForArtifact(
