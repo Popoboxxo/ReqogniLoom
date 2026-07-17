@@ -22,8 +22,12 @@
  * "workflow not initialized" view.
  */
 
-import { apiClient } from "./client";
-import type { UUID } from "../types";
+import { apiClient, getList } from "./client";
+import type {
+  UUID,
+  ArtifactDiffResult,
+  ArtifactVersion,
+} from "../types";
 
 /** Artifact types that participate in the WorkflowEngine lifecycle. */
 export type WorkflowArtifactType =
@@ -55,12 +59,45 @@ export interface WorkflowTransitionResult {
   new_state: string;
 }
 
-/** Maps the artifact type to its REST collection path segment. */
+/**
+ * A single entry of the append-only workflow transition history, as returned
+ * by GET /{resource}/{id}/workflow-history/ (WorkflowTransitionsMixin, PR2).
+ * Mirrors ``requirementsApi.WorkflowHistoryEntry`` so any artifact type shares
+ * one history contract.
+ */
+export interface WorkflowHistoryEntry {
+  id: string;
+  from_state: string | null;
+  to_state: string;
+  actor: string;
+  change_reason: string;
+  transitioned_at: string;
+  sealed: boolean;
+}
+
+/**
+ * The minimal, artifact-type-agnostic shape the review queue needs from a
+ * list item. Every reviewable entity (requirement/need/adr/test-case/risk/
+ * issue) exposes these fields.
+ */
+export interface ReviewListItem {
+  id: string;
+  uid?: string | null;
+  title: string;
+  description?: string;
+  version?: number;
+}
+
+/**
+ * Maps the artifact type to its REST collection path segment. These MUST match
+ * the DRF router registrations in ``backend/rest_api/urls.py`` — note the
+ * test-case ViewSet is registered as ``testcases`` (no hyphen).
+ */
 const RESOURCE_PATH: Record<WorkflowArtifactType, string> = {
   requirement: "requirements",
   need: "needs",
   adr: "adrs",
-  "test-case": "test-cases",
+  "test-case": "testcases",
   risk: "risks",
   issue: "issues",
 };
@@ -94,5 +131,54 @@ export const workflowTransitionsApi = {
       change_reason: changeReason ?? "",
       credential: credential ?? "",
     });
+  },
+
+  /** GET the append-only workflow transition history for an artifact. */
+  getWorkflowHistory(
+    type: WorkflowArtifactType,
+    id: UUID
+  ): Promise<WorkflowHistoryEntry[]> {
+    return apiClient.get<WorkflowHistoryEntry[]>(
+      `/${RESOURCE_PATH[type]}/${id}/workflow-history/`
+    );
+  },
+
+  /**
+   * GET the artifacts of ``type`` in the given workflow ``status`` for a
+   * workspace (the review queue's list source). Returns the (possibly
+   * paginated) first page's results.
+   */
+  async listByStatus(
+    type: WorkflowArtifactType,
+    workspaceId: UUID,
+    status: string
+  ): Promise<ReviewListItem[]> {
+    const resp = await getList<ReviewListItem>(`/${RESOURCE_PATH[type]}/`, {
+      workspace_id: workspaceId,
+      status,
+    });
+    return resp.results;
+  },
+
+  /** Field-level diff between two versions of an artifact. */
+  diff(
+    type: WorkflowArtifactType,
+    id: UUID,
+    fromVersion: number,
+    toVersion: number
+  ): Promise<ArtifactDiffResult> {
+    return apiClient.get<ArtifactDiffResult>(
+      `/${RESOURCE_PATH[type]}/${id}/diff/?from_version=${fromVersion}&to_version=${toVersion}`
+    );
+  },
+
+  /** Version list for an artifact. */
+  versions(
+    type: WorkflowArtifactType,
+    id: UUID
+  ): Promise<ArtifactVersion[]> {
+    return apiClient.get<ArtifactVersion[]>(
+      `/${RESOURCE_PATH[type]}/${id}/versions/`
+    );
   },
 };

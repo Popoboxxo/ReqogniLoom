@@ -4,6 +4,7 @@ import type { Issue } from '../../types';
 import { issuesApi } from '../../api/issues';
 import { VersionBadge } from '../shared/VersionBadge';
 import { TagInput } from '../shared/tag-input';
+import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
 interface IssueFormProps {
   issue: Issue | null;
@@ -12,7 +13,6 @@ interface IssueFormProps {
 }
 
 const SEVERITY_OPTIONS = ['low', 'medium', 'high', 'critical'];
-const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved', 'Closed', 'Wontfix'];
 const CATEGORY_OPTIONS = ['defect', 'improvement', 'documentation', 'question'];
 
 export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.Element {
@@ -177,10 +177,16 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label htmlFor="issue-status" style={labelStyle}>{t('editor.status')}</label>
-              <select id="issue-status" value={formData.status || 'Open'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
-                {STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
+              <label style={labelStyle}>{t('editor.status')}</label>
+              {/* REQ-165: WorkflowEngine-driven status editor (replaces the
+                  hardcoded status select). */}
+              <WorkflowStatusEditor
+                artifactType="issue"
+                artifactId={issue.id}
+                currentStatus={issue.status}
+                disabled={isSaving}
+                onTransitionComplete={onSaved}
+              />
             </div>
             <div style={{ flex: 1 }}>
               <label htmlFor="issue-category" style={labelStyle}>{t('issues.category')}</label>

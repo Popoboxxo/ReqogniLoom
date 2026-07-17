@@ -37,8 +37,9 @@ import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SplitView } from "../SplitView/SplitView";
 import { ListToolbar } from "../shared/ListToolbar";
-import { ArtifactDiff } from "../ArtifactDiff/ArtifactDiff";
-import { requirementsApi, type AllowedTransition } from "../../api/requirements";
+import { ArtifactDiff, type DiffEntityType } from "../ArtifactDiff/ArtifactDiff";
+import { type AllowedTransition } from "../../api/requirements";
+import type { WorkflowArtifactType } from "../../api/workflow-transitions";
 import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError } from "../../api/errors";
 import { useReviewsData } from "./useReviewsData";
@@ -53,6 +54,17 @@ type ReviewTab = "details" | "history";
 const APPROVE_TARGET = "approved";
 const REJECT_TARGET = "draft";
 
+// REQ-167: map the workflow artifact type to the ArtifactDiff entity kind so
+// the shared diff renderer labels/routes correctly for every entity type.
+const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
+  requirement: "requirement",
+  need: "stakeholderNeed",
+  adr: "adr",
+  "test-case": "testCase",
+  risk: "risk",
+  issue: "issue",
+};
+
 function findTransition(
   transitions: AllowedTransition[] | undefined,
   targetState: string
@@ -60,7 +72,18 @@ function findTransition(
   return transitions?.find((t) => t.target_state === targetState);
 }
 
-export default function ReviewsView(): JSX.Element {
+export interface ReviewsViewProps {
+  /**
+   * REQ-167: the entity type whose review queue is shown. Defaults to
+   * "requirement" so the existing `/reviews` route (rendered without props)
+   * keeps its Requirement-only behavior.
+   */
+  artifactType?: WorkflowArtifactType;
+}
+
+export default function ReviewsView({
+  artifactType = "requirement",
+}: ReviewsViewProps = {}): JSX.Element {
   const { t } = useTranslation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -72,7 +95,7 @@ export default function ReviewsView(): JSX.Element {
   const [pendingTransition, setPendingTransition] = useState<AllowedTransition | null>(null);
 
   const {
-    requirements,
+    items,
     isLoading,
     error,
     transitions,
@@ -81,21 +104,23 @@ export default function ReviewsView(): JSX.Element {
     historyLoading,
     historyError,
     transition,
-  } = useReviewsData({ selectedId, includeHistory: tab === "history" });
+    diff,
+    versions,
+  } = useReviewsData({ selectedId, includeHistory: tab === "history", artifactType });
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return requirements;
-    return requirements.filter(
+    if (!q) return items;
+    return items.filter(
       (r) =>
         r.title.toLowerCase().includes(q) ||
         (r.uid ?? "").toLowerCase().includes(q)
     );
-  }, [requirements, search]);
+  }, [items, search]);
 
   const selected = useMemo(
-    () => requirements.find((r) => r.id === selectedId) ?? null,
-    [requirements, selectedId]
+    () => items.find((r) => r.id === selectedId) ?? null,
+    [items, selectedId]
   );
 
   const handleSelect = useCallback((id: string): void => {
@@ -176,7 +201,7 @@ export default function ReviewsView(): JSX.Element {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("reviews.searchPlaceholder", "Search reviews...")}
-        countLabel={`${filtered.length} / ${requirements.length}`}
+        countLabel={`${filtered.length} / ${items.length}`}
         testIdPrefix="reviews"
       />
 
@@ -278,10 +303,10 @@ export default function ReviewsView(): JSX.Element {
           {showDiff && (
             <ArtifactDiff
               entityId={selected.id}
-              entityType="requirement"
-              currentVersion={selected.version}
-              diffFetcher={requirementsApi.diff}
-              versionsFetcher={requirementsApi.versions}
+              entityType={DIFF_KIND[artifactType]}
+              currentVersion={selected.version ?? 1}
+              diffFetcher={diff}
+              versionsFetcher={versions}
               onClose={() => setShowDiff(false)}
             />
           )}

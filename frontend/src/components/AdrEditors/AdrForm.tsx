@@ -5,14 +5,13 @@ import { adrsApi } from '../../api/adrs';
 import { VersionBadge } from '../shared/VersionBadge';
 import { getStatusBadgeStyle } from '../../utils/statusBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
+import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
 interface AdrFormProps {
   adr: Adr | null;
   onSaved: () => void;
   onDeleted: () => void;
 }
-
-const STATUS_OPTIONS = ['Draft', 'In Review', 'Approved', 'Rejected', 'Superseded'];
 
 export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element {
   const { t } = useTranslation();
@@ -178,9 +177,15 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t('editor.status')}</label>
-              <select value={formData.status || 'Draft'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
-                {STATUS_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
+              {/* REQ-165: WorkflowEngine-driven status editor (replaces the
+                  hardcoded STATUS_OPTIONS select). */}
+              <WorkflowStatusEditor
+                artifactType="adr"
+                artifactId={adr.id}
+                currentStatus={adr.status}
+                disabled={isSaving}
+                onTransitionComplete={onSaved}
+              />
             </div>
           </div>
         </div>

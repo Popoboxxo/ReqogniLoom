@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { ArchitectureElement, StakeholderNeed } from '../../types';
-import { WORKFLOW_STATES } from '../../types';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
 import { requirementsApi } from '../../api/requirements';
 import { architectureApi } from '../../api/architecture';
@@ -328,23 +328,19 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
 
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
-              <label htmlFor="need-status" style={labelStyle}>
+              <label style={labelStyle}>
                 {t('editor.workflowState', 'Status')}
               </label>
-              <select
-                id="need-status"
-                data-testid="need-status"
-                value={formData.status || ''}
-                onChange={(e) => handleChange('status', e.target.value)}
-                style={inputStyle}
-              >
-                {(formData.status && !WORKFLOW_STATES.includes(formData.status)
-                  ? [formData.status, ...WORKFLOW_STATES]
-                  : WORKFLOW_STATES
-                ).map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+              {/* REQ-165: unified WorkflowEngine-driven status editor replaces the
+                  hardcoded status <select>. Transitions run through the
+                  WorkflowFacade and re-fetch the need on completion. */}
+              <WorkflowStatusEditor
+                artifactType="need"
+                artifactId={need.id}
+                currentStatus={need.status}
+                disabled={isSaving}
+                onTransitionComplete={onSaved}
+              />
             </div>
 
             <div style={{ flex: 1 }}>
