@@ -59,6 +59,8 @@ export default function IcdView(): JSX.Element {
     selectedDetail,
     createIcd,
     createVersion,
+    refreshList,
+    refreshDetail,
   } = useIcdData(routeId);
 
   // ---- UI + form state -----------------------------------------------------
@@ -121,6 +123,13 @@ export default function IcdView(): JSX.Element {
     setShowCreate(false);
     navigate(`/icds/${icd.id}`);
   };
+
+  // REQ-173: a workflow transition mutates the ICD's status server-side, so
+  // refresh the detail (badge label) and the list (any status column) after it.
+  const handleWorkflowTransition = useCallback((): void => {
+    void refreshDetail();
+    void refreshList();
+  }, [refreshDetail, refreshList]);
 
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!formName.trim()) {
@@ -673,6 +682,7 @@ export default function IcdView(): JSX.Element {
             setNvPost={setNvPost}
             nvInv={nvInv}
             setNvInv={setNvInv}
+            onWorkflowTransition={handleWorkflowTransition}
           />
         ) : (
           <p

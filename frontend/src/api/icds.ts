@@ -59,6 +59,12 @@ export interface IcdDetail extends Icd {
   preconditions: string[];
   postconditions: string[];
   invariants: string[];
+  /**
+   * WorkflowEngine status mirror (REQ-173). Exposed once the ICD has a
+   * WorkflowItemState; absent otherwise, so the WorkflowStatusEditor falls back
+   * to the workflow-driven state.
+   */
+  status?: string;
 }
 
 /** One entry in the version timeline shown in the UI. */

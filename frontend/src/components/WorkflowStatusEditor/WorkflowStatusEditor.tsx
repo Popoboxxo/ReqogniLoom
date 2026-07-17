@@ -49,8 +49,12 @@ export interface WorkflowStatusEditorProps {
   artifactType: WorkflowArtifactType;
   /** UUID of the artifact whose lifecycle is edited. */
   artifactId: string;
-  /** Current status mirror, used as the fallback label before transitions load. */
-  currentStatus: string;
+  /**
+   * Current status mirror, used as the fallback label before transitions load.
+   * Optional: artifacts without a status field (e.g. GlossaryTerm) pass
+   * ``undefined`` and the control degrades to the workflow-driven state only.
+   */
+  currentStatus?: string;
   /** When true the control is read-only (badge only, no menu). */
   disabled?: boolean;
   /** Called with the new status after a successful transition. */

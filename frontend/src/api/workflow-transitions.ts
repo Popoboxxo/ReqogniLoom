@@ -37,7 +37,9 @@ export type WorkflowArtifactType =
   | "test-case"
   | "risk"
   | "issue"
-  | "architecture";
+  | "architecture"
+  | "icd"
+  | "glossary";
 
 /** A single allowed transition from the current state. */
 export interface WorkflowAllowedTransition {
@@ -102,6 +104,10 @@ const RESOURCE_PATH: Record<WorkflowArtifactType, string> = {
   risk: "risks",
   issue: "issues",
   architecture: "architecture",
+  // Router registrations (backend/rest_api/urls.py): IcdViewSet → "icds",
+  // GlossaryTermViewSet → "glossary" (NOT "glossary-terms").
+  icd: "icds",
+  glossary: "glossary",
 };
 
 const transitionsPath = (type: WorkflowArtifactType, id: UUID): string =>
