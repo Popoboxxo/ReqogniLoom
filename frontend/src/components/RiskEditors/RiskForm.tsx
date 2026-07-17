@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Risk } from '../../types';
 import { risksApi } from '../../api/risks';
 import { VersionBadge } from '../shared/VersionBadge';
+import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
 interface RiskFormProps {
   risk: Risk | null;
@@ -13,7 +14,6 @@ interface RiskFormProps {
 const SEVERITY_OPTIONS = ['low', 'medium', 'high'];
 const PROBABILITY_OPTIONS = ['low', 'medium', 'high'];
 const IMPACT_OPTIONS = ['low', 'medium', 'high'];
-const STATUS_OPTIONS = ['Identified', 'Monitored', 'Mitigated', 'Accepted', 'Closed'];
 const CATEGORY_OPTIONS = ['technical', 'operational', 'organizational', 'business'];
 
 export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Element {
@@ -238,9 +238,15 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t('editor.status')}</label>
-              <select value={formData.status || 'Identified'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
-                {STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
+              {/* REQ-165: WorkflowEngine-driven status editor (replaces the
+                  hardcoded status select). */}
+              <WorkflowStatusEditor
+                artifactType="risk"
+                artifactId={risk.id}
+                currentStatus={risk.status}
+                disabled={isSaving}
+                onTransitionComplete={onSaved}
+              />
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t('risks.category')}</label>

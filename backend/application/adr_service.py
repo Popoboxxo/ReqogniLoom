@@ -396,6 +396,7 @@ class AdrService(ServiceBase):
         ctx: AuthContext,
         change_reason: Optional[str] = None,
         superseded_by_id: Optional[UUID] = None,
+        credential: Optional[str] = None,
     ) -> Adr:
         """Transition an ADR's workflow status (REQ-L3-ADR-004).
 
@@ -429,30 +430,28 @@ class AdrService(ServiceBase):
                 f"must be one of {sorted(AdrValidator.VALID_STATUSES)}"
             )
 
-        # Delegate to WorkflowFacade (IF-AS-INT-003)
-        try:
-            from application.workflow_facade import WorkflowFacade
+        # REQ-165/REQ-167: the WorkflowEngine is the SOLE authority for the
+        # transition (IF-AS-INT-003). Role, change_reason and signature gates are
+        # enforced by the engine; their errors propagate and abort this atomic
+        # transaction instead of being swallowed (the previous bare
+        # ``except Exception: pass`` silently flipped the status even when a gate
+        # denied the move). The engine also writes the denormalized ``status``
+        # mirror inside its own transaction (StateLifecycleManager
+        # ._sync_status_mirror), so no direct status assignment is done here. A
+        # workflow transition is not a content edit, so ``version`` is not bumped
+        # — this matches the Requirement transition endpoint.
+        from application.workflow_facade import WorkflowFacade
 
-            wf = WorkflowFacade()
-            wf.transition(
-                item_id=adr_id,
-                item_type="Adr",
-                target_state=target_status,
-                ctx=ctx,
-                change_reason=change_reason,
-            )
-        except Exception:
-            logger.debug(
-                "AdrService.transition_status: WorkflowFacade transition skipped "
-                "for adr=%s, applying direct status update",
-                adr_id,
-            )
-
-        adr.status = target_status
-        # Atomic version increment (REQ-L3-PL001-002)
-        adr.save()
-        Adr.objects.filter(id=adr.id).update(version=F("version") + 1)
-        adr.refresh_from_db(fields=["version"])
+        WorkflowFacade().transition(
+            item_id=adr_id,
+            item_type="Adr",
+            target_state=target_status,
+            workspace_id=adr.workspace_id,
+            ctx=ctx,
+            change_reason=change_reason or "",
+            credential=credential or "",
+        )
+        adr.refresh_from_db(fields=["status", "version"])
 
         # REQ-L3-ADR-005: when an ADR is superseded, record which ADR replaced
         # it via a 'decides' TraceLink (new -> old). 'supersedes' is not a
@@ -466,14 +465,10 @@ class AdrService(ServiceBase):
                 ctx=ctx,
             )
 
-        self._audit(
-            ctx=ctx,
-            operation="transition",
-            entity_type="Adr",
-            entity_id=adr_id,
-            change_reason=change_reason,
-            details={"target_status": target_status},
-        )
+        # The transition audit entry is written authoritatively by the
+        # WorkflowEngine (WorkflowFacade._audit, op="transition") inside the same
+        # atomic transaction — a second service-level audit here would duplicate
+        # that row (details are v1-ignored), so it is intentionally omitted.
         return adr
 
     # ---------- TraceLink management (REQ-L3-ADR-005, IF-AS-INT-002) ----------

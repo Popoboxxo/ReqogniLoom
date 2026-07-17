@@ -125,6 +125,16 @@
     "derive": "Ableiten",
     "deriving": "Leitet ab..."
   },
+  "workflowEditor": {
+    "changeStatus": "Status ändern",
+    "changeStatusFrom": "Status ändern (aktuell: {{from}})",
+    "transitionTo": "Status von {{from}} auf {{to}} ändern",
+    "reasonRequired": "Begründung erforderlich",
+    "reasonFor": "Begründung für → {{to}}",
+    "notInitialized": "Workflow nicht initialisiert",
+    "noTransitions": "Keine Übergänge verfügbar",
+    "confirm": "Bestätigen"
+  },
   "admin": {
     "attributeVisibility": "Attributkonfiguration",
     "attributeVisibilityDescription": "Konfigurieren Sie, welche Felder in den Editoren sichtbar und welche Pflichtfelder sind.",

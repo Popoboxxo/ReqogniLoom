@@ -10,29 +10,38 @@
  * transition mutation used by the Approve/Reject actions.
  */
 
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type RequirementTransitions } from "../../api/requirements";
 import {
-  requirementsApi,
-  type RequirementTransitionResult,
-  type RequirementTransitions,
+  type WorkflowArtifactType,
+  type WorkflowTransitionResult,
   type WorkflowHistoryEntry,
-} from "../../api/requirements";
-import type { Requirement } from "../../types";
+  type ReviewListItem,
+} from "../../api/workflow-transitions";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { extractErrorMessage } from "../../api/client";
+import { getReviewsResolver } from "./reviewsResolver";
 
-// REQ-144: the review queue only ever shows requirements in this state.
+// REQ-144: the review queue only ever shows items in this workflow state.
 export const REVIEW_STATE = "in_review";
+
+// REQ-167: the queue is entity-type-agnostic; the requirement queue is the
+// default so existing callers (and the REQ-144 tests) keep working unchanged.
+const DEFAULT_ARTIFACT_TYPE: WorkflowArtifactType = "requirement";
 
 export const reviewKeys = {
   all: ["reviews"] as const,
-  list: (workspaceId: string) => ["reviews", "list", workspaceId] as const,
-  transitions: (id: string) => ["reviews", "transitions", id] as const,
-  history: (id: string) => ["reviews", "history", id] as const,
+  list: (type: WorkflowArtifactType, workspaceId: string) =>
+    ["reviews", type, "list", workspaceId] as const,
+  transitions: (type: WorkflowArtifactType, id: string) =>
+    ["reviews", type, "transitions", id] as const,
+  history: (type: WorkflowArtifactType, id: string) =>
+    ["reviews", type, "history", id] as const,
 };
 
 export interface UseReviewsDataParams {
-  /** Currently selected requirement id, or null when nothing is selected. */
+  /** Currently selected item id, or null when nothing is selected. */
   selectedId: string | null;
   /**
    * Whether to also fetch the workflow history for the selected item
@@ -40,6 +49,11 @@ export interface UseReviewsDataParams {
    * not pay for an unused request.
    */
   includeHistory?: boolean;
+  /**
+   * REQ-167: the entity type whose review queue is shown. Defaults to
+   * "requirement" so the historical Requirement-only behavior is preserved.
+   */
+  artifactType?: WorkflowArtifactType;
 }
 
 export interface TransitionArgs {
@@ -49,7 +63,7 @@ export interface TransitionArgs {
 }
 
 export interface ReviewsData {
-  requirements: Requirement[];
+  items: ReviewListItem[];
   isLoading: boolean;
   error: string | null;
   transitions: RequirementTransitions | null;
@@ -59,41 +73,56 @@ export interface ReviewsData {
   historyError: string | null;
   refreshList: () => Promise<void>;
   refreshSelected: () => Promise<void>;
-  transition: (args: TransitionArgs) => Promise<RequirementTransitionResult>;
+  transition: (args: TransitionArgs) => Promise<WorkflowTransitionResult>;
+  diff: (
+    id: string,
+    fromVersion: number,
+    toVersion: number
+  ) => Promise<import("../../types").ArtifactDiffResult>;
+  versions: (
+    id: string
+  ) => Promise<import("../../types").ArtifactVersion[]>;
 }
 
 export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
-  const { selectedId, includeHistory = false } = params;
+  const {
+    selectedId,
+    includeHistory = false,
+    artifactType = DEFAULT_ARTIFACT_TYPE,
+  } = params;
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
+  const resolver = useMemo(
+    () => getReviewsResolver(artifactType),
+    [artifactType]
+  );
+
   const listQuery = useQuery({
-    queryKey: reviewKeys.list(workspaceId ?? ""),
-    queryFn: async () =>
-      (await requirementsApi.list(workspaceId as string, REVIEW_STATE))
-        .results,
+    queryKey: reviewKeys.list(artifactType, workspaceId ?? ""),
+    queryFn: () => resolver.list(workspaceId as string, REVIEW_STATE),
     enabled: !!workspaceId,
   });
 
   const transitionsEnabled = !!selectedId;
   const transitionsQuery = useQuery({
-    queryKey: reviewKeys.transitions(selectedId ?? ""),
-    queryFn: () => requirementsApi.getTransitions(selectedId as string),
+    queryKey: reviewKeys.transitions(artifactType, selectedId ?? ""),
+    queryFn: () => resolver.getTransitions(selectedId as string),
     enabled: transitionsEnabled,
   });
 
   const historyEnabled = !!selectedId && includeHistory;
   const historyQuery = useQuery({
-    queryKey: reviewKeys.history(selectedId ?? ""),
-    queryFn: () => requirementsApi.getWorkflowHistory(selectedId as string),
+    queryKey: reviewKeys.history(artifactType, selectedId ?? ""),
+    queryFn: () => resolver.getWorkflowHistory(selectedId as string),
     enabled: historyEnabled,
   });
 
   const refreshList = async (): Promise<void> => {
     if (!workspaceId) return;
     await queryClient.invalidateQueries({
-      queryKey: reviewKeys.list(workspaceId),
+      queryKey: reviewKeys.list(artifactType, workspaceId),
     });
   };
 
@@ -101,10 +130,10 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     if (!selectedId) return;
     await Promise.all([
       queryClient.invalidateQueries({
-        queryKey: reviewKeys.transitions(selectedId),
+        queryKey: reviewKeys.transitions(artifactType, selectedId),
       }),
       queryClient.invalidateQueries({
-        queryKey: reviewKeys.history(selectedId),
+        queryKey: reviewKeys.history(artifactType, selectedId),
       }),
     ]);
   };
@@ -112,9 +141,9 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
   const transitionMutation = useMutation({
     mutationFn: ({ targetState, changeReason, credential }: TransitionArgs) => {
       if (!selectedId) {
-        return Promise.reject(new Error("no requirement selected"));
+        return Promise.reject(new Error("no item selected"));
       }
-      return requirementsApi.transition(
+      return resolver.transition(
         selectedId,
         targetState,
         changeReason,
@@ -127,7 +156,7 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
   });
 
   return {
-    requirements: listQuery.data ?? [],
+    items: listQuery.data ?? [],
     isLoading: !!workspaceId && listQuery.isLoading,
     error: listQuery.error ? extractErrorMessage(listQuery.error) : null,
     transitions: transitionsEnabled ? transitionsQuery.data ?? null : null,
@@ -140,5 +169,8 @@ export function useReviewsData(params: UseReviewsDataParams): ReviewsData {
     refreshList,
     refreshSelected,
     transition: (args) => transitionMutation.mutateAsync(args),
+    diff: (id, fromVersion, toVersion) =>
+      resolver.diff(id, fromVersion, toVersion),
+    versions: (id) => resolver.versions(id),
   };
 }

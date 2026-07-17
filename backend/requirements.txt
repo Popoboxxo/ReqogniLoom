@@ -35,6 +35,7 @@ uvicorn[standard]>=0.30,<1.0
 
 # Utilities
 python-decouple>=3.8,<4.0
+requests>=2.31,<3.0
 
 # Field-level encryption (REQ-081) — Fernet symmetric encryption for
 # persistence.LlmSettings.api_key at rest.

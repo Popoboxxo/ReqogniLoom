@@ -558,4 +558,7 @@ model-overrides:
   Claude:
     senior-developer: claude-opus-4-8
     developer: claude-sonnet-5
-    principal-developer: claude-fable-5
+    principal-developer: claude-opus-4-8
+dod:
+  req-traceability: false
+  tests-required: false

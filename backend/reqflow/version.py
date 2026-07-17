@@ -36,8 +36,11 @@ def _resolve_commit_sha() -> str:
        local/non-container runs where ``.git`` happens to be present.
     3. The literal string ``"unknown"``.
     """
+    # REQ-158: "unknown" is the docker-compose default for GIT_COMMIT_SHA and
+    # must be treated as "not set" so the git rev-parse fallback below runs
+    # instead of surfacing the literal placeholder to the UI.
     env_sha = os.environ.get("GIT_COMMIT_SHA")
-    if env_sha:
+    if env_sha and env_sha != "unknown":
         return env_sha
 
     try:

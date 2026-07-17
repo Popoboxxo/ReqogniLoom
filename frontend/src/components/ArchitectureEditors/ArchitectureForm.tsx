@@ -20,6 +20,7 @@ import { useEntityType } from '../../context/EntityTypeContext';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { VersionBadge } from '../shared/VersionBadge';
+import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { architectureApi } from '../../api/architecture';
 import { extractErrorMessage } from '../../api/client';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
@@ -383,6 +384,21 @@ export function ArchitectureForm({
             <VersionBadge version={element.version || 1} />
           </div>
           <ReadOnlyField label="Hierarchy Level" value={element.level ?? 0} />
+        </div>
+
+        {/* REQ-171: WorkflowEngine-driven status editor. ArchitectureElement has
+            no denormalized status field, so the current state is loaded from the
+            transitions endpoint; "draft" (the workflow initial_state) is only the
+            pre-load fallback label. */}
+        <div>
+          <label style={labelStyle}>{t('editor.status')}</label>
+          <WorkflowStatusEditor
+            artifactType="architecture"
+            artifactId={element.id}
+            currentStatus="draft"
+            disabled={isSaving}
+            onTransitionComplete={onSaved}
+          />
         </div>
       </div>
 

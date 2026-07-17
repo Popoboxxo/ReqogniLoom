@@ -4,14 +4,13 @@ import { testcasesApi, type TestCase } from '../../api/testcases';
 import { VersionBadge } from '../shared/VersionBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
+import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
 interface TestCaseFormProps {
   testCase: TestCase | null;
   onSaved: () => void;
   onDeleted?: () => void;
 }
-
-const STATUS_OPTIONS = ['draft', 'active', 'deprecated'];
 
 export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps): JSX.Element {
   const { t } = useTranslation();
@@ -167,10 +166,16 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
-              <label htmlFor="tc-status" style={labelStyle}>{t('editor.status')}</label>
-              <select id="tc-status" value={formData.status || 'draft'} onChange={(e) => handleChange('status', e.target.value)} style={inputStyle}>
-                {STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
+              <label style={labelStyle}>{t('editor.status')}</label>
+              {/* REQ-165: WorkflowEngine-driven status editor (replaces the
+                  hardcoded status select). */}
+              <WorkflowStatusEditor
+                artifactType="test-case"
+                artifactId={testCase.id}
+                currentStatus={testCase.status}
+                disabled={isSaving}
+                onTransitionComplete={onSaved}
+              />
             </div>
           </div>
         </div>

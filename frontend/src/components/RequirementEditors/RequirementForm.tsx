@@ -19,7 +19,7 @@
  * IF-RF-EXT-OUT-001 → PATCH /api/v1/requirements/
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEntityType } from '../../context/EntityTypeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -33,8 +33,8 @@ import {
   REQ_CATEGORIES,
 } from '../../types';
 import { requirementsApi } from '../../api/requirements';
-import type { RequirementTransitions } from '../../api/requirements';
 import { extractErrorMessage } from '../../api/client';
+import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from './MarkdownPreview';
@@ -79,11 +79,10 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [title, setTitle] = useState(requirement.title);
   const [description, setDescription] = useState(requirement.description);
   const [category, setCategory] = useState(requirement.category);
-  // REQ-143: the lifecycle state is owned by the WorkflowEngine. The dropdown is
-  // driven by the transitions the backend allows from the current state, not by
-  // a free enum. `targetState` holds the transition the user picked (if any).
-  const [transitions, setTransitions] = useState<RequirementTransitions | null>(null);
-  const [targetState, setTargetState] = useState<string>('');
+  // REQ-143/REQ-161: the lifecycle state is owned by the WorkflowEngine and is
+  // now edited through the shared <WorkflowStatusEditor/>, which fetches the
+  // allowed transitions and performs them via the WorkflowFacade transitions
+  // API. The form no longer carries a status <select> of its own.
   const [changeReason, setChangeReason] = useState(requirement.change_reason || '');
   const [type, setType] = useState<RequirementType>(requirement.type || 'SyReq');
   const [complexityFibonacci, setComplexityFibonacci] = useState<number | ''>(
@@ -101,33 +100,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // REQ-143: load the allowed workflow transitions for this requirement. The
-  // WorkflowEngine is the single source of truth; failures degrade gracefully to
-  // a read-only state display (no transitions offered).
-  useEffect(() => {
-    let cancelled = false;
-    requirementsApi
-      .getTransitions(requirement.id)
-      .then((data) => {
-        if (!cancelled) {
-          setTransitions(data);
-          setTargetState('');
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setTransitions(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [requirement.id]);
-
-  const currentState = transitions?.current_state ?? requirement.status;
-  const allowedTransitions = transitions?.allowed_transitions ?? [];
-  const selectedTransition = allowedTransitions.find(
-    (tr) => tr.target_state === targetState
-  );
-
   /**
    * Validate form data before saving.
    */
@@ -139,11 +111,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
       return t('req.changeReasonRequired');
     }
 
-    // REQ-143: a chosen transition that requires a change reason must have one.
-    if (selectedTransition?.requires_change_reason && !changeReason.trim()) {
-      return t('req.changeReasonRequired');
-    }
-
     // Type-specific validations
     if (type === 'SyReq') {
       if (isFieldVisible('verification_method') && isFieldRequired('verification_method') && !verificationMethod) {
@@ -151,7 +118,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
       }
     }
     return null;
-  }, [title, changeReason, type, verificationMethod, t, isExtendedPreset, isFieldVisible, isFieldRequired, selectedTransition]);
+  }, [title, changeReason, type, verificationMethod, t, isExtendedPreset, isFieldVisible, isFieldRequired]);
 
   /**
    * Handle save action.
@@ -187,10 +154,8 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
 
       await requirementsApi.update(requirement.id, updateData);
 
-      // REQ-143: apply the workflow transition, if the user selected one.
-      if (targetState) {
-        await requirementsApi.transition(requirement.id, targetState, changeReason);
-      }
+      // REQ-161: lifecycle transitions are no longer bundled with Save — they
+      // run independently through <WorkflowStatusEditor/> (WorkflowFacade).
       onSaved();
     } catch (err: unknown) {
       // REQ-009: extract field-level details from the ApiError response so
@@ -205,7 +170,6 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
     title,
     description,
     category,
-    targetState,
     changeReason,
     type,
     complexityFibonacci,
@@ -368,46 +332,19 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
 
             {isFieldVisible('status') && (
               <div>
-                <label htmlFor="req-workflow" style={labelStyle}>
+                <label style={labelStyle}>
                   {t('editor.workflowState')}
                 </label>
-                {/* REQ-143: current state is read-only (WorkflowEngine-owned). */}
-                <div
-                  data-testid="req-workflow-current"
-                  style={{
-                    ...inputStyle,
-                    marginBottom: allowedTransitions.length > 0 ? 'var(--space-2)' : 'var(--space-4)',
-                    background: 'var(--color-surface-raised)',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                >
-                  {currentState || '—'}
-                </div>
-                {allowedTransitions.length > 0 ? (
-                  /* REQ-143: only the transitions the backend allows are offered. */
-                  <select
-                    id="req-workflow"
-                    data-testid="req-workflow"
-                    value={targetState}
-                    onChange={(e) => setTargetState(e.target.value)}
-                    style={inputStyle}
-                  >
-                    <option value="">{t('editor.workflowNoChange', '— no change —')}</option>
-                    {allowedTransitions.map((tr) => (
-                      <option key={tr.target_state} value={tr.target_state}>
-                        {`→ ${tr.target_state}`}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div
-                    data-testid="req-workflow-locked"
-                    style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}
-                  >
-                    {t('editor.workflowNoTransitions', 'No transitions available')}
-                  </div>
-                )}
+                {/* REQ-161: unified WorkflowEngine-driven status editor. Current
+                    state is read-only; transitions run through the WorkflowFacade
+                    and re-fetch the requirement on completion. */}
+                <WorkflowStatusEditor
+                  artifactType="requirement"
+                  artifactId={requirement.id}
+                  currentStatus={requirement.status}
+                  disabled={isSaving}
+                  onTransitionComplete={onSaved}
+                />
               </div>
             )}
 
