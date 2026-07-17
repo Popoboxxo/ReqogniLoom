@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import uuid
 
+from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -327,6 +329,28 @@ class Risk(models.Model):
         max_length=16, choices=Severity.choices, default=Severity.LOW
     )
     owner = models.CharField(max_length=255, blank=True)
+    # REQ-L1-029 (FMEA): proper User FK for risk assignment. Kept alongside the
+    # legacy `owner` CharField (not a replacement) so existing rows and callers
+    # relying on the free-text owner keep working — Expand phase of an
+    # expand/contract migration. Nullable because existing Risk rows have no
+    # user assigned; on_delete=SET_NULL preserves the Risk if the user is
+    # deleted.
+    owner_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="owned_risks",
+        help_text="REQ-L1-029: assigned risk owner (User FK).",
+    )
+    # REQ-L1-029 (FMEA): detectability score (1=easy to detect .. 10=impossible)
+    # feeding the Risk Priority Number. default=5 keeps the migration backward
+    # safe — existing rows receive a neutral mid-scale value.
+    detection = models.PositiveSmallIntegerField(
+        default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        help_text="REQ-L1-029: FMEA detection score (1=easy .. 10=impossible).",
+    )
     mitigation_strategy = models.TextField(blank=True)
     uid = models.CharField(
         max_length=64,
@@ -357,6 +381,20 @@ class Risk(models.Model):
         p = self._PROB_NUMERIC.get(self.probability, 1)
         i = self._IMPACT_NUMERIC.get(self.impact, 1)
         return p * i
+
+    @property
+    def rpn(self) -> int:
+        """Risk Priority Number (FMEA) = probability × impact × detection.
+
+        probability and impact are categorical TextChoices (low/medium/high),
+        so they are mapped to their 1–3 numeric values via the same lookup
+        tables compute_score() uses — multiplying the raw string labels would
+        fail. detection is already a 1–10 integer. Computed, not persisted;
+        needs no migration.
+        """
+        p = self._PROB_NUMERIC.get(self.probability, 1)
+        i = self._IMPACT_NUMERIC.get(self.impact, 1)
+        return p * i * (self.detection or 5)
 
     @staticmethod
     def score_to_severity(score: int) -> str:
