@@ -278,6 +278,46 @@ def _architecture_transitions() -> list[dict[str, Any]]:
     ]
 
 
+def _design_lifecycle_transitions() -> list[dict[str, Any]]:
+    # REQ-173: shared draft -> in_review -> approved -> deprecated lifecycle for
+    # Icd, Diagram and GlossaryTerm — all follow the same design/review/approve/
+    # retire path with no denormalized status mirror column (workflow state lives
+    # solely in WorkflowItemState). "draft" is the initial_state; review rejection
+    # routes back to "draft" (no dedicated "rejected" state). Mirrors the
+    # ArchitectureElement lifecycle. Returns a fresh list per call so the preset
+    # schemas never share a mutable reference.
+    return [
+        {
+            "from_state": "draft",
+            "to_state": "in_review",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_review",
+            "to_state": "approved",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_review",
+            "to_state": "draft",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "approved",
+            "to_state": "deprecated",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
 def _adr_transitions() -> list[dict[str, Any]]:
     # State values match application.models.Adr.Status.
     return [
@@ -557,6 +597,22 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "architecture_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _architecture_transitions(),
+    },
+    # REQ-173: Icd, Diagram, GlossaryTerm share one design/review/approve/retire
+    # lifecycle (see _design_lifecycle_transitions). None has a denormalized
+    # status mirror column; GlossaryTerm's separate `lifecycle_status` field is
+    # soft-delete only (REQ-006). State lives solely in WorkflowItemState.
+    "icd_default": {
+        "states": ["draft", "in_review", "approved", "deprecated"],
+        "transitions": _design_lifecycle_transitions(),
+    },
+    "diagram_default": {
+        "states": ["draft", "in_review", "approved", "deprecated"],
+        "transitions": _design_lifecycle_transitions(),
+    },
+    "glossary_term_default": {
+        "states": ["draft", "in_review", "approved", "deprecated"],
+        "transitions": _design_lifecycle_transitions(),
     },
 }
 

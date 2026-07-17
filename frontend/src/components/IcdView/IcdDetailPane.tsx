@@ -17,6 +17,7 @@ import type { Icd, IcdDetail } from "../../api/icds";
 import { VersionBadge } from "../shared/VersionBadge";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
+import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { findSimilarICDs, inputStyle, labelStyle } from "./icd-view-shared";
 
 export interface IcdDetailPaneProps {
@@ -42,6 +43,8 @@ export interface IcdDetailPaneProps {
   setNvPost: (v: string) => void;
   nvInv: string;
   setNvInv: (v: string) => void;
+  /** REQ-173: refresh the ICD list/detail after a workflow transition. */
+  onWorkflowTransition?: () => void;
 }
 export function IcdDetailPane({
   detail,
@@ -66,6 +69,7 @@ export function IcdDetailPane({
   setNvPost,
   nvInv,
   setNvInv,
+  onWorkflowTransition,
 }: IcdDetailPaneProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -116,6 +120,15 @@ export function IcdDetailPane({
             {t("icds.source")}: {artifactLabel(detail.source_element_id)} →{" "}
             {t("icds.target")}: {artifactLabel(detail.target_element_id)}
           </p>
+          {/* REQ-173: WorkflowEngine-driven status editor for the ICD. */}
+          <div style={{ marginTop: "var(--space-3)" }}>
+            <WorkflowStatusEditor
+              artifactType="icd"
+              artifactId={detail.id}
+              currentStatus={detail.status ?? undefined}
+              onTransitionComplete={onWorkflowTransition}
+            />
+          </div>
         </div>
         <button
           type="button"

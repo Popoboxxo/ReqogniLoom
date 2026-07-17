@@ -33,6 +33,14 @@ _ENTITY_PRESETS = (
     ("Issue", "issue_default"),
     ("TestCase", "testcase_default"),
     ("ChangeRequest", "ccb_approval"),
+    ("ArchitectureElement", "architecture_default"),
+    # REQ-173: Icd, Diagram, GlossaryTerm lifecycle. Diagram's ViewSet is not
+    # yet wired to WorkflowTransitionsMixin (see application.workspace_service
+    # ._WORKFLOW_ENTITY_TYPES comment) — provisioned regardless so no backfill
+    # is needed once that gap is resolved.
+    ("Icd", "icd_default"),
+    ("Diagram", "diagram_default"),
+    ("GlossaryTerm", "glossary_term_default"),
 )
 
 

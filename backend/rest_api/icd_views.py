@@ -27,6 +27,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from application.base import NotFoundError
 from icd.models import Icd, IcdDirection, IcdParameter, IcdVersion
 from icd.services import (
     create_icd,
@@ -48,6 +49,7 @@ from icd.services import (
 )
 from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
 from rest_api.serializers import (
     IcdParameterSerializer,
     StandardPagination,
@@ -56,10 +58,15 @@ from rest_api.serializers import (
 )
 
 
-class IcdViewSet(ViewSet):
-    """REST ViewSet for ICD CRUD operations."""
+class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
+    """REST ViewSet for ICD CRUD operations.
+
+    REQ-173: transitions/ and workflow-history/ via WorkflowTransitionsMixin
+    so ICDs share the same lifecycle machinery as every other artifact type.
+    """
 
     pagination_class = StandardPagination
+    workflow_item_type = "Icd"
 
     # -- helpers -----------------------------------------------------------
 
@@ -135,6 +142,20 @@ class IcdViewSet(ViewSet):
                 f"IcdVersion number {target_number} not found for ICD {icd.id}"
             )
         return match
+
+    # -- workflow (REQ-173) --------------------------------------------------
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        """Resolve the Icd identified by *pk* to (item_id, workspace_id).
+
+        Icd stores workspace_id directly (see _icd_to_dict), unlike
+        ArchitectureElement which is scoped via its artifact.
+        """
+        try:
+            icd = get_icd(UUID(pk), ctx.tenant_id)
+        except Icd.DoesNotExist as exc:
+            raise NotFoundError(str(exc)) from exc
+        return icd.id, icd.workspace_id
 
     # -- list --------------------------------------------------------------
 

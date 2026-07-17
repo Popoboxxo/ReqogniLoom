@@ -6,6 +6,7 @@ import type { GlossaryTerm, LinkType } from "../../types";
 import { PlusCircle, Search, Edit2, Trash2, Link2 } from "lucide-react";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
+import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 
 export default function GlossaryView(): JSX.Element {
   const { t } = useTranslation();
@@ -254,6 +255,21 @@ export default function GlossaryView(): JSX.Element {
               <input style={inputStyle} value={formData.synonyms} onChange={e => setFormData({...formData, synonyms: e.target.value})} />
             </div>
           </div>
+
+          {/* REQ-173: WorkflowEngine-driven status editor. Only for existing
+              entries — a term being created has no artifact ID yet. GlossaryTerm
+              has no status field, so currentStatus is undefined and the editor
+              degrades to the workflow-driven state. */}
+          {editingId && (
+            <div style={{ marginBottom: "var(--space-4)" }}>
+              <WorkflowStatusEditor
+                artifactType="glossary"
+                artifactId={editingId}
+                currentStatus={undefined}
+                onTransitionComplete={loadTerms}
+              />
+            </div>
+          )}
 
           {/* C9 (REQ-006): trace-link creation for the entry being edited.
               Only available for existing entries (editingId set) — a term
