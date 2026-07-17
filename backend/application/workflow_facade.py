@@ -216,6 +216,36 @@ class WorkflowFacade(ServiceBase):
             workspace_id=workspace_id,
         )
 
+    def get_definition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str = "Requirement",
+        workspace_id: UUID | str,
+    ):
+        """Return the full workflow definition (all states + transitions).
+
+        Read-only. Unlike ``get_available_transitions`` (which is instance- and
+        current-state-scoped), this returns the COMPLETE state machine for an
+        entity type so a visual editor can render the whole graph (REQ-176).
+
+        Sets the tenant context and delegates to ``workflow.services.get_definition``.
+        Returns the ``WorkflowDefinitionDTO`` or ``None`` when no workflow is
+        configured for the workspace/type (never raises for "not configured", so
+        callers can treat it as an empty graph uniformly).
+        """
+        self._set_tenant_context(ctx)
+
+        from workflow.definition_store import WorkflowDefinitionError
+        from workflow.services import get_definition as wf_get_definition
+
+        try:
+            return wf_get_definition(
+                workspace_id=workspace_id, item_type=item_type
+            )
+        except WorkflowDefinitionError:
+            return None
+
     def get_history(
         self,
         item_id: UUID | str,

@@ -2241,6 +2241,81 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
         # WorkflowFacade does not expose list — return empty list
         return Response({"count": 0, "next": None, "previous": None, "results": []})
 
+    @action(detail=False, methods=["get"], url_path="definition")
+    def definition(self, request: Request, **kwargs: Any) -> Response:
+        """GET ``definition/`` — full workflow graph for an entity type (REQ-176).
+
+        Query params: ``workspace_id`` (UUID) and ``item_type`` (e.g.
+        "Requirement"). Returns the COMPLETE state machine — every state and
+        every transition with its role / change_reason / signature metadata — so
+        the Workflow Editor can render the whole graph read-only. When no
+        workflow is configured for the workspace/type, returns an empty graph
+        with ``initialized: false`` rather than a 404.
+        """
+        lang = detect_lang(request)
+        workspace_id = request.query_params.get("workspace_id")
+        item_type = request.query_params.get("item_type")
+        if not workspace_id or not item_type:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="workspace_id and item_type are required",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            UUID(str(workspace_id))
+        except (ValueError, TypeError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id must be a UUID"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            dto = self._svc().get_definition(
+                ctx, item_type=item_type, workspace_id=str(workspace_id)
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+
+        if dto is None:
+            return Response(
+                {
+                    "item_type": item_type,
+                    "preset": None,
+                    "is_custom": False,
+                    "initial_state": None,
+                    "initialized": False,
+                    "states": [],
+                    "transitions": [],
+                }
+            )
+        return Response(
+            {
+                "item_type": dto.item_type,
+                "preset": dto.preset,
+                "is_custom": dto.is_custom,
+                "initial_state": dto.initial_state,
+                "initialized": True,
+                "states": list(dto.states),
+                "transitions": [
+                    {
+                        "from_state": tr.from_state,
+                        "to_state": tr.to_state,
+                        "allowed_roles": list(tr.allowed_roles),
+                        "requires_change_reason": tr.requires_change_reason,
+                        "signature_gate": tr.signature_gate,
+                    }
+                    for tr in dto.transitions
+                ],
+            }
+        )
+
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         return Response(build_error_response("NOT_FOUND", detect_lang(request)), status=status.HTTP_404_NOT_FOUND)
 

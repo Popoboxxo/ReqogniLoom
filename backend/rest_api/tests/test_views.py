@@ -540,6 +540,101 @@ class TestRequirementWorkflowHistory:
         assert response.status_code == 404
 
 
+class TestWorkflowDefinitionEndpoint:
+    """GET /api/v1/workflows/definition/ — full state machine graph (REQ-176)."""
+
+    def _dto(self) -> Any:
+        from workflow.definition_store import (
+            TransitionDefinitionDTO,
+            WorkflowDefinitionDTO,
+        )
+
+        return WorkflowDefinitionDTO(
+            states=("draft", "in_review", "approved"),
+            transitions=(
+                TransitionDefinitionDTO(
+                    from_state="draft",
+                    to_state="in_review",
+                    allowed_roles=("editor", "admin"),
+                    requires_change_reason=True,
+                    signature_gate=False,
+                ),
+                TransitionDefinitionDTO(
+                    from_state="in_review",
+                    to_state="approved",
+                    allowed_roles=("approver",),
+                    requires_change_reason=False,
+                    signature_gate=True,
+                ),
+            ),
+            workspace_id=uuid.uuid4(),
+            item_type="Requirement",
+            preset="extended",
+            is_custom=False,
+        )
+
+    def _get(self, query: str) -> Any:
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/workflows/definition/?{query}")
+        req.auth_context = _make_auth_context()
+        return req
+
+    def test_returns_full_graph(self) -> None:
+        facade = MagicMock()
+        facade.get_definition.return_value = self._dto()
+        ws = uuid.uuid4()
+        req = self._get(f"workspace_id={ws}&item_type=Requirement")
+        view = WorkflowDefinitionViewSet.as_view({"get": "definition"})
+        with patch(
+            "rest_api.views.WorkflowDefinitionViewSet._svc", return_value=facade
+        ):
+            response = view(req)
+
+        assert response.status_code == 200
+        body = response.data
+        assert body["initialized"] is True
+        assert body["initial_state"] == "draft"
+        assert body["preset"] == "extended"
+        assert body["states"] == ["draft", "in_review", "approved"]
+        assert len(body["transitions"]) == 2
+        first = body["transitions"][0]
+        assert first["from_state"] == "draft"
+        assert first["allowed_roles"] == ["editor", "admin"]
+        assert first["requires_change_reason"] is True
+        assert body["transitions"][1]["signature_gate"] is True
+        # The facade was asked for the requested entity type.
+        _, kwargs = facade.get_definition.call_args
+        assert kwargs["item_type"] == "Requirement"
+
+    def test_not_initialized_returns_empty_graph(self) -> None:
+        facade = MagicMock()
+        facade.get_definition.return_value = None  # no definition configured
+        ws = uuid.uuid4()
+        req = self._get(f"workspace_id={ws}&item_type=Issue")
+        view = WorkflowDefinitionViewSet.as_view({"get": "definition"})
+        with patch(
+            "rest_api.views.WorkflowDefinitionViewSet._svc", return_value=facade
+        ):
+            response = view(req)
+
+        assert response.status_code == 200
+        assert response.data["initialized"] is False
+        assert response.data["states"] == []
+        assert response.data["transitions"] == []
+
+    def test_missing_params_returns_400(self) -> None:
+        req = self._get("item_type=Requirement")  # no workspace_id
+        view = WorkflowDefinitionViewSet.as_view({"get": "definition"})
+        response = view(req)
+        assert response.status_code == 400
+
+    def test_invalid_workspace_id_returns_400(self) -> None:
+        req = self._get("workspace_id=not-a-uuid&item_type=Requirement")
+        view = WorkflowDefinitionViewSet.as_view({"get": "definition"})
+        response = view(req)
+        assert response.status_code == 400
+
+
 # ---------------------------------------------------------------------------
 # RequirementViewSet.list — REQ-144 ?status= filter for the review queue
 # ---------------------------------------------------------------------------
