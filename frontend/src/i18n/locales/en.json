@@ -129,6 +129,16 @@
     "confirmDelete": "Yes, delete",
     "deleteConfirmPrompt": "Delete?"
   },
+  "workflowEditor": {
+    "changeStatus": "Change status",
+    "changeStatusFrom": "Change status (current: {{from}})",
+    "transitionTo": "Change status from {{from}} to {{to}}",
+    "reasonRequired": "Reason required",
+    "reasonFor": "Reason for → {{to}}",
+    "notInitialized": "Workflow not initialized",
+    "noTransitions": "No transitions available",
+    "confirm": "Confirm"
+  },
   "admin": {
     "attributeVisibility": "Attribute Configuration",
     "attributeVisibilityDescription": "Configure which fields are visible and required in artifact editors.",

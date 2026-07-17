@@ -2,20 +2,35 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 
 /**
- * REQ-143: RequirementForm drives its lifecycle-state control from the
- * WorkflowEngine transitions API instead of a free enum. These tests verify:
- *  - the current state is shown read-only,
- *  - only backend-allowed transitions are offered,
- *  - saving performs a transition (not a status write),
- *  - with no allowed transitions the state is locked (read-only).
+ * REQ-161: RequirementForm delegates its lifecycle-state control to the shared
+ * <WorkflowStatusEditor/> (WorkflowFacade-driven) instead of an inline status
+ * <select>. These tests verify:
+ *  - the form mounts the WorkflowStatusEditor with the requirement's identity,
+ *  - the form no longer owns a status dropdown,
+ *  - saving writes content only (never a `status` field) and no longer bundles
+ *    a workflow transition into Save (that now runs inside the editor).
  */
 
 vi.mock("../../api/requirements", () => ({
   requirementsApi: {
-    getTransitions: vi.fn(),
     update: vi.fn().mockResolvedValue({}),
-    transition: vi.fn().mockResolvedValue({}),
   },
+}));
+
+// Stub the workflow editor so this stays a focused unit test of the form.
+vi.mock("../WorkflowStatusEditor", () => ({
+  WorkflowStatusEditor: (props: {
+    artifactType: string;
+    artifactId: string;
+    currentStatus: string;
+  }) => (
+    <div
+      data-testid="workflow-status-editor-stub"
+      data-artifact-type={props.artifactType}
+      data-artifact-id={props.artifactId}
+      data-current-status={props.currentStatus}
+    />
+  ),
 }));
 
 vi.mock("../../context/EntityTypeContext", () => ({
@@ -81,81 +96,32 @@ const renderForm = () =>
     />
   );
 
-describe("RequirementForm — workflow-driven status (REQ-143)", () => {
+describe("RequirementForm — unified workflow editor (REQ-161)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("shows current state read-only and only backend-allowed transitions", async () => {
-    (requirementsApi.getTransitions as ReturnType<typeof vi.fn>).mockResolvedValue({
-      current_state: "draft",
-      states: ["draft", "approved", "deprecated"],
-      allowed_transitions: [
-        { target_state: "approved", requires_change_reason: false, signature_gate: false },
-      ],
-    });
-
+  it("mounts the WorkflowStatusEditor for this requirement", () => {
     renderForm();
-
-    await waitFor(() =>
-      expect(screen.getByTestId("req-workflow")).toBeInTheDocument()
-    );
-    // Current state read-only.
-    expect(screen.getByTestId("req-workflow-current")).toHaveTextContent("draft");
-    // Only the allowed target appears as an option.
-    const select = screen.getByTestId("req-workflow") as HTMLSelectElement;
-    expect(select.querySelectorAll("option")).toHaveLength(2); // no-change + approved
-    expect(screen.getByRole("option", { name: "→ approved" })).toBeInTheDocument();
+    const editor = screen.getByTestId("workflow-status-editor-stub");
+    expect(editor).toHaveAttribute("data-artifact-type", "requirement");
+    expect(editor).toHaveAttribute("data-artifact-id", "req-1");
+    expect(editor).toHaveAttribute("data-current-status", "draft");
   });
 
-  it("performs a transition on save instead of writing status", async () => {
-    (requirementsApi.getTransitions as ReturnType<typeof vi.fn>).mockResolvedValue({
-      current_state: "draft",
-      states: ["draft", "approved", "deprecated"],
-      allowed_transitions: [
-        { target_state: "approved", requires_change_reason: false, signature_gate: false },
-      ],
-    });
-
+  it("no longer renders an inline status dropdown", () => {
     renderForm();
-    await waitFor(() =>
-      expect(screen.getByTestId("req-workflow")).toBeInTheDocument()
-    );
+    expect(screen.queryByTestId("req-workflow")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("req-workflow-current")).not.toBeInTheDocument();
+  });
 
-    fireEvent.change(screen.getByTestId("req-workflow"), {
-      target: { value: "approved" },
-    });
+  it("saves content only — never writes a status field", async () => {
+    renderForm();
     fireEvent.click(screen.getByTestId("save-btn"));
 
-    await waitFor(() =>
-      expect(requirementsApi.transition).toHaveBeenCalledWith(
-        "req-1",
-        "approved",
-        ""
-      )
-    );
-    // The content update must NOT carry a `status` field (REQ-143).
+    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
     const updateArgs = (requirementsApi.update as ReturnType<typeof vi.fn>).mock
       .calls[0][1];
     expect(updateArgs).not.toHaveProperty("status");
-  });
-
-  it("locks the state when no transitions are allowed", async () => {
-    (requirementsApi.getTransitions as ReturnType<typeof vi.fn>).mockResolvedValue({
-      current_state: "deprecated",
-      states: ["draft", "approved", "deprecated"],
-      allowed_transitions: [],
-    });
-
-    renderForm();
-
-    await waitFor(() =>
-      expect(screen.getByTestId("req-workflow-locked")).toBeInTheDocument()
-    );
-    expect(screen.queryByTestId("req-workflow")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("save-btn"));
-    await waitFor(() => expect(requirementsApi.update).toHaveBeenCalled());
-    expect(requirementsApi.transition).not.toHaveBeenCalled();
   });
 });
