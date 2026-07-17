@@ -105,6 +105,21 @@ class RequirementType(models.TextChoices):
     FEATUREREQ = "FeatureReq", "Feature Requirement"
 
 
+class RequirementLevel(models.IntegerChoices):
+    """V-model requirement hierarchy level (K3).
+
+    Makes the L0-L4 traceability hierarchy an explicit, queryable field instead
+    of a naming convention only. NULL means the level has not been assigned yet;
+    it must be set deliberately going forward (no backfill for existing rows).
+    """
+
+    L0_SYSTEM = 0, "L0 System"
+    L1_SUBSYSTEM = 1, "L1 Subsystem"
+    L2_COMPONENT = 2, "L2 Component"
+    L3_PART = 3, "L3 Part"
+    L4_MATERIAL = 4, "L4 Material"
+
+
 class MoSCoWPriority(models.TextChoices):
     """MoSCoW prioritization framework.
 
@@ -619,6 +634,15 @@ class Requirement(TenantScopedModel):
         choices=RequirementType.choices,
         default=RequirementType.SYREQ,
         help_text="Requirement classification (SyReq, UseCase, FeatureReq)",
+    )
+    level = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        choices=RequirementLevel.choices,
+        help_text=(
+            "K3: V-model hierarchy level (0=System, 1=Subsystem, 2=Component, "
+            "3=Part, 4=Material). NULL until assigned explicitly."
+        ),
     )
     complexity_fibonacci = models.IntegerField(
         null=True,
@@ -1519,6 +1543,7 @@ __all__ = [
     "Artifact",
     "Requirement",
     "RequirementType",
+    "RequirementLevel",
     "MoSCoWPriority",
     "ComplexityFibonacci",
     "VerificationMethod",
