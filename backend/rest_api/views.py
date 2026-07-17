@@ -4505,13 +4505,23 @@ class ReqifImportView(APIView):
         return Response(result.to_dict(), status=status.HTTP_200_OK)
 
 
-class GlossaryTermViewSet(BaseEntityViewSet):
-    """ViewSet for Semantic Project Glossary (REQ-L1-044)."""
+class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
+    """ViewSet for Semantic Project Glossary (REQ-L1-044).
+
+    REQ-173: transitions/ and workflow-history/ via WorkflowTransitionsMixin
+    so glossary terms share the same lifecycle machinery as every other
+    artifact type.
+    """
 
     serializer_class = GlossaryTermSerializer
+    workflow_item_type = "GlossaryTerm"
 
     def _svc(self) -> GlossaryService:
         return GlossaryService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        term = self._svc().get(ctx, UUID(pk))
+        return term.id, term.workspace_id
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         """GET /api/v1/glossary/ — list GlossaryTerms in a workspace.
