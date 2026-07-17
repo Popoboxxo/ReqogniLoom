@@ -62,6 +62,7 @@ def create_diagram(
     description: str = "",
     created_by: Optional[object] = None,
     target_id: Optional[uuid.UUID] = None,
+    workspace_id: Optional[uuid.UUID] = None,
 ) -> Diagram:
     """Create a new Diagram and its initial DiagramVersion (v1).
 
@@ -76,6 +77,7 @@ def create_diagram(
         description:    Optional description.
         created_by:     Optional User ORM object for audit.
         target_id:      Optional target Artifact UUID for a 'documents' TraceLink.
+        workspace_id:   Optional owning workspace UUID (REQ-173).
 
     Returns:
         The created Diagram ORM object.
@@ -83,7 +85,7 @@ def create_diagram(
     Raises:
         DiagramValidationError: If the payload fails type-specific validation.
 
-    REQ-L2-DS-001, REQ-L3-DM-001
+    REQ-L2-DS-001, REQ-L3-DM-001, REQ-173
     """
     return _manager.create_diagram(
         name=name,
@@ -94,6 +96,7 @@ def create_diagram(
         description=description,
         created_by=created_by,
         target_id=target_id,
+        workspace_id=workspace_id,
     )
 
 
@@ -158,6 +161,30 @@ def get_diagram(
         diagram_id=diagram_id,
         version_number=version_number,
     )
+
+
+def get_diagram_header(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> Diagram:
+    """Return a single tenant-scoped Diagram header by id (REQ-066, REQ-173).
+
+    Encapsulates the tenant-scoped ORM lookup so REST views stay ORM-free.
+    Unlike ``get_diagram``, this returns the bare Diagram header (no version /
+    render enrichment) — used by DiagramViewSet._resolve_workflow_target to
+    read workspace_id without pulling in DiagramManager's render pipeline.
+
+    Args:
+        diagram_id: UUID of the target Diagram.
+        tenant_id:  Active tenant primary key (isolation boundary).
+
+    Returns:
+        The matching :class:`Diagram` instance.
+
+    Raises:
+        Diagram.DoesNotExist: When no Diagram with the given id exists for
+            the tenant.
+
+    req_id: REQ-066, REQ-173, REQ-L2-DS-001
+    """
+    return Diagram.objects.get(id=diagram_id, tenant_id=tenant_id)
 
 
 def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
@@ -383,6 +410,7 @@ __all__ = [
     "create_diagram",
     "update_diagram",
     "get_diagram",
+    "get_diagram_header",
     "delete_diagram",
     "list_versions",
     "get_mcp_artifact",

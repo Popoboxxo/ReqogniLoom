@@ -90,6 +90,7 @@ class DiagramManager:
         created_by: Optional[object] = None,
         target_id: Optional[uuid.UUID] = None,
         canvas_json: Optional[dict] = None,
+        workspace_id: Optional[uuid.UUID] = None,
     ) -> Diagram:
         """Create a new Diagram and its initial DiagramVersion (v1).
 
@@ -110,6 +111,8 @@ class DiagramManager:
             description:    Optional free-text description.
             created_by:     Optional User ORM object for audit.
             target_id:      Optional UUID of a target Artifact for TraceLink creation.
+            workspace_id:   Optional owning workspace UUID (REQ-173). Nullable for
+                            backwards compatibility; new diagrams should set it.
 
         Returns:
             The newly created Diagram ORM object.
@@ -128,6 +131,7 @@ class DiagramManager:
             tenant=tenant,
             created_by=created_by,
             modified_by=created_by,
+            workspace_id=workspace_id,
         )
 
         # IF-L1-035: persist initial immutable version
