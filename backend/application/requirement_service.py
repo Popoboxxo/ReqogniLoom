@@ -352,7 +352,7 @@ class RequirementService(ServiceBase):
             try:
                 self._trace_link_service.propagate_suspect_status(requirement.artifact_id, ctx)
             except Exception as e:
-                logger.error(f"Error propagating suspect status: {e}")
+                logger.error(f"Error propagating suspect status: {e}", exc_info=True)
 
         return requirement
 
