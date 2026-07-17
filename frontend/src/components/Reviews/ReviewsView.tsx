@@ -63,6 +63,7 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
   "test-case": "testCase",
   risk: "risk",
   issue: "issue",
+  architecture: "architecture",
 };
 
 function findTransition(

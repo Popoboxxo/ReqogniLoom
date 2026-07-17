@@ -36,7 +36,8 @@ export type WorkflowArtifactType =
   | "adr"
   | "test-case"
   | "risk"
-  | "issue";
+  | "issue"
+  | "architecture";
 
 /** A single allowed transition from the current state. */
 export interface WorkflowAllowedTransition {
@@ -100,6 +101,7 @@ const RESOURCE_PATH: Record<WorkflowArtifactType, string> = {
   "test-case": "testcases",
   risk: "risks",
   issue: "issues",
+  architecture: "architecture",
 };
 
 const transitionsPath = (type: WorkflowArtifactType, id: UUID): string =>

@@ -1109,14 +1109,33 @@ class ArtifactViewSet(BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
-class ArchitectureElementViewSet(BaseEntityViewSet):
-    """ViewSet for ArchitectureElement CRUD operations (REQ-L2-RA-001)."""
+class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
+    """ViewSet for ArchitectureElement CRUD operations (REQ-L2-RA-001).
+
+    REQ-171: transitions/ and workflow-history/ via WorkflowTransitionsMixin so
+    the ArchitectureForm drives its lifecycle through the WorkflowEngine like
+    every other artifact type.
+    """
 
     serializer_class = ArchitectureElementSerializer
     preset_endpoint_key = ""
+    workflow_item_type = "ArchitectureElement"
 
     def _svc(self) -> ArchitectureService:
         return ArchitectureService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        item = self._svc().get_architecture_element(UUID(pk), ctx)
+        # ArchitectureElement is scoped via its artifact (no local workspace_id).
+        return item.id, item.artifact.workspace_id
+
+    def _serialize_after_transition(self, item_id: UUID, ctx: Any) -> dict:
+        updated = self._svc().get_architecture_element(item_id, ctx)
+        return {
+            "architecture_element": ArchitectureElementSerializer(
+                _arch_to_dict(updated)
+            ).data
+        }
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)

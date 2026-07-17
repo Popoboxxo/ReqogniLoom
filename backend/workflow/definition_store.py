@@ -237,6 +237,47 @@ def _need_transitions() -> list[dict[str, Any]]:
     ]
 
 
+def _architecture_transitions() -> list[dict[str, Any]]:
+    # REQ-171: ArchitectureElement has no denormalized ``status`` mirror column
+    # (it is not wired into _STATUS_MIRROR_MODELS, so the mirror write is a
+    # silent no-op); the workflow state lives solely in WorkflowItemState. State
+    # names use a lowercase lifecycle (draft -> in_review -> approved ->
+    # deprecated), mirroring the StakeholderNeed lifecycle since an architecture
+    # element follows the same design/review/approve/retire path. "draft" is the
+    # initial_state; review rejection routes back to "draft" (no dedicated
+    # "rejected" state).
+    return [
+        {
+            "from_state": "draft",
+            "to_state": "in_review",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_review",
+            "to_state": "approved",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_review",
+            "to_state": "draft",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "approved",
+            "to_state": "deprecated",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
 def _adr_transitions() -> list[dict[str, Any]]:
     # State values match application.models.Adr.Status.
     return [
@@ -510,6 +551,12 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "testcase_default": {
         "states": ["Draft", "Ready", "Approved", "Deprecated"],
         "transitions": _testcase_transitions(),
+    },
+    # REQ-171: ArchitectureElement default workflow (no status mirror; state
+    # lives in WorkflowItemState only). "draft" is the initial_state.
+    "architecture_default": {
+        "states": ["draft", "in_review", "approved", "deprecated"],
+        "transitions": _architecture_transitions(),
     },
 }
 

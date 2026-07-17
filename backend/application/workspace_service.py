@@ -64,6 +64,8 @@ _WORKFLOW_ENTITY_TYPES: tuple[tuple[str, str], ...] = (
     ("Issue", "issue_default"),
     ("TestCase", "testcase_default"),
     ("ChangeRequest", "ccb_approval"),
+    # REQ-171: ArchitectureElement lifecycle (draft/in_review/approved/deprecated).
+    ("ArchitectureElement", "architecture_default"),
 )
 
 # Sentinel distinguishing "field omitted" from an explicit ``None`` in PATCH.
