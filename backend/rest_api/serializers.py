@@ -837,6 +837,20 @@ class TestRunResultBulkSerializer(serializers.Serializer):
     results = TestRunResultSerializer(many=True)
 
 
+class NormalizedChoiceField(serializers.ChoiceField):
+    """ChoiceField that normalizes input string to Title-Case before validation.
+
+    Allows API clients to send "open", "OPEN", or "Open" — all normalize to "Open"
+    (or the appropriate Title-Case variant) before choice validation.
+    """
+
+    def to_internal_value(self, data):
+        """Normalize string input to Title-Case before validating against choices."""
+        if isinstance(data, str):
+            data = data.title()
+        return super().to_internal_value(data)
+
+
 class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for Issue entity (REQ-L1-029, COMP-AS-015)."""
 
@@ -852,7 +866,7 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="defect",
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
-    status = serializers.ChoiceField(
+    status = NormalizedChoiceField(
         choices=["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
         default="Open",
         error_messages={

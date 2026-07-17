@@ -244,6 +244,45 @@ class TestIssueSerializerStatusField:
         ser = IssueSerializer(data=data)
         assert ser.is_valid(), ser.errors
 
+    def test_case_insensitive_status_lowercase(self) -> None:
+        """Issue status field accepts lowercase input and normalizes to Title-Case."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test issue",
+            "severity": "high",
+            "category": "defect",
+            "status": "open",
+        }
+        ser = IssueSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+        assert ser.validated_data["status"] == "Open"
+
+    def test_case_insensitive_status_uppercase(self) -> None:
+        """Issue status field accepts uppercase input and normalizes to Title-Case."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test issue",
+            "severity": "high",
+            "category": "defect",
+            "status": "IN PROGRESS",
+        }
+        ser = IssueSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+        assert ser.validated_data["status"] == "In Progress"
+
+    def test_case_insensitive_status_mixed_case(self) -> None:
+        """Issue status field accepts mixed-case input and normalizes to Title-Case."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test issue",
+            "severity": "high",
+            "category": "defect",
+            "status": "wONtFiX",
+        }
+        ser = IssueSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+        assert ser.validated_data["status"] == "Wontfix"
+
 
 # ---------------------------------------------------------------------------
 # TraceLinkSerializer (REQ-L3-RA002-001)
