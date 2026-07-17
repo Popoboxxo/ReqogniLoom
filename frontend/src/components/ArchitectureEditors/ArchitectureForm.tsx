@@ -348,6 +348,39 @@ export function ArchitectureForm({
         />
       )}
 
+      {/* Primary actions live at the top for consistency across all artifact
+          forms (P1-f). */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 'var(--space-3)',
+          marginBottom: 'var(--space-4)',
+        }}
+      >
+        <button
+          data-testid="arch-save-btn"
+          className="btn-primary"
+          onClick={() => void handleSave()}
+          disabled={isSaving}
+        >
+          {isSaving ? t('actions.saving') : t('actions.save')}
+        </button>
+        <button
+          data-testid="arch-delete-btn"
+          className="btn-danger"
+          onClick={() => setShowDeleteDialog(true)}
+        >
+          {t('actions.delete')}
+        </button>
+        <button
+          data-testid="arch-view-diff-btn"
+          className={showDiff ? 'btn-primary' : 'btn-secondary'}
+          onClick={() => setShowDiff(!showDiff)}
+        >
+          {showDiff ? t('editor.hideDiff') : t('editor.viewDiff')}
+        </button>
+      </div>
+
       {/* Header with UID and Version (read-only) */}
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <div
@@ -603,38 +636,6 @@ export function ArchitectureForm({
           {saveError}
         </p>
       )}
-
-      {/* Action buttons */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 'var(--space-3)',
-          marginTop: 'var(--space-4)',
-        }}
-      >
-        <button
-          data-testid="arch-save-btn"
-          className="btn-primary"
-          onClick={() => void handleSave()}
-          disabled={isSaving}
-        >
-          {isSaving ? t('actions.saving') : t('actions.save')}
-        </button>
-        <button
-          data-testid="arch-delete-btn"
-          className="btn-danger"
-          onClick={() => setShowDeleteDialog(true)}
-        >
-          {t('actions.delete')}
-        </button>
-        <button
-          data-testid="arch-view-diff-btn"
-          className={showDiff ? 'btn-primary' : 'btn-secondary'}
-          onClick={() => setShowDiff(!showDiff)}
-        >
-          {showDiff ? t('editor.hideDiff') : t('editor.viewDiff')}
-        </button>
-      </div>
 
       {/* Artifact Diff View */}
       {showDiff && (
