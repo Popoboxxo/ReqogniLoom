@@ -4,19 +4,27 @@
  * leaf_id: COMP-RF-002 (DashboardViews)
  * req_id:  REQ-L3-RF002-001 (Workspace-Kartenliste mit Metriken),
  *          REQ-L2-RF-002 (Dashboard),
- *          REQ-L2-RF-012 (Workspace-Konfigurations-UI)
+ *          REQ-L2-RF-012 (Workspace-Konfigurations-UI),
+ *          REQ-119 (React-Query-Migration der letzten use*Data-Hooks)
  *
  * Loads the workspace list from WorkspaceContext (sourced from
  * GET /api/v1/workspaces/) and augments each workspace with
  * requirement counts via GET /api/v1/requirements/?workspace_id=...
  *
+ * Uses TanStack Query with the same `requirementKeys.list(workspaceId)`
+ * cache key that useCreateRequirement/useUpdateRequirement/
+ * useDeleteRequirement (queries/requirements.ts) invalidate on success.
+ * That makes the dashboard metrics re-fetch automatically whenever a
+ * requirement is created, updated, or deleted — no manual refresh needed.
+ *
  * If no workspaces are available the hook returns an empty list.
  */
 
-import { useState, useEffect } from "react";
+import { useQueries } from "@tanstack/react-query";
 import type { Workspace, WorkspaceWithMetrics } from "../../types";
 import { requirementsApi } from "../../api/requirements";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { requirementKeys } from "../../queries/requirements";
 
 export interface DashboardData {
   workspaces: WorkspaceWithMetrics[];
@@ -26,76 +34,48 @@ export interface DashboardData {
 
 export function useDashboardData(): DashboardData {
   const { workspaces, activeWorkspace, isLoadingWorkspace } = useWorkspace();
-  const [data, setData] = useState<DashboardData>({
-    workspaces: [],
-    isLoading: true,
-    error: null,
+
+  // Use real workspaces when available, otherwise fall back to the
+  // single activeWorkspace (legacy / offline mode).
+  const source: Workspace[] =
+    workspaces.length > 0
+      ? workspaces
+      : activeWorkspace
+      ? [activeWorkspace]
+      : [];
+
+  const requirementQueries = useQueries({
+    queries: source.map((ws) => ({
+      queryKey: requirementKeys.list(ws.id),
+      queryFn: () => requirementsApi.listAll(ws.id),
+      enabled: !isLoadingWorkspace,
+    })),
   });
 
-  useEffect(() => {
-    if (isLoadingWorkspace) {
-      setData((prev) => ({ ...prev, isLoading: true }));
-      return;
-    }
+  if (isLoadingWorkspace) {
+    return { workspaces: [], isLoading: true, error: null };
+  }
 
-    // Use real workspaces when available, otherwise fall back to the
-    // single activeWorkspace (legacy / offline mode).
-    const source: Workspace[] =
-      workspaces.length > 0
-        ? workspaces
-        : activeWorkspace
-        ? [activeWorkspace]
-        : [];
+  if (source.length === 0) {
+    return { workspaces: [], isLoading: false, error: null };
+  }
 
-    if (source.length === 0) {
-      setData({ workspaces: [], isLoading: false, error: null });
-      return;
-    }
+  const isLoading = requirementQueries.some((q) => q.isLoading);
 
-    let cancelled = false;
+  if (isLoading) {
+    return { workspaces: [], isLoading: true, error: null };
+  }
 
-    async function load(): Promise<void> {
-      try {
-        const enriched = await Promise.all(
-          source.map(async (ws): Promise<WorkspaceWithMetrics> => {
-            try {
-              const reqResp = await requirementsApi.list(ws.id);
-              const openItemCount = reqResp.results.filter(
-                (r) => r.status === "draft"
-              ).length;
-              return {
-                ...ws,
-                requirement_count: reqResp.count,
-                open_item_count: openItemCount,
-              };
-            } catch {
-              // Per-workspace failure → zero metrics, don't break the dashboard
-              return {
-                ...ws,
-                requirement_count: 0,
-                open_item_count: 0,
-              };
-            }
-          })
-        );
-
-        if (cancelled) return;
-        setData({ workspaces: enriched, isLoading: false, error: null });
-      } catch (err: unknown) {
-        if (cancelled) return;
-        const msg =
-          (err as { error?: { message?: string } })?.error?.message ??
-          String(err);
-        setData({ workspaces: [], isLoading: false, error: msg });
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
+  const enriched: WorkspaceWithMetrics[] = source.map((ws, index) => {
+    const query = requirementQueries[index];
+    // Per-workspace failure → zero metrics, don't break the whole dashboard.
+    const requirements = query.isError ? [] : query.data ?? [];
+    return {
+      ...ws,
+      requirement_count: requirements.length,
+      open_item_count: requirements.filter((r) => r.status === "draft").length,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaces, activeWorkspace, isLoadingWorkspace]);
+  });
 
-  return data;
+  return { workspaces: enriched, isLoading, error: null };
 }
