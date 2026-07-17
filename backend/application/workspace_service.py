@@ -239,6 +239,12 @@ class WorkspaceService(ServiceBase):
             old_to_new_artifact[a.id] = new_a
 
         # Fix parent FKs on Artifacts
+        # TODO (hierarchy consolidation): Artifact.parent is deprecated in
+        # favor of 'derives-from' TraceLinks; this loop preserves whatever
+        # parent data exists (mostly NULL — see persistence/models.py
+        # Artifact.parent docstring) for backward compatibility with
+        # ArtifactService-created hierarchies. TraceLinks are copied
+        # separately below and are the primary hierarchy carrier.
         for a in artifacts:
             if a.parent_id:
                 new_a = old_to_new_artifact[a.id]

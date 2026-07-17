@@ -727,6 +727,14 @@ class ReqifImportService(ServiceBase):
         error) is elided: its children attach to the nearest ancestor that
         *was* imported (mirrors the exporter's inverse "nearest exported
         ancestor" collapsing).
+
+        TODO (hierarchy consolidation): Artifact.parent is deprecated
+        project-wide in favor of 'derives-from' TraceLinks (see
+        persistence/models.py Artifact.parent docstring). ReqIF SPEC-HIERARCHY
+        is a positional tree structure external to this project, so this
+        remains the pragmatic 1:1 mapping target for the export/import
+        roundtrip (REQ-146/REQ-147); revisit if/when TraceLinks become the
+        canonical roundtrip representation too.
         """
 
         def walk(nodes: Optional[List[Any]], parent_artifact: Optional[Any]) -> None:

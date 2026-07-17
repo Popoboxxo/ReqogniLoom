@@ -479,6 +479,20 @@ class Artifact(TenantScopedModel):
     Self-referential ``parent`` FK forms the decomposition tree. ``on_delete=
     CASCADE`` deletes children with their parent (REQ-L2-PL-009). The BTree index
     on ``parent`` backs recursive-CTE tree queries (REQ-L3-PL005-001).
+
+    Deprecated hierarchy mechanism (REQ-L1-030 / REQ-L2-TE-020 direction):
+    domain services (RequirementService, StakeholderNeedService, AdrService,
+    ...) create their backing Artifact rows without populating ``parent`` and
+    express hierarchy exclusively through 'derives-from' / 'parent-child'
+    TraceLinks instead (see traceability/types.py LinkType). ``parent`` is
+    still writable via the generic ArtifactService and read by a handful of
+    call sites (see TODOs at those sites), which makes it a second,
+    inconsistently-populated hierarchy mechanism alongside TraceLinks. The
+    single source of truth for artifact hierarchy going forward is the
+    'derives-from' TraceLink graph. This field is not removed here (would
+    require a migration / behavior change for existing callers) — new code
+    should not rely on it and existing call sites should migrate to
+    TraceLink-based hierarchy queries.
     """
 
     parent = models.ForeignKey(
@@ -487,6 +501,13 @@ class Artifact(TenantScopedModel):
         null=True,
         blank=True,
         related_name="children",
+        help_text=(
+            "Deprecated: use 'derives-from' TraceLink for hierarchy instead. "
+            "Populated only via the generic ArtifactService write path; "
+            "RequirementService/StakeholderNeedService/AdrService/... leave "
+            "this NULL and rely on TraceLinks. Kept for backward "
+            "compatibility only — do not add new dependencies on it."
+        ),
     )
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="artifacts"

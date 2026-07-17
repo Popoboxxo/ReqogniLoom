@@ -2517,6 +2517,10 @@ def _artifact_to_dict(art: Any) -> dict[str, Any]:
         "id": str(art.id),
         "workspace_id": str(art.workspace_id) if hasattr(art, "workspace_id") else None,
         "artifact_type": getattr(art, "artifact_type", ""),
+        # TODO (hierarchy consolidation): Artifact.parent is deprecated —
+        # domain services (Requirement/StakeholderNeed/Adr/...) leave it
+        # NULL and express hierarchy via 'derives-from' TraceLinks instead
+        # (see persistence/models.py Artifact.parent docstring).
         "parent_id": str(art.parent_id) if getattr(art, "parent_id", None) else None,
         "custom_fields": getattr(art, "custom_fields", None) or {},
         "version": art.version,

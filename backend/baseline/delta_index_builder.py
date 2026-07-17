@@ -169,6 +169,14 @@ class ScopeResolver:
         """Artifact + all descendants (recursive CTE) + TraceLinks in scope.
 
         REQ-L2-BL-001: document scope includes A + all children + TraceLinks.
+
+        TODO (hierarchy consolidation): descendant resolution below walks
+        pl_artifact.parent_id, which is deprecated and left NULL by
+        RequirementService/StakeholderNeedService/AdrService/... (they rely
+        on 'derives-from' TraceLinks instead — see persistence/models.py
+        Artifact.parent docstring). For document roots created by those
+        services this CTE will not find any descendants. Revisit: resolve
+        descendants via TraceLinkService for those artifact types.
         """
         from django.db import connection
 
