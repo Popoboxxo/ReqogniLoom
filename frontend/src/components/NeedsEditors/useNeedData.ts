@@ -28,7 +28,7 @@ export interface NeedData {
 }
 
 export function useNeedData(selectedId?: string): NeedData {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
@@ -36,7 +36,7 @@ export function useNeedData(selectedId?: string): NeedData {
     queryKey: needKeys.list(workspaceId ?? ""),
     queryFn: async () =>
       (await stakeholderNeedApi.listByWorkspace(workspaceId as string)).results ?? [],
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
   const detailQuery = useQuery({
@@ -59,7 +59,7 @@ export function useNeedData(selectedId?: string): NeedData {
   return {
     needs: listQuery.data ?? [],
     need: selectedId ? detailQuery.data ?? null : null,
-    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    isLoading: isLoadingWorkspace || listQuery.isLoading || detailQuery.isLoading,
     error: rawError ? asError(rawError) : null,
     refresh,
   };

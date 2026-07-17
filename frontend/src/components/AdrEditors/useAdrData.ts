@@ -29,14 +29,14 @@ export interface AdrData {
 }
 
 export function useAdrData(selectedId?: string): AdrData {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
     queryKey: adrKeys.list(workspaceId ?? ""),
     queryFn: async () => (await adrsApi.list(workspaceId as string)).results ?? [],
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
   const detailQuery = useQuery({
@@ -59,7 +59,7 @@ export function useAdrData(selectedId?: string): AdrData {
   return {
     items: listQuery.data ?? [],
     item: selectedId ? detailQuery.data ?? null : null,
-    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    isLoading: isLoadingWorkspace || listQuery.isLoading || detailQuery.isLoading,
     error: rawError ? asError(rawError) : null,
     refresh,
   };

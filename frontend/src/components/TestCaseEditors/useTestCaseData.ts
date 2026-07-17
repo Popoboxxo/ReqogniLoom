@@ -3,14 +3,14 @@ import { testcasesApi, type TestCase } from '../../api/testcases';
 import { useWorkspace } from '../../context/WorkspaceContext';
 
 export function useTestCaseData(selectedId?: string) {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const [items, setItems] = useState<TestCase[]>([]);
   const [item, setItem] = useState<TestCase | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   const loadList = useCallback(async () => {
-    if (!activeWorkspace) return;
+    if (!activeWorkspace || isLoadingWorkspace) return;
     setIsLoading(true);
     try {
       const resp = await testcasesApi.list(activeWorkspace.id);
@@ -20,7 +20,7 @@ export function useTestCaseData(selectedId?: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspace]);
+  }, [activeWorkspace, isLoadingWorkspace]);
 
   const loadDetail = useCallback(async () => {
     if (!selectedId) { setItem(null); return; }

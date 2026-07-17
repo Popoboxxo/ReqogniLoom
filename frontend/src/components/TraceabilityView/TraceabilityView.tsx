@@ -103,7 +103,7 @@ function orderedGroupKeys(grouped: Record<string, TraceLink[]>): string[] {
 
 export default function TraceabilityView(): JSX.Element {
   const { t } = useTranslation();
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const [state, setState] = useState<TraceabilityState>(INITIAL_STATE);
   // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
   const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
@@ -119,7 +119,7 @@ export default function TraceabilityView(): JSX.Element {
   const [impactRan, setImpactRan] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!activeWorkspace) {
+    if (!activeWorkspace || isLoadingWorkspace) {
       setState({
         links: [],
         titles: {},
@@ -135,7 +135,7 @@ export default function TraceabilityView(): JSX.Element {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     async function load(): Promise<void> {
-      if (!activeWorkspace) return;
+      if (!activeWorkspace || isLoadingWorkspace) return;
       try {
         // Load links, requirements, architecture elements, test cases and
         // artifacts in parallel.
@@ -244,7 +244,7 @@ export default function TraceabilityView(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspace, t, reloadKey]);
+  }, [activeWorkspace, isLoadingWorkspace, t, reloadKey]);
 
   const grouped = useMemo(() => groupByLinkType(state.links), [state.links]);
   const groupKeys = useMemo(() => orderedGroupKeys(grouped), [grouped]);

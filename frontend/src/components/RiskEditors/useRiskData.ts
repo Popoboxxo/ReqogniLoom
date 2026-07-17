@@ -28,14 +28,14 @@ export interface RiskData {
 }
 
 export function useRiskData(selectedId?: string): RiskData {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
     queryKey: riskKeys.list(workspaceId ?? ""),
     queryFn: async () => (await risksApi.list(workspaceId as string)).results ?? [],
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
   const detailQuery = useQuery({
@@ -58,7 +58,7 @@ export function useRiskData(selectedId?: string): RiskData {
   return {
     items: listQuery.data ?? [],
     item: selectedId ? detailQuery.data ?? null : null,
-    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    isLoading: isLoadingWorkspace || listQuery.isLoading || detailQuery.isLoading,
     error: rawError ? asError(rawError) : null,
     refresh,
   };

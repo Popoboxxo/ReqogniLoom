@@ -28,14 +28,14 @@ export interface IssueData {
 }
 
 export function useIssueData(selectedId?: string): IssueData {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
     queryKey: issueKeys.list(workspaceId ?? ""),
     queryFn: async () => (await issuesApi.list(workspaceId as string)).results ?? [],
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
   const detailQuery = useQuery({
@@ -58,7 +58,7 @@ export function useIssueData(selectedId?: string): IssueData {
   return {
     items: listQuery.data ?? [],
     item: selectedId ? detailQuery.data ?? null : null,
-    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    isLoading: isLoadingWorkspace || listQuery.isLoading || detailQuery.isLoading,
     error: rawError ? asError(rawError) : null,
     refresh,
   };

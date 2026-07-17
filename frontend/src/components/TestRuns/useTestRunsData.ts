@@ -60,14 +60,14 @@ export function useTestRunsData(
   selectedId: string | null,
   createFormOpen: boolean,
 ): TestRunsData {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
     queryKey: testRunKeys.list(workspaceId ?? ""),
     queryFn: async () => (await testRunsApi.list(workspaceId as string)).results,
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
   const detailQuery = useQuery({
@@ -81,7 +81,7 @@ export function useTestRunsData(
     queryKey: testRunKeys.testCaseOptions(workspaceId ?? ""),
     queryFn: async () =>
       (await testcasesApi.list(workspaceId as string)).results,
-    enabled: !!workspaceId && createFormOpen,
+    enabled: !!workspaceId && !isLoadingWorkspace && createFormOpen,
   });
 
   const createMutation = useMutation({
@@ -106,7 +106,7 @@ export function useTestRunsData(
   return {
     items: listQuery.data ?? [],
     // Loading until the workspace is known and the list has resolved.
-    isLoading: !workspaceId || listQuery.isLoading,
+    isLoading: isLoadingWorkspace || !workspaceId || listQuery.isLoading,
     loadError: listQuery.error
       ? apiErrorMessage(listQuery.error)
       : detailQuery.error
