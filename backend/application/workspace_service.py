@@ -42,6 +42,7 @@ from presets.models import (
     TERMINOLOGY_CHOICES,
     WorkspacePresetConfig,
 )
+from workflow.services import create_default_workflow
 
 from application.base import NotFoundError, PermissionDeniedError, ServiceBase, ValidationError
 
@@ -146,6 +147,21 @@ class WorkspaceService(ServiceBase):
             terminology_profile=terminology_profile,
         )
 
+        # Provision the preset-default Requirement workflow definition so
+        # transitions are available immediately (fixes "no transitions
+        # available" bug — without this, Requirement.status stays stuck at
+        # "draft" forever because no WorkflowEngineDefinition exists to
+        # initialize a WorkflowItemState against). tenant_id is passed
+        # explicitly: WorkflowEngineDefinition.objects.get_or_create() runs
+        # on the QuerySet, not the TenantManager, so the manager's
+        # tenant-auto-inject on create() is bypassed and must be supplied.
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset=preset,
+            item_type="Requirement",
+            tenant_id=ctx.tenant_id,
+        )
+
         self._audit(
             ctx=ctx,
             operation="create",
@@ -196,6 +212,16 @@ class WorkspaceService(ServiceBase):
             workspace=target,
             active_tier=active_tier,
             terminology_profile=terminology,
+        )
+
+        # Provision the preset-default Requirement workflow definition on the
+        # cloned target workspace (same gap as create_workspace — without it
+        # transitions are unavailable for every requirement in the clone).
+        create_default_workflow(
+            workspace_id=target.id,
+            preset=active_tier,
+            item_type="Requirement",
+            tenant_id=ctx.tenant_id,
         )
 
         # 2. Deep copy artifacts

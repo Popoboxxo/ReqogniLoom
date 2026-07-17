@@ -20,6 +20,7 @@ import pytest
 from django.db.utils import InternalError
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
+from application.requirement_service import RequirementService
 from application.workspace_service import WorkspaceService
 from persistence.models import (
     ArchitectureElement,
@@ -33,6 +34,8 @@ from persistence.models import (
     Workspace,
 )
 from baseline.models import BaselineSnapshot
+from workflow.models import WorkflowEngineDefinition
+from workflow.services import get_available_transitions
 
 pytestmark = pytest.mark.django_db
 
@@ -422,3 +425,82 @@ class TestCloneWorkspaceHierarchy:
         # No cloned element dangles to a source-workspace element.
         assert new_p.parent_id not in old_ids
         assert new_c.parent_id not in old_ids
+
+
+# ---------------------------------------------------------------------------
+# Codeberg #29 — workspace create/clone must provision a Requirement
+# WorkflowEngineDefinition, otherwise the transitions dropdown is always
+# empty ("No transitions available") and every Requirement is stuck in
+# "draft" forever.
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceProvisionsWorkflowDefinition:
+    """Bugfix: create_workspace / clone_workspace must provision a default
+    Requirement WorkflowEngineDefinition so transitions are available."""
+
+    def test_create_workspace_provisions_requirement_workflow_definition(self):
+        """WorkspaceService.create_workspace creates a WorkflowEngineDefinition
+        for item_type='Requirement' using the workspace's preset."""
+        tenant, user = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+
+        svc = WorkspaceService()
+        with patch("application.workspace_service.ServiceBase._audit"):
+            workspace = svc.create_workspace(ctx, name="New WS", preset="standard")
+
+        definition = WorkflowEngineDefinition.objects.filter(
+            workspace_id=workspace.id, item_type="Requirement"
+        ).first()
+        assert definition is not None
+        assert definition.preset == "standard"
+        assert definition.is_custom is False
+
+    def test_create_workspace_requirement_has_available_transitions(self):
+        """End-to-end symptom check: a Requirement created right after
+        workspace creation must have non-empty available transitions
+        (regression test for 'No transitions available' bug, Codeberg #29)."""
+        tenant, user = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+
+        ws_svc = WorkspaceService()
+        with patch("application.workspace_service.ServiceBase._audit"):
+            workspace = ws_svc.create_workspace(ctx, name="New WS 2", preset="standard")
+
+        req_svc = RequirementService()
+        with patch("application.requirement_service.ServiceBase._audit"), patch(
+            "application.requirement_service.ServiceBase._emit_event"
+        ), patch.object(req_svc, "_generate_and_store_embedding"):
+            requirement = req_svc.create_requirement(
+                workspace_id=workspace.id,
+                title="Test Requirement",
+                ctx=ctx,
+            )
+
+        available = get_available_transitions(
+            item_id=requirement.id,
+            item_type="Requirement",
+            workspace_id=workspace.id,
+        )
+        assert available.current_state == "draft"
+        assert len(available.transitions) > 0
+        assert any(t.from_state == "draft" for t in available.transitions)
+
+    def test_clone_workspace_provisions_requirement_workflow_definition(self):
+        """WorkspaceService.clone_workspace creates a WorkflowEngineDefinition
+        on the cloned target workspace as well (same gap as create_workspace)."""
+        tenant, user = _create_tenant_and_user()
+        source = _create_workspace(tenant, name="Source WS Workflow")
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+
+        svc = WorkspaceService()
+        with patch("application.workspace_service.ServiceBase._audit"):
+            target = svc.clone_workspace(ctx, source.id, "Cloned WS Workflow")
+
+        definition = WorkflowEngineDefinition.objects.filter(
+            workspace_id=target.id, item_type="Requirement"
+        ).first()
+        assert definition is not None
+        # source has no WorkspacePresetConfig -> clone_workspace defaults
+        # active_tier to "standard".
+        assert definition.preset == "standard"
