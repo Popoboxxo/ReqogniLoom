@@ -131,6 +131,7 @@ class TestCreateChangeRequest:
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.initialize_workflow_states", return_value=[]),
         ):
             mock_objects.create.return_value = cr
             result = svc.create_change_request(
@@ -172,6 +173,7 @@ class TestCreateChangeRequest:
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.initialize_workflow_states", return_value=[]),
         ):
             mock_objects.create.return_value = cr
             svc.create_change_request(workspace_id=WS_ID, title="Valid Title", ctx=ctx)
@@ -190,6 +192,7 @@ class TestCreateChangeRequest:
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event") as mock_emit,
+            patch("workflow.services.initialize_workflow_states", return_value=[]),
         ):
             mock_objects.create.return_value = cr
             svc.create_change_request(workspace_id=WS_ID, title="Valid Title", ctx=ctx)
@@ -456,6 +459,66 @@ class TestTransitionStatus:
             )
 
         assert cr.change_reason == "Does not meet safety requirements"
+
+    def test_transition_rejected_by_workflow_validation_raises_and_leaves_status(self):
+        """WorkflowFacade.transition ValidationError must propagate, not be
+        swallowed — the CR status must NOT change when the CCB gate rejects
+        the transition (REQ-157 regression test)."""
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        cr = _make_cr(status="draft")
+        cr.save = MagicMock()
+        cr.refresh_from_db = MagicMock()
+
+        with (
+            patch.object(svc, "_set_tenant_context"),
+            patch.object(svc, "_assert_write_permission"),
+            patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch(
+                "application.workflow_facade.WorkflowFacade.transition",
+                side_effect=ValidationError("change_reason is required by the workspace preset"),
+            ),
+        ):
+            mock_objects.filter.return_value.first.return_value = cr
+            with pytest.raises(ValidationError):
+                svc.transition_status(
+                    cr_id=CR_ID,
+                    target_status="submitted",
+                    ctx=ctx,
+                )
+
+        assert cr.status == "draft"
+        cr.save.assert_not_called()
+
+    def test_transition_rejected_by_workflow_permission_raises_and_leaves_status(self):
+        """WorkflowFacade.transition PermissionDeniedError must propagate,
+        not be swallowed — the CR status must NOT change when the requesting
+        role is not permitted for this transition (REQ-157 regression test)."""
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        cr = _make_cr(status="under_review")
+        cr.save = MagicMock()
+        cr.refresh_from_db = MagicMock()
+
+        with (
+            patch.object(svc, "_set_tenant_context"),
+            patch.object(svc, "_assert_write_permission"),
+            patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+            patch(
+                "application.workflow_facade.WorkflowFacade.transition",
+                side_effect=PermissionDeniedError("role not permitted for 'approved'"),
+            ),
+        ):
+            mock_objects.filter.return_value.first.return_value = cr
+            with pytest.raises(PermissionDeniedError):
+                svc.transition_status(
+                    cr_id=CR_ID,
+                    target_status="approved",
+                    ctx=ctx,
+                )
+
+        assert cr.status == "under_review"
+        cr.save.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

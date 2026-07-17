@@ -173,8 +173,15 @@ class ChangeRequestService(ServiceBase):
         )
 
         # Initialize workflow state via WorkflowEngine (ccb_approval preset).
+        # Only a missing/unconfigured workflow definition is tolerated here —
+        # any other failure (e.g. a real DB error) must propagate and roll
+        # back the whole create_change_request transaction.
         try:
-            from workflow.services import initialize_workflow_states
+            from workflow.services import (
+                WorkflowDefinitionError,
+                WorkflowStateError,
+                initialize_workflow_states,
+            )
 
             initialize_workflow_states(
                 item_ids=[cr.id],
@@ -182,9 +189,15 @@ class ChangeRequestService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:
+        except ImportError:
             logger.debug(
-                "ChangeRequestService: workflow init skipped for cr=%s", cr.id
+                "ChangeRequestService: WorkflowEngine unavailable, "
+                "workflow init skipped for cr=%s", cr.id
+            )
+        except (WorkflowDefinitionError, WorkflowStateError):
+            logger.debug(
+                "ChangeRequestService: no WorkflowDefinition configured, "
+                "workflow init skipped for cr=%s", cr.id
             )
 
         self._audit(
@@ -397,21 +410,36 @@ class ChangeRequestService(ServiceBase):
         ChangeRequestValidator.validate_status(target_status)
 
         # Delegate to WorkflowFacade (IF-AS-INT-003) with ccb_approval preset.
+        # Only a missing/unconfigured workflow (no WorkflowDefinition for this
+        # workspace+item_type, or no WorkflowItemState yet for this item) is
+        # tolerated as a fallback to a direct status update. ValidationError,
+        # PermissionDeniedError, WorkflowTransitionError and
+        # WorkflowConflictError from the CCB gate are NOT caught here — they
+        # must propagate to the caller and abort this atomic transaction
+        # without touching cr.status.
         try:
             from application.workflow_facade import WorkflowFacade
+            from workflow.services import WorkflowDefinitionError, WorkflowStateError
 
             wf = WorkflowFacade()
             wf.transition(
                 item_id=cr_id,
                 item_type="ChangeRequest",
                 target_state=target_status,
+                workspace_id=cr.workspace_id,
                 ctx=ctx,
                 change_reason=change_reason,
             )
-        except Exception:
+        except ImportError:
             logger.debug(
-                "ChangeRequestService.transition_status: WorkflowFacade transition "
-                "skipped for cr=%s, applying direct status update",
+                "ChangeRequestService.transition_status: WorkflowEngine "
+                "unavailable for cr=%s, applying direct status update",
+                cr_id,
+            )
+        except (WorkflowDefinitionError, WorkflowStateError):
+            logger.debug(
+                "ChangeRequestService.transition_status: no WorkflowEngine "
+                "configuration for cr=%s, applying direct status update",
                 cr_id,
             )
 
