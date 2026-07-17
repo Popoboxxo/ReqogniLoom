@@ -37,6 +37,11 @@ import type {
 
 // (Style helpers and dialog moved to ArchitectureForm component)
 
+// REQ-175: ArchitectureElement.lifecycle_status values (see types/index.ts).
+// 'deleted' is intentionally omitted — deleted elements are hidden in
+// normal views (REQ-006).
+const ARCH_LIFECYCLE_STATUSES = ['active', 'outdated', 'deprecated'] as const;
+
 // ---------------------------------------------------------------------------
 // ArchitectureEditors — main view with SplitView integration
 // ---------------------------------------------------------------------------
@@ -78,6 +83,9 @@ export default function ArchitectureEditors(): JSX.Element {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [listSearch, setListSearch] = useState('');
+  // REQ-175: lifecycle-status filter. ArchitectureElement has no denormalized
+  // workflow status, so we filter on the available lifecycle_status field.
+  const [statusFilter, setStatusFilter] = useState('');
 
   // Delete-confirmation target from list context menu
   const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
@@ -161,13 +169,18 @@ export default function ArchitectureEditors(): JSX.Element {
   // Filter elements by search and convert to WorkspaceTreeNode[] (REQ-003).
   // Must be declared before any early return for stable hook order.
   const filteredElements = useMemo(() => {
-    if (!listSearch.trim()) return elements;
     const q = listSearch.trim().toLowerCase();
-    return elements.filter((el) =>
-      el.title.toLowerCase().includes(q) ||
-      (el.uid && el.uid.toLowerCase().includes(q))
-    );
-  }, [elements, listSearch]);
+    return elements.filter((el) => {
+      if (statusFilter && (el.lifecycle_status ?? 'active') !== statusFilter) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        el.title.toLowerCase().includes(q) ||
+        Boolean(el.uid && el.uid.toLowerCase().includes(q))
+      );
+    });
+  }, [elements, listSearch, statusFilter]);
 
   const archTreeNodes = useMemo((): WorkspaceTreeNode[] =>
     filteredElements.map((el) => ({
@@ -286,6 +299,35 @@ export default function ArchitectureEditors(): JSX.Element {
             boxSizing: "border-box",
           }}
         />
+
+        {/* REQ-175: lifecycle-status filter */}
+        <label htmlFor="arch-status-filter" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
+          {t('editor.allStatuses', 'All Statuses')}
+        </label>
+        <select
+          id="arch-status-filter"
+          data-testid="arch-status-filter"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          style={{
+            width: "100%",
+            marginTop: "var(--space-2)",
+            padding: "var(--space-2) var(--space-3)",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-border)",
+            fontSize: "var(--font-size-sm)",
+            background: "var(--color-surface)",
+            color: "var(--color-text)",
+            boxSizing: "border-box",
+          }}
+        >
+          <option value="">{t('editor.allStatuses', 'All Statuses')}</option>
+          {ARCH_LIFECYCLE_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {t(`arch.lifecycleStatus.${s}`, s)}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Inline create form */}

@@ -194,6 +194,11 @@
   },
   "arch": {
     "deriveRequirement": "Anforderung ableiten",
+    "lifecycleStatus": {
+      "active": "Aktiv",
+      "outdated": "Veraltet",
+      "deprecated": "Abgekündigt"
+    },
     "elementType": "Element-Typ",
     "elementType.component": "Komponente",
     "elementType.interface": "Schnittstelle",
@@ -479,6 +484,13 @@
   "testRuns": {
     "create": "Testlauf erstellen",
     "closeRun": "Testlauf abschließen",
+    "status": {
+      "in_progress": "In Bearbeitung",
+      "passed": "Bestanden",
+      "failed": "Fehlgeschlagen",
+      "partial": "Teilweise",
+      "closed": "Abgeschlossen"
+    },
     "namePlaceholder": "Name des Testlaufs...",
     "empty": "Noch keine Testläufe. Erstellen Sie einen, um zu beginnen.",
     "closeConfirm": "Diesen Testlauf abschließen?",

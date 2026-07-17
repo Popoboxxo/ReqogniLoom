@@ -197,6 +197,11 @@
   },
   "arch": {
     "deriveRequirement": "Derive requirement",
+    "lifecycleStatus": {
+      "active": "Active",
+      "outdated": "Outdated",
+      "deprecated": "Deprecated"
+    },
     "elementType": "Element Type",
     "elementType.component": "Component",
     "elementType.interface": "Interface",
@@ -482,6 +487,13 @@
   "testRuns": {
     "create": "Create Run",
     "closeRun": "Close Test Run",
+    "status": {
+      "in_progress": "In Progress",
+      "passed": "Passed",
+      "failed": "Failed",
+      "partial": "Partial",
+      "closed": "Closed"
+    },
     "namePlaceholder": "Run name...",
     "empty": "No test runs yet. Create one to get started.",
     "closeConfirm": "Close this test run?",
