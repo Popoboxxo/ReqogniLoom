@@ -647,95 +647,118 @@ export function SidebarNavigation(): JSX.Element {
             {t("workspaceCreate.button")}
           </button>
 
-          {/* Dropdown */}
-          {isSwitcherOpen && workspaces.length > 0 && (
-            <ul
-              data-testid="workspace-list"
-              role="listbox"
-              aria-label="Workspace switcher"
-              style={{
-                position: "absolute",
-                bottom: "calc(100% + var(--space-2))",
-                left: "var(--space-2)",
-                right: "var(--space-2)",
-                listStyle: "none",
-                margin: 0,
-                padding: "var(--space-1)",
-                background: SIDEBAR_BG,
-                border: `1px solid ${SIDEBAR_BORDER}`,
-                borderRadius: "var(--radius-md)",
-                boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-                maxHeight: "240px",
-                overflowY: "auto",
-                zIndex: 100,
-              }}
-            >
-              {workspaces.map((ws) => {
-                const isActive = ws.id === activeWorkspace.id;
-                const isHovered = hoveredOptionId === ws.id;
-                return (
-                  <li key={ws.id}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      data-testid="workspace-switcher-option"
-                      onClick={() => {
-                        setActiveWorkspace(ws);
-                        setIsSwitcherOpen(false);
-                      }}
-                      onMouseEnter={() => setHoveredOptionId(ws.id)}
-                      onMouseLeave={() => setHoveredOptionId(null)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "var(--space-2)",
-                        width: "100%",
-                        padding: "var(--space-2) var(--space-3)",
-                        borderRadius: "var(--radius-sm)",
-                        border: "none",
-                        background: isActive
-                          ? ACTIVE_BG
-                          : isHovered
-                          ? HOVER_BG
-                          : "transparent",
-                        color: SIDEBAR_TEXT,
-                        fontSize: "var(--font-size-sm)",
-                        fontWeight: isActive ? 600 : 500,
-                        fontFamily: "inherit",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        transition: "var(--transition-fast)",
-                      }}
-                    >
-                      <span
-                        style={{
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          flex: 1,
+          {/* Dropdown — show empty state if no other workspaces available */}
+          {isSwitcherOpen && (
+            workspaces.length > 0 ? (
+              <ul
+                data-testid="workspace-list"
+                role="listbox"
+                aria-label="Workspace switcher"
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + var(--space-2))",
+                  left: "var(--space-2)",
+                  right: "var(--space-2)",
+                  listStyle: "none",
+                  margin: 0,
+                  padding: "var(--space-1)",
+                  background: SIDEBAR_BG,
+                  border: `1px solid ${SIDEBAR_BORDER}`,
+                  borderRadius: "var(--radius-md)",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                  maxHeight: "240px",
+                  overflowY: "auto",
+                  zIndex: 100,
+                }}
+              >
+                {workspaces.map((ws) => {
+                  const isActive = ws.id === activeWorkspace.id;
+                  const isHovered = hoveredOptionId === ws.id;
+                  return (
+                    <li key={ws.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={isActive}
+                        data-testid="workspace-switcher-option"
+                        onClick={() => {
+                          setActiveWorkspace(ws);
+                          setIsSwitcherOpen(false);
                         }}
-                        title={ws.name}
+                        onMouseEnter={() => setHoveredOptionId(ws.id)}
+                        onMouseLeave={() => setHoveredOptionId(null)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "var(--space-2)",
+                          width: "100%",
+                          padding: "var(--space-2) var(--space-3)",
+                          borderRadius: "var(--radius-sm)",
+                          border: "none",
+                          background: isActive
+                            ? ACTIVE_BG
+                            : isHovered
+                            ? HOVER_BG
+                            : "transparent",
+                          color: SIDEBAR_TEXT,
+                          fontSize: "var(--font-size-sm)",
+                          fontWeight: isActive ? 600 : 500,
+                          fontFamily: "inherit",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          transition: "var(--transition-fast)",
+                        }}
                       >
-                        {ws.name}
-                      </span>
-                      {isActive && (
                         <span
-                          aria-hidden="true"
                           style={{
-                            color: "var(--color-primary)",
-                            fontSize: "0.8rem",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            flex: 1,
                           }}
+                          title={ws.name}
                         >
-                          ✓
+                          {ws.name}
                         </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                        {isActive && (
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              color: "var(--color-primary)",
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div
+                data-testid="workspace-empty-state"
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + var(--space-2))",
+                  left: "var(--space-2)",
+                  right: "var(--space-2)",
+                  padding: "var(--space-2) var(--space-3)",
+                  background: SIDEBAR_BG,
+                  border: `1px solid ${SIDEBAR_BORDER}`,
+                  borderRadius: "var(--radius-md)",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                  zIndex: 100,
+                  color: SIDEBAR_TEXT_MUTED,
+                  fontSize: "var(--font-size-sm)",
+                  textAlign: "center",
+                }}
+              >
+                {t("workspace.noOthers", "No other workspaces available")}
+              </div>
+            )
           )}
         </div>
       )}
