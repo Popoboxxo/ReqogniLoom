@@ -303,6 +303,12 @@ npm run mcp:playwright       # starte Playwright MCP Server für LLM-Agenten
 
 **Status:** Playwright Setup & MCP integriert.
 
+> **Known gap:** E2E tests always run against a fixed `localhost` URL with a
+> fresh login per test, so they can't catch bugs caused by a stale browser
+> tab, a changed LAN IP (DHCP drift), or a tab left open across a backend
+> restart. See [`e2e/TESTING.md`](e2e/TESTING.md#known-gap-stale-host--session-drift)
+> for the symptom pattern and how to tell it apart from a real auth bug.
+
 ### Manual MCP Test (curl)
 
 Verify the MCP server responds correctly to tool calls:
