@@ -10,7 +10,7 @@
  * title resolution).
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
@@ -37,6 +37,15 @@ export interface TestCase {
 export const testcasesApi = {
   list(workspaceId: UUID): Promise<PaginatedResponse<TestCase>> {
     return getList<TestCase>("/testcases/", { workspace_id: workspaceId });
+  },
+
+  /**
+   * Fetch all TestCases for a workspace, following pagination links until
+   * exhaustion (issue C — list() only returned the first page, capped at
+   * PAGE_SIZE=25).
+   */
+  async listAll(workspaceId: UUID): Promise<TestCase[]> {
+    return getAllPages<TestCase>("/testcases/", { workspace_id: workspaceId });
   },
 
   get(id: UUID): Promise<TestCase> {

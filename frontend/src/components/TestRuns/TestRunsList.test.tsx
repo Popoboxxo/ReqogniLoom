@@ -72,17 +72,13 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     vi.mocked(workspaceContext.useWorkspace).mockReturnValue({
       activeWorkspace: mockWorkspace,
     } as any);
-    vi.mocked(testRunsModule.testRunsApi.list).mockResolvedValue({
-      results: mockTestRuns,
-    } as any);
+    vi.mocked(testRunsModule.testRunsApi.listAll).mockResolvedValue(mockTestRuns as any);
     // Detail panel now loads per-run results (C5) — default to an empty
     // list so tests that don't care about results don't have to mock it.
     vi.mocked(testRunsModule.testRunsApi.listResults).mockResolvedValue([]);
     // Create form now loads assignable test cases (C4) — default to an
     // empty list for tests that don't exercise the selection UI.
-    vi.mocked(testcasesModule.testcasesApi.list).mockResolvedValue({
-      results: [],
-    } as any);
+    vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue([] as any);
   });
 
   it("loads the test run list on mount", async () => {
@@ -91,7 +87,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
     });
-    expect(testRunsModule.testRunsApi.list).toHaveBeenCalledWith("ws-123");
+    expect(testRunsModule.testRunsApi.listAll).toHaveBeenCalledWith("ws-123");
     expect(screen.getByText("Sprint 1 QA Run")).toBeInTheDocument();
     expect(screen.getByText("Smoke test run")).toBeInTheDocument();
   });
@@ -107,9 +103,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
   });
 
   it("shows empty state when no test runs exist", async () => {
-    vi.mocked(testRunsModule.testRunsApi.list).mockResolvedValue({
-      results: [],
-    } as any);
+    vi.mocked(testRunsModule.testRunsApi.listAll).mockResolvedValue([] as any);
 
     renderList();
 
@@ -174,7 +168,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
 
     await waitFor(() => {
       // initial load + refresh after create
-      expect(testRunsModule.testRunsApi.list).toHaveBeenCalledTimes(2);
+      expect(testRunsModule.testRunsApi.listAll).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -362,9 +356,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     ];
 
     it("loads and lists assignable test cases when the create form opens", async () => {
-      vi.mocked(testcasesModule.testcasesApi.list).mockResolvedValue({
-        results: testCases,
-      } as any);
+      vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue(testCases as any);
       const user = userEvent.setup();
       renderList();
 
@@ -374,7 +366,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
       await user.click(screen.getByTestId("testrun-create-btn"));
 
       await waitFor(() => {
-        expect(testcasesModule.testcasesApi.list).toHaveBeenCalledWith(
+        expect(testcasesModule.testcasesApi.listAll).toHaveBeenCalledWith(
           "ws-123"
         );
         expect(
@@ -386,9 +378,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     });
 
     it("sends the selected test_case_ids when creating a run", async () => {
-      vi.mocked(testcasesModule.testcasesApi.list).mockResolvedValue({
-        results: testCases,
-      } as any);
+      vi.mocked(testcasesModule.testcasesApi.listAll).mockResolvedValue(testCases as any);
       vi.mocked(testRunsModule.testRunsApi.create).mockResolvedValue({
         id: "tr-3",
       } as any);

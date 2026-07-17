@@ -71,7 +71,7 @@ describe("useIssueData (REQ-049)", () => {
   });
 
   it("[REQ-049] returns isLoading=true initially while list query is in-flight", () => {
-    vi.mocked(issuesModule.issuesApi.list).mockReturnValue(new Promise(() => {}));
+    vi.mocked(issuesModule.issuesApi.listAll).mockReturnValue(new Promise(() => {}));
 
     const { result } = renderHook(() => useIssueData(), { wrapper: createWrapper() });
 
@@ -80,10 +80,7 @@ describe("useIssueData (REQ-049)", () => {
   });
 
   it("[REQ-049] populates items after list query resolves", async () => {
-    vi.mocked(issuesModule.issuesApi.list).mockResolvedValue({
-      results: [MOCK_ISSUE],
-      count: 1,
-    } as any);
+    vi.mocked(issuesModule.issuesApi.listAll).mockResolvedValue([MOCK_ISSUE] as any);
 
     const { result } = renderHook(() => useIssueData(), { wrapper: createWrapper() });
 
@@ -96,10 +93,7 @@ describe("useIssueData (REQ-049)", () => {
   });
 
   it("[REQ-049] populates item after detail query resolves when selectedId is provided", async () => {
-    vi.mocked(issuesModule.issuesApi.list).mockResolvedValue({
-      results: [MOCK_ISSUE],
-      count: 1,
-    } as any);
+    vi.mocked(issuesModule.issuesApi.listAll).mockResolvedValue([MOCK_ISSUE] as any);
     vi.mocked(issuesModule.issuesApi.get).mockResolvedValue(MOCK_ISSUE as any);
 
     const { result } = renderHook(() => useIssueData("issue-001"), { wrapper: createWrapper() });
@@ -110,7 +104,7 @@ describe("useIssueData (REQ-049)", () => {
   });
 
   it("[REQ-049] surfaces list error via error property", async () => {
-    vi.mocked(issuesModule.issuesApi.list).mockRejectedValue(
+    vi.mocked(issuesModule.issuesApi.listAll).mockRejectedValue(
       { error: { message: "server error: database unavailable" } }
     );
 

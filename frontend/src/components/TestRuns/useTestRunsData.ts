@@ -60,14 +60,19 @@ export function useTestRunsData(
   selectedId: string | null,
   createFormOpen: boolean,
 ): TestRunsData {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
     queryKey: testRunKeys.list(workspaceId ?? ""),
-    queryFn: async () => (await testRunsApi.list(workspaceId as string)).results,
-    enabled: !!workspaceId,
+    // Issue C: list() only returned page 1 (PAGE_SIZE=25) — listAll()
+    // follows pagination until exhaustion.
+    queryFn: async () => testRunsApi.listAll(workspaceId as string),
+    // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
+    // (truthy fake UUID), so !!workspaceId alone fires this query before the
+    // real workspace has loaded, hitting the backend with a bogus id (401).
+    enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
   const detailQuery = useQuery({
@@ -79,9 +84,8 @@ export function useTestRunsData(
   // Assignable test cases are only needed while the create form is open (C4).
   const optionsQuery = useQuery({
     queryKey: testRunKeys.testCaseOptions(workspaceId ?? ""),
-    queryFn: async () =>
-      (await testcasesApi.list(workspaceId as string)).results,
-    enabled: !!workspaceId && createFormOpen,
+    queryFn: async () => testcasesApi.listAll(workspaceId as string),
+    enabled: !!workspaceId && !isLoadingWorkspace && createFormOpen,
   });
 
   const createMutation = useMutation({
@@ -106,7 +110,7 @@ export function useTestRunsData(
   return {
     items: listQuery.data ?? [],
     // Loading until the workspace is known and the list has resolved.
-    isLoading: !workspaceId || listQuery.isLoading,
+    isLoading: isLoadingWorkspace || !workspaceId || listQuery.isLoading,
     loadError: listQuery.error
       ? apiErrorMessage(listQuery.error)
       : detailQuery.error

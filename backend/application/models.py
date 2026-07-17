@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import uuid
 
+from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -56,6 +58,9 @@ class DomainEventOutbox(models.Model):
         ISSUE_CREATED = "IssueCreated"
         ISSUE_UPDATED = "IssueUpdated"
         ISSUE_DELETED = "IssueDeleted"
+        CHANGE_REQUEST_CREATED = "ChangeRequestCreated"
+        CHANGE_REQUEST_UPDATED = "ChangeRequestUpdated"
+        CHANGE_REQUEST_DELETED = "ChangeRequestDeleted"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
@@ -291,6 +296,23 @@ class Risk(models.Model):
     _IMPACT_NUMERIC = {"low": 1, "medium": 2, "high": 3}
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # REQ-L2-TE-020: OneToOne backing Artifact so Risks participate in the
+    # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
+    # Adr.artifact — nullable to keep the schema migration additive and
+    # backward-compatible with Risk rows created before this field existed.
+    # New Risks always receive an Artifact via RiskService.create_risk.
+    # on_delete=CASCADE means deleting the backing Artifact also deletes the
+    # Risk (mirrors Requirement/ArchitectureElement/Adr). This replaces the
+    # former UUID-identity hack (Artifact.id == Risk.id) which had no
+    # referential integrity.
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="risk",
+        null=True,
+        blank=True,
+        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+    )
     workspace_id = models.UUIDField(db_index=True)
     tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=255)
@@ -310,6 +332,28 @@ class Risk(models.Model):
         max_length=16, choices=Severity.choices, default=Severity.LOW
     )
     owner = models.CharField(max_length=255, blank=True)
+    # REQ-L1-029 (FMEA): proper User FK for risk assignment. Kept alongside the
+    # legacy `owner` CharField (not a replacement) so existing rows and callers
+    # relying on the free-text owner keep working — Expand phase of an
+    # expand/contract migration. Nullable because existing Risk rows have no
+    # user assigned; on_delete=SET_NULL preserves the Risk if the user is
+    # deleted.
+    owner_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="owned_risks",
+        help_text="REQ-L1-029: assigned risk owner (User FK).",
+    )
+    # REQ-L1-029 (FMEA): detectability score (1=easy to detect .. 10=impossible)
+    # feeding the Risk Priority Number. default=5 keeps the migration backward
+    # safe — existing rows receive a neutral mid-scale value.
+    detection = models.PositiveSmallIntegerField(
+        default=5,
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        help_text="REQ-L1-029: FMEA detection score (1=easy .. 10=impossible).",
+    )
     mitigation_strategy = models.TextField(blank=True)
     uid = models.CharField(
         max_length=64,
@@ -340,6 +384,20 @@ class Risk(models.Model):
         p = self._PROB_NUMERIC.get(self.probability, 1)
         i = self._IMPACT_NUMERIC.get(self.impact, 1)
         return p * i
+
+    @property
+    def rpn(self) -> int:
+        """Risk Priority Number (FMEA) = probability × impact × detection.
+
+        probability and impact are categorical TextChoices (low/medium/high),
+        so they are mapped to their 1–3 numeric values via the same lookup
+        tables compute_score() uses — multiplying the raw string labels would
+        fail. detection is already a 1–10 integer. Computed, not persisted;
+        needs no migration.
+        """
+        p = self._PROB_NUMERIC.get(self.probability, 1)
+        i = self._IMPACT_NUMERIC.get(self.impact, 1)
+        return p * i * (self.detection or 5)
 
     @staticmethod
     def score_to_severity(score: int) -> str:
@@ -384,6 +442,23 @@ class Issue(models.Model):
         WONTFIX = "Wontfix"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # REQ-L2-TE-020: OneToOne backing Artifact so Issues participate in the
+    # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
+    # Adr.artifact — nullable to keep the schema migration additive and
+    # backward-compatible with Issue rows created before this field existed.
+    # New Issues always receive an Artifact via IssueService.create_issue.
+    # on_delete=CASCADE means deleting the backing Artifact also deletes the
+    # Issue (mirrors Requirement/ArchitectureElement/Adr). This replaces the
+    # former UUID-identity hack (Artifact.id == Issue.id) which had no
+    # referential integrity.
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="issue",
+        null=True,
+        blank=True,
+        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+    )
     workspace_id = models.UUIDField(db_index=True)
     tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=255)
@@ -430,6 +505,72 @@ class Issue(models.Model):
         return f"Issue:{self.id}:{self.title[:40]}"
 
 
+class ChangeRequest(models.Model):
+    """Change Request entity — CCB approval workflow (REQ-157).
+
+    Tracks proposed changes through a formal Configuration Control Board (CCB)
+    approval process. Reuses the WorkflowEngine (ccb_approval preset) for
+    state machine transitions with role checks and change_reason enforcement.
+
+    Status lifecycle: draft → submitted → under_review → approved|rejected → implemented
+
+    leaf_id : COMP-AS-021
+    req_id  : REQ-157
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SUBMITTED = "submitted", "Submitted"
+        UNDER_REVIEW = "under_review", "Under Review"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        IMPLEMENTED = "implemented", "Implemented"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace_id = models.UUIDField(db_index=True)
+    tenant_id = models.UUIDField(db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    impact_assessment = models.TextField(
+        blank=True,
+        help_text="Assessment of the impact this change will have on the system.",
+    )
+    change_reason = models.TextField(
+        blank=True,
+        help_text="Reason for the change request (required for submit and reject transitions).",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    requestor_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="UUID of the user who created this change request.",
+    )
+    assigned_reviewer_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="UUID of the user assigned as CCB reviewer.",
+    )
+    version = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_change_request"
+        indexes = [
+            models.Index(fields=["workspace_id", "status"], name="idx_cr_ws_status"),
+            models.Index(fields=["tenant_id", "workspace_id"], name="idx_cr_tenant_ws"),
+            models.Index(fields=["workspace_id", "requestor_id"], name="idx_cr_ws_requestor"),
+        ]
+
+    def __str__(self) -> str:
+        return f"CR:{self.id}:{self.title[:40]}"
+
+
 __all__ = [
     "DomainEventOutbox",
     "DomainEventDLQ",
@@ -438,4 +579,5 @@ __all__ = [
     "Adr",
     "Risk",
     "Issue",
+    "ChangeRequest",
 ]

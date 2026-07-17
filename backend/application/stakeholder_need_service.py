@@ -51,6 +51,11 @@ class StakeholderNeedDTO:
             id=need.id,
             workspace_id=need.artifact.workspace_id,
             artifact_id=need.artifact_id,  # REQ-001: expose FK for diff/versions lookup
+            # TODO (hierarchy consolidation): Artifact.parent is deprecated —
+            # StakeholderNeedService never populates it, so this is always
+            # None in practice. Hierarchy is expressed via 'derives-from'
+            # TraceLinks; prefer TraceLinkService for consumers that need
+            # need-to-need parentage.
             parent_id=need.artifact.parent_id,
             title=need.title,
             description=need.description,

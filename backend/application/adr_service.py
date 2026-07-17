@@ -32,6 +32,7 @@ from persistence.transactions import atomic_transaction
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.models import Adr, DomainEventOutbox
+from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
 
@@ -394,6 +395,7 @@ class AdrService(ServiceBase):
         target_status: str,
         ctx: AuthContext,
         change_reason: Optional[str] = None,
+        superseded_by_id: Optional[UUID] = None,
     ) -> Adr:
         """Transition an ADR's workflow status (REQ-L3-ADR-004).
 
@@ -405,6 +407,11 @@ class AdrService(ServiceBase):
             target_status: Target status from Adr.Status choices.
             ctx: Resolved AuthContext.
             change_reason: Optional reason for audit.
+            superseded_by_id: UUID of the successor ADR. Only meaningful when
+                target_status is Adr.Status.SUPERSEDED (REQ-L3-ADR-005); a
+                'decides' TraceLink is created from the successor ADR to this
+                ADR so the TraceLink graph records which decision replaced it.
+                Ignored for all other target statuses.
 
         Returns:
             Updated Adr ORM instance.
@@ -447,6 +454,18 @@ class AdrService(ServiceBase):
         Adr.objects.filter(id=adr.id).update(version=F("version") + 1)
         adr.refresh_from_db(fields=["version"])
 
+        # REQ-L3-ADR-005: when an ADR is superseded, record which ADR replaced
+        # it via a 'decides' TraceLink (new -> old). 'supersedes' is not a
+        # member of VALID_LINK_TYPES; 'decides' is the closest semantic match
+        # already used for ADR decision links (REQ-L2-TE-020).
+        if target_status == Adr.Status.SUPERSEDED and superseded_by_id is not None:
+            self._trace_link_service.create_trace_link(
+                source_id=superseded_by_id,
+                target_id=adr_id,
+                link_type=LinkType.DECIDES.value,
+                ctx=ctx,
+            )
+
         self._audit(
             ctx=ctx,
             operation="transition",
@@ -466,6 +485,12 @@ class AdrService(ServiceBase):
     # ADR_LINK_TYPES helper was dead code: its link types ("addresses",
     # "supersedes", "related-to") were never members of VALID_LINK_TYPES, so
     # every call failed downstream.
+    #
+    # ADR-to-ADR supersession links (REQ-L3-ADR-005) are created in
+    # transition_status() above when target_status=SUPERSEDED and a
+    # superseded_by_id is supplied — also via the 'decides' link type
+    # (source=successor ADR, target=superseded ADR), since 'supersedes' is
+    # not a member of VALID_LINK_TYPES either.
 
 
 __all__ = [

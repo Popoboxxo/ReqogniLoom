@@ -20,6 +20,13 @@ Architecture:
 ADR-L3-AS001-01: DFS cycle detection before persist.
 ADR-L3-AS001-02: Recursive CTE for tree query (no N+1).
 ADR-L3-AS001-03: Cascade-delete via TraceLinkService.
+
+TODO (hierarchy consolidation): Artifact.parent (persistence/models.py) is
+deprecated in favor of 'derives-from' TraceLinks as the single source of
+truth for hierarchy. RequirementService/StakeholderNeedService/AdrService/...
+never populate it. This service's parent-based cycle detection / tree query
+still work but operate on a parallel, generally-unpopulated mechanism —
+callers should prefer TraceLinkService for hierarchy going forward.
 """
 from __future__ import annotations
 

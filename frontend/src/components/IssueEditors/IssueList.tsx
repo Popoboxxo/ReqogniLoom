@@ -154,7 +154,7 @@ export function IssueList({
                 fontSize: 'var(--font-size-sm)', cursor: 'pointer',
               }}
             >
-              {t('cancel', 'Cancel')}
+              {t('actions.cancel')}
             </button>
             <button
               data-testid="issue-new-save-btn"
@@ -166,7 +166,7 @@ export function IssueList({
                 fontSize: 'var(--font-size-sm)', cursor: 'pointer',
               }}
             >
-              {t('create', 'Create')}
+              {t('actions.create')}
             </button>
           </div>
         </form>

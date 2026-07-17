@@ -105,6 +105,21 @@ class RequirementType(models.TextChoices):
     FEATUREREQ = "FeatureReq", "Feature Requirement"
 
 
+class RequirementLevel(models.IntegerChoices):
+    """V-model requirement hierarchy level (K3).
+
+    Makes the L0-L4 traceability hierarchy an explicit, queryable field instead
+    of a naming convention only. NULL means the level has not been assigned yet;
+    it must be set deliberately going forward (no backfill for existing rows).
+    """
+
+    L0_SYSTEM = 0, "L0 System"
+    L1_SUBSYSTEM = 1, "L1 Subsystem"
+    L2_COMPONENT = 2, "L2 Component"
+    L3_PART = 3, "L3 Part"
+    L4_MATERIAL = 4, "L4 Material"
+
+
 class MoSCoWPriority(models.TextChoices):
     """MoSCoW prioritization framework.
 
@@ -142,6 +157,24 @@ class VerificationMethod(models.TextChoices):
     REVIEW = "Review", "Review"
     ANALYSIS = "Analysis", "Analysis"
     INSPECTION = "Inspection", "Inspection"
+    DEMONSTRATION = "Demonstration", "Demonstration"
+
+
+class TestCaseType(models.TextChoices):
+    """Test case type (B6a).
+
+    Promotes the test type from an ``artifact_type`` string prefix
+    (e.g. "TestCase:System") to a first-class field. The artifact_type prefix
+    approach is deprecated for test typing going forward. NULL means the type
+    is unknown / not derivable from the legacy prefix.
+    """
+
+    SYSTEM = "system", "System"
+    INTEGRATION = "integration", "Integration"
+    UNIT = "unit", "Unit"
+    INSPECTION = "inspection", "Inspection"
+    ANALYSIS = "analysis", "Analysis"
+    DEMONSTRATION = "demonstration", "Demonstration"
 
 
 class ASILLevel(models.TextChoices):
@@ -479,6 +512,20 @@ class Artifact(TenantScopedModel):
     Self-referential ``parent`` FK forms the decomposition tree. ``on_delete=
     CASCADE`` deletes children with their parent (REQ-L2-PL-009). The BTree index
     on ``parent`` backs recursive-CTE tree queries (REQ-L3-PL005-001).
+
+    Deprecated hierarchy mechanism (REQ-L1-030 / REQ-L2-TE-020 direction):
+    domain services (RequirementService, StakeholderNeedService, AdrService,
+    ...) create their backing Artifact rows without populating ``parent`` and
+    express hierarchy exclusively through 'derives-from' / 'parent-child'
+    TraceLinks instead (see traceability/types.py LinkType). ``parent`` is
+    still writable via the generic ArtifactService and read by a handful of
+    call sites (see TODOs at those sites), which makes it a second,
+    inconsistently-populated hierarchy mechanism alongside TraceLinks. The
+    single source of truth for artifact hierarchy going forward is the
+    'derives-from' TraceLink graph. This field is not removed here (would
+    require a migration / behavior change for existing callers) — new code
+    should not rely on it and existing call sites should migrate to
+    TraceLink-based hierarchy queries.
     """
 
     parent = models.ForeignKey(
@@ -487,6 +534,13 @@ class Artifact(TenantScopedModel):
         null=True,
         blank=True,
         related_name="children",
+        help_text=(
+            "Deprecated: use 'derives-from' TraceLink for hierarchy instead. "
+            "Populated only via the generic ArtifactService write path; "
+            "RequirementService/StakeholderNeedService/AdrService/... leave "
+            "this NULL and rely on TraceLinks. Kept for backward "
+            "compatibility only — do not add new dependencies on it."
+        ),
     )
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="artifacts"
@@ -598,6 +652,15 @@ class Requirement(TenantScopedModel):
         choices=RequirementType.choices,
         default=RequirementType.SYREQ,
         help_text="Requirement classification (SyReq, UseCase, FeatureReq)",
+    )
+    level = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        choices=RequirementLevel.choices,
+        help_text=(
+            "K3: V-model hierarchy level (0=System, 1=Subsystem, 2=Component, "
+            "3=Part, 4=Material). NULL until assigned explicitly."
+        ),
     )
     complexity_fibonacci = models.IntegerField(
         null=True,
@@ -835,6 +898,17 @@ class TestCase(TenantScopedModel):
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     steps = models.JSONField(default=list, blank=True)
+    test_type = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=TestCaseType.choices,
+        help_text=(
+            "B6a: Test type (system/integration/unit/inspection/analysis/"
+            "demonstration). Replaces the deprecated 'TestCase:<Type>' "
+            "artifact_type prefix. NULL when not derivable."
+        ),
+    )
     uid = models.CharField(
         max_length=64,
         null=True,
@@ -1498,6 +1572,7 @@ __all__ = [
     "Artifact",
     "Requirement",
     "RequirementType",
+    "RequirementLevel",
     "MoSCoWPriority",
     "ComplexityFibonacci",
     "VerificationMethod",
@@ -1508,6 +1583,7 @@ __all__ = [
     "AttributeVisibilityConfig",
     "TraceLink",
     "TestCase",
+    "TestCaseType",
     "WorkflowDefinition",
     "WorkflowState",
     "AuditLogEntry",

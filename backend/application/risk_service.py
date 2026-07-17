@@ -174,6 +174,8 @@ class RiskService(ServiceBase):
         mitigation_strategy: str = "",
         status: str = "Identified",
         uid: Optional[str] = None,
+        detection: int = 5,
+        owner_user_id: Optional[UUID] = None,
     ) -> Risk:
         """Create a Risk with automatic score calculation (REQ-L3-RISK-001/002/007).
 
@@ -188,6 +190,10 @@ class RiskService(ServiceBase):
             owner: Optional owner identifier.
             mitigation_strategy: Optional mitigation description.
             status: Initial status (default: Identified).
+            detection: FMEA detection score, 1 (easy) .. 10 (impossible). Default 5
+                (REQ-L1-029).
+            owner_user_id: Optional User FK for structured risk assignment
+                (REQ-L1-029), kept alongside the legacy free-text `owner` field.
 
         Returns:
             Persisted Risk ORM instance.
@@ -202,8 +208,32 @@ class RiskService(ServiceBase):
             category=category,
             status=status,
         )
+        if not 1 <= detection <= 10:
+            raise ValidationError(
+                f"Risk detection '{detection}' invalid; must be between 1 and 10"
+            )
+
+        # REQ-L2-TE-020: create the backing Artifact first so the Risk can
+        # participate in the Artifact-to-Artifact TraceLink graph. Mirrors
+        # AdrService.create_adr. Replaces the former UUID-identity hack.
+        from persistence.models import Artifact, Tenant, Workspace
+
+        tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
+        if tenant is None:
+            raise NotFoundError(f"Tenant {ctx.tenant_id} not found")
+
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="Risk",
+        )
 
         risk = Risk(
+            artifact=artifact,
             workspace_id=workspace_id,
             tenant_id=ctx.tenant_id,
             title=title,
@@ -215,6 +245,8 @@ class RiskService(ServiceBase):
             mitigation_strategy=mitigation_strategy,
             status=status,
             uid=uid,
+            detection=detection,
+            owner_user_id=owner_user_id,
             created_by=str(ctx.user_id),
         )
         # Calculate score before save (ADR-L3-RISK-01)
@@ -260,6 +292,8 @@ class RiskService(ServiceBase):
         owner: Optional[str] = None,
         mitigation_strategy: Optional[str] = None,
         change_reason: Optional[str] = None,
+        detection: Optional[int] = None,
+        owner_user_id: Optional[UUID] = None,
     ) -> Risk:
         """Update a Risk, recomputing score when probability/impact change (REQ-L3-RISK-003).
 
@@ -274,6 +308,9 @@ class RiskService(ServiceBase):
             owner: New owner (optional).
             mitigation_strategy: New mitigation text (optional).
             change_reason: Optional change rationale for audit.
+            detection: New FMEA detection score, 1..10 (optional, REQ-L1-029).
+            owner_user_id: New User FK for structured risk assignment (optional,
+                REQ-L1-029).
 
         Returns:
             Updated Risk ORM instance.
@@ -305,6 +342,14 @@ class RiskService(ServiceBase):
             risk.owner = owner
         if mitigation_strategy is not None:
             risk.mitigation_strategy = mitigation_strategy
+        if detection is not None:
+            if not 1 <= detection <= 10:
+                raise ValidationError(
+                    f"Risk detection '{detection}' invalid; must be between 1 and 10"
+                )
+            risk.detection = detection
+        if owner_user_id is not None:
+            risk.owner_user_id = owner_user_id
 
         # Recompute score whenever probability or impact changed (ADR-L3-RISK-01)
         score = risk.compute_score()

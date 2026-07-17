@@ -308,6 +308,135 @@ class TestUpdateAdr:
 
 
 # ---------------------------------------------------------------------------
+# transition_status — REQ-L3-ADR-005 supersedes TraceLink
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionStatus:
+    def test_supersede_with_successor_creates_decides_tracelink(self):
+        """Transitioning to Superseded with superseded_by_id creates a
+        'decides' TraceLink from the successor ADR to the superseded ADR."""
+        from traceability.types import LinkType
+
+        mock_tls = MagicMock()
+        svc = AdrService(trace_link_service=mock_tls)
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        existing_adr = _make_adr(status="Approved")
+        existing_adr.save = MagicMock()
+        successor_id = uuid.uuid4()
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+            patch("application.adr_service.AdrService._audit"),
+            patch(
+                "application.workflow_facade.WorkflowFacade",
+                side_effect=RuntimeError("workflow engine not configured"),
+            ),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing_adr
+            result = svc.transition_status(
+                adr_id=ADR_ID,
+                target_status=Adr.Status.SUPERSEDED,
+                ctx=ctx,
+                superseded_by_id=successor_id,
+            )
+
+        assert result.status == Adr.Status.SUPERSEDED
+        mock_tls.create_trace_link.assert_called_once_with(
+            source_id=successor_id,
+            target_id=ADR_ID,
+            link_type=LinkType.DECIDES.value,
+            ctx=ctx,
+        )
+
+    def test_supersede_without_successor_does_not_create_tracelink(self):
+        """Transitioning to Superseded without superseded_by_id skips TraceLink creation."""
+        mock_tls = MagicMock()
+        svc = AdrService(trace_link_service=mock_tls)
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        existing_adr = _make_adr(status="Approved")
+        existing_adr.save = MagicMock()
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+            patch("application.adr_service.AdrService._audit"),
+            patch(
+                "application.workflow_facade.WorkflowFacade",
+                side_effect=RuntimeError("workflow engine not configured"),
+            ),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing_adr
+            svc.transition_status(
+                adr_id=ADR_ID, target_status=Adr.Status.SUPERSEDED, ctx=ctx
+            )
+
+        mock_tls.create_trace_link.assert_not_called()
+
+    def test_non_supersede_transition_does_not_create_tracelink(self):
+        """superseded_by_id is ignored when target_status is not Superseded."""
+        mock_tls = MagicMock()
+        svc = AdrService(trace_link_service=mock_tls)
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        existing_adr = _make_adr(status="Draft")
+        existing_adr.save = MagicMock()
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+            patch("application.adr_service.AdrService._audit"),
+            patch(
+                "application.workflow_facade.WorkflowFacade",
+                side_effect=RuntimeError("workflow engine not configured"),
+            ),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing_adr
+            svc.transition_status(
+                adr_id=ADR_ID,
+                target_status=Adr.Status.IN_REVIEW,
+                ctx=ctx,
+                superseded_by_id=uuid.uuid4(),
+            )
+
+        mock_tls.create_trace_link.assert_not_called()
+
+    def test_invalid_target_status_raises(self):
+        svc = AdrService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        existing_adr = _make_adr()
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing_adr
+            with pytest.raises(ValidationError, match="Invalid ADR status"):
+                svc.transition_status(
+                    adr_id=ADR_ID, target_status="NotAStatus", ctx=ctx
+                )
+
+    def test_not_found_raises(self):
+        svc = AdrService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with (
+            patch("application.adr_service.Adr.objects") as mock_mgr,
+            patch("application.adr_service.AdrService._set_tenant_context"),
+            patch("application.adr_service.AdrService._assert_write_permission"),
+        ):
+            mock_mgr.filter.return_value.first.return_value = None
+            with pytest.raises(NotFoundError):
+                svc.transition_status(
+                    adr_id=ADR_ID, target_status=Adr.Status.APPROVED, ctx=ctx
+                )
+
+
+# ---------------------------------------------------------------------------
 # delete_adr
 # ---------------------------------------------------------------------------
 

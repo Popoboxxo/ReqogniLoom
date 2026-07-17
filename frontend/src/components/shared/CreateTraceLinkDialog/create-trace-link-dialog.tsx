@@ -380,13 +380,17 @@ export function CreateTraceLinkDialog({
     if (!workspaceId) return;
     setIsLoadingElements(true);
     try {
+      // Issue C: testcases/adrs/risks/issues used to fetch only page 1
+      // (PAGE_SIZE=25), silently dropping target options past the 25th
+      // item. listAll() follows pagination until exhaustion, matching
+      // requirementsApi/architectureApi above.
       const [reqs, archs, tcs, adrList, riskList, issueList] = await Promise.all([
         requirementsApi.listAll(workspaceId).catch(() => []),
         architectureApi.listAll(workspaceId).catch(() => []),
-        testcasesApi.list(workspaceId).then((r) => r.results).catch(() => []),
-        adrsApi.list(workspaceId).then((r) => r.results).catch(() => []),
-        risksApi.list(workspaceId).then((r) => r.results).catch(() => []),
-        issuesApi.list(workspaceId).then((r) => r.results).catch(() => []),
+        testcasesApi.listAll(workspaceId).catch(() => []),
+        adrsApi.listAll(workspaceId).catch(() => []),
+        risksApi.listAll(workspaceId).catch(() => []),
+        issuesApi.listAll(workspaceId).catch(() => []),
       ]);
 
       const all: TargetElement[] = [

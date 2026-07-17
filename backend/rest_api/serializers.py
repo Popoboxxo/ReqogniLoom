@@ -777,6 +777,9 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["low", "medium", "high"], default="medium"
     )
     risk_score = serializers.IntegerField(read_only=True)
+    # REQ-L1-029 (FMEA): Risk Priority Number = probability * impact * detection.
+    # Computed property on the model, never persisted.
+    rpn = serializers.IntegerField(read_only=True)
     severity = serializers.ChoiceField(
         choices=["low", "medium", "high"], default="medium"
     )
@@ -785,6 +788,12 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="technical",
     )
     owner = serializers.CharField(allow_blank=True, default="")
+    # REQ-L1-029 (FMEA): structured User FK for risk assignment, kept alongside
+    # the legacy free-text `owner` field.
+    owner_user_id = serializers.UUIDField(allow_null=True, required=False)
+    owner_user_display = serializers.CharField(read_only=True, allow_null=True)
+    # REQ-L1-029 (FMEA): detectability score (1=easy .. 10=impossible).
+    detection = serializers.IntegerField(min_value=1, max_value=10, default=5)
     mitigation_strategy = serializers.CharField(allow_blank=True, default="")
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.ChoiceField(
@@ -837,6 +846,20 @@ class TestRunResultBulkSerializer(serializers.Serializer):
     results = TestRunResultSerializer(many=True)
 
 
+class NormalizedChoiceField(serializers.ChoiceField):
+    """ChoiceField that normalizes input string to Title-Case before validation.
+
+    Allows API clients to send "open", "OPEN", or "Open" — all normalize to "Open"
+    (or the appropriate Title-Case variant) before choice validation.
+    """
+
+    def to_internal_value(self, data):
+        """Normalize string input to Title-Case before validating against choices."""
+        if isinstance(data, str):
+            data = data.title()
+        return super().to_internal_value(data)
+
+
 class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     """Serializer for Issue entity (REQ-L1-029, COMP-AS-015)."""
 
@@ -852,7 +875,7 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="defect",
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
-    status = serializers.ChoiceField(
+    status = NormalizedChoiceField(
         choices=["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
         default="Open",
         error_messages={
@@ -864,6 +887,69 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     )
     tags = serializers.JSONField(required=False, default=list)
     version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class ChangeRequestSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for ChangeRequest entity (REQ-157, COMP-AS-017).
+
+    Covers the full CCB approval lifecycle:
+    draft → submitted → under_review → approved|rejected → implemented
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(allow_blank=True, default="", max_length=20000)
+    impact_assessment = serializers.CharField(allow_blank=True, default="")
+    change_reason = serializers.CharField(allow_blank=True, default="")
+    status = serializers.ChoiceField(
+        choices=["draft", "submitted", "under_review", "approved", "rejected", "implemented"],
+        default="draft",
+    )
+    requestor_id = serializers.UUIDField(read_only=True, allow_null=True)
+    assigned_reviewer_id = serializers.UUIDField(
+        allow_null=True, required=False, default=None
+    )
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class IcdParameterSerializer(serializers.Serializer):
+    """Serializer for IcdParameter entity (REQ-L2-ICD-002, COMP-ICD-001).
+
+    Structured, version-specific interface parameter (unit, data type,
+    direction, numeric bounds, tolerance) attached to an IcdVersion.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    icd_version_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(max_length=200)
+    description = serializers.CharField(
+        allow_blank=True, default="", max_length=2000
+    )
+    unit = serializers.CharField(allow_blank=True, default="", max_length=50)
+    data_type = serializers.ChoiceField(
+        choices=["float", "int", "string", "boolean", "enum", "other"],
+        default="other",
+    )
+    direction = serializers.ChoiceField(
+        choices=["input", "output", "bidirectional"],
+        default="input",
+    )
+    min_value = serializers.DecimalField(
+        max_digits=20, decimal_places=6, required=False, allow_null=True, default=None
+    )
+    max_value = serializers.DecimalField(
+        max_digits=20, decimal_places=6, required=False, allow_null=True, default=None
+    )
+    nominal_value = serializers.CharField(
+        allow_blank=True, default="", max_length=200
+    )
+    tolerance = serializers.CharField(allow_blank=True, default="", max_length=100)
+    ordering = serializers.IntegerField(default=0)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 

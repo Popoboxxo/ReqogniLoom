@@ -86,7 +86,7 @@ export function LoginPage(): JSX.Element {
         </div>
         <h2>{t("login.title")}</h2>
         {error && (
-          <p role="alert" style={{ color: "red" }}>
+          <p role="alert" style={{ color: "var(--color-danger)" }}>
             {error}
           </p>
         )}

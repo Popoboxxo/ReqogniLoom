@@ -7,7 +7,7 @@
  * Wraps /api/v1/test-runs/ endpoints.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type { PaginatedResponse, TestRun, TestRunResult, UUID } from "../types";
 
 export const testRunsApi = {
@@ -15,6 +15,15 @@ export const testRunsApi = {
     return getList<TestRun>("/test-runs/", {
       workspace_id: workspaceId,
     });
+  },
+
+  /**
+   * Fetch all Test Runs for a workspace, following pagination links until
+   * exhaustion (issue C — list() only returned the first page, capped at
+   * PAGE_SIZE=25).
+   */
+  async listAll(workspaceId: UUID): Promise<TestRun[]> {
+    return getAllPages<TestRun>("/test-runs/", { workspace_id: workspaceId });
   },
 
   get(id: UUID): Promise<TestRun> {

@@ -28,14 +28,19 @@ export interface RiskData {
 }
 
 export function useRiskData(selectedId?: string): RiskData {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
     queryKey: riskKeys.list(workspaceId ?? ""),
-    queryFn: async () => (await risksApi.list(workspaceId as string)).results ?? [],
-    enabled: !!workspaceId,
+    // Issue C: list() only returned page 1 (PAGE_SIZE=25) — listAll()
+    // follows pagination until exhaustion.
+    queryFn: async () => risksApi.listAll(workspaceId as string),
+    // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
+    // (truthy fake UUID), so !!workspaceId alone fires this query before the
+    // real workspace has loaded, hitting the backend with a bogus id (401).
+    enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
   const detailQuery = useQuery({
@@ -58,7 +63,7 @@ export function useRiskData(selectedId?: string): RiskData {
   return {
     items: listQuery.data ?? [],
     item: selectedId ? detailQuery.data ?? null : null,
-    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    isLoading: isLoadingWorkspace || listQuery.isLoading || detailQuery.isLoading,
     error: rawError ? asError(rawError) : null,
     refresh,
   };

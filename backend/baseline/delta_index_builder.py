@@ -122,6 +122,45 @@ class ScopeResolver:
         ]
         items.extend(glossary_items)
 
+        # REQ-155: TestRun/TestRunResult — include verification evidence in project scope
+        test_run_sql = """
+            SELECT tr.id::text, tr.version
+            FROM pl_test_run tr
+            WHERE tr.workspace_id = %s
+              AND tr.tenant_id = %s
+            ORDER BY tr.id
+        """
+        with connection.cursor() as cur:
+            cur.execute(test_run_sql, [str(workspace_id), str(tenant_id)])
+            test_run_rows = cur.fetchall()
+
+        test_run_items = [
+            DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="test_run")
+            for row in test_run_rows
+        ]
+        items.extend(test_run_items)
+
+        if test_run_items:
+            run_ids = [t.item_id for t in test_run_items]
+            placeholders = ",".join(["%s"] * len(run_ids))
+            test_result_sql = f"""
+                SELECT trr.id::text, trr.version
+                FROM pl_test_run_result trr
+                WHERE trr.test_run_id::text IN ({placeholders})
+                  AND trr.tenant_id = %s
+                ORDER BY trr.id
+            """
+            params = run_ids + [str(tenant_id)]
+            with connection.cursor() as cur:
+                cur.execute(test_result_sql, params)
+                test_result_rows = cur.fetchall()
+
+            test_result_items = [
+                DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="test_run_result")
+                for row in test_result_rows
+            ]
+            items.extend(test_result_items)
+
         return items
 
     def _resolve_global(self, tenant_id: uuid.UUID) -> list[DeltaIndexTuple]:
@@ -158,6 +197,44 @@ class ScopeResolver:
         ]
         items.extend(glossary_items)
 
+        # REQ-155: TestRun/TestRunResult — include verification evidence in global scope
+        test_run_sql = """
+            SELECT tr.id::text, tr.version
+            FROM pl_test_run tr
+            WHERE tr.tenant_id = %s
+            ORDER BY tr.id
+        """
+        with connection.cursor() as cur:
+            cur.execute(test_run_sql, [str(tenant_id)])
+            test_run_rows = cur.fetchall()
+
+        test_run_items = [
+            DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="test_run")
+            for row in test_run_rows
+        ]
+        items.extend(test_run_items)
+
+        if test_run_items:
+            run_ids = [t.item_id for t in test_run_items]
+            placeholders = ",".join(["%s"] * len(run_ids))
+            test_result_sql = f"""
+                SELECT trr.id::text, trr.version
+                FROM pl_test_run_result trr
+                WHERE trr.test_run_id::text IN ({placeholders})
+                  AND trr.tenant_id = %s
+                ORDER BY trr.id
+            """
+            params = run_ids + [str(tenant_id)]
+            with connection.cursor() as cur:
+                cur.execute(test_result_sql, params)
+                test_result_rows = cur.fetchall()
+
+            test_result_items = [
+                DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="test_run_result")
+                for row in test_result_rows
+            ]
+            items.extend(test_result_items)
+
         return items
 
     def _resolve_document(
@@ -169,6 +246,14 @@ class ScopeResolver:
         """Artifact + all descendants (recursive CTE) + TraceLinks in scope.
 
         REQ-L2-BL-001: document scope includes A + all children + TraceLinks.
+
+        TODO (hierarchy consolidation): descendant resolution below walks
+        pl_artifact.parent_id, which is deprecated and left NULL by
+        RequirementService/StakeholderNeedService/AdrService/... (they rely
+        on 'derives-from' TraceLinks instead — see persistence/models.py
+        Artifact.parent docstring). For document roots created by those
+        services this CTE will not find any descendants. Revisit: resolve
+        descendants via TraceLinkService for those artifact types.
         """
         from django.db import connection
 

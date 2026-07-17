@@ -47,9 +47,10 @@ class TestCoverageCalculation:
 
             tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-1")
 
-            # Link first 7 requirements to the test case
+            # Link first 7 requirements to the test case.
+            # SE convention: TestCase is source, Requirement is target.
             for i in range(7):
-                make_trace_link(req_arts[i], tc_art, tenant_a, "verifies")
+                make_trace_link(tc_art, req_arts[i], tenant_a, "verifies")
 
             report = calc.coverage(workspace_a.id)
 
@@ -91,7 +92,7 @@ class TestCoverageCalculation:
 
             tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-1")
             for art in req_arts:
-                make_trace_link(art, tc_art, tenant_a, "verifies")
+                make_trace_link(tc_art, art, tenant_a, "verifies")
 
             report = calc.coverage(workspace_a.id)
 
@@ -109,7 +110,7 @@ class TestCoverageCalculation:
                 req_arts.append(art)
 
             tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-1")
-            make_trace_link(req_arts[0], tc_art, tenant_a, "verifies")
+            make_trace_link(tc_art, req_arts[0], tenant_a, "verifies")
 
             report = calc.coverage(workspace_a.id)
 
@@ -120,7 +121,7 @@ class TestCoverageCalculation:
         with active_tenant(tenant_a):
             art, _ = make_requirement(tenant_a, workspace_a, "R1")
             tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-1")
-            make_trace_link(art, tc_art, tenant_a, "verifies")
+            make_trace_link(tc_art, art, tenant_a, "verifies")
 
             report = calc.coverage(workspace_a.id)
 
@@ -148,8 +149,10 @@ class TestFilteredCoverage:
         """REQ-L2-TE-007: Filtering by link_type='satisfies' only counts those links."""
         with active_tenant(tenant_a):
             art_req, _ = make_requirement(tenant_a, workspace_a, "R-A")
-            art_tgt = make_artifact(tenant_a, workspace_a, "architecture_element")
-            make_trace_link(art_req, art_tgt, tenant_a, "satisfies")
+            art_arch = make_artifact(tenant_a, workspace_a, "architecture_element")
+            # SE convention: ArchitectureElement satisfies Requirement
+            # (arch is source, requirement is target).
+            make_trace_link(art_arch, art_req, tenant_a, "satisfies")
 
             # No verifies links → standard coverage is 0
             standard = calc.coverage(workspace_a.id)
@@ -174,7 +177,7 @@ class TestCoverageIsolation:
         with active_tenant(tenant_a):
             art_req, _ = make_requirement(tenant_a, workspace_a, "R-A")
             tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-A")
-            make_trace_link(art_req, tc_art, tenant_a, "verifies")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
 
         # Tenant-B has no requirements
         with active_tenant(tenant_b):
@@ -211,7 +214,7 @@ class TestGetCoverageData:
         with active_tenant(tenant_a):
             art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
             tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-1")
-            make_trace_link(art_req, tc_art, tenant_a, "verifies")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
 
             data = calc.get_coverage_data(workspace_a.id)
 
@@ -227,3 +230,59 @@ class TestGetCoverageData:
             data = calc.get_coverage_data(workspace_a.id)
 
         assert data.entries == []
+
+    def test_test_case_without_run_defaults_to_not_run(
+        self, calc, tenant_a, workspace_a
+    ):
+        """K4: a TestCase with no recorded run reports 'Not Run'."""
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-1")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
+
+            data = calc.get_coverage_data(workspace_a.id)
+
+        entry = next(e for e in data.entries if e.requirement_id == str(req.id))
+        assert entry.test_cases[0]["result"] == "Not Run"
+
+    def test_test_case_result_reflects_latest_testrun_status(
+        self, calc, tenant_a, workspace_a
+    ):
+        """K4: get_coverage_data wires the latest TestRunResult into the VCRM."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from persistence.models import TestRun, TestRunResult
+
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-1")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
+
+            run = TestRun.objects.create(
+                tenant=tenant_a, workspace=workspace_a, name="Run-1"
+            )
+            # Older failed result ...
+            TestRunResult.objects.create(
+                tenant=tenant_a,
+                test_run=run,
+                test_case=tc,
+                test_case_title="TC-1",
+                status="failed",
+                executed_at=timezone.now() - timedelta(hours=1),
+            )
+            # ... superseded by a newer passed result.
+            TestRunResult.objects.create(
+                tenant=tenant_a,
+                test_run=run,
+                test_case=tc,
+                test_case_title="TC-1",
+                status="passed",
+                executed_at=timezone.now(),
+            )
+
+            data = calc.get_coverage_data(workspace_a.id)
+
+        entry = next(e for e in data.entries if e.requirement_id == str(req.id))
+        assert entry.test_cases[0]["result"] == "Passed"

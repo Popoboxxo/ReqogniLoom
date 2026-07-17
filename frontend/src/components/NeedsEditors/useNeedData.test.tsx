@@ -71,7 +71,7 @@ describe("useNeedData (REQ-049)", () => {
   });
 
   it("[REQ-049] returns isLoading=true initially while list query is in-flight", () => {
-    vi.mocked(needsModule.stakeholderNeedApi.listByWorkspace).mockReturnValue(
+    vi.mocked(needsModule.stakeholderNeedApi.listAll).mockReturnValue(
       new Promise(() => {})
     );
 
@@ -82,10 +82,7 @@ describe("useNeedData (REQ-049)", () => {
   });
 
   it("[REQ-049] populates needs after list query resolves", async () => {
-    vi.mocked(needsModule.stakeholderNeedApi.listByWorkspace).mockResolvedValue({
-      results: [MOCK_NEED],
-      count: 1,
-    } as any);
+    vi.mocked(needsModule.stakeholderNeedApi.listAll).mockResolvedValue([MOCK_NEED] as any);
 
     const { result } = renderHook(() => useNeedData(), { wrapper: createWrapper() });
 
@@ -98,10 +95,7 @@ describe("useNeedData (REQ-049)", () => {
   });
 
   it("[REQ-049] populates need after detail query resolves when selectedId is provided", async () => {
-    vi.mocked(needsModule.stakeholderNeedApi.listByWorkspace).mockResolvedValue({
-      results: [MOCK_NEED],
-      count: 1,
-    } as any);
+    vi.mocked(needsModule.stakeholderNeedApi.listAll).mockResolvedValue([MOCK_NEED] as any);
     vi.mocked(needsModule.stakeholderNeedApi.get).mockResolvedValue(MOCK_NEED as any);
 
     const { result } = renderHook(() => useNeedData("need-001"), { wrapper: createWrapper() });
@@ -112,7 +106,7 @@ describe("useNeedData (REQ-049)", () => {
   });
 
   it("[REQ-049] surfaces list error via error property", async () => {
-    vi.mocked(needsModule.stakeholderNeedApi.listByWorkspace).mockRejectedValue(
+    vi.mocked(needsModule.stakeholderNeedApi.listAll).mockRejectedValue(
       { error: { message: "permission denied for this workspace" } }
     );
 

@@ -28,15 +28,19 @@ export interface NeedData {
 }
 
 export function useNeedData(selectedId?: string): NeedData {
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const listQuery = useQuery({
     queryKey: needKeys.list(workspaceId ?? ""),
-    queryFn: async () =>
-      (await stakeholderNeedApi.listByWorkspace(workspaceId as string)).results ?? [],
-    enabled: !!workspaceId,
+    // Issue C: listByWorkspace() only returned page 1 (PAGE_SIZE=25) —
+    // listAll() follows pagination until exhaustion.
+    queryFn: async () => stakeholderNeedApi.listAll(workspaceId as string),
+    // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
+    // (truthy fake UUID), so !!workspaceId alone fires this query before the
+    // real workspace has loaded, hitting /workspaces/<fake-id>/needs/ (401).
+    enabled: !!workspaceId && !isLoadingWorkspace,
   });
 
   const detailQuery = useQuery({
@@ -59,7 +63,7 @@ export function useNeedData(selectedId?: string): NeedData {
   return {
     needs: listQuery.data ?? [],
     need: selectedId ? detailQuery.data ?? null : null,
-    isLoading: listQuery.isLoading || detailQuery.isLoading,
+    isLoading: isLoadingWorkspace || listQuery.isLoading || detailQuery.isLoading,
     error: rawError ? asError(rawError) : null,
     refresh,
   };

@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { apiClient, getAllPages } from "./client";
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
@@ -10,6 +10,14 @@ export const stakeholderNeedApi = {
   listByWorkspace: async (workspaceId: string, params?: Record<string, string>): Promise<PaginatedResponse<StakeholderNeed>> => {
     const qs = params ? `?${new URLSearchParams(params).toString()}` : '';
     return apiClient.get<PaginatedResponse<StakeholderNeed>>(`/workspaces/${workspaceId}/needs/${qs}`);
+  },
+
+  /**
+   * Fetch all Stakeholder Needs for a workspace, following pagination links
+   * until exhaustion (issue C — listByWorkspace() only returned page 1).
+   */
+  listAll: async (workspaceId: string): Promise<StakeholderNeed[]> => {
+    return getAllPages<StakeholderNeed>(`/workspaces/${workspaceId}/needs/`);
   },
 
   get: async (id: string): Promise<StakeholderNeed> => {

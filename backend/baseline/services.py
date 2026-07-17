@@ -314,6 +314,14 @@ def preview_scope_items(
         """
         id_params = [str(tenant_id)]
     else:  # document
+        # TODO (hierarchy consolidation): this recursive CTE walks
+        # pl_artifact.parent_id, which is deprecated and left NULL by
+        # RequirementService/StakeholderNeedService/AdrService/... (they use
+        # 'derives-from' TraceLinks for hierarchy instead — see
+        # persistence/models.py Artifact.parent docstring). For artifacts
+        # created by those services, "document" scope effectively resolves
+        # to only the root artifact (no descendants found via parent_id).
+        # Revisit: resolve descendants via TraceLinkService instead.
         sql_ids = """
             WITH RECURSIVE descendants AS (
                 SELECT a.id

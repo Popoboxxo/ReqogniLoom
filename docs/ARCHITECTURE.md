@@ -117,3 +117,35 @@ bedeutet: vollständig sauber, muss so bleiben.
 - **Phase 3 (BE-10-Hotspots) — offen:** `RequirementQuerySet.with_artifact()`
   (6× dupliziertes `select_related("artifact").filter`), Entity-Typ-Auflösung
   in `trace_link_service`.
+
+## Follow-up: Functional/Physical Architecture Separation (REQ-155)
+
+**Status:** Proposed — Post-v1 / Follow-up. Zu groß für aktuellen Sprint (L-XL Aufwand).
+
+ReqFlow speichert funktionale Architektur-Elemente (Funktionen, logische Blöcke,
+Verhaltensdekomposition) und physische Architektur-Elemente (Komponenten,
+Hardware-Items, physische Topologie) im gleichen `Artifact`-Typ ohne semantische
+Unterscheidung. In der Systemtechnik sind das getrennte Sichten mit unterschiedlichen
+Trace-Link-Typen ("allocates" von funktional → physisch).
+
+### Technische Schulden
+
+Das aktuelle Datenmodell (`persistence/models.py`) hat keinen
+`architecture_domain`-Differenziator auf Architecture-Artefakten.
+MBSE-Views (`BaselinesView`, `IcdView`) rendern funktionale und physische
+Hierarchien in derselben Ansicht.
+
+### Geplante Maßnahmen (Post-v1)
+
+1. `architecture_domain`-Feld (Choices: `functional` / `physical`) zu
+   Architecture-type Artifacts hinzufügen — additiv, backward-compatible (nullable).
+2. `allocates`-TraceLink-Typ einführen — semantische Verbindung von funktionalen
+   zu physischen Elementen (ergänzt die bestehenden Link-Typen in
+   `persistence/models.py::VALID_LINK_TYPES`).
+3. MBSE-Views aktualisieren: funktionale und physische Hierarchien separat
+   rendern.
+
+### Referenz
+
+- Analyse: principal-developer QA Report 2026-07-17 (Rating M1 — Minor/Future)
+- Anforderung: REQ-155 in `docs/REQUIREMENTS.md`

@@ -38,7 +38,13 @@ from icd.icd_manager import (
     SimilarIcdDTO,
     get_manager,
 )
-from icd.models import Icd, IcdVersion
+from icd.icd_parameter_service import (
+    IcdParameterCreateDTO,
+    IcdParameterNotFoundError,
+    IcdParameterUpdateDTO,
+    get_parameter_service,
+)
+from icd.models import Icd, IcdParameter, IcdVersion
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +255,128 @@ def find_similar_icds(
 
 
 # ---------------------------------------------------------------------------
+# REQ-L2-ICD-002: structured IcdVersion parameters (COMP-ICD-001)
+# ---------------------------------------------------------------------------
+
+
+def create_icd_parameter(
+    payload: IcdParameterCreateDTO, tenant_id: uuid.UUID
+) -> IcdParameter:
+    """Create a structured parameter on an IcdVersion.
+
+    IF-L1-037 (ApplicationService → IcdManagementSystem).
+
+    Args:
+        payload: IcdParameterCreateDTO with all fields for the new parameter.
+        tenant_id: Active tenant primary key (isolation boundary).
+
+    Returns:
+        Persisted IcdParameter instance.
+
+    Raises:
+        ValueError: When the parameter name is blank.
+        IcdVersion.DoesNotExist: When the target IcdVersion is not found.
+
+    req_id: REQ-L2-ICD-002
+    leaf_id: COMP-ICD-001
+    """
+    return get_parameter_service().create_parameter(
+        icd_version_id=payload.icd_version_id,
+        name=payload.name,
+        tenant_id=tenant_id,
+        unit=payload.unit,
+        data_type=payload.data_type,
+        direction=payload.direction,
+        description=payload.description,
+        min_value=payload.min_value,
+        max_value=payload.max_value,
+        nominal_value=payload.nominal_value,
+        tolerance=payload.tolerance,
+        ordering=payload.ordering,
+    )
+
+
+def update_icd_parameter(
+    parameter_id: uuid.UUID,
+    payload: IcdParameterUpdateDTO,
+    tenant_id: uuid.UUID,
+) -> IcdParameter:
+    """Update an existing IcdParameter in place (``None`` fields keep current value).
+
+    IF-L1-037 (ApplicationService → IcdManagementSystem).
+
+    Args:
+        parameter_id: UUID of the IcdParameter to update.
+        payload: IcdParameterUpdateDTO with fields to change.
+        tenant_id: Active tenant primary key (isolation boundary).
+
+    Returns:
+        Updated IcdParameter instance.
+
+    Raises:
+        ValueError: When ``name`` is provided but blank.
+        IcdParameterNotFoundError: When no matching parameter exists.
+
+    req_id: REQ-L2-ICD-002
+    leaf_id: COMP-ICD-001
+    """
+    return get_parameter_service().update_parameter(
+        parameter_id=parameter_id,
+        tenant_id=tenant_id,
+        name=payload.name,
+        unit=payload.unit,
+        data_type=payload.data_type,
+        direction=payload.direction,
+        description=payload.description,
+        min_value=payload.min_value,
+        max_value=payload.max_value,
+        nominal_value=payload.nominal_value,
+        tolerance=payload.tolerance,
+        ordering=payload.ordering,
+    )
+
+
+def delete_icd_parameter(parameter_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    """Delete an IcdParameter.
+
+    IF-L1-037 (ApplicationService → IcdManagementSystem).
+
+    Args:
+        parameter_id: UUID of the IcdParameter to delete.
+        tenant_id: Active tenant primary key (isolation boundary).
+
+    Raises:
+        IcdParameterNotFoundError: When no matching parameter exists.
+
+    req_id: REQ-L2-ICD-002
+    leaf_id: COMP-ICD-001
+    """
+    get_parameter_service().delete_parameter(
+        parameter_id=parameter_id, tenant_id=tenant_id
+    )
+
+
+def list_icd_parameters(icd_version_id: uuid.UUID, tenant_id: uuid.UUID):
+    """Return all IcdParameters for a given IcdVersion (tenant-scoped).
+
+    IF-L1-037 (ApplicationService → IcdManagementSystem).
+
+    Args:
+        icd_version_id: UUID of the target IcdVersion.
+        tenant_id: Active tenant primary key (isolation boundary).
+
+    Returns:
+        QuerySet of IcdParameter ordered by ``ordering`` then ``name``.
+
+    req_id: REQ-L2-ICD-002
+    leaf_id: COMP-ICD-001
+    """
+    return get_parameter_service().list_parameters(
+        icd_version_id=icd_version_id, tenant_id=tenant_id
+    )
+
+
+# ---------------------------------------------------------------------------
 # Re-exports for downstream consumers
 # ---------------------------------------------------------------------------
 
@@ -262,6 +390,11 @@ __all__ = [
     "get_icd_history",
     "get_icd_versions",
     "find_similar_icds",
+    # REQ-L2-ICD-002: IcdParameter CRUD
+    "create_icd_parameter",
+    "update_icd_parameter",
+    "delete_icd_parameter",
+    "list_icd_parameters",
     # DTOs re-exported for caller convenience
     "IcdCreateDTO",
     "IcdUpdateDTO",
@@ -269,6 +402,10 @@ __all__ = [
     "SimilarIcdDTO",
     "IcdPgVectorUnavailableError",
     "ValidationResult",
+    "IcdParameterCreateDTO",
+    "IcdParameterUpdateDTO",
+    "IcdParameterNotFoundError",
     # Model re-exported for type hints
     "IcdVersion",
+    "IcdParameter",
 ]

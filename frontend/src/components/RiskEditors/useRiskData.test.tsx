@@ -72,7 +72,7 @@ describe("useRiskData (REQ-049)", () => {
   });
 
   it("[REQ-049] returns isLoading=true initially while list query is in-flight", () => {
-    vi.mocked(risksModule.risksApi.list).mockReturnValue(new Promise(() => {}));
+    vi.mocked(risksModule.risksApi.listAll).mockReturnValue(new Promise(() => {}));
 
     const { result } = renderHook(() => useRiskData(), { wrapper: createWrapper() });
 
@@ -81,10 +81,7 @@ describe("useRiskData (REQ-049)", () => {
   });
 
   it("[REQ-049] populates items after list query resolves", async () => {
-    vi.mocked(risksModule.risksApi.list).mockResolvedValue({
-      results: [MOCK_RISK],
-      count: 1,
-    } as any);
+    vi.mocked(risksModule.risksApi.listAll).mockResolvedValue([MOCK_RISK] as any);
 
     const { result } = renderHook(() => useRiskData(), { wrapper: createWrapper() });
 
@@ -95,10 +92,7 @@ describe("useRiskData (REQ-049)", () => {
   });
 
   it("[REQ-049] populates item after detail query resolves when selectedId is provided", async () => {
-    vi.mocked(risksModule.risksApi.list).mockResolvedValue({
-      results: [MOCK_RISK],
-      count: 1,
-    } as any);
+    vi.mocked(risksModule.risksApi.listAll).mockResolvedValue([MOCK_RISK] as any);
     vi.mocked(risksModule.risksApi.get).mockResolvedValue(MOCK_RISK as any);
 
     const { result } = renderHook(() => useRiskData("risk-001"), { wrapper: createWrapper() });
@@ -109,7 +103,7 @@ describe("useRiskData (REQ-049)", () => {
   });
 
   it("[REQ-049] surfaces list error via error property", async () => {
-    vi.mocked(risksModule.risksApi.list).mockRejectedValue(
+    vi.mocked(risksModule.risksApi.listAll).mockRejectedValue(
       { error: { message: "workspace not found" } }
     );
 

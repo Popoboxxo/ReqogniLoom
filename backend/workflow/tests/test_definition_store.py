@@ -96,9 +96,31 @@ class TestPresetDefaultWorkflows:
         assert set(dto.states) == {"draft", "done"}
 
     def test_extended_states(self):
-        """New workspace Extended → states [draft, in_review, approved, deprecated]."""
+        """New workspace Extended → states [draft, in_review, approved,
+        implemented, verified, deprecated] (REQ-L2-WE-011: V-model right side)."""
         dto = self._create_with_tenant("extended")
-        assert set(dto.states) == {"draft", "in_review", "approved", "deprecated"}
+        assert set(dto.states) == {
+            "draft",
+            "in_review",
+            "approved",
+            "implemented",
+            "verified",
+            "deprecated",
+        }
+
+    def test_extended_implemented_verified_transitions(self):
+        """REQ-L2-WE-011: approved->implemented (editor/admin), implemented->verified (approver/admin)."""
+        dto = self._create_with_tenant("extended")
+
+        t1 = dto.get_transition("approved", "implemented")
+        assert t1 is not None
+        assert "editor" in t1.allowed_roles
+        assert "admin" in t1.allowed_roles
+
+        t2 = dto.get_transition("implemented", "verified")
+        assert t2 is not None
+        assert "approver" in t2.allowed_roles
+        assert "admin" in t2.allowed_roles
 
     def test_standard_has_approver_role(self):
         """Standard preset draft→approved transition requires approver role."""

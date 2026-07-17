@@ -66,6 +66,7 @@ from application.services import (
     IssueService,
     GlossaryService,
     PgVectorUnavailableError,
+    ChangeRequestService,
 )
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
@@ -97,6 +98,7 @@ from rest_api.serializers import (
     WorkflowDefinitionSerializer,
     WorkspaceSerializer,
     GlossaryTermSerializer,
+    ChangeRequestSerializer,
     build_error_response,
     detect_lang,
 )
@@ -2517,6 +2519,10 @@ def _artifact_to_dict(art: Any) -> dict[str, Any]:
         "id": str(art.id),
         "workspace_id": str(art.workspace_id) if hasattr(art, "workspace_id") else None,
         "artifact_type": getattr(art, "artifact_type", ""),
+        # TODO (hierarchy consolidation): Artifact.parent is deprecated —
+        # domain services (Requirement/StakeholderNeed/Adr/...) leave it
+        # NULL and express hierarchy via 'derives-from' TraceLinks instead
+        # (see persistence/models.py Artifact.parent docstring).
         "parent_id": str(art.parent_id) if getattr(art, "parent_id", None) else None,
         "custom_fields": getattr(art, "custom_fields", None) or {},
         "version": art.version,
@@ -2765,9 +2771,14 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
         "probability": getattr(risk, "probability", "low"),
         "impact": getattr(risk, "impact", "low"),
         "risk_score": getattr(risk, "risk_score", 1),
+        # REQ-L1-029 (FMEA): Risk Priority Number, computed property on the model.
+        "rpn": getattr(risk, "rpn", risk.risk_score),
         "severity": getattr(risk, "severity", "low"),
         "category": getattr(risk, "category", "technical"),
         "owner": getattr(risk, "owner", ""),
+        "owner_user_id": str(risk.owner_user_id) if getattr(risk, "owner_user_id", None) else None,
+        "owner_user_display": getattr(risk.owner_user, "email", None) if getattr(risk, "owner_user_id", None) else None,
+        "detection": getattr(risk, "detection", 5),
         "mitigation_strategy": getattr(risk, "mitigation_strategy", ""),
         "uid": getattr(risk, "uid", None),
         "status": getattr(risk, "status", "Identified"),
@@ -2791,6 +2802,24 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
         "tags": issue.tags if isinstance(issue.tags, list) else [],
         "created_at": issue.created_at,
         "updated_at": issue.updated_at,
+    }
+
+
+def _cr_to_dict(cr: Any) -> dict[str, Any]:
+    """Convert ChangeRequest ORM object to serializer-compatible dict (REQ-157)."""
+    return {
+        "id": str(cr.id),
+        "workspace_id": str(cr.workspace_id),
+        "title": cr.title,
+        "description": getattr(cr, "description", ""),
+        "impact_assessment": getattr(cr, "impact_assessment", ""),
+        "change_reason": getattr(cr, "change_reason", ""),
+        "status": getattr(cr, "status", "draft"),
+        "requestor_id": str(cr.requestor_id) if cr.requestor_id else None,
+        "assigned_reviewer_id": str(cr.assigned_reviewer_id) if cr.assigned_reviewer_id else None,
+        "version": cr.version,
+        "created_at": cr.created_at,
+        "updated_at": cr.updated_at,
     }
 
 
@@ -3359,6 +3388,8 @@ class RiskViewSet(BaseEntityViewSet):
                 owner=data.get("owner", ""),
                 mitigation_strategy=data.get("mitigation_strategy", ""),
                 status=data.get("status", "Identified"),
+                detection=data.get("detection", 5),
+                owner_user_id=data.get("owner_user_id"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -3393,6 +3424,8 @@ class RiskViewSet(BaseEntityViewSet):
                 owner=data.get("owner"),
                 mitigation_strategy=data.get("mitigation_strategy"),
                 change_reason=data.get("change_reason"),
+                detection=data.get("detection"),
+                owner_user_id=data.get("owner_user_id"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -3650,6 +3683,194 @@ class IssueViewSet(BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# ChangeRequestViewSet — COMP-AS-021 (REQ-157)
+# ---------------------------------------------------------------------------
+
+
+class ChangeRequestViewSet(BaseEntityViewSet):
+    """ViewSet for Change Request CRUD + CCB workflow (REQ-157).
+
+    Delegates to ChangeRequestService (COMP-AS-021).
+    No business logic in this class (REQ-L3-RA001-004).
+
+    Endpoints:
+      GET    /api/v1/change-requests/?workspace_id=<id>
+      POST   /api/v1/change-requests/
+      GET    /api/v1/change-requests/{pk}/
+      PATCH  /api/v1/change-requests/{pk}/
+      DELETE /api/v1/change-requests/{pk}/
+      POST   /api/v1/change-requests/{pk}/transition/
+    """
+
+    serializer_class = ChangeRequestSerializer
+    preset_endpoint_key = ""
+
+    def _svc(self) -> ChangeRequestService:
+        return ChangeRequestService()
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/change-requests/?workspace_id=<id> — list CRs in a workspace."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.query_params.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR", lang, message="workspace_id is required"
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            workspace_id = UUID(workspace_id_str)
+            status_filter = request.query_params.get("status")
+            items = self._svc().list_change_requests(
+                workspace_id=workspace_id, ctx=ctx, status_filter=status_filter
+            )
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang
+            )
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return self._paginate(
+            request, items, lambda item: ChangeRequestSerializer(_cr_to_dict(item)).data
+        )
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/change-requests/{pk}/ — retrieve a single CR."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_change_request(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/change-requests/ — create a CR. Returns 201."""
+        lang = detect_lang(request)
+        ser = ChangeRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create_change_request(
+                workspace_id=UUID(str(data["workspace_id"])),
+                title=data["title"],
+                ctx=ctx,
+                description=data.get("description", ""),
+                impact_assessment=data.get("impact_assessment", ""),
+                change_reason=data.get("change_reason", ""),
+                assigned_reviewer_id=data.get("assigned_reviewer_id"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(
+            ChangeRequestSerializer(_cr_to_dict(item)).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/change-requests/{pk}/ — update a CR. Returns 200."""
+        lang = detect_lang(request)
+        ser = ChangeRequestSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().update_change_request(
+                cr_id=UUID(pk),
+                ctx=ctx,
+                title=data.get("title"),
+                description=data.get("description"),
+                impact_assessment=data.get("impact_assessment"),
+                change_reason=data.get("change_reason"),
+                assigned_reviewer_id=data.get("assigned_reviewer_id"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/change-requests/{pk}/ — delete a CR. Returns 204."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().delete_change_request(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="transition")
+    def transition(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/change-requests/{pk}/transition/ — CCB workflow transition.
+
+        Body:
+          {
+            "target_status": "submitted" | "under_review" | "approved" | "rejected" | "implemented" | "draft",
+            "change_reason": "..."   (required for submit and reject transitions)
+          }
+
+        The WorkflowEngine enforces role checks and change_reason requirements
+        according to the ccb_approval preset (REQ-157).
+        """
+        lang = detect_lang(request)
+        target_status = request.data.get("target_status")
+        if not target_status:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="target_status is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        change_reason = request.data.get("change_reason", "") or ""
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().transition_status(
+                cr_id=UUID(pk),
+                target_status=target_status,
+                ctx=ctx,
+                change_reason=change_reason or None,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
 
 
 # ---------------------------------------------------------------------------

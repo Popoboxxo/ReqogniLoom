@@ -75,12 +75,8 @@ function setupDefaultMocks(): void {
   vi.mocked(architectureApi.architectureApi.listAll).mockResolvedValue(
     MOCK_ARCH_ELEMENTS as any
   );
-  vi.mocked(testcasesApi.testcasesApi.list).mockResolvedValue({
-    results: MOCK_TEST_CASES,
-  } as any);
-  vi.mocked(adrsApi.adrsApi.list).mockResolvedValue({
-    results: MOCK_ADRS,
-  } as any);
+  vi.mocked(testcasesApi.testcasesApi.listAll).mockResolvedValue(MOCK_TEST_CASES as any);
+  vi.mocked(adrsApi.adrsApi.listAll).mockResolvedValue(MOCK_ADRS as any);
 }
 
 function renderDialog(overrides: Partial<React.ComponentProps<typeof CreateTraceLinkDialog>> = {}): void {

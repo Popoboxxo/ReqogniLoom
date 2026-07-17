@@ -139,7 +139,7 @@ export default function TestRuns(): JSX.Element {
     return <p>{t("workspace.selectPrompt")}</p>;
   }
 
-  if (isLoading) return <p>{t("loading")}</p>;
+  if (isLoading) return <p role="status">{t("loading")}</p>;
 
   // ---- Detail view ----
   if (selectedId) {

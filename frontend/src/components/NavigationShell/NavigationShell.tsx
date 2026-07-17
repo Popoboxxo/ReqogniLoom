@@ -104,7 +104,7 @@ function AppShell(): JSX.Element {
           reloadLabel={t("actions.reload")}
           backLabel={t("actions.back")}
         >
-          <Suspense fallback={<div>{t("loading")}</div>}>
+          <Suspense fallback={<div role="status">{t("loading")}</div>}>
             <Routes>
               <Route path="/" element={<DashboardViews />} />
               <Route path="/needs" element={<NeedsEditors />} />
