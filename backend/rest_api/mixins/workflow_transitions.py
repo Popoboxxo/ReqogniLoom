@@ -25,6 +25,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from application.preset_policy_service import get_preset_policy_service
 from application.services import (
     NotFoundError,
     PermissionDeniedError,
@@ -107,6 +108,17 @@ class WorkflowTransitionsMixin:
                 item_type=self.workflow_item_type,
                 workspace_id=workspace_id,
             )
+            # REQ-169: surface the EFFECTIVE change_reason requirement. When the
+            # workspace preset mandates a change_reason (Extended rigor), the
+            # facade's global gate (WorkflowFacade._check_change_reason) rejects
+            # every empty-reason transition regardless of the per-transition flag.
+            # If the GET response only reported the per-transition flag, the UI
+            # would hide the textarea for those transitions and POST an empty
+            # reason that the facade then blocks. Report the OR of both so the UI
+            # always collects a reason when it will actually be required.
+            preset_requires = get_preset_policy_service().is_change_reason_required(
+                str(workspace_id)
+            )
             return Response(
                 {
                     "current_state": avail.current_state,
@@ -114,7 +126,9 @@ class WorkflowTransitionsMixin:
                     "allowed_transitions": [
                         {
                             "target_state": t.to_state,
-                            "requires_change_reason": t.requires_change_reason,
+                            "requires_change_reason": (
+                                t.requires_change_reason or preset_requires
+                            ),
                             "signature_gate": t.signature_gate,
                         }
                         for t in avail.transitions
