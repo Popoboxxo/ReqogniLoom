@@ -186,6 +186,229 @@ def _extended_transitions() -> list[dict[str, Any]]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# REQ-165/REQ-166: per-entity-type default workflows.
+#
+# Each preset below drives ONE entity type. The state name strings are
+# byte-identical to that entity's ``Status.choices`` VALUE strings, because
+# StateLifecycleManager._sync_status_mirror writes ``current_state`` verbatim
+# into the entity's ``status`` column (a denormalized read-only mirror). The
+# first state in each ``states`` list is the definition's initial_state and MUST
+# equal the model field default so a freshly created row and its WorkflowItemState
+# agree. Role names use the existing RBAC set (admin/editor/viewer/approver from
+# auth_tenancy/models.py). ChangeRequest intentionally has no entry here — it
+# reuses the existing ``ccb_approval`` preset.
+# ---------------------------------------------------------------------------
+
+
+def _need_transitions() -> list[dict[str, Any]]:
+    # StakeholderNeed.status has no Status enum (free-text CharField, default
+    # "draft"); there is no "rejected" state, so review rejection routes back to
+    # "draft" instead.
+    return [
+        {
+            "from_state": "draft",
+            "to_state": "in_review",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_review",
+            "to_state": "approved",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_review",
+            "to_state": "draft",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "approved",
+            "to_state": "deprecated",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
+def _adr_transitions() -> list[dict[str, Any]]:
+    # State values match application.models.Adr.Status.
+    return [
+        {
+            "from_state": "Draft",
+            "to_state": "In Review",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "In Review",
+            "to_state": "Approved",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "In Review",
+            "to_state": "Rejected",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "In Review",
+            "to_state": "Draft",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Approved",
+            "to_state": "Superseded",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+    ]
+
+
+def _risk_transitions() -> list[dict[str, Any]]:
+    # State values match application.models.Risk.RiskStatus.
+    return [
+        {
+            "from_state": "Identified",
+            "to_state": "Monitored",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Identified",
+            "to_state": "Accepted",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Monitored",
+            "to_state": "Mitigated",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Monitored",
+            "to_state": "Accepted",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Mitigated",
+            "to_state": "Closed",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Accepted",
+            "to_state": "Closed",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
+def _issue_transitions() -> list[dict[str, Any]]:
+    # State values match application.models.Issue.IssueStatus.
+    return [
+        {
+            "from_state": "Open",
+            "to_state": "In Progress",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "In Progress",
+            "to_state": "Resolved",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "In Progress",
+            "to_state": "Wontfix",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Resolved",
+            "to_state": "Closed",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            # Reopen path.
+            "from_state": "Resolved",
+            "to_state": "In Progress",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Open",
+            "to_state": "Wontfix",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+    ]
+
+
+def _testcase_transitions() -> list[dict[str, Any]]:
+    # State values match persistence.models.TestCase.Status.
+    return [
+        {
+            "from_state": "Draft",
+            "to_state": "Ready",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Ready",
+            "to_state": "Approved",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Ready",
+            "to_state": "Draft",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Approved",
+            "to_state": "Deprecated",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
 PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "minimal": {
         "states": ["draft", "done"],
@@ -266,6 +489,27 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
                 "signature_gate": False,
             },
         ],
+    },
+    # REQ-165/REQ-166: per-entity-type defaults (see builders above).
+    "need_default": {
+        "states": ["draft", "in_review", "approved", "deprecated"],
+        "transitions": _need_transitions(),
+    },
+    "adr_default": {
+        "states": ["Draft", "In Review", "Approved", "Rejected", "Superseded"],
+        "transitions": _adr_transitions(),
+    },
+    "risk_default": {
+        "states": ["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
+        "transitions": _risk_transitions(),
+    },
+    "issue_default": {
+        "states": ["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
+        "transitions": _issue_transitions(),
+    },
+    "testcase_default": {
+        "states": ["Draft", "Ready", "Approved", "Deprecated"],
+        "transitions": _testcase_transitions(),
     },
 }
 

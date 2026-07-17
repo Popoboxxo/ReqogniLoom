@@ -52,6 +52,20 @@ logger = logging.getLogger(__name__)
 _VALID_PRESETS = {key for key, _ in PRESET_CHOICES}
 _VALID_TERMINOLOGY_PROFILES = {key for key, _ in TERMINOLOGY_CHOICES}
 
+# REQ-165/REQ-166: entity types that receive a fixed-preset default workflow on
+# workspace provisioning. "Requirement" is provisioned separately with the
+# tier-dependent preset (minimal/standard/extended); these types always use
+# their dedicated per-entity preset. ChangeRequest reuses the existing
+# ccb_approval preset (no dedicated per-entity preset).
+_WORKFLOW_ENTITY_TYPES: tuple[tuple[str, str], ...] = (
+    ("StakeholderNeed", "need_default"),
+    ("Adr", "adr_default"),
+    ("Risk", "risk_default"),
+    ("Issue", "issue_default"),
+    ("TestCase", "testcase_default"),
+    ("ChangeRequest", "ccb_approval"),
+)
+
 # Sentinel distinguishing "field omitted" from an explicit ``None`` in PATCH.
 _UNSET: object = object()
 
@@ -162,6 +176,19 @@ class WorkspaceService(ServiceBase):
             tenant_id=ctx.tenant_id,
         )
 
+        # REQ-165/REQ-166: provision the per-entity default workflows so ADR,
+        # Risk, Issue, TestCase, StakeholderNeed and ChangeRequest all have a
+        # WorkflowEngineDefinition from the start (their WorkflowItemState init
+        # on create is otherwise a silent no-op). Fixed presets, independent of
+        # the workspace tier. Idempotent via get_or_create.
+        for item_type, preset_key in _WORKFLOW_ENTITY_TYPES:
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset=preset_key,
+                item_type=item_type,
+                tenant_id=ctx.tenant_id,
+            )
+
         self._audit(
             ctx=ctx,
             operation="create",
@@ -223,6 +250,16 @@ class WorkspaceService(ServiceBase):
             item_type="Requirement",
             tenant_id=ctx.tenant_id,
         )
+
+        # REQ-165/REQ-166: same per-entity provisioning as create_workspace so a
+        # cloned workspace is workflow-complete for every entity type.
+        for item_type, preset_key in _WORKFLOW_ENTITY_TYPES:
+            create_default_workflow(
+                workspace_id=target.id,
+                preset=preset_key,
+                item_type=item_type,
+                tenant_id=ctx.tenant_id,
+            )
 
         # 2. Deep copy artifacts
         old_to_new_artifact = {}

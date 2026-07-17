@@ -241,6 +241,15 @@ class Adr(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # REQ-165/REQ-166: this is a plain (non-tenant-scoped) model, so it has no
+    # ``unscoped`` manager by default. StateLifecycleManager._sync_status_mirror
+    # writes the denormalized ``status`` via ``model.unscoped.filter(pk=...)``,
+    # so an ``unscoped`` alias is required. ``objects`` is declared first so it
+    # stays the ``_default_manager``; ``unscoped`` is an identical plain manager
+    # (this model carries no row-level tenant filtering).
+    objects = models.Manager()
+    unscoped = models.Manager()
+
     class Meta:
         db_table = "as_adr"
         indexes = [
@@ -369,6 +378,11 @@ class Risk(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # REQ-165/REQ-166: ``unscoped`` alias required by
+    # StateLifecycleManager._sync_status_mirror (see Adr for rationale).
+    objects = models.Manager()
+    unscoped = models.Manager()
+
     class Meta:
         db_table = "as_risk"
         indexes = [
@@ -487,6 +501,11 @@ class Issue(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # REQ-165/REQ-166: ``unscoped`` alias required by
+    # StateLifecycleManager._sync_status_mirror (see Adr for rationale).
+    objects = models.Manager()
+    unscoped = models.Manager()
+
     class Meta:
         db_table = "as_issue"
         indexes = [
@@ -558,6 +577,11 @@ class ChangeRequest(models.Model):
     created_by = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # REQ-165/REQ-166: ``unscoped`` alias required by
+    # StateLifecycleManager._sync_status_mirror (see Adr for rationale).
+    objects = models.Manager()
+    unscoped = models.Manager()
 
     class Meta:
         db_table = "as_change_request"

@@ -892,6 +892,20 @@ class TestCase(TenantScopedModel):
     """Test case derived from an artifact (REQ-L1-012)."""
     __test__ = False
 
+    class Status(models.TextChoices):
+        """REQ-165/REQ-166: lifecycle state mirrored from the WorkflowEngine.
+
+        Read-only projection of WorkflowItemState.current_state — written ONLY
+        by StateLifecycleManager._sync_status_mirror inside a transition. The
+        value strings MUST stay byte-identical to the ``testcase_default``
+        preset states in ``workflow.definition_store.PRESET_SCHEMAS``.
+        """
+
+        DRAFT = "Draft", "Draft"
+        READY = "Ready", "Ready"
+        APPROVED = "Approved", "Approved"
+        DEPRECATED = "Deprecated", "Deprecated"
+
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="test_case"
     )
@@ -919,11 +933,24 @@ class TestCase(TenantScopedModel):
         default=False,
         help_text="SN-30: Indicates if this test case needs review due to upstream changes.",
     )
+    # REQ-165/REQ-166: denormalized `status` mirror (read-only projection of the
+    # WorkflowEngine state). Written ONLY from within a workflow transition
+    # (StateLifecycleManager._sync_status_mirror). TestCase is scoped via
+    # ``artifact.workspace`` (no local workspace_id column), so a plain
+    # single-column index on ``status`` is used instead of a (workspace, status)
+    # composite — cross-relation columns cannot participate in a table index.
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        db_index=False,
+    )
 
     class Meta:
         db_table = "pl_testcase"
         indexes = [
             models.Index(fields=["uid"], name="idx_testcase_uid_btree"),
+            models.Index(fields=["status"], name="idx_testcase_status"),
         ]
 
     def __str__(self) -> str:

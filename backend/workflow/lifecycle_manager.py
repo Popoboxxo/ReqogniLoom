@@ -80,6 +80,15 @@ class TransitionOutcome:
 _STATUS_MIRROR_MODELS: dict[str, tuple[str, str]] = {
     "Requirement": ("persistence.models", "Requirement"),
     "StakeholderNeed": ("persistence.models", "StakeholderNeed"),
+    # REQ-165/REQ-166: universal per-entity workflow. Each mirrored model needs
+    # an ``unscoped`` manager (the four application models are plain, non-tenant
+    # models and declare one explicitly; TestCase inherits it from
+    # TenantScopedModel).
+    "Adr": ("application.models", "Adr"),
+    "Risk": ("application.models", "Risk"),
+    "Issue": ("application.models", "Issue"),
+    "ChangeRequest": ("application.models", "ChangeRequest"),
+    "TestCase": ("persistence.models", "TestCase"),
 }
 
 
