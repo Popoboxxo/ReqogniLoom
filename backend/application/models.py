@@ -291,6 +291,23 @@ class Risk(models.Model):
     _IMPACT_NUMERIC = {"low": 1, "medium": 2, "high": 3}
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # REQ-L2-TE-020: OneToOne backing Artifact so Risks participate in the
+    # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
+    # Adr.artifact — nullable to keep the schema migration additive and
+    # backward-compatible with Risk rows created before this field existed.
+    # New Risks always receive an Artifact via RiskService.create_risk.
+    # on_delete=CASCADE means deleting the backing Artifact also deletes the
+    # Risk (mirrors Requirement/ArchitectureElement/Adr). This replaces the
+    # former UUID-identity hack (Artifact.id == Risk.id) which had no
+    # referential integrity.
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="risk",
+        null=True,
+        blank=True,
+        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+    )
     workspace_id = models.UUIDField(db_index=True)
     tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=255)
@@ -384,6 +401,23 @@ class Issue(models.Model):
         WONTFIX = "Wontfix"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # REQ-L2-TE-020: OneToOne backing Artifact so Issues participate in the
+    # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors
+    # Adr.artifact — nullable to keep the schema migration additive and
+    # backward-compatible with Issue rows created before this field existed.
+    # New Issues always receive an Artifact via IssueService.create_issue.
+    # on_delete=CASCADE means deleting the backing Artifact also deletes the
+    # Issue (mirrors Requirement/ArchitectureElement/Adr). This replaces the
+    # former UUID-identity hack (Artifact.id == Issue.id) which had no
+    # referential integrity.
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="issue",
+        null=True,
+        blank=True,
+        help_text="REQ-L2-TE-020: backing Artifact for TraceLink support.",
+    )
     workspace_id = models.UUIDField(db_index=True)
     tenant_id = models.UUIDField(db_index=True)
     title = models.CharField(max_length=255)

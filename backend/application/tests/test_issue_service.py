@@ -131,8 +131,14 @@ class TestCreateIssue:
             patch("application.issue_service.IssueService._audit") as mock_audit,
             patch("application.issue_service.IssueService._emit_event") as mock_emit,
             patch("application.issue_service.IssueService._make_event", return_value=MagicMock()),
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
             patch("workflow.services.initialize_workflow_states") as mock_wf,
         ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
             mock_mgr.create.return_value = created_issue
             result = svc.create_issue(
                 workspace_id=WS_ID,
@@ -188,11 +194,17 @@ class TestCreateIssue:
             patch("application.issue_service.IssueService._audit"),
             patch("application.issue_service.IssueService._emit_event"),
             patch("application.issue_service.IssueService._make_event", return_value=MagicMock()),
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
             patch(
                 "workflow.services.initialize_workflow_states",
                 side_effect=RuntimeError("no workflow"),
             ),
         ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
             mock_mgr.create.return_value = created_issue
             result = svc.create_issue(
                 workspace_id=WS_ID,

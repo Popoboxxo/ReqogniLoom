@@ -178,6 +178,9 @@ class TestCreateRisk:
 
         with (
             patch("application.risk_service.Risk") as mock_risk_cls,
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
             patch("application.risk_service.RiskService._set_tenant_context"),
             patch("application.risk_service.RiskService._assert_write_permission"),
             patch("application.risk_service.RiskService._audit"),
@@ -185,6 +188,9 @@ class TestCreateRisk:
             patch("application.risk_service.RiskService._make_event", return_value=MagicMock()),
             patch("workflow.services.initialize_workflow_states"),
         ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
             mock_instance = MagicMock()
             mock_instance.probability = "high"
             mock_instance.impact = "high"
@@ -230,11 +236,17 @@ class TestCreateRisk:
             patch("application.risk_service.RiskService._audit"),
             patch("application.risk_service.RiskService._emit_event"),
             patch("application.risk_service.RiskService._make_event", return_value=MagicMock()),
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
             patch(
                 "workflow.services.initialize_workflow_states",
                 side_effect=RuntimeError("no workflow"),
             ),
         ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
             mock_instance = MagicMock()
             mock_instance.probability = "low"
             mock_instance.impact = "low"
@@ -265,8 +277,14 @@ class TestCreateRisk:
             patch("application.risk_service.RiskService._audit") as mock_audit,
             patch("application.risk_service.RiskService._emit_event"),
             patch("application.risk_service.RiskService._make_event", return_value=MagicMock()),
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
             patch("workflow.services.initialize_workflow_states"),
         ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
             mock_instance = MagicMock()
             mock_instance.probability = "low"
             mock_instance.impact = "low"

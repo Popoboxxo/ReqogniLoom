@@ -189,7 +189,27 @@ class IssueService(ServiceBase):
             status=status,
         )
 
+        # REQ-L2-TE-020: create the backing Artifact first so the Issue can
+        # participate in the Artifact-to-Artifact TraceLink graph. Mirrors
+        # AdrService.create_adr. Replaces the former UUID-identity hack.
+        from persistence.models import Artifact, Tenant, Workspace
+
+        tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
+        if tenant is None:
+            raise NotFoundError(f"Tenant {ctx.tenant_id} not found")
+
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+        artifact = Artifact.objects.create(
+            tenant=tenant,
+            workspace=workspace,
+            artifact_type="Issue",
+        )
+
         issue = Issue.objects.create(
+            artifact=artifact,
             workspace_id=workspace_id,
             tenant_id=ctx.tenant_id,
             title=title,
