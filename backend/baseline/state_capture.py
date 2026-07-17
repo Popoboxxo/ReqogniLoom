@@ -65,6 +65,10 @@ def capture_states(
         states.update(_capture_glossary_terms(by_type["glossary_term"], tenant_id))
     if "icd" in by_type:
         states.update(_capture_icd_versions(by_type["icd"], tenant_id))
+    if "test_run" in by_type:
+        states.update(_capture_test_runs(by_type["test_run"], tenant_id))
+    if "test_run_result" in by_type:
+        states.update(_capture_test_run_results(by_type["test_run_result"], tenant_id))
 
     return states
 
@@ -273,6 +277,75 @@ def _capture_icd_versions(
             "preconditions": iv.preconditions,
             "postconditions": iv.postconditions,
             "invariants": iv.invariants,
+        }
+    return states
+
+
+# ---------------------------------------------------------------------------
+# entity_type = "test_run" (REQ-155)
+# ---------------------------------------------------------------------------
+
+
+def _capture_test_runs(
+    item_ids: list[str], tenant_id: uuid.UUID
+) -> dict[str, dict[str, Any]]:
+    """Capture state for TestRun entities in one batched query.
+
+    REQ-155: TestRun entities are operational records not backed by an Artifact.
+    Captured fields represent the full execution context at snapshot time.
+    """
+    uuids = _to_uuids(item_ids)
+    if not uuids:
+        return {}
+
+    from persistence.models import TestRun
+
+    states: dict[str, dict[str, Any]] = {}
+    for tr in TestRun.unscoped.filter(id__in=uuids, tenant_id=tenant_id):
+        states[str(tr.id)] = {
+            "entity_type": "test_run",
+            "uid": tr.uid,
+            "name": tr.name,
+            "status": tr.status,
+            "started_at": tr.started_at.isoformat() if tr.started_at else None,
+            "finished_at": tr.finished_at.isoformat() if tr.finished_at else None,
+            "ci_job_id": tr.ci_job_id,
+            "workspace_id": str(tr.workspace_id),
+            "version": tr.version,
+        }
+    return states
+
+
+# ---------------------------------------------------------------------------
+# entity_type = "test_run_result" (REQ-155)
+# ---------------------------------------------------------------------------
+
+
+def _capture_test_run_results(
+    item_ids: list[str], tenant_id: uuid.UUID
+) -> dict[str, dict[str, Any]]:
+    """Capture state for TestRunResult entities in one batched query.
+
+    REQ-155: TestRunResult entries are the per-test-case outcomes within a run.
+    """
+    uuids = _to_uuids(item_ids)
+    if not uuids:
+        return {}
+
+    from persistence.models import TestRunResult
+
+    states: dict[str, dict[str, Any]] = {}
+    for trr in TestRunResult.unscoped.filter(id__in=uuids, tenant_id=tenant_id):
+        states[str(trr.id)] = {
+            "entity_type": "test_run_result",
+            "test_run_id": str(trr.test_run_id),
+            "test_case_id": str(trr.test_case_id) if trr.test_case_id else None,
+            "test_case_title": trr.test_case_title,
+            "status": trr.status,
+            "executed_at": trr.executed_at.isoformat() if trr.executed_at else None,
+            "duration_ms": trr.duration_ms,
+            "message": trr.message,
+            "version": trr.version,
         }
     return states
 

@@ -122,6 +122,45 @@ class ScopeResolver:
         ]
         items.extend(glossary_items)
 
+        # REQ-155: TestRun/TestRunResult — include verification evidence in project scope
+        test_run_sql = """
+            SELECT tr.id::text, tr.version
+            FROM pl_test_run tr
+            WHERE tr.workspace_id = %s
+              AND tr.tenant_id = %s
+            ORDER BY tr.id
+        """
+        with connection.cursor() as cur:
+            cur.execute(test_run_sql, [str(workspace_id), str(tenant_id)])
+            test_run_rows = cur.fetchall()
+
+        test_run_items = [
+            DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="test_run")
+            for row in test_run_rows
+        ]
+        items.extend(test_run_items)
+
+        if test_run_items:
+            run_ids = [t.item_id for t in test_run_items]
+            placeholders = ",".join(["%s"] * len(run_ids))
+            test_result_sql = f"""
+                SELECT trr.id::text, trr.version
+                FROM pl_test_run_result trr
+                WHERE trr.test_run_id::text IN ({placeholders})
+                  AND trr.tenant_id = %s
+                ORDER BY trr.id
+            """
+            params = run_ids + [str(tenant_id)]
+            with connection.cursor() as cur:
+                cur.execute(test_result_sql, params)
+                test_result_rows = cur.fetchall()
+
+            test_result_items = [
+                DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="test_run_result")
+                for row in test_result_rows
+            ]
+            items.extend(test_result_items)
+
         return items
 
     def _resolve_global(self, tenant_id: uuid.UUID) -> list[DeltaIndexTuple]:
@@ -157,6 +196,44 @@ class ScopeResolver:
             for row in glossary_rows
         ]
         items.extend(glossary_items)
+
+        # REQ-155: TestRun/TestRunResult — include verification evidence in global scope
+        test_run_sql = """
+            SELECT tr.id::text, tr.version
+            FROM pl_test_run tr
+            WHERE tr.tenant_id = %s
+            ORDER BY tr.id
+        """
+        with connection.cursor() as cur:
+            cur.execute(test_run_sql, [str(tenant_id)])
+            test_run_rows = cur.fetchall()
+
+        test_run_items = [
+            DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="test_run")
+            for row in test_run_rows
+        ]
+        items.extend(test_run_items)
+
+        if test_run_items:
+            run_ids = [t.item_id for t in test_run_items]
+            placeholders = ",".join(["%s"] * len(run_ids))
+            test_result_sql = f"""
+                SELECT trr.id::text, trr.version
+                FROM pl_test_run_result trr
+                WHERE trr.test_run_id::text IN ({placeholders})
+                  AND trr.tenant_id = %s
+                ORDER BY trr.id
+            """
+            params = run_ids + [str(tenant_id)]
+            with connection.cursor() as cur:
+                cur.execute(test_result_sql, params)
+                test_result_rows = cur.fetchall()
+
+            test_result_items = [
+                DeltaIndexTuple(item_id=str(row[0]), version=int(row[1]), entity_type="test_run_result")
+                for row in test_result_rows
+            ]
+            items.extend(test_result_items)
 
         return items
 
