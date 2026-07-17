@@ -389,7 +389,8 @@
     "saveFailed": "ADR konnte nicht gespeichert werden.",
     "deleteConfirm": "Diese ADR löschen?",
     "context": "Kontext",
-    "consequences": "Konsequenzen"
+    "consequences": "Konsequenzen",
+    "titlePlaceholder": "Titel der Architekturentscheidung"
   },
   "risks": {
     "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen.",

@@ -392,7 +392,8 @@
     "saveFailed": "Failed to save ADR.",
     "deleteConfirm": "Delete this ADR?",
     "context": "Context",
-    "consequences": "Consequences"
+    "consequences": "Consequences",
+    "titlePlaceholder": "Title of the architecture decision"
   },
   "risks": {
     "selectRisk": "Select a risk from the list to view details.",
