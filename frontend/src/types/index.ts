@@ -353,6 +353,10 @@ export interface DiagramDetail extends Diagram {
   payload_format: PayloadFormat | null;
   content: string | null;
   version_number: number | null;
+  // REQ-173: WorkflowEngine lifecycle state, seeds the WorkflowStatusEditor
+  // before its /transitions/ fetch resolves. Optional — the endpoint stays
+  // authoritative for the current state.
+  status?: string;
 }
 
 export interface DiagramTraceLink {
