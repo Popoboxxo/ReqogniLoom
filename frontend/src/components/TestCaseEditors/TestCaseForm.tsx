@@ -157,8 +157,8 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
-            <label htmlFor="tc-title" style={labelStyle}>{t('editor.title')}</label>
-            <input id="tc-title" type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} />
+            <label htmlFor="tc-title" style={labelStyle}>{t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+            <input id="tc-title" type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} aria-required="true" />
           </div>
           <div>
             <label style={labelStyle}>{t('editor.description')}</label>
