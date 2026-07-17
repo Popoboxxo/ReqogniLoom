@@ -891,6 +891,43 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
+class IcdParameterSerializer(serializers.Serializer):
+    """Serializer for IcdParameter entity (REQ-L2-ICD-002, COMP-ICD-001).
+
+    Structured, version-specific interface parameter (unit, data type,
+    direction, numeric bounds, tolerance) attached to an IcdVersion.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    icd_version_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(max_length=200)
+    description = serializers.CharField(
+        allow_blank=True, default="", max_length=2000
+    )
+    unit = serializers.CharField(allow_blank=True, default="", max_length=50)
+    data_type = serializers.ChoiceField(
+        choices=["float", "int", "string", "boolean", "enum", "other"],
+        default="other",
+    )
+    direction = serializers.ChoiceField(
+        choices=["input", "output", "bidirectional"],
+        default="input",
+    )
+    min_value = serializers.DecimalField(
+        max_digits=20, decimal_places=6, required=False, allow_null=True, default=None
+    )
+    max_value = serializers.DecimalField(
+        max_digits=20, decimal_places=6, required=False, allow_null=True, default=None
+    )
+    nominal_value = serializers.CharField(
+        allow_blank=True, default="", max_length=200
+    )
+    tolerance = serializers.CharField(allow_blank=True, default="", max_length=100)
+    ordering = serializers.IntegerField(default=0)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
 class AttributeVisibilityConfigSerializer(serializers.Serializer):
     """Serializer for AttributeVisibilityConfig (REQ-L1-058 AC2).
 

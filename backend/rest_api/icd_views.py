@@ -1,14 +1,20 @@
 """
-COMP-RA-001 — IcdViewSet (REQ-L2-ICD-001).
+COMP-RA-001 — IcdViewSet (REQ-L2-ICD-001, REQ-L2-ICD-002).
 
 Minimal REST endpoints for Interface Control Document (ICD) CRUD.
 
 Endpoints:
-  GET    /api/v1/icds/               — list ICDs (filter by workspace_id)
-  POST   /api/v1/icds/               — create ICD with initial version
-  GET    /api/v1/icds/<pk>/          — retrieve ICD details
-  PATCH  /api/v1/icds/<pk>/          — update ICD (creates new version)
-  DELETE /api/v1/icds/<pk>/          — delete ICD
+  GET    /api/v1/icds/                                  — list ICDs (filter by workspace_id)
+  POST   /api/v1/icds/                                  — create ICD with initial version
+  GET    /api/v1/icds/<pk>/                             — retrieve ICD details
+  PATCH  /api/v1/icds/<pk>/                             — update ICD (creates new version)
+  DELETE /api/v1/icds/<pk>/                             — delete ICD
+
+Structured interface parameters (REQ-L2-ICD-002, COMP-ICD-001):
+  GET    /api/v1/icds/<pk>/parameters/?version=<n>      — list parameters (default: current version)
+  POST   /api/v1/icds/<pk>/parameters/                  — create a parameter (body: version=<n>, default: current)
+  PATCH  /api/v1/icds/<pk>/parameters/<parameter_id>/   — update a parameter
+  DELETE /api/v1/icds/<pk>/parameters/<parameter_id>/   — delete a parameter
 """
 from __future__ import annotations
 
@@ -21,21 +27,33 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
-from icd.models import Icd, IcdDirection
+from icd.models import Icd, IcdDirection, IcdParameter, IcdVersion
 from icd.services import (
     create_icd,
+    create_icd_parameter,
     delete_icd,
+    delete_icd_parameter,
     get_icd,
     update_icd,
+    update_icd_parameter,
     get_icd_history,
     find_similar_icds,
+    list_icd_parameters,
     IcdCreateDTO,
+    IcdParameterCreateDTO,
+    IcdParameterNotFoundError,
+    IcdParameterUpdateDTO,
     IcdPgVectorUnavailableError,
     IcdUpdateDTO,
 )
 from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.serializers import StandardPagination, build_error_response, detect_lang
+from rest_api.serializers import (
+    IcdParameterSerializer,
+    StandardPagination,
+    build_error_response,
+    detect_lang,
+)
 
 
 class IcdViewSet(ViewSet):
@@ -75,6 +93,48 @@ class IcdViewSet(ViewSet):
             "current_version": str(icd.current_version_id) if icd.current_version_id else None,
             "created_at": icd.created_at.isoformat() if icd.created_at else None,
         }
+
+    def _parameter_to_dict(self, param: IcdParameter) -> dict[str, Any]:
+        """Convert IcdParameter ORM object to serializer-compatible dict."""
+        return {
+            "id": str(param.id),
+            "icd_version_id": str(param.icd_version_id),
+            "name": param.name,
+            "description": param.description,
+            "unit": param.unit,
+            "data_type": param.data_type,
+            "direction": param.direction,
+            "min_value": param.min_value,
+            "max_value": param.max_value,
+            "nominal_value": param.nominal_value,
+            "tolerance": param.tolerance,
+            "ordering": param.ordering,
+            "created_at": param.created_at.isoformat() if param.created_at else None,
+            "updated_at": param.modified_at.isoformat() if param.modified_at else None,
+        }
+
+    def _resolve_icd_version(self, icd: Icd, version_param: str | None) -> IcdVersion:
+        """Resolve a version_number query/body param to its IcdVersion.
+
+        Defaults to the ICD's current version when *version_param* is None.
+
+        Raises:
+            IcdVersion.DoesNotExist: No matching version found.
+        """
+        if version_param is None or version_param == "":
+            if icd.current_version_id is None:
+                raise IcdVersion.DoesNotExist(f"ICD {icd.id} has no current version")
+            return icd.current_version
+        target_number = int(version_param)
+        version_list = get_icd_history(icd_id=icd.id)
+        match = next(
+            (v for v in version_list if v.version_number == target_number), None
+        )
+        if match is None:
+            raise IcdVersion.DoesNotExist(
+                f"IcdVersion number {target_number} not found for ICD {icd.id}"
+            )
+        return match
 
     # -- list --------------------------------------------------------------
 
@@ -415,3 +475,178 @@ class IcdViewSet(ViewSet):
                 for hit in results
             ]
         )
+
+    # -- parameters (REQ-L2-ICD-002) ---------------------------------------
+
+    @action(detail=True, methods=["get", "post"], url_path="parameters")
+    def parameters(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET/POST /api/v1/icds/<pk>/parameters/?version=<n>
+
+        GET  — list structured parameters for a version (default: current).
+        POST — create a structured parameter on a version (default: current).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            icd = get_icd(UUID(pk), ctx.tenant_id)
+        except Icd.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if request.method == "GET":
+            try:
+                version = self._resolve_icd_version(
+                    icd, request.query_params.get("version")
+                )
+                items = list_icd_parameters(
+                    icd_version_id=version.id, tenant_id=ctx.tenant_id
+                )
+            except IcdVersion.DoesNotExist as exc:
+                return Response(
+                    build_error_response("NOT_FOUND", lang, message=str(exc)),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            except Exception as exc:
+                return Response(
+                    build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            serialized = [self._parameter_to_dict(item) for item in items]
+            return self._paginate(request, serialized)
+
+        # POST — create
+        ser = IcdParameterSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            version = self._resolve_icd_version(icd, request.data.get("version"))
+            payload = IcdParameterCreateDTO(
+                icd_version_id=version.id,
+                name=data["name"],
+                unit=data.get("unit", ""),
+                data_type=data.get("data_type", "other"),
+                direction=data.get("direction", "input"),
+                description=data.get("description", ""),
+                min_value=data.get("min_value"),
+                max_value=data.get("max_value"),
+                nominal_value=data.get("nominal_value", ""),
+                tolerance=data.get("tolerance", ""),
+                ordering=data.get("ordering", 0),
+            )
+            item = create_icd_parameter(payload, tenant_id=ctx.tenant_id)
+        except IcdVersion.DoesNotExist as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(
+            IcdParameterSerializer(self._parameter_to_dict(item)).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["patch", "delete"],
+        url_path=r"parameters/(?P<parameter_id>[0-9a-fA-F-]{36})",
+    )
+    def parameter_detail(
+        self, request: Request, pk: str, parameter_id: str, **kwargs: Any
+    ) -> Response:
+        """PATCH/DELETE /api/v1/icds/<pk>/parameters/<parameter_id>/
+
+        PATCH  — update a structured parameter.
+        DELETE — delete a structured parameter.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if request.method == "DELETE":
+            try:
+                delete_icd_parameter(UUID(parameter_id), tenant_id=ctx.tenant_id)
+            except IcdParameterNotFoundError as exc:
+                return Response(
+                    build_error_response("NOT_FOUND", lang, message=str(exc)),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            except Exception as exc:
+                return Response(
+                    build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        # PATCH — update
+        ser = IcdParameterSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            payload = IcdParameterUpdateDTO(
+                name=data.get("name"),
+                unit=data.get("unit"),
+                data_type=data.get("data_type"),
+                direction=data.get("direction"),
+                description=data.get("description"),
+                min_value=data.get("min_value"),
+                max_value=data.get("max_value"),
+                nominal_value=data.get("nominal_value"),
+                tolerance=data.get("tolerance"),
+                ordering=data.get("ordering"),
+            )
+            item = update_icd_parameter(
+                UUID(parameter_id), payload, tenant_id=ctx.tenant_id
+            )
+        except IcdParameterNotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(IcdParameterSerializer(self._parameter_to_dict(item)).data)
