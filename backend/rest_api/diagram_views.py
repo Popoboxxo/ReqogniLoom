@@ -133,8 +133,9 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                     build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            # Tenant-scoped query
+            # Tenant-scoped query filtered by workspace_id
             diagrams = Diagram.objects.filter(
+                workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
             ).order_by("-created_at")
             serialized = [self._diagram_to_dict(d) for d in diagrams]
@@ -151,7 +152,6 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
         """POST /api/v1/diagrams/ — create a new diagram with initial version."""
         lang = detect_lang(request)
         try:
-            ctx = get_auth_context(request)
             name = request.data.get("name")
             diagram_type = request.data.get("diagram_type", DiagramType.BLOCK)
             payload_format = request.data.get("payload_format", PayloadFormat.JSON)
@@ -206,7 +206,6 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
         """GET /api/v1/diagrams/<pk>/ — get diagram details with version info."""
         lang = detect_lang(request)
         try:
-            ctx = get_auth_context(request)
             result: DiagramResult = get_diagram(diagram_id=UUID(pk))
             diagram = result.diagram
             version = result.version
@@ -237,7 +236,6 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
         """PATCH /api/v1/diagrams/<pk>/ — update diagram (creates new version)."""
         lang = detect_lang(request)
         try:
-            ctx = get_auth_context(request)
             payload_format = request.data.get("payload_format")
             content = request.data.get("content")
 
