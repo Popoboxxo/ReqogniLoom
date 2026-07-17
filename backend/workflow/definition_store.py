@@ -162,6 +162,27 @@ def _extended_transitions() -> list[dict[str, Any]]:
             "requires_change_reason": True,
             "signature_gate": False,
         },
+        # REQ-L2-WE-011: V-model right-hand side — after approval, a
+        # requirement is implemented and then verified. RBAC only defines
+        # admin/editor/viewer/approver (auth_tenancy/models.py); "developer"
+        # and "reviewer/verifier" are not distinct roles in this system, so
+        # "editor" (implementation work) and "approver" (review/verification,
+        # already used for the in_review->approved gate) are the closest
+        # existing-role mapping.
+        {
+            "from_state": "approved",
+            "to_state": "implemented",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "implemented",
+            "to_state": "verified",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
     ]
 
 
@@ -175,7 +196,12 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         "transitions": _standard_transitions(),
     },
     "extended": {
-        "states": ["draft", "in_review", "approved", "deprecated"],
+        # REQ-L2-WE-011: "implemented"/"verified" added after "approved" to
+        # express the V-model right-hand side. "draft" stays first (used as
+        # WorkflowDefinitionDTO.initial_state) and "deprecated" stays last;
+        # existing items already in approved/deprecated are unaffected since
+        # both states remain valid members of this preset (backward-compatible).
+        "states": ["draft", "in_review", "approved", "implemented", "verified", "deprecated"],
         "transitions": _extended_transitions(),
     },
 }
