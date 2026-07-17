@@ -777,6 +777,9 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["low", "medium", "high"], default="medium"
     )
     risk_score = serializers.IntegerField(read_only=True)
+    # REQ-L1-029 (FMEA): Risk Priority Number = probability * impact * detection.
+    # Computed property on the model, never persisted.
+    rpn = serializers.IntegerField(read_only=True)
     severity = serializers.ChoiceField(
         choices=["low", "medium", "high"], default="medium"
     )
@@ -785,6 +788,12 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="technical",
     )
     owner = serializers.CharField(allow_blank=True, default="")
+    # REQ-L1-029 (FMEA): structured User FK for risk assignment, kept alongside
+    # the legacy free-text `owner` field.
+    owner_user_id = serializers.UUIDField(allow_null=True, required=False)
+    owner_user_display = serializers.CharField(read_only=True, allow_null=True)
+    # REQ-L1-029 (FMEA): detectability score (1=easy .. 10=impossible).
+    detection = serializers.IntegerField(min_value=1, max_value=10, default=5)
     mitigation_strategy = serializers.CharField(allow_blank=True, default="")
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.ChoiceField(

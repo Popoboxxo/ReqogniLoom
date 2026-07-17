@@ -225,6 +225,63 @@ class TestCreateRisk:
                 ctx=ctx,
             )
 
+    def test_detection_and_owner_user_id_passed_to_risk(self):
+        """REQ-L1-029: detection and owner_user_id are forwarded to the Risk row."""
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        owner_user_id = uuid.uuid4()
+
+        with (
+            patch("application.risk_service.Risk") as mock_risk_cls,
+            patch("persistence.models.Tenant.objects") as mock_tenant,
+            patch("persistence.models.Workspace.objects") as mock_ws,
+            patch("persistence.models.Artifact.objects") as mock_artifact,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+            patch("application.risk_service.RiskService._assert_write_permission"),
+            patch("application.risk_service.RiskService._audit"),
+            patch("application.risk_service.RiskService._emit_event"),
+            patch("application.risk_service.RiskService._make_event", return_value=MagicMock()),
+            patch("workflow.services.initialize_workflow_states"),
+        ):
+            mock_tenant.filter.return_value.first.return_value = MagicMock()
+            mock_ws.filter.return_value.first.return_value = MagicMock()
+            mock_artifact.create.return_value = MagicMock()
+            mock_instance = MagicMock()
+            mock_instance.probability = "high"
+            mock_instance.impact = "high"
+            mock_instance.id = RISK_ID
+            mock_instance.workspace_id = WS_ID
+            mock_instance.compute_score.return_value = 9
+            mock_risk_cls.return_value = mock_instance
+            mock_risk_cls.score_to_severity = Risk.score_to_severity
+
+            svc.create_risk(
+                workspace_id=WS_ID,
+                title="Sensor drift",
+                probability="high",
+                impact="high",
+                ctx=ctx,
+                detection=8,
+                owner_user_id=owner_user_id,
+            )
+
+        _, kwargs = mock_risk_cls.call_args
+        assert kwargs["detection"] == 8
+        assert kwargs["owner_user_id"] == owner_user_id
+
+    def test_detection_out_of_range_raises(self):
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        with pytest.raises(ValidationError, match="detection"):
+            svc.create_risk(
+                workspace_id=WS_ID,
+                title="Risk",
+                probability="low",
+                impact="low",
+                ctx=ctx,
+                detection=11,
+            )
+
     def test_workflow_init_failure_does_not_abort(self):
         svc = RiskService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
@@ -350,6 +407,48 @@ class TestUpdateRisk:
             mock_mgr.filter.return_value.first.return_value = None
             with pytest.raises(NotFoundError):
                 svc.update_risk(risk_id=RISK_ID, ctx=ctx)
+
+    def test_detection_and_owner_user_id_updated(self):
+        """REQ-L1-029: detection and owner_user_id can be updated independently."""
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        owner_user_id = uuid.uuid4()
+        existing = _make_risk(probability="low", impact="low", risk_score=1, severity="low", version=1)
+        existing.detection = 5
+        existing.owner_user_id = None
+        existing.save = MagicMock()
+        existing.compute_score = lambda: Risk._PROB_NUMERIC.get(existing.probability, 1) * Risk._IMPACT_NUMERIC.get(existing.impact, 1)
+
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.Risk.score_to_severity", side_effect=Risk.score_to_severity),
+            patch("application.risk_service.RiskService._set_tenant_context"),
+            patch("application.risk_service.RiskService._assert_write_permission"),
+            patch("application.risk_service.RiskService._audit"),
+            patch("application.risk_service.RiskService._emit_event"),
+            patch("application.risk_service.RiskService._make_event", return_value=MagicMock()),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing
+            result = svc.update_risk(
+                risk_id=RISK_ID, ctx=ctx, detection=9, owner_user_id=owner_user_id
+            )
+
+        assert result.detection == 9
+        assert result.owner_user_id == owner_user_id
+
+    def test_detection_out_of_range_raises(self):
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        existing = _make_risk()
+
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+            patch("application.risk_service.RiskService._assert_write_permission"),
+        ):
+            mock_mgr.filter.return_value.first.return_value = existing
+            with pytest.raises(ValidationError, match="detection"):
+                svc.update_risk(risk_id=RISK_ID, ctx=ctx, detection=0)
 
 
 # ---------------------------------------------------------------------------

@@ -2769,9 +2769,14 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
         "probability": getattr(risk, "probability", "low"),
         "impact": getattr(risk, "impact", "low"),
         "risk_score": getattr(risk, "risk_score", 1),
+        # REQ-L1-029 (FMEA): Risk Priority Number, computed property on the model.
+        "rpn": getattr(risk, "rpn", risk.risk_score),
         "severity": getattr(risk, "severity", "low"),
         "category": getattr(risk, "category", "technical"),
         "owner": getattr(risk, "owner", ""),
+        "owner_user_id": str(risk.owner_user_id) if getattr(risk, "owner_user_id", None) else None,
+        "owner_user_display": getattr(risk.owner_user, "email", None) if getattr(risk, "owner_user_id", None) else None,
+        "detection": getattr(risk, "detection", 5),
         "mitigation_strategy": getattr(risk, "mitigation_strategy", ""),
         "uid": getattr(risk, "uid", None),
         "status": getattr(risk, "status", "Identified"),
@@ -3363,6 +3368,8 @@ class RiskViewSet(BaseEntityViewSet):
                 owner=data.get("owner", ""),
                 mitigation_strategy=data.get("mitigation_strategy", ""),
                 status=data.get("status", "Identified"),
+                detection=data.get("detection", 5),
+                owner_user_id=data.get("owner_user_id"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -3397,6 +3404,8 @@ class RiskViewSet(BaseEntityViewSet):
                 owner=data.get("owner"),
                 mitigation_strategy=data.get("mitigation_strategy"),
                 change_reason=data.get("change_reason"),
+                detection=data.get("detection"),
+                owner_user_id=data.get("owner_user_id"),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
