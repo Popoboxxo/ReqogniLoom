@@ -635,6 +635,166 @@ class TestWorkflowDefinitionEndpoint:
         assert response.status_code == 400
 
 
+class TestWorkflowDefinitionEditEndpoints:
+    """POST/PATCH/DELETE definition mutation actions (REQ-177, edit mode)."""
+
+    def _dto(self, states=("draft", "in_review"), transitions=()) -> Any:
+        from workflow.definition_store import (
+            TransitionDefinitionDTO,
+            WorkflowDefinitionDTO,
+        )
+
+        trs = tuple(
+            TransitionDefinitionDTO(
+                from_state=f, to_state=t, allowed_roles=("admin",)
+            )
+            for f, t in transitions
+        )
+        return WorkflowDefinitionDTO(
+            states=tuple(states),
+            transitions=trs,
+            workspace_id=uuid.uuid4(),
+            item_type="Requirement",
+            preset="extended",
+            is_custom=True,
+        )
+
+    def _req(self, method: str, data=None, roles=("admin",)) -> Any:
+        factory = APIRequestFactory()
+        fn = getattr(factory, method.lower())
+        req = fn("/api/v1/workflows/definition/states/", data=data or {}, format="json")
+        req.auth_context = _make_auth_context(roles)
+        return req
+
+    def test_create_state_returns_201_and_graph(self) -> None:
+        facade = MagicMock()
+        facade.add_state.return_value = self._dto(states=("draft", "in_review", "done"))
+        req = self._req(
+            "post",
+            {"workspace_id": str(uuid.uuid4()), "item_type": "Requirement", "name": "done"},
+        )
+        view = WorkflowDefinitionViewSet.as_view({"post": "create_state"})
+        with patch(
+            "rest_api.views.WorkflowDefinitionViewSet._svc", return_value=facade
+        ):
+            response = view(req)
+        assert response.status_code == 201
+        assert "done" in response.data["states"]
+        _, kwargs = facade.add_state.call_args
+        assert kwargs["name"] == "done"
+
+    def test_non_admin_is_forbidden(self) -> None:
+        req = self._req(
+            "post",
+            {"workspace_id": str(uuid.uuid4()), "item_type": "Requirement", "name": "x"},
+            roles=("editor",),
+        )
+        view = WorkflowDefinitionViewSet.as_view({"post": "create_state"})
+        response = view(req)
+        assert response.status_code == 403
+
+    def test_create_state_missing_name_returns_400(self) -> None:
+        req = self._req(
+            "post", {"workspace_id": str(uuid.uuid4()), "item_type": "Requirement"}
+        )
+        view = WorkflowDefinitionViewSet.as_view({"post": "create_state"})
+        response = view(req)
+        assert response.status_code == 400
+
+    def test_delete_referenced_state_maps_to_409(self) -> None:
+        from workflow.definition_store import StateReferencedError
+
+        facade = MagicMock()
+        facade.delete_state.side_effect = StateReferencedError(
+            "draft", ["draft -> in_review"]
+        )
+        factory = APIRequestFactory()
+        ws = uuid.uuid4()
+        req = factory.delete(
+            f"/api/v1/workflows/definition/states/draft/?workspace_id={ws}&item_type=Requirement"
+        )
+        req.auth_context = _make_auth_context()
+        view = WorkflowDefinitionViewSet.as_view({"delete": "modify_state"})
+        with patch(
+            "rest_api.views.WorkflowDefinitionViewSet._svc", return_value=facade
+        ):
+            response = view(req, state_id="draft")
+        assert response.status_code == 409
+
+    def test_create_transition_requires_states(self) -> None:
+        req = self._req(
+            "post",
+            {"workspace_id": str(uuid.uuid4()), "item_type": "Requirement", "from_state": "draft"},
+        )
+        view = WorkflowDefinitionViewSet.as_view({"post": "create_transition"})
+        response = view(req)
+        assert response.status_code == 400
+
+    def test_delete_transition_parses_composite_id(self) -> None:
+        facade = MagicMock()
+        facade.delete_transition.return_value = self._dto()
+        factory = APIRequestFactory()
+        ws = uuid.uuid4()
+        req = factory.delete(
+            f"/api/v1/workflows/definition/transitions/draft__in_review/"
+            f"?workspace_id={ws}&item_type=Requirement"
+        )
+        req.auth_context = _make_auth_context()
+        view = WorkflowDefinitionViewSet.as_view({"delete": "modify_transition"})
+        with patch(
+            "rest_api.views.WorkflowDefinitionViewSet._svc", return_value=facade
+        ):
+            response = view(req, transition_id="draft__in_review")
+        assert response.status_code == 200
+        _, kwargs = facade.delete_transition.call_args
+        assert kwargs["from_state"] == "draft"
+        assert kwargs["to_state"] == "in_review"
+
+    def test_malformed_transition_id_returns_400(self) -> None:
+        factory = APIRequestFactory()
+        ws = uuid.uuid4()
+        req = factory.delete(
+            f"/api/v1/workflows/definition/transitions/bogus/"
+            f"?workspace_id={ws}&item_type=Requirement"
+        )
+        req.auth_context = _make_auth_context()
+        view = WorkflowDefinitionViewSet.as_view({"delete": "modify_transition"})
+        response = view(req, transition_id="bogus")
+        assert response.status_code == 400
+
+    def test_initialize_returns_201(self) -> None:
+        facade = MagicMock()
+        facade.initialize_definition.return_value = self._dto()
+        req = self._req(
+            "post", {"workspace_id": str(uuid.uuid4()), "item_type": "Adr"}
+        )
+        view = WorkflowDefinitionViewSet.as_view({"post": "initialize_definition"})
+        with patch(
+            "rest_api.views.WorkflowDefinitionViewSet._svc", return_value=facade
+        ):
+            response = view(req)
+        assert response.status_code == 201
+        assert response.data["initialized"] is True
+
+    def test_preset_gate_maps_to_403(self) -> None:
+        from workflow.services import WorkflowNotConfigurableError
+
+        facade = MagicMock()
+        facade.add_state.side_effect = WorkflowNotConfigurableError(
+            "Custom workflows only allowed in extended preset"
+        )
+        req = self._req(
+            "post",
+            {"workspace_id": str(uuid.uuid4()), "item_type": "Requirement", "name": "x"},
+        )
+        view = WorkflowDefinitionViewSet.as_view({"post": "create_state"})
+        with patch(
+            "rest_api.views.WorkflowDefinitionViewSet._svc", return_value=facade
+        ):
+            response = view(req)
+        assert response.status_code == 403
+
+
 # ---------------------------------------------------------------------------
 # RequirementViewSet.list — REQ-144 ?status= filter for the review queue
 # ---------------------------------------------------------------------------
