@@ -17,8 +17,20 @@
  *   - DELETE                     always 403 (definitions cannot be deleted).
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, extractErrorMessage, getList } from "./client";
+import { ForbiddenError } from "./errors";
 import type { PaginatedResponse, UUID } from "../types";
+
+/**
+ * Turn any thrown workflow-mutation error into a human-readable message
+ * (REQ-177). ``ForbiddenError`` (403 — preset gate / missing admin role)
+ * carries its message directly; every other ``ApiError`` (409 conflict, 400
+ * validation) is unwrapped by ``extractErrorMessage``.
+ */
+export function extractWorkflowError(err: unknown): string {
+  if (err instanceof ForbiddenError) return err.message;
+  return extractErrorMessage(err);
+}
 
 export interface WorkflowDefinition {
   id: UUID;
@@ -230,6 +242,123 @@ export const workflowsApi = {
     name: string;
   }): Promise<{ message: string }> {
     return apiClient.post<{ message: string }>("/workflows/", data);
+  },
+
+  // -------------------------------------------------------------------------
+  // REQ-177 — Edit-mode mutations (Workflow Editor Phase 2).
+  //
+  // State identity is the state NAME; transition identity is the
+  // ``<from>__<to>`` pair (matching ``toWorkflowGraph``'s derived ids). Every
+  // mutation returns the full, re-derived ``WorkflowGraph`` so the caller can
+  // refresh the canvas from one round-trip. Backend validation errors (409
+  // conflict on delete-with-references, 400 duplicate/empty, 403 preset gate)
+  // surface as thrown ``ApiError``/``ForbiddenError`` — use
+  // ``extractWorkflowError`` to render them.
+  // -------------------------------------------------------------------------
+
+  async createState(
+    entityType: WorkflowEntityType,
+    workspaceId: UUID,
+    name: string
+  ): Promise<WorkflowGraph> {
+    const raw = await apiClient.post<WorkflowDefinitionGraph>(
+      "/workflows/definition/states/",
+      { workspace_id: workspaceId, item_type: entityType, name }
+    );
+    return toWorkflowGraph(entityType, raw);
+  },
+
+  async updateState(
+    entityType: WorkflowEntityType,
+    workspaceId: UUID,
+    oldName: string,
+    newName: string
+  ): Promise<WorkflowGraph> {
+    const raw = await apiClient.patch<WorkflowDefinitionGraph>(
+      `/workflows/definition/states/${encodeURIComponent(oldName)}/`,
+      { workspace_id: workspaceId, item_type: entityType, name: newName }
+    );
+    return toWorkflowGraph(entityType, raw);
+  },
+
+  async deleteState(
+    entityType: WorkflowEntityType,
+    workspaceId: UUID,
+    name: string
+  ): Promise<WorkflowGraph> {
+    const qs = new URLSearchParams({
+      workspace_id: workspaceId,
+      item_type: entityType,
+    }).toString();
+    const raw = await apiClient.delete<WorkflowDefinitionGraph>(
+      `/workflows/definition/states/${encodeURIComponent(name)}/?${qs}`
+    );
+    return toWorkflowGraph(entityType, raw);
+  },
+
+  async createTransition(
+    entityType: WorkflowEntityType,
+    workspaceId: UUID,
+    payload: {
+      from_state: string;
+      to_state: string;
+      allowed_roles?: string[];
+      requires_change_reason?: boolean;
+      signature_gate?: boolean;
+    }
+  ): Promise<WorkflowGraph> {
+    const raw = await apiClient.post<WorkflowDefinitionGraph>(
+      "/workflows/definition/transitions/",
+      { workspace_id: workspaceId, item_type: entityType, ...payload }
+    );
+    return toWorkflowGraph(entityType, raw);
+  },
+
+  async updateTransition(
+    entityType: WorkflowEntityType,
+    workspaceId: UUID,
+    fromState: string,
+    toState: string,
+    patch: {
+      allowed_roles?: string[];
+      requires_change_reason?: boolean;
+      signature_gate?: boolean;
+    }
+  ): Promise<WorkflowGraph> {
+    const id = `${fromState}__${toState}`;
+    const raw = await apiClient.patch<WorkflowDefinitionGraph>(
+      `/workflows/definition/transitions/${encodeURIComponent(id)}/`,
+      { workspace_id: workspaceId, item_type: entityType, ...patch }
+    );
+    return toWorkflowGraph(entityType, raw);
+  },
+
+  async deleteTransition(
+    entityType: WorkflowEntityType,
+    workspaceId: UUID,
+    fromState: string,
+    toState: string
+  ): Promise<WorkflowGraph> {
+    const id = `${fromState}__${toState}`;
+    const qs = new URLSearchParams({
+      workspace_id: workspaceId,
+      item_type: entityType,
+    }).toString();
+    const raw = await apiClient.delete<WorkflowDefinitionGraph>(
+      `/workflows/definition/transitions/${encodeURIComponent(id)}/?${qs}`
+    );
+    return toWorkflowGraph(entityType, raw);
+  },
+
+  async initializeWorkflow(
+    entityType: WorkflowEntityType,
+    workspaceId: UUID
+  ): Promise<WorkflowGraph> {
+    const raw = await apiClient.post<WorkflowDefinitionGraph>(
+      "/workflows/definition/initialize/",
+      { workspace_id: workspaceId, item_type: entityType }
+    );
+    return toWorkflowGraph(entityType, raw);
   },
 
   /** PATCH /api/v1/workflows/<entityId>/ — transition an entity's state. */

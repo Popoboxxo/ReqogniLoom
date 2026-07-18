@@ -190,12 +190,12 @@ export const apiClient = {
     });
   },
 
-  delete(path: string, body?: unknown): Promise<void> {
+  delete<T = void>(path: string, body?: unknown): Promise<T> {
     const options: RequestInit = { method: "DELETE" };
     if (body !== undefined) {
       options.body = JSON.stringify(body);
     }
-    return apiFetch<void>(path, options);
+    return apiFetch<T>(path, options);
   },
 };
 
