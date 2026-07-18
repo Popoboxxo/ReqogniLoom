@@ -2289,32 +2289,17 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
                     "item_type": item_type,
                     "preset": None,
                     "is_custom": False,
+                    # REQ-180 additive on-default/customized signal.
+                    "is_customized": False,
+                    "on_default": True,
+                    "source_global_id": None,
                     "initial_state": None,
                     "initialized": False,
                     "states": [],
                     "transitions": [],
                 }
             )
-        return Response(
-            {
-                "item_type": dto.item_type,
-                "preset": dto.preset,
-                "is_custom": dto.is_custom,
-                "initial_state": dto.initial_state,
-                "initialized": True,
-                "states": list(dto.states),
-                "transitions": [
-                    {
-                        "from_state": tr.from_state,
-                        "to_state": tr.to_state,
-                        "allowed_roles": list(tr.allowed_roles),
-                        "requires_change_reason": tr.requires_change_reason,
-                        "signature_gate": tr.signature_gate,
-                    }
-                    for tr in dto.transitions
-                ],
-            }
-        )
+        return Response(self._serialize_definition(dto))
 
     # -- Edit-mode mutations (REQ-177 — Workflow Editor Phase 2) --------------
     #
@@ -2326,10 +2311,16 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
 
     @staticmethod
     def _serialize_definition(dto: Any) -> dict[str, Any]:
+        is_customized = bool(getattr(dto, "is_customized", False))
         return {
             "item_type": dto.item_type,
             "preset": dto.preset,
             "is_custom": dto.is_custom,
+            # REQ-180 additive fields (see WorkflowGraphWorkspace in the contract).
+            # ``is_customized`` (new) is UNRELATED to the legacy ``is_custom``.
+            "is_customized": is_customized,
+            "on_default": not is_customized,
+            "source_global_id": getattr(dto, "source_global_id", None),
             "initial_state": dto.initial_state,
             "initialized": True,
             "states": list(dto.states),
@@ -2397,12 +2388,20 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
     def _edit_error_response(exc: Exception, lang: str) -> Response:
         """Map an edit-mode exception to a precise HTTP status."""
         from workflow.services import (
+            NoGlobalSourceError,
             OrphanedStateError,
             StateReferencedError,
             WorkflowDefinitionError,
             WorkflowNotConfigurableError,
         )
 
+        if isinstance(exc, NoGlobalSourceError):
+            # REQ-180: distinct machine-readable code so the client can offer
+            # "initialize from current global" instead of a silent no-op.
+            return Response(
+                build_error_response("NO_GLOBAL_SOURCE", lang, message=str(exc)),
+                status=status.HTTP_409_CONFLICT,
+            )
         if isinstance(exc, (OrphanedStateError, StateReferencedError)):
             return Response(
                 build_error_response("CONFLICT", lang, message=str(exc)),
@@ -2575,6 +2574,26 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
         except Exception as exc:  # noqa: BLE001
             return self._edit_error_response(exc, lang)
         return Response(self._serialize_definition(dto), status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="definition/reset")
+    def reset_definition(self, request: Request, **kwargs: Any) -> Response:
+        """POST ``definition/reset/`` — reset to the global default (REQ-180).
+
+        Admin-gated identically to the other mutation actions. Overwrites
+        ``workflow_json`` with ``source_global.workflow_json`` and clears
+        ``is_customized``. 409 NO_GLOBAL_SOURCE when nothing is linked.
+        """
+        pre = self._edit_precheck(request)
+        if isinstance(pre, Response):
+            return pre
+        ctx, lang, workspace_id, item_type = pre
+        try:
+            dto = self._svc().reset_definition(
+                ctx, item_type=item_type, workspace_id=workspace_id
+            )
+        except Exception as exc:  # noqa: BLE001 — mapped to a precise status
+            return self._edit_error_response(exc, lang)
+        return Response(self._serialize_definition(dto))
 
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         return Response(build_error_response("NOT_FOUND", detect_lang(request)), status=status.HTTP_404_NOT_FOUND)

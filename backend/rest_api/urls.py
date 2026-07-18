@@ -56,6 +56,21 @@ from rest_api.settings_views import (
     PromptTemplateResetView,
     PromptTemplateView,
 )
+from rest_api.global_default_views import (
+    EnforcementFlipView,
+    EnforcementStatusView,
+    GlobalPermissionDefinitionView,
+    GlobalWorkflowDefinitionDetailView,
+    GlobalWorkflowDefinitionListView,
+    GlobalWorkflowInitializeView,
+    GlobalWorkflowStateDetailView,
+    GlobalWorkflowStatesView,
+    GlobalWorkflowTransitionDetailView,
+    GlobalWorkflowTransitionsView,
+    PermissionMismatchListView,
+    WorkspacePermissionDefinitionView,
+    WorkspacePermissionResetView,
+)
 from rest_api.views import (
     AdrViewSet,
     ArchitectureElementViewSet,
@@ -241,6 +256,77 @@ urlpatterns = [
         "prompt-templates/",
         PromptTemplateView.as_view(),
         name="prompt-templates",
+    ),
+    # -- Global workflow defaults (REQ-178) — tenant-wide, per item_type+preset.
+    # More specific sub-paths precede the {item_type}/{preset}/ detail route.
+    path(
+        "workflow-defaults/",
+        GlobalWorkflowDefinitionListView.as_view(),
+        name="workflow-defaults-list",
+    ),
+    path(
+        "workflow-defaults/<str:item_type>/<str:preset>/initialize/",
+        GlobalWorkflowInitializeView.as_view(),
+        name="workflow-defaults-initialize",
+    ),
+    path(
+        "workflow-defaults/<str:item_type>/<str:preset>/states/<str:state_id>/",
+        GlobalWorkflowStateDetailView.as_view(),
+        name="workflow-defaults-state-detail",
+    ),
+    path(
+        "workflow-defaults/<str:item_type>/<str:preset>/states/",
+        GlobalWorkflowStatesView.as_view(),
+        name="workflow-defaults-states",
+    ),
+    path(
+        "workflow-defaults/<str:item_type>/<str:preset>/transitions/<str:transition_id>/",
+        GlobalWorkflowTransitionDetailView.as_view(),
+        name="workflow-defaults-transition-detail",
+    ),
+    path(
+        "workflow-defaults/<str:item_type>/<str:preset>/transitions/",
+        GlobalWorkflowTransitionsView.as_view(),
+        name="workflow-defaults-transitions",
+    ),
+    path(
+        "workflow-defaults/<str:item_type>/<str:preset>/",
+        GlobalWorkflowDefinitionDetailView.as_view(),
+        name="workflow-defaults-detail",
+    ),
+    # -- Global permission definition (REQ-181/186/187) — tenant singleton.
+    # enforcement sub-routes precede the singleton route so they are not shadowed.
+    path(
+        "permission-defaults/enforcement/flip/",
+        EnforcementFlipView.as_view(),
+        name="permission-defaults-enforcement-flip",
+    ),
+    path(
+        "permission-defaults/enforcement/",
+        EnforcementStatusView.as_view(),
+        name="permission-defaults-enforcement",
+    ),
+    path(
+        "permission-defaults/",
+        GlobalPermissionDefinitionView.as_view(),
+        name="permission-defaults",
+    ),
+    # -- Workspace permission definition (REQ-182/183) — matrix override + reset.
+    path(
+        "workspaces/<uuid:workspace_id>/permission-definition/reset/",
+        WorkspacePermissionResetView.as_view(),
+        name="workspace-permission-definition-reset",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/permission-definition/",
+        WorkspacePermissionDefinitionView.as_view(),
+        name="workspace-permission-definition",
+    ),
+    # -- Permission decision mismatch log (REQ-187) — read-only, append-only.
+    path(
+        "permission-mismatches/",
+        PermissionMismatchListView.as_view(),
+        name="permission-mismatches",
     ),
     # Canvas strokes (REQ-L1-056, IF-L1-058/060) — diagram sub-resource.
     path(
