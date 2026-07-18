@@ -69,6 +69,9 @@ const REVIEW_ACTION_CONFIG: Record<
   // until their state machines diverge; the server stays authoritative.
   icd: { approve: "approved", reject: "draft" },
   glossary: { approve: "approved", reject: "draft" },
+  // REQ-173: diagrams join the review queue on the default approved/draft pair;
+  // the server-side state machine stays authoritative.
+  diagram: { approve: "approved", reject: "draft" },
 };
 
 // REQ-168: the entity types the review queue can switch between, derived from
@@ -99,6 +102,7 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
   architecture: "architecture",
   icd: "icd",
   glossary: "glossary",
+  diagram: "diagram",
 };
 
 function findTransition(

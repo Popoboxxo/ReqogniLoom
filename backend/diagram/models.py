@@ -71,6 +71,14 @@ class Diagram(TenantScopedModel):
     """
 
     name = models.CharField(max_length=500)
+    # Owning workspace (Artifact scoping, REQ-173). Mirrors the Icd.workspace_id
+    # pattern (icd/models.py): a decoupled UUIDField rather than a hard cross-app
+    # FK, to avoid coupling the DiagramService to the persistence app's Workspace
+    # table. Nullable for a backwards-compatible rollout — existing Diagram rows
+    # predate workspace scoping and are backfilled per tenant in migration 0005
+    # (Expand phase). A single named index (idx_diagram_workspace) is declared in
+    # Meta instead of db_index=True here, to avoid a redundant second index.
+    workspace_id = models.UUIDField(null=True, blank=True)
     diagram_type = models.CharField(
         max_length=32,
         choices=DiagramType.choices,
@@ -88,6 +96,11 @@ class Diagram(TenantScopedModel):
 
     class Meta:
         db_table = "diagram_diagram"
+        indexes = [
+            # Workspace scoping index, mirrors idx_icd_workspace (icd/models.py):
+            # serves DiagramViewSet workspace-filtered list/resolve queries.
+            models.Index(fields=["workspace_id"], name="idx_diagram_workspace"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.diagram_type}:{self.name}:{self.id}"

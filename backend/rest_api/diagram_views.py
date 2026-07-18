@@ -12,9 +12,15 @@ Endpoints:
   GET    /api/v1/diagrams/<pk>/versions/ — list DiagramVersions chronologically
   GET    /api/v1/diagrams/<pk>/diff/     — field-level diff between two versions
                                             (?from_version=&to_version=)
+  GET/POST /api/v1/diagrams/<pk>/transitions/      — workflow transitions (REQ-173)
+  GET    /api/v1/diagrams/<pk>/workflow-history/   — workflow audit trail (REQ-173)
 
 REQ-142: versions/diff delegate to ArtifactDiffService (COMP-AS-019), reusing
 the same field-level diff computation as the requirement endpoints.
+
+REQ-173: WorkflowTransitionsMixin wires Diagram into the shared lifecycle
+machinery. workspace_id is set on creation and stored directly on Diagram
+(mirrors Icd); workflow endpoints require a non-null workspace_id.
 """
 from __future__ import annotations
 
@@ -34,19 +40,30 @@ from diagram.services import (
     create_diagram,
     delete_diagram,
     get_diagram,
+    get_diagram_header,
     list_versions,
     update_diagram,
     DiagramResult,
 )
 from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
 from rest_api.serializers import StandardPagination, build_error_response, detect_lang
 
 
-class DiagramViewSet(ViewSet):
-    """REST ViewSet for Diagram CRUD operations."""
+class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
+    """REST ViewSet for Diagram CRUD operations.
+
+    REQ-173: transitions/ and workflow-history/ via WorkflowTransitionsMixin,
+    same lifecycle machinery as Icd/Requirement/... Diagram.workspace_id is
+    nullable (migration 0005, Expand phase) — existing rows predate workspace
+    scoping and are backfilled separately, so workflow access is only
+    available once a diagram has a workspace assigned (see
+    _resolve_workflow_target below).
+    """
 
     pagination_class = StandardPagination
+    workflow_item_type = "Diagram"
 
     # -- helpers -----------------------------------------------------------
 
@@ -76,10 +93,32 @@ class DiagramViewSet(ViewSet):
             "name": diagram.name,
             "diagram_type": diagram.diagram_type,
             "description": diagram.description,
+            "workspace_id": str(diagram.workspace_id) if diagram.workspace_id else None,
             "current_version": str(diagram.current_version_id) if diagram.current_version_id else None,
             "created_at": diagram.created_at.isoformat() if diagram.created_at else None,
             "version_count": diagram.versions.count() if diagram.id else 0,
         }
+
+    # -- workflow (REQ-173) --------------------------------------------------
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        """Resolve the Diagram identified by *pk* to (item_id, workspace_id).
+
+        Diagram stores workspace_id directly (see _diagram_to_dict), mirroring
+        the Icd pattern. workspace_id is nullable for pre-existing rows
+        (migration 0005, Expand phase) — those are backfilled separately, so
+        workflow transitions are only available once a diagram has a
+        workspace assigned.
+        """
+        try:
+            diagram = get_diagram_header(UUID(pk), ctx.tenant_id)
+        except Diagram.DoesNotExist as exc:
+            raise NotFoundError(str(exc)) from exc
+        if diagram.workspace_id is None:
+            raise NotFoundError(
+                f"Diagram {diagram.id} has no workspace assigned; workflow unavailable"
+            )
+        return diagram.id, diagram.workspace_id
 
     # -- list --------------------------------------------------------------
 
@@ -94,8 +133,9 @@ class DiagramViewSet(ViewSet):
                     build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            # Tenant-scoped query
+            # Tenant-scoped query filtered by workspace_id
             diagrams = Diagram.objects.filter(
+                workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
             ).order_by("-created_at")
             serialized = [self._diagram_to_dict(d) for d in diagrams]
@@ -112,18 +152,30 @@ class DiagramViewSet(ViewSet):
         """POST /api/v1/diagrams/ — create a new diagram with initial version."""
         lang = detect_lang(request)
         try:
-            ctx = get_auth_context(request)
             name = request.data.get("name")
             diagram_type = request.data.get("diagram_type", DiagramType.BLOCK)
             payload_format = request.data.get("payload_format", PayloadFormat.JSON)
             content = request.data.get("content", "{}")
             description = request.data.get("description", "")
+            workspace_id_raw = request.data.get("workspace_id")
 
             if not name or not str(name).strip():
                 return Response(
                     build_error_response("VALIDATION_ERROR", lang, message="name is required"),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            workspace_id: UUID | None = None
+            if workspace_id_raw:
+                try:
+                    workspace_id = UUID(str(workspace_id_raw))
+                except (ValueError, TypeError):
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
             tenant = self._resolve_tenant(request)
             user = self._resolve_user(request)
@@ -136,6 +188,7 @@ class DiagramViewSet(ViewSet):
                 tenant=tenant,
                 description=str(description),
                 created_by=user,
+                workspace_id=workspace_id,
             )
             return Response(
                 self._diagram_to_dict(diagram),
@@ -153,7 +206,6 @@ class DiagramViewSet(ViewSet):
         """GET /api/v1/diagrams/<pk>/ — get diagram details with version info."""
         lang = detect_lang(request)
         try:
-            ctx = get_auth_context(request)
             result: DiagramResult = get_diagram(diagram_id=UUID(pk))
             diagram = result.diagram
             version = result.version
@@ -184,7 +236,6 @@ class DiagramViewSet(ViewSet):
         """PATCH /api/v1/diagrams/<pk>/ — update diagram (creates new version)."""
         lang = detect_lang(request)
         try:
-            ctx = get_auth_context(request)
             payload_format = request.data.get("payload_format")
             content = request.data.get("content")
 

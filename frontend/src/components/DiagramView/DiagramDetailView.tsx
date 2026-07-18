@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { CanvasEditor } from "../canvas/CanvasEditor";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
+import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { useDiagramDetail } from "./useDiagramData";
 import {
   diagramVersionLabel,
@@ -214,6 +215,19 @@ export function DiagramDetailView({
           >
             {detail.description}
           </p>
+        )}
+
+        {/* REQ-173: WorkflowEngine-driven status editor for the diagram. */}
+        {diagramId && (
+          <div style={{ marginBottom: "var(--space-4)" }}>
+            <WorkflowStatusEditor
+              artifactType="diagram"
+              artifactId={diagramId}
+              currentStatus={detail.status ?? undefined}
+              disabled={isSaving}
+              onTransitionComplete={onChanged}
+            />
+          </div>
         )}
 
         <div

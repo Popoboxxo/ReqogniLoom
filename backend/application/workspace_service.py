@@ -67,13 +67,11 @@ _WORKFLOW_ENTITY_TYPES: tuple[tuple[str, str], ...] = (
     # REQ-171: ArchitectureElement lifecycle (draft/in_review/approved/deprecated).
     ("ArchitectureElement", "architecture_default"),
     # REQ-173: Icd, Diagram, GlossaryTerm lifecycle
-    # (draft/in_review/approved/deprecated). Note: DiagramViewSet does not yet
-    # wire WorkflowTransitionsMixin — Diagram has no workspace_id column
-    # (diagram/models.py), so _resolve_workflow_target cannot be implemented
-    # without either a schema migration or a client-supplied workspace_id
-    # (rejected: would let a workspace_id choice bypass preset-specific role
-    # gates). This definition is provisioned ahead of that decision so no
-    # backfill is needed once it lands.
+    # (draft/in_review/approved/deprecated). Diagram.workspace_id (migration
+    # 0005, diagram/models.py) is nullable — existing rows predate workspace
+    # scoping and are backfilled separately, so DiagramViewSet's
+    # _resolve_workflow_target only exposes workflow transitions once a
+    # workspace has been assigned.
     ("Icd", "icd_default"),
     ("Diagram", "diagram_default"),
     ("GlossaryTerm", "glossary_term_default"),
