@@ -231,3 +231,52 @@ class TestInitialize:
             ).count()
             == 1
         )
+
+
+class TestFacadeAuditIntegration:
+    """End-to-end: a real facade mutation writes a valid AuditEntry.
+
+    View tests mock the facade, so this guards the un-mocked audit path against
+    an invalid op/entity_type (the REQ-165-class bug where audit only failed at
+    runtime because AuditEntry.full_clean rejected the op string).
+    """
+
+    def setup_method(self) -> None:
+        from persistence.tenancy import TenantContext
+
+        self.tenant_id = _tenant_id()
+        TenantContext.set_tenant(self.tenant_id)
+        self.ws = str(uuid.uuid4())
+        _make_def(self.tenant_id, self.ws)
+
+    def teardown_method(self) -> None:
+        from persistence.tenancy import TenantContext
+
+        TenantContext.clear_tenant()
+
+    def _ctx(self):
+        from auth_tenancy.context import AuthContext, AuthMethod
+
+        return AuthContext(
+            user_id=uuid.uuid4(),
+            tenant_id=self.tenant_id,
+            active_roles=("admin",),
+            auth_method=AuthMethod.BEARER_TOKEN,
+        )
+
+    @pytest.mark.django_db(transaction=True)
+    def test_add_state_via_facade_writes_audit(self) -> None:
+        from application.workflow_facade import WorkflowFacade
+        from audit.models import AuditEntry
+
+        with patch(_GATE, return_value="full"):
+            dto = WorkflowFacade().add_state(
+                self._ctx(),
+                item_type="Requirement",
+                workspace_id=self.ws,
+                name="in_progress",
+            )
+        assert "in_progress" in dto.states
+        assert AuditEntry.objects.filter(
+            op="update", entity_type="WorkflowDefinition:Requirement"
+        ).exists()
