@@ -34,8 +34,10 @@
     "testRuns": "Testläufe",
     "testCases": "Testfälle",
     "settings": "Workspace-Einstellungen",
+    "systemSettings": "System-Einstellungen",
     "profile": "Profil",
     "glossary": "Glossar",
+    "workflows": "Workflows",
     "logout": "Abmelden",
     "import": "Import",
     "icds": "ICDs",
@@ -119,6 +121,9 @@
     "delete": "Löschen",
     "cancel": "Abbrechen",
     "create": "Erstellen",
+    "creating": "Erstelle...",
+    "closing": "Schließe...",
+    "confirm": "Bestätigen",
     "copy": "Kopieren",
     "dismiss": "Verwerfen",
     "clear": "Zurücksetzen",
@@ -191,6 +196,11 @@
   },
   "arch": {
     "deriveRequirement": "Anforderung ableiten",
+    "lifecycleStatus": {
+      "active": "Aktiv",
+      "outdated": "Veraltet",
+      "deprecated": "Abgekündigt"
+    },
     "elementType": "Element-Typ",
     "elementType.component": "Komponente",
     "elementType.interface": "Schnittstelle",
@@ -386,7 +396,8 @@
     "saveFailed": "ADR konnte nicht gespeichert werden.",
     "deleteConfirm": "Diese ADR löschen?",
     "context": "Kontext",
-    "consequences": "Konsequenzen"
+    "consequences": "Konsequenzen",
+    "titlePlaceholder": "Titel der Architekturentscheidung"
   },
   "risks": {
     "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen.",
@@ -475,6 +486,13 @@
   "testRuns": {
     "create": "Testlauf erstellen",
     "closeRun": "Testlauf abschließen",
+    "status": {
+      "in_progress": "In Bearbeitung",
+      "passed": "Bestanden",
+      "failed": "Fehlgeschlagen",
+      "partial": "Teilweise",
+      "closed": "Abgeschlossen"
+    },
     "namePlaceholder": "Name des Testlaufs...",
     "empty": "Noch keine Testläufe. Erstellen Sie einen, um zu beginnen.",
     "closeConfirm": "Diesen Testlauf abschließen?",

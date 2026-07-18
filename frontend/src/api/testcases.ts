@@ -63,7 +63,10 @@ export const testcasesApi = {
 
   update(
     id: UUID,
-    data: Partial<Pick<TestCase, "title" | "description" | "status" | "custom_fields">>
+    data: Partial<Pick<TestCase, "title" | "description" | "status" | "custom_fields">> & {
+      /** Extended preset: audit rationale forwarded to the backend audit log. */
+      change_reason?: string;
+    }
   ): Promise<TestCase> {
     return apiClient.patch<TestCase>(`/testcases/${id}/`, data);
   },

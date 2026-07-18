@@ -60,7 +60,10 @@ export const risksApi = {
         | "severity"
         | "status"
       >
-    >
+    > & {
+      /** Extended preset: audit rationale forwarded to the backend audit log. */
+      change_reason?: string;
+    }
   ): Promise<Risk> {
     return apiClient.patch<Risk>(`/risks/${id}/`, data);
   },

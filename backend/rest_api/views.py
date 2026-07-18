@@ -2241,6 +2241,360 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
         # WorkflowFacade does not expose list — return empty list
         return Response({"count": 0, "next": None, "previous": None, "results": []})
 
+    @action(detail=False, methods=["get"], url_path="definition")
+    def definition(self, request: Request, **kwargs: Any) -> Response:
+        """GET ``definition/`` — full workflow graph for an entity type (REQ-176).
+
+        Query params: ``workspace_id`` (UUID) and ``item_type`` (e.g.
+        "Requirement"). Returns the COMPLETE state machine — every state and
+        every transition with its role / change_reason / signature metadata — so
+        the Workflow Editor can render the whole graph read-only. When no
+        workflow is configured for the workspace/type, returns an empty graph
+        with ``initialized: false`` rather than a 404.
+        """
+        lang = detect_lang(request)
+        workspace_id = request.query_params.get("workspace_id")
+        item_type = request.query_params.get("item_type")
+        if not workspace_id or not item_type:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="workspace_id and item_type are required",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            UUID(str(workspace_id))
+        except (ValueError, TypeError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id must be a UUID"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            dto = self._svc().get_definition(
+                ctx, item_type=item_type, workspace_id=str(workspace_id)
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+
+        if dto is None:
+            return Response(
+                {
+                    "item_type": item_type,
+                    "preset": None,
+                    "is_custom": False,
+                    # REQ-180 additive on-default/customized signal.
+                    "is_customized": False,
+                    "on_default": True,
+                    "source_global_id": None,
+                    "initial_state": None,
+                    "initialized": False,
+                    "states": [],
+                    "transitions": [],
+                }
+            )
+        return Response(self._serialize_definition(dto))
+
+    # -- Edit-mode mutations (REQ-177 — Workflow Editor Phase 2) --------------
+    #
+    # State identity is the state NAME; transition identity is the
+    # ``<from>__<to>`` pair (matching the frontend's derived ids). Admin-gated
+    # and workspace-scoped exactly like the read endpoint. All mutations return
+    # the full, re-serialised definition graph so the client can refresh in one
+    # round-trip. Preset/reference/orphan errors map to precise HTTP statuses.
+
+    @staticmethod
+    def _serialize_definition(dto: Any) -> dict[str, Any]:
+        is_customized = bool(getattr(dto, "is_customized", False))
+        return {
+            "item_type": dto.item_type,
+            "preset": dto.preset,
+            "is_custom": dto.is_custom,
+            # REQ-180 additive fields (see WorkflowGraphWorkspace in the contract).
+            # ``is_customized`` (new) is UNRELATED to the legacy ``is_custom``.
+            "is_customized": is_customized,
+            "on_default": not is_customized,
+            "source_global_id": getattr(dto, "source_global_id", None),
+            "initial_state": dto.initial_state,
+            "initialized": True,
+            "states": list(dto.states),
+            "transitions": [
+                {
+                    "from_state": tr.from_state,
+                    "to_state": tr.to_state,
+                    "allowed_roles": list(tr.allowed_roles),
+                    "requires_change_reason": tr.requires_change_reason,
+                    "signature_gate": tr.signature_gate,
+                }
+                for tr in dto.transitions
+            ],
+        }
+
+    def _edit_precheck(
+        self, request: Request
+    ) -> tuple[Any, str, str, str] | Response:
+        """Return (ctx, lang, workspace_id, item_type) or an error Response.
+
+        Enforces the admin gate and validates the required scope parameters,
+        accepting them from the JSON body (POST/PATCH) or the query string
+        (DELETE has no body).
+        """
+        from auth_tenancy.models import ROLE_ADMIN
+
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return Response(
+                build_error_response(
+                    "PERMISSION_DENIED",
+                    lang,
+                    message="Editing workflow definitions requires the admin role.",
+                ),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        workspace_id = request.data.get("workspace_id") or request.query_params.get(
+            "workspace_id"
+        )
+        item_type = request.data.get("item_type") or request.query_params.get(
+            "item_type"
+        )
+        if not workspace_id or not item_type:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="workspace_id and item_type are required",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            UUID(str(workspace_id))
+        except (ValueError, TypeError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id must be a UUID"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return ctx, lang, str(workspace_id), str(item_type)
+
+    @staticmethod
+    def _edit_error_response(exc: Exception, lang: str) -> Response:
+        """Map an edit-mode exception to a precise HTTP status."""
+        from workflow.services import (
+            NoGlobalSourceError,
+            OrphanedStateError,
+            StateReferencedError,
+            WorkflowDefinitionError,
+            WorkflowNotConfigurableError,
+        )
+
+        if isinstance(exc, NoGlobalSourceError):
+            # REQ-180: distinct machine-readable code so the client can offer
+            # "initialize from current global" instead of a silent no-op.
+            return Response(
+                build_error_response("NO_GLOBAL_SOURCE", lang, message=str(exc)),
+                status=status.HTTP_409_CONFLICT,
+            )
+        if isinstance(exc, (OrphanedStateError, StateReferencedError)):
+            return Response(
+                build_error_response("CONFLICT", lang, message=str(exc)),
+                status=status.HTTP_409_CONFLICT,
+            )
+        if isinstance(exc, WorkflowNotConfigurableError):
+            return Response(
+                build_error_response("PERMISSION_DENIED", lang, message=str(exc)),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if isinstance(exc, WorkflowDefinitionError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return _service_error_response(exc, lang)
+
+    @action(detail=False, methods=["post"], url_path="definition/states")
+    def create_state(self, request: Request, **kwargs: Any) -> Response:
+        pre = self._edit_precheck(request)
+        if isinstance(pre, Response):
+            return pre
+        ctx, lang, workspace_id, item_type = pre
+        name = (request.data.get("name") or "").strip()
+        if not name:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="name is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dto = self._svc().add_state(
+                ctx, item_type=item_type, workspace_id=workspace_id, name=name
+            )
+        except Exception as exc:  # noqa: BLE001 — mapped to a precise status
+            return self._edit_error_response(exc, lang)
+        return Response(self._serialize_definition(dto), status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=False,
+        methods=["patch", "delete"],
+        url_path=r"definition/states/(?P<state_id>[^/]+)",
+    )
+    def modify_state(self, request: Request, state_id: str, **kwargs: Any) -> Response:
+        pre = self._edit_precheck(request)
+        if isinstance(pre, Response):
+            return pre
+        ctx, lang, workspace_id, item_type = pre
+        from urllib.parse import unquote
+
+        name = unquote(state_id)
+        try:
+            if request.method == "DELETE":
+                dto = self._svc().delete_state(
+                    ctx, item_type=item_type, workspace_id=workspace_id, name=name
+                )
+            else:
+                new_name = (request.data.get("name") or "").strip()
+                if not new_name:
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR", lang, message="name is required"
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                dto = self._svc().update_state(
+                    ctx,
+                    item_type=item_type,
+                    workspace_id=workspace_id,
+                    old_name=name,
+                    new_name=new_name,
+                )
+        except Exception as exc:  # noqa: BLE001
+            return self._edit_error_response(exc, lang)
+        return Response(self._serialize_definition(dto))
+
+    @action(detail=False, methods=["post"], url_path="definition/transitions")
+    def create_transition(self, request: Request, **kwargs: Any) -> Response:
+        pre = self._edit_precheck(request)
+        if isinstance(pre, Response):
+            return pre
+        ctx, lang, workspace_id, item_type = pre
+        from_state = request.data.get("from_state")
+        to_state = request.data.get("to_state")
+        if not from_state or not to_state:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="from_state and to_state are required",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            dto = self._svc().add_transition(
+                ctx,
+                item_type=item_type,
+                workspace_id=workspace_id,
+                from_state=from_state,
+                to_state=to_state,
+                allowed_roles=request.data.get("allowed_roles"),
+                requires_change_reason=bool(
+                    request.data.get("requires_change_reason", False)
+                ),
+                signature_gate=bool(request.data.get("signature_gate", False)),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._edit_error_response(exc, lang)
+        return Response(self._serialize_definition(dto), status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=False,
+        methods=["patch", "delete"],
+        url_path=r"definition/transitions/(?P<transition_id>[^/]+)",
+    )
+    def modify_transition(
+        self, request: Request, transition_id: str, **kwargs: Any
+    ) -> Response:
+        pre = self._edit_precheck(request)
+        if isinstance(pre, Response):
+            return pre
+        ctx, lang, workspace_id, item_type = pre
+        from urllib.parse import unquote
+
+        decoded = unquote(transition_id)
+        parts = decoded.split("__")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="transition id must be '<from>__<to>'",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from_state, to_state = parts
+        try:
+            if request.method == "DELETE":
+                dto = self._svc().delete_transition(
+                    ctx,
+                    item_type=item_type,
+                    workspace_id=workspace_id,
+                    from_state=from_state,
+                    to_state=to_state,
+                )
+            else:
+                dto = self._svc().update_transition(
+                    ctx,
+                    item_type=item_type,
+                    workspace_id=workspace_id,
+                    from_state=from_state,
+                    to_state=to_state,
+                    allowed_roles=request.data.get("allowed_roles"),
+                    requires_change_reason=request.data.get("requires_change_reason"),
+                    signature_gate=request.data.get("signature_gate"),
+                )
+        except Exception as exc:  # noqa: BLE001
+            return self._edit_error_response(exc, lang)
+        return Response(self._serialize_definition(dto))
+
+    @action(detail=False, methods=["post"], url_path="definition/initialize")
+    def initialize_definition(self, request: Request, **kwargs: Any) -> Response:
+        pre = self._edit_precheck(request)
+        if isinstance(pre, Response):
+            return pre
+        ctx, lang, workspace_id, item_type = pre
+        try:
+            dto = self._svc().initialize_definition(
+                ctx, item_type=item_type, workspace_id=workspace_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._edit_error_response(exc, lang)
+        return Response(self._serialize_definition(dto), status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="definition/reset")
+    def reset_definition(self, request: Request, **kwargs: Any) -> Response:
+        """POST ``definition/reset/`` — reset to the global default (REQ-180).
+
+        Admin-gated identically to the other mutation actions. Overwrites
+        ``workflow_json`` with ``source_global.workflow_json`` and clears
+        ``is_customized``. 409 NO_GLOBAL_SOURCE when nothing is linked.
+        """
+        pre = self._edit_precheck(request)
+        if isinstance(pre, Response):
+            return pre
+        ctx, lang, workspace_id, item_type = pre
+        try:
+            dto = self._svc().reset_definition(
+                ctx, item_type=item_type, workspace_id=workspace_id
+            )
+        except Exception as exc:  # noqa: BLE001 — mapped to a precise status
+            return self._edit_error_response(exc, lang)
+        return Response(self._serialize_definition(dto))
+
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         return Response(build_error_response("NOT_FOUND", detect_lang(request)), status=status.HTTP_404_NOT_FOUND)
 

@@ -53,8 +53,13 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/icds", labelKey: "nav.icds", feature: "icds" },
   { path: "/diagrams", labelKey: "nav.diagrams", feature: "diagrams" },
   { path: "/glossary", labelKey: "nav.glossary", feature: "dashboard" },
+  // REQ-176: Visual Workflow Editor — always visible (like glossary/settings).
+  { path: "/workflows", labelKey: "nav.workflows", feature: "dashboard" },
   { path: "/metrics", labelKey: "nav.metrics", feature: "metrics" },
   { path: "/settings", labelKey: "nav.settings", feature: "dashboard" },
+  // REQ-184: System Settings — tenant-wide config. Link always visible (like
+  // /settings); the page itself gates on the admin role.
+  { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard" },
 ];
 
 // Sidebar palette — dark professional theme.
@@ -207,7 +212,11 @@ export function SidebarNavigation(): JSX.Element {
         ? `/risks/${hit.id}`
         : hit.artifact_type === "Issue"
         ? `/issues/${hit.id}`
-        : `/tests/${hit.id}`;
+        : hit.artifact_type === "TestCase"
+        ? `/testcases/${hit.id}`
+        : hit.artifact_type === "StakeholderNeed"
+        ? `/needs/${hit.id}`
+        : `/requirements/${hit.id}`;
     navigate(route);
   };
 

@@ -416,6 +416,7 @@ export default function RequirementEditors(): JSX.Element {
           requirements={requirements}
           workspaceId={activeWorkspace!.id}
           onSaved={refresh}
+          onCancel={() => navigate('/requirements')}
         />
       </EntityTypeProvider>
 

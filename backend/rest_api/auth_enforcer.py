@@ -90,7 +90,20 @@ class RbacPermission(permissions.BasePermission):
             operation = required_operation
 
         decision = self._authz.decide_access(auth_context.active_roles, operation)
-        if not decision.allow:
+
+        # REQ-186/187 shadow-verify seam: run the new permission_json model in
+        # parallel and let it govern ONLY when the tenant is flipped to
+        # ``authoritative``. In ``shadow`` mode the returned verdict equals the
+        # legacy verdict, so this is a no-op for real access; the comparator is
+        # fully guarded (fail-closed to legacy) so a bug here cannot change it.
+        from auth_tenancy.services.permission_shadow import shadow_decide
+
+        allow = shadow_decide(
+            legacy_decision=decision.allow,
+            ctx=auth_context,
+            operation=operation,
+        )
+        if not allow:
             raise exceptions.PermissionDenied(
                 detail=f"RBAC denied: {decision.decision_reason}"
             )

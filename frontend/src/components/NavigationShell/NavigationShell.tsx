@@ -45,6 +45,9 @@ const ArchitectureEditors = lazy(
 const WorkspaceSettings = lazy(
   () => import("../WorkspaceSettings/WorkspaceSettings")
 );
+const SystemSettings = lazy(
+  () => import("../SystemSettings/SystemSettings")
+);
 const TraceabilityView = lazy(
   () => import("../TraceabilityView/TraceabilityView")
 );
@@ -78,6 +81,9 @@ const UserProfileSettings = lazy(
   () => import("../UserProfileSettings/UserProfileSettings")
 );
 const GlossaryView = lazy(() => import("../GlossaryView"));
+const WorkflowEditorPage = lazy(
+  () => import("../WorkflowEditor/WorkflowEditorPage")
+);
 
 // ---------------------------------------------------------------------------
 // Shell layout — authenticated shell with sidebar
@@ -135,11 +141,17 @@ function AppShell(): JSX.Element {
               <Route path="/diagrams/:id/mermaid" element={<MermaidEditorWrapper />} />
               <Route path="/metrics" element={<MetricsDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
+              <Route path="/system-settings" element={<SystemSettings />} />
               <Route
                 path="/workspace-settings"
                 element={<Navigate to="/settings" replace />}
               />
               <Route path="/glossary" element={<GlossaryView />} />
+              <Route path="/workflows" element={<WorkflowEditorPage />} />
+              <Route
+                path="/workflows/:entityType"
+                element={<WorkflowEditorPage />}
+              />
               <Route path="/profile" element={<UserProfileSettings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

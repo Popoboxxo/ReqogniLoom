@@ -275,10 +275,234 @@ class UserWorkspacePreference(TenantScopedModel):
         )
 
 
+# ---------------------------------------------------------------------------
+# REQ-181/REQ-182/REQ-183/REQ-186/REQ-187  Permissions default model + rollout
+# ---------------------------------------------------------------------------
+#
+# DESIGN CONSTRAINT — Permissions are NOT structurally symmetric to workflows.
+#
+# Workflows already have a per-workspace "definition document" (workflow_json).
+# Permissions, as implemented today, are per-user relational rows (UserRole,
+# ItemPermission) plus a role->capability matrix that lives in CODE (COMP-AT-002
+# AuthorizationService), not in data. There is no per-workspace editable
+# "permissions definition" to hang a global default on.
+#
+# The role->capability matrix is therefore introduced as a NEW definition blob
+# (permission_json) mirroring GlobalWorkflowDefinition / WorkflowEngineDefinition
+# for the global-default / override / reset UX (REQ-181..183, data model only).
+#
+# ENFORCEMENT REPLACEMENT (REQ-186, revised — SECURITY-SENSITIVE): the user
+# overruled the original "additive governance layer" framing. This blob pair
+# MUST become the SOLE AUTHORITATIVE access-control mechanism, fully replacing
+# the hardcoded UserRole/ItemPermission enforcement in COMP-AT-002 — not decorate
+# it. That is a live access-control change with app-wide blast radius.
+#
+# SAFE ROLLOUT (REQ-187): the cutover must NOT be a silent hard replace. The
+# schema below provides a real, reviewable dual-write + shadow-verify path:
+#
+#   * ``GlobalPermissionDefinition.enforcement_mode`` — per-tenant phase flag
+#     (shadow -> authoritative). Default ``shadow``: the new model is COMPUTED in
+#     parallel but the legacy UserRole/ItemPermission check still DECIDES. Flip to
+#     ``authoritative`` (per tenant) once shadow evidence is clean; the legacy
+#     rows are still written (dual-write) so a flip back to ``shadow`` is a pure
+#     data operation with no data loss.
+#   * ``PermissionDecisionMismatch`` — append-only log recording every case where
+#     the legacy and new decision DISAGREE during the shadow phase. An empty /
+#     triaged table is the REQ-187 acceptance evidence that gates the cutover.
+#
+# Dual-write itself (writing edits to BOTH the legacy rows and permission_json)
+# needs no new schema — both stores already coexist. The WRITE-path wiring, the
+# decision comparison, and the eventual removal of the legacy check
+# (Expand/Contract "contract" step, a SEPARATE later migration) are
+# senior-developer scope; the schema here only makes that path expressible.
+
+
+class GlobalPermissionDefinition(TenantScopedModel):
+    """Tenant-wide default permissions matrix + enforcement phase (REQ-181/186/187).
+
+    Source-of-truth role->capability matrix from which every new workspace
+    inherits its :class:`WorkspacePermissionDefinition`. Exactly one row per
+    tenant.
+
+    ``permission_json`` holds the role->capability matrix, e.g.::
+
+        {
+            "admin":    {"manage_workspace": true,  "edit_items": true,  ...},
+            "editor":   {"manage_workspace": false, "edit_items": true,  ...},
+            "approver": {"manage_workspace": false, "edit_items": false, ...},
+            "viewer":   {"manage_workspace": false, "edit_items": false, ...}
+        }
+
+    The exact capability keys are defined downstream (api-specialist); the schema
+    stores an opaque JSON document, symmetric to ``workflow_json``.
+
+    ``enforcement_mode`` is the per-tenant rollout phase for REQ-186/187:
+
+        ``shadow`` (default)  Legacy UserRole/ItemPermission still DECIDES; the
+                              new model is evaluated in parallel and any
+                              disagreement is written to
+                              :class:`PermissionDecisionMismatch`. Safe default —
+                              no access decision changes on migrate.
+        ``authoritative``     The new model DECIDES; legacy rows remain written
+                              (dual-write) so the flag can be flipped back
+                              without data loss until the legacy check is
+                              physically removed in a later contract migration.
+    """
+
+    ENFORCEMENT_SHADOW = "shadow"
+    ENFORCEMENT_AUTHORITATIVE = "authoritative"
+    ENFORCEMENT_MODE_CHOICES = (
+        (ENFORCEMENT_SHADOW, "Shadow (legacy decides, new observed)"),
+        (ENFORCEMENT_AUTHORITATIVE, "Authoritative (new decides)"),
+    )
+
+    permission_json = models.JSONField(default=dict)
+    enforcement_mode = models.CharField(
+        max_length=16,
+        choices=ENFORCEMENT_MODE_CHOICES,
+        default=ENFORCEMENT_SHADOW,
+    )
+
+    class Meta:
+        db_table = "at_global_permission_definition"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"],
+                name="uq_global_perm_def_tenant",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"GlobalPermissionDef(tenant:{self.tenant_id}, "
+            f"{self.enforcement_mode})"
+        )
+
+
+class WorkspacePermissionDefinition(TenantScopedModel):
+    """Per-workspace permissions matrix override (REQ-182/REQ-183).
+
+    Materialized copy inherited from :class:`GlobalPermissionDefinition`,
+    symmetric to :class:`workflow.models.WorkflowEngineDefinition`. Exactly one
+    row per workspace.
+
+    ``source_global`` links back to the tenant default (SET_NULL — deleting the
+    global must never cascade-delete a live override). ``is_customized`` is the
+    on-default (False) / customized (True) signal (REQ-183); reset-to-default
+    copies ``source_global.permission_json`` back in and clears the flag.
+
+    NOTE: this app scopes to a workspace via a real ``Workspace`` FK (matching
+    the local UserRole / ItemPermission convention), NOT the decoupled
+    ``workspace_id`` UUIDField used by artifact apps (icd, diagram, workflow).
+    """
+
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        related_name="permission_definitions",
+    )
+    permission_json = models.JSONField(default=dict)
+    source_global = models.ForeignKey(
+        "auth_tenancy.GlobalPermissionDefinition",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="derived_definitions",
+    )
+    is_customized = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "at_workspace_permission_definition"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "workspace"],
+                name="uq_ws_perm_def_tenant_ws",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["workspace"],
+                name="idx_ws_perm_def_workspace",
+            )
+        ]
+
+    def __str__(self) -> str:
+        state = "customized" if self.is_customized else "on-default"
+        return f"WorkspacePermissionDef(ws:{self.workspace_id}, {state})"
+
+
+class PermissionDecisionMismatch(TenantScopedModel):
+    """Shadow-verify log: legacy vs. new access decision disagreements (REQ-187).
+
+    Append-only observability record written ONLY when, during the ``shadow``
+    enforcement phase (see
+    :attr:`GlobalPermissionDefinition.enforcement_mode`), the legacy
+    UserRole/ItemPermission check and the new permission_json model produce
+    DIFFERENT allow/deny results for the same access request. Matching decisions
+    are not logged, keeping the table small and every row actionable.
+
+    This table is the REQ-187 acceptance evidence: an empty (or fully triaged)
+    log across a representative window is the proof that gates flipping a tenant
+    to ``authoritative``. A non-empty, untriaged log BLOCKS the cutover.
+
+    Field semantics
+    ---------------
+    ``subject_identifier`` — the acting principal as a string, so it accepts both
+        ``persistence.User`` UUIDs and API-key / AI-agent client identifiers
+        (mirrors ``workflow.WorkflowHistoryEntry.transitioned_by``). Not a FK,
+        because the subject is not always a User row.
+    ``capability`` — the capability / operation key being checked (e.g.
+        ``edit_items``); aligns with the ``permission_json`` matrix keys once the
+        api-specialist fixes the canonical key set.
+    ``artifact_id`` — UUID of the item-level target when the decision was
+        item-scoped (item-permission analogue), else NULL.
+    ``legacy_decision`` / ``new_decision`` — the allow(True)/deny(False) verdicts
+        of each system; by construction they differ on every logged row.
+    ``context_json`` — free-form snapshot (roles held, matched rule, request
+        metadata) to make a mismatch diagnosable without replaying the request.
+
+    Append-only by convention: no service method issues UPDATE/DELETE. The
+    ``workspace`` FK is nullable for tenant-wide (non-workspace) decisions.
+    """
+
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="permission_decision_mismatches",
+    )
+    subject_identifier = models.CharField(max_length=255)
+    capability = models.CharField(max_length=128)
+    artifact_id = models.UUIDField(null=True, blank=True)
+    legacy_decision = models.BooleanField()
+    new_decision = models.BooleanField()
+    context_json = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "at_permission_decision_mismatch"
+        indexes = [
+            # Triage access pattern: mismatches for a workspace over time.
+            models.Index(
+                fields=["workspace", "created_at"],
+                name="idx_perm_mismatch_ws_time",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"PermissionMismatch({self.capability} "
+            f"legacy={self.legacy_decision} new={self.new_decision})"
+        )
+
+
 __all__ = [
     "ApiKey",
     "UserRole",
     "ItemPermission",
+    "GlobalPermissionDefinition",
+    "WorkspacePermissionDefinition",
+    "PermissionDecisionMismatch",
     "UserWorkspacePreference",
     "ROLE_ADMIN",
     "ROLE_EDITOR",

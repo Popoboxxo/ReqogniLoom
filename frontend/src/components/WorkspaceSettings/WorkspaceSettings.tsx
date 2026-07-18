@@ -23,18 +23,15 @@
  */
 
 import { useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
 import type { WorkspacePreset, TerminologyProfile } from "../../types";
 import { workspacesApi } from "../../api/workspaces";
 import { i18n } from "../../i18n/index";
-import { WorkflowsSection } from "./WorkflowsSection";
+import { WorkflowPermissionsSection } from "./WorkflowPermissionsSection";
 import { PermissionsSection } from "./PermissionsSection";
-import { BackupRestoreSection } from "./BackupRestoreSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
-import { SystemHealthDialog } from "../AdminDialog/SystemHealthDialog";
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { PromptTemplateSection } from "./PromptTemplateSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
@@ -46,40 +43,31 @@ const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReaso
   extended: { baselines: true,  changeReason: "required", workflow: "Full + Approval workflow" },
 };
 
-/** Tab identifiers for the settings surface (REQ-015). */
+/**
+ * Tab identifiers for the settings surface (REQ-015; REQ-184/185 IA split).
+ * The former ``governance`` tab is rebuilt as ``workflows-permissions``; the
+ * former ``admin`` tab relocated to System Settings (SCR-204).
+ */
 type SettingsTabId =
   | "general"
   | "traceability"
   | "visibility"
   | "llm"
-  | "governance"
-  | "admin";
+  | "workflows-permissions";
 
 export default function WorkspaceSettings(): JSX.Element {
   const { t } = useTranslation();
   const {
     activeWorkspace,
     reloadWorkspaces,
-    isFeatureVisible,
   } = useWorkspace();
   const { roles } = useAuth();
-  const navigate = useNavigate();
 
   const [name, setName] = useState(activeWorkspace?.name ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
-  const [showSystemHealth, setShowSystemHealth] = useState(false);
-
-  // Lifecycle state (REQ-L1-042)
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState("");
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-  const [cloneName, setCloneName] = useState("");
-  const [isCloning, setIsCloning] = useState(false);
 
   const isAdmin = roles.includes("admin");
 
@@ -139,73 +127,6 @@ export default function WorkspaceSettings(): JSX.Element {
       setIsSaving(false);
     }
   }, [activeWorkspace, name, reloadWorkspaces]);
-
-  // ---- Lifecycle handlers (REQ-L1-042) ----
-
-  const handleCloseWorkspace = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || !window.confirm(t("settings.closeConfirm"))) return;
-    setSaveError(null);
-    setIsClosing(true);
-    try {
-      await workspacesApi.closeWorkspace(activeWorkspace.id);
-      await reloadWorkspaces(activeWorkspace.id);
-      setSavedOk(true);
-    } catch (err: unknown) {
-      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
-    } finally {
-      setIsClosing(false);
-    }
-  }, [activeWorkspace, reloadWorkspaces, t]);
-
-  const handleReactivateWorkspace = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    setSaveError(null);
-    try {
-      await workspacesApi.reactivateWorkspace(activeWorkspace.id);
-      await reloadWorkspaces(activeWorkspace.id);
-      setSavedOk(true);
-    } catch (err: unknown) {
-      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
-    }
-  }, [activeWorkspace, reloadWorkspaces]);
-
-  const handleDeleteWorkspace = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    if (deleteConfirmation !== activeWorkspace.name) {
-      setDeleteError(t("settings.deleteConfirmationMismatch"));
-      return;
-    }
-    setDeleteError(null);
-    setIsDeleting(true);
-    try {
-      await workspacesApi.deleteWorkspace(activeWorkspace.id, deleteConfirmation);
-      setShowDeleteModal(false);
-      setDeleteConfirmation("");
-      // Navigate to dashboard since workspace no longer exists
-      navigate("/");
-    } catch (err: unknown) {
-      setDeleteError((err as { error?: { message?: string } })?.error?.message ?? String(err));
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [activeWorkspace, deleteConfirmation, navigate, t]);
-
-  const handleCloneWorkspace = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || !cloneName.trim()) return;
-    setSaveError(null);
-    setIsCloning(true);
-    try {
-      const cloned = await workspacesApi.clone(activeWorkspace.id, cloneName.trim());
-      await reloadWorkspaces(cloned.id);
-      setCloneName("");
-      setSavedOk(true);
-      navigate("/");
-    } catch (err: unknown) {
-      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
-    } finally {
-      setIsCloning(false);
-    }
-  }, [activeWorkspace, cloneName, navigate, reloadWorkspaces]);
 
   // ---- Shared styles (REQ-015: single card/heading system) ----
 
@@ -292,8 +213,7 @@ export default function WorkspaceSettings(): JSX.Element {
     { id: "traceability", label: t("settings.tabs.traceability", "Traceability") },
     { id: "visibility", label: t("settings.tabs.visibility", "Sichtbarkeit") },
     { id: "llm", label: t("settings.tabs.llm", "LLM & Prompts") },
-    { id: "governance", label: t("settings.tabs.governance", "Workflows & Berechtigungen") },
-    { id: "admin", label: t("settings.tabs.admin", "Administration") },
+    { id: "workflows-permissions", label: t("settings.tabs.governanceReplacement", "Workflows & Permissions") },
   ];
 
   return (
@@ -568,245 +488,14 @@ export default function WorkspaceSettings(): JSX.Element {
           </>
         )}
 
-        {/* ---------------- Workflows & Permissions ---------------- */}
-        {activeTab === "governance" && (
+        {/* ---------------- Workflows & Permissions (REQ-185, SCR-202) ---------------- */}
+        {activeTab === "workflows-permissions" && (
           <>
-            {/* Workflows (REQ-L2-RA-001) */}
-            <WorkflowsSection workspaceId={activeWorkspace.id} />
-            {/* Item Permissions (REQ-L1-039) */}
+            {/* On-default/customized status + reset for workflows and the
+                permission matrix (REQ-180/183). */}
+            <WorkflowPermissionsSection workspaceId={activeWorkspace.id} />
+            {/* Item Permissions (REQ-L1-039) — unchanged, relocated verbatim. */}
             <PermissionsSection workspaceId={activeWorkspace.id} />
-          </>
-        )}
-
-        {/* ---------------- Administration ---------------- */}
-        {activeTab === "admin" && (
-          <>
-            {/* System Health dashboard — infra status + recent audit log */}
-            <section style={cardStyle} data-testid="system-health-section">
-              <h3 style={headingStyle}>{t("systemHealth.title", "System Health")}</h3>
-              <p
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-muted)",
-                  marginTop: 0,
-                  marginBottom: "var(--space-3)",
-                }}
-              >
-                {t(
-                  "systemHealth.sectionHint",
-                  "Live status of database, redis, celery worker/beat, MCP server and LLM provider, plus recent audit-log entries."
-                )}
-              </p>
-              <button
-                type="button"
-                data-testid="system-health-open-btn"
-                onClick={() => setShowSystemHealth(true)}
-                style={{
-                  background: "var(--color-primary)",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {t("systemHealth.openButton", "View System Health")}
-              </button>
-            </section>
-
-            <SystemHealthDialog
-              isOpen={showSystemHealth}
-              onClose={() => setShowSystemHealth(false)}
-            />
-
-            {/* Feature-flagged: Baselines & Backup/Restore (REQ-L1-046) */}
-            {isFeatureVisible("baselines") && <BackupRestoreSection />}
-
-            {/* Workspace Administration (REQ-L1-042) */}
-            <section style={cardStyle} data-testid="lifecycle-section">
-              <h3 style={headingStyle}>{t("settings.lifecycleSection", "Workspace Administration")}</h3>
-
-              {/* Close button — visible when workspace is active */}
-              {activeWorkspace.is_active !== false && (
-                <button
-                  type="button"
-                  data-testid="close-workspace-btn"
-                  onClick={() => void handleCloseWorkspace()}
-                  disabled={isClosing}
-                  style={{
-                    background: "var(--color-warning, #f59e0b)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-2) var(--space-4)",
-                    fontSize: "var(--font-size-sm)",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    marginRight: "var(--space-2)",
-                    opacity: isClosing ? 0.5 : 1,
-                  }}
-                >
-                  {isClosing ? "…" : t("settings.closeWorkspace", "Close Workspace")}
-                </button>
-              )}
-
-              {/* Clone/Sandbox button (SN-33) */}
-              {activeWorkspace.is_active !== false && (
-                <div style={{ marginTop: "var(--space-4)", marginBottom: "var(--space-4)", display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
-                  <input
-                    type="text"
-                    placeholder="Sandbox Name"
-                    value={cloneName}
-                    onChange={(e) => setCloneName(e.target.value)}
-                    style={{
-                      padding: "var(--space-2)",
-                      borderRadius: "var(--radius-md)",
-                      border: "1px solid var(--color-border)",
-                      background: "var(--color-background)",
-                      color: "var(--color-text)",
-                    }}
-                  />
-                  <button
-                    type="button"
-                    data-testid="clone-workspace-btn"
-                    onClick={() => void handleCloneWorkspace()}
-                    disabled={isCloning || !cloneName.trim()}
-                    style={{
-                      ...primaryButtonStyle,
-                      cursor: isCloning || !cloneName.trim() ? "not-allowed" : "pointer",
-                      opacity: isCloning || !cloneName.trim() ? 0.5 : 1,
-                    }}
-                  >
-                    {isCloning ? "Cloning…" : "Create Sandbox"}
-                  </button>
-                </div>
-              )}
-
-              {/* Reactivate button — visible when workspace is closed */}
-              {activeWorkspace.is_active === false && (
-                <button
-                  type="button"
-                  data-testid="reactivate-workspace-btn"
-                  onClick={() => void handleReactivateWorkspace()}
-                  style={{
-                    background: "var(--color-success, #16a34a)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "var(--radius-md)",
-                    padding: "var(--space-2) var(--space-4)",
-                    fontSize: "var(--font-size-sm)",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    marginRight: "var(--space-2)",
-                  }}
-                >
-                  {t("settings.reactivateWorkspace", "Reactivate Workspace")}
-                </button>
-              )}
-
-              {/* Delete button — always visible for admin */}
-              <button
-                type="button"
-                data-testid="delete-workspace-btn"
-                onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeleteConfirmation(""); }}
-                style={{
-                  background: "var(--color-danger, #dc2626)",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {t("settings.deleteWorkspace", "Delete Workspace")}
-              </button>
-
-              {/* Delete confirmation modal */}
-              {showDeleteModal && (
-                <div
-                  data-testid="delete-modal"
-                  role="dialog"
-                  style={{
-                    marginTop: "var(--space-4)",
-                    padding: "var(--space-4)",
-                    background: "var(--color-background, #f9fafb)",
-                    border: "1px solid var(--color-danger, #dc2626)",
-                    borderRadius: "var(--radius-md)",
-                  }}
-                >
-                  <p style={{ fontWeight: 600, marginBottom: "var(--space-2)" }}>
-                    {t("settings.deleteConfirmTitle", "Delete Workspace")}
-                  </p>
-                  <p style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)" }}>
-                    {t("settings.deleteCaptchaPrompt", { name: activeWorkspace.name })}
-                  </p>
-                  <input
-                    data-testid="delete-confirmation-input"
-                    type="text"
-                    value={deleteConfirmation}
-                    onChange={(e) => { setDeleteConfirmation(e.target.value); setDeleteError(null); }}
-                    placeholder={activeWorkspace.name}
-                    style={{
-                      width: "100%",
-                      background: "var(--color-surface)",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: "var(--radius-md)",
-                      padding: "var(--space-2) var(--space-3)",
-                      color: "var(--color-text)",
-                      fontSize: "var(--font-size-base)",
-                      marginBottom: "var(--space-2)",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                  {deleteError && (
-                    <div role="alert" data-testid="delete-error" style={{ color: "var(--color-danger, #dc2626)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
-                      {deleteError}
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                    <button
-                      type="button"
-                      data-testid="delete-confirm-btn"
-                      onClick={() => void handleDeleteWorkspace()}
-                      disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
-                      style={{
-                        background: "var(--color-danger, #dc2626)",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "var(--radius-md)",
-                        padding: "var(--space-2) var(--space-4)",
-                        fontSize: "var(--font-size-sm)",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        opacity: (isDeleting || deleteConfirmation !== activeWorkspace.name) ? 0.5 : 1,
-                      }}
-                    >
-                      {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="delete-cancel-btn"
-                      onClick={() => { setShowDeleteModal(false); setDeleteConfirmation(""); setDeleteError(null); }}
-                      style={{
-                        background: "transparent",
-                        color: "var(--color-text-muted)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: "var(--radius-md)",
-                        padding: "var(--space-2) var(--space-4)",
-                        fontSize: "var(--font-size-sm)",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {t("actions.cancel", "Cancel")}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
           </>
         )}
       </div>

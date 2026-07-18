@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import type { Adr } from '../../types';
 import { adrsApi } from '../../api/adrs';
 import { VersionBadge } from '../shared/VersionBadge';
@@ -15,7 +16,12 @@ interface AdrFormProps {
 
 export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element {
   const { t } = useTranslation();
+  const { activeWorkspace } = useWorkspace();
+  // REQ-162: Extended preset captures a change_reason on every update
+  // (forwarded to the backend audit log).
+  const isExtendedPreset = activeWorkspace?.preset === 'extended';
   const [formData, setFormData] = useState<Partial<Adr>>({});
+  const [changeReason, setChangeReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -26,6 +32,7 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
     if (adr) setFormData({ ...adr });
     else setFormData({});
     // Reset transient action state when switching to a different ADR.
+    setChangeReason('');
     setConfirmDelete(false);
     setSaveError(null);
     setDeleteError(null);
@@ -39,6 +46,11 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
 
   const handleSave = async () => {
     if (!adr) return;
+    // REQ-162: Extended preset requires a change_reason before saving.
+    if (isExtendedPreset && !changeReason.trim()) {
+      setSaveError(t('req.changeReasonRequired'));
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -48,6 +60,7 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
         context: formData.context,
         consequences: formData.consequences,
         status: formData.status,
+        ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
       });
       onSaved();
     } catch (err) {
@@ -159,8 +172,8 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div>
-            <label style={labelStyle}>{t('editor.title')}</label>
-            <input type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} />
+            <label style={labelStyle}>{t('editor.title')} <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+            <input type="text" value={formData.title || ''} onChange={(e) => handleChange('title', e.target.value)} style={inputStyle} aria-required="true" placeholder={t('adrs.titlePlaceholder', 'Titel der Architekturentscheidung')} />
           </div>
           <div style={{ marginBottom: 'var(--space-4)' }}>
             <label style={labelStyle}>{t('editor.description')}</label>
@@ -188,6 +201,27 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
               />
             </div>
           </div>
+
+          {/* REQ-162: Change Control — Extended preset only. */}
+          {isExtendedPreset && (
+            <div>
+              <label htmlFor="adr-change-reason" style={labelStyle}>
+                {t('req.changeReason')} <span style={{ color: 'var(--color-danger)' }}>*</span>
+              </label>
+              <textarea
+                id="adr-change-reason"
+                data-testid="adr-change-reason-input"
+                value={changeReason}
+                onChange={(e) => {
+                  setChangeReason(e.target.value);
+                  if (saveError) setSaveError(null);
+                }}
+                rows={2}
+                style={{ ...inputStyle, resize: 'vertical' }}
+                placeholder={t('req.changeReasonPlaceholder')}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

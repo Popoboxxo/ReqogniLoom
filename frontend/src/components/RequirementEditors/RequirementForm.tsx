@@ -53,6 +53,8 @@ interface RequirementFormProps {
   requirements: Requirement[];
   workspaceId: UUID;
   onSaved: () => void;
+  /** Optional: invoked when the user cancels editing (e.g. deselect / back to list). */
+  onCancel?: () => void;
 }
 
 /**
@@ -69,6 +71,7 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
   requirements: _requirements,
   workspaceId: _workspaceId,  // retained for API compatibility; not consumed here
   onSaved,
+  onCancel,
 }) => {
   const { t } = useTranslation();
   const { isFieldVisible, isFieldRequired } = useEntityType();
@@ -239,6 +242,28 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
               {requirement.suspect && <span title="Needs review due to upstream changes">⚠️</span>}
               {requirement.title || t('editor.untitled')}
             </h2>
+            {/* REQ: primary actions live in the header for consistency across
+                all artifact forms (P1-f). */}
+            <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+              <button
+                data-testid="save-btn"
+                className="btn-primary"
+                onClick={() => void handleSave()}
+                disabled={isSaving}
+              >
+                {isSaving ? t('actions.saving') : t('actions.save')}
+              </button>
+              {onCancel && (
+                <button
+                  data-testid="cancel-btn"
+                  className="btn-ghost"
+                  onClick={onCancel}
+                  disabled={isSaving}
+                >
+                  {t('actions.cancel')}
+                </button>
+              )}
+            </div>
           </div>
           <div
             style={{
@@ -460,20 +485,8 @@ export const RequirementForm: React.FC<RequirementFormProps> = ({
           </p>
         )}
 
-        {/* Action buttons */}
-        {/* Action buttons — diff is now served by the ArtifactInspector
-            right sidebar (REQ-001, REQ-L2-RF-036). The inline ArtifactDiff
-            toggle was removed to eliminate the duplicate diff panel. */}
-        <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
-          <button
-            data-testid="save-btn"
-            className="btn-primary"
-            onClick={() => void handleSave()}
-            disabled={isSaving}
-          >
-            {isSaving ? t('actions.saving') : t('actions.save')}
-          </button>
-        </div>
+        {/* Actions moved to the header (P1-f). Diff is served by the
+            ArtifactInspector right sidebar (REQ-001, REQ-L2-RF-036). */}
 
       </div>
     </div>

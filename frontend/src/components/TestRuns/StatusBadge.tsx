@@ -10,8 +10,34 @@
 
 import { getStatusBadgeStyle } from "../../utils/statusBadge";
 
+/**
+ * Human-readable labels for the raw backend status strings (see
+ * persistence/models.py TestRun.status choices and step-result statuses).
+ * Keys are the raw lowercase API values.
+ */
+const STATUS_LABELS: Record<string, string> = {
+  in_progress: "In Progress",
+  passed: "Passed",
+  failed: "Failed",
+  partial: "Partial",
+  closed: "Closed",
+  not_run: "Not Run",
+  blocked: "Blocked",
+  skipped: "Skipped",
+};
+
+/** Fallback humanizer: `some_status` -> `Some Status`. */
+function humanizeStatus(status: string): string {
+  return status
+    .split("_")
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(" ");
+}
+
 export function StatusBadge({ status }: { status: string }): JSX.Element {
-  // Shared token-based colors; keep the uppercase pill look specific to test runs.
+  // Shared token-based colors; render a readable label instead of the raw
+  // API string (e.g. `in_progress` -> `In Progress`).
+  const label = STATUS_LABELS[status] ?? humanizeStatus(status);
   return (
     <span
       style={{
@@ -19,11 +45,10 @@ export function StatusBadge({ status }: { status: string }): JSX.Element {
         display: "inline-block",
         borderRadius: "var(--radius-sm)",
         fontWeight: 600,
-        textTransform: "uppercase",
         letterSpacing: "0.05em",
       }}
     >
-      {status}
+      {label}
     </span>
   );
 }

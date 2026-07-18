@@ -21,6 +21,15 @@ import { StatusBadge } from "./StatusBadge";
 import { TestRunDetailEditor } from "./TestRunDetailEditor";
 import { useTestRunsData } from "./useTestRunsData";
 
+// REQ-175: TestRun.status choices — see persistence/models.py TestRun.status.
+const TEST_RUN_STATUSES = [
+  "in_progress",
+  "passed",
+  "failed",
+  "partial",
+  "closed",
+] as const;
+
 export function TestRunsList(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -29,6 +38,7 @@ export function TestRunsList(): JSX.Element {
   const [newName, setNewName] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>("");
 
   const {
     items,
@@ -45,6 +55,11 @@ export function TestRunsList(): JSX.Element {
     createError,
     resetCreateError,
   } = useTestRunsData(selectedId, showCreateForm);
+
+  // REQ-175: client-side status filter over the loaded runs.
+  const visibleItems = statusFilter
+    ? items.filter((item) => item.status === statusFilter)
+    : items;
 
   const resetCreateForm = (): void => {
     setNewName("");
@@ -140,6 +155,36 @@ export function TestRunsList(): JSX.Element {
           >
             {showCreateForm ? t("actions.cancel") : `+ ${t("actions.new")}`}
           </button>
+        </div>
+
+        {/* REQ-175: status filter */}
+        <div style={{ marginBottom: "var(--space-3)" }}>
+          <label htmlFor="testrun-status-filter" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
+            {t("editor.allStatuses", "All Statuses")}
+          </label>
+          <select
+            id="testrun-status-filter"
+            data-testid="testrun-status-filter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "var(--space-2) var(--space-3)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--color-border)",
+              fontSize: "var(--font-size-sm)",
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
+              boxSizing: "border-box",
+            }}
+          >
+            <option value="">{t("editor.allStatuses", "All Statuses")}</option>
+            {TEST_RUN_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {t(`testRuns.status.${s}`, s)}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Create form */}
@@ -369,7 +414,7 @@ export function TestRunsList(): JSX.Element {
         )}
 
         {/* List */}
-        {items.length === 0 ? (
+        {visibleItems.length === 0 ? (
           <p
             style={{
               fontSize: "var(--font-size-sm)",
@@ -377,11 +422,13 @@ export function TestRunsList(): JSX.Element {
               marginTop: "var(--space-4)",
             }}
           >
-            {t("testRuns.empty", "No test runs yet")}
+            {statusFilter
+              ? t("editor.noMatches", "No matches found.")
+              : t("testRuns.empty", "No test runs yet")}
           </p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {items.map((item) => {
+            {visibleItems.map((item) => {
               const isSelected = selectedId === item.id;
               return (
                 <li

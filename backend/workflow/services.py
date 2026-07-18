@@ -46,8 +46,10 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 
 from .definition_store import (
+    NoGlobalSourceError,
     OrphanedStateError,
     PresetDowngradeBlockedError,
+    StateReferencedError,
     TransitionDefinitionDTO,
     WorkflowDefinitionDTO,
     WorkflowDefinitionError,
@@ -485,6 +487,168 @@ def update_custom_workflow(
     return dto
 
 
+# ---------------------------------------------------------------------------
+# Edit-mode definition mutations (REQ-177 — Workflow Editor Phase 2)
+#
+# Thin wrappers over the store's granular mutations. Each invalidates the
+# validator cache (the definition changed) and remaps the preset-gate error to
+# WorkflowNotConfigurableError, mirroring update_custom_workflow. Structural /
+# reference / orphan errors propagate unchanged so the REST layer can map them
+# to precise HTTP statuses (400 vs 409).
+# ---------------------------------------------------------------------------
+
+# Entity types provisioned with a fixed per-entity preset (see
+# application/workspace_service._WORKFLOW_ENTITY_TYPES). "Requirement" uses the
+# workspace tier instead and is resolved dynamically in initialize_definition.
+_ENTITY_DEFAULT_PRESET: dict[str, str] = {
+    "StakeholderNeed": "need_default",
+    "Adr": "adr_default",
+    "Risk": "risk_default",
+    "Issue": "issue_default",
+    "TestCase": "testcase_default",
+    "ChangeRequest": "ccb_approval",
+    "ArchitectureElement": "architecture_default",
+    "Icd": "icd_default",
+    "Diagram": "diagram_default",
+    "GlossaryTerm": "glossary_term_default",
+}
+
+
+def _persist_edit(fn_name: str, workspace_id: UUID | str, item_type: str, *args, **kwargs):
+    """Call a store mutation, remap the preset gate, invalidate the cache."""
+    store = _get_store()
+    try:
+        dto = getattr(store, fn_name)(workspace_id, item_type, *args, **kwargs)
+    except WorkflowDefinitionError as exc:
+        msg = str(exc)
+        if "not configurable" in msg or "only allowed in extended" in msg:
+            raise WorkflowNotConfigurableError(msg) from exc
+        raise
+    _get_validator().invalidate_cache(str(workspace_id), item_type)
+    return dto
+
+
+def add_definition_state(
+    workspace_id: UUID | str, item_type: str, name: str
+) -> WorkflowDefinitionDTO:
+    """Append a state to the definition (REQ-177)."""
+    return _persist_edit("add_state", workspace_id, item_type, name)
+
+
+def rename_definition_state(
+    workspace_id: UUID | str, item_type: str, old_name: str, new_name: str
+) -> WorkflowDefinitionDTO:
+    """Rename a state and rewire its transitions (REQ-177)."""
+    return _persist_edit(
+        "rename_state", workspace_id, item_type, old_name, new_name
+    )
+
+
+def delete_definition_state(
+    workspace_id: UUID | str, item_type: str, name: str
+) -> WorkflowDefinitionDTO:
+    """Delete a fully-disconnected state (REQ-177)."""
+    return _persist_edit("delete_state", workspace_id, item_type, name)
+
+
+def add_definition_transition(
+    workspace_id: UUID | str,
+    item_type: str,
+    from_state: str,
+    to_state: str,
+    allowed_roles: list[str] | None = None,
+    requires_change_reason: bool = False,
+    signature_gate: bool = False,
+) -> WorkflowDefinitionDTO:
+    """Add a transition between two existing states (REQ-177)."""
+    return _persist_edit(
+        "add_transition",
+        workspace_id,
+        item_type,
+        from_state,
+        to_state,
+        allowed_roles,
+        requires_change_reason,
+        signature_gate,
+    )
+
+
+def update_definition_transition(
+    workspace_id: UUID | str,
+    item_type: str,
+    from_state: str,
+    to_state: str,
+    *,
+    allowed_roles: list[str] | None = None,
+    requires_change_reason: bool | None = None,
+    signature_gate: bool | None = None,
+) -> WorkflowDefinitionDTO:
+    """Edit an existing transition's rule metadata (REQ-177)."""
+    return _persist_edit(
+        "update_transition",
+        workspace_id,
+        item_type,
+        from_state,
+        to_state,
+        allowed_roles=allowed_roles,
+        requires_change_reason=requires_change_reason,
+        signature_gate=signature_gate,
+    )
+
+
+def delete_definition_transition(
+    workspace_id: UUID | str, item_type: str, from_state: str, to_state: str
+) -> WorkflowDefinitionDTO:
+    """Delete a transition (REQ-177)."""
+    return _persist_edit(
+        "delete_transition", workspace_id, item_type, from_state, to_state
+    )
+
+
+def initialize_definition(
+    workspace_id: UUID | str,
+    item_type: str,
+    tenant_id: UUID | str | None = None,
+) -> WorkflowDefinitionDTO:
+    """Create the preset-default workflow for an entity type that has none (REQ-177).
+
+    Idempotent: if a definition already exists it is returned unchanged. The
+    preset is resolved exactly like workspace provisioning — a fixed per-entity
+    preset, or the workspace's active tier for "Requirement".
+    """
+    preset = _ENTITY_DEFAULT_PRESET.get(item_type)
+    if preset is None:
+        # Requirement (and any tier-driven type): use the workspace active tier.
+        from presets.models import WorkspacePresetConfig
+
+        config = WorkspacePresetConfig.objects.filter(
+            workspace_id=str(workspace_id)
+        ).first()
+        preset = config.active_tier if config is not None else "standard"
+    dto = _get_store().create_workspace_default_workflow(
+        workspace_id=workspace_id,
+        preset=preset,
+        item_type=item_type,
+        tenant_id=tenant_id,
+    )
+    _get_validator().invalidate_cache(str(workspace_id), item_type)
+    return dto
+
+
+def reset_definition_to_global(
+    workspace_id: UUID | str, item_type: str
+) -> WorkflowDefinitionDTO:
+    """Reset a workspace definition to its inherited global default (REQ-180).
+
+    Raises:
+        WorkflowDefinitionError: No workspace definition exists.
+        NoGlobalSourceError: ``source_global`` is null (nothing to reset to).
+    """
+    dto = _get_store().reset_to_global(workspace_id, item_type)
+    _get_validator().invalidate_cache(str(workspace_id), item_type)
+    return dto
+
+
 def check_downgrade_compatibility(
     workspace_id: UUID | str,
     target_preset: str,
@@ -518,6 +682,14 @@ __all__ = [
     "get_history",
     "create_default_workflow",
     "update_custom_workflow",
+    "add_definition_state",
+    "rename_definition_state",
+    "delete_definition_state",
+    "add_definition_transition",
+    "update_definition_transition",
+    "delete_definition_transition",
+    "initialize_definition",
+    "reset_definition_to_global",
     "check_downgrade_compatibility",
     "TransitionResult",
     "AvailableTransitions",
@@ -529,4 +701,6 @@ __all__ = [
     "WorkflowStateError",
     "WorkflowDefinitionError",
     "OrphanedStateError",
+    "StateReferencedError",
+    "NoGlobalSourceError",
 ]

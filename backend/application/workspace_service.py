@@ -200,6 +200,20 @@ class WorkspaceService(ServiceBase):
                 tenant_id=ctx.tenant_id,
             )
 
+        # REQ-181/182: symmetric permission-default provisioning. Link the new
+        # workspace to the tenant-wide GlobalPermissionDefinition via a
+        # WorkspacePermissionDefinition with is_customized=False (on-default). The
+        # tenant global is get-or-created (seeded from the live RBAC matrix) so a
+        # first workspace establishes it. This does NOT touch UserRole /
+        # ItemPermission rows, so real access is unchanged (shadow phase).
+        from auth_tenancy.services.permission_definition import (
+            PermissionDefinitionService,
+        )
+
+        PermissionDefinitionService().provision_workspace(
+            tenant_id=ctx.tenant_id, workspace_id=workspace.id
+        )
+
         self._audit(
             ctx=ctx,
             operation="create",
@@ -271,6 +285,16 @@ class WorkspaceService(ServiceBase):
                 item_type=item_type,
                 tenant_id=ctx.tenant_id,
             )
+
+        # REQ-181/182: same permission-default provisioning as create_workspace,
+        # so the cloned workspace starts "on-default" against the tenant global.
+        from auth_tenancy.services.permission_definition import (
+            PermissionDefinitionService,
+        )
+
+        PermissionDefinitionService().provision_workspace(
+            tenant_id=ctx.tenant_id, workspace_id=target.id
+        )
 
         # 2. Deep copy artifacts
         old_to_new_artifact = {}

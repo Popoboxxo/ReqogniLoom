@@ -34,8 +34,10 @@
     "testRuns": "Test Runs",
     "testCases": "Test Cases",
     "settings": "Workspace Settings",
+    "systemSettings": "System Settings",
     "profile": "Access Tokens",
     "glossary": "Glossary",
+    "workflows": "Workflows",
     "logout": "Logout",
     "import": "Import",
     "icds": "ICDs",
@@ -126,6 +128,8 @@
     "derive": "Derive",
     "deriving": "Deriving...",
     "deleting": "Deleting...",
+    "closing": "Closing...",
+    "confirm": "Confirm",
     "confirmDelete": "Yes, delete",
     "deleteConfirmPrompt": "Delete?"
   },
@@ -195,6 +199,11 @@
   },
   "arch": {
     "deriveRequirement": "Derive requirement",
+    "lifecycleStatus": {
+      "active": "Active",
+      "outdated": "Outdated",
+      "deprecated": "Deprecated"
+    },
     "elementType": "Element Type",
     "elementType.component": "Component",
     "elementType.interface": "Interface",
@@ -390,7 +399,8 @@
     "saveFailed": "Failed to save ADR.",
     "deleteConfirm": "Delete this ADR?",
     "context": "Context",
-    "consequences": "Consequences"
+    "consequences": "Consequences",
+    "titlePlaceholder": "Title of the architecture decision"
   },
   "risks": {
     "selectRisk": "Select a risk from the list to view details.",
@@ -479,6 +489,13 @@
   "testRuns": {
     "create": "Create Run",
     "closeRun": "Close Test Run",
+    "status": {
+      "in_progress": "In Progress",
+      "passed": "Passed",
+      "failed": "Failed",
+      "partial": "Partial",
+      "closed": "Closed"
+    },
     "namePlaceholder": "Run name...",
     "empty": "No test runs yet. Create one to get started.",
     "closeConfirm": "Close this test run?",
