@@ -93,6 +93,13 @@ export interface WorkflowDefinitionGraph {
   initialized: boolean;
   states: string[];
   transitions: WorkflowDefinitionTransition[];
+  // REQ-180 — on-default/customized visibility (additive fields). Optional so
+  // pre-REQ-178 payloads (and the global-scope response, which never carries
+  // them) still satisfy the type. `is_customized` is UNRELATED to the legacy
+  // `is_custom` flag above — see docs/api/workflow-permissions-global-default.
+  is_customized?: boolean;
+  on_default?: boolean;
+  source_global_id?: string | null;
 }
 
 /** A state ready for the editor: raw name plus derived type + counts. */
@@ -359,6 +366,23 @@ export const workflowsApi = {
       { workspace_id: workspaceId, item_type: entityType }
     );
     return toWorkflowGraph(entityType, raw);
+  },
+
+  /**
+   * POST /api/v1/workflows/definition/reset/ — reset a workspace's workflow
+   * definition to the current global default (REQ-180). Returns the raw
+   * definition now mirroring the global default (with the additive
+   * on-default/customized fields). A 409 NO_GLOBAL_SOURCE is thrown as an
+   * ``ApiError`` when the workspace has no linked global source.
+   */
+  resetDefinition(
+    entityType: WorkflowEntityType,
+    workspaceId: UUID
+  ): Promise<WorkflowDefinitionGraph> {
+    return apiClient.post<WorkflowDefinitionGraph>(
+      "/workflows/definition/reset/",
+      { workspace_id: workspaceId, item_type: entityType }
+    );
   },
 
   /** PATCH /api/v1/workflows/<entityId>/ — transition an entity's state. */

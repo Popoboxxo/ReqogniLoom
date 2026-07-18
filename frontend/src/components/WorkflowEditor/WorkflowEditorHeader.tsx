@@ -6,7 +6,7 @@
  * Phase-1 placeholders (design brief §3).
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Code2, Download, Upload } from "lucide-react";
 import styles from "./WorkflowEditor.module.css";
 
@@ -18,6 +18,13 @@ interface WorkflowEditorHeaderProps {
   onToggleEditMode: () => void;
   /** When false the toggle is disabled (user lacks the admin role). */
   canEdit: boolean;
+  /** Header title — defaults to the workspace-scope "Workflow Editor". */
+  title?: string;
+  /**
+   * Replaces the static preset badge with an interactive control (the global
+   * preset segmented control, SCR-205). When omitted, the read-only badge shows.
+   */
+  presetControl?: ReactNode;
 }
 
 export function WorkflowEditorHeader({
@@ -27,6 +34,8 @@ export function WorkflowEditorHeader({
   editMode,
   onToggleEditMode,
   canEdit,
+  title = "Workflow Editor",
+  presetControl,
 }: WorkflowEditorHeaderProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -46,12 +55,14 @@ export function WorkflowEditorHeader({
     <header className={styles.header} data-testid="workflow-editor-header">
       <div className={styles.headerTitleGroup}>
         <span className={styles.headerDot} aria-hidden="true" />
-        <h1 className={styles.headerTitle}>Workflow Editor</h1>
+        <h1 className={styles.headerTitle}>{title}</h1>
       </div>
 
-      <span className={styles.presetBadge} data-testid="workflow-preset-badge">
-        {preset}
-      </span>
+      {presetControl ?? (
+        <span className={styles.presetBadge} data-testid="workflow-preset-badge">
+          {preset}
+        </span>
+      )}
 
       <div className={styles.headerSpacer} />
 

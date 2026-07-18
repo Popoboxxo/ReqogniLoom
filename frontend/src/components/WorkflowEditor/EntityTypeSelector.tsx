@@ -10,13 +10,15 @@
 import { Layers } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { WorkflowEntityType } from "../../api/workflows";
-import { WORKFLOW_ENTITY_TYPES } from "./constants";
+import { WORKFLOW_ENTITY_TYPES, type WorkflowScope } from "./constants";
 import { useWorkflowData } from "./useWorkflowData";
 import styles from "./WorkflowEditor.module.css";
 
 interface EntityTypeSelectorProps {
   selected: WorkflowEntityType;
   onSelect: (type: WorkflowEntityType) => void;
+  /** Scope the counts/initialized dots are read for (default: workspace). */
+  scope?: WorkflowScope;
 }
 
 interface EntityTypeItemProps {
@@ -24,6 +26,7 @@ interface EntityTypeItemProps {
   label: string;
   active: boolean;
   onSelect: (type: WorkflowEntityType) => void;
+  scope?: WorkflowScope;
 }
 
 function EntityTypeItem({
@@ -31,11 +34,18 @@ function EntityTypeItem({
   label,
   active,
   onSelect,
+  scope,
 }: EntityTypeItemProps): JSX.Element {
-  const { graph, isLoading } = useWorkflowData(type);
+  const { graph, isLoading } = useWorkflowData(type, scope);
   const count = graph?.states.length ?? 0;
+  // In global scope, flag not-yet-seeded presets so the admin sees where to
+  // initialize (SCR-205); in workspace scope the count already conveys this.
+  const notInitialized =
+    scope?.kind === "global" && !isLoading && graph !== null && !graph.initialized;
   const countLabel = isLoading
     ? "…"
+    : notInitialized
+    ? "not initialized"
     : `${count} ${count === 1 ? "state" : "states"}`;
 
   return (
@@ -57,9 +67,13 @@ function EntityTypeItem({
 export function EntityTypeSelector({
   selected,
   onSelect,
+  scope,
 }: EntityTypeSelectorProps): JSX.Element {
   const { activeWorkspace } = useWorkspace();
-  const preset = activeWorkspace?.preset ?? "standard";
+  const preset =
+    scope?.kind === "global"
+      ? scope.preset
+      : activeWorkspace?.preset ?? "standard";
 
   return (
     <nav
@@ -76,6 +90,7 @@ export function EntityTypeSelector({
             label={e.label}
             active={e.type === selected}
             onSelect={onSelect}
+            scope={scope}
           />
         ))}
       </ul>

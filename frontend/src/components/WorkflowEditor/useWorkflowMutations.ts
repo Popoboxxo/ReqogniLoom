@@ -7,6 +7,11 @@
  * straight into the query cache (instant canvas refresh) and the query is
  * invalidated for consistency. Backend validation errors (409/400/403) are
  * caught and exposed via ``error`` instead of being thrown to the caller.
+ *
+ * REQ-178/179 — scope-aware: ``workspace`` scope dispatches to the per-workspace
+ * endpoints (unchanged); ``global`` scope dispatches to the tenant-wide
+ * ``/workflow-defaults/`` endpoints and surfaces the optional
+ * ``propagated_workspace_count`` via ``onPropagated`` (SCR-205 toast).
  */
 
 import { useCallback, useState } from "react";
@@ -17,8 +22,10 @@ import {
   type WorkflowEntityType,
   type WorkflowGraph,
 } from "../../api/workflows";
+import { workflowDefaultsApi } from "../../api/workflow-defaults";
 import type { TransitionDraft } from "./TransitionDialog";
-import { workflowKeys } from "./useWorkflowData";
+import { workflowKeys, scopeCacheKey } from "./useWorkflowData";
+import type { WorkflowScope } from "./constants";
 
 export interface WorkflowMutations {
   busy: boolean;
@@ -41,28 +48,45 @@ export interface WorkflowMutations {
   initialize: () => Promise<boolean>;
 }
 
+/** Internal shape every dispatched op resolves to. */
+interface OpResult {
+  graph: WorkflowGraph;
+  propagatedWorkspaceCount?: number;
+}
+
 export function useWorkflowMutations(
   entityType: WorkflowEntityType,
-  workspaceId: string | undefined
+  scope: WorkflowScope,
+  onPropagated?: (count: number) => void
 ): WorkflowMutations {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isGlobal = scope.kind === "global";
+  const workspaceId = scope.kind === "workspace" ? scope.workspaceId : undefined;
+  const preset = scope.kind === "global" ? scope.preset : undefined;
+  const cacheKey = scopeCacheKey(scope);
+
+  const canRun = isGlobal ? !!preset : !!workspaceId;
+
   const run = useCallback(
-    async (op: () => Promise<WorkflowGraph>): Promise<boolean> => {
-      if (!workspaceId) return false;
+    async (op: () => Promise<OpResult>): Promise<boolean> => {
+      if (!canRun) return false;
       setBusy(true);
       setError(null);
       try {
-        const graph = await op();
+        const { graph, propagatedWorkspaceCount } = await op();
         queryClient.setQueryData(
-          workflowKeys.graph(workspaceId, entityType),
+          workflowKeys.graph(cacheKey, entityType),
           graph
         );
         void queryClient.invalidateQueries({
-          queryKey: workflowKeys.graph(workspaceId, entityType),
+          queryKey: workflowKeys.graph(cacheKey, entityType),
         });
+        if (typeof propagatedWorkspaceCount === "number") {
+          onPropagated?.(propagatedWorkspaceCount);
+        }
         return true;
       } catch (err) {
         setError(extractWorkflowError(err));
@@ -71,53 +95,98 @@ export function useWorkflowMutations(
         setBusy(false);
       }
     },
-    [entityType, workspaceId, queryClient]
+    [entityType, cacheKey, canRun, queryClient, onPropagated]
   );
 
   const clearError = useCallback(() => setError(null), []);
+
+  // Adapt the workspace api (returns a bare WorkflowGraph) to the OpResult shape.
+  const wrapWs = (p: Promise<WorkflowGraph>): Promise<OpResult> =>
+    p.then((graph) => ({ graph }));
 
   return {
     busy,
     error,
     clearError,
     addState: (name) =>
-      run(() => workflowsApi.createState(entityType, workspaceId!, name)),
+      run(() =>
+        isGlobal
+          ? workflowDefaultsApi.createState(entityType, preset!, name)
+          : wrapWs(workflowsApi.createState(entityType, workspaceId!, name))
+      ),
     renameState: (oldName, newName) =>
       run(() =>
-        workflowsApi.updateState(entityType, workspaceId!, oldName, newName)
+        isGlobal
+          ? workflowDefaultsApi.updateState(entityType, preset!, oldName, newName)
+          : wrapWs(
+              workflowsApi.updateState(entityType, workspaceId!, oldName, newName)
+            )
       ),
     deleteState: (name) =>
-      run(() => workflowsApi.deleteState(entityType, workspaceId!, name)),
-    addTransition: (draft) =>
       run(() =>
-        workflowsApi.createTransition(entityType, workspaceId!, {
-          from_state: draft.from_state,
-          to_state: draft.to_state,
-          allowed_roles: draft.allowed_roles,
-          requires_change_reason: draft.requires_change_reason,
-          signature_gate: draft.signature_gate,
-        })
+        isGlobal
+          ? workflowDefaultsApi.deleteState(entityType, preset!, name)
+          : wrapWs(workflowsApi.deleteState(entityType, workspaceId!, name))
       ),
+    addTransition: (draft) => {
+      const payload = {
+        from_state: draft.from_state,
+        to_state: draft.to_state,
+        allowed_roles: draft.allowed_roles,
+        requires_change_reason: draft.requires_change_reason,
+        signature_gate: draft.signature_gate,
+      };
+      return run(() =>
+        isGlobal
+          ? workflowDefaultsApi.createTransition(entityType, preset!, payload)
+          : wrapWs(
+              workflowsApi.createTransition(entityType, workspaceId!, payload)
+            )
+      );
+    },
     updateTransition: (fromState, toState, patch) =>
       run(() =>
-        workflowsApi.updateTransition(
-          entityType,
-          workspaceId!,
-          fromState,
-          toState,
-          patch
-        )
+        isGlobal
+          ? workflowDefaultsApi.updateTransition(
+              entityType,
+              preset!,
+              fromState,
+              toState,
+              patch
+            )
+          : wrapWs(
+              workflowsApi.updateTransition(
+                entityType,
+                workspaceId!,
+                fromState,
+                toState,
+                patch
+              )
+            )
       ),
     deleteTransition: (fromState, toState) =>
       run(() =>
-        workflowsApi.deleteTransition(
-          entityType,
-          workspaceId!,
-          fromState,
-          toState
-        )
+        isGlobal
+          ? workflowDefaultsApi.deleteTransition(
+              entityType,
+              preset!,
+              fromState,
+              toState
+            )
+          : wrapWs(
+              workflowsApi.deleteTransition(
+                entityType,
+                workspaceId!,
+                fromState,
+                toState
+              )
+            )
       ),
     initialize: () =>
-      run(() => workflowsApi.initializeWorkflow(entityType, workspaceId!)),
+      run(() =>
+        isGlobal
+          ? workflowDefaultsApi.initialize(entityType, preset!)
+          : wrapWs(workflowsApi.initializeWorkflow(entityType, workspaceId!))
+      ),
   };
 }

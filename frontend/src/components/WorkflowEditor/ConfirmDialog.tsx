@@ -6,6 +6,7 @@
  * is danger-styled.
  */
 
+import type { ReactNode } from "react";
 import { WorkflowModal } from "./WorkflowModal";
 import styles from "./WorkflowEditor.module.css";
 
@@ -17,6 +18,10 @@ interface ConfirmDialogProps {
   onClose: () => void;
   busy?: boolean;
   errorMessage?: string | null;
+  /** Extra content rendered between the message and error (e.g. a checkbox). */
+  children?: ReactNode;
+  /** When true the confirm button is disabled (e.g. gate not yet satisfied). */
+  confirmDisabled?: boolean;
 }
 
 export function ConfirmDialog({
@@ -27,6 +32,8 @@ export function ConfirmDialog({
   onClose,
   busy = false,
   errorMessage,
+  children,
+  confirmDisabled = false,
 }: ConfirmDialogProps): JSX.Element {
   return (
     <WorkflowModal
@@ -47,7 +54,7 @@ export function ConfirmDialog({
             type="button"
             className={`${styles.btnPrimary} ${styles.btnDanger}`}
             onClick={() => void onConfirm()}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             data-testid="workflow-confirm-submit"
           >
             {confirmLabel}
@@ -56,6 +63,7 @@ export function ConfirmDialog({
       }
     >
       <p className={styles.modalText}>{message}</p>
+      {children}
       {errorMessage && (
         <p className={styles.modalError} role="alert" data-testid="workflow-confirm-error">
           {errorMessage}

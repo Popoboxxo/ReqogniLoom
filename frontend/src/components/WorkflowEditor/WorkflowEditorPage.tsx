@@ -13,15 +13,18 @@
 import "@xyflow/react/dist/style.css";
 
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
 import type { WorkflowEntityType } from "../../api/workflows";
+import type { WorkspacePreset } from "../../types";
 import {
   DEFAULT_ENTITY_TYPE,
   entityTypeFromSlug,
+  WORKFLOW_PRESETS,
   type Selection,
+  type WorkflowScope,
 } from "./constants";
 import { toMermaid } from "./mermaid-export";
 import { useWorkflowData } from "./useWorkflowData";
@@ -29,6 +32,7 @@ import { useWorkflowMutations } from "./useWorkflowMutations";
 import { WorkflowEditorHeader } from "./WorkflowEditorHeader";
 import { WorkflowEditorLayout } from "./WorkflowEditorLayout";
 import { EntityTypeSelector } from "./EntityTypeSelector";
+import { PresetSegmentedControl } from "./PresetSegmentedControl";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 import { InspectorPanel } from "./InspectorPanel";
 import { StatusBar } from "./StatusBar";
@@ -46,31 +50,98 @@ type DialogState =
   | { kind: "confirmDeleteState"; name: string }
   | { kind: "confirmDeleteTransition"; from: string; to: string };
 
-export function WorkflowEditorPage(): JSX.Element {
+interface WorkflowEditorPageProps {
+  /**
+   * ``workspace`` (default) — edits the active workspace's definition, entity
+   * type from the ``/workflows/:entityType`` route (unchanged, REQ-176/177).
+   * ``global`` — edits the tenant-wide default per preset (System Settings →
+   * Workflow Defaults, SCR-205); entity type and preset live in query params.
+   */
+  scope?: "workspace" | "global";
+}
+
+export function WorkflowEditorPage({
+  scope = "workspace",
+}: WorkflowEditorPageProps = {}): JSX.Element {
+  const isGlobal = scope === "global";
   const { entityType: entitySlug } = useParams<{ entityType: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
   const { roles } = useAuth();
   const isAdmin = roles.includes("admin");
 
   const entityType: WorkflowEntityType =
-    entityTypeFromSlug(entitySlug) ?? DEFAULT_ENTITY_TYPE;
+    entityTypeFromSlug(isGlobal ? searchParams.get("entityType") ?? undefined : entitySlug) ??
+    DEFAULT_ENTITY_TYPE;
+
+  // Global scope is defined per preset; read it from the query string.
+  const globalPreset: WorkspacePreset =
+    (WORKFLOW_PRESETS.find((p) => p === searchParams.get("preset")) ??
+      "standard") as WorkspacePreset;
+
+  const workflowScope: WorkflowScope = isGlobal
+    ? { kind: "global", preset: globalPreset }
+    : { kind: "workspace", workspaceId: activeWorkspace?.id };
 
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
   const [toast, setToast] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [dialog, setDialog] = useState<DialogState>({ kind: "none" });
 
-  const { graph, isLoading, error } = useWorkflowData(entityType);
-  const mutations = useWorkflowMutations(entityType, activeWorkspace?.id);
+  const flashToast = useCallback((message: string): void => {
+    setToast(message);
+    window.setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const handlePropagated = useCallback(
+    (count: number): void => {
+      flashToast(
+        `Change propagated to ${count} workspace${count === 1 ? "" : "s"} currently on default.`
+      );
+    },
+    [flashToast]
+  );
+
+  const { graph, isLoading, error } = useWorkflowData(entityType, workflowScope);
+  const mutations = useWorkflowMutations(
+    entityType,
+    workflowScope,
+    isGlobal ? handlePropagated : undefined
+  );
+
+  const setEntityQueryParam = useCallback(
+    (type: WorkflowEntityType): void => {
+      const next = new URLSearchParams(searchParams);
+      next.set("entityType", type);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
 
   const handleSelectEntity = useCallback(
     (type: WorkflowEntityType): void => {
       setSelection({ kind: "none" });
       setDialog({ kind: "none" });
-      navigate(`/workflows/${type}`);
+      if (isGlobal) {
+        setEntityQueryParam(type);
+      } else {
+        navigate(`/workflows/${type}`);
+      }
     },
-    [navigate]
+    [navigate, isGlobal, setEntityQueryParam]
+  );
+
+  const handleSelectPreset = useCallback(
+    (preset: WorkspacePreset): void => {
+      setSelection({ kind: "none" });
+      setDialog({ kind: "none" });
+      setEditMode(false);
+      const next = new URLSearchParams(searchParams);
+      next.set("preset", preset);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
   );
 
   const handleCopyMermaid = useCallback((): void => {
@@ -149,7 +220,9 @@ export function WorkflowEditorPage(): JSX.Element {
     [closeDialog]
   );
 
-  const preset = graph?.preset ?? activeWorkspace?.preset ?? "standard";
+  const preset = isGlobal
+    ? globalPreset
+    : graph?.preset ?? activeWorkspace?.preset ?? "standard";
 
   const selectedTransition =
     dialog.kind === "editTransition" && graph
@@ -167,17 +240,27 @@ export function WorkflowEditorPage(): JSX.Element {
         editMode={editMode}
         onToggleEditMode={toggleEditMode}
         canEdit={isAdmin}
+        title={isGlobal ? "Global Workflow Defaults" : "Workflow Editor"}
+        presetControl={
+          isGlobal ? (
+            <PresetSegmentedControl value={globalPreset} onChange={handleSelectPreset} />
+          ) : undefined
+        }
       />
 
       <WorkflowEditorLayout
         selector={
-          <EntityTypeSelector selected={entityType} onSelect={handleSelectEntity} />
+          <EntityTypeSelector
+            selected={entityType}
+            onSelect={handleSelectEntity}
+            scope={workflowScope}
+          />
         }
         canvas={
           <WorkflowCanvas
             graph={graph}
             entityType={entityType}
-            workspaceId={activeWorkspace?.id}
+            workspaceId={isGlobal ? `global-${globalPreset}` : activeWorkspace?.id}
             isLoading={isLoading}
             error={error}
             selection={selection}

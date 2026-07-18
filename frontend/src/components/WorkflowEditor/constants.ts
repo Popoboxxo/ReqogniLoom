@@ -5,6 +5,23 @@
  */
 
 import type { WorkflowEntityType } from "../../api/workflows";
+import type { WorkspacePreset } from "../../types";
+
+/**
+ * Scope the editor operates in (REQ-178/179). ``workspace`` is the original,
+ * default behaviour (per-workspace definition); ``global`` edits the tenant-wide
+ * default for a specific preset (System Settings → Workflow Defaults, SCR-205).
+ */
+export type WorkflowScope =
+  | { kind: "workspace"; workspaceId: string | undefined }
+  | { kind: "global"; preset: WorkspacePreset };
+
+/** The three rigor presets, in ascending order (global defaults are per-preset). */
+export const WORKFLOW_PRESETS: readonly WorkspacePreset[] = [
+  "minimal",
+  "standard",
+  "extended",
+] as const;
 
 /** The 7 entity types the editor visualises, with human-readable labels. */
 export interface EntityTypeDescriptor {
