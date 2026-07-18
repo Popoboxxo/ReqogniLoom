@@ -1,4 +1,4 @@
-"""REQ-165/REQ-166 — Provision missing per-entity WorkflowEngineDefinitions.
+"""REQ-165/REQ-166/REQ-178 — Provision missing per-entity WorkflowEngineDefinitions.
 
 Idempotent maintenance command mirroring the provisioning that
 ``WorkspaceService.create_workspace`` performs: for every Workspace (optionally a
@@ -7,18 +7,33 @@ workflow for StakeholderNeed, Adr, Risk, Issue, TestCase and ChangeRequest when
 one does not already exist. ``Requirement`` is skipped (already provisioned with
 the tier-dependent preset at workspace creation).
 
+REQ-178: ``create_default_workflow`` no longer copies ``PRESET_SCHEMAS`` straight
+into the workspace row — it get-or-seeds the tenant-wide per-preset
+``GlobalWorkflowDefinition`` and links the workspace row to it via
+``source_global`` with ``is_customized=False``, so this command now also
+backfills global defaults and inheritance links for any legacy workspace that
+predates the global-default model.
+
+REQ-181/182: the command additionally provisions the permission default
+(``WorkspacePermissionDefinition`` linked to the tenant
+``GlobalPermissionDefinition``) for each workspace, symmetric to workspace
+creation. This never touches UserRole/ItemPermission rows.
+
 Usage::
 
     python manage.py provision_workflow_definitions
     python manage.py provision_workflow_definitions --workspace-id <uuid>
 
-Safe to run repeatedly — ``create_default_workflow`` uses ``get_or_create`` so
+Safe to run repeatedly — every provisioning path uses ``get_or_create`` so
 existing (including customised) definitions are never overwritten.
 """
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand
 
+from auth_tenancy.services.permission_definition import (
+    PermissionDefinitionService,
+)
 from persistence.models import Workspace
 from persistence.tenancy import TenantContext
 from workflow.models import WorkflowEngineDefinition
@@ -87,6 +102,10 @@ class Command(BaseCommand):
                     self.stdout.write(
                         f"  + {item_type} ({preset_key}) for workspace {ws.id}"
                     )
+                # REQ-181/182: ensure the permission default exists (idempotent).
+                PermissionDefinitionService().provision_workspace(
+                    tenant_id=ws.tenant_id, workspace_id=ws.id
+                )
             finally:
                 TenantContext.clear_tenant()
 

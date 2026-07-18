@@ -219,7 +219,18 @@ class HasOperationPermission(permissions.BasePermission):
             return True
 
         decision = self._authz.decide_access(auth_context.active_roles, operation)
-        return decision.allow
+
+        # REQ-186/187 shadow-verify seam (see rest_api.auth_enforcer.RbacPermission):
+        # the new permission_json model governs only in ``authoritative`` mode; in
+        # ``shadow`` mode the verdict is identical to legacy and the comparator is
+        # fail-closed to legacy on any error.
+        from auth_tenancy.services.permission_shadow import shadow_decide
+
+        return shadow_decide(
+            legacy_decision=decision.allow,
+            ctx=auth_context,
+            operation=operation,
+        )
 
 
 __all__ = [
