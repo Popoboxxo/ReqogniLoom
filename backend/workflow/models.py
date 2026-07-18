@@ -37,6 +37,56 @@ from persistence.models import TenantScopedModel
 
 
 # ---------------------------------------------------------------------------
+# REQ-178  GlobalWorkflowDefinition — tenant-wide default (source-of-truth)
+# ---------------------------------------------------------------------------
+
+
+class GlobalWorkflowDefinition(TenantScopedModel):
+    """Tenant-wide default workflow per entity type AND preset (REQ-178, revised).
+
+    Source-of-truth template from which every new workspace inherits its
+    per-entity :class:`WorkflowEngineDefinition`. Exactly one row per
+    ``(tenant, item_type, preset)`` — each Rigor-Preset (minimal / standard /
+    extended) keeps its OWN global default, NOT one shared cross-preset default
+    (REQ-178 revised).
+
+    Inheritance form (REQ-178 leaves the choice to the data model): this design
+    uses **materialized copy** — each workspace keeps its own
+    ``WorkflowEngineDefinition`` row (preserving the existing per-workspace
+    invariant and the ``WorkflowItemState.definition`` FK), and links back here
+    via ``WorkflowEngineDefinition.source_global``. A workspace that has not
+    diverged carries ``is_customized=False`` and mirrors this row's
+    ``workflow_json``; an admin edit to this row propagates into all
+    non-customized derived rows of the SAME preset (application-layer concern,
+    not schema).
+
+    ``preset`` is part of the identity: the on-default / customized state of a
+    workspace (REQ-180) is computed against the global default of ITS OWN
+    preset, never a cross-preset modal/average value. This unifies backfill and
+    change-handling across all three presets.
+    """
+
+    item_type = models.CharField(max_length=128)
+    preset = models.CharField(max_length=32)
+    workflow_json = models.JSONField(default=dict)
+
+    class Meta:
+        db_table = "we_global_definition"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "item_type", "preset"],
+                name="uq_we_global_def_tenant_type_preset",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"GlobalWorkflowDef({self.item_type}/{self.preset}"
+            f"@tenant:{self.tenant_id})"
+        )
+
+
+# ---------------------------------------------------------------------------
 # COMP-WE-001  WorkflowEngineDefinition
 # ---------------------------------------------------------------------------
 
@@ -85,6 +135,29 @@ class WorkflowEngineDefinition(TenantScopedModel):
     preset = models.CharField(max_length=32, choices=PRESET_CHOICES)
     workflow_json = models.JSONField(default=dict)
     is_custom = models.BooleanField(default=False)
+
+    # REQ-178/REQ-180 — Global-default inheritance + override tracking.
+    #
+    # ``source_global`` links this per-workspace definition back to the
+    # tenant-wide default it was inherited from (REQ-178). SET_NULL: deleting a
+    # global default must never cascade-delete a live workspace override; the
+    # link simply becomes unknown. Nullable so pre-REQ-178 rows and any
+    # workspace whose global template is gone remain valid.
+    source_global = models.ForeignKey(
+        "workflow.GlobalWorkflowDefinition",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="derived_definitions",
+    )
+    # ``is_customized`` is the cheap, authoritative on-default/customized signal
+    # (REQ-180): False = mirrors ``source_global`` ("on-default"), True =
+    # workspace has diverged ("customized"). Flipped to True by the mutation
+    # path (edit/custom-persist) and back to False by reset-to-default. Kept as
+    # a boolean so the hot read path (transition validation) never has to
+    # canonicalize/compare JSON. Distinct from ``is_custom``, which records the
+    # legacy "user supplied an extended custom definition" fact.
+    is_customized = models.BooleanField(default=False)
 
     class Meta:
         db_table = "we_engine_definition"
@@ -221,6 +294,7 @@ class WorkflowHistoryEntry(TenantScopedModel):
 # ---------------------------------------------------------------------------
 
 __all__ = [
+    "GlobalWorkflowDefinition",
     "WorkflowEngineDefinition",
     "WorkflowItemState",
     "WorkflowHistoryEntry",
