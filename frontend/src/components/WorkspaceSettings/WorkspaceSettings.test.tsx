@@ -57,14 +57,11 @@ vi.mock("../../api/workspaces", () => ({
 vi.mock("../../i18n/index", () => ({ i18n: { changeLanguage: vi.fn() } }));
 
 // Stub child sections so their own effects/api calls do not run here.
-vi.mock("./WorkflowsSection", () => ({
-  WorkflowsSection: () => <div data-testid="stub-workflows" />,
+vi.mock("./WorkflowPermissionsSection", () => ({
+  WorkflowPermissionsSection: () => <div data-testid="stub-workflow-permissions" />,
 }));
 vi.mock("./PermissionsSection", () => ({
   PermissionsSection: () => <div data-testid="stub-permissions" />,
-}));
-vi.mock("./BackupRestoreSection", () => ({
-  BackupRestoreSection: () => <div data-testid="stub-backup" />,
 }));
 vi.mock("./LlmSettingsSection", () => ({
   LlmSettingsSection: () => <div data-testid="stub-llm" />,
@@ -86,16 +83,27 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     vi.clearAllMocks();
   });
 
-  it("renders all six tabs and shows the General tab by default", () => {
+  it("renders the workspace-scoped tabs and shows the General tab by default", () => {
     render(<WorkspaceSettings />);
-    for (const id of ["general", "traceability", "visibility", "llm", "governance", "admin"]) {
+    for (const id of ["general", "traceability", "visibility", "llm", "workflows-permissions"]) {
       expect(screen.getByTestId(`settings-tab-${id}`)).toBeInTheDocument();
     }
+    // The Administration tab relocated to System Settings (REQ-184) — gone here.
+    expect(screen.queryByTestId("settings-tab-admin")).not.toBeInTheDocument();
     // General panel is active initially.
     expect(screen.getByTestId("settings-tab-general")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("workspace-name-input")).toBeInTheDocument();
     // A control from another tab is not mounted.
     expect(screen.queryByTestId("decomposition-link-type-select")).not.toBeInTheDocument();
+  });
+
+  it("shows the rebuilt Workflows & Permissions tab (SCR-202)", async () => {
+    render(<WorkspaceSettings />);
+    await userEvent.click(screen.getByTestId("settings-tab-workflows-permissions"));
+
+    expect(screen.getByTestId("settings-tab-workflows-permissions")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("stub-workflow-permissions")).toBeInTheDocument();
+    expect(screen.getByTestId("stub-permissions")).toBeInTheDocument();
   });
 
   it("switches to the Traceability tab and swaps the visible controls", async () => {
@@ -106,16 +114,6 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByTestId("decomposition-link-type-select")).toBeInTheDocument();
     expect(screen.getByTestId("default-link-type-select")).toBeInTheDocument();
     expect(screen.queryByTestId("workspace-name-input")).not.toBeInTheDocument();
-  });
-
-  it("shows lifecycle administration controls on the Administration tab", async () => {
-    render(<WorkspaceSettings />);
-    await userEvent.click(screen.getByTestId("settings-tab-admin"));
-
-    expect(screen.getByTestId("lifecycle-section")).toBeInTheDocument();
-    expect(screen.getByTestId("delete-workspace-btn")).toBeInTheDocument();
-    // Baselines feature flag is on -> backup section rendered.
-    expect(screen.getByTestId("stub-backup")).toBeInTheDocument();
   });
 
   it("renders the LLM and prompt sections together on the LLM tab", async () => {

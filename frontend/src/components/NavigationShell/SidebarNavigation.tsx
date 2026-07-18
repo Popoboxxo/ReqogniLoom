@@ -57,6 +57,9 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/workflows", labelKey: "nav.workflows", feature: "dashboard" },
   { path: "/metrics", labelKey: "nav.metrics", feature: "metrics" },
   { path: "/settings", labelKey: "nav.settings", feature: "dashboard" },
+  // REQ-184: System Settings — tenant-wide config. Link always visible (like
+  // /settings); the page itself gates on the admin role.
+  { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard" },
 ];
 
 // Sidebar palette — dark professional theme.

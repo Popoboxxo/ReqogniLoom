@@ -45,6 +45,9 @@ const ArchitectureEditors = lazy(
 const WorkspaceSettings = lazy(
   () => import("../WorkspaceSettings/WorkspaceSettings")
 );
+const SystemSettings = lazy(
+  () => import("../SystemSettings/SystemSettings")
+);
 const TraceabilityView = lazy(
   () => import("../TraceabilityView/TraceabilityView")
 );
@@ -138,6 +141,7 @@ function AppShell(): JSX.Element {
               <Route path="/diagrams/:id/mermaid" element={<MermaidEditorWrapper />} />
               <Route path="/metrics" element={<MetricsDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
+              <Route path="/system-settings" element={<SystemSettings />} />
               <Route
                 path="/workspace-settings"
                 element={<Navigate to="/settings" replace />}
