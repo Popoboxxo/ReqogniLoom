@@ -3,7 +3,7 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v0.61.0 — `2026-06-17`
+> Generiert von agent-meta v0.76.0 — `2026-07-18`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
 > `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
@@ -20,51 +20,49 @@
 
 **Name:** ReqFlow
 **Präfix:** rf
-**Plattform:** Django + React + Docker Compose
-**Beschreibung:** AI-natives Requirements-Management-Tool mit Testmanagement-Unterstützung
+**Plattform:** Django 4.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker Compose (5 Services: postgres, redis, backend, celery, frontend)
+**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (11 Tool-Gruppen, 40+ Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 8 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
 ---
 
 ## Tech-Stack
 
-- **Runtime:** Python 3.x (Django) + Node.js (React)
-- **Sprache:** Python, TypeScript
-- **Key-Dependencies:** Django, Django REST Framework, React, MCP SDK
+- **Runtime:** Python 3.x (im Container: Django 4.2+, DRF 3.15+, drf-spectacular, psycopg2-binary, celery, redis, reportlab) + Node.js >= 18 (nur für E2E mit Playwright; Vite-Dev-Server läuft im Container) + Vite 5.4+ Dev-Server
+- **Sprache:** Python 3.x + TypeScript 5.5+ (strict) + YAML + Bash
+- **Key-Dependencies:** - Docker >= 24
+- Docker Compose >= 2.x
+- Node.js >= 18 (nur für E2E-Tests mit Playwright)
+- Python 3.x (im Container)
+
 
 ---
 
 ## Architektur
 
 ```
-backend/
-  manage.py          # Django Entry-Point
-  reqflow/           # Django Project
-  requirements_app/  # Requirements Management App
-frontend/
-  src/               # React Source
-  package.json
-docker-compose.yml   # Orchestrierung
+backend/             # Django REST API (17 Apps) #   Layer 0: persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability, workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api, mcp_server #   Ext: diagram, icd, se_metrics, resilience, admin_ops, test_runs #   reqflow/  # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py)
+frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/ #   src/styles/  src/test/  src/types/
+e2e/                 # Playwright/Chromium E2E-Tests (111 Tests)
+docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
+docker-compose.yml   # 5 Services: postgres, redis, backend, celery, frontend
+.meta-config/        # agent-meta Konfiguration (project.yaml)
+.agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
+
 ```
 
 **Entry-Point:**
 ```
-backend/manage.py — Django Management
-frontend/src/index.tsx — React Entry-Point
+backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check) backend/reqflow/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqflow/urls.py         — URL-Routing (/api/v1/, /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) 
 ```
 
 **Besondere Patterns:**
-- Django REST Framework für API-Endpoints
-- MCP Server für AI-Tool-Integration
-- Artefakt-basierte Zerlegung von Requirements
+- Django REST Framework (DRF) für REST-API-Endpoints (16 ViewSets + 2 APIViews) - MCP-Server (JSON-RPC 2.0) mit 11 Tool-Gruppen und 40+ Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 8 Trace-Link-Typen (TRACE_TO, DERIVED_FROM, IMPLEMENTS, TESTS, VERIFIES, RELATED_TO, CONFLICTS_WITH, SUPERCEDES) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
 
 ---
 
 ## Code-Konventionen
 
-- PEP 8 für Python (Django Backend)
-- TypeScript best practices für React Frontend
-- Django-spezifisch: Models, Views, Serializers Trennung
-- React-spezifisch: Functional Components, Hooks
+- Python (PEP 8, Typings, Docstrings für public API) - TypeScript (ESLint 9, Prettier, strict mode, functional Components + Hooks) - Django-Layer: Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/) - React-Layer: api/ (Wrapper) ↔ context/ (State) ↔ components/ (UI) ↔ i18n/ (Labels) - Imports-Reihenfolge: Standard Library → Third-Party → Local (PEP 8) - Keine wildcard imports (from x import *) - Keine direkten Model-Queries in DRF-Views (immer via Serializer + Service) - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht für Playwright) - CSS Custom Properties aus styles/tokens.css (keine hardcodierten Farben/Größen) - Commits: Conventional Commits Format (feat(REQ-xxx): ..., fix: ..., chore: ...) - Branch-Policy: feat/*, fix/*, refactor/* (NIE direkt auf main) - Requirements-IDs: REQ-L0-*, REQ-L1-*, REQ-L2-*, REQ-L3-* (siehe docs/se/traceability-matrix.md) 
 
 ---
 
@@ -75,8 +73,7 @@ frontend/src/index.tsx — React Entry-Point
 docker-compose build
 
 # Tests
-docker-compose exec backend pytest
-docker-compose exec frontend npm test
+pytest (Backend) + npm test (Frontend)
 
 # Dev-Stack starten
 docker-compose up
@@ -91,13 +88,19 @@ docker-compose restart (oder Hot Reload je nach Service)
 
 Kategorien für `docs/REQUIREMENTS.md`:
 
-- **Functional**: Funktionale Anforderungen (Features, User Stories)
-- **Non-Functional**: Nicht-funktionale Anforderungen (Performance, Sicherheit, Skalierbarkeit)
-- **API**: REST API und MCP Server Schnittstellen
-- **UI/UX**: Frontend und Benutzerinteraktion
-- **Data**: Datenmodelle, Artefakte, Zerlegungsstrukturen
-- **Integration**: Externe Systeme, Import/Export
-- **Test**: Testmanagement-Anforderungen
+- **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
+- **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
+- **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/, JSON-RPC 2.0, 11 Tool-Gruppen)
+- **UI/UX** — Frontend (React 18 SPA), 17 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
+- **Data** — Generic Artifact Model, Multi-Tenancy via Row-Level-Security, Configurable Rigor
+- **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, LLM-Provider (Anthropic/OpenAI/Ollama/mock)
+- **Test** — Test-Management, Test-Run-Protokollierung (4-Phasen-Lifecycle), Coverage-Tracking
+- **Workflow** — Konfigurierbare State-Machines pro Workspace, Approval-Gates, Transition-Validierung
+- **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
+- **Traceability** — 8 Link-Typen, Coverage-Aggregation, V-Modell L0-L4-Traceability
+- **AI** — LLM-Provider-Abstraktion, Decomposition, Validation, Consistency-Check
+- **Resilience** — Retry, Circuit-Breaker, Timeout-Decorators, async via Celery
+
 
 ---
 
@@ -107,7 +110,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 <!-- This block is automatically updated by sync.py on every sync. -->
 <!-- Manual changes here will be overwritten. -->
 
-Generiert von agent-meta v0.75.0 — `2026-07-18`
+Generiert von agent-meta v0.76.0 — `2026-07-18`
 DoD-Preset: **spec-driven** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 
 > **Einstiegspunkt:** Starte mit dem `orchestrator`-Agenten für alle Entwicklungsaufgaben — Ausnahmen siehe Abschnitt »Orchestrator — Universal Router«.
