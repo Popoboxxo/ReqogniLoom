@@ -128,10 +128,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      # Stamps the deployed commit/build time into the image (GET
-      # /api/v1/version/). Pass explicitly for a real release build, e.g.:
-      #   GIT_COMMIT_SHA=$(git rev-parse HEAD) BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker-compose build backend
+      # Stamps the deployed version/commit/build time into the image (GET
+      # /api/v1/version/). Prefer `scripts/build.sh` (or `make build`), which
+      # populates all three from git + the root VERSION file, e.g.:
+      #   APP_VERSION=$(cat VERSION) GIT_COMMIT_SHA=$(git rev-parse HEAD) BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker-compose build backend
       args:
+        APP_VERSION: ${APP_VERSION:-unknown}
         GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
         BUILD_TIME: ${BUILD_TIME:-}
     restart: unless-stopped

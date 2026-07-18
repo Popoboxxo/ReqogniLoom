@@ -411,16 +411,27 @@ variables:
     Demo-Credentials: admin / admin12345 (Tenant "demo", Workspace "Demo Workspace").
 
     '
-  VERSION_DIST_BEHAVIOUR: '1. VERSION-Datei erstellen/erhöhen (siehe README.md "Changelog
-    Highlights")
+  VERSION_DIST_BEHAVIOUR: '1. VERSION-Datei erhöhen — SemVer-Schema X.Y.Z, KEIN "v"-Präfix
+    in der Datei (Präfix nur im Git-Tag, siehe Schritt 5: vX.Y.Z). Root-VERSION-Datei
+    ist Single Source of Truth für backend/reqflow/version.py (Fallback wenn APP_VERSION-ENV
+    fehlt).
 
-    2. CHANGELOG.md aktualisieren (Englisch, externe Doku)
+    2. frontend/package.json "version"-Feld SYNCHRON auf denselben Wert wie VERSION
+    setzen — beide Dateien müssen exakt übereinstimmen, keine getrennten Versionsstände.
 
-    3. docs/se/reports/ Session-Bericht schreiben (Deutsch, interne Doku)
+    3. CHANGELOG.md aktualisieren (Englisch, externe Doku)
 
-    4. git tag v<version> (z.B. v1.1.1)
+    4. docs/se/reports/ Session-Bericht schreiben (Deutsch, interne Doku)
 
-    5. docker-compose build && docker-compose push (optional, Self-Hosted-First)
+    5. git tag v<version> (z.B. v1.1.1)
+
+    6. Release-Build via scripts/build.sh (bzw. make build) — NICHT nacktes docker-compose
+    build. scripts/build.sh berechnet APP_VERSION=$(cat VERSION), GIT_COMMIT_SHA=$(git
+    rev-parse HEAD) und BUILD_TIME=$(date -u ...) und übergibt sie als Build-Args
+    an docker-compose build. Ein nacktes docker-compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME
+    auf "unknown" — GET /api/v1/version/ liefert dann keine echten Werte.
+
+    7. docker-compose push (optional, Self-Hosted-First)
 
     Stand v1.1.1 (2026-06-28): 1,599 pytest-Tests + 111 E2E-Tests + 150+ MCP-E2E-Tests.
 
@@ -539,7 +550,9 @@ lifecycle-triggers:
   - agent: documenter
     task: Update CODEBASE_OVERVIEW.md and ARCHITECTURE.md for this release.
   - agent: release
-    task: Tag, Changelog-Highlight und docker-compose-Build für die Release-Version.
+    task: Tag, Changelog-Highlight und Release-Build via scripts/build.sh (bzw. make
+      build) für die Release-Version — kein nacktes docker-compose build (sonst
+      bleiben APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown").
 hooks:
   lifecycle-check:
     enabled: true

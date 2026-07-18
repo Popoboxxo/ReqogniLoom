@@ -45,7 +45,8 @@
     "toggleTheme": "Hell-/Dunkelmodus umschalten",
     "lightMode": "Heller Modus",
     "darkMode": "Dunkler Modus",
-    "buildVersion": "Build {{sha}}"
+    "buildVersion": "Build {{sha}}",
+    "appVersion": "v{{version}}"
   },
   "systemHealth": {
     "title": "Systemstatus",
@@ -55,6 +56,7 @@
     "recentEvents": "Letzte Audit-Ereignisse",
     "noEvents": "Keine aktuellen Ereignisse.",
     "refresh": "Aktualisieren",
+    "appVersion": "v{{version}}",
     "version": "Version: {{sha}}",
     "versionBuiltAt": "Version: {{sha}} · gebaut am {{buildTime}}",
     "versionUnavailable": "Version: nicht verfügbar",

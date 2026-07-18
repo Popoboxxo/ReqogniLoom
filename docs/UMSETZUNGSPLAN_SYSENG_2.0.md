@@ -128,7 +128,7 @@ Ein Risiko ist kein Design-Dokument, sondern ein Zustand der Projektwelt.
 | Phase | Fokus | Zeitraum | Kern-Deliverables |
 |-------|-------|----------|-------------------|
 | **Phase 1** | Ontologie & Link-Naming | Woche 1 | - DB-Migration `parent-child` → `decomposes`<br>- Tri-Label (DE/EN) |
-| **Phase 2** | Redaktionelle Workflows | Woche 2 | - JSON-Schemas im `definition_store.py` für alle 7 Artefakte exakt nach der neuen Matrix (Kap. 3.3) umbauen.<br>- UI: Dynamische Badges für *Verified/Baselined* implementieren. |
-| **Phase 3** | Auditor Core | Woche 3 | - RuleEngine mit Preset-Vererbung<br>- Scanner für TRACE-P1 bis P7 |
-| **Phase 4** | Auditor UI | Woche 4 | - Audit-Dashboard<br>- Adopt/Modify Workflow |
-| **Phase 5** | KI Copilot | Woche 5 | - Tool: `architecture.decompose` (N1) |
+| **Phase 2** | Auditor Core | Woche 2 | - RuleEngine mit Preset-Vererbung<br>- Scanner für TRACE-P1 bis P7 |
+| **Phase 3** | Auditor UI | Woche 3 | - Audit-Dashboard<br>- Adopt/Modify Workflow |
+| **Phase 4** | KI Copilot | Woche 4 | - Tool: `architecture.decompose` (N1) |
+| **Phase 5** | Workflows *(Letzte Prio)* | Woche 5 | - JSON-Schemas im `definition_store.py` für alle Artefakte auf `draft -> review -> released` umbauen.<br>- UI: Dynamische Badges für *Verified/Baselined* implementieren. |

@@ -10,10 +10,11 @@
  * On failure: displays i18n error message.
  */
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
+import { versionApi, type VersionInfo } from "../../api/version";
 
 export function LoginPage(): JSX.Element {
   const { t } = useTranslation();
@@ -25,6 +26,34 @@ export function LoginPage(): JSX.Element {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Deployed version, fetched from the public /api/v1/version/ endpoint
+  // (AllowAny — works pre-login). Non-blocking and non-critical: a slow or
+  // failed fetch must never gate the login form.
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void versionApi
+      .getVersion()
+      .then((info) => {
+        if (!cancelled) setVersionInfo(info);
+      })
+      .catch(() => {
+        // Silently omit the version marker on failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const versionLabel = versionInfo
+    ? versionInfo.app_version && versionInfo.app_version !== "unknown"
+      ? `v${versionInfo.app_version}`
+      : versionInfo.commit_short !== "unknown"
+        ? t("nav.buildVersion", { sha: versionInfo.commit_short, defaultValue: `Build ${versionInfo.commit_short}` })
+        : null
+    : null;
 
   const from =
     (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/";
@@ -80,9 +109,15 @@ export function LoginPage(): JSX.Element {
           <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: "var(--space-1) 0 0 0" }}>
             AI-native Requirements Management
           </p>
-          <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", opacity: 0.7 }}>
-            {(import.meta.env as Record<string, string>).VITE_APP_VERSION ?? "dev"}
-          </span>
+          {versionLabel && (
+            <span
+              data-testid="login-version-indicator"
+              title={versionInfo?.commit ?? undefined}
+              style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", opacity: 0.7 }}
+            >
+              {versionLabel}
+            </span>
+          )}
         </div>
         <h2>{t("login.title")}</h2>
         {error && (

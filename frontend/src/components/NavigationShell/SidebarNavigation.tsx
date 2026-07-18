@@ -882,6 +882,9 @@ export function SidebarNavigation(): JSX.Element {
               opacity: 0.7,
             }}
           >
+            {versionInfo.app_version && versionInfo.app_version !== "unknown"
+              ? `${t("nav.appVersion", { version: versionInfo.app_version, defaultValue: `v${versionInfo.app_version}` })} · `
+              : ""}
             {t("nav.buildVersion", { sha: versionInfo.commit_short, defaultValue: `Build ${versionInfo.commit_short}` })}
           </span>
         )}
