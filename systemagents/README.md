@@ -1,4 +1,4 @@
-# `.reqflow/` — Project-Owned Agent Artifacts
+# `systemagents/` — Project-Owned Agent Artifacts
 
 Permanenter, versionierter Ort für Agenten-Definitionen und verwandte Artefakte,
 die **zu ReqFlow selbst gehören** — nicht zum `agent-meta`-Framework (Submodule
@@ -27,11 +27,10 @@ kein Ersatz für einen eigenständigen, noch nicht registrierten Agenten wie die
 ## Struktur
 
 ```
-.reqflow/
+systemagents/
   README.md          # diese Datei
-  agents/
-    reqflow.md        # Quelle für den ReqFlow-Operator-Agenten
-    (weitere projekt-eigene Agenten künftig hier)
+  reqflow.md          # Quelle für den ReqFlow-Operator-Agenten
+  (weitere projekt-eigene Agenten künftig hier)
 ```
 
 ## Zusammenhang mit `.claude/agents/`
@@ -45,17 +44,17 @@ Verzeichnis ist vollständig gitignored und wird von `sync.py` generiert/verwalt
 liegt aktuell eine **manuelle 1:1-Kopie** unter `.claude/agents/reqflow.md`.
 
 **Aktueller Stand (Stand: Migration auf `feat/reqflow-self-migration`):**
-- Quelle (versioniert): `.reqflow/agents/reqflow.md`
+- Quelle (versioniert): `systemagents/reqflow.md`
 - Wirksame Kopie (gitignored, von Claude Code geladen): `.claude/agents/reqflow.md`
 - Beide Dateien sind aktuell inhaltsgleich.
 
-### Nach jeder Änderung an `.reqflow/agents/reqflow.md`
+### Nach jeder Änderung an `systemagents/reqflow.md`
 
 ```bash
-cp .reqflow/agents/reqflow.md .claude/agents/reqflow.md
+cp systemagents/reqflow.md .claude/agents/reqflow.md
 ```
 
-(Windows ohne Git-Bash: `copy .reqflow\agents\reqflow.md .claude\agents\reqflow.md`)
+(Windows ohne Git-Bash: `copy systemagents\reqflow.md .claude\agents\reqflow.md`)
 
 Es gibt **noch keinen automatischen Build-/Sync-Schritt**, der das für dich tut.
 Das ist der offene Punkt dieser Migration (siehe unten).
@@ -86,10 +85,10 @@ Teil dieser Migration, erfordert Rücksprache mit `agent-meta-manager`):
 1. **Generisches Framework-Feature vorschlagen** (`meta-feedback`, Label
    `new-agent` oder `new-platform-agent`): ein offizieller Mechanismus für
    projekt-eigene, nicht-generische Rollen, die `sync.py` aus einem
-   projekt-lokalen Verzeichnis (z.B. `.reqflow/agents/`) automatisch nach
+   projekt-lokalen Verzeichnis (z.B. `systemagents/`) automatisch nach
    `.claude/agents/` kopiert und im Manifest führt.
 2. **Kleines projekt-eigenes Hilfsskript** (z.B. `scripts/sync-project-agents.sh`),
-   das `.reqflow/agents/*.md` nach `.claude/agents/*.md` spiegelt — bewusst
+   das `systemagents/*.md` nach `.claude/agents/*.md` spiegelt — bewusst
    *nicht* Teil von `agent-meta`, sondern ein reines ReqFlow-Tooling-Skript.
 
 Bis eine der beiden Optionen umgesetzt ist: manueller `cp` nach jeder Änderung.
