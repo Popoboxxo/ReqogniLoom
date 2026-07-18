@@ -5,12 +5,19 @@ leaf_id : COMP-AS-008
 req_id  : REQ-L1-019, REQ-L1-023, REQ-L2-AppSvc-006, REQ-L2-AppSvc-007,
           REQ-L3-EXP-001, REQ-L3-EXP-002, REQ-L3-EXP-003
 
-Produces JSON, CSV, Markdown, and PDF exports for Requirements,
-ArchitectureElements, TestCases, and StakeholderNeeds scoped by workspace or
-single artifact. Embeds active terminology profile as metadata.
+Produces JSON, CSV, Markdown, and PDF exports for StakeholderNeeds, Requirements,
+ArchitectureElements, TestCases (persistence app) and Adrs, Risks, Issues
+(application app) scoped by workspace or single artifact. Embeds active
+terminology profile as metadata.
 
 C7 (frontend-feedback Cluster C): StakeholderNeed added to enable CSV export
 of Bedarfe alongside Requirements and ArchitectureElements.
+
+Round-trip fidelity: the exported column set is driven by the shared
+``ENTITY_FIELD_SPECS`` registry and includes identity/audit columns (id,
+artifact_id, version, created_at, modified/updated timestamp) so that
+``export_csv -> ImportService.import_csv`` is a lossless round-trip (the ReqFlow
+self-migration safety net).
 
 PDF support: Implemented via reportlab. Delegates to pdf_report_generator
 for workspace-level document exports.
@@ -42,8 +49,181 @@ from application.base import NotFoundError, ServiceBase, ValidationError
 
 logger = logging.getLogger(__name__)
 
-# Supported entity types
-_VALID_ENTITY_TYPES = {"Requirement", "ArchitectureElement", "TestCase", "StakeholderNeed"}
+# ---------------------------------------------------------------------------
+# Round-trip field registry (shared with ImportService)
+# ---------------------------------------------------------------------------
+#
+# A single, symmetric field registry drives BOTH export serialisation and
+# import deserialisation so that ``export_csv -> import_csv`` is a lossless
+# round-trip (COMP-AS-008 / COMP-AS-009). ImportService imports
+# ``ENTITY_FIELD_SPECS`` and the entity-type sets from this module; the two
+# services therefore agree on the exact column set and per-column value kind.
+#
+# Each spec entry is ``(column_name, kind)`` where ``column_name`` is BOTH the
+# CSV/JSON column and the ORM attribute name, and ``kind`` is one of:
+#   "str"      — non-nullable text (None -> "")
+#   "nstr"     — nullable text (empty CSV cell -> None)
+#   "int"      — nullable integer (empty CSV cell -> None)
+#   "bool"     — boolean ("true"/"false" in CSV)
+#   "json"     — JSON list/dict (serialised to a JSON string in CSV)
+#   "datetime" — ISO-8601 timestamp
+#   "uuid"     — UUID rendered as a string
+#
+# Identity / audit columns (id, artifact_id, version, created_at, and the
+# per-model modified timestamp) are part of the spec so they round-trip; the
+# import path gives them special handling (see ImportService._insert_rows).
+
+# Common trailing columns for the artifact-backed persistence models
+# (StakeholderNeed, Requirement, ArchitectureElement, TestCase). Their
+# "modified" timestamp column is ``modified_at`` (AuditableModel).
+_COMMON_PERSISTENCE_FIELDS = [
+    ("uid", "nstr"),
+    ("id", "uuid"),
+    ("artifact_id", "uuid"),
+    ("version", "int"),
+    ("created_at", "datetime"),
+    ("modified_at", "datetime"),
+]
+
+# Common trailing columns for the plain application models (Adr, Risk, Issue).
+# These carry ``workspace_id``/``tenant_id`` as UUID columns (not FKs) and use
+# ``updated_at`` as their modified timestamp.
+_COMMON_APP_FIELDS = [
+    ("uid", "nstr"),
+    ("id", "uuid"),
+    ("artifact_id", "uuid"),
+    ("version", "int"),
+    ("created_by", "str"),
+    ("created_at", "datetime"),
+    ("updated_at", "datetime"),
+]
+
+ENTITY_FIELD_SPECS: Dict[str, List[tuple]] = {
+    "StakeholderNeed": [
+        ("title", "str"),
+        ("description", "str"),
+        ("category", "str"),
+        ("status", "str"),
+        ("moscow_priority", "nstr"),
+        ("suspect", "bool"),
+        ("lifecycle_status", "str"),
+    ]
+    + _COMMON_PERSISTENCE_FIELDS,
+    "Requirement": [
+        ("title", "str"),
+        ("description", "str"),
+        ("category", "str"),
+        ("status", "str"),
+        ("type", "str"),
+        ("level", "int"),
+        ("complexity_fibonacci", "int"),
+        ("verification_method", "nstr"),
+        ("suspect", "bool"),
+        ("lifecycle_status", "str"),
+    ]
+    + _COMMON_PERSISTENCE_FIELDS,
+    "ArchitectureElement": [
+        ("title", "str"),
+        ("description", "str"),
+        ("element_type", "str"),
+        ("asil_level", "nstr"),
+        ("make_or_buy", "nstr"),
+        ("suspect", "bool"),
+        ("lifecycle_status", "str"),
+    ]
+    + _COMMON_PERSISTENCE_FIELDS,
+    "TestCase": [
+        ("title", "str"),
+        ("description", "str"),
+        ("steps", "json"),
+        ("test_type", "nstr"),
+        ("suspect", "bool"),
+        ("status", "str"),
+    ]
+    + _COMMON_PERSISTENCE_FIELDS,
+    "Adr": [
+        ("title", "str"),
+        ("description", "str"),
+        ("context", "str"),
+        ("consequences", "str"),
+        ("status", "str"),
+    ]
+    + _COMMON_APP_FIELDS,
+    "Risk": [
+        ("title", "str"),
+        ("description", "str"),
+        ("category", "str"),
+        ("probability", "str"),
+        ("impact", "str"),
+        ("risk_score", "int"),
+        ("severity", "str"),
+        ("owner", "str"),
+        ("mitigation_strategy", "str"),
+        ("detection", "int"),
+        ("status", "str"),
+    ]
+    + _COMMON_APP_FIELDS,
+    "Issue": [
+        ("title", "str"),
+        ("description", "str"),
+        ("severity", "str"),
+        ("category", "str"),
+        ("assignee_id", "uuid"),
+        ("due_date", "datetime"),
+        ("tags", "json"),
+        ("status", "str"),
+    ]
+    + _COMMON_APP_FIELDS,
+}
+
+# Entity types whose rows live in the persistence app (artifact-scoped via the
+# 1:1 ``artifact`` FK and the tenant-isolating TenantManager).
+_PERSISTENCE_ENTITY_TYPES = frozenset(
+    {"StakeholderNeed", "Requirement", "ArchitectureElement", "TestCase"}
+)
+
+# Entity types owned by the application app (plain models with UUID
+# ``workspace_id``/``tenant_id`` columns and a nullable backing ``artifact``).
+_APP_ENTITY_TYPES = frozenset({"Adr", "Risk", "Issue"})
+
+# Supported entity types (single source: the field registry).
+_VALID_ENTITY_TYPES = frozenset(ENTITY_FIELD_SPECS.keys())
+
+
+def _export_value(value: Any, kind: str) -> Any:
+    """Serialise an ORM attribute *value* to its export representation.
+
+    Returns native Python types (str/int/bool/list/dict/None) suitable for the
+    JSON exporter; the CSV exporter further flattens complex values via
+    :func:`_csv_cell`. ``datetime`` values become ISO-8601 strings and ``uuid``
+    values become their string form.
+    """
+    if value is None:
+        return None
+    if kind == "datetime":
+        return value.isoformat()
+    if kind == "uuid":
+        return str(value)
+    # str / nstr / int / bool / json → native value (JSON-serialisable as-is)
+    return value
+
+
+def _csv_cell(value: Any) -> str:
+    """Flatten a native export value to a single CSV cell string.
+
+    Complex values (list/dict) and booleans are rendered as JSON so the import
+    side can recover them losslessly with :func:`json.loads`; ``None`` becomes an
+    empty cell.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
 
 # ---------- DTOs ----------
 
@@ -181,7 +361,9 @@ class ExportService(ServiceBase):
             )
             writer.writeheader()
             for row in rows:
-                writer.writerow(row)
+                # Flatten complex values (list/dict/bool/None) to lossless CSV
+                # cells so ImportService can recover them via json.loads.
+                writer.writerow({k: _csv_cell(v) for k, v in row.items()})
 
         content = buf.getvalue()
         return ExportResult(
@@ -341,89 +523,60 @@ class ExportService(ServiceBase):
         workspace_id: UUID,
         artifact_id: Optional[UUID | str],
     ) -> List[Dict[str, Any]]:
-        """Query persistence layer for entities of the given type.
+        """Query the persistence/application layer for entities of *entity_type*.
 
-        IF-AS-EXT-OUT-007.
+        IF-AS-EXT-OUT-007. Serialises each row via the shared
+        :data:`ENTITY_FIELD_SPECS` registry so the exported column set is exactly
+        what :class:`~application.import_service.ImportService` consumes on
+        re-import (lossless round-trip).
+
+        Adr/Risk/Issue are plain application models scoped by their ``workspace_id``
+        UUID column (a workspace belongs to exactly one tenant, so filtering by
+        workspace provides tenant isolation without a TenantManager).
         """
-        from persistence.models import (
-            ArchitectureElement,
-            Requirement,
-            StakeholderNeed,
-            TestCase,
-        )
+        spec = ENTITY_FIELD_SPECS[entity_type]
 
-        art_filter: Dict[str, Any] = {"artifact__workspace_id": workspace_id}
-        if artifact_id is not None:
-            art_filter["artifact_id"] = UUID(str(artifact_id))
+        if entity_type in _PERSISTENCE_ENTITY_TYPES:
+            from persistence.models import (
+                ArchitectureElement,
+                Requirement,
+                StakeholderNeed,
+                TestCase,
+            )
 
-        if entity_type == "StakeholderNeed":
-            qs = StakeholderNeed.objects.filter(**art_filter).select_related("artifact")
-            return [
-                {
-                    "id": str(n.id),
-                    "artifact_id": str(n.artifact_id),
-                    "title": n.title,
-                    "description": n.description,
-                    "category": n.category,
-                    "status": n.status,
-                    "moscow_priority": n.moscow_priority,
-                    "version": n.version,
-                    "created_at": n.created_at.isoformat() if n.created_at else None,
-                    "modified_at": n.modified_at.isoformat() if n.modified_at else None,
-                }
-                for n in qs
-            ]
+            model = {
+                "StakeholderNeed": StakeholderNeed,
+                "Requirement": Requirement,
+                "ArchitectureElement": ArchitectureElement,
+                "TestCase": TestCase,
+            }[entity_type]
 
-        if entity_type == "Requirement":
-            qs = Requirement.objects.filter(**art_filter).select_related("artifact")
-            return [
-                {
-                    "id": str(r.id),
-                    "artifact_id": str(r.artifact_id),
-                    "title": r.title,
-                    "description": r.description,
-                    "category": r.category,
-                    "status": r.status,
-                    "version": r.version,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                    "modified_at": r.modified_at.isoformat() if r.modified_at else None,
-                }
-                for r in qs
-            ]
+            flt: Dict[str, Any] = {"artifact__workspace_id": workspace_id}
+            if artifact_id is not None:
+                flt["artifact_id"] = UUID(str(artifact_id))
+            qs = model.objects.filter(**flt).select_related("artifact")
+        else:  # Adr / Risk / Issue
+            from application.models import Adr, Issue, Risk
 
-        if entity_type == "ArchitectureElement":
-            qs = ArchitectureElement.objects.filter(**art_filter).select_related("artifact")
-            return [
-                {
-                    "id": str(e.id),
-                    "artifact_id": str(e.artifact_id),
-                    "title": e.title,
-                    "description": e.description,
-                    "element_type": e.element_type,
-                    "version": e.version,
-                    "created_at": e.created_at.isoformat() if e.created_at else None,
-                    "modified_at": e.modified_at.isoformat() if e.modified_at else None,
-                }
-                for e in qs
-            ]
+            model = {"Adr": Adr, "Risk": Risk, "Issue": Issue}[entity_type]
 
-        if entity_type == "TestCase":
-            qs = TestCase.objects.filter(**art_filter).select_related("artifact")
-            return [
-                {
-                    "id": str(t.id),
-                    "artifact_id": str(t.artifact_id),
-                    "title": t.title,
-                    "description": t.description,
-                    "steps": t.steps,
-                    "version": t.version,
-                    "created_at": t.created_at.isoformat() if t.created_at else None,
-                    "modified_at": t.modified_at.isoformat() if t.modified_at else None,
-                }
-                for t in qs
-            ]
+            flt = {"workspace_id": workspace_id}
+            if artifact_id is not None:
+                flt["artifact_id"] = UUID(str(artifact_id))
+            qs = model.objects.filter(**flt)
 
-        return []  # unreachable due to _validate_entity_type guard
+        return [ExportService._serialize_row(obj, spec) for obj in qs]
+
+    @staticmethod
+    def _serialize_row(obj: Any, spec: List[tuple]) -> Dict[str, Any]:
+        """Serialise a single ORM *obj* into a row dict per *spec*."""
+        return {col: _export_value(getattr(obj, col, None), kind) for col, kind in spec}
 
 
-__all__ = ["ExportService", "ExportResult"]
+__all__ = [
+    "ExportService",
+    "ExportResult",
+    "ENTITY_FIELD_SPECS",
+    "_PERSISTENCE_ENTITY_TYPES",
+    "_APP_ENTITY_TYPES",
+]
