@@ -828,6 +828,436 @@
   flex: 0 0 auto;
 }
 
+/* --------------------------------------------------------------------------
+ * Edit mode (REQ-177) — enabled toggle, visible handles, edit affordances
+ * ------------------------------------------------------------------------ */
+
+/* Enabled edit-mode toggle (overrides the disabled Phase-1 .toggle look). */
+.toggleButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggleButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.toggleButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.toggleTrackOn {
+  background: var(--color-primary);
+  opacity: 1;
+}
+
+.toggleThumbOn {
+  left: auto;
+  right: 2px;
+  background: #ffffff;
+}
+
+.toggleTextOn {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* Handles become visible + interactive in edit mode. */
+.handleEdit {
+  width: 9px;
+  height: 9px;
+  background: var(--color-primary);
+  border: 2px solid var(--color-surface-raised);
+  opacity: 1;
+  transition: transform var(--transition-fast);
+}
+
+.handleEdit:hover {
+  transform: scale(1.25);
+}
+
+/* Inline rename input swapped in on double-click. */
+.stateNameInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: 1px 4px;
+  font-family: inherit;
+}
+
+.stateNameInput:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+}
+
+/* Edit-mode hint banner on the canvas. */
+.editHint {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+/* Inspector edit action row. */
+.editActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.editActionButton {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: 6px 10px;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.editActionButton:hover {
+  background: var(--color-card-active-bg);
+  border-color: var(--color-border-hover);
+}
+
+.editActionButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.editActionDanger {
+  color: var(--color-danger);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.editActionDanger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--color-danger);
+}
+
+/* Initialize-workflow button in the empty-state overlay. */
+.initializeButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  color: #ffffff;
+  padding: 8px 16px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: all;
+  transition: background var(--transition-fast);
+}
+
+.initializeButton:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+}
+
+.initializeButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Error toast (mutation failures). */
+.toast {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 480px;
+  padding: 10px var(--space-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.toastError {
+  border-color: var(--color-danger);
+}
+
+.toastIcon {
+  color: var(--color-danger);
+  flex: 0 0 auto;
+}
+
+/* --------------------------------------------------------------------------
+ * Modal dialogs (REQ-177) — Add/Edit State, Add/Edit Transition, Confirm
+ * ------------------------------------------------------------------------ */
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.6);
+  backdrop-filter: blur(2px);
+  padding: var(--space-4);
+}
+
+.modal {
+  width: 400px;
+  max-width: 100%;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 2 * var(--space-4));
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modalTitle {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.modalClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.modalClose:hover {
+  background: var(--color-card-active-bg);
+  color: var(--color-text);
+}
+
+.modalClose:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.modalBody {
+  padding: var(--space-5);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.modalText {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fieldLabel {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.fieldInput,
+.fieldSelect {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.fieldInput:focus,
+.fieldSelect:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+.radioRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.radioOption {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.radioOptionActive {
+  border-color: var(--color-primary);
+  background: var(--color-card-active-bg);
+}
+
+.checkboxRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.modalError {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin: 0;
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  color: #ffffff;
+  padding: 8px 16px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+}
+
+.btnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnDanger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  padding: 8px 16px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.btnGhost:hover {
+  background: var(--color-card-active-bg);
+  border-color: var(--color-border-hover);
+}
+
+.btnPrimary:focus-visible,
+.btnDanger:focus-visible,
+.btnGhost:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stateNode,
   .inspector,
