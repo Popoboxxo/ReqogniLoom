@@ -51,7 +51,7 @@ export function LoginPage(): JSX.Element {
     ? versionInfo.app_version && versionInfo.app_version !== "unknown"
       ? `v${versionInfo.app_version}`
       : versionInfo.commit_short !== "unknown"
-        ? `Build ${versionInfo.commit_short}`
+        ? t("nav.buildVersion", { sha: versionInfo.commit_short, defaultValue: `Build ${versionInfo.commit_short}` })
         : null
     : null;
 
