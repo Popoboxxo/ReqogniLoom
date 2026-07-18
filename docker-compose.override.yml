@@ -21,6 +21,9 @@ services:
     volumes:
       # Hot-reload: mount source code
       - ./backend:/app
+      # Read-only: docs/se/ (SE requirements register) for the
+      # migrate_se_docs management command (ReqFlow self-migration).
+      - ./docs:/app/docs:ro
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py runserver 0.0.0.0:8000"
