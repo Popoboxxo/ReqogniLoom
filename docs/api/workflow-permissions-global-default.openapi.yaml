@@ -1,0 +1,978 @@
+openapi: 3.1.0
+info:
+  title: "ReqFlow API additions — Workflow & Permission Global-Default Model"
+  version: "1.1.0"
+  description: >
+    Contract addendum for REQ-178, REQ-179, REQ-180, REQ-181, REQ-182, REQ-183,
+    REQ-186, REQ-187 (see docs/REQUIREMENTS.md, section "Workflow & Permissions:
+    Global-Default-Modell + Settings-IA-Split (2026-07-18)").
+
+    This document is NOT a full API export. It is authored by hand as the
+    contract-first source of truth for the endpoints that are NEW or CHANGED
+    by this feature; drf-spectacular continues to be the generator for the
+    live, complete `/api/v1/schema/` document once senior-developer implements
+    the views described here. Every path below MUST be reflected in the
+    generated schema after implementation (contract-conformance check is part
+    of this pipeline's validator step).
+
+    Versioning: URI versioning under `/api/v1/`, unchanged (REQ-L2-RA-002).
+    No breaking changes are introduced by this addendum — see the
+    "x-breaking-changes" section at the bottom for the explicit statement.
+
+    Base error envelope (existing project convention, rest_api/serializers.py
+    `build_error_response`) is reused unchanged for every new endpoint:
+      { "error": { "code": "<STRING>", "message": "<STRING>", "details": [] } }
+    NOTE (recommendation, non-blocking): the project's error envelope does not
+    currently carry a `trace_id` field. Adding one is recommended as a
+    separate, cross-cutting improvement — out of scope here to avoid a
+    one-off inconsistency on only these new endpoints.
+
+servers:
+  - url: /api/v1
+
+# =============================================================================
+# Canonical capability key set (source of truth for permission_json AND
+# PermissionDecisionMismatch.capability) — resolved from the CURRENT hardcoded
+# RBAC matrix (auth_tenancy/services/authorization.py, `Operation` enum,
+# ADR-L3-AT002-01). No new capability keys are invented; this is a 1:1,
+# name-preserving lift of the operations already decided upon today.
+#
+#   read                 — read access to an artifact/entity
+#   write                — create/update access to an artifact/entity
+#   workflow_transition   — perform a non-approval workflow state transition
+#   workflow_approval     — perform an approval-gated workflow state transition
+#   workspace_config      — change workspace/tenant configuration (admin ops)
+#   assign_role           — grant/revoke UserRole assignments
+#
+# Item-level overrides (existing COMP-AT-005 ItemPermission, UNCHANGED table)
+# only ever restrict the `read` / `write` subset of these six keys — this is
+# the existing behavior of ItemPermissionService.check_permission (levels
+# read|write|none), not a new limitation introduced here. There is currently
+# no item-level override path for workflow_transition / workflow_approval /
+# workspace_config / assign_role — documented as-is, not a gap.
+# =============================================================================
+
+paths:
+  # ===========================================================================
+  # 1. GLOBAL WORKFLOW DEFINITIONS (REQ-178) — tenant-wide, per (item_type, preset)
+  #    New top-level resource, admin-only, tenant-wide (same admin gate pattern
+  #    as /api/v1/llm-settings/, /api/v1/prompt-templates/: ctx.has_role(ROLE_ADMIN)
+  #    resolved across ALL workspaces in the tenant, not one specific workspace).
+  # ===========================================================================
+
+  /workflow-defaults/:
+    get:
+      operationId: listGlobalWorkflowDefinitions
+      summary: List tenant-wide global workflow definitions (REQ-178)
+      description: >
+        Returns every GlobalWorkflowDefinition row for the active tenant.
+        Small, unpaginated collection (bounded by item_type count × 3 presets).
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: item_type
+          schema: { type: string }
+          description: Optional exact-match filter (e.g. "Requirement").
+        - in: query
+          name: preset
+          schema: { $ref: "#/components/schemas/Preset" }
+          description: Optional exact-match filter.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workflow_defaults]
+                properties:
+                  workflow_defaults:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkflowGraphGlobal" }
+              example:
+                workflow_defaults:
+                  - scope: global
+                    tenant_id: "8f14e...uuid"
+                    item_type: "Requirement"
+                    preset: "standard"
+                    initialized: true
+                    initial_state: "draft"
+                    states: ["draft", "in_review", "approved", "deprecated"]
+                    transitions:
+                      - from_state: "draft"
+                        to_state: "in_review"
+                        allowed_roles: ["editor", "approver", "admin"]
+                        requires_change_reason: false
+                        signature_gate: false
+                    updated_at: "2026-07-18T09:00:00Z"
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+
+  /workflow-defaults/{item_type}/{preset}/:
+    parameters:
+      - $ref: "#/components/parameters/ItemTypePath"
+      - $ref: "#/components/parameters/PresetPath"
+    get:
+      operationId: getGlobalWorkflowDefinition
+      summary: Retrieve one global workflow definition (REQ-178)
+      description: >
+        Returns the complete state machine for (item_type, preset). Mirrors
+        the existing workspace-level read contract (REQ-176): when no row
+        exists yet, returns an empty graph with `initialized: false` rather
+        than 404, so the System Settings UI can render a "not yet seeded,
+        initialize?" affordance.
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK (existing or empty/uninitialized graph)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowGraphGlobal" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+
+  /workflow-defaults/{item_type}/{preset}/states/:
+    parameters:
+      - $ref: "#/components/parameters/ItemTypePath"
+      - $ref: "#/components/parameters/PresetPath"
+    post:
+      operationId: createGlobalWorkflowState
+      summary: Add a state to a global workflow definition
+      description: >
+        Same validation rules as the existing workspace-level
+        `POST /workflows/definition/states/` (orphan-state / duplicate-name
+        checks reused via the same WorkflowFacade validation path, applied to
+        the global row instead of a workspace row). On success, propagates
+        into every non-customized (`is_customized=False`) derived
+        WorkflowEngineDefinition of the SAME preset — see
+        `propagated_workspace_count` in the response.
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, description: New state name. }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowGraphGlobal" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /workflow-defaults/{item_type}/{preset}/states/{state_id}/:
+    parameters:
+      - $ref: "#/components/parameters/ItemTypePath"
+      - $ref: "#/components/parameters/PresetPath"
+      - in: path
+        name: state_id
+        required: true
+        schema: { type: string }
+        description: State name (URL-encoded), matching the workspace-level convention.
+    patch:
+      operationId: renameGlobalWorkflowState
+      summary: Rename a state in a global workflow definition
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, description: New name for the state. }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowGraphGlobal" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: deleteGlobalWorkflowState
+      summary: Delete a state from a global workflow definition
+      description: >
+        409 CONFLICT if the state is still referenced by a transition
+        (StateReferencedError) or would orphan the graph (OrphanedStateError)
+        — same mapping as the workspace-level `_edit_error_response`.
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowGraphGlobal" } } } }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /workflow-defaults/{item_type}/{preset}/transitions/:
+    parameters:
+      - $ref: "#/components/parameters/ItemTypePath"
+      - $ref: "#/components/parameters/PresetPath"
+    post:
+      operationId: createGlobalWorkflowTransition
+      summary: Add a transition to a global workflow definition
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_state, to_state]
+              properties:
+                from_state: { type: string }
+                to_state: { type: string }
+                allowed_roles:
+                  type: array
+                  items: { $ref: "#/components/schemas/RoleKey" }
+                  default: []
+                requires_change_reason: { type: boolean, default: false }
+                signature_gate: { type: boolean, default: false }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowGraphGlobal" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+
+  /workflow-defaults/{item_type}/{preset}/transitions/{transition_id}/:
+    parameters:
+      - $ref: "#/components/parameters/ItemTypePath"
+      - $ref: "#/components/parameters/PresetPath"
+      - in: path
+        name: transition_id
+        required: true
+        schema: { type: string }
+        description: "'<from_state>__<to_state>' pair, URL-encoded (matches the workspace-level id scheme)."
+    patch:
+      operationId: updateGlobalWorkflowTransition
+      summary: Update a transition's roles/gates in a global workflow definition
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                allowed_roles: { type: array, items: { $ref: "#/components/schemas/RoleKey" } }
+                requires_change_reason: { type: boolean }
+                signature_gate: { type: boolean }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowGraphGlobal" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+    delete:
+      operationId: deleteGlobalWorkflowTransition
+      summary: Delete a transition from a global workflow definition
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowGraphGlobal" } } } }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+
+  /workflow-defaults/{item_type}/{preset}/initialize/:
+    parameters:
+      - $ref: "#/components/parameters/ItemTypePath"
+      - $ref: "#/components/parameters/PresetPath"
+    post:
+      operationId: initializeGlobalWorkflowDefinition
+      summary: Bootstrap an empty global workflow definition (REQ-178)
+      description: Seeds a new GlobalWorkflowDefinition row for (item_type, preset) with an empty graph, ready for state/transition edits.
+      tags: [workflow-defaults]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/WorkflowGraphGlobal" } } } }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409":
+          description: Already initialized.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+
+  # ===========================================================================
+  # 2. WORKSPACE WORKFLOW DEFINITION (REQ-179/REQ-180)
+  #    Existing endpoints under /workflows/ (WorkflowDefinitionViewSet,
+  #    basename "workflow") are REUSED, not duplicated (REQ-179 regression
+  #    protection). Only additive response fields + one new action endpoint.
+  # ===========================================================================
+
+  /workflows/definition/:
+    get:
+      operationId: getWorkspaceWorkflowDefinition
+      summary: "[MODIFIED — additive fields only] Get the effective workflow definition for a workspace/item_type"
+      description: >
+        UNCHANGED route, method, query params (`workspace_id`, `item_type`)
+        and auth gate (any authenticated user — no admin check on reads,
+        preserved for backward compatibility). Response gains three NEW
+        fields for REQ-180 ("on-default"/"customized" visibility):
+        `is_customized`, `source_global_id`, `on_default`.
+        Gotcha for implementers: the response ALSO still carries the
+        pre-existing `is_custom` field (legacy meaning: "user-supplied
+        Extended-only custom definition", COMP-WE-001) which is UNRELATED to
+        the new `is_customized` (REQ-180 on-default/customized signal). Do
+        not conflate the two — both are present, both are real, they answer
+        different questions.
+      tags: [workflows]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: workspace_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: item_type
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowGraphWorkspace" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+
+  /workflows/definition/reset/:
+    post:
+      operationId: resetWorkspaceWorkflowDefinition
+      summary: "[NEW] Reset a workspace's workflow definition to the current global default (REQ-180)"
+      description: >
+        Admin-gated identically to the other `/workflows/definition/...`
+        mutation actions (`ctx.has_role(ROLE_ADMIN)`, same as
+        `_edit_precheck`). Overwrites `workflow_json` with
+        `source_global.workflow_json` and sets `is_customized=False`.
+        Accepts `workspace_id`/`item_type` from the JSON body (POST
+        convention, matching `create_state`) — query-string fallback is NOT
+        required here since POST always carries a body, unlike the existing
+        DELETE actions.
+      tags: [workflows]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspace_id, item_type]
+              properties:
+                workspace_id: { type: string, format: uuid }
+                item_type: { type: string }
+      responses:
+        "200":
+          description: Reset applied; returns the definition now mirroring the global default.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkflowGraphWorkspace" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409":
+          description: >
+            NO_GLOBAL_SOURCE — the workspace's `WorkflowEngineDefinition.source_global`
+            is null (e.g. a pre-REQ-178 workspace, or the global template row
+            was deleted after inheritance). There is nothing to reset to;
+            the client should offer "initialize from current global" instead
+            via `/workflow-defaults/{item_type}/{preset}/initialize/` +
+            re-fetch, not a silent no-op.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: NO_GLOBAL_SOURCE
+                  message: "Workspace workflow definition has no linked global default to reset to."
+                  details: []
+
+  # ===========================================================================
+  # 3. GLOBAL PERMISSION DEFINITION (REQ-181/REQ-186/REQ-187)
+  #    Tenant-wide singleton, admin-only. Mirrors the LlmSettingsView /
+  #    PromptTemplateView get-or-create-singleton pattern.
+  # ===========================================================================
+
+  /permission-defaults/:
+    get:
+      operationId: getGlobalPermissionDefinition
+      summary: Get the tenant's global permission matrix + enforcement phase (REQ-181/186)
+      tags: [permission-defaults]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK (get-or-create singleton; `enforcement_mode` defaults to "shadow")
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalPermissionDefinitionRead" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+    put:
+      operationId: replaceGlobalPermissionDefinition
+      summary: Replace the tenant's global permission matrix (REQ-181)
+      description: >
+        Body MUST NOT include `enforcement_mode` — flipping the enforcement
+        phase is a separate, guarded operation (see
+        `/permission-defaults/enforcement/flip/`) so a routine matrix edit
+        can never accidentally cut over enforcement. A request body
+        containing `enforcement_mode` is rejected with 400
+        VALIDATION_ERROR (`code: ENFORCEMENT_MODE_NOT_EDITABLE_HERE`).
+        On success, propagates into every non-customized
+        WorkspacePermissionDefinition of the tenant (`propagated_workspace_count`).
+      tags: [permission-defaults]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permission_json]
+              properties:
+                permission_json: { $ref: "#/components/schemas/PermissionMatrix" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/GlobalPermissionDefinitionRead" }
+                  - type: object
+                    properties:
+                      propagated_workspace_count: { type: integer, minimum: 0 }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+    patch:
+      operationId: updateGlobalPermissionDefinition
+      summary: Partially update the tenant's global permission matrix (REQ-181)
+      description: >
+        Deep-merges the provided role/capability keys into the current
+        matrix, then validates the FULL resulting matrix against the closed
+        4-role × 6-capability schema (no partial/garbage matrices persisted).
+        Same `enforcement_mode` restriction as PUT.
+      tags: [permission-defaults]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                permission_json:
+                  type: object
+                  description: Partial matrix; only the roles/capabilities present are changed.
+                  additionalProperties: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalPermissionDefinitionRead" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+
+  /permission-defaults/enforcement/:
+    get:
+      operationId: getEnforcementStatus
+      summary: Read the current enforcement phase + shadow-verify readiness (REQ-186/187)
+      description: >
+        `ready_for_authoritative` is ADVISORY, not a hard precondition: the
+        current schema (`PermissionDecisionMismatch`) has no per-row
+        triage/acknowledgement field, so "clean" can only mean "zero rows in
+        the window" — a non-zero, already-reviewed backlog cannot be
+        distinguished from an un-reviewed one at the data level today. See
+        `x-schema-gap-flip-guard` at the bottom of this document; the actual
+        safety gate for the flip itself does not rely solely on this flag
+        (see `/permission-defaults/enforcement/flip/`).
+      tags: [permission-defaults]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: window_days
+          schema: { type: integer, default: 30, minimum: 1, maximum: 365 }
+          description: Trailing window used to compute pending_mismatch_count / last_mismatch_at.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnforcementStatus" }
+              example:
+                enforcement_mode: shadow
+                pending_mismatch_count: 12
+                mismatch_window_days: 30
+                last_mismatch_at: "2026-07-17T22:14:00Z"
+                ready_for_authoritative: false
+                advisory_note: "12 unreviewed mismatches in the last 30 days. Review via GET /permission-mismatches/ before flipping."
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+
+  /permission-defaults/enforcement/flip/:
+    post:
+      operationId: flipEnforcementMode
+      summary: Guarded transition of the tenant's enforcement phase (REQ-186/187)
+      description: >
+        `shadow` -> `authoritative` requires `confirm_pending_mismatch_count`
+        to EXACTLY equal the server's current count (same window as
+        `GET .../enforcement/`); mismatch → 409 with the fresh count, forcing
+        the caller (UI) to re-fetch and re-confirm before proceeding — this
+        is the flip-side safety gate for REQ-187's "no silent hard cutover"
+        given the schema has no per-row triage flag (see
+        `x-schema-gap-flip-guard`). A non-zero confirmed count IS accepted —
+        that is the "explicitly documented and consciously accepted"
+        acceptance path from REQ-187's AC, at the granularity the schema
+        currently allows (a reviewed total, not per-row acknowledgement).
+        `authoritative` -> `shadow` (rollback) requires NO confirmation —
+        rollback is always the safe direction (legacy rows are dual-written
+        and never stop being written, ADR note in auth_tenancy/models.py).
+        Every flip is audited (AuditLog: old mode, new mode, confirmed count,
+        actor).
+      tags: [permission-defaults]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enforcement_mode]
+              properties:
+                enforcement_mode: { $ref: "#/components/schemas/EnforcementMode" }
+                confirm_pending_mismatch_count:
+                  type: integer
+                  minimum: 0
+                  description: Required (and exactly matched server-side) only when flipping shadow -> authoritative.
+      responses:
+        "200":
+          description: OK — new mode applied.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GlobalPermissionDefinitionRead" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409":
+          description: MISMATCH_COUNT_STALE — confirm_pending_mismatch_count did not match the current server-side count.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: MISMATCH_COUNT_STALE
+                  message: "Confirmed count (10) does not match the current pending mismatch count (12). Re-fetch and re-confirm."
+                  details: [{ field: "confirm_pending_mismatch_count", current_count: 12 }]
+
+  # ===========================================================================
+  # 4. WORKSPACE PERMISSION DEFINITION (REQ-182/REQ-183)
+  #    NEW resource — role->capability matrix override, distinct from the
+  #    EXISTING /workspaces/{id}/permissions/ (ItemPermission per-user
+  #    per-artifact CRUD, COMP-AT-005), which is UNCHANGED (REQ-182
+  #    regression protection).
+  # ===========================================================================
+
+  /workspaces/{workspace_id}/permission-definition/:
+    parameters:
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getWorkspacePermissionDefinition
+      summary: Get the effective (inherited-or-overridden) permission matrix for a workspace (REQ-182/183)
+      tags: [permission-definitions]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK (get-or-create-on-inherit singleton per workspace)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspacePermissionDefinitionRead" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+    put:
+      operationId: replaceWorkspacePermissionDefinition
+      summary: Override the workspace's permission matrix (REQ-182)
+      description: Sets `is_customized=True` as a side effect (mirrors the workflow-definition edit contract).
+      tags: [permission-definitions]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permission_json]
+              properties:
+                permission_json: { $ref: "#/components/schemas/PermissionMatrix" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/WorkspacePermissionDefinitionRead" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+    patch:
+      operationId: updateWorkspacePermissionDefinition
+      summary: Partially override the workspace's permission matrix (REQ-182)
+      description: Same deep-merge + full-matrix-revalidation semantics as `PATCH /permission-defaults/`. Sets `is_customized=True`.
+      tags: [permission-definitions]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                permission_json: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/WorkspacePermissionDefinitionRead" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+
+  /workspaces/{workspace_id}/permission-definition/reset/:
+    parameters:
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: resetWorkspacePermissionDefinition
+      summary: Reset the workspace's permission matrix to the current global default (REQ-183)
+      tags: [permission-definitions]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/WorkspacePermissionDefinitionRead" } } } }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409":
+          description: NO_GLOBAL_SOURCE — `source_global` is null (pre-REQ-181 workspace or deleted global row).
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+
+  # ===========================================================================
+  # 5. PERMISSION DECISION MISMATCH LOG (REQ-187) — read-only, append-only
+  # ===========================================================================
+
+  /permission-mismatches/:
+    get:
+      operationId: listPermissionDecisionMismatches
+      summary: List shadow-phase legacy-vs-new access decision mismatches (REQ-187)
+      description: >
+        Read-only (the underlying table is append-only by convention — no
+        DELETE/PATCH is exposed, matching `PermissionDecisionMismatch`'s
+        model contract). Feeds the "regression-risk visibility" review UI
+        that gates the enforcement flip.
+      tags: [permission-mismatches]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: workspace_id
+          schema: { type: string, format: uuid }
+          description: Optional. Omit for tenant-wide (includes workspace-null rows).
+        - in: query
+          name: capability
+          schema: { $ref: "#/components/schemas/CapabilityKey" }
+        - in: query
+          name: subject_type
+          schema: { type: string, enum: [user, apikey, agent] }
+          description: Prefix filter on `subject_identifier` (see subject_identifier format below).
+        - in: query
+          name: subject_identifier
+          schema: { type: string }
+          description: Exact match, e.g. "apikey:3fae...".
+        - in: query
+          name: since
+          schema: { type: string, format: date-time }
+        - in: query
+          name: until
+          schema: { type: string, format: date-time }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 25, maximum: 100 }
+      responses:
+        "200":
+          description: OK — standard project pagination envelope (StandardPagination, REQ-L3-RA002-003).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count, results]
+                properties:
+                  count: { type: integer }
+                  next: { type: string, format: uri, nullable: true }
+                  previous: { type: string, format: uri, nullable: true }
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/PermissionDecisionMismatchItem" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+
+# =============================================================================
+components:
+# =============================================================================
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Existing project auth (AuthTenancyAuthentication): JWT bearer token
+        OR `rfk_*` API key via the project's API-key header. Unchanged by
+        this addendum.
+
+  parameters:
+    ItemTypePath:
+      in: path
+      name: item_type
+      required: true
+      schema: { type: string }
+      description: Entity type, e.g. "Requirement", "TestCase" (free string, no enum — matches existing workspace-level behavior).
+    PresetPath:
+      in: path
+      name: preset
+      required: true
+      schema: { $ref: "#/components/schemas/Preset" }
+
+  schemas:
+    Preset:
+      type: string
+      enum: [minimal, standard, extended]
+
+    RoleKey:
+      type: string
+      enum: [admin, editor, viewer, approver]
+
+    CapabilityKey:
+      type: string
+      enum: [read, write, workflow_transition, workflow_approval, workspace_config, assign_role]
+      description: Canonical capability key set — source of truth, see the module-level comment above `paths`.
+
+    EnforcementMode:
+      type: string
+      enum: [shadow, authoritative]
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, description: "Machine-readable error code, e.g. VALIDATION_ERROR, PERMISSION_DENIED, CONFLICT, NO_GLOBAL_SOURCE, MISMATCH_COUNT_STALE." }
+            message: { type: string, description: Human-readable, locale-detected (existing `detect_lang` convention). }
+            details:
+              type: array
+              items: { type: object, additionalProperties: true }
+              default: []
+
+    WorkflowTransition:
+      type: object
+      required: [from_state, to_state, allowed_roles, requires_change_reason, signature_gate]
+      properties:
+        from_state: { type: string, description: Source state name. }
+        to_state: { type: string, description: Target state name. }
+        allowed_roles:
+          type: array
+          items: { $ref: "#/components/schemas/RoleKey" }
+          description: Roles permitted to perform this transition.
+        requires_change_reason: { type: boolean, description: Whether a change_reason is mandatory on this transition. }
+        signature_gate: { type: boolean, description: Whether this transition requires a signature seal (REQ-L2-WE-009). }
+
+    WorkflowGraphGlobal:
+      type: object
+      required: [scope, tenant_id, item_type, preset, initialized, states, transitions]
+      properties:
+        scope: { type: string, enum: [global], description: Discriminator — always "global" for this resource. }
+        tenant_id: { type: string, format: uuid }
+        item_type: { type: string }
+        preset: { $ref: "#/components/schemas/Preset" }
+        initialized: { type: boolean, description: False when no GlobalWorkflowDefinition row exists yet for (item_type, preset). }
+        initial_state: { type: string, nullable: true }
+        states: { type: array, items: { type: string } }
+        transitions: { type: array, items: { $ref: "#/components/schemas/WorkflowTransition" } }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    WorkflowGraphWorkspace:
+      type: object
+      required: [item_type, preset, is_custom, is_customized, on_default, initial_state, initialized, states, transitions]
+      properties:
+        item_type: { type: string }
+        preset: { $ref: "#/components/schemas/Preset" }
+        is_custom:
+          type: boolean
+          description: >
+            LEGACY field (COMP-WE-001, pre-REQ-178): whether this is a
+            user-supplied Extended-preset custom definition. UNRELATED to
+            is_customized — kept for backward compatibility, do not repurpose.
+        is_customized:
+          type: boolean
+          description: "NEW (REQ-180). False = mirrors source_global ('on-default'). True = workspace has diverged ('customized')."
+        on_default:
+          type: boolean
+          description: "NEW (REQ-180) convenience mirror of `not is_customized`, for direct UI binding without client-side negation."
+        source_global_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: "NEW (REQ-180). FK to the GlobalWorkflowDefinition this workspace definition was inherited from; null for pre-REQ-178 workspaces or if the global row was deleted (SET_NULL)."
+        initial_state: { type: string, nullable: true }
+        initialized: { type: boolean }
+        states: { type: array, items: { type: string } }
+        transitions: { type: array, items: { $ref: "#/components/schemas/WorkflowTransition" } }
+
+    PermissionMatrix:
+      type: object
+      description: >
+        Closed role->capability boolean matrix. Exactly the 4 RoleKey values
+        as top-level keys; each value is an object with exactly the 6
+        CapabilityKey values as keys, each a boolean. No additional
+        properties permitted at either level (prevents silent drift from the
+        canonical capability/role vocabulary).
+      required: [admin, editor, viewer, approver]
+      additionalProperties: false
+      properties:
+        admin: { $ref: "#/components/schemas/CapabilitySet" }
+        editor: { $ref: "#/components/schemas/CapabilitySet" }
+        viewer: { $ref: "#/components/schemas/CapabilitySet" }
+        approver: { $ref: "#/components/schemas/CapabilitySet" }
+      example:
+        admin:    { read: true, write: true, workflow_transition: true, workflow_approval: true, workspace_config: true, assign_role: true }
+        editor:   { read: true, write: true, workflow_transition: true, workflow_approval: false, workspace_config: false, assign_role: false }
+        approver: { read: true, write: true, workflow_transition: true, workflow_approval: true, workspace_config: false, assign_role: false }
+        viewer:   { read: true, write: false, workflow_transition: false, workflow_approval: false, workspace_config: false, assign_role: false }
+
+    CapabilitySet:
+      type: object
+      required: [read, write, workflow_transition, workflow_approval, workspace_config, assign_role]
+      additionalProperties: false
+      properties:
+        read: { type: boolean }
+        write: { type: boolean }
+        workflow_transition: { type: boolean }
+        workflow_approval: { type: boolean }
+        workspace_config: { type: boolean }
+        assign_role: { type: boolean }
+
+    GlobalPermissionDefinitionRead:
+      type: object
+      required: [tenant_id, permission_json, enforcement_mode]
+      properties:
+        tenant_id: { type: string, format: uuid }
+        permission_json: { $ref: "#/components/schemas/PermissionMatrix" }
+        enforcement_mode: { $ref: "#/components/schemas/EnforcementMode" }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    WorkspacePermissionDefinitionRead:
+      type: object
+      required: [workspace_id, permission_json, is_customized]
+      properties:
+        workspace_id: { type: string, format: uuid }
+        permission_json: { $ref: "#/components/schemas/PermissionMatrix" }
+        is_customized: { type: boolean, description: "False = 'on-default', True = 'customized' (REQ-183)." }
+        source_global_id: { type: string, format: uuid, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    EnforcementStatus:
+      type: object
+      required: [enforcement_mode, pending_mismatch_count, mismatch_window_days, ready_for_authoritative]
+      properties:
+        enforcement_mode: { $ref: "#/components/schemas/EnforcementMode" }
+        pending_mismatch_count: { type: integer, minimum: 0 }
+        mismatch_window_days: { type: integer }
+        last_mismatch_at: { type: string, format: date-time, nullable: true }
+        ready_for_authoritative:
+          type: boolean
+          description: "ADVISORY only (pending_mismatch_count == 0 in window) — see x-schema-gap-flip-guard. NOT enforced server-side as a hard precondition for the flip endpoint."
+        advisory_note: { type: string }
+
+    PermissionDecisionMismatchItem:
+      type: object
+      required: [id, subject_identifier, capability, legacy_decision, new_decision, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid, nullable: true }
+        subject_identifier:
+          type: string
+          description: >
+            "<type>:<id>" — see the subject_identifier format convention
+            below. Examples: "user:3fae...", "apikey:9c01...".
+        subject_type:
+          type: string
+          enum: [user, apikey, agent]
+          description: Derived (server-computed) from the subject_identifier prefix, exposed for convenient client-side grouping without string-parsing.
+        capability: { $ref: "#/components/schemas/CapabilityKey" }
+        artifact_id: { type: string, format: uuid, nullable: true }
+        legacy_decision: { type: boolean }
+        new_decision: { type: boolean }
+        context_json: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+
+  responses:
+    ValidationError:
+      description: VALIDATION_ERROR
+      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+    PermissionDenied:
+      description: PERMISSION_DENIED — caller lacks the required admin role.
+      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+    Conflict:
+      description: CONFLICT — e.g. orphaned/referenced state, duplicate name.
+      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+
+# =============================================================================
+# x-subject-identifier-format — resolves database-engineer open item #1
+# =============================================================================
+x-subject-identifier-format:
+  description: >
+    PermissionDecisionMismatch.subject_identifier is a CharField (not a User
+    FK) specifically so it can also represent non-User acting identities.
+    API-facing construction rule ("<type>:<id>"):
+      user:<uuid>    Default. AuthContext.user_id of the acting principal —
+                     used whenever auth_method is BEARER_TOKEN (human
+                     session/JWT login).
+      apikey:<uuid>  Used whenever AuthContext.auth_method is API_KEY and
+                     api_key_id is set. Identifies the specific ApiKey row
+                     (COMP-AT-001) rather than its owning user, so shadow-
+                     mismatch triage can separate machine/agent traffic from
+                     human traffic without an extra join. Every ApiKey today
+                     still has an owning persistence.User (ApiKey.user FK),
+                     so this is a presentation/diagnostic distinction, not a
+                     claim that the identity is user-less.
+      agent:<string> RESERVED, not emitted today. For a future MCP/agent
+                     identity that resolves to neither a User nor an ApiKey
+                     row. Reserving the prefix now means the mismatch-log
+                     format does not need a breaking change later.
+    Construction is entirely a write-path convention (senior-developer,
+    when populating PermissionDecisionMismatch rows) — no schema change.
+    The list endpoint's `subject_type` query param and response field do a
+    simple prefix-split on this convention.
+
+# =============================================================================
+# x-schema-gap-flip-guard — flagged back per task instructions (do not
+# silently redesign the schema; report as ERROR/gap instead)
+# =============================================================================
+x-schema-gap-flip-guard:
+  severity: recommendation (non-blocking for this contract)
+  description: >
+    PermissionDecisionMismatch has no per-row triage/acknowledgement field
+    (no `reviewed_at`, `reviewed_by`, or `accepted` boolean). REQ-187's
+    acceptance criterion allows EITHER "zero mismatches" OR "deviations are
+    explicitly documented and consciously accepted" as the cutover gate —
+    but the current schema can only express the first path precisely (an
+    empty table). There is no durable, per-row way to record that a human
+    reviewed and knowingly accepted a SPECIFIC non-zero backlog.
+    Interim mitigation implemented in this contract WITHOUT a schema change:
+    `POST /permission-defaults/enforcement/flip/` requires the caller to
+    echo back the exact current `pending_mismatch_count` as
+    `confirm_pending_mismatch_count`; a stale/mismatched count is rejected
+    (409), forcing a fresh look at the live number immediately before the
+    flip. This proves "looked at the number right before flipping" but not
+    "reviewed each individual mismatch" — a coarser guarantee than a true
+    per-row triage flag would give.
+    Recommendation (follow-up, not required for this feature): add
+    `PermissionDecisionMismatch.reviewed_at` (nullable datetime) +
+    `reviewed_by` (nullable User FK) in a later database-engineer pass, and
+    upgrade the flip guard to require zero UNREVIEWED rows instead of a
+    count-echo. Flagging this now rather than silently modeling around it,
+    per this task's constraint to report schema gaps as errors.
+
+# =============================================================================
+x-breaking-changes: []
+# No breaking changes. All changes to existing endpoints
+# (/workflows/definition/... ) are strictly additive response fields
+# (is_customized, source_global_id, on_default); all new resources are new
+# routes. Version bump: MINOR (new endpoints + additive fields only).
