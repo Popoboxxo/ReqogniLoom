@@ -5,10 +5,17 @@ leaf_id : COMP-AS-009
 req_id  : REQ-L1-021, REQ-L2-AppSvc-014, REQ-L3-IMP-001, REQ-L3-IMP-002,
           REQ-L3-IMP-003, REQ-L3-IMP-004
 
-Imports Requirements, ArchitectureElements, or TestCases from CSV.
-Validates every row (RFC 4180, required fields, type checks) and writes all
-valid rows in a single transaction (all-or-nothing, REQ-L3-IMP-002).
-Supports up to 1000 rows per call.
+Imports StakeholderNeeds, Requirements, ArchitectureElements, TestCases (persistence
+app) and Adrs, Risks, Issues (application app) from CSV. Validates every row
+(RFC 4180, required fields, type checks) and writes all valid rows in a single
+transaction (all-or-nothing, REQ-L3-IMP-002). Supports up to 1000 rows per call.
+
+Round-trip fidelity (COMP-AS-008 → COMP-AS-009): when a row carries the
+identity/audit columns emitted by ExportService (id, artifact_id, version,
+created_at and the model's modified timestamp), those values are preserved so an
+``export -> import`` cycle reproduces the original record exactly — the safety
+net for the ReqFlow self-migration. The field set is driven by the shared
+``application.export_service.ENTITY_FIELD_SPECS`` registry.
 
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: import_csv(csv_text, entity_type, workspace_id, ctx)
@@ -23,6 +30,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -31,26 +39,71 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 from django.db import transaction
+from django.utils.dateparse import parse_datetime
 
 # Backward-compat alias used by tests that patch 'application.import_service.TenantContext'
 TenantContext = AuthContext
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.export_service import (
+    ENTITY_FIELD_SPECS,
+    _APP_ENTITY_TYPES,
+    _PERSISTENCE_ENTITY_TYPES,
+)
 
 logger = logging.getLogger(__name__)
 
 # Maximum rows in a single import call (REQ-L3-IMP-003)
 _MAX_ROWS = 1000
 
-# Required fields per entity type (REQ-L3-IMP-001)
+# Required fields per entity type (REQ-L3-IMP-001). Derived from the shared
+# round-trip field registry so importer and exporter cannot drift apart; every
+# supported entity requires a non-empty ``title``.
 _REQUIRED_FIELDS: Dict[str, List[str]] = {
-    "Requirement": ["title"],
-    "ArchitectureElement": ["title"],
-    "TestCase": ["title"],
+    entity_type: ["title"] for entity_type in ENTITY_FIELD_SPECS
 }
 
 # Valid entity types
 _VALID_ENTITY_TYPES = set(_REQUIRED_FIELDS.keys())
+
+# Identity / audit columns handled specially by _insert_rows (not passed through
+# as plain content create kwargs).
+_IDENTITY_COLUMNS = frozenset(
+    {"id", "artifact_id", "version", "created_at", "modified_at", "updated_at", "created_by"}
+)
+
+
+def _import_value(cell: Any, kind: str) -> Any:
+    """Deserialise a single CSV *cell* string to its typed value per *kind*.
+
+    Inverse of :func:`application.export_service._csv_cell` /
+    :func:`~application.export_service._export_value`. Empty cells become ``None``
+    (text/int/uuid/datetime), ``False`` (bool) or ``[]`` (json) so that absent
+    values fall back to the model default on create.
+    """
+    text = "" if cell is None else str(cell)
+    stripped = text.strip()
+    if kind in ("str", "nstr"):
+        # Preserve exact (unstripped) content when present; empty -> None so the
+        # model default applies on create.
+        return text if stripped else None
+    if kind == "int":
+        return int(stripped) if stripped else None
+    if kind == "bool":
+        return stripped.lower() in ("true", "1", "yes")
+    if kind == "json":
+        if not stripped:
+            return []
+        try:
+            return json.loads(stripped)
+        except (ValueError, TypeError):
+            # Legacy / non-JSON payload: wrap the raw value so nothing is dropped.
+            return [stripped]
+    if kind == "datetime":
+        return parse_datetime(stripped) if stripped else None
+    if kind == "uuid":
+        return UUID(stripped) if stripped else None
+    return text
 
 
 # ---------- DTOs ----------
@@ -299,59 +352,118 @@ class ImportService(ServiceBase):
     ) -> int:
         """Insert all rows as Artifact + entity pairs. Must run inside atomic().
 
-        IF-AS-EXT-OUT-007: persistence ORM writes.
+        IF-AS-EXT-OUT-007: persistence / application ORM writes.
+
+        Round-trip fidelity (COMP-AS-008 → COMP-AS-009): when a row carries the
+        identity/audit columns produced by :class:`~application.export_service.ExportService`
+        (``id``, ``artifact_id``, ``version``, ``created_at`` and the model's
+        modified timestamp), those values are preserved so ``export -> import``
+        reproduces the original record exactly. Rows without those columns (e.g.
+        a hand-authored CSV) keep the previous behaviour: fresh UUIDs, version 1
+        and current timestamps.
+
+        ``auto_now`` / ``auto_now_add`` on ``created_at``/``modified_at``/
+        ``updated_at`` are bypassed with a follow-up ``QuerySet.update()`` (which
+        does not touch auto timestamps), the only way to write caller-supplied
+        audit timestamps.
+
+        Supported entity types: StakeholderNeed, Requirement, ArchitectureElement,
+        TestCase (persistence app) and Adr, Risk, Issue (application app).
+
         Returns count of inserted rows.
         """
-        from persistence.models import ArchitectureElement, Artifact, Requirement, TestCase, Workspace
+        from persistence.models import (
+            ArchitectureElement,
+            Artifact,
+            Requirement,
+            StakeholderNeed,
+            TestCase,
+            Workspace,
+        )
+        from application.models import Adr, Issue, Risk
+
+        persistence_models = {
+            "StakeholderNeed": StakeholderNeed,
+            "Requirement": Requirement,
+            "ArchitectureElement": ArchitectureElement,
+            "TestCase": TestCase,
+        }
+        app_models = {"Adr": Adr, "Risk": Risk, "Issue": Issue}
 
         workspace = Workspace.objects.get(id=workspace_id)
         tenant = workspace.tenant
+        spec = ENTITY_FIELD_SPECS[entity_type]
 
         inserted = 0
         for _row_num, row in rows:
-            title = row.get("title", "").strip()
-            description = row.get("description", "").strip()
+            # ---- Parse row per field spec, splitting identity from content ----
+            identity: Dict[str, Any] = {}
+            content: Dict[str, Any] = {}
+            for col, kind in spec:
+                if col not in row:
+                    continue
+                value = _import_value(row.get(col), kind)
+                if col in _IDENTITY_COLUMNS:
+                    identity[col] = value
+                elif value is None and kind not in ("bool", "json"):
+                    # Empty optional value -> fall back to the model default.
+                    continue
+                else:
+                    content[col] = value
 
-            artifact = Artifact.objects.create(
+            preserved_id = identity.get("id")
+            preserved_artifact_id = identity.get("artifact_id")
+            version = identity.get("version")
+            created_at = identity.get("created_at")
+            modified_at = identity.get("modified_at") or identity.get("updated_at")
+
+            # ---- Backing Artifact (every entity type has one) ----
+            artifact_kwargs: Dict[str, Any] = dict(
                 tenant=tenant,
                 workspace=workspace,
                 artifact_type=artifact_type_tag,
             )
+            if preserved_artifact_id is not None:
+                artifact_kwargs["id"] = preserved_artifact_id
+            artifact = Artifact.objects.create(**artifact_kwargs)
 
-            if entity_type == "Requirement":
-                Requirement.objects.create(
-                    tenant=tenant,
-                    artifact=artifact,
-                    title=title,
-                    description=description,
-                    category=row.get("category", "").strip(),
-                    status=row.get("status", "draft").strip(),
+            # ---- Entity row ----
+            if entity_type in _PERSISTENCE_ENTITY_TYPES:
+                model = persistence_models[entity_type]
+                create_kwargs: Dict[str, Any] = dict(
+                    tenant=tenant, artifact=artifact, **content
                 )
-            elif entity_type == "ArchitectureElement":
-                ArchitectureElement.objects.create(
-                    tenant=tenant,
+                mod_field = "modified_at"
+            else:  # Adr / Risk / Issue
+                model = app_models[entity_type]
+                create_kwargs = dict(
                     artifact=artifact,
-                    title=title,
-                    description=description,
-                    element_type=row.get("element_type", "").strip(),
+                    workspace_id=workspace.id,
+                    tenant_id=tenant.id,
+                    **content,
                 )
-            elif entity_type == "TestCase":
-                steps_raw = row.get("steps", "")
-                steps: List[Any] = []
-                if steps_raw:
-                    try:
-                        import json as _json
-                        steps = _json.loads(steps_raw)
-                    except Exception:
-                        steps = [steps_raw]
+                # Preserve exported author, else attribute to the importing user.
+                created_by = identity.get("created_by")
+                create_kwargs["created_by"] = (
+                    created_by if created_by else str(ctx.user_id)
+                )
+                mod_field = "updated_at"
 
-                TestCase.objects.create(
-                    tenant=tenant,
-                    artifact=artifact,
-                    title=title,
-                    description=description,
-                    steps=steps,
-                )
+            if preserved_id is not None:
+                create_kwargs["id"] = preserved_id
+            if version is not None:
+                create_kwargs["version"] = version
+
+            obj = model.objects.create(**create_kwargs)
+
+            # ---- Preserve audit timestamps (bypass auto_now/auto_now_add) ----
+            ts_updates: Dict[str, Any] = {}
+            if created_at is not None:
+                ts_updates["created_at"] = created_at
+            if modified_at is not None:
+                ts_updates[mod_field] = modified_at
+            if ts_updates:
+                model.objects.filter(pk=obj.pk).update(**ts_updates)
 
             inserted += 1
 
