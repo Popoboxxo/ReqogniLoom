@@ -16,7 +16,13 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { ArrowRight, MousePointerClick, Workflow } from "lucide-react";
+import {
+  ArrowRight,
+  MousePointerClick,
+  Pencil,
+  Trash2,
+  Workflow,
+} from "lucide-react";
 import type {
   WorkflowGraph,
   WorkflowState,
@@ -53,16 +59,28 @@ function readWidth(): number {
   return DEFAULT_WIDTH_PX;
 }
 
+interface InspectorEditActions {
+  onEditState: (name: string) => void;
+  onDeleteState: (name: string) => void;
+  onEditTransition: (fromState: string, toState: string) => void;
+  onDeleteTransition: (fromState: string, toState: string) => void;
+}
+
 interface InspectorPanelProps {
   graph: WorkflowGraph | null;
   selection: Selection;
   onSelect: (selection: Selection) => void;
+  /** REQ-177 — when true the inspector shows Edit/Delete actions. */
+  editMode?: boolean;
+  edit?: InspectorEditActions;
 }
 
 export function InspectorPanel({
   graph,
   selection,
   onSelect,
+  editMode = false,
+  edit,
 }: InspectorPanelProps): JSX.Element {
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState<number>(readWidth);
@@ -187,9 +205,19 @@ export function InspectorPanel({
 
       <div className={styles.inspectorBody} aria-live="polite">
         {selectedState && graph ? (
-          <StateInspector state={selectedState} graph={graph} onSelect={onSelect} />
+          <StateInspector
+            state={selectedState}
+            graph={graph}
+            onSelect={onSelect}
+            editMode={editMode}
+            edit={edit}
+          />
         ) : selectedTransition ? (
-          <TransitionInspector transition={selectedTransition} />
+          <TransitionInspector
+            transition={selectedTransition}
+            editMode={editMode}
+            edit={edit}
+          />
         ) : (
           <div className={styles.inspectorEmpty}>
             <Workflow size={32} aria-hidden="true" />
@@ -211,10 +239,14 @@ function StateInspector({
   state,
   graph,
   onSelect,
+  editMode,
+  edit,
 }: {
   state: WorkflowState;
   graph: WorkflowGraph;
   onSelect: (selection: Selection) => void;
+  editMode: boolean;
+  edit?: InspectorEditActions;
 }): JSX.Element {
   const outgoing = graph.transitions.filter((t) => t.from_state === state.id);
   const incoming = graph.transitions.filter((t) => t.to_state === state.id);
@@ -249,6 +281,29 @@ function StateInspector({
         incoming.map((t) => (
           <TransitionRow key={t.id} transition={t} onSelect={onSelect} showSource />
         ))
+      )}
+
+      {editMode && edit && (
+        <div className={styles.editActions} data-testid="workflow-inspector-state-actions">
+          <button
+            type="button"
+            className={styles.editActionButton}
+            onClick={() => edit.onEditState(state.id)}
+            data-testid="workflow-inspector-edit-state"
+          >
+            <Pencil size={14} aria-hidden="true" />
+            Edit State
+          </button>
+          <button
+            type="button"
+            className={`${styles.editActionButton} ${styles.editActionDanger}`}
+            onClick={() => edit.onDeleteState(state.id)}
+            data-testid="workflow-inspector-delete-state"
+          >
+            <Trash2 size={14} aria-hidden="true" />
+            Delete
+          </button>
+        </div>
       )}
     </div>
   );
@@ -289,8 +344,12 @@ function TransitionRow({
 
 function TransitionInspector({
   transition,
+  editMode,
+  edit,
 }: {
   transition: WorkflowTransition;
+  editMode: boolean;
+  edit?: InspectorEditActions;
 }): JSX.Element {
   return (
     <div data-testid="workflow-inspector-transition">
@@ -326,6 +385,36 @@ function TransitionInspector({
           {transition.signature_gate ? "Required" : "—"}
         </span>
       </div>
+
+      {editMode && edit && (
+        <div
+          className={styles.editActions}
+          data-testid="workflow-inspector-transition-actions"
+        >
+          <button
+            type="button"
+            className={styles.editActionButton}
+            onClick={() =>
+              edit.onEditTransition(transition.from_state, transition.to_state)
+            }
+            data-testid="workflow-inspector-edit-transition"
+          >
+            <Pencil size={14} aria-hidden="true" />
+            Edit Transition
+          </button>
+          <button
+            type="button"
+            className={`${styles.editActionButton} ${styles.editActionDanger}`}
+            onClick={() =>
+              edit.onDeleteTransition(transition.from_state, transition.to_state)
+            }
+            data-testid="workflow-inspector-delete-transition"
+          >
+            <Trash2 size={14} aria-hidden="true" />
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 }

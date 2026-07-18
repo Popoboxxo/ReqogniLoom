@@ -1,13 +1,14 @@
 /**
- * REQ-176 — StateNode: custom React Flow node for a workflow state.
+ * REQ-176/REQ-177 — StateNode: custom React Flow node for a workflow state.
  *
  * Glassmorphism card with a type-colored left accent, a type dot, the state
- * name (uppercase), and the outgoing-transition count (design brief §6). Handles
- * are present on all four sides for edge anchoring but are transparent in the
- * read-only Phase 1.
+ * name (uppercase), and the outgoing-transition count (design brief §6). In
+ * read-only mode the four anchoring handles are transparent; in edit mode
+ * (REQ-177) they become visible/interactive for drag-to-connect and a
+ * double-click swaps the name for an inline rename input.
  */
 
-import { memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import type { StateFlowNode } from "./layout";
@@ -25,8 +26,32 @@ function StateNodeComponent({
   data,
   selected,
 }: NodeProps<StateFlowNode>): JSX.Element {
-  const { state } = data;
+  const { state, editMode, onRename } = data;
   const typeClass = TYPE_CLASS[state.type];
+  const handleClass = editMode ? styles.handleEdit : styles.handle;
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(state.name);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commit = (): void => {
+    const next = draft.trim();
+    setEditing(false);
+    if (next && next !== state.name) onRename?.(state.name, next);
+    else setDraft(state.name);
+  };
+
+  const cancel = (): void => {
+    setDraft(state.name);
+    setEditing(false);
+  };
 
   return (
     <div
@@ -37,35 +62,43 @@ function StateNodeComponent({
       tabIndex={0}
       aria-label={`State: ${state.name}, type ${state.type}, ${state.outgoingCount} outgoing transitions`}
       data-testid={`workflow-state-node-${state.id}`}
+      onDoubleClick={
+        editMode
+          ? (e) => {
+              e.stopPropagation();
+              setDraft(state.name);
+              setEditing(true);
+            }
+          : undefined
+      }
     >
-      {/* Anchoring handles — transparent in read-only mode */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className={styles.handle}
-        isConnectable={false}
+        className={handleClass}
+        isConnectable={!!editMode}
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className={styles.handle}
-        isConnectable={false}
+        className={handleClass}
+        isConnectable={!!editMode}
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className={styles.handle}
-        isConnectable={false}
+        className={handleClass}
+        isConnectable={!!editMode}
       />
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className={styles.handle}
-        isConnectable={false}
+        className={handleClass}
+        isConnectable={!!editMode}
       />
 
       <div className={styles.stateNodeHeader}>
@@ -78,7 +111,23 @@ function StateNodeComponent({
         ) : (
           <span className={styles.stateDot} aria-hidden="true" />
         )}
-        <span className={styles.stateName}>{state.name}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className={styles.stateNameInput}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+              else if (e.key === "Escape") cancel();
+              e.stopPropagation();
+            }}
+            data-testid={`workflow-state-rename-${state.id}`}
+          />
+        ) : (
+          <span className={styles.stateName}>{state.name}</span>
+        )}
         <span className={styles.stateOutgoing} aria-hidden="true">
           <ArrowRight size={12} />
           {state.outgoingCount}

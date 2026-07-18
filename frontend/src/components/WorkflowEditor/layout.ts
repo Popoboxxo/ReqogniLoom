@@ -13,6 +13,9 @@ import type { WorkflowState, WorkflowTransition } from "../../api/workflows";
 /** Data carried by a state node. */
 export interface StateNodeData extends Record<string, unknown> {
   state: WorkflowState;
+  /** REQ-177 — edit-mode affordances injected by the canvas. */
+  editMode?: boolean;
+  onRename?: (oldName: string, newName: string) => void;
 }
 
 /** Data carried by a transition edge. */

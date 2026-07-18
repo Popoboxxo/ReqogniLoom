@@ -14,12 +14,19 @@ interface WorkflowEditorHeaderProps {
   preset: string;
   onCopyMermaid: () => void;
   canExport: boolean;
+  editMode: boolean;
+  onToggleEditMode: () => void;
+  /** When false the toggle is disabled (user lacks the admin role). */
+  canEdit: boolean;
 }
 
 export function WorkflowEditorHeader({
   preset,
   onCopyMermaid,
   canExport,
+  editMode,
+  onToggleEditMode,
+  canEdit,
 }: WorkflowEditorHeaderProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -48,18 +55,38 @@ export function WorkflowEditorHeader({
 
       <div className={styles.headerSpacer} />
 
-      {/* Edit-mode toggle — disabled in Phase 1 (read-only). */}
-      <span
-        className={styles.toggle}
-        title="Edit mode coming soon"
-        aria-disabled="true"
+      {/* Edit-mode toggle (REQ-177) — admin-gated. */}
+      <button
+        type="button"
+        className={styles.toggleButton}
+        role="switch"
+        aria-checked={editMode}
+        disabled={!canEdit}
+        title={
+          canEdit
+            ? editMode
+              ? "Switch to read-only"
+              : "Enable edit mode"
+            : "Edit mode requires the admin role"
+        }
+        onClick={onToggleEditMode}
         data-testid="workflow-edit-toggle"
       >
-        <span className={styles.toggleTrack}>
-          <span className={styles.toggleThumb} />
+        <span
+          className={`${styles.toggleTrack} ${
+            editMode ? styles.toggleTrackOn : ""
+          }`}
+        >
+          <span
+            className={`${styles.toggleThumb} ${
+              editMode ? styles.toggleThumbOn : ""
+            }`}
+          />
         </span>
-        Read-only
-      </span>
+        <span className={editMode ? styles.toggleTextOn : ""}>
+          {editMode ? "Editing" : "Read-only"}
+        </span>
+      </button>
 
       <div className={styles.dropdownWrap} ref={wrapRef}>
         <button
