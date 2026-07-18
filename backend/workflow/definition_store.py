@@ -655,6 +655,23 @@ class PresetDowngradeBlockedError(WorkflowDefinitionError):
         super().__init__(msg)
 
 
+class StateReferencedError(WorkflowDefinitionError):
+    """Raised when a state cannot be deleted because transitions reference it.
+
+    REQ-177 (Workflow Editor edit mode). Maps to HTTP 409 Conflict: the state
+    is still wired into the machine and must be disconnected first.
+    """
+
+    def __init__(self, state: str, referencing: list[str]) -> None:
+        self.state = state
+        self.referencing = referencing
+        msg = (
+            f"State '{state}' cannot be deleted while transitions reference it: "
+            f"{', '.join(referencing)}"
+        )
+        super().__init__(msg)
+
+
 # ---------------------------------------------------------------------------
 # Helper: build DTO from ORM record
 # ---------------------------------------------------------------------------
@@ -937,6 +954,233 @@ class WorkflowDefinitionStore:
                 incompatible_states=incompatible, count=total_count
             )
 
+    # -- Granular edit-mode mutations (REQ-177) -------------------------------
+    #
+    # These read the current definition, apply one structural change, and
+    # persist through ``validate_and_persist_custom`` so the same fail-fast
+    # validation (preset configurability, declared-state references, orphaned
+    # items) protects every edit. States are plain strings (byte-identical to
+    # the entity's Status.choices — see module header); transition metadata is
+    # limited to the fields the engine actually reads (allowed_roles,
+    # requires_change_reason, signature_gate). Node positions, human labels and
+    # descriptions are presentation-only and are NOT persisted here.
+
+    @staticmethod
+    def _validate_state_name(name: str) -> str:
+        """Return a cleaned state name or raise (REQ-177).
+
+        ``__`` is reserved as the transition-id separator (``<from>__<to>``) in
+        the REST/editor layer, so it must not appear in a state name.
+        """
+        clean = (name or "").strip()
+        if not clean:
+            raise WorkflowDefinitionError("State name must not be empty")
+        if "__" in clean:
+            raise WorkflowDefinitionError(
+                "State name must not contain '__' (reserved separator)"
+            )
+        return clean
+
+    def _editable(
+        self, workspace_id: UUID | str, item_type: str
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """Return the current (states, transitions-as-dicts) or raise if absent."""
+        dto = self.get_definition(workspace_id, item_type)
+        transitions = [
+            {
+                "from_state": t.from_state,
+                "to_state": t.to_state,
+                "allowed_roles": list(t.allowed_roles),
+                "requires_change_reason": t.requires_change_reason,
+                "signature_gate": t.signature_gate,
+            }
+            for t in dto.transitions
+        ]
+        return list(dto.states), transitions
+
+    def add_state(
+        self, workspace_id: UUID | str, item_type: str, name: str
+    ) -> WorkflowDefinitionDTO:
+        """Append a new state to the workflow (REQ-177).
+
+        The new state starts unwired (no transitions); the caller connects it
+        afterwards. Rejects empty or duplicate names.
+        """
+        clean = self._validate_state_name(name)
+        states, transitions = self._editable(workspace_id, item_type)
+        if clean in states:
+            raise WorkflowDefinitionError(f"State '{clean}' already exists")
+        states.append(clean)
+        return self.validate_and_persist_custom(
+            workspace_id, item_type, states, transitions
+        )
+
+    def rename_state(
+        self,
+        workspace_id: UUID | str,
+        item_type: str,
+        old_name: str,
+        new_name: str,
+    ) -> WorkflowDefinitionDTO:
+        """Rename a state and rewire every transition that references it (REQ-177).
+
+        Blocked when live items sit in ``old_name`` — a rename is a state
+        removal from the engine's perspective (the string is the status mirror
+        value), so it would strand those items. Callers must transition items
+        out first.
+        """
+        clean = self._validate_state_name(new_name)
+        states, transitions = self._editable(workspace_id, item_type)
+        if old_name not in states:
+            raise WorkflowDefinitionError(f"Unknown state '{old_name}'")
+        if clean == old_name:
+            return self.get_definition(workspace_id, item_type)
+        if clean in states:
+            raise WorkflowDefinitionError(f"State '{clean}' already exists")
+        # Reject rename while items occupy the old state (would orphan them).
+        self._check_orphaned_state(
+            workspace_id, item_type, old_name, str(workspace_id)
+        )
+        states = [clean if s == old_name else s for s in states]
+        for t in transitions:
+            if t["from_state"] == old_name:
+                t["from_state"] = clean
+            if t["to_state"] == old_name:
+                t["to_state"] = clean
+        return self.validate_and_persist_custom(
+            workspace_id, item_type, states, transitions
+        )
+
+    def delete_state(
+        self, workspace_id: UUID | str, item_type: str, name: str
+    ) -> WorkflowDefinitionDTO:
+        """Delete a state (REQ-177).
+
+        Rejected (409) when any transition references the state (incoming or
+        outgoing) or when live items currently sit in it. The state must be
+        fully disconnected first.
+        """
+        states, transitions = self._editable(workspace_id, item_type)
+        if name not in states:
+            raise WorkflowDefinitionError(f"Unknown state '{name}'")
+        referencing = [
+            f"{t['from_state']} -> {t['to_state']}"
+            for t in transitions
+            if t["from_state"] == name or t["to_state"] == name
+        ]
+        if referencing:
+            raise StateReferencedError(name, referencing)
+        # Reject when items still occupy the state (would strand them).
+        self._check_orphaned_state(
+            workspace_id, item_type, name, str(workspace_id)
+        )
+        states = [s for s in states if s != name]
+        return self.validate_and_persist_custom(
+            workspace_id, item_type, states, transitions
+        )
+
+    def add_transition(
+        self,
+        workspace_id: UUID | str,
+        item_type: str,
+        from_state: str,
+        to_state: str,
+        allowed_roles: list[str] | None = None,
+        requires_change_reason: bool = False,
+        signature_gate: bool = False,
+    ) -> WorkflowDefinitionDTO:
+        """Add a transition between two existing states (REQ-177)."""
+        states, transitions = self._editable(workspace_id, item_type)
+        if from_state not in states:
+            raise WorkflowDefinitionError(f"Unknown from_state '{from_state}'")
+        if to_state not in states:
+            raise WorkflowDefinitionError(f"Unknown to_state '{to_state}'")
+        for t in transitions:
+            if t["from_state"] == from_state and t["to_state"] == to_state:
+                raise WorkflowDefinitionError(
+                    f"Transition '{from_state} -> {to_state}' already exists"
+                )
+        roles = [r for r in (allowed_roles or []) if r and r.strip()]
+        if "admin" not in roles:
+            # admin retains transition rights across every preset (convention).
+            roles.append("admin")
+        transitions.append(
+            {
+                "from_state": from_state,
+                "to_state": to_state,
+                "allowed_roles": roles,
+                "requires_change_reason": bool(requires_change_reason),
+                "signature_gate": bool(signature_gate),
+            }
+        )
+        return self.validate_and_persist_custom(
+            workspace_id, item_type, states, transitions
+        )
+
+    def update_transition(
+        self,
+        workspace_id: UUID | str,
+        item_type: str,
+        from_state: str,
+        to_state: str,
+        *,
+        allowed_roles: list[str] | None = None,
+        requires_change_reason: bool | None = None,
+        signature_gate: bool | None = None,
+    ) -> WorkflowDefinitionDTO:
+        """Edit an existing transition's rule metadata (REQ-177).
+
+        The (from_state, to_state) pair is the identity and cannot change here —
+        moving an edge is a delete + add. Only supplied fields are updated.
+        """
+        states, transitions = self._editable(workspace_id, item_type)
+        target = next(
+            (
+                t
+                for t in transitions
+                if t["from_state"] == from_state and t["to_state"] == to_state
+            ),
+            None,
+        )
+        if target is None:
+            raise WorkflowDefinitionError(
+                f"Unknown transition '{from_state} -> {to_state}'"
+            )
+        if allowed_roles is not None:
+            roles = [r for r in allowed_roles if r and r.strip()]
+            if "admin" not in roles:
+                roles.append("admin")
+            target["allowed_roles"] = roles
+        if requires_change_reason is not None:
+            target["requires_change_reason"] = bool(requires_change_reason)
+        if signature_gate is not None:
+            target["signature_gate"] = bool(signature_gate)
+        return self.validate_and_persist_custom(
+            workspace_id, item_type, states, transitions
+        )
+
+    def delete_transition(
+        self,
+        workspace_id: UUID | str,
+        item_type: str,
+        from_state: str,
+        to_state: str,
+    ) -> WorkflowDefinitionDTO:
+        """Delete a transition (REQ-177)."""
+        states, transitions = self._editable(workspace_id, item_type)
+        remaining = [
+            t
+            for t in transitions
+            if not (t["from_state"] == from_state and t["to_state"] == to_state)
+        ]
+        if len(remaining) == len(transitions):
+            raise WorkflowDefinitionError(
+                f"Unknown transition '{from_state} -> {to_state}'"
+            )
+        return self.validate_and_persist_custom(
+            workspace_id, item_type, states, remaining
+        )
+
 
 __all__ = [
     "WorkflowDefinitionStore",
@@ -945,5 +1189,6 @@ __all__ = [
     "WorkflowDefinitionError",
     "OrphanedStateError",
     "PresetDowngradeBlockedError",
+    "StateReferencedError",
     "PRESET_SCHEMAS",
 ]

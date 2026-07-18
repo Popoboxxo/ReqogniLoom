@@ -246,6 +246,194 @@ class WorkflowFacade(ServiceBase):
         except WorkflowDefinitionError:
             return None
 
+    # ---------- Definition edit-mode mutations (REQ-177) ----------
+    #
+    # The Workflow Editor's edit mode calls these to mutate the state-machine
+    # graph. Each sets the tenant context, delegates to the WorkflowEngine
+    # service, and audits the change. WorkflowDefinitionError (and its
+    # subclasses OrphanedStateError / StateReferencedError) propagate unchanged
+    # so the REST layer maps them to precise HTTP statuses. Editing requires the
+    # workspace to be on the Extended preset (REQ-L3-WE001-002 configurability
+    # gate) — the service raises WorkflowNotConfigurableError otherwise.
+
+    def add_state(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+        name: str,
+    ):
+        """Append a new state to the workflow definition (REQ-177)."""
+        self._set_tenant_context(ctx)
+        from workflow.services import add_definition_state
+
+        dto = add_definition_state(str(workspace_id), item_type, name)
+        self._audit_definition(ctx, item_type, workspace_id, "state.add", {"name": name})
+        return dto
+
+    def update_state(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+        old_name: str,
+        new_name: str,
+    ):
+        """Rename a state and rewire its transitions (REQ-177)."""
+        self._set_tenant_context(ctx)
+        from workflow.services import rename_definition_state
+
+        dto = rename_definition_state(
+            str(workspace_id), item_type, old_name, new_name
+        )
+        self._audit_definition(
+            ctx, item_type, workspace_id, "state.rename",
+            {"from": old_name, "to": new_name},
+        )
+        return dto
+
+    def delete_state(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+        name: str,
+    ):
+        """Delete a fully-disconnected state (REQ-177)."""
+        self._set_tenant_context(ctx)
+        from workflow.services import delete_definition_state
+
+        dto = delete_definition_state(str(workspace_id), item_type, name)
+        self._audit_definition(
+            ctx, item_type, workspace_id, "state.delete", {"name": name}
+        )
+        return dto
+
+    def add_transition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+        from_state: str,
+        to_state: str,
+        allowed_roles: list[str] | None = None,
+        requires_change_reason: bool = False,
+        signature_gate: bool = False,
+    ):
+        """Add a transition between two existing states (REQ-177)."""
+        self._set_tenant_context(ctx)
+        from workflow.services import add_definition_transition
+
+        dto = add_definition_transition(
+            str(workspace_id),
+            item_type,
+            from_state,
+            to_state,
+            allowed_roles=allowed_roles,
+            requires_change_reason=requires_change_reason,
+            signature_gate=signature_gate,
+        )
+        self._audit_definition(
+            ctx, item_type, workspace_id, "transition.add",
+            {"from": from_state, "to": to_state},
+        )
+        return dto
+
+    def update_transition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+        from_state: str,
+        to_state: str,
+        allowed_roles: list[str] | None = None,
+        requires_change_reason: Optional[bool] = None,
+        signature_gate: Optional[bool] = None,
+    ):
+        """Edit an existing transition's rule metadata (REQ-177)."""
+        self._set_tenant_context(ctx)
+        from workflow.services import update_definition_transition
+
+        dto = update_definition_transition(
+            str(workspace_id),
+            item_type,
+            from_state,
+            to_state,
+            allowed_roles=allowed_roles,
+            requires_change_reason=requires_change_reason,
+            signature_gate=signature_gate,
+        )
+        self._audit_definition(
+            ctx, item_type, workspace_id, "transition.update",
+            {"from": from_state, "to": to_state},
+        )
+        return dto
+
+    def delete_transition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+        from_state: str,
+        to_state: str,
+    ):
+        """Delete a transition (REQ-177)."""
+        self._set_tenant_context(ctx)
+        from workflow.services import delete_definition_transition
+
+        dto = delete_definition_transition(
+            str(workspace_id), item_type, from_state, to_state
+        )
+        self._audit_definition(
+            ctx, item_type, workspace_id, "transition.delete",
+            {"from": from_state, "to": to_state},
+        )
+        return dto
+
+    def initialize_definition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+    ):
+        """Create the preset-default workflow for an entity type (REQ-177).
+
+        Idempotent — returns the existing definition when one is already
+        configured. Powers the editor's "Initialize Workflow" empty-state action.
+        """
+        self._set_tenant_context(ctx)
+        from workflow.services import initialize_definition as wf_initialize
+
+        dto = wf_initialize(str(workspace_id), item_type, tenant_id=ctx.tenant_id)
+        self._audit_definition(
+            ctx, item_type, workspace_id, "initialize", {"preset": dto.preset}
+        )
+        return dto
+
+    def _audit_definition(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        workspace_id: UUID | str,
+        action: str,
+        details: dict,
+    ) -> None:
+        """Best-effort audit for a definition-graph edit (REQ-177)."""
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type=f"WorkflowDefinition:{item_type}",
+            entity_id=UUID(str(workspace_id)),
+            details={"action": action, **details},
+        )
+
     def get_history(
         self,
         item_id: UUID | str,
