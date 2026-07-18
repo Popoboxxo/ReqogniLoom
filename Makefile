@@ -9,7 +9,11 @@
 
 COMPOSE ?= docker-compose
 
-.PHONY: test test-backend test-frontend test-e2e help
+.PHONY: build test test-backend test-frontend test-e2e help
+
+## build: Build images with real version/commit/build-time stamped in (scripts/build.sh)
+build:
+	./scripts/build.sh
 
 ## test: Run backend (pytest) + frontend (vitest) tests — NO E2E
 test: test-backend test-frontend

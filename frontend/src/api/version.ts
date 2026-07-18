@@ -10,6 +10,8 @@
 import { apiClient } from "./client";
 
 export interface VersionInfo {
+  /** Human-facing release version from the root VERSION file (e.g. "0.2.0"). */
+  app_version: string;
   commit: string;
   commit_short: string;
   build_time: string | null;

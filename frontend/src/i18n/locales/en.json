@@ -45,7 +45,8 @@
     "toggleTheme": "Toggle light/dark mode",
     "lightMode": "Light mode",
     "darkMode": "Dark mode",
-    "buildVersion": "Build {{sha}}"
+    "buildVersion": "Build {{sha}}",
+    "appVersion": "v{{version}}"
   },
   "systemHealth": {
     "title": "System Health",
@@ -55,6 +56,7 @@
     "recentEvents": "Recent Audit Events",
     "noEvents": "No recent events.",
     "refresh": "Refresh",
+    "appVersion": "v{{version}}",
     "version": "Version: {{sha}}",
     "versionBuiltAt": "Version: {{sha}} · built {{buildTime}}",
     "versionUnavailable": "Version: unavailable",

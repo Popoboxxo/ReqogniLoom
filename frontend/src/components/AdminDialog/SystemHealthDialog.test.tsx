@@ -56,6 +56,7 @@ describe("SystemHealthDialog — version indicator", () => {
 
   it("displays commit_short and formatted build_time once resolved", async () => {
     vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
+      app_version: "0.2.0",
       commit: "abcdef1234567890",
       commit_short: "abcdef1",
       build_time: "2026-07-16T12:00:00Z",
@@ -67,10 +68,12 @@ describe("SystemHealthDialog — version indicator", () => {
       expect(screen.getByTestId("system-health-version")).toHaveTextContent("abcdef1");
     });
     expect(screen.getByTestId("system-health-version")).toHaveTextContent("built");
+    expect(screen.getByTestId("system-health-version")).toHaveTextContent("v0.2.0");
   });
 
   it("displays only commit_short when build_time is null", async () => {
     vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
+      app_version: "unknown",
       commit: "abcdef1234567890",
       commit_short: "abcdef1",
       build_time: null,

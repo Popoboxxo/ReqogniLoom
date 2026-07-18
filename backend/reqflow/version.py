@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from rest_framework.permissions import AllowAny
@@ -23,6 +24,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)
+
+# Placeholder surfaced when neither the APP_VERSION env var nor the root
+# VERSION file yields a usable value.
+_UNKNOWN = "unknown"
+
+# Root VERSION file, resolved relative to this module:
+#   backend/reqflow/version.py -> backend/reqflow -> backend -> <repo root>
+# Only present for local/non-container runs; a built image ships no repo root,
+# so the container path relies on the APP_VERSION env var (stamped at build).
+_VERSION_FILE = Path(__file__).resolve().parent.parent.parent / "VERSION"
 
 
 def _resolve_commit_sha() -> str:
@@ -60,6 +71,38 @@ def _resolve_commit_sha() -> str:
     return "unknown"
 
 
+def _resolve_app_version() -> str:
+    """Resolve the human-facing application (release) version.
+
+    Resolution order:
+    1. ``APP_VERSION`` env var — stamped at Docker build time from the root
+       ``VERSION`` file. Authoritative for a real deployed container, which
+       ships no repo root. ``"unknown"`` (the docker-compose default) is
+       treated as "not set" so the file fallback below runs instead.
+    2. The root ``VERSION`` file, read directly — dev-convenience fallback for
+       local/non-container runs where the repo root is present.
+    3. The literal string ``"unknown"``.
+
+    A missing/unreadable/empty VERSION file never crashes the endpoint: it logs
+    a warning and falls back to the placeholder.
+    """
+    env_version = os.environ.get("APP_VERSION")
+    if env_version and env_version != _UNKNOWN:
+        return env_version.strip()
+
+    try:
+        content = _VERSION_FILE.read_text(encoding="utf-8").strip()
+        if content:
+            return content
+        logger.warning("VERSION file at %s is empty; app_version unavailable", _VERSION_FILE)
+    except FileNotFoundError:
+        logger.warning("VERSION file not found at %s; app_version unavailable", _VERSION_FILE)
+    except OSError as exc:  # unreadable file, permission error, etc.
+        logger.warning("Could not read VERSION file at %s: %s", _VERSION_FILE, exc)
+
+    return _UNKNOWN
+
+
 class VersionView(APIView):
     """``GET /api/v1/version/`` — deployed build metadata.
 
@@ -72,12 +115,13 @@ class VersionView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Return the deployed commit SHA (full + short) and build time."""
+        """Return the app version, deployed commit SHA (full + short) and build time."""
         commit = _resolve_commit_sha()
         commit_short = commit[:7] if commit != "unknown" else "unknown"
         build_time = os.environ.get("BUILD_TIME") or None
         return Response(
             {
+                "app_version": _resolve_app_version(),
                 "commit": commit,
                 "commit_short": commit_short,
                 "build_time": build_time,

@@ -67,3 +67,37 @@ class TestVersionEndpoint:
         body = resp.json()
         assert body["commit"] == "deadbeefcafef00d1234"
         assert body["commit_short"] == "deadbee"
+
+
+class TestAppVersion:
+    """`app_version` resolution: APP_VERSION env -> root VERSION file -> 'unknown'."""
+
+    def test_app_version_env_var_present(self, monkeypatch) -> None:
+        """APP_VERSION env var is used verbatim (authoritative for a built image)."""
+        monkeypatch.setenv("APP_VERSION", "1.2.3")
+
+        body = _get_version().json()
+
+        assert body["app_version"] == "1.2.3"
+
+    def test_app_version_from_file_when_env_absent(self, monkeypatch) -> None:
+        """No APP_VERSION env var -> read the root VERSION file (dev fallback)."""
+        monkeypatch.delenv("APP_VERSION", raising=False)
+
+        with patch("reqflow.version.Path.read_text", return_value="0.2.0\n"):
+            body = _get_version().json()
+
+        assert body["app_version"] == "0.2.0"
+
+    def test_app_version_missing_file_falls_back_to_unknown(self, monkeypatch) -> None:
+        """No env var + no VERSION file -> 'unknown', endpoint stays 200."""
+        monkeypatch.delenv("APP_VERSION", raising=False)
+
+        with patch(
+            "reqflow.version.Path.read_text",
+            side_effect=FileNotFoundError("no VERSION file"),
+        ):
+            resp = _get_version()
+
+        assert resp.status_code == 200
+        assert resp.json()["app_version"] == "unknown"
