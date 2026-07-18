@@ -46,6 +46,7 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 
 from .definition_store import (
+    NoGlobalSourceError,
     OrphanedStateError,
     PresetDowngradeBlockedError,
     StateReferencedError,
@@ -634,6 +635,20 @@ def initialize_definition(
     return dto
 
 
+def reset_definition_to_global(
+    workspace_id: UUID | str, item_type: str
+) -> WorkflowDefinitionDTO:
+    """Reset a workspace definition to its inherited global default (REQ-180).
+
+    Raises:
+        WorkflowDefinitionError: No workspace definition exists.
+        NoGlobalSourceError: ``source_global`` is null (nothing to reset to).
+    """
+    dto = _get_store().reset_to_global(workspace_id, item_type)
+    _get_validator().invalidate_cache(str(workspace_id), item_type)
+    return dto
+
+
 def check_downgrade_compatibility(
     workspace_id: UUID | str,
     target_preset: str,
@@ -674,6 +689,7 @@ __all__ = [
     "update_definition_transition",
     "delete_definition_transition",
     "initialize_definition",
+    "reset_definition_to_global",
     "check_downgrade_compatibility",
     "TransitionResult",
     "AvailableTransitions",
@@ -686,4 +702,5 @@ __all__ = [
     "WorkflowDefinitionError",
     "OrphanedStateError",
     "StateReferencedError",
+    "NoGlobalSourceError",
 ]

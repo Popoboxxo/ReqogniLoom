@@ -19,13 +19,18 @@ Architecture:
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
 from presets.services import get_workflow_configurability
 
-from .models import WorkflowEngineDefinition, WorkflowItemState
+from .models import (
+    GlobalWorkflowDefinition,
+    WorkflowEngineDefinition,
+    WorkflowItemState,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +78,10 @@ class WorkflowDefinitionDTO:
     item_type: str
     preset: str
     is_custom: bool = False
+    # REQ-180 — on-default/customized signal + inherited-global link. Distinct
+    # from ``is_custom`` (legacy "user-supplied Extended custom" flag).
+    is_customized: bool = False
+    source_global_id: str | None = None
 
     def get_transition(
         self, from_state: str, to_state: str
@@ -655,6 +664,15 @@ class PresetDowngradeBlockedError(WorkflowDefinitionError):
         super().__init__(msg)
 
 
+class NoGlobalSourceError(WorkflowDefinitionError):
+    """Raised when a reset-to-default has no linked global to reset to (REQ-180).
+
+    Maps to HTTP 409 NO_GLOBAL_SOURCE: the workspace definition's
+    ``source_global`` is null (pre-REQ-178 workspace, or the global row was
+    deleted after inheritance). There is nothing to reset to.
+    """
+
+
 class StateReferencedError(WorkflowDefinitionError):
     """Raised when a state cannot be deleted because transitions reference it.
 
@@ -697,6 +715,12 @@ def _dto_from_orm(record: WorkflowEngineDefinition) -> WorkflowDefinitionDTO:
         item_type=record.item_type,
         preset=record.preset,
         is_custom=record.is_custom,
+        is_customized=record.is_customized,
+        source_global_id=(
+            str(record.source_global_id)
+            if record.source_global_id is not None
+            else None
+        ),
     )
 
 
@@ -770,21 +794,90 @@ class WorkflowDefinitionStore:
 
         schema = PRESET_SCHEMAS[preset]
 
-        # Build extra kwargs when tenant_id is explicitly supplied (bootstrap).
-        extra: dict[str, Any] = {}
-        if tenant_id is not None:
-            extra["tenant_id"] = str(tenant_id)
+        # REQ-178: inherit from the tenant-wide per-preset GlobalWorkflowDefinition
+        # instead of copying PRESET_SCHEMAS straight into the workspace row. The
+        # global is get-or-seeded from the preset schema on first use, so the very
+        # first workspace on a (tenant, item_type, preset) establishes the global
+        # default and every later workspace mirrors it via ``source_global`` with
+        # ``is_customized=False`` (so a later global edit propagates in).
+        resolved_tenant = tenant_id
+        if resolved_tenant is None:
+            # Best-effort: fall back to the active thread-local tenant context so
+            # callers that rely on the manager's auto-inject still link a global.
+            try:
+                from persistence.tenancy import TenantContext
+
+                resolved_tenant = TenantContext.get_tenant()
+            except Exception:  # noqa: BLE001 — no context → degrade gracefully
+                resolved_tenant = None
+
+        global_def: GlobalWorkflowDefinition | None = None
+        workflow_json: Any = copy.deepcopy(schema)
+        if resolved_tenant is not None:
+            global_def, _ = GlobalWorkflowDefinition.unscoped.get_or_create(
+                tenant_id=str(resolved_tenant),
+                item_type=item_type,
+                preset=preset,
+                defaults={"workflow_json": copy.deepcopy(schema)},
+            )
+            workflow_json = copy.deepcopy(global_def.workflow_json)
+
+        defaults: dict[str, Any] = {
+            "preset": preset,
+            "workflow_json": workflow_json,
+            "is_custom": False,
+            "is_customized": False,
+        }
+        if global_def is not None:
+            defaults["source_global"] = global_def
+        if resolved_tenant is not None:
+            defaults["tenant_id"] = str(resolved_tenant)
 
         record, _ = WorkflowEngineDefinition.objects.get_or_create(
             workspace_id=str(workspace_id),
             item_type=item_type,
-            defaults={
-                "preset": preset,
-                "workflow_json": schema,
-                "is_custom": False,
-                **extra,
-            },
+            defaults=defaults,
         )
+        return _dto_from_orm(record)
+
+    # -- Reset to global default (REQ-180) ------------------------------------
+
+    def reset_to_global(
+        self, workspace_id: UUID | str, item_type: str
+    ) -> WorkflowDefinitionDTO:
+        """Overwrite the workspace definition with its global default (REQ-180).
+
+        Copies ``source_global.workflow_json`` back into the workspace row and
+        clears ``is_customized``. The workspace returns to "on-default".
+
+        Raises:
+            WorkflowDefinitionError: No workspace definition exists.
+            NoGlobalSourceError: ``source_global`` is null (nothing to reset to).
+        """
+        record = WorkflowEngineDefinition.objects.filter(
+            workspace_id=str(workspace_id), item_type=item_type
+        ).first()
+        if record is None:
+            raise WorkflowDefinitionError(
+                f"No WorkflowDefinition found for workspace={workspace_id}, "
+                f"item_type={item_type}"
+            )
+        if record.source_global_id is None:
+            raise NoGlobalSourceError(
+                "Workspace workflow definition has no linked global default "
+                "to reset to."
+            )
+        global_def = GlobalWorkflowDefinition.unscoped.filter(
+            id=record.source_global_id
+        ).first()
+        if global_def is None:
+            raise NoGlobalSourceError(
+                "Workspace workflow definition has no linked global default "
+                "to reset to."
+            )
+        record.workflow_json = copy.deepcopy(global_def.workflow_json)
+        record.is_customized = False
+        record.save(update_fields=["workflow_json", "is_customized", "modified_at"])
         return _dto_from_orm(record)
 
     # -- Custom definition (REQ-L3-WE001-002) ---------------------------------
@@ -869,7 +962,16 @@ class WorkflowDefinitionStore:
         if existing is not None:
             existing.workflow_json = workflow_json
             existing.is_custom = True
-            existing.save(update_fields=["workflow_json", "is_custom", "modified_at"])
+            # REQ-180: any edit diverges the workspace from its global default.
+            existing.is_customized = True
+            existing.save(
+                update_fields=[
+                    "workflow_json",
+                    "is_custom",
+                    "is_customized",
+                    "modified_at",
+                ]
+            )
             return _dto_from_orm(existing)
         else:
             record = WorkflowEngineDefinition.objects.create(
@@ -878,6 +980,7 @@ class WorkflowDefinitionStore:
                 preset="extended",
                 workflow_json=workflow_json,
                 is_custom=True,
+                is_customized=True,
             )
             return _dto_from_orm(record)
 
@@ -1190,5 +1293,6 @@ __all__ = [
     "OrphanedStateError",
     "PresetDowngradeBlockedError",
     "StateReferencedError",
+    "NoGlobalSourceError",
     "PRESET_SCHEMAS",
 ]

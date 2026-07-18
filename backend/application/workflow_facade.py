@@ -417,6 +417,205 @@ class WorkflowFacade(ServiceBase):
         )
         return dto
 
+    def reset_definition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        workspace_id: UUID | str,
+    ):
+        """Reset a workspace definition to its global default (REQ-180).
+
+        NoGlobalSourceError (subclass of WorkflowDefinitionError) propagates so
+        the REST layer can map it to 409 NO_GLOBAL_SOURCE.
+        """
+        self._set_tenant_context(ctx)
+        from workflow.services import reset_definition_to_global
+
+        dto = reset_definition_to_global(str(workspace_id), item_type)
+        self._audit_definition(
+            ctx, item_type, workspace_id, "reset_to_default", {}
+        )
+        return dto
+
+    # ---------- Global workflow defaults (REQ-178) ----------
+    #
+    # Tenant-wide per-preset defaults from which non-customized workspace
+    # definitions inherit. All methods set the tenant context and delegate to
+    # workflow.global_definition_store.GlobalWorkflowDefinitionStore; mutations
+    # return ``(GlobalWorkflowDefinition, propagated_workspace_count)`` and audit
+    # the change. WorkflowDefinitionError (+ StateReferencedError) propagate for
+    # precise HTTP mapping.
+
+    def _global_store(self):
+        from workflow.global_definition_store import GlobalWorkflowDefinitionStore
+
+        return GlobalWorkflowDefinitionStore()
+
+    def list_global_definitions(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str | None = None,
+        preset: str | None = None,
+    ):
+        """Return the tenant's global workflow definitions (REQ-178)."""
+        self._set_tenant_context(ctx)
+        return self._global_store().list(
+            ctx.tenant_id, item_type=item_type, preset=preset
+        )
+
+    def get_global_definition(
+        self, ctx: AuthContext, *, item_type: str, preset: str
+    ):
+        """Return one global workflow definition or None (REQ-178)."""
+        self._set_tenant_context(ctx)
+        return self._global_store().get(ctx.tenant_id, item_type, preset)
+
+    def initialize_global_definition(
+        self, ctx: AuthContext, *, item_type: str, preset: str
+    ):
+        """Create an empty global workflow definition (REQ-178)."""
+        self._set_tenant_context(ctx)
+        obj = self._global_store().initialize(ctx.tenant_id, item_type, preset)
+        self._audit_global(ctx, item_type, preset, "initialize", {})
+        return obj
+
+    def add_global_state(
+        self, ctx: AuthContext, *, item_type: str, preset: str, name: str
+    ):
+        self._set_tenant_context(ctx)
+        obj, count = self._global_store().add_state(
+            ctx.tenant_id, item_type, preset, name
+        )
+        self._audit_global(ctx, item_type, preset, "state.add", {"name": name})
+        return obj, count
+
+    def rename_global_state(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        preset: str,
+        old_name: str,
+        new_name: str,
+    ):
+        self._set_tenant_context(ctx)
+        obj, count = self._global_store().rename_state(
+            ctx.tenant_id, item_type, preset, old_name, new_name
+        )
+        self._audit_global(
+            ctx, item_type, preset, "state.rename",
+            {"from": old_name, "to": new_name},
+        )
+        return obj, count
+
+    def delete_global_state(
+        self, ctx: AuthContext, *, item_type: str, preset: str, name: str
+    ):
+        self._set_tenant_context(ctx)
+        obj, count = self._global_store().delete_state(
+            ctx.tenant_id, item_type, preset, name
+        )
+        self._audit_global(ctx, item_type, preset, "state.delete", {"name": name})
+        return obj, count
+
+    def add_global_transition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        preset: str,
+        from_state: str,
+        to_state: str,
+        allowed_roles: list[str] | None = None,
+        requires_change_reason: bool = False,
+        signature_gate: bool = False,
+    ):
+        self._set_tenant_context(ctx)
+        obj, count = self._global_store().add_transition(
+            ctx.tenant_id,
+            item_type,
+            preset,
+            from_state,
+            to_state,
+            allowed_roles=allowed_roles,
+            requires_change_reason=requires_change_reason,
+            signature_gate=signature_gate,
+        )
+        self._audit_global(
+            ctx, item_type, preset, "transition.add",
+            {"from": from_state, "to": to_state},
+        )
+        return obj, count
+
+    def update_global_transition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        preset: str,
+        from_state: str,
+        to_state: str,
+        allowed_roles: list[str] | None = None,
+        requires_change_reason: Optional[bool] = None,
+        signature_gate: Optional[bool] = None,
+    ):
+        self._set_tenant_context(ctx)
+        obj, count = self._global_store().update_transition(
+            ctx.tenant_id,
+            item_type,
+            preset,
+            from_state,
+            to_state,
+            allowed_roles=allowed_roles,
+            requires_change_reason=requires_change_reason,
+            signature_gate=signature_gate,
+        )
+        self._audit_global(
+            ctx, item_type, preset, "transition.update",
+            {"from": from_state, "to": to_state},
+        )
+        return obj, count
+
+    def delete_global_transition(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        preset: str,
+        from_state: str,
+        to_state: str,
+    ):
+        self._set_tenant_context(ctx)
+        obj, count = self._global_store().delete_transition(
+            ctx.tenant_id, item_type, preset, from_state, to_state
+        )
+        self._audit_global(
+            ctx, item_type, preset, "transition.delete",
+            {"from": from_state, "to": to_state},
+        )
+        return obj, count
+
+    def _audit_global(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        preset: str,
+        action: str,
+        details: dict,
+    ) -> None:
+        """Best-effort audit for a global-definition graph edit (REQ-178)."""
+        obj = self._global_store().get(ctx.tenant_id, item_type, preset)
+        entity_id = obj.id if obj is not None else UUID(int=0)
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type=f"GlobalWorkflowDefinition:{item_type}/{preset}",
+            entity_id=entity_id,
+            details={"action": action, **details},
+        )
+
     def _audit_definition(
         self,
         ctx: AuthContext,
