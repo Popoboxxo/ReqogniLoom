@@ -27,6 +27,18 @@
 # All services load configuration from .env via env_file directives.
 # Sensitive values: SECRET_KEY, DB_PASSWORD, REDIS_PASSWORD, LLM_API_KEY.
 # Environment variables override defaults throughout — zero secrets in compose file.
+#
+# CRITICAL: env_file values are read ONCE at container creation time, not live-reloaded.
+# After editing .env, you MUST recreate containers to apply changes:
+#   docker-compose up -d --force-recreate <service>    (single service)
+#   docker-compose up -d --force-recreate              (all services)
+# CAUTION: 'docker-compose restart' does NOT reload env_file values.
+#
+# FAIL-FAST ENFORCEMENT:
+# Critical security secrets are validated at container creation (Compose-level fail-fast)
+# and again at process startup (Python-level). Missing or empty values will cause
+# container startup to fail immediately rather than silently defaulting to unsafe values.
+# Required secrets: SECRET_KEY, AUTH_JWT_SECRET, DB_PASSWORD, FIELD_ENCRYPTION_KEY
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -38,7 +50,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-reqflow}
       POSTGRES_USER: ${DB_USER:-reqflow}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set — use a strong random password (32+ chars)}
     volumes:
       # NOTE: If you change DB_PASSWORD after initial setup, the existing postgres volume
       # will retain the old password. Remove the postgres_data volume or re-initialize:
@@ -72,7 +84,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${DB_NAME:-reqflow}
       POSTGRES_USER: ${DB_USER:-reqflow}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set — use a strong random password (32+ chars)}
       BACKUP_DIR: /backups
       BACKUP_RETENTION: ${BACKUP_RETENTION:-7}
       BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
@@ -140,12 +152,14 @@ services:
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set — generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'}"
+      AUTH_JWT_SECRET: "${AUTH_JWT_SECRET:?AUTH_JWT_SECRET must be set — generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'}"
+      FIELD_ENCRYPTION_KEY: "${FIELD_ENCRYPTION_KEY:?FIELD_ENCRYPTION_KEY must be set — generate with: python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
       DEBUG: ${DEBUG:-False}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD must be set — use a strong random password (32+ chars)}"
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -190,11 +204,13 @@ services:
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set — generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'}"
+      AUTH_JWT_SECRET: "${AUTH_JWT_SECRET:?AUTH_JWT_SECRET must be set — generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'}"
+      FIELD_ENCRYPTION_KEY: "${FIELD_ENCRYPTION_KEY:?FIELD_ENCRYPTION_KEY must be set — generate with: python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD must be set — use a strong random password (32+ chars)}"
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -221,11 +237,13 @@ services:
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set — generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'}"
+      AUTH_JWT_SECRET: "${AUTH_JWT_SECRET:?AUTH_JWT_SECRET must be set — generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'}"
+      FIELD_ENCRYPTION_KEY: "${FIELD_ENCRYPTION_KEY:?FIELD_ENCRYPTION_KEY must be set — generate with: python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD must be set — use a strong random password (32+ chars)}"
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -268,11 +286,13 @@ services:
     env_file: .env
     environment:
       DJANGO_SETTINGS_MODULE: reqflow.settings
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set — generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'}"
+      AUTH_JWT_SECRET: "${AUTH_JWT_SECRET:?AUTH_JWT_SECRET must be set — generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'}"
+      FIELD_ENCRYPTION_KEY: "${FIELD_ENCRYPTION_KEY:?FIELD_ENCRYPTION_KEY must be set — generate with: python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqflow}
       DB_USER: ${DB_USER:-reqflow}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD must be set — use a strong random password (32+ chars)}"
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
