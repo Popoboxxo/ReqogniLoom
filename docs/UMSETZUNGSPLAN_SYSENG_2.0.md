@@ -1,6 +1,6 @@
 # ReqFlow SysEng 2.0 — Detaillierter technischer Implementierungsplan
 
-> **Datum:** 2026-07-19 | **Status:** User Review Required (Revision nach Code-Gegenprüfung)
+> **Datum:** 2026-07-19 | **Status:** Entschieden — Implementierung läuft (Nutzer-Review abgeschlossen, 8 Entscheidungen bestätigt)
 > **Scope:** Ontologie-Konsolidierung, zweisprachiges Link-Naming, Traceability-Auditor, AI-Erweiterungen & ADR-Erweiterung
 >
 > **Revisionshinweis:** Diese Fassung wurde gegen den produktiven Code geprüft (vier Recherche-/Review-Durchgänge,
@@ -33,34 +33,69 @@ Architektur-Element-Hierarchie und wird an mehreren kritischen Stellen konsumier
 Ein Deprecaten von `ArchitectureElement.parent` würde CTE-Manager, Validator und Frontend-Tree brechen — das ist
 kein Refactoring, sondern ein produktionsgefährdender Breaking Change.
 
-Gleichzeitig ist `TraceLink(link_type='derives-from')` bereits der **de-facto-SSOT** für die
-Requirement/Need-Hierarchie:
+Der Code-Kommentar-Layer im gesamten Backend behauptet durchgängig, `TraceLink(link_type='derives-from')` sei
+bereits der SSOT für die Requirement/Need-Hierarchie — u.a. `backend/persistence/models.py:519-538`
+(Deprecation-Docstring von `Artifact.parent`), `backend/baseline/services.py:317-324`,
+`backend/baseline/delta_index_builder.py:251-271`, `backend/application/artifact_service.py:25`,
+`backend/application/stakeholder_need_service.py:54-58`. **Korrektur (verifiziert 2026-07-19, unabhängig
+gegengeprüft):** Das ist die dokumentierte Absicht, aber **nicht das, was der produktive Erzeugungspfad
+tatsächlich erzeugt** — die Vorfassung dieses Dokuments hat das fälschlich gleichgesetzt.
 
-- Aktiv erzeugt in `backend/application/requirement_service.py:620,640` und
-  `backend/application/management/commands/migrate_se_docs.py:971-1042`.
+- **Tatsächlich aktiv erzeugt wird `parent-child`, nicht `derives-from`:** `RequirementService.decompose()`
+  (`backend/application/requirement_service.py:618-620,636-642`) ist der einzige produktive Erzeugungspfad für
+  Requirement-Hierarchien — sowohl für AI-Decomposition als auch für die manuelle "Ableiten"-Aktion
+  (`derive_requirement()`, `requirement_service.py:221-243`, ein dünner Wrapper um `decompose()`, von UI, REST
+  und MCP gemeinsam genutzt). Er liest `Workspace.decomposition_link_type` und übernimmt dessen Wert ungefiltert
+  als `link_type` des erzeugten `TraceLink`. Dieses Feld hat seit seiner Einführung
+  (`persistence/migrations/0016_workspace_decomposition_link_type.py`) den Default `"parent-child"`
+  (`persistence/models.py:460-463`) — **nicht** `"derives-from"`. Es gibt keinen Code-Pfad, der diesen Default
+  automatisch umstellt; nur ein expliziter `PATCH` über `WorkspaceService.update_workspace()`
+  (`workspace_service.py:520-523`) kann das ändern.
+- **Verwechslungsquelle identifiziert:** Es existiert ein zweites, ähnlich benanntes Feld
+  `Workspace.default_link_type` (Default `"derives-from"`, `persistence/models.py:465-467`, Migration `0038`) —
+  das ist aber nur die UI-Vorauswahl für das manuelle "TraceLink anlegen"-Formular
+  (`frontend/src/components/shared/TraceLinkPanel.tsx`), kein Auto-Erzeuger für Hierarchien. Die Vorfassung
+  dieses Dokuments hat vermutlich dieses Feld mit `decomposition_link_type` verwechselt.
+- `derives-from`-Links entstehen aktuell nur über: (1) `migrate_se_docs.py:971-1042` (einmaliger Doku-Import,
+  Link-Typ kommt aus der geparsten `traceability-matrix.md`, nicht hartcodiert) und (2) `seed_toothbrush.py:167`
+  (Demo-/Seed-Daten, hartcodiert `derives-from`) — beides keine laufenden Produktivpfade für neu angelegte
+  Requirements.
 - Konsumiert für Traversierung in `backend/baseline/services.py:318-335` und
-  `backend/baseline/delta_index_builder.py:251-271` — dort **explizit als Ersatz für `Artifact.parent`** gebaut.
+  `backend/baseline/delta_index_builder.py:251-271` — dort **explizit als Ersatz für `Artifact.parent`** gebaut,
+  aber mit demselben blinden Fleck: Standard-Workspaces (Default `parent-child`) werden von dieser Logik nicht
+  erfasst. **Zusätzlicher Fund:** `baseline/services.py:317-324` selbst dokumentiert per TODO-Kommentar, dass die
+  `document`-Scope-Traversierung tatsächlich noch über das deprecated `pl_artifact.parent_id` läuft (nicht über
+  TraceLinks) und für RequirementService-erzeugte Artefakte (parent_id bleibt NULL) faktisch nur die Wurzel
+  liefert — ein von diesem `parent-child`/`derives-from`-Widerspruch unabhängiger, bereits im Code vermerkter
+  Gap.
 - Frontend: `frontend/src/components/RequirementEditors/RequirementTreeNode.tsx:4,63-68` baut den
-  Requirement-Baum aus `derives-from`-Links.
+  Requirement-Baum aus `derives-from`-Links — mit identischem blinden Fleck bei Default-Konfiguration.
 
 `Artifact.parent` ist trotz Deprecation-Docstring (`backend/persistence/models.py:509-529`) **nicht tot** — es hat
 zwei aktive Schreibpfade: den ReqIF-Roundtrip (`backend/application/reqif_import_service.py:717-753`, bewusst für
 REQ-146/147 beibehalten) und den generischen `ArtifactService.update()`-Pfad
 (`backend/application/artifact_service.py:237-239`).
 
-`TraceLink(link_type='parent-child')` ist weitgehend totes Gewicht im Sinne eines aktiven Domain-Erzeugers — mit
-einer offenen Ausnahme, siehe Kasten unten.
+`TraceLink(link_type='parent-child')` ist **kein totes Gewicht**, sondern der tatsächliche Default-Output von
+`decompose()`/`derive_requirement()`. Die frühere Einschätzung "weitgehend totes Gewicht" ist hiermit korrigiert.
 
 > **DECISION**
 > **context:** Welches Feld/welcher Link-Typ ist SSOT für Hierarchien in ReqFlow?
-> **choice:** Kein einheitliches SSOT. Stattdessen wird das bereits gelebte **Zwei-Track-Modell** formalisiert:
+> **choice:** Kein einheitliches SSOT. Stattdessen wird das **Zwei-Track-Modell** formalisiert — mit einer
+> Korrektur gegenüber der Vorfassung: Track (b) ist **nicht bereits gelebte Praxis**, sondern eine bewusste
+> Ziel-Entscheidung, die den jetzt aufgedeckten Widerspruch zwischen Kommentar-Layer (Absicht: `derives-from`)
+> und Erzeugungspfad (Realität: `parent-child` per Default) auflösen soll:
 >   (a) `ArchitectureElement.parent_id` bleibt SSOT für die Architektur-Element-Hierarchie (kein Deprecation).
->   (b) `TraceLink(derives-from)` wird offiziell zum SSOT für die Requirement/Need-Hierarchie erklärt (bereits
->       de-facto der Fall, wird nur noch dokumentiert statt neu gebaut).
+>   (b) `TraceLink(derives-from)` wird offiziell zum **Ziel-SSOT** für die Requirement/Need-Hierarchie erklärt —
+>       das ist die im Code dokumentierte Absicht (siehe Kommentar-Layer oben), aber **nicht der aktuelle
+>       Default-Output** von `decompose()`. Absicht und Realität werden dadurch zusammengeführt, dass
+>       `Workspace.decomposition_link_type` künftig konsequent auf `decomposes` (siehe (d), additiv zu
+>       `derives-from`/`parent-child`) statt auf `parent-child` gesetzt wird.
 >   (c) `Artifact.parent` wird explizit auf den ReqIF-Roundtrip-Zweck reduziert und als solcher dokumentiert
 >       (kein genereller Hierarchie-Mechanismus mehr, aber wegen REQ-146/147 nicht entfernbar).
 >   (d) `parent-child` → `decomposes` wird **nicht als Rename**, sondern als additiver neuer Link-Typ eingeführt
->       (siehe 1.3/1.4).
+>       (siehe 1.3/1.4) — dieser Track bleibt durch die Korrektur oben unverändert korrekt, da er ohnehin am
+>       `decomposition_link_type`-Default ansetzt, dessen tatsächlichen Wert wir jetzt korrekt kennen.
 > **alternatives:**
 >   - Einheitliches SSOT auf `Artifact.parent` (Original-Plan) — verworfen: bricht CTE-Manager, Validator,
 >     Frontend-Tree, keine Migrationsstrategie vorhanden, hoher Blast-Radius ohne Nutzen.
@@ -71,84 +106,131 @@ einer offenen Ausnahme, siehe Kasten unten.
 > **consequences:** Zwei parallele, aber sauber getrennte Hierarchie-Mechanismen bleiben bestehen (kein
 > "Aufräumen" im Sinne einer Vereinheitlichung). Dafür: keine Breaking Changes, kein Migrations-Risiko für
 > bestehende Baselines/Klone. Dokumentation muss beide Tracks klar benennen, damit zukünftige Features nicht
-> erneut den Fehler machen, einen der beiden Tracks für "das eine SSOT" zu halten.
+> erneut den Fehler machen, einen der beiden Tracks für "das eine SSOT" zu halten. **Zusätzlich:** der jetzt
+> bekannte Widerspruch zwischen Kommentar-Layer und tatsächlichem Default-Verhalten muss vor Phase 1 aufgelöst
+> werden (siehe Offene Frage unten) — sonst bleibt Baseline-Traversierung für Standard-Workspaces weiterhin blind
+> für neu decomposierte Requirements.
 
-> **Offene Frage — vor Phase 1 zu klären:**
-> Ob `requirement_service.py:620` (`decompose()`) in der Praxis tatsächlich `parent-child`-TraceLinks erzeugt,
-> war ursprünglich nicht abschließend verifiziert. **Vorläufiger Befund (Code-Check 2026-07-19):**
-> `Workspace.decomposition_link_type` hat den Modell-Default `"parent-child"`
-> (`backend/persistence/models.py:460-465`), und `decompose()` übernimmt diesen Default ungefiltert
-> (`requirement_service.py:618-619`, `getattr(workspace, "decomposition_link_type", "parent-child")`) und erzeugt
-> darüber einen TraceLink (`requirement_service.py:634-639`). Das spricht dafür, dass `parent-child`-Links **aktiv
-> erzeugt werden**, solange ein Workspace den Default nicht explizit überschreibt — die Einschätzung "totes
-> Gewicht" ist damit vermutlich zu optimistisch. Nicht verifiziert: ob Seed-/Produktiv-Workspaces den Default in
-> der Praxis überschreiben. **Vor Phase 1 verbindlich zu klären:** Query über bestehende Workspaces
-> (`decomposition_link_type` Verteilung) und über bestehende TraceLinks (Anzahl `parent-child` vs. `decomposes`),
-> um die tatsächliche Datenlage zu kennen, bevor der Default umgestellt wird (siehe 1.4).
+> **Bestätigung: architektonisch geleitete, verzweigende Dekomposition (2026-07-19)**
+>
+> Die Requirement-Dekomposition wird architektonisch geleitet — ein Requirement kann sich beim Herunterbrechen über
+> **mehrere Architektur-Elemente verzweigen**. Dies ist kein 1:1-Mapping zwischen Requirement-Baum und
+> Architektur-Baum, sondern ein Graph-Modell mit Verzweigungen (ein Parent kann über verschiedene Architektur-Äste
+> mehrere Kinder erzeugen). Bestätigt durch Web-Recherche (2026-07-19):
+>
+> - [Requirements and the Flow Down Process](https://dspace.mit.edu/bitstream/handle/1721.1/103819/16-842-fall-2009/contents/lecture-notes/MIT16_842F09_lec03.pdf) — MIT-Vorlesung zur Requirement-Kaskade
+> - [The Basics of Systems Engineering Allocation](https://community.jamasoftware.com/discussion/26573/the-basics-of-systems-engineering-allocation) — JAMA Requirement-Allokation
+> - [Vertical requirements development system and method](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/7458068) — Patent: Top-Level-Requirement alloziert über mehrere System-Elemente, kein 1:1-Mapping
+> - [Optimal methodology for allocation and flowdown](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/7890306) — Patent: "generally is not a one-to-one mapping between the [requirement] tree and the product architecture tree"
+>
+> **Wichtig:** TRACE-P5 und ARCH-003 (Abschnitt 2.2) sind bereits korrekt als Graph-Konsistenz-Regeln formuliert
+> (nicht als 1:1-Zwang) — diese Bestätigung dokumentiert nur nachträglich, dass diese Regeln bereits den richtigen
+> Ansatz verfolgen und später nicht als Bug missverstanden werden.
 
-### 1.2 Kontrolliertes, rekursives Architektur-Vokabular
+### 1.2 Kontrolliertes, rekursives Architektur-Vokabular — Rollen dynamisch abgeleitet (2026-07-19)
 
-Die Architektur wird streng rekursiv zerlegt (Regel HIER-003):
+**Neue Entscheidung (2026-07-19):** Die architektonische Rolle eines `ArchitectureElement` wird nicht durch das
+gespeicherte `element_type`-Freitextfeld bestimmt, sondern **dynamisch aus der Position im Baum** abgeleitet:
 
-- `system` (Wurzel, keine architektonische Tiefenangabe außerhalb dieser Achse) darf keinen Parent haben.
-- `subsystem` ist Kind eines `system` oder eines weiteren `subsystem`.
-- `component` ist zwingend Kind eines `subsystem` und darf **keine weiteren architektonischen Kinder** haben.
+- **Wurzel (kein `parent_id`)** → Rolle **System** — genau eine pro Baum (neue Invariante für den Validator)
+- **Blatt (keine Kinder)** → Rolle **Component**
+- **Dazwischen (beliebige Tiefe, mindestens ein Kind, hat Parent)** → Rolle **Subsystem**
 
-**Achsen-Klarstellung (neu, aus Korrektur 3 übernommen):** Die ursprüngliche Fassung bezeichnete `system` als "L0".
-Das kollidiert mit der in `CLAUDE.md` und dem V-Modell etablierten Traceability-Achse
-(`L0` = Stakeholder Needs → `L1` = System Requirements → `L2` = Subsystems → `L3` = Components →
-`L4` = Presentation). Es gibt in ReqFlow **zwei unabhängige Achsen**, die nicht denselben Namensraum teilen
-dürfen:
+Das gespeicherte `element_type`-Feld bleibt vorerst bestehen (Phase 1 entfernt es nicht), wird aber nicht mehr als
+Rollen-Autorität behandelt. Die Rolle wird **zur Laufzeit berechnet**:
+- **Backend:** Über die bestehende CTE `get_with_level()` (`backend/persistence/managers.py:33-105`) + Kinderzahl als neues berechnetes API-Feld ausgeliefert.
+- **Frontend:** Zeigt die abgeleitete Rolle an statt sie manuell auswählen zu lassen; das 5-Wert-Freitext-Dropdown
+  (`frontend/src/components/ArchitectureEditors/ArchitectureForm.tsx:64,479`) wird durch eine reine Rollen-Anzeige
+  ersetzt (nicht mehr Pflicht-Eingabe).
 
-| Achse | Zweck | Werte |
-|-------|-------|-------|
-| **Traceability-Achse (L0-L4)** | V-Modell-Ebene eines Requirements/Artefakts, aus `CLAUDE.md` | L0 Stakeholder Needs, L1 System Requirements, L2 Subsystems, L3 Components, L4 Presentation |
-| **Architektur-Tiefenachse** | Baumtiefe eines `ArchitectureElement` relativ zur Wurzel (`level`, via CTE) | 0 = `system` (Wurzel), 1..n-1 = `subsystem`, n (Blatt) = `component` |
+**Bereits vorhanden — kein Neu-Code nötig für Verschieben/Reparenting:**
+- Backend: `backend/application/architecture_service.py:166-249` (`update_architecture_element()`, Parameter
+  `parent_id`, Invarianten-Checks I1-I3, REQ-L1-044).
+- Frontend: `frontend/src/components/ArchitectureEditors/DecompositionTree.tsx` (natives HTML5 Drag&Drop-Reparenting,
+  REQ-001, ca. Zeilen 194-614).
 
-Verbindliche Zuordnung: Ein `ArchitectureElement` vom Typ `system` liegt inhaltlich auf Traceability-Ebene **L2**
-(Subsystems im V-Modell-Sinn), `component` auf **L3**. Traceability-`L0`/`L1` (Stakeholder Needs, System
-Requirements) haben **kein** `ArchitectureElement`-Gegenstück — sie sind reine Requirement-Artefakte. **L4
-(Presentation)** ist in der Architektur-Tiefenachse aktuell nicht abgebildet; siehe Offener Punkt in Abschnitt 2.
+**NEU in Phase 1 dazukommend:** Der Invarianten-Validator muss beim Reparenting sicherstellen, dass sich die
+abgeleitete Rolle automatisch mitändert — z.B. ein Blatt/Component, das per Drag&Drop ein Kind bekommt, wird
+automatisch zum Subsystem. Da die Rolle berechnet (nicht gespeichert) wird, braucht kein Datenfeld aktualisiert zu
+werden, nur die Konsistenz-Prüfung (neue Akzeptanzkriterium in Phase 1, siehe 4.1).
 
-Alle Regeln in Abschnitt 2 verwenden ab sofort ausschließlich die Traceability-Achse (L0-L4), wenn von
-"Ebene" die Rede ist. Die Architektur-Tiefenachse wird nur noch als "Baumtiefe"/"level" bezeichnet, nie als "L*".
+---
 
-### 1.3 TraceLink-Konzept: Tri-Label-System (DE/EN) — Scope auf 7 Typen erweitert
+**Achsen-Klarstellung — Hintergrund:** Frühere Fassungen behaupteten, es gäbe genau **zwei** saubere, klar
+abgegrenzte Achsen (Traceability-Achse L0-L4 aus `CLAUDE.md` vs. Architektur-Tiefenachse). Das ist falsch — Code-
+Recherche zeigt **mindestens vier unabhängige, nicht deckungsgleiche "Level"-Vokabulare**, plus zwei Achsen mit
+echter, unbegrenzter Tiefe (1..n). Keine harte Festlegung auf exakt 4 oder 5 Ebenen ist durch den Code gedeckt:
+
+| # | Vokabular | Werte | Quelle |
+|---|-----------|-------|--------|
+| 1 | `CLAUDE.md`-Narrativ (V-Modell, konzeptionell, keine DB-Repräsentation) | L0 Stakeholder Needs → L1 System Req → L2 Subsystems → L3 Components → L4 Presentation | `CLAUDE.md` (Projekt-Prosa) |
+| 2 | `Requirement.level` — DB-Enum `RequirementLevel` (real, aber **andere Bedeutung** als #1) | L0 System, L1 Subsystem, L2 Component, L3 Part, L4 Material — physische Zerlegungsskala | `persistence/models.py:108-120,656-664` |
+| 3 | docs/se REQ-Lx-UID-Präfix-Konvention (Dateibenennung, nicht DB-Feld) | L1=System, L2=Subsystem, L3=Component — kein L0, kein L4 | `migrate_se_docs.py:43-48,142` (`_REQ_LEVEL_MAP`) — Docstring dort räumt explizit ein: "docs/se's own requirement numbering ... does NOT line up 1:1 with the RequirementLevel enum" (Mapping L1→0, L2→1, L3→2, mit Schema-Bruch) |
+| 4 | `element_type`-Freitext-Vorschläge (Frontend, unvalidiert) | System, Subsystem, Component, Interface, Function | `ArchitectureForm.tsx:64` |
+
+Zusätzlich zwei **dynamische, unbegrenzte** Tiefenachsen, die durch keines der obigen Vokabulare gedeckelt sind:
+
+- **Architektur-Tiefenachse:** Baumtiefe eines `ArchitectureElement` relativ zur Wurzel, via CTE (`level`,
+  `managers.py:33-105`) — 0..n, kein Maximum im Code.
+- **Requirement-Dekompositionsachse:** Tiefe der `decompose()`/`derive_requirement()`-erzeugten
+  Parent-Child-/`decomposes`-Kette (`requirement_service.py:558-668`) — ebenfalls 0..n, kein Maximum, und **nicht
+  identisch mit Vokabular #2**: `decompose()` setzt `Requirement.level` **nie** (bleibt `NULL`); Vokabular #2 wird
+  ausschließlich einmalig durch den `migrate_se_docs`-Import befüllt (Altbestand), nicht durch den produktiven
+  Requirement-Erzeugungspfad.
+
+**Konsequenz:** Es gibt kein einzelnes, korrektes "L0-L4" — der Begriff ist in diesem Projekt mehrdeutig belegt.
+Jede Regel, die sich auf "Ebene Ln" bezieht, muss explizit sagen, welches der vier Vokabulare oben gemeint ist,
+und dabei berücksichtigen, dass Vokabular #2 (das einzige DB-Feld) für praktisch alle über `decompose()` erzeugten
+Requirements `NULL` ist. Eine harte 1:1-Zuordnung "ArchitectureElement-Typ X ↔ Traceability-Ebene Y" (wie die
+vorige Fassung sie mit "system=L2, component=L3" behauptete) ist durch keinen Code belegt und wird hiermit
+zurückgezogen.
+
+**Offener Punkt — Blast-Radius auf Abschnitt 2.2:** Die Pflichtmatrix in Abschnitt 2.2 (`TRACE-P1`, `TRACE-P1b`,
+`TRACE-P2`, `VERIF-P8`) ist gegen Vokabular #1 formuliert ("SystemRequirement (L1)", "StakeholderNeed (L0)"),
+prüft aber vermutlich effektiv gegen ein Feld, das für den Regelfall nicht befüllt ist (#2, `NULL` nach
+`decompose()`) oder gegen die UID-Präfix-Konvention (#3), die selbst nicht mit #1 deckungsgleich ist. Das muss vor
+Phase 2 (RuleEngine-Implementierung) explizit geklärt werden: entweder die Regeln laufen relativ auf der
+dynamischen Dekompositionstiefe (Ln → Ln-1 als Baumtiefe, nicht als fixer Enum-Wert), oder `Requirement.level`
+wird künftig von `decompose()` aktiv gesetzt (Scope-Erweiterung, die in der aktuellen Fassung von 1.1 nicht
+vorgesehen ist). Diese Entscheidung ist noch **nicht getroffen** — siehe ergänzend Punkt in "Offene
+Entscheidungspunkte für den Nutzer" am Ende des Dokuments.
+
+### 1.3 TraceLink-Konzept: Tri-Label-System (DE/EN) für alle 14 LinkTypes (2026-07-19)
 
 Der Link-Typ `decomposes` wird **additiv neu eingeführt** (kein Rename von `parent-child`, siehe 1.4).
 `allocated-to` **existiert bereits produktiv** (REQ-L1-042, `backend/traceability/types.py`, `LinkType.ALLOCATED_TO`)
-— neu ist ausschließlich das Tri-Label-Anzeigeschema, nicht der Link-Typ selbst. Das muss im UI-Wording klar
-kommuniziert werden, damit nicht der Eindruck entsteht, Allokation sei eine neue Fähigkeit.
+— neu ist die Tri-Label-Ausweitung auf **alle** Link-Typen im System, nicht nur eine Untermenge.
+
+> **DECISION (2026-07-19)**
+> **context:** Wie viele der `LinkType`-Werte bekommen ein Tri-Label?
+> **choice:** Tri-Label wird zum zentralen, einzigen Anzeigeschema für TraceLinks — alle 14 `LinkType`-Werte
+> (`backend/traceability/types.py:33-50` + neu `decomposes`):
+> `parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`, `documents`, `realizes`,
+> `traces`, `copy-of`, `allocated-to`, `uses-term`, `decides`, `decomposes`.
+> Alle 14 Typen erhalten ein Tri-Label in DE und EN (siehe Tabelle unten). **Kein Fallback-Pfad mehr nötig** —
+> vereinfacht die UI-Implementierung: reiner Lookup-Table-Zugriff statt `if type in LABELED_SET`-Verzweigung.
+> **alternatives:** Nur eine Untermenge wie im ursprünglichen Plan — verworfen, würde zu inkonsistentem
+> UI-Erlebnis führen (manche Links hätten Label, andere roh).
+> **consequences:** Alle 14 Typen erhalten strukturierte Labels; Frontend-Komponenten brauchen keine Fallback-Logik.
 
 TraceLinks werden dynamisch aus der Upstream-/Downstream-Perspektive gelabelt:
 
-| Interner Typ | Sprache | Downstream (Source → Target) | Upstream (Target → Source) | Neutral |
-|--------------|---------|------------------------------|-----------------------------|---------|
-| `decomposes` | **DE** | **"zerlegt sich in"** | **"ist Zerlegung von"** | Dekomposition |
-| | **EN** | **"decomposes into"** | **"is decomposition of"** | Decomposition |
-| `allocated-to` | **DE** | **"allokiert zu"** | **"erhält Allokation von"** | Allokation |
-| | **EN** | **"allocated to"** | **"receives allocation from"** | Allocation |
-
-**Scope-Entscheidung (neu):** `LinkType` umfasst 13 Werte (`backend/traceability/types.py:33-50`:
-`parent-child`, `derives-from`, `satisfies`, `verifies`, `implements`, `refines`, `documents`, `realizes`,
-`traces`, `copy-of`, `allocated-to`, `uses-term`, `decides`). Der ursprüngliche Plan labelte nur 2 von 13 Typen,
-obwohl in Abschnitt 2 tragende Typen wie `derives-from`, `satisfies`, `verifies`, `implements`, `refines`
-ungelabelt blieben — inkonsistentes UI-Erlebnis.
-
-> **DECISION**
-> **context:** Wie viele der 13 `LinkType`-Werte bekommen ein Tri-Label?
-> **choice:** Tri-Label-Schema wird auf die SE-relevante Untermenge von **7 Typen** erweitert:
-> `derives-from`, `satisfies`, `verifies`, `implements`, `refines`, `allocated-to`, `decomposes`. Für die
-> restlichen 6 Typen (`parent-child`, `documents`, `realizes`, `traces`, `copy-of`, `uses-term`, `decides` —
-> das sind 7, siehe Korrektur unten) gilt ein expliziter **Fallback**: rohe Enum-Anzeige (kein Tri-Label,
-> kein Downstream/Upstream-Wording).
-> **alternatives:** Alle 13 Typen labeln — verworfen, viele Typen (`copy-of`, `uses-term`, `documents`) haben
-> keine sinnvolle Upstream/Downstream-Semantik. Nur 2 Typen wie im Original — verworfen, inkonsistent zu
-> Abschnitt 2.
-> **consequences:** UI-Komponenten, die TraceLinks rendern, brauchen eine Fallback-Pfad-Implementierung für
-> die nicht gelabelten Typen (kein reiner Lookup-Table-Zugriff mehr, sondern `if type in LABELED_SET`-Verzweigung).
-
-*(Hinweis: 7 gelabelte + 6 Fallback-Typen = 13, konsistent mit dem vollständigen Enum.)*
+| Typ | DE Downstream | DE Upstream | EN Downstream | EN Upstream | Neutral (DE/EN) |
+|---|---|---|---|---|---|
+| parent-child | ist übergeordnet zu | ist untergeordnet zu | is parent of | is child of | Eltern-Kind / Parent-Child |
+| derives-from | leitet sich ab von | ist Grundlage für | derives from | is basis for | Ableitung / Derivation |
+| satisfies | erfüllt | wird erfüllt von | satisfies | is satisfied by | Erfüllung / Satisfaction |
+| verifies | verifiziert | wird verifiziert von | verifies | is verified by | Verifikation / Verification |
+| implements | implementiert | wird implementiert von | implements | is implemented by | Implementierung / Implementation |
+| refines | verfeinert | wird verfeinert von | refines | is refined by | Verfeinerung / Refinement |
+| documents | dokumentiert | wird dokumentiert von | documents | is documented by | Dokumentation / Documentation |
+| realizes | realisiert | wird realisiert von | realizes | is realized by | Realisierung / Realization |
+| traces | verweist auf | wird referenziert von | traces to | is traced by | Verweis / Trace |
+| copy-of | ist Kopie von | hat Kopie | is copy of | has copy | Kopie / Copy |
+| uses-term | verwendet Begriff | wird verwendet in | uses term | is used in | Begriffsverwendung / Term usage |
+| decides | entscheidet über | wird entschieden durch | decides on | is decided by | Entscheidung / Decision |
+| allocated-to | allokiert zu | erhält Allokation von | allocated to | receives allocation from | Allokation / Allocation |
+| decomposes | zerlegt sich in | ist Zerlegung von | decomposes into | is decomposition of | Dekomposition / Decomposition |
 
 ### 1.4 Migrationsstrategie `decomposes` (additiv, nicht Rename)
 
@@ -161,11 +243,15 @@ Ein direktes Rename `parent-child` → `decomposes` wurde geprüft und verworfen
   bestehender Datensätze würde historische Baselines nicht mehr korrekt reproduzierbar machen (ein Snapshot von
   vor der Migration zeigt dann einen Typ, der zum Snapshot-Zeitpunkt so nicht existierte).
 
-Stattdessen: `decomposes` wird als **neuer, additiver** `LinkType`-Wert eingeführt.
-`Workspace.decomposition_link_type` wird **schrittweise** (nur für neu angelegte Workspaces, dann optional per
-Migrationsscript für aktive Workspaces nach Bestätigung) von `"parent-child"` auf `"decomposes"` umgestellt.
-Bestehende `parent-child`-Datensätze und -Baselines bleiben unangetastet. Details zu Akzeptanzkriterien,
-betroffenen Dateien und Rollback siehe Phase 1 in Abschnitt 4.
+Stattdessen: `decomposes` wird als **neuer, additiver** `LinkType`-Wert eingeführt und der Ableitungs-Button
+(Backend: `decompose()`/`derive_requirement()`) wird **hartkodiert, um direkt `LinkType.DECOMPOSES` zu erzeugen**.
+Dies gilt für **ALLE Workspaces** (neu und bestehend), **sofort** ab Deploy, **ohne Migrations-Script oder
+Schrittweise-Rollout**. Bestehende `parent-child`-Datensätze und -Baselines bleiben historisch unangetastet — nur
+der vorwärtsgerichtete Erzeugungspfad ändert sich.
+
+`Workspace.decomposition_link_type` wird dadurch funktional zum toten Feld für diesen Pfad — Cleanup (optionales
+Entfernen des Feldes) ist außerhalb dieses Scopes, bleibt aber möglich. Details zu Akzeptanzkriterien, betroffenen
+Dateien und Rollback siehe Phase 1 in Abschnitt 4.
 
 ---
 
@@ -229,18 +315,19 @@ das benötigt werden, ist das ein eigenes Folge-Thema (neue Regel-ID-Reihe, z.B.
 ### 2.3 Mapping neuer Link-Typen auf die CLAUDE.md-Taxonomie
 
 `CLAUDE.md` definiert 8 Trace-Link-Typen als Projekt-Taxonomie: `TRACE_TO`, `DERIVED_FROM`, `IMPLEMENTS`, `TESTS`,
-`VERIFIES`, `RELATED_TO`, `CONFLICTS_WITH`, `SUPERCEDES`. Der Code (`backend/traceability/types.py`) hat davon
-abweichend 13 `LinkType`-Werte inklusive der hier neu eingeführten `decomposes` und des bereits bestehenden
-`allocated-to`. Diese Diskrepanz ist nicht neu durch dieses Konzept verursacht, wird aber durch `decomposes`
-verschärft:
+`VERIFIES`, `RELATED_TO`, `CONFLICTS_WITH`, `SUPERCEDES`. Der Code (`backend/traceability/types.py:33-50`) hat
+davon abweichend 14 `LinkType`-Werte (13 bestehende + neu `decomposes`, Scoping seit Entscheidung 6 nun alle 14
+mit Tri-Labels). Diese Diskrepanz ist nicht neu durch dieses Konzept verursacht, wird aber durch `decomposes` und
+die Tri-Label-Ausweitung verschärft:
 
 | Neuer/betroffener Typ | CLAUDE.md-Taxonomie-Äquivalent | Anmerkung |
 |---|---|---|
-| `decomposes` | kein Äquivalent — am ehesten Spezialisierung von `TRACE_TO` | Taxonomie-Erweiterung nötig |
-| `allocated-to` (bestehend) | kein Äquivalent — am ehesten Spezialisierung von `TRACE_TO`/`IMPLEMENTS` | Taxonomie-Erweiterung nötig |
+| `decomposes` | kein Äquivalent — am ehesten Spezialisierung von `TRACE_TO` | Taxonomie-Erweiterung nötig (Phase 1) |
+| `allocated-to` (bestehend) | kein Äquivalent — am ehesten Spezialisierung von `TRACE_TO`/`IMPLEMENTS` | Taxonomie-Erweiterung nötig (Phase 1) |
 
 **Empfehlung:** `CLAUDE.md` in Phase 1 um diese beiden Einträge ergänzen (Doku-Task, kein Code), statt eine
-zweite, abweichende Taxonomie stillschweigend weiterzuführen.
+zweite, abweichende Taxonomie stillschweigend weiterzuführen. Mit der Tri-Label-Ausweitung auf alle 14 Typen (seit
+Entscheidung 6) ist das Mapping-Problem nicht verringert, aber nun konsistent dokumentiert.
 
 ---
 
@@ -303,49 +390,52 @@ Verifikationsschranke zwischen den Wochen).
 ### Phase 1 — Ontologie & Link-Naming (Woche 1)
 
 **Deliverables:**
-- Offene Frage aus 1.1 klären (Query über bestehende Workspaces/TraceLinks bzgl. `parent-child`-Nutzung).
 - `decomposes` als additiver `LinkType`-Wert (kein Rename, siehe 1.4).
-- `Workspace.decomposition_link_type`-Default für **neue** Workspaces auf `decomposes` umstellen (bestehende
-  Workspaces unverändert, bis explizit migriert).
-- Tri-Label-Lookup (DE/EN) für die 7 in 1.3 festgelegten Typen + Fallback-Pfad für die restlichen 6.
+- Backend: `decompose()`/`derive_requirement()` hartkodiert, um direkt `LinkType.DECOMPOSES` zu erzeugen (sofort für
+  alle Workspaces, kein Migrations-Script nötig, siehe 1.4).
+- Tri-Label-Lookup (DE/EN) für alle 14 `LinkType`-Werte (vollständige Tabelle, kein Fallback mehr, siehe 1.3).
+- Admin-Dialog Tri-Label-Übersicht (schreibgeschützter neuer Screen, zeigt alle 14 Typen mit DE+EN-Labels und
+  Downstream/Upstream/Neutral-Spalten; keine Bearbeitbarkeit in dieser Phase).
 - `CLAUDE.md`-Taxonomie um `decomposes`/`allocated-to` ergänzen (Doku).
 
 **Betroffene Dateien/Module:**
-- `backend/traceability/types.py` (neuer `LinkType.DECOMPOSES`, `SE_LINK_SEMANTICS`-Eintrag).
-- `backend/persistence/models.py` (Default-Wert-Änderung `decomposition_link_type`, nur für neue Instanzen —
-  kein Schema-Migrationsbedarf, da Feld bereits existiert).
-- `backend/application/requirement_service.py:618-639` (liest weiterhin den Workspace-Default, keine
-  Code-Änderung nötig, sofern der Default korrekt greift).
-- Neue Migration in `backend/traceability/migrations/` oder `backend/persistence/migrations/` (je nachdem, wo
-  `LinkType`-Validierung technisch verankert ist — zu prüfen, ob ein reiner Enum-Wert überhaupt eine
-  Django-Migration braucht, da `link_type` als `CharField` ohne DB-Constraint gespeichert wird).
-- Frontend: Tri-Label-Lookup-Komponente (Ort noch offen — vermutlich `frontend/src/components/Traceability/` oder
-  `frontend/src/i18n/`), `frontend/src/i18n/locales/{de,en}.json` (neue Label-Strings).
+- `backend/traceability/types.py` (neuer `LinkType.DECOMPOSES`-Enum-Wert, `SE_LINK_SEMANTICS`-Eintrag für
+  `decomposes`-Semantik-Regeln).
+- `backend/application/requirement_service.py:618-639` (`decompose()`/`derive_requirement()` — **WIRD ANGEPASST**,
+  um direkt `LinkType.DECOMPOSES` zu erzeugen statt `Workspace.decomposition_link_type` zu lesen; hartkodierter
+  Wert für alle Workspaces, sofort).
+- `backend/persistence/models.py` (falls `Workspace.decomposition_link_type`-Default noch aktualisieret werden soll
+  — optional nach obiger Änderung, da der Erzeugungspfad jetzt hartkodiert ist).
+- Frontend: Tri-Label-Lookup-Komponente + Admin-Dialog (Ort: vermutlich `frontend/src/components/Admin/` für den
+  Dialog, `frontend/src/components/Traceability/` oder `frontend/src/i18n/` für Lookup-Tabelle),
+  `frontend/src/i18n/locales/{de,en}.json` (neue Label-Strings für alle 14 Typen).
 - `CLAUDE.md` (Taxonomie-Ergänzung).
 
 **Akzeptanzkriterien:**
-- [ ] Query-Ergebnis zur offenen Frage aus 1.1 liegt vor und ist im Dokument/ADR referenziert.
-- [ ] Neuer Workspace erzeugt bei `decompose()` einen `decomposes`-Link (nicht `parent-child`).
+- [ ] Hartkodierung funktioniert: Jeder neue/beliebige Workspace erzeugt bei `decompose()` einen `decomposes`-Link
+  (nicht `parent-child`), unabhängig von `Workspace.decomposition_link_type`-Wert.
 - [ ] Bestehende Workspaces/TraceLinks mit `parent-child` sind unverändert (Regressionstest: bestehende
   Baseline-Snapshots mit `parent-child`-Links diffen weiterhin korrekt).
-- [ ] Tri-Label wird für alle 7 definierten Typen in beiden Sprachen korrekt gerendert; Fallback für die
-  restlichen 6 Typen zeigt den rohen Enum-Wert ohne Fehler.
+- [ ] Tri-Label wird für alle 14 `LinkType`-Werte in beiden Sprachen korrekt gerendert (kein Fallback-Pfad mehr
+  nötig).
+- [ ] Admin-Dialog Tri-Label-Übersicht zeigt alle 14 Typen mit DE+EN-Labels, Downstream/Upstream/Neutral; ist
+  schreibgeschützt (nur lesbar).
 - [ ] `ArchitectureElement.parent` bleibt unverändert funktionsfähig (CTE, Validator, Frontend-Tree — keine
   Regression, per bestehender Test-Suite verifiziert).
+- [ ] **Neu (Entscheidung 4):** Reparenting-Konsistenz: Wenn ein `ArchitectureElement` per Drag&Drop ein Kind bekommt
+  (vorher Blatt/Component, nachher Subsystem), wird die abgeleitete Rolle korrekt aktualisiert; Invarianten-Prüfung
+  im Validator erzwingt, dass Wurzel-Element keine Eltern hat (kein zweites System pro Baum).
 
 **Abhängigkeiten:** Keine Vorphase (Phase 1 ist der Start).
 
 **Migration/Rollback:**
-- Kein Schema-Migrationsbedarf für `link_type` selbst (CharField ohne FK/Enum-Constraint auf DB-Ebene).
-- Default-Wert-Änderung an `Workspace.decomposition_link_type` betrifft nur **neu erzeugte** Workspace-Instanzen
-  ab Deploy-Zeitpunkt — kein Backfill bestehender Zeilen.
-- **Rollback-Pfad:** Default zurück auf `"parent-child"` setzen (reiner Code-Revert, keine Datenmigration nötig,
-  da keine bestehenden Daten verändert wurden). Rollback ist damit risikoarm, sofern Phase 1 keine
-  Backfill-Migration bestehender Workspaces enthält (siehe nächster Punkt).
-- **Falls** zusätzlich entschieden wird, bestehende aktive Workspaces per Migrationsscript umzustellen: dieses
-  Script muss idempotent und einzeln rückrollbar sein (separates Migrationsscript, nicht Teil der
-  Django-Schema-Migration), und ist **nicht** Teil des Phase-1-Kern-Scopes, sondern ein optionaler Folge-Schritt
-  nach dem Verifikations-Gate.
+- **Kein Schema-Migrationsbedarf für `link_type` selbst** (CharField ohne FK/Enum-Constraint auf DB-Ebene).
+- **Kein Backfill bestehender Workspaces.** Die Code-Änderung in `requirement_service.py` ist eine reine
+  Hartkodierung: ab Deploy erzeugt jeder `decompose()`-Aufruf direkt `LinkType.DECOMPOSES`, unabhängig von
+  Workspace-Konfiguration. Es gibt **kein Daten-Backfill-Migrationsscript** — bestehende `parent-child`-Links
+  bleiben unangetastet, nur neue Links werden als `decomposes` erzeugt.
+- **Rollback-Pfad:** Code-Revert in `requirement_service.py` (hardcodiert auf altes Verhalten zurückschalten),
+  keine Datenmigration nötig. Rollback ist damit risikoarm, da keine bestehenden Daten verändert wurden.
 
 **Verifikations-Gate vor Phase 2 (Pflicht-Deliverable):**
 - [ ] Alle Akzeptanzkriterien oben grün.
@@ -370,6 +460,8 @@ Verifikationsschranke zwischen den Wochen).
 - `backend/presets/` (Preset-Registry-Anbindung für Rule-zu-Preset-Mapping).
 - `backend/baseline/services.py` (Scope-Iteration für baseline-scope-bewusste Prüfung).
 - Neue Tests: `backend/traceability/tests/test_rule_engine.py` (oder analog im gewählten Modulpfad).
+- *(Anmerkung: Admin-Dialog Tri-Label-Übersicht wurde bereits in Phase 1 implementiert, braucht hier keine
+  Änderung.)*
 
 **Akzeptanzkriterien:**
 - [ ] Jede Regel aus 2.2 hat einen Scanner-Test mit mindestens einem Positiv- und einem Negativ-Fall.
@@ -608,28 +700,49 @@ Zwei Korrekturen:
 
 ---
 
-## Offene Entscheidungspunkte für den Nutzer
+## Entschiedene Punkte (Nutzer-Review abgeschlossen, 2026-07-19)
 
-Vor Implementierungsstart (Phase 1) braucht es ein explizites OK zu folgenden Punkten:
+Die folgenden 8 Punkte wurden nach mehreren Review-Runden mit dem Nutzer bestätigt. Implementierung kann starten.
 
-1. **SSOT-Zwei-Track-Modell (Abschnitt 1.1):** Bestätigung, dass `ArchitectureElement.parent_id` und
-   `TraceLink(derives-from)` als zwei getrennte, parallel bestehende Hierarchie-SSOTs formalisiert werden
-   (statt eines einheitlichen SSOT wie ursprünglich geplant).
-2. **`decomposes` additiv statt Rename (Abschnitt 1.4):** Bestätigung, dass `parent-child` als Link-Typ bestehen
-   bleibt und `decomposes` nur für neue Workspaces/Links als Default gesetzt wird — kein Daten-Rename bestehender
-   TraceLinks/Baselines.
-3. **Offene Frage `requirement_service.py:620` (Abschnitt 1.1):** Vor Phase 1 muss per Query geklärt werden, wie
-   viele bestehende Workspaces/TraceLinks aktuell `parent-child` (aktiver Default) vs. einen überschriebenen Wert
-   nutzen — Ergebnis beeinflusst, ob ein zusätzliches Backfill-Migrationsscript nötig ist.
-4. **eADR-Scope-Abspaltung (Abschnitt 5.4):** Bestätigung, dass eADR (Code-Scanner, `eadr.resolve`,
-   `adr-specialist`) **nicht** Teil dieses Plans/Phase 5 ist, sondern als eigenes Folge-Konzept separat
-   aufgesetzt wird.
-5. **Tri-Label-Scope auf 7 Typen (Abschnitt 1.3):** Bestätigung, dass nur `derives-from`, `satisfies`,
-   `verifies`, `implements`, `refines`, `allocated-to`, `decomposes` ein Tri-Label bekommen und die übrigen 6
-   `LinkType`-Werte auf rohe Enum-Anzeige zurückfallen.
-6. **Minimal-Rigor ohne Auditor-Pflichtregeln (Abschnitt 2.2):** Bestätigung, dass `minimal`-Rigor-Workspaces
-   bewusst **keine** Pflichtregel aus der Auditor-Matrix erhalten (0 Findings by design, nicht als Bug
-   misszuverstehen).
-7. **N3-Erststufe ohne pgvector (Abschnitt 3.2/4):** Bestätigung, dass N3 zunächst als Ranking bestehender
-   Auditor-Findings gebaut wird und die volle pgvector-basierte Vektorsuche ein separater, zeitlich nicht fest
-   eingeplanter Spike bleibt.
+1. **SSOT-Zwei-Track-Modell (Abschnitt 1.1) — ENTSCHIEDEN**
+   `ArchitectureElement.parent_id` und `TraceLink(derives-from)` bleiben zwei getrennte, parallel bestehende
+   Hierarchie-SSOTs. Kein einheitliches SSOT-Refactoring. Die Zwei-Track-Struktur wird dokumentiert, damit
+   Zukünftige Entwicklung nicht erneut einen der Tracks als "das eine SSOT" missversteht.
+
+2. **`decompose()` hartkodiert auf `LinkType.DECOMPOSES` (Abschnitt 1.4) — ENTSCHIEDEN**
+   Keine schrittweise Migration, keine optionalen Migrationsscripts. Ab Deploy wird `decompose()`/`derive_requirement()`
+   direkt `LinkType.DECOMPOSES` erzeugen — für alle Workspaces (neu und bestehend), sofort, ohne Daten-Backfill.
+   Bestehende `parent-child`-Links bleiben unangetastet, nur der Erzeugungspfad ändert sich. `Workspace.decomposition_link_type`
+   wird funktional totes Feld (optionales Cleanup später).
+
+3. **Architektur-Rollen dynamisch abgeleitet (Abschnitt 1.2) — ENTSCHIEDEN**
+   `element_type` bleibt ein Freitextfeld, bestimmt aber nicht mehr die architektonische Rolle. Stattdessen wird
+   die Rolle **zur Laufzeit** abgeleitet: Wurzel = System (Invariante: genau eine pro Baum), Blatt = Component,
+   dazwischen = Subsystem. Reparenting-Validator stellt sicher, dass Rollen sich bei Struktur-Änderungen korrekt
+   mitändern (Component bekommt Kind → wird Subsystem, ohne Datenfeld-Update nötig).
+
+4. **Tri-Label für alle 14 LinkTypes (Abschnitt 1.3) — ENTSCHIEDEN**
+   Tri-Label wird nicht auf 7 Typen begrenzt, sondern gilt für **alle 14** `LinkType`-Werte (siehe Tabelle in 1.3).
+   Kein Fallback-Pfad mehr nötig; vereinfacht Frontend-Implementierung durch reinen Lookup-Table-Zugriff.
+   Admin-Dialog Tri-Label-Übersicht wird in Phase 1 implementiert (schreibgeschützt, zeigt alle 14 Typen mit
+   DE/EN-Labels).
+
+5. **eADR-Scope abgespaltet (Abschnitt 5.4) — ENTSCHIEDEN**
+   eADR (Code-Scanner, `eadr.resolve`, `adr-specialist`) ist **nicht** Teil dieser Phase 5, sondern ein eigenes
+   Folge-Konzept. Phase 5 erweitert nur das bestehende ADR-Datenmodell um MADR-Struktur und zwei neue MCP-Tools
+   (`adr.lint`, `adr.draft_y_statement`).
+
+6. **Minimal-Rigor ohne Auditor-Pflichtregeln (Abschnitt 2.2) — ENTSCHIEDEN**
+   `minimal`-Rigor-Workspaces haben **explizit 0 Pflichtregeln** aus der Auditor-Matrix (Minimal = leichtgewichtiger
+   Backlog-Modus, kein SE-Auditor-Zwang). Das ist beabsichtigt, nicht ein Bug, und wird im ADR festgehalten.
+
+7. **Architektonisch geleitete, verzweigte Dekomposition (Abschnitt 1.1) — ENTSCHIEDEN**
+   Requirement-Dekomposition erzeugt **keine 1:1-Mapping** zwischen Requirement- und Architektur-Baum, sondern
+   einen Graph mit Verzweigungen. TRACE-P5/ARCH-003 sind bereits korrekt als Graph-Konsistenz-Regeln formuliert
+   (nicht als 1:1-Zwang). Diese Entscheidung dokumentiert das nachträglich, damit später nicht erneut ein 1:1-Modell
+   vorgeschlagen wird.
+
+8. **N3-Erststufe ohne pgvector (Abschnitt 3.2/4) — ENTSCHIEDEN**
+   N3 wird in Phase 4b zunächst als Ranking bestehender Auditor-Findings gebaut (keine pgvector-Abhängigkeit).
+   Die volle pgvector-basierte Vektorsuche ist ein separater, zeitlich nicht fest eingeplanter Spike für eine
+   spätere Ausbaustufe.
