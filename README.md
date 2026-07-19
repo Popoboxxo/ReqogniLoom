@@ -252,7 +252,7 @@ Verify the MCP server responds correctly to tool calls:
 # 1. Get a JWT token
 TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login/ \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin12345"}' | jq -r .token)
+  -d '{"username":"admin","password":"your-password"}' | jq -r .token)
 
 # 2. Create an API key for MCP
 API_KEY=$(curl -s -X POST http://localhost:8000/api/v1/api-keys/ \
@@ -804,7 +804,7 @@ ReqFlow provides a RESTful API for programmatic access to all features.
 # Authenticate: exchange username/password for a JWT token
 curl -X POST http://localhost:8000/api/v1/auth/login/ \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "admin12345"}'
+  -d '{"username": "admin", "password": "your-password"}'
 # → {"token": "eyJhbGc...", "user": {...}, "tenant_id": "...", "roles": ["admin"]}
 
 # Use the token in subsequent requests

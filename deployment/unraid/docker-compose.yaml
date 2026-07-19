@@ -169,9 +169,15 @@ services:
       - reqflow-net-prod
 
   # ─────────────────────────────────────────────────────────
-  # Demo Data Seeding — Runs after migrations, idempotent
+  # Admin Bootstrap Service — Mandatory base provisioning (REQ-L1-010)
   # ─────────────────────────────────────────────────────────
-  seed:
+  # Runs after migrate and before backend. Idempotently provisions the base
+  # tenant, workspace, admin user and admin role so a fresh instance is usable
+  # immediately (no manual seed step, no 401-on-first-login). Create-only on the
+  # password: an admin who changed their password via the UI/API is never reset.
+  # Fails fast only when it must create the admin but SYSTEM_ADMIN_PASSWORD is
+  # unset — see backend/auth_tenancy/management/commands/bootstrap_admin.py.
+  bootstrap:
     image: codeberg.org/dduchrow/reqflow-backend:latest
     build:
       context: ${REPO_ROOT:-../..}/backend
@@ -188,7 +194,13 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
-      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?DEMO_ADMIN_PASSWORD must be set — choose a strong password for the seeded admin user}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Admin account provisioned on first start. Username/email have safe
+      # defaults; SYSTEM_ADMIN_PASSWORD is required only when the admin does not
+      # exist yet (mirrors createsuperuser --noinput).
+      SYSTEM_ADMIN_USERNAME: ${SYSTEM_ADMIN_USERNAME:-admin}
+      SYSTEM_ADMIN_EMAIL: ${SYSTEM_ADMIN_EMAIL:-admin@demo.local}
+      SYSTEM_ADMIN_PASSWORD: ${SYSTEM_ADMIN_PASSWORD:-}
     logging:
       driver: "json-file"
       options:
@@ -197,7 +209,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    command: python manage.py seed_demo
+    command: python manage.py bootstrap_admin
     networks:
       - reqflow-net-prod
 
@@ -256,7 +268,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
+      bootstrap:
         condition: service_completed_successfully
     networks:
       - reqflow-net-prod
