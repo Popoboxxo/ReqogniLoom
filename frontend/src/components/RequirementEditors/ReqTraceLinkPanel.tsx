@@ -23,6 +23,7 @@ import { requirementsApi } from '../../api/requirements';
 import { tracelinksApi } from '../../api/tracelinks';
 import { testcasesApi } from '../../api/testcases';
 import { architectureApi } from '../../api/architecture';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../constants/traceLinkLabels';
 import type {
@@ -495,10 +496,10 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
             // REQ-002: prefer backend-supplied target_title; fall back to local
             // lookup (loaded requirements/architectureElements/testCases) and
             // finally to the truncated UUID prefix.
-            const backendTitle =
-              link.target_id === requirementId
-                ? link.source_title
-                : link.target_title;
+            const isSource = link.source_id === requirementId;
+            const otherId = isSource ? link.target_id : link.source_id;
+            const artifactType = isSource ? link.target_type : link.source_type;
+            const backendTitle = isSource ? link.target_title : link.source_title;
             const localTitle =
               requirementsById[link.target_id]?.title ||
               architectureElementsById[link.target_id]?.title ||
@@ -506,12 +507,11 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
               requirementsById[link.source_id]?.title ||
               architectureElementsById[link.source_id]?.title ||
               testCasesById[link.source_id]?.title;
-            const otherId =
-              link.target_id === requirementId ? link.source_id : link.target_id;
             const displayTitle =
               (backendTitle && backendTitle.length > 0 ? backendTitle : null) ??
               localTitle ??
               otherId.slice(0, 8);
+            const route = getArtifactRoute(artifactType ?? 'Requirement', otherId);
 
             return (
               <li
@@ -540,7 +540,27 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
                 >
                   {getLinkTypeLabel(link.link_type)}
                 </span>
-                <span data-testid="req-tracelink-title">{displayTitle}</span>
+                <button
+                  type="button"
+                  data-testid="req-tracelink-title"
+                  onClick={() => navigate(route)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    color: 'var(--color-primary)',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    fontSize: 'var(--font-size-sm)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontFamily: 'inherit',
+                  }}
+                  title={displayTitle}
+                >
+                  {displayTitle}
+                </button>
                 <button
                   data-testid="req-tracelink-delete-btn"
                   onClick={() => void handleDelete(link.id)}
