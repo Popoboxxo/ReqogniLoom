@@ -20,7 +20,7 @@ Interfaces consumed:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
@@ -43,7 +43,7 @@ from presets.models import (
     WorkspacePresetConfig,
 )
 
-from application.base import NotFoundError, PermissionDeniedError, ServiceBase, ValidationError
+from application.base import NotFoundError, ServiceBase, ValidationError
 from application.workspace_provisioning import provision_workspace_defaults
 
 logger = logging.getLogger(__name__)

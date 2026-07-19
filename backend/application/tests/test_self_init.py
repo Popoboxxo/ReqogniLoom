@@ -36,7 +36,7 @@ from application.workspace_provisioning import WORKFLOW_ENTITY_TYPES
 from auth_tenancy.provisioning import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
 from persistence.models import User, Workspace
 from persistence.tenancy import TenantContext
-from workflow.models import WorkflowEngineDefinition
+from workflow.models import GlobalWorkflowDefinition, WorkflowEngineDefinition
 
 pytestmark = pytest.mark.django_db
 
@@ -44,6 +44,13 @@ pytestmark = pytest.mark.django_db
 _EXPECTED_WORKFLOW_ITEM_TYPES = {"Requirement"} | {
     item_type for item_type, _preset in WORKFLOW_ENTITY_TYPES
 }
+
+# REQ-178 bugfix: the "Global Workflow Defaults" tab lets an admin browse ANY
+# entity type under ANY of the three rigor presets — independent of the fixed
+# preset key (e.g. "need_default") that entity type's workspace-level workflow
+# actually uses. All three must be pre-seeded, not just the base workspace's
+# own tier ("extended").
+_GLOBAL_TAB_PRESETS = ("minimal", "standard", "extended")
 
 
 def _workflow_item_types_for(workspace_id) -> set[str]:
@@ -109,6 +116,78 @@ def test_run_self_init_is_idempotent_on_repeated_runs(monkeypatch):
             ), f"duplicate workflow definition for {item_type}"
     finally:
         TenantContext.clear_tenant()
+
+
+def test_run_self_init_seeds_all_three_presets_as_global_workflow_defaults(
+    monkeypatch,
+):
+    """[REQ-178] should pre-seed minimal/standard/extended GlobalWorkflowDefinition
+    rows for every entity type, not just the base workspace's own "extended" tier.
+
+    Regression test: the base workspace self-init creates is always tier
+    "extended", so only "extended" global rows used to exist. The "Global
+    Workflow Defaults" tab defaults to "standard", which made it look
+    completely empty even though inheritance itself worked correctly.
+    """
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "s3lf-init-pw-2026")
+
+    run_self_init()
+
+    workspace = Workspace.unscoped.get(name="Demo Workspace")
+    tenant_id = workspace.tenant_id
+
+    seeded = set(
+        GlobalWorkflowDefinition.unscoped.filter(tenant_id=tenant_id).values_list(
+            "item_type", "preset"
+        )
+    )
+    expected = {
+        (item_type, preset)
+        for item_type in _EXPECTED_WORKFLOW_ITEM_TYPES
+        for preset in _GLOBAL_TAB_PRESETS
+    }
+    missing = expected - seeded
+    assert not missing, f"missing GlobalWorkflowDefinition rows: {sorted(missing)}"
+
+    # Every seeded row must actually carry a non-empty state machine, not just
+    # an empty placeholder graph — otherwise the tab would still look empty.
+    for item_type, preset in expected:
+        row = GlobalWorkflowDefinition.unscoped.get(
+            tenant_id=tenant_id, item_type=item_type, preset=preset
+        )
+        assert row.workflow_json.get("states"), f"{item_type}/{preset} has no states"
+
+
+def test_run_self_init_global_preset_seeding_is_idempotent(monkeypatch):
+    """[REQ-178] should not duplicate or overwrite GlobalWorkflowDefinition rows
+    on a second self-init run."""
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "s3lf-init-pw-2026")
+
+    run_self_init()
+    workspace = Workspace.unscoped.get(name="Demo Workspace")
+    tenant_id = workspace.tenant_id
+
+    # Simulate a manual customisation an admin might have made in between runs.
+    customized = GlobalWorkflowDefinition.unscoped.get(
+        tenant_id=tenant_id, item_type="Requirement", preset="standard"
+    )
+    customized.workflow_json = {"states": ["draft", "custom_state"], "transitions": []}
+    customized.save(update_fields=["workflow_json"])
+
+    run_self_init()
+
+    for item_type in _EXPECTED_WORKFLOW_ITEM_TYPES:
+        for preset in _GLOBAL_TAB_PRESETS:
+            count = GlobalWorkflowDefinition.unscoped.filter(
+                tenant_id=tenant_id, item_type=item_type, preset=preset
+            ).count()
+            assert count == 1, f"duplicate global row for {item_type}/{preset}"
+
+    customized.refresh_from_db()
+    assert customized.workflow_json["states"] == ["draft", "custom_state"], (
+        "second self-init run must not overwrite an already-seeded/customised "
+        "global row (get_or_create semantics)"
+    )
 
 
 def test_run_self_init_preserves_password_changed_after_creation(monkeypatch):

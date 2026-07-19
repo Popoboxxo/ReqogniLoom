@@ -22,9 +22,16 @@ from auth_tenancy.services.permission_definition import (
     PermissionDefinitionService,
 )
 from persistence.tenancy import TenantContext
+from workflow.global_definition_store import GlobalWorkflowDefinitionStore
 from workflow.services import create_default_workflow
 
 logger = logging.getLogger(__name__)
+
+# REQ-178: the three rigor presets the "Global Workflow Defaults" tab
+# (System Settings) lets an admin browse/edit for ANY entity type, independent
+# of which fixed preset key (e.g. "need_default") that entity type's own
+# workspace-level workflow actually uses.
+_GLOBAL_TAB_PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")
 
 # REQ-165/REQ-166/REQ-171/REQ-173: entity types that receive a fixed-preset
 # default workflow on workspace provisioning. ``Requirement`` is provisioned
@@ -87,6 +94,27 @@ def provision_workspace_defaults(
             item_type=item_type,
             tenant_id=tenant_id,
         )
+
+    # REQ-178 bugfix: pre-seed ALL THREE rigor presets (minimal/standard/
+    # extended) as GlobalWorkflowDefinition rows for every entity type the
+    # "Global Workflow Defaults" tab can display — not just whichever preset
+    # this workspace's own tier happens to be. Placed here (rather than only in
+    # self-init) so the guarantee applies uniformly to every workspace creation
+    # path — self-init AND the WorkspaceService API/MCP write path this module's
+    # docstring already promises parity for. Without this, a fresh deployment
+    # only had "extended" global rows (self-init's base workspace tier), and an
+    # admin opening the tab — which defaults to "standard" — saw an empty
+    # canvas even though workflow inheritance itself worked correctly.
+    global_store = GlobalWorkflowDefinitionStore()
+    global_tab_item_types = tuple(
+        dict.fromkeys(
+            [item_type for item_type, _preset_key in WORKFLOW_ENTITY_TYPES]
+            + ["Requirement"]
+        )
+    )
+    for item_type in global_tab_item_types:
+        for preset in _GLOBAL_TAB_PRESETS:
+            global_store.get_or_seed_from_preset(tenant_id, item_type, preset)
 
     # REQ-181/182: link the workspace to the tenant-wide permission global with
     # is_customized=False ("on-default"). Does not touch UserRole/ItemPermission
