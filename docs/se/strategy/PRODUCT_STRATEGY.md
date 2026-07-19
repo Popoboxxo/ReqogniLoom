@@ -86,8 +86,10 @@ Die Strenge des Prozesses (SE-Tiefe, Audit-Anforderungen, Workflows) ist pro Wor
 - **Authentication:** Token via JWT oder API-Key.
 - **Tenancy:** In jeder View muss der Tenant explizit via `set_tenant(request.user.tenant)` gesetzt werden.
 
-### 5.2 Lokales Setup (`seed_demo`)
-Nach der Initialmigration (`migrate`) ist die Datenbank leer. Der Command `python manage.py seed_demo` **muss** vor dem ersten Login ausgeführt werden, um den "Demo Workspace" und den Admin-User zu initialisieren.
+### 5.2 Lokales Setup (automatischer Admin-Bootstrap)
+Nach der Initialmigration (`migrate`) läuft der `bootstrap_admin` Management-Command automatisch (via dedizierter `bootstrap`-Service in docker-compose.yml) und erstellt einen Admin-User basierend auf SYSTEM_ADMIN_*-Umgebungsvariablen (oder mit Defaults: admin/admin@demo.local).
+
+Der Command `python manage.py seed_demo` ist **optional** und erstellt nur Demo-Artefakte; für den ersten Login ist er nicht erforderlich. Die Admin-User-Initialisierung ist idempotent und verändert das Passwort nie nachträglich.
 
 ### 5.3 Commit & Branching
 - Format: `<type>(REQ-ID): <beschreibung>` (z.B. `feat(REQ-L1-010): ...`)
