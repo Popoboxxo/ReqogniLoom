@@ -276,7 +276,10 @@
     "impactRun": "Show Impact",
     "impactRunning": "Analyzing...",
     "impactEmpty": "No reachable artifacts.",
-    "impactDepth": "Depth"
+    "impactDepth": "Depth",
+    "requirementsGroup": "Requirements",
+    "architectureGroup": "Architecture Elements",
+    "other": "Other Links"
   },
   "createTraceLinkDialog": {
     "title": "Create Trace Link",
