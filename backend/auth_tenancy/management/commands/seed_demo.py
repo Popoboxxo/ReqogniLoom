@@ -10,9 +10,11 @@ flow end-to-end:
 * an admin ``UserRole`` for that user in the workspace.
 
 Re-running the command is safe: every entity is created via get-or-update keyed on
-a stable natural key, so a second run makes no duplicate rows. The admin password
-is read from the ``DEMO_ADMIN_PASSWORD`` env var (default ``admin12345``) and is
-re-applied on every run so the demo credentials always work.
+a stable natural key, so a second run makes no duplicate rows. The admin username,
+email and password are configurable via the ``SYSTEM_ADMIN_USERNAME``,
+``SYSTEM_ADMIN_EMAIL`` and ``SYSTEM_ADMIN_PASSWORD`` env vars (defaults ``admin``,
+``admin@demo.local`` and ``admin12345`` respectively) and are re-applied on every
+run so the demo credentials always work.
 
 Usage:
     python manage.py seed_demo
@@ -41,8 +43,8 @@ _DEMO_WORKSPACE_NAME = "Demo Workspace"
 # while write/create and preset-gated endpoints 404 because the referenced
 # workspace does not exist.
 _DEMO_WORKSPACE_ID = uuid.UUID("6d20f0b9-d2cf-46a0-b916-79f8b417210f")
-_DEMO_ADMIN_USERNAME = "admin"
-_DEMO_ADMIN_EMAIL = "admin@demo.local"
+_SYSTEM_ADMIN_USERNAME = os.environ.get("SYSTEM_ADMIN_USERNAME", "admin")
+_SYSTEM_ADMIN_EMAIL = os.environ.get("SYSTEM_ADMIN_EMAIL", "admin@demo.local")
 _DEFAULT_ADMIN_PASSWORD = "admin12345"
 
 
@@ -53,7 +55,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Create or update the demo data set and print a login hint."""
-        password = os.environ.get("DEMO_ADMIN_PASSWORD", _DEFAULT_ADMIN_PASSWORD)
+        password = os.environ.get("SYSTEM_ADMIN_PASSWORD", _DEFAULT_ADMIN_PASSWORD)
 
         tenant = self._ensure_tenant()
         # Workspace and UserRole are tenant-scoped; activate the tenant so the
@@ -69,7 +71,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Demo data seeded."))
         self.stdout.write(
             "Login: POST /api/v1/auth/login/ "
-            f'{{"username": "{_DEMO_ADMIN_USERNAME}", "password": "{password}"}}'
+            f'{{"username": "{_SYSTEM_ADMIN_USERNAME}", "password": "{password}"}}'
         )
 
     def _ensure_tenant(self) -> Tenant:
@@ -88,9 +90,9 @@ class Command(BaseCommand):
         the Django admin site at /admin/ (REQ-L1-010).
         """
         user, _created = User.objects.get_or_create(
-            username=_DEMO_ADMIN_USERNAME,
+            username=_SYSTEM_ADMIN_USERNAME,
             defaults={
-                "email": _DEMO_ADMIN_EMAIL,
+                "email": _SYSTEM_ADMIN_EMAIL,
                 "is_active": True,
                 "is_staff": True,
                 "is_superuser": True,

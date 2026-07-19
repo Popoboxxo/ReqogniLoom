@@ -135,7 +135,7 @@ docker-compose exec backend python manage.py seed_demo
 
 **Override default password** (optional):
 ```bash
-docker-compose exec -e DEMO_ADMIN_PASSWORD="my-secure-pw" backend python manage.py seed_demo
+docker-compose exec -e SYSTEM_ADMIN_PASSWORD="my-secure-pw" backend python manage.py seed_demo
 ```
 
 The command prints the active credentials at the end. Re-running is safe (idempotent).

@@ -35,6 +35,6 @@ def test_seed_demo_creates_admin_and_is_idempotent():
 def test_seed_demo_admin_password_is_usable():
     call_command("seed_demo")
     admin = User.objects.get(username="admin")
-    # Default password when DEMO_ADMIN_PASSWORD is unset.
+    # Default password when SYSTEM_ADMIN_PASSWORD is unset.
     assert admin.check_password("admin12345") is True
     assert admin.is_active is True

@@ -468,7 +468,7 @@ variables:
   STARTUP_CREDENTIALS: "\U0001F510 Default-Login (nach `docker-compose exec backend\
     \ python manage.py seed_demo`):\n   Username:   admin\n   Passwort:   seed_demo\
     \ gibt das aktive Demo-Passwort am Laufzeit-Ende aus\n               (Override\
-    \ per Env-Var `DEMO_ADMIN_PASSWORD`; Default siehe README §5).\n   Tenant:   \
+    \ per Env-Var `SYSTEM_ADMIN_PASSWORD`; Default siehe README §5).\n   Tenant:   \
     \  demo\n   Workspace:  Demo Workspace\nJWT-Token: `POST /api/v1/auth/login/`\
     \ mit obigen Credentials.\n"
   EXTRA_STARTUP_INFO: "\U0001F4CB Nach `docker-compose up` zwingend ausführen:\n \
