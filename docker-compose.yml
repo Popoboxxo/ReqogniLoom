@@ -177,7 +177,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
+      bootstrap:
         condition: service_completed_successfully
 
   # ─────────────────────────────────────────────────────────
@@ -208,6 +208,47 @@ services:
         condition: service_healthy
     restart: "no"
     command: python manage.py migrate
+
+  # ─────────────────────────────────────────────────────────
+  # Admin Bootstrap Service — Mandatory base provisioning (REQ-L1-010)
+  # ─────────────────────────────────────────────────────────
+  # Runs after migrate and before backend. Idempotently provisions the base
+  # tenant, workspace, admin user and admin role so a fresh instance is usable
+  # immediately (no manual seed step, no 401-on-first-login). Create-only on the
+  # password: an admin who changed their password via the UI/API is never reset.
+  # Fails fast only when it must create the admin but SYSTEM_ADMIN_PASSWORD is
+  # unset — see backend/auth_tenancy/management/commands/bootstrap_admin.py.
+  bootstrap:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: reqflow.settings
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      DB_NAME: ${DB_NAME:-reqflow}
+      DB_USER: ${DB_USER:-reqflow}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Admin account provisioned on first start. Username/email have safe
+      # defaults; SYSTEM_ADMIN_PASSWORD is required only when the admin does not
+      # exist yet (mirrors createsuperuser --noinput).
+      SYSTEM_ADMIN_USERNAME: ${SYSTEM_ADMIN_USERNAME:-admin}
+      SYSTEM_ADMIN_EMAIL: ${SYSTEM_ADMIN_EMAIL:-admin@demo.local}
+      SYSTEM_ADMIN_PASSWORD: ${SYSTEM_ADMIN_PASSWORD:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    command: python manage.py bootstrap_admin
 
   # ─────────────────────────────────────────────────────────
   # Celery Worker — ARCH-L1-016 ResilienceOrchestrator

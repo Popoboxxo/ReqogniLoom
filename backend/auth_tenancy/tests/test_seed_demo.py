@@ -32,9 +32,45 @@ def test_seed_demo_creates_admin_and_is_idempotent():
 
 
 @pytest.mark.django_db
-def test_seed_demo_admin_password_is_usable():
+def test_seed_demo_admin_password_is_usable(monkeypatch):
+    # Default password when no admin-password env var is set.
+    monkeypatch.delenv("SYSTEM_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_ADMIN_PASSWORD", raising=False)
     call_command("seed_demo")
     admin = User.objects.get(username="admin")
-    # Default password when DEMO_ADMIN_PASSWORD is unset.
     assert admin.check_password("admin12345") is True
     assert admin.is_active is True
+
+
+@pytest.mark.django_db
+def test_seed_demo_is_create_only_by_default(monkeypatch):
+    """A second seed_demo run must not overwrite a changed password."""
+    monkeypatch.delenv("SYSTEM_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_ADMIN_PASSWORD", raising=False)
+    call_command("seed_demo")
+
+    admin = User.objects.get(username="admin")
+    admin.set_password("changed-via-ui")
+    admin.save(update_fields=["password", "modified_at"])
+
+    call_command("seed_demo")  # default is create-only
+
+    admin.refresh_from_db()
+    assert admin.check_password("changed-via-ui") is True
+
+
+@pytest.mark.django_db
+def test_seed_demo_reset_password_flag_reapplies(monkeypatch):
+    """--reset-password re-applies the demo password on an existing user."""
+    monkeypatch.delenv("SYSTEM_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("DEMO_ADMIN_PASSWORD", raising=False)
+    call_command("seed_demo")
+
+    admin = User.objects.get(username="admin")
+    admin.set_password("changed-via-ui")
+    admin.save(update_fields=["password", "modified_at"])
+
+    call_command("seed_demo", "--reset-password")
+
+    admin.refresh_from_db()
+    assert admin.check_password("admin12345") is True

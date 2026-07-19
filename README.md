@@ -119,37 +119,56 @@ Open a new terminal for the next step.
 ```bash
 # Run migrations
 docker-compose exec backend python manage.py migrate
+```
 
-# Seed demo data (optional, recommended for first run)
+The backend service automatically runs the `bootstrap_admin` command during startup (after migrations) to initialize the system admin user.
+
+### 5. Access with Default Admin User
+
+The bootstrap process creates an admin user automatically if `SYSTEM_ADMIN_*` environment variables are set (or uses defaults if not).
+
+**Default credentials** (if not overridden in `.env`):
+- **Username:** `admin`
+- **Email:** `admin@demo.local`
+- **Password:** Set via `SYSTEM_ADMIN_PASSWORD` in `.env`, or fails on first startup if not provided
+
+To override the default admin credentials, edit `.env` before starting the stack:
+
+```bash
+# In .env (before docker-compose up)
+SYSTEM_ADMIN_USERNAME=my_admin
+SYSTEM_ADMIN_EMAIL=my_admin@example.com
+SYSTEM_ADMIN_PASSWORD=my_secure_password
+```
+
+The bootstrap process is idempotent — it creates the admin user only if it does not exist. Subsequent restarts do not modify the password.
+
+### 6. (Optional) Seed Demo Data
+
+To populate your workspace with example requirements, architecture elements, and test cases:
+
+```bash
+# Creates demo artifacts (requirements, architecture, tests)
 docker-compose exec backend python manage.py seed_demo
 ```
 
-### 5. Initialize Admin User (REQUIRED for first run)
-
-The database is empty after migrations. You must seed the demo admin user before logging in:
-
+**Override demo admin password** (for development only):
 ```bash
-# Creates: Tenant "demo", Workspace "Demo Workspace", User "admin" (password: admin12345), admin role
-docker-compose exec backend python manage.py seed_demo
+docker-compose exec -e SYSTEM_ADMIN_PASSWORD="new-password" backend python manage.py seed_demo --reset-password
 ```
 
-**Override default password** (optional):
-```bash
-docker-compose exec -e DEMO_ADMIN_PASSWORD="my-secure-pw" backend python manage.py seed_demo
-```
+Re-running `seed_demo` is safe (idempotent); it skips artifacts that already exist.
 
-The command prints the active credentials at the end. Re-running is safe (idempotent).
-
-### 6. Access the Application
+### 7. Access the Application
 
 - **Frontend:** http://localhost:5173
-  - **Default credentials:** username=`admin`, password=`admin12345` (from step 4)
+  - **Default credentials:** username=`admin`, password: set via `SYSTEM_ADMIN_PASSWORD` environment variable (or as configured in `.env` via `SYSTEM_ADMIN_*`)
 - **API:** http://localhost:8000/api/v1/
   - **Get JWT token:** `POST /api/v1/auth/login/` with credentials:
     ```bash
     curl -X POST http://localhost:8000/api/v1/auth/login/ \
       -H "Content-Type: application/json" \
-      -d '{"username":"admin","password":"admin12345"}'
+      -d '{"username":"admin","password":"your-password"}'
     # → {"token": "eyJhbGc...", "user": {...}, "tenant_id": "...", "roles": ["admin"]}
     ```
   - **Use token:** `Authorization: Bearer <token>` header on all subsequent requests
@@ -158,7 +177,7 @@ The command prints the active credentials at the end. Re-running is safe (idempo
 - **Admin Panel:** http://localhost:8000/admin/
   - Same credentials as frontend
 
-### 6. (Optional) Configure LLM Provider
+### 8. (Optional) Configure LLM Provider
 
 By default, ReqFlow runs in **mock mode** (no actual LLM calls). To enable AI features:
 
@@ -178,7 +197,7 @@ LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... docker-compose up
 
 See `.env.example` for all available configuration options.
 
-### Verify Installation
+### 8b. Verify Installation
 
 Check all services are running:
 
@@ -187,6 +206,77 @@ docker-compose ps
 ```
 
 All containers should show `Up (healthy)` or `Up`.
+
+### 9. Connect an MCP Client (Claude Desktop / Cursor)
+
+You can connect external AI assistants like Claude Desktop or Cursor to ReqFlow's MCP server.
+ReqFlow exposes an SSE (Server-Sent Events) transport endpoint for remote connections.
+
+**Important:** You need an active API key to authenticate (see Step 5 above).
+
+#### Example: Claude Desktop Configuration
+
+Edit your `claude_desktop_config.json` (usually located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\\Claude\\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "reqflow": {
+      "command": "curl",
+      "args": [
+        "-N", 
+        "-s",
+        "-H", "X-API-Key: YOUR_API_KEY",
+        "http://localhost:8000/mcp/sse/"
+      ]
+    }
+  }
+}
+```
+*Note: Since ReqFlow provides an HTTP/SSE endpoint, we use `curl -N` to pipe the SSE stream into Claude Desktop's standard input. Alternatively, you can write a tiny Node.js script that connects to the SSE URL and bridges it to stdio.*
+
+#### Example: Cursor IDE
+
+In Cursor, go to **Settings > Features > MCP**:
+1. Click **+ Add new MCP server**
+2. **Name**: `ReqFlow`
+3. **Type**: `sse`
+4. **URL**: `http://localhost:8000/mcp/sse/`
+5. **Headers**: Add a header `X-API-Key` with your API Key value.
+
+## Manual MCP Test (curl)
+
+Verify the MCP server responds correctly to tool calls:
+
+```bash
+# 1. Get a JWT token
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' | jq -r .token)
+
+# 2. Create an API key for MCP
+API_KEY=$(curl -s -X POST http://localhost:8000/api/v1/api-keys/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"manual-test"}' | jq -r .key)
+
+# 3. List your workspaces (read tool, no Admin needed)
+WORKSPACE_ID=$(curl -s -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"workspace.get_context","params":{}}' \
+  | jq -r .result.workspaces[0].id)
+
+# 4. Query requirements
+curl -X POST http://localhost:8000/mcp/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":2,\\"method\\":\\"requirement.query\\",\\"params\\":{\\"workspace_id\\":\\"$WORKSPACE_ID\\",\\"limit\\":5}}"
+
+# 5. Server health check (no auth)
+curl http://localhost:8000/mcp/
+# → {"server":"ReqFlow MCP Server","protocol":"JSON-RPC 2.0","transports":["http","sse","stdio"],"version":"1.0.0"}
+```
 
 ## Running Tests
 
@@ -309,77 +399,6 @@ npm run mcp:playwright       # starte Playwright MCP Server für LLM-Agenten
 > restart. See [`e2e/TESTING.md`](e2e/TESTING.md#known-gap-stale-host--session-drift)
 > for the symptom pattern and how to tell it apart from a real auth bug.
 
-### Manual MCP Test (curl)
-
-Verify the MCP server responds correctly to tool calls:
-
-```bash
-# 1. Get a JWT token
-TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login/ \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin12345"}' | jq -r .token)
-
-# 2. Create an API key for MCP
-API_KEY=$(curl -s -X POST http://localhost:8000/api/v1/api-keys/ \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"manual-test"}' | jq -r .key)
-
-# 3. List your workspaces (read tool, no Admin needed)
-WORKSPACE_ID=$(curl -s -X POST http://localhost:8000/mcp/ \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $API_KEY" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"workspace.get_context","params":{}}' \
-  | jq -r .result.workspaces[0].id)
-
-# 4. Query requirements
-curl -X POST http://localhost:8000/mcp/ \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $API_KEY" \
-  -d "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":2,\\"method\\":\\"requirement.query\\",\\"params\\":{\\"workspace_id\\":\\"$WORKSPACE_ID\\",\\"limit\\":5}}"
-
-# 5. Server health check (no auth)
-curl http://localhost:8000/mcp/
-# → {"server":"ReqFlow MCP Server","protocol":"JSON-RPC 2.0","transports":["http","sse","stdio"],"version":"1.0.0"}
-```
-
-### 7. Connect an MCP Client (Claude Desktop / Cursor)
-
-You can connect external AI assistants like Claude Desktop or Cursor to ReqFlow's MCP server.
-ReqFlow exposes an SSE (Server-Sent Events) transport endpoint for remote connections.
-
-**Important:** You need an active API key to authenticate (see Step 5 above).
-
-#### Example: Claude Desktop Configuration
-
-Edit your `claude_desktop_config.json` (usually located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\\Claude\\claude_desktop_config.json` on Windows):
-
-```json
-{
-  "mcpServers": {
-    "reqflow": {
-      "command": "curl",
-      "args": [
-        "-N", 
-        "-s",
-        "-H", "X-API-Key: YOUR_API_KEY",
-        "http://localhost:8000/mcp/sse/"
-      ]
-    }
-  }
-}
-```
-*Note: Since ReqFlow provides an HTTP/SSE endpoint, we use `curl -N` to pipe the SSE stream into Claude Desktop's standard input. Alternatively, you can write a tiny Node.js script that connects to the SSE URL and bridges it to stdio.*
-
-#### Example: Cursor IDE
-
-In Cursor, go to **Settings > Features > MCP**:
-1. Click **+ Add new MCP server**
-2. **Name**: `ReqFlow`
-3. **Type**: `sse`
-4. **URL**: `http://localhost:8000/mcp/sse/`
-5. **Headers**: Add a header `X-API-Key` with your API Key value.
-
 ## Production Deployment
 
 ReqFlow is designed for self-hosted deployment on Linux/Unix servers using Docker Compose. This section covers hardening the stack for production use.
@@ -431,7 +450,8 @@ ReqFlow is designed for self-hosted deployment on Linux/Unix servers using Docke
    # Run migrations
    docker-compose exec backend python manage.py migrate
    
-   # Seed demo admin user (or create manually)
+   # The admin user is automatically created by the bootstrap_admin command during startup
+   # (you can optionally seed demo data afterwards)
    docker-compose exec backend python manage.py seed_demo
    ```
 
@@ -784,7 +804,7 @@ ReqFlow provides a RESTful API for programmatic access to all features.
 # Authenticate: exchange username/password for a JWT token
 curl -X POST http://localhost:8000/api/v1/auth/login/ \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "admin12345"}'
+  -d '{"username": "admin", "password": "your-password"}'
 # → {"token": "eyJhbGc...", "user": {...}, "tenant_id": "...", "roles": ["admin"]}
 
 # Use the token in subsequent requests

@@ -846,10 +846,14 @@ docker-compose exec backend python manage.py migrate
 docker-compose exec backend python manage.py makemigrations
 ```
 
-### Demo-Daten
+Der `bootstrap_admin` Management-Command läuft automatisch bei `docker-compose up` (nach Migrationen, via dedizierter `bootstrap`-Service in docker-compose.yml).
+Dieser erstellt einen Admin-User basierend auf SYSTEM_ADMIN_*-Umgebungsvariablen (oder mit Defaults: admin/admin@demo.local, falls nicht gesetzt).
+
+### Demo-Daten (optional)
 ```bash
+# Erstellt Beispiel-Artefakte (Requirements, Architecture, Tests)
 docker-compose exec backend python manage.py seed_demo
-# Erstellt Tenant + Admin-User (admin@example.com / admin12345)
+# Idempotent; überspringt bereits vorhandene Artefakte
 ```
 
 ### Tests
@@ -882,13 +886,16 @@ http://localhost:8000/api/schema/redoc/        # ReDoc
 
 ### Passwort-Login (neu)
 ```bash
-# 1. Seed Demo (admin/admin12345)
-docker-compose exec backend python manage.py seed_demo
+# 1. Admin-User ist automatisch erstellt (via bootstrap_admin)
+# Standardwerte (falls nicht in .env überschrieben):
+#   - Username: admin
+#   - Email: admin@demo.local
+#   - Password: muss via SYSTEM_ADMIN_PASSWORD in .env gesetzt sein
 
 # 2. Login
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com", "password":"admin12345"}'
+  -d '{"username":"admin", "password":"<SYSTEM_ADMIN_PASSWORD>"}'
 
 # Response: {"access_token": "eyJ...", "user": {...}}
 
