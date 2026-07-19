@@ -293,8 +293,16 @@ Alle Regeln folgen dem Format `Quelle --Linktyp--> Ziel`, konsistent zur Enum-Ri
 | **TRACE-P7** | Baseline-Scope-Konsistenz: Trace-Links, die innerhalb eines Baseline-Scopes (Document/Project/Global) geprüft werden, referenzieren nur Artefakte desselben oder eines übergeordneten Scopes (kein Scope-Leck). | — (Graph-weite Prüfung je Baseline-Scope) | Extended |
 | **ARCH-003** | Architektur-Dekomposition (`decomposes`) erzeugt immer Requirement-Ableitungen (`derives-from`) auf der neuen Ebene. | ArchitectureElement (Kind) → Requirement (neu) | Extended |
 | **VERIF-P8** | Jedes Requirement (Blattebene, L3/L4) hat einen verknüpften `TestCase` (`verifies`). | TestCase → Requirement (Blatt) | Extended only (für Minimal/Standard unangemessen streng) |
-| **CONS-P9** | Offene (nicht aufgelöste) `CONFLICTS_WITH`-Links blockieren die Approval-Transition eines Artefakts. | — (Zustandsprüfung, kein neuer Link) | Standard, Extended |
-| **CONS-P10** | Kein aktiver TraceLink referenziert ein Artefakt, das über `SUPERCEDES` bereits ersetzt wurde (dangling-superseded-Check). | beliebig → superseded Artefakt | Standard, Extended |
+| **CONS-P9** ⚠️ deferred | Offene (nicht aufgelöste) `CONFLICTS_WITH`-Links blockieren die Approval-Transition eines Artefakts. | — (Zustandsprüfung, kein neuer Link) | Standard, Extended |
+| **CONS-P10** ⚠️ deferred | Kein aktiver TraceLink referenziert ein Artefakt, das über `SUPERCEDES` bereits ersetzt wurde (dangling-superseded-Check). | beliebig → superseded Artefakt | Standard, Extended |
+
+**Deferred-Status (⚠️) für CONS-P9 und CONS-P10:** Diese beiden Regeln sind in der Implementierung von Phase 2
+als "deferred" registriert — sie sind in der RuleEngine-Registry vorhanden, erzeugen aber garantiert 0 Findings
+(inaktiv), weil die vorausgesetzten LinkTypes (`CONFLICTS_WITH` und `SUPERCEDES`) nicht im aktuellen
+`LinkType`-Enum (`backend/traceability/types.py`) existieren. Diese Entscheidung (kein Enum-Update, keine
+Workarounds, die Regeln explizit zurückgestellt) wurde vom Nutzer getroffen (2026-07-19). Sobald die LinkTypes in
+einer zukünftigen Entscheidung hinzugefügt werden, können CONS-P9/CONS-P10 aktiviert werden, ohne die
+RuleEngine-Infrastruktur zu ändern.
 
 **Rule-zu-Rigor-Preset-Mapping (neu, Korrektur 3):** Jede Regel ist oben mit ihrem/ihren Rigor-Preset(s)
 versehen. `VERIF-P8` ("jedes Blatt-Requirement braucht einen Test") ist für **Minimal**-Rigor unangemessen streng
@@ -448,7 +456,11 @@ Verifikationsschranke zwischen den Wochen).
 **Deliverables:**
 - RuleEngine mit Preset-Vererbung (liest das Rule-zu-Rigor-Preset-Mapping aus 2.2).
 - Scanner für TRACE-P1, P1b, P2-P7, ARCH-003, VERIF-P8, CONS-P9, CONS-P10 (vollständiger Katalog aus 2.2, nicht
-  nur "P1 bis P7" wie ursprünglich unscharf formuliert).
+  nur "P1 bis P7" wie ursprünglich unscharf formuliert). **Hinweis:** CONS-P9 und CONS-P10 sind als "deferred" 
+  implementiert — registriert in der RuleEngine-Registry, aber inaktiv (garantiert 0 Findings), da die 
+  vorausgesetzten LinkTypes (`CONFLICTS_WITH`, `SUPERCEDES`) nicht im aktuellen `LinkType`-Enum existieren. 
+  Das Verifikations-Gate für Phase 2 bezieht sich auf die verbleibenden **10 aktiven Regeln** als vollständig 
+  grün verifiziert.
 - Explizite Referenz/Wiederverwendung von `SE_LINK_SEMANTICS` für Endpunkt-Legalität (siehe 2.1) — die RuleEngine
   dupliziert diese Prüfung nicht.
 - Baseline-Scope-bewusste Ausführung (Regel TRACE-P7 erfordert, dass der Scanner pro Baseline-Scope
