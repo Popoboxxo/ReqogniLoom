@@ -1,7 +1,7 @@
 # ReqFlow — Codebase-Übersicht (IST-Zustand)
 
 > **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057)  
-> **Letzte Aktualisierung:** 2026-07-01  
+> **Letzte Aktualisierung:** 2026-07-19  
 > **Branch:** `feat/se-implementation`  
 > **Validierung:** 1130/1130 pytest Tests grün; 111/112 E2E Tests (Playwright) grün; `manage.py check` 0 Issues
 
@@ -925,6 +925,19 @@ Alle höheren Schichten (REST, MCP) greifen auf `ApplicationService` zu. Es gibt
 
 ---
 
+## Deployment & Operations
+
+Die detaillierte Deployment-Dokumentation ist in den entsprechenden `deployment/`-Verzeichnissen verfügbar:
+
+| Option | Anleitung | Beschreibung |
+|--------|-----------|-------------|
+| **Unraid Community Applications** | `deployment/unraid/README.md` | Unraid CA-Template (reqflow.xml) + vollständiger 9-Container-Stack via Compose Manager Plus Plugin. Icon-Platzhalter. |
+| **Docker Compose (Standard)** | `docker-compose.yml` | Lokale Entwicklung & Deployment: postgres, postgres-backup, redis, backend, celery, celery-beat, frontend, bootstrap, migrate. |
+| **Kubernetes (geplant v2)** | — | Nicht dokumentiert; siehe Feature-Backlog. |
+
+**Für Produktionsumgebungen:** Siehe die jeweilige Deployment-Option oben. Alle Optionen unterstützen die vollständige Feature-Set (Multi-Tenancy, RBAC, LLM-Integration, API-Keys, MCP-Server).
+
+---
 
 ## MCP Server Reference
 
