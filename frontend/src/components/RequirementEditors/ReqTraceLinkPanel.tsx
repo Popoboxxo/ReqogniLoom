@@ -25,6 +25,7 @@ import { testcasesApi } from '../../api/testcases';
 import { architectureApi } from '../../api/architecture';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
+import { RequirementTreeNode } from './RequirementTreeNode';
 import { ALL_LINK_TYPES, getLinkTypeLabel } from '../../constants/traceLinkLabels';
 import type {
   Requirement,
@@ -163,12 +164,6 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
       cancelled = true;
     };
   }, [workspaceId]);
-
-  const requirementsById = React.useMemo(() => {
-    const m: Record<UUID, Requirement> = {};
-    for (const r of requirements) m[r.id] = r;
-    return m;
-  }, [requirements]);
 
   const testCasesById = React.useMemo(() => {
     const m: Record<UUID, TestCase> = {};
@@ -488,99 +483,275 @@ export const ReqTraceLinkPanel: React.FC<ReqTraceLinkPanelProps> = ({
       )}
 
       {links.length > 0 && (
-        <ul
-          data-testid="req-tracelink-list"
-          style={{ margin: '0', padding: '0' }}
-        >
-          {links.map((link) => {
-            // REQ-002: prefer backend-supplied target_title; fall back to local
-            // lookup (loaded requirements/architectureElements/testCases) and
-            // finally to the truncated UUID prefix.
-            const isSource = link.source_id === requirementId;
-            const otherId = isSource ? link.target_id : link.source_id;
-            const artifactType = isSource ? link.target_type : link.source_type;
-            const backendTitle = isSource ? link.target_title : link.source_title;
-            const localTitle =
-              requirementsById[link.target_id]?.title ||
-              architectureElementsById[link.target_id]?.title ||
-              testCasesById[link.target_id]?.title ||
-              requirementsById[link.source_id]?.title ||
-              architectureElementsById[link.source_id]?.title ||
-              testCasesById[link.source_id]?.title;
-            const displayTitle =
-              (backendTitle && backendTitle.length > 0 ? backendTitle : null) ??
-              localTitle ??
-              otherId.slice(0, 8);
-            const route = getArtifactRoute(artifactType ?? 'Requirement', otherId);
-
-            return (
-              <li
-                key={link.id}
-                data-testid="req-tracelink-item"
+        <div data-testid="req-tracelink-sections">
+          {/* Requirement hierarchy tree section */}
+          {links.some((l) => l.target_type === 'Requirement' || l.source_type === 'Requirement') && (
+            <div
+              data-testid="req-tracelink-requirements-section"
+              style={{
+                marginBottom: 'var(--space-6)',
+                paddingBottom: 'var(--space-4)',
+                borderBottom: '1px solid var(--color-border)',
+              }}
+            >
+              <h5
                 style={{
-                  padding: 'var(--space-2) var(--space-3)',
-                  marginBottom: 'var(--space-2)',
-                  background: 'var(--color-surface-raised)',
-                  borderRadius: 'var(--radius-md)',
+                  margin: '0 0 var(--space-2) 0',
                   fontSize: 'var(--font-size-sm)',
+                  fontWeight: 700,
                   color: 'var(--color-text)',
-                  display: 'flex',
-                  alignItems: 'center',
                 }}
               >
-                <span
-                  style={{
-                    background: 'var(--color-badge-draft)',
-                    color: 'var(--color-badge-draft-text)',
-                    padding: '2px 6px',
-                    borderRadius: 'var(--radius-full)',
-                    fontSize: 'var(--font-size-sm)',
-                    marginRight: 'var(--space-2)',
-                  }}
-                >
-                  {getLinkTypeLabel(link.link_type)}
-                </span>
-                <button
-                  type="button"
-                  data-testid="req-tracelink-title"
-                  onClick={() => navigate(route)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                    color: 'var(--color-primary)',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    fontSize: 'var(--font-size-sm)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    fontFamily: 'inherit',
-                  }}
-                  title={displayTitle}
-                >
-                  {displayTitle}
-                </button>
-                <button
-                  data-testid="req-tracelink-delete-btn"
-                  onClick={() => void handleDelete(link.id)}
-                  style={{
-                    marginLeft: 'auto',
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--color-danger)',
-                    cursor: 'pointer',
-                    fontSize: 'var(--font-size-sm)',
-                    fontWeight: 600,
-                  }}
-                  title={t('actions.delete')}
-                >
-                  ×
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                {t('traceability.requirementsGroup')} (hierarchical view)
+              </h5>
+              <RequirementTreeNode
+                workspaceId={workspaceId}
+                requirement={requirements.find((r) => r.id === requirementId) || {
+                  id: requirementId,
+                  title: 'Current',
+                  description: '',
+                  category: 'functional',
+                  type: 'SyReq',
+                  status: 'draft',
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                  version: 1,
+                  workspace_id: workspaceId,
+                }}
+                depth={0}
+                onSelectRequirement={() => {
+                  /* Keep in current context or navigate as needed */
+                }}
+              />
+            </div>
+          )}
+
+          {/* ArchitectureElements flat list section */}
+          {links.some((l) => l.target_type === 'ArchitectureElement' || l.source_type === 'ArchitectureElement') && (
+            <div
+              data-testid="req-tracelink-architecture-section"
+              style={{
+                marginBottom: 'var(--space-6)',
+                paddingBottom: 'var(--space-4)',
+                borderBottom: '1px solid var(--color-border)',
+              }}
+            >
+              <h5
+                style={{
+                  margin: '0 0 var(--space-2) 0',
+                  fontSize: 'var(--font-size-sm)',
+                  fontWeight: 700,
+                  color: 'var(--color-text)',
+                }}
+              >
+                {t('traceability.architectureGroup')}
+              </h5>
+              <ul
+                data-testid="req-tracelink-architecture-list"
+                style={{ margin: '0', padding: '0' }}
+              >
+                {links
+                  .filter((l) => l.target_type === 'ArchitectureElement' || l.source_type === 'ArchitectureElement')
+                  .map((link) => {
+                    const isSource = link.source_id === requirementId;
+                    const otherId = isSource ? link.target_id : link.source_id;
+                    const backendTitle = isSource ? link.target_title : link.source_title;
+                    const localTitle =
+                      architectureElementsById[link.target_id]?.title ||
+                      architectureElementsById[link.source_id]?.title;
+                    const displayTitle =
+                      (backendTitle && backendTitle.length > 0 ? backendTitle : null) ??
+                      localTitle ??
+                      otherId.slice(0, 8);
+                    const route = getArtifactRoute('ArchitectureElement', otherId);
+
+                    return (
+                      <li
+                        key={link.id}
+                        data-testid="req-tracelink-arch-item"
+                        style={{
+                          padding: 'var(--space-2) var(--space-3)',
+                          marginBottom: 'var(--space-2)',
+                          background: 'var(--color-surface-raised)',
+                          borderRadius: 'var(--radius-md)',
+                          fontSize: 'var(--font-size-sm)',
+                          color: 'var(--color-text)',
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span
+                          style={{
+                            background: 'var(--color-badge-draft)',
+                            color: 'var(--color-badge-draft-text)',
+                            padding: '2px 6px',
+                            borderRadius: 'var(--radius-full)',
+                            fontSize: 'var(--font-size-sm)',
+                            marginRight: 'var(--space-2)',
+                          }}
+                        >
+                          {getLinkTypeLabel(link.link_type)}
+                        </span>
+                        <button
+                          type="button"
+                          data-testid="req-tracelink-arch-title"
+                          onClick={() => navigate(route)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            color: 'var(--color-primary)',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            fontSize: 'var(--font-size-sm)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontFamily: 'inherit',
+                          }}
+                          title={displayTitle}
+                        >
+                          {displayTitle}
+                        </button>
+                        <button
+                          data-testid="req-tracelink-delete-btn"
+                          onClick={() => void handleDelete(link.id)}
+                          style={{
+                            marginLeft: 'auto',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--color-danger)',
+                            cursor: 'pointer',
+                            fontSize: 'var(--font-size-sm)',
+                            fontWeight: 600,
+                          }}
+                          title={t('actions.delete')}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          )}
+
+          {/* TestCases and other artifact types flat list section */}
+          {links.some(
+            (l) =>
+              l.target_type !== 'Requirement' &&
+              l.source_type !== 'Requirement' &&
+              l.target_type !== 'ArchitectureElement' &&
+              l.source_type !== 'ArchitectureElement'
+          ) && (
+            <div data-testid="req-tracelink-other-section">
+              <h5
+                style={{
+                  margin: '0 0 var(--space-2) 0',
+                  fontSize: 'var(--font-size-sm)',
+                  fontWeight: 700,
+                  color: 'var(--color-text)',
+                }}
+              >
+                {t('traceability.other', 'Other Links')}
+              </h5>
+              <ul
+                data-testid="req-tracelink-other-list"
+                style={{ margin: '0', padding: '0' }}
+              >
+                {links
+                  .filter(
+                    (l) =>
+                      l.target_type !== 'Requirement' &&
+                      l.source_type !== 'Requirement' &&
+                      l.target_type !== 'ArchitectureElement' &&
+                      l.source_type !== 'ArchitectureElement'
+                  )
+                  .map((link) => {
+                    const isSource = link.source_id === requirementId;
+                    const otherId = isSource ? link.target_id : link.source_id;
+                    const artifactType = isSource ? link.target_type : link.source_type;
+                    const backendTitle = isSource ? link.target_title : link.source_title;
+                    const localTitle =
+                      testCasesById[link.target_id]?.title ||
+                      testCasesById[link.source_id]?.title;
+                    const displayTitle =
+                      (backendTitle && backendTitle.length > 0 ? backendTitle : null) ??
+                      localTitle ??
+                      otherId.slice(0, 8);
+                    const route = getArtifactRoute(artifactType ?? 'Requirement', otherId);
+
+                    return (
+                      <li
+                        key={link.id}
+                        data-testid="req-tracelink-item"
+                        style={{
+                          padding: 'var(--space-2) var(--space-3)',
+                          marginBottom: 'var(--space-2)',
+                          background: 'var(--color-surface-raised)',
+                          borderRadius: 'var(--radius-md)',
+                          fontSize: 'var(--font-size-sm)',
+                          color: 'var(--color-text)',
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span
+                          style={{
+                            background: 'var(--color-badge-draft)',
+                            color: 'var(--color-badge-draft-text)',
+                            padding: '2px 6px',
+                            borderRadius: 'var(--radius-full)',
+                            fontSize: 'var(--font-size-sm)',
+                            marginRight: 'var(--space-2)',
+                          }}
+                        >
+                          {getLinkTypeLabel(link.link_type)}
+                        </span>
+                        <button
+                          type="button"
+                          data-testid="req-tracelink-title"
+                          onClick={() => navigate(route)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            color: 'var(--color-primary)',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            fontSize: 'var(--font-size-sm)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontFamily: 'inherit',
+                          }}
+                          title={displayTitle}
+                        >
+                          {displayTitle}
+                        </button>
+                        <button
+                          data-testid="req-tracelink-delete-btn"
+                          onClick={() => void handleDelete(link.id)}
+                          style={{
+                            marginLeft: 'auto',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--color-danger)',
+                            cursor: 'pointer',
+                            fontSize: 'var(--font-size-sm)',
+                            fontWeight: 600,
+                          }}
+                          title={t('actions.delete')}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Derive a new Requirement from this one, allocated to an architecture
