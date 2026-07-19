@@ -133,10 +133,8 @@ The database is empty after migrations. You must seed the demo admin user before
 docker-compose exec backend python manage.py seed_demo
 ```
 
-**Override default password** (optional):
-```bash
-docker-compose exec -e SYSTEM_ADMIN_PASSWORD="my-secure-pw" backend python manage.py seed_demo
-```
+`SYSTEM_ADMIN_USERNAME`, `SYSTEM_ADMIN_EMAIL`, and `SYSTEM_ADMIN_PASSWORD` are configurable via
+the root `.env` file (see `.env.example`) — set them there to override the defaults.
 
 The command prints the active credentials at the end. Re-running is safe (idempotent).
 
