@@ -96,9 +96,11 @@ from persistence.models import (
     ArchitectureElement,
     Requirement,
     StakeholderNeed,
+    TraceLink,
     User,
     Workspace,
 )
+from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +140,60 @@ _ADR_STATUS_RE = re.compile(r"^\*\*Status:\*\*\s*(.+)$", re.MULTILINE)
 # docs/se REQ-Lx numbering -> persistence.models.RequirementLevel (see module
 # docstring: the two numbering schemes are NOT the same).
 _REQ_LEVEL_MAP = {"L1": 0, "L2": 1, "L3": 2}
+
+# ---------------------------------------------------------------------------
+# Post-import passes (run AFTER the four CSV entity buckets are imported)
+# ---------------------------------------------------------------------------
+
+# Feature 1 — ArchitectureElement hierarchy (parent_id).
+# parent_id is a real persistence field (REQ-L1-041) but is deliberately NOT
+# part of ENTITY_FIELD_SPECS["ArchitectureElement"], so ImportService cannot
+# carry it. This command therefore resolves the parent from the deterministic
+# docs/se folder nesting in a second pass.
+#
+# Service-vs-ORM decision: ArchitectureService.update_architecture_element(...)
+# exists and would normally be the right write path, BUT its Extended/Standard
+# rigor invariant I2 (parent.get_level() < child.get_level(),
+# application.validators) compares the CURRENT tree depth of both elements.
+# Right after a flat CSV import every element is a root (level 0), so the very
+# first re-parent is always level-0 -> level-0 and I2 rejects it — the service
+# path cannot construct a hierarchy from a flat import at all. Teaching it a
+# batch/holistic tree-construction mode is disproportionate for a one-shot
+# migration, so this pass writes parent_id via a direct, idempotency-guarded
+# ORM update (documented batch job — NOT a regular API write path). No version
+# bump / domain event is emitted, which also keeps repeated runs side-effect
+# free.
+_ARCH_ROOT_UID = "ARCH-L1-000"  # docs/se/L1/Gesamtsystem root, has no parent.
+
+# Feature 2 — traceability-matrix.md -> TraceLink pass.
+# The consolidated matrix (docs/se/traceability-matrix.md) is read after all
+# four entity buckets exist and turned into TraceLinks via TraceLinkService
+# (the regular, event-emitting creation path — analogous to ImportService for
+# the entity buckets). Link-type + orientation are chosen per matrix section so
+# they also satisfy the SE endpoint-semantics matrix
+# (traceability.types.SE_LINK_SEMANTICS) and therefore stay valid in se_mode:
+#   §1 REQ-L0 -> REQ-L1 : (REQ-L1)   derives-from (REQ-L0)  Requirement->StakeholderNeed
+#   §2 REQ-L1 -> REQ-L2 : (REQ-L2)   derives-from (REQ-L1)  Requirement->Requirement
+#   §3 REQ-L2 -> Component: (Component) implements (REQ-L2)  ArchitectureElement->Requirement
+# The §3 "Test Case" column is intentionally NOT linked: TestCase artifacts are
+# not imported by this command (see module docstring), so such an endpoint would
+# never resolve. This is a documented, deliberate omission — not a parse gap.
+_TRACE_MATRIX_FILENAME = "traceability-matrix.md"
+
+_LINK_DERIVES_FROM = LinkType.DERIVES_FROM.value  # "derives-from"
+_LINK_IMPLEMENTS = LinkType.IMPLEMENTS.value  # "implements"
+
+# uid token patterns used by the traceability-matrix parser. Each requires the
+# trailing numeric group so bare column headers ("REQ-L0", "REQ-L2") and
+# placeholder rows ("... (20 weitere REQ-L2-AS)") never match.
+_UID_L0_RE = re.compile(r"REQ-L0-\d+")
+_UID_L1_RE = re.compile(r"REQ-L1-\d+")
+_UID_L2_RE = re.compile(r"REQ-L2-[A-Z]+-\d+")
+_UID_COMP_RE = re.compile(r"COMP-[A-Z]+-\d+")
+
+# Matrix section -> parser spec, keyed by the leading section number.
+_MATRIX_SECTION_SPECS = {"1": "L0_L1", "2": "L1_L2", "3": "L2_COMP"}
+_MATRIX_HEADING_RE = re.compile(r"^#{2,3}\s+(\d)")
 
 _ADR_STATUS_MAP = {
     "PROPOSED": Adr.Status.IN_REVIEW,
@@ -453,6 +509,155 @@ def _existing_uids(entity_type: str, workspace_id) -> set:
     return set(qs.exclude(uid__isnull=True).exclude(uid="").values_list("uid", flat=True))
 
 
+# ---------------------------------------------------------------------------
+# Feature 1 — ArchitectureElement hierarchy resolution (folder-structure based)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_architecture_parents(
+    entries: List[Tuple[str, str, Path]]
+) -> Tuple[Dict[str, Optional[str]], List[str]]:
+    """Resolve each ArchitectureElement's parent uid from the folder nesting.
+
+    *entries* is the deduplicated ``(uid, element_type, path)`` list gathered
+    while parsing the ``*_Architecture.md`` files. Resolution is purely
+    structural and deterministic:
+
+    * the root (``ARCH-L1-000``) has no parent;
+    * a subsystem's parent is the root Gesamtsystem element;
+    * a component's parent is the L2 subsystem whose directory
+      (``.../L2/<System>``) is the nearest ancestor of the component file
+      (``.../L2/<System>/Components/COMP-.../L3_..._Architecture.md``).
+
+    Returns a ``{uid: parent_uid_or_None}`` mapping plus warnings for any
+    element whose structural parent could not be determined.
+    """
+    warnings: List[str] = []
+    root_present = any(uid == _ARCH_ROOT_UID for uid, _etype, _path in entries)
+
+    # Index every non-root subsystem by the directory that contains its file;
+    # a component's parent is the subsystem whose directory is its ancestor.
+    subsystem_dir_to_uid: Dict[Path, str] = {}
+    for uid, element_type, path in entries:
+        if uid == _ARCH_ROOT_UID or element_type == "component":
+            continue
+        subsystem_dir_to_uid[path.parent] = uid
+
+    parent_of: Dict[str, Optional[str]] = {}
+    for uid, element_type, path in entries:
+        if uid == _ARCH_ROOT_UID:
+            parent_of[uid] = None
+        elif element_type == "component":
+            parent_uid: Optional[str] = None
+            for ancestor in path.parents:
+                if ancestor in subsystem_dir_to_uid:
+                    parent_uid = subsystem_dir_to_uid[ancestor]
+                    break
+            if parent_uid is None:
+                warnings.append(
+                    f"{path}: component '{uid}' has no resolvable L2 subsystem "
+                    f"parent in the folder structure; parent left unset."
+                )
+            parent_of[uid] = parent_uid
+        else:
+            parent_of[uid] = _ARCH_ROOT_UID if root_present else None
+            if not root_present:
+                warnings.append(
+                    f"{path}: subsystem '{uid}' cannot be linked to root "
+                    f"'{_ARCH_ROOT_UID}' (root architecture file not parsed); "
+                    f"parent left unset."
+                )
+    return parent_of, warnings
+
+
+# ---------------------------------------------------------------------------
+# Feature 2 — traceability-matrix.md parsing + uid->artifact index
+# ---------------------------------------------------------------------------
+
+
+def _parse_trace_matrix(text: str) -> List[Tuple[str, str, str]]:
+    """Parse ``traceability-matrix.md`` into ``(source_uid, target_uid, link_type)``.
+
+    The current section is tracked from the leading number of each ``##``/``###``
+    heading (see :data:`_MATRIX_SECTION_SPECS`); only markdown table rows
+    (lines starting with ``|``) inside a recognised section are examined.
+
+    Link source/target orientation and link type follow the SE endpoint
+    semantics documented at module level. Cells marked ``—`` yield no uid token
+    and are therefore skipped implicitly, as are placeholder ``...`` rows and
+    column headers (the uid regexes require a trailing number).
+    """
+    triples: List[Tuple[str, str, str]] = []
+    spec: Optional[str] = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        heading = _MATRIX_HEADING_RE.match(line)
+        if heading:
+            spec = _MATRIX_SECTION_SPECS.get(heading.group(1))
+            continue
+        if spec is None or not line.startswith("|"):
+            continue
+        if spec == "L0_L1":
+            source = _UID_L0_RE.search(line)
+            if source:
+                for target in _UID_L1_RE.findall(line):
+                    triples.append((target, source.group(0), _LINK_DERIVES_FROM))
+        elif spec == "L1_L2":
+            source = _UID_L1_RE.search(line)
+            if source:
+                for target in _UID_L2_RE.findall(line):
+                    triples.append((target, source.group(0), _LINK_DERIVES_FROM))
+        elif spec == "L2_COMP":
+            source = _UID_L2_RE.search(line)
+            if source:
+                for component in _UID_COMP_RE.findall(line):
+                    triples.append((component, source.group(0), _LINK_IMPLEMENTS))
+    return triples
+
+
+def _uid_artifact_index(workspace_id) -> Dict[str, object]:
+    """Return a ``{uid: artifact_id}`` map over all four imported entity types.
+
+    Used by the trace-link pass to resolve a matrix uid to the backing Artifact
+    id that :class:`TraceLinkService` links. Must run inside an active tenant
+    context. On the (source-data) chance that a uid is reused across entity
+    types, the first occurrence wins.
+    """
+    index: Dict[str, object] = {}
+
+    def _add(pairs) -> None:
+        for uid, artifact_id in pairs:
+            if uid and artifact_id and uid not in index:
+                index[uid] = artifact_id
+
+    _add(
+        StakeholderNeed.objects.filter(artifact__workspace_id=workspace_id)
+        .exclude(uid__isnull=True)
+        .exclude(uid="")
+        .values_list("uid", "artifact_id")
+    )
+    _add(
+        Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        .exclude(uid__isnull=True)
+        .exclude(uid="")
+        .values_list("uid", "artifact_id")
+    )
+    _add(
+        ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
+        .exclude(uid__isnull=True)
+        .exclude(uid="")
+        .values_list("uid", "artifact_id")
+    )
+    _add(
+        Adr.objects.filter(workspace_id=workspace_id)
+        .exclude(uid__isnull=True)
+        .exclude(uid="")
+        .exclude(artifact_id__isnull=True)
+        .values_list("uid", "artifact_id")
+    )
+    return index
+
+
 class Command(BaseCommand):
     """Import docs/se/ into a ReqFlow workspace via ImportService (COMP-AS-009)."""
 
@@ -526,8 +731,15 @@ class Command(BaseCommand):
         }
         unmapped: List[Tuple[Path, str]] = []
         parse_warnings: List[str] = []
+        # (uid, element_type, path) for the Feature 1 parent-resolution pass.
+        arch_files: List[Tuple[str, str, Path]] = []
 
         for path in all_files:
+            # traceability-matrix.md is consumed by the Feature 2 trace-link
+            # pass below, not by the entity-type classification — so it is
+            # neither imported as an entity nor reported as UNMAPPED here.
+            if path.name == _TRACE_MATRIX_FILENAME:
+                continue
             bucket = _classify_file(path, docs_root)
             if bucket == "StakeholderNeed":
                 rows, warns = _parse_stakeholder_need_file(path)
@@ -542,6 +754,7 @@ class Command(BaseCommand):
                 uid, row = _parse_architecture_file(path, warns)
                 parse_warnings.extend(warns)
                 buckets["ArchitectureElement"].append((uid, row, path))
+                arch_files.append((uid, row["element_type"], path))
             elif bucket == "Adr":
                 warns = []
                 parsed = _parse_adr_file(path, warns)
@@ -575,6 +788,16 @@ class Command(BaseCommand):
                 deduped.append((uid, row))
             deduped_buckets[entity_type] = deduped
 
+        # Deduplicate the architecture-file list (first occurrence per uid wins,
+        # mirroring the bucket dedup) for the Feature 1 parent-resolution pass.
+        seen_arch_uids: set = set()
+        arch_entries: List[Tuple[str, str, Path]] = []
+        for uid, element_type, path in arch_files:
+            if uid in seen_arch_uids:
+                continue
+            seen_arch_uids.add(uid)
+            arch_entries.append((uid, element_type, path))
+
         # ---------- Idempotency filter + import ----------
         stats: Dict[str, Dict[str, int]] = {}
         set_request_tenant(workspace.tenant_id)
@@ -598,10 +821,33 @@ class Command(BaseCommand):
                 )
                 stats[entity_type]["imported"] = imported
                 stats[entity_type]["failed"] = failed
+
+            # ---------- Feature 1: ArchitectureElement hierarchy (parent_id) ----------
+            # Runs AFTER the CSV import so every ArchitectureElement exists.
+            parent_stats, parent_warnings = self._apply_parents(
+                arch_entries, workspace, ctx, dry_run
+            )
+
+            # ---------- Feature 2: trace links from traceability-matrix.md ----------
+            # Runs last: source AND target artifacts of every link must already
+            # be present across all four entity buckets.
+            trace_stats, trace_warnings = self._apply_trace_links(
+                docs_root, workspace, ctx, dry_run
+            )
         finally:
             clear_request_tenant()
 
-        self._report(stats, parse_warnings, dedup_warnings, unmapped, dry_run)
+        self._report(
+            stats,
+            parse_warnings,
+            dedup_warnings,
+            unmapped,
+            dry_run,
+            parent_stats,
+            parent_warnings,
+            trace_stats,
+            trace_warnings,
+        )
 
     def _import_entity_rows(
         self,
@@ -642,6 +888,159 @@ class Command(BaseCommand):
                 )
         return imported, failed
 
+    def _apply_parents(
+        self,
+        arch_entries: List[Tuple[str, str, Path]],
+        workspace,
+        ctx: AuthContext,
+        dry_run: bool,
+    ) -> Tuple[Dict[str, int], List[str]]:
+        """Feature 1: write ArchitectureElement.parent_id from folder structure.
+
+        Writes ``parent_id`` via a direct, idempotency-guarded ORM update — a
+        deliberate choice for this one-shot migration batch job, NOT a regular
+        write path. See the module-level Feature 1 note for the full rationale:
+        the ArchitectureService invariant I2 compares the elements' *current*
+        tree depth and therefore rejects the first re-parent of two freshly
+        imported level-0 elements, so the domain service cannot construct a
+        hierarchy from a flat import. The write is skipped when ``parent_id``
+        already matches, so a repeated run performs no writes.
+
+        Must run inside an active tenant context. Returns ``(stats, warnings)``.
+        """
+        parent_of, warnings = _resolve_architecture_parents(arch_entries)
+        stats = {"with_parent": 0, "already_set": 0, "assigned": 0, "unresolved": 0}
+
+        elements = {
+            el.uid: el
+            for el in ArchitectureElement.objects.filter(
+                artifact__workspace_id=workspace.id
+            )
+            .exclude(uid__isnull=True)
+            .exclude(uid="")
+        }
+
+        for uid, parent_uid in parent_of.items():
+            if parent_uid is None:
+                continue
+            stats["with_parent"] += 1
+            element = elements.get(uid)
+            parent = elements.get(parent_uid)
+            if element is None or parent is None:
+                stats["unresolved"] += 1
+                missing = uid if element is None else parent_uid
+                warnings.append(
+                    f"parent link {uid} -> {parent_uid}: '{missing}' not found "
+                    f"among imported ArchitectureElements; skipped."
+                )
+                continue
+            if element.parent_id == parent.id:
+                stats["already_set"] += 1
+                continue
+            if dry_run:
+                continue
+            # Direct ORM update (batch migration only — see module note). A bare
+            # .update() avoids version churn and domain events, keeping reruns
+            # side-effect free.
+            ArchitectureElement.objects.filter(id=element.id).update(
+                parent_id=parent.id
+            )
+            element.parent_id = parent.id  # keep the local cache consistent
+            stats["assigned"] += 1
+        return stats, warnings
+
+    def _apply_trace_links(
+        self,
+        docs_root: Path,
+        workspace,
+        ctx: AuthContext,
+        dry_run: bool,
+    ) -> Tuple[Dict[str, int], List[str]]:
+        """Feature 2: create TraceLinks from ``traceability-matrix.md``.
+
+        Uses :meth:`TraceLinkService.create_trace_link` — the regular,
+        event-emitting creation path (analogous to ImportService for the four
+        entity buckets) — and skips any triple that already exists
+        (idempotency). Unresolvable uids are reported as warnings, never fatal.
+
+        Must run inside an active tenant context. Returns ``(stats, warnings)``.
+        """
+        warnings: List[str] = []
+        stats = {
+            "parsed": 0,
+            "resolved": 0,
+            "already_linked": 0,
+            "new": 0,
+            "created": 0,
+            "failed": 0,
+            "unresolved": 0,
+        }
+
+        matrix_path = docs_root / _TRACE_MATRIX_FILENAME
+        if not matrix_path.is_file():
+            warnings.append(
+                f"{matrix_path}: traceability matrix not found; "
+                f"no trace links imported."
+            )
+            return stats, warnings
+
+        triples = _parse_trace_matrix(matrix_path.read_text(encoding="utf-8"))
+        # Intra-run dedup (identical source/target/type tuples collapse to one).
+        seen: set = set()
+        deduped: List[Tuple[str, str, str]] = []
+        for triple in triples:
+            if triple in seen:
+                continue
+            seen.add(triple)
+            deduped.append(triple)
+        stats["parsed"] = len(deduped)
+
+        index = _uid_artifact_index(workspace.id)
+        service = None
+        for source_uid, target_uid, link_type in deduped:
+            source_id = index.get(source_uid)
+            target_id = index.get(target_uid)
+            if source_id is None or target_id is None:
+                stats["unresolved"] += 1
+                missing = [
+                    u
+                    for u, resolved in ((source_uid, source_id), (target_uid, target_id))
+                    if resolved is None
+                ]
+                warnings.append(
+                    f"trace-link {source_uid} --{link_type}--> {target_uid}: "
+                    f"unresolved uid(s) {missing}; skipped."
+                )
+                continue
+            stats["resolved"] += 1
+            if TraceLink.objects.filter(
+                source_id=source_id, target_id=target_id, link_type=link_type
+            ).exists():
+                stats["already_linked"] += 1
+                continue
+            stats["new"] += 1
+            if dry_run:
+                continue
+            try:
+                if service is None:
+                    from application.trace_link_service import TraceLinkService
+
+                    service = TraceLinkService()
+                service.create_trace_link(
+                    source_id=source_id,
+                    target_id=target_id,
+                    link_type=link_type,
+                    ctx=ctx,
+                )
+                stats["created"] += 1
+            except Exception as exc:  # noqa: BLE001 — report, never abort the batch
+                stats["failed"] += 1
+                warnings.append(
+                    f"trace-link {source_uid} --{link_type}--> {target_uid}: "
+                    f"creation failed ({exc}); skipped."
+                )
+        return stats, warnings
+
     def _report(
         self,
         stats: Dict[str, Dict[str, int]],
@@ -649,6 +1048,10 @@ class Command(BaseCommand):
         dedup_warnings: List[str],
         unmapped: List[Tuple[Path, str]],
         dry_run: bool,
+        parent_stats: Dict[str, int],
+        parent_warnings: List[str],
+        trace_stats: Dict[str, int],
+        trace_warnings: List[str],
     ) -> None:
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("=== Import summary ==="))
@@ -661,7 +1064,41 @@ class Command(BaseCommand):
                 line += f" imported={s['imported']} failed={s['failed']}"
             self.stdout.write(line)
 
-        all_warnings = parse_warnings + dedup_warnings
+        # ---------- Feature 1: ArchitectureElement hierarchy ----------
+        self.stdout.write("")
+        self.stdout.write(
+            self.style.SUCCESS("=== ArchitectureElement hierarchy (parent_id) ===")
+        )
+        ps = parent_stats
+        parent_line = (
+            f"  parents: with_parent={ps['with_parent']} "
+            f"already_set={ps['already_set']} unresolved={ps['unresolved']}"
+        )
+        if dry_run:
+            would = ps["with_parent"] - ps["already_set"] - ps["unresolved"]
+            parent_line += f" would_assign={would}"
+        else:
+            parent_line += f" assigned={ps['assigned']}"
+        self.stdout.write(parent_line)
+
+        # ---------- Feature 2: trace links ----------
+        self.stdout.write("")
+        self.stdout.write(
+            self.style.SUCCESS("=== Trace links (traceability-matrix.md) ===")
+        )
+        ts = trace_stats
+        trace_line = (
+            f"  trace_links: parsed={ts['parsed']} resolved={ts['resolved']} "
+            f"already_linked={ts['already_linked']} unresolved={ts['unresolved']} "
+            f"new={ts['new']}"
+        )
+        if not dry_run:
+            trace_line += f" created={ts['created']} failed={ts['failed']}"
+        self.stdout.write(trace_line)
+
+        all_warnings = (
+            parse_warnings + dedup_warnings + parent_warnings + trace_warnings
+        )
         if all_warnings:
             self.stdout.write("")
             self.stdout.write(self.style.WARNING(f"WARNINGS ({len(all_warnings)}):"))
