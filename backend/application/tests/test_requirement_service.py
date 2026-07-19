@@ -11,7 +11,9 @@ Coverage:
   - update_requirement: success, change_reason policy enforcement, not found
   - delete_requirement: soft-delete (lifecycle_status='deleted', REQ-006), not found
   - get_requirement / list_requirements: basic delegation
-  - decompose: manual children persisted; LLM path raises LlmNotConfiguredError
+  - decompose: manual children persisted; LLM path raises LlmNotConfiguredError;
+               always creates LinkType.DECOMPOSES TraceLinks, regardless of
+               Workspace.decomposition_link_type (UMSETZUNGSPLAN_SYSENG_2.0.md §1.4)
   - Tenant isolation: _set_tenant_context called on every write
 """
 from __future__ import annotations
@@ -32,6 +34,7 @@ from application.requirement_service import (
     RequirementDTO,
     RequirementService,
 )
+from traceability.types import LinkType
 
 pytestmark = pytest.mark.django_db
 
@@ -690,10 +693,11 @@ class TestDecompose:
                 ),
             ),
             patch.object(svc, "create_requirement", return_value=mock_child_req),
-            patch("application.requirement_service.Workspace.objects.filter"),
             patch.object(
-                svc._trace_link_service, "create_trace_link", side_effect=Exception("no-op")
-            ),
+                svc._trace_link_service,
+                "create_trace_link",
+                return_value=MagicMock(id=uuid.uuid4()),
+            ) as mock_create_trace_link,
         ):
             result = svc.decompose(
                 requirement_id=REQ_ID,
@@ -704,6 +708,59 @@ class TestDecompose:
         assert isinstance(result, DecompositionResultDTO)
         assert len(result.children) == 1
         assert result.children[0].title == "Child"
+        # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4: decompose() always creates
+        # LinkType.DECOMPOSES links — Workspace is no longer consulted.
+        assert mock_create_trace_link.call_args.kwargs["link_type"] == LinkType.DECOMPOSES.value
+
+    def test_decompose_ignores_workspace_decomposition_link_type(self):
+        """decompose creates LinkType.DECOMPOSES even if the workspace is configured
+        with a different decomposition_link_type (hardcoded, no longer read)."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_parent = _make_requirement()
+        mock_child_req = _make_requirement(title="Child")
+        mock_child_req.artifact = MagicMock()
+        mock_child_req.artifact_id = uuid.uuid4()
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.ServiceBase._assert_write_permission"
+            ),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_parent)
+                        )
+                    )
+                ),
+            ),
+            patch.object(svc, "create_requirement", return_value=mock_child_req),
+            # A workspace configured with a different link type must NOT
+            # influence the (now hardcoded) generation path.
+            patch(
+                "application.requirement_service.Workspace.objects.filter",
+                return_value=MagicMock(
+                    first=MagicMock(
+                        return_value=MagicMock(decomposition_link_type="satisfies")
+                    )
+                ),
+            ),
+            patch.object(
+                svc._trace_link_service,
+                "create_trace_link",
+                return_value=MagicMock(id=uuid.uuid4()),
+            ) as mock_create_trace_link,
+        ):
+            svc.decompose(
+                requirement_id=REQ_ID,
+                ctx=ctx,
+                children=[{"title": "Child", "description": "desc"}],
+            )
+
+        assert mock_create_trace_link.call_args.kwargs["link_type"] == LinkType.DECOMPOSES.value
 
     def test_decompose_llm_not_configured_raises(self):
         """_decompose_via_llm raises LlmNotConfiguredError when LLM absent."""
