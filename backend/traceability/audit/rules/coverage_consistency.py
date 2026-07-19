@@ -27,61 +27,38 @@ of §2.2): a Requirement with an *explicitly assigned*
 NOT skipped — same rationale as the sibling rule modules.
 
 --------------------------------------------------------------------------
-LinkType gap: CONFLICTS_WITH / SUPERCEDES (verified against code, 2026-07-19)
+LinkType gap: CONS-P9/CONS-P10 are deferred (verified against code, 2026-07-19)
 --------------------------------------------------------------------------
-The task brief for CONS-P9/CONS-P10 states that ``CONFLICTS_WITH`` and
-``SUPERCEDES`` "are already existing LinkType values". Verified against
-``backend/traceability/types.py`` and found **not to hold**: the ``LinkType``
-enum has 14 members (see UMSETZUNGSPLAN_SYSENG_2.0.md §2.3 — the CLAUDE.md
-project taxonomy names 8 link types including ``CONFLICTS_WITH`` and
-``SUPERCEDES``, but the actual code enum diverges and does not define either
-of these two). ``TraceLinkManager.create_link()`` validates ``link_type``
-against ``VALID_LINK_TYPES`` and would currently reject both strings
-(``InvalidLinkTypeError``) — §2.3 already flags this exact
-taxonomy/implementation mismatch for ``decomposes``/``allocated-to`` and
-leaves closing the remaining gaps as follow-up work.
+CONS-P9 ("open CONFLICTS_WITH link blocks the Approval-Transition") and
+CONS-P10 ("no link may reference a SUPERCEDES-replaced artifact") both
+require ``LinkType`` members that do not exist. Verified against
+``backend/traceability/types.py``: the ``LinkType`` enum has 14 members (see
+UMSETZUNGSPLAN_SYSENG_2.0.md §2.3 — the CLAUDE.md project taxonomy names 8
+link types including ``CONFLICTS_WITH`` and ``SUPERCEDES``, but the actual
+code enum diverges and defines neither). ``TraceLinkManager.create_link()``
+validates ``link_type`` against ``VALID_LINK_TYPES`` and would reject both
+strings (``InvalidLinkTypeError``) — no real user can ever create such a
+link through the validated path.
 
-Adding new ``LinkType`` enum members is outside this module's authorized
-scope (only ``registry.py`` rule-id constants and ``rules/__init__.py``
-integration are the sanctioned core-file edits for this task). These two
-rules are therefore written against literal, kebab-case string constants
-that match the existing ``LinkType`` naming convention
-(``"conflicts-with"``, ``"supersedes"``) rather than enum members. The moment
-the enum gap is closed (a small, additive follow-up mirroring how
-``decomposes`` was added, §1.4) these rules keep working unchanged — they
-never import the enum member, only the string value it would carry.
-
-``TraceLink.link_type`` is a plain ``CharField`` with no DB-level enum
-constraint (``persistence/models.py``) and ``TraceLink.objects.create()``
-bypasses ``TraceLinkManager`` validation entirely (as the shared
-``make_trace_link`` test helper already does for every other link type in
-this test suite) — a row with one of these two link_type values can already
-exist in the data (seeded, imported, or created once the service-layer path
-is extended), and these rules audit whatever data is actually there.
+An earlier iteration of these two rules queried against raw, kebab-case
+string literals (``"conflicts-with"``, ``"supersedes"``) to work around the
+missing enum members. That bypasses ``TraceLinkManager._validate_link_type()``
+and can only be exercised via the unvalidated ``TraceLink.objects.create()``
+path (as the ``make_trace_link`` test helper did) — a path no real user
+traffic reaches. Per explicit product decision (no enum extension, no string
+workaround), both rules are now marked **deferred** instead: they stay
+registered in the catalogue (see :attr:`traceability.audit.registry.Rule.deferred_reason`)
+but the RuleEngine guarantees zero findings and never calls their ``check``
+for any tier. Implementing them for real is follow-up work, gated on the
+``LinkType`` enum actually gaining ``CONFLICTS_WITH``/``SUPERCEDES`` members.
 
 --------------------------------------------------------------------------
-CONS-P9: workflow-state correlation
+TRACE-P6 / VERIF-P8 "supersedes" note
 --------------------------------------------------------------------------
-"Approval-Transition" is read from ``workflow.models.WorkflowItemState``, the
-single source of truth for an item's current workflow state (COMP-WE-003).
-Note ``WorkflowItemState.item_id`` is **not** the artifact id: every
-``...Service.create()`` calls ``initialize_workflow_states(item_ids=[<entity>.id], ...)``
-with the domain entity's *own* primary key (e.g.
-``application/requirement_service.py`` passes ``requirement.id``, not
-``artifact.id``; same for ``architecture_service.py`` / ``arch_el.id`` and
-``test_service.py`` / ``test_case.id``). TraceLink endpoints, by contrast,
-always reference the Artifact id. ``_workflow_trackable_artifacts()`` below
-bridges the two id spaces. Some entities additionally denormalize
-``current_state`` onto a ``status`` column (REQ-165/166,
-``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``) but ``ArchitectureElement``
-is deliberately NOT wired into that mirror map (REQ-171) — so this rule reads
-``WorkflowItemState`` directly and uniformly for every entity type instead of
-relying on the mirror, which would silently miss ArchitectureElement.
-
-"Offene (nicht aufgelöste) CONFLICTS_WITH-Links" — the TraceLink model has no
-resolution/ack flag, so there is no separate "resolved" state to check:
-existence of the link IS "open" (nothing in this codebase currently marks a
-conflict link as resolved other than deleting it).
+TRACE-P6 already filters trace links by the literal string ``"supersedes"``
+(via :func:`_superseded_artifact_ids`) — that pre-existing behaviour is out of
+scope for this change (TRACE-P6 stays active and unmodified) and is left as
+is; only CONS-P9/CONS-P10 are deferred here.
 
 None of the four rules re-implement endpoint-type legality — that is
 ``traceability.types.check_se_link_semantics`` territory (§2.1). They only
@@ -96,7 +73,6 @@ from persistence.models import (
     LifecycleStatus,
     Requirement,
     RequirementLevel,
-    StakeholderNeed,
     TestCase,
 )
 from traceability.audit.registry import (
@@ -110,8 +86,9 @@ from traceability.audit.registry import (
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
 
-# See the "LinkType gap" section of the module docstring.
-_CONFLICTS_WITH = "conflicts-with"
+# Used by TRACE-P6 only (_superseded_artifact_ids below); see the
+# "TRACE-P6 / VERIF-P8 'supersedes' note" section of the module docstring —
+# out of scope for the CONS-P9/CONS-P10 deferral in this module.
 _SUPERCEDES = "supersedes"
 
 _DECOMPOSITION_LINK_TYPES: FrozenSet[str] = frozenset(
@@ -214,68 +191,6 @@ def _leaf_requirement_ids(
         if link["source_id"] in requirement_ids and link["target_id"] in requirement_ids:
             parent_ids.add(link["source_id"])
     return requirement_ids - frozenset(parent_ids)
-
-
-def _workflow_trackable_artifacts(
-    context: AuditContext,
-) -> Dict[str, Tuple[str, str]]:
-    """Return ``{artifact_id: (item_type, item_id)}`` for the SE-core entity
-    types that carry a ``WorkflowItemState`` (Requirement, ArchitectureElement,
-    StakeholderNeed, TestCase). See the "CONS-P9: workflow-state correlation"
-    section of the module docstring for why this id-space bridge is needed.
-    """
-    mapping: Dict[str, Tuple[str, str]] = {}
-
-    req_qs = Requirement.unscoped.filter(
-        tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
-    for artifact_id, item_id in req_qs.values_list("artifact_id", "id"):
-        mapping[str(artifact_id)] = ("Requirement", str(item_id))
-
-    arch_qs = ArchitectureElement.unscoped.filter(
-        tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
-    for artifact_id, item_id in arch_qs.values_list("artifact_id", "id"):
-        mapping[str(artifact_id)] = ("ArchitectureElement", str(item_id))
-
-    need_qs = StakeholderNeed.unscoped.filter(
-        tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
-    for artifact_id, item_id in need_qs.values_list("artifact_id", "id"):
-        mapping[str(artifact_id)] = ("StakeholderNeed", str(item_id))
-
-    tc_qs = TestCase.unscoped.filter(
-        tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
-    )
-    for artifact_id, item_id in tc_qs.values_list("artifact_id", "id"):
-        mapping[str(artifact_id)] = ("TestCase", str(item_id))
-
-    return mapping
-
-
-def _current_states_by_item(
-    context: AuditContext, items: FrozenSet[Tuple[str, str]]
-) -> Dict[Tuple[str, str], str]:
-    """Return ``{(item_type, item_id): current_state}`` for *items*.
-
-    Deferred import: ``workflow`` is a Layer-1 sibling app, mirroring the
-    deferred ``baseline.services`` import in ``AuditContext.scope_item_ids``.
-    """
-    if not items:
-        return {}
-    from workflow.models import WorkflowItemState
-
-    item_types = {t for t, _ in items}
-    item_ids = {i for _, i in items}
-    rows = WorkflowItemState.unscoped.filter(
-        tenant_id=context.tenant_id,
-        workspace_id=context.workspace_id,
-        item_type__in=item_types,
-        item_id__in=item_ids,
-    ).values("item_type", "item_id", "current_state")
-    return {
-        (row["item_type"], str(row["item_id"])): row["current_state"] for row in rows
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -381,107 +296,66 @@ class LeafRequirementHasTestCaseRule(Rule):
 
 # ---------------------------------------------------------------------------
 # CONS-P9 — open CONFLICTS_WITH links block the Approval-Transition of an
-# artifact. Standard + Extended.
+# artifact. DEFERRED: LinkType.CONFLICTS_WITH does not exist yet, see the
+# "LinkType gap" section of the module docstring.
 # ---------------------------------------------------------------------------
 
 
 @register_rule
 class OpenConflictBlocksApprovalRule(Rule):
-    """CONS-P9: an artifact with an open CONFLICTS_WITH link may not be Approved."""
+    """CONS-P9: an artifact with an open CONFLICTS_WITH link may not be Approved.
+
+    Deferred — see :attr:`deferred_reason` and the module docstring's
+    "LinkType gap" section. Registered/visible in the catalogue, but the
+    RuleEngine guarantees this never produces findings and never calls
+    :meth:`check`, for any rigor tier.
+    """
 
     rule_id = CONS_P9
+    deferred_reason = (
+        "LinkType.CONFLICTS_WITH is not a member of traceability.types.LinkType "
+        "(14 members, verified 2026-07-19; see UMSETZUNGSPLAN_SYSENG_2.0.md "
+        "§2.3). No unvalidated string workaround is used per product "
+        "decision — implement this rule once the enum is extended."
+    )
 
     def check(self, context: AuditContext) -> List[Finding]:
-        conflict_links = [
-            link
-            for link in context.iter_trace_links()
-            if link["link_type"] == _CONFLICTS_WITH
-        ]
-        if not conflict_links:
-            return []
-
-        trackable = _workflow_trackable_artifacts(context)
-        if not trackable:
-            return []
-
-        items = frozenset(trackable.values())
-        current_states = _current_states_by_item(context, items)
-
-        findings: List[Finding] = []
-        seen: Set[Tuple[str, str]] = set()  # (link_id, artifact_id) dedup
-        for link in conflict_links:
-            for endpoint_id in (link["source_id"], link["target_id"]):
-                item = trackable.get(endpoint_id)
-                if item is None:
-                    continue
-                state = current_states.get(item)
-                if not state or state.lower() != "approved":
-                    continue
-                dedup_key = (link["id"], endpoint_id)
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
-                findings.append(
-                    Finding(
-                        rule_id=self.rule_id,
-                        severity=Severity.BLOCKER,
-                        message=(
-                            f"[CONS-P9] Artifact {endpoint_id} is in state "
-                            f"'{state}' but has an open 'conflicts-with' link "
-                            f"({link['id']}) — the Approval-Transition is "
-                            "blocked until the conflict is resolved."
-                        ),
-                        artifact_ids=(endpoint_id,),
-                    )
-                )
-        return findings
+        """Never invoked (deferred rule) — kept only to satisfy the abstract
+        :class:`Rule` interface. See :attr:`deferred_reason`.
+        """
+        return []
 
 
 # ---------------------------------------------------------------------------
 # CONS-P10 — no active TraceLink references an artifact already replaced via
-# SUPERCEDES (dangling-superseded check). Standard + Extended.
+# SUPERCEDES (dangling-superseded check). DEFERRED: LinkType.SUPERCEDES does
+# not exist yet, see the "LinkType gap" section of the module docstring.
 # ---------------------------------------------------------------------------
 
 
 @register_rule
 class NoDanglingSupersededReferenceRule(Rule):
-    """CONS-P10: no non-SUPERCEDES link may reference a superseded artifact."""
+    """CONS-P10: no non-SUPERCEDES link may reference a superseded artifact.
+
+    Deferred — see :attr:`deferred_reason` and the module docstring's
+    "LinkType gap" section. Registered/visible in the catalogue, but the
+    RuleEngine guarantees this never produces findings and never calls
+    :meth:`check`, for any rigor tier.
+    """
 
     rule_id = CONS_P10
+    deferred_reason = (
+        "LinkType.SUPERCEDES is not a member of traceability.types.LinkType "
+        "(14 members, verified 2026-07-19; see UMSETZUNGSPLAN_SYSENG_2.0.md "
+        "§2.3). No unvalidated string workaround is used per product "
+        "decision — implement this rule once the enum is extended."
+    )
 
     def check(self, context: AuditContext) -> List[Finding]:
-        all_links = list(context.iter_trace_links())
-        superseded_ids = frozenset(
-            link["target_id"] for link in all_links if link["link_type"] == _SUPERCEDES
-        )
-        if not superseded_ids:
-            return []
-
-        findings: List[Finding] = []
-        for link in all_links:
-            if link["link_type"] == _SUPERCEDES:
-                continue  # the supersession link itself is not a dangling reference
-            offending_id = None
-            if link["source_id"] in superseded_ids:
-                offending_id = link["source_id"]
-            elif link["target_id"] in superseded_ids:
-                offending_id = link["target_id"]
-            if offending_id is None:
-                continue
-            findings.append(
-                Finding(
-                    rule_id=self.rule_id,
-                    severity=Severity.BLOCKER,
-                    message=(
-                        f"[CONS-P10] Trace link {link['id']} "
-                        f"({link['link_type']}) references artifact "
-                        f"{offending_id}, which has already been replaced via "
-                        "a 'supersedes' link (dangling-superseded reference)."
-                    ),
-                    artifact_ids=(offending_id,),
-                )
-            )
-        return findings
+        """Never invoked (deferred rule) — kept only to satisfy the abstract
+        :class:`Rule` interface. See :attr:`deferred_reason`.
+        """
+        return []
 
 
 __all__ = [

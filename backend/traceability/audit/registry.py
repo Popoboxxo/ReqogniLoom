@@ -32,6 +32,10 @@ Adding a new rule (for the follow-up rule-implementer agents)
 5. Add ``from . import <rule>`` to ``rules/__init__.py`` so it self-registers.
 6. Ensure ``rule_id`` is listed in ``RULE_PRESET_MAP`` for every tier it must
    run in. ``register_rule`` rejects unknown ids, so a typo fails loudly.
+7. If the check would require a data-model prerequisite that does not exist
+   yet (e.g. a missing ``LinkType`` enum member), do NOT implement it against
+   a string-literal workaround — set ``deferred_reason`` instead (see the
+   "Deferred rules" section of :class:`Rule`) and let ``check`` return ``[]``.
 
 Do NOT re-implement endpoint-type legality — call
 ``traceability.types.check_se_link_semantics`` instead (§2.1).
@@ -171,10 +175,31 @@ class Rule(ABC):
                                 is a graph-wide, scope-agnostic check.
 
     Instances are stateless and constructed once at registration time.
+
+    Deferred rules
+    --------------
+    A rule whose check logic depends on a data-model prerequisite that does
+    not exist yet (e.g. a ``LinkType`` enum member that was never added)
+    should NOT be implemented against an unvalidated workaround (raw string
+    literals bypassing ``TraceLinkManager`` validation, ad-hoc DB flags,
+    etc.). Instead, set the class attribute ``deferred_reason`` to a
+    non-empty, human- and machine-readable string explaining what is
+    missing. The rule stays registered and visible in the catalogue (see
+    :func:`get_registered_rules`), but :class:`~traceability.audit.rule_engine.RuleEngine`
+    short-circuits it to an empty finding list for every rigor tier — its
+    ``check`` method is never invoked, so it can never raise or query the
+    database. Once the missing prerequisite lands, clear ``deferred_reason``
+    and implement ``check`` for real; the rule id, its ``RULE_PRESET_MAP``
+    placement and every caller stay unchanged.
     """
 
     rule_id: str = ""
     is_scope_aware: bool = False
+    #: ``None`` (default) = the rule runs normally. A non-empty string marks
+    #: the rule as deferred: it is registered/visible but the RuleEngine
+    #: guarantees zero findings and skips ``check`` entirely for every tier.
+    #: See the "Deferred rules" section above.
+    deferred_reason: str | None = None
 
     def applies_to_preset(self, tier: str) -> bool:
         """Return True if this rule is active for rigor *tier*.

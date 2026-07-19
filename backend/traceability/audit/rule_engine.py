@@ -125,7 +125,15 @@ class RuleEngine:
         authority on per-tier severity (e.g. TRACE-P2 downgrades to WARNING at
         Standard), so it overrides each finding's severity with
         ``rule.severity_for_tier(tier)`` to keep that policy in one place.
+
+        Deferred rules (``rule.deferred_reason is not None``, see
+        :class:`traceability.audit.registry.Rule`) are short-circuited to an
+        empty finding list here, before ``severity_for_tier`` or ``check`` is
+        ever called — deferred rules stay registered/visible but are
+        guaranteed to never run real check logic, for any tier.
         """
+        if rule.deferred_reason is not None:
+            return []
         severity = rule.severity_for_tier(tier)
         raw = rule.check(context)
         stamped: List[Finding] = []

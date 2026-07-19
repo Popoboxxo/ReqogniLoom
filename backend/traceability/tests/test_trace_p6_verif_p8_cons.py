@@ -14,14 +14,15 @@ from __future__ import annotations
 
 import pytest
 
-from persistence.models import (
-    ArchitectureElement,
-    Requirement,
-    RequirementLevel,
-    StakeholderNeed,
-)
+from persistence.models import Requirement, RequirementLevel
 from traceability.audit import RuleEngine
-from traceability.audit.registry import CONS_P9, CONS_P10, TRACE_P6, VERIF_P8
+from traceability.audit.registry import (
+    CONS_P9,
+    CONS_P10,
+    TRACE_P6,
+    VERIF_P8,
+    get_registered_rules,
+)
 from traceability.audit.rules import coverage_consistency  # noqa: F401  (registers rules)
 from traceability.tests.conftest import (
     active_tenant,
@@ -35,22 +36,8 @@ pytestmark = pytest.mark.django_db
 
 
 # ---------------------------------------------------------------------------
-# Local factories (mirrors test_trace_p4_p5_arch003.py's _architecture_element)
+# Local factories
 # ---------------------------------------------------------------------------
-
-
-def _architecture_element(tenant, workspace, *, parent=None, title="AE"):
-    artifact = make_artifact(tenant, workspace, artifact_type="architecture-element")
-    return artifact, ArchitectureElement.objects.create(
-        tenant=tenant, artifact=artifact, title=title, parent=parent
-    )
-
-
-def _stakeholder_need(tenant, workspace, *, title="Need"):
-    artifact = make_artifact(tenant, workspace, artifact_type="stakeholder-need")
-    return artifact, StakeholderNeed.objects.create(
-        tenant=tenant, artifact=artifact, title=title
-    )
 
 
 def _workflow_definition(tenant, workspace, item_type):
@@ -200,102 +187,51 @@ class TestVerifP8:
 
 
 # ---------------------------------------------------------------------------
-# CONS-P9 — open CONFLICTS_WITH links block the Approval-Transition.
+# CONS-P9 / CONS-P10 — deferred (LinkType.CONFLICTS_WITH / SUPERCEDES do not
+# exist in the traceability.types.LinkType enum, and no unvalidated string
+# workaround is used per product decision). Both rules stay registered but
+# must never produce a finding and must never crash, for any rigor tier. See
+# the "LinkType gap" section of coverage_consistency.py's module docstring.
 # ---------------------------------------------------------------------------
 
 
-class TestConsP9:
-    def test_draft_artifact_with_open_conflict_is_not_flagged(
-        self, tenant_a, workspace_a
+class TestConsP9AndP10AreDeferred:
+    def test_both_rules_are_still_registered(self):
+        ids = {r.rule_id for r in get_registered_rules()}
+        assert CONS_P9 in ids
+        assert CONS_P10 in ids
+
+    def test_both_rules_expose_a_deferred_reason(self):
+        rules = {r.rule_id: r for r in get_registered_rules()}
+        assert rules[CONS_P9].deferred_reason
+        assert rules[CONS_P10].deferred_reason
+
+    @pytest.mark.parametrize("tier", ["minimal", "standard", "extended"])
+    def test_run_yields_zero_findings_for_every_tier_no_matter_the_data(
+        self, tenant_a, workspace_a, tier
     ):
+        """Deferred rules must never fire, even against data that would have
+        violated the old (now-removed) CONS-P9/CONS-P10 check logic."""
         with active_tenant(tenant_a):
             req_a, requirement_a = make_requirement(tenant_a, workspace_a, title="A")
             req_b, _ = make_requirement(tenant_a, workspace_a, title="B")
-            make_trace_link(req_a, req_b, tenant_a, "conflicts-with")
-            _set_workflow_state(
-                tenant_a, workspace_a, "Requirement", requirement_a.id, "draft"
-            )
-
-            result = _run(tenant_a, workspace_a, tier="standard")
-
-        assert _findings(result, CONS_P9) == []
-
-    def test_approved_artifact_with_open_conflict_is_flagged(
-        self, tenant_a, workspace_a
-    ):
-        with active_tenant(tenant_a):
-            req_a, requirement_a = make_requirement(tenant_a, workspace_a, title="A")
-            req_b, _ = make_requirement(tenant_a, workspace_a, title="B")
-            make_trace_link(req_a, req_b, tenant_a, "conflicts-with")
             _set_workflow_state(
                 tenant_a, workspace_a, "Requirement", requirement_a.id, "approved"
             )
-
-            result = _run(tenant_a, workspace_a, tier="standard")
-
-        findings = _findings(result, CONS_P9)
-        assert len(findings) == 1
-        assert str(req_a.id) in findings[0].artifact_ids
-
-    def test_approved_architecture_element_with_open_conflict_is_flagged(
-        self, tenant_a, workspace_a
-    ):
-        """ArchitectureElement has no status mirror — must read WorkflowItemState directly."""
-        with active_tenant(tenant_a):
-            ae_artifact, ae = _architecture_element(tenant_a, workspace_a, title="AE")
-            req_artifact, _ = make_requirement(tenant_a, workspace_a, title="Req")
-            make_trace_link(ae_artifact, req_artifact, tenant_a, "conflicts-with")
-            _set_workflow_state(
-                tenant_a, workspace_a, "ArchitectureElement", ae.id, "approved"
-            )
-
-            result = _run(tenant_a, workspace_a, tier="standard")
-
-        findings = _findings(result, CONS_P9)
-        assert len(findings) == 1
-        assert str(ae_artifact.id) in findings[0].artifact_ids
-
-
-# ---------------------------------------------------------------------------
-# CONS-P10 — no active TraceLink references a superseded artifact.
-# ---------------------------------------------------------------------------
-
-
-class TestConsP10:
-    def test_link_to_non_superseded_artifact_is_clean(self, tenant_a, workspace_a):
-        with active_tenant(tenant_a):
             old_req, _ = make_requirement(tenant_a, workspace_a, title="Old")
             new_req, _ = make_requirement(tenant_a, workspace_a, title="New")
             make_trace_link(new_req, old_req, tenant_a, "supersedes")
+            make_trace_link(req_a, old_req, tenant_a, "satisfies")
+            make_trace_link(req_a, req_b, tenant_a, "conflicts-with")
 
-            unrelated_a, _ = make_requirement(tenant_a, workspace_a, title="X")
-            unrelated_b, _ = make_requirement(tenant_a, workspace_a, title="Y")
-            make_trace_link(unrelated_a, unrelated_b, tenant_a, "satisfies")
+            result = _run(tenant_a, workspace_a, tier=tier)
 
-            result = _run(tenant_a, workspace_a, tier="standard")
-
+        assert _findings(result, CONS_P9) == []
         assert _findings(result, CONS_P10) == []
 
-    def test_dangling_reference_to_superseded_artifact_is_flagged(
-        self, tenant_a, workspace_a
-    ):
-        with active_tenant(tenant_a):
-            old_req, _ = make_requirement(tenant_a, workspace_a, title="Old")
-            new_req, _ = make_requirement(tenant_a, workspace_a, title="New")
-            make_trace_link(new_req, old_req, tenant_a, "supersedes")
-
-            other, _ = make_requirement(tenant_a, workspace_a, title="Other")
-            make_trace_link(other, old_req, tenant_a, "satisfies")
-
-            result = _run(tenant_a, workspace_a, tier="standard")
-
-        findings = _findings(result, CONS_P10)
-        assert len(findings) == 1
-        assert str(old_req.id) in findings[0].artifact_ids
-
 
 # ---------------------------------------------------------------------------
-# Preset structural guarantee, exercised across all 4 rules.
+# Preset structural guarantee, exercised across TRACE-P6/VERIF-P8.
 # ---------------------------------------------------------------------------
 
 
@@ -307,20 +243,7 @@ class TestMinimalPresetIsUnaffected:
             # TRACE-P6 violation: orphan TestCase.
             make_test_case(tenant_a, workspace_a, title="Orphan TC")
             # VERIF-P8 violation: leaf Requirement without TestCase.
-            req_artifact, requirement = make_requirement(
-                tenant_a, workspace_a, title="Leaf Req"
-            )
-            # CONS-P9 violation: approved Requirement with an open conflict.
-            other_req, _ = make_requirement(tenant_a, workspace_a, title="Other")
-            make_trace_link(req_artifact, other_req, tenant_a, "conflicts-with")
-            _set_workflow_state(
-                tenant_a, workspace_a, "Requirement", requirement.id, "approved"
-            )
-            # CONS-P10 violation: dangling reference to a superseded artifact.
-            old_req, _ = make_requirement(tenant_a, workspace_a, title="Old")
-            new_req, _ = make_requirement(tenant_a, workspace_a, title="New")
-            make_trace_link(new_req, old_req, tenant_a, "supersedes")
-            make_trace_link(other_req, old_req, tenant_a, "satisfies")
+            make_requirement(tenant_a, workspace_a, title="Leaf Req")
 
             result = _run(tenant_a, workspace_a, tier="minimal")
 
