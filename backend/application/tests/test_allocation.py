@@ -121,6 +121,7 @@ class TestAllocationTraceLink:
         arch_el_2 = arch_svc.create_architecture_element(
             workspace_id=workspace.id,
             title="Component B",
+            parent_id=arch_el_1.id,
             ctx=auth_context,
         )
 
