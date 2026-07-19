@@ -56,6 +56,10 @@ const NAV_ITEMS: NavItem[] = [
   // REQ-176: Visual Workflow Editor — always visible (like glossary/settings).
   { path: "/workflows", labelKey: "nav.workflows", feature: "dashboard" },
   { path: "/metrics", labelKey: "nav.metrics", feature: "metrics" },
+  // SysEng 2.0 Phase 3 (Auditor UI) — always visible, like glossary/workflows/
+  // settings; the RuleEngine already filters findings by the workspace's
+  // active rigor tier so there is no separate preset-visibility gate here.
+  { path: "/audit", labelKey: "nav.audit", feature: "dashboard" },
   { path: "/settings", labelKey: "nav.settings", feature: "dashboard" },
   // REQ-184: System Settings — tenant-wide config. Link always visible (like
   // /settings); the page itself gates on the admin role.

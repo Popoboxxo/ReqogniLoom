@@ -52,6 +52,19 @@ export type { ItemPermission, ItemPermissionLevel } from "./item-permissions";
 export { attributeVisibilityApi } from "./attribute-visibility";
 export { workflowsApi } from "./workflows";
 export type { WorkflowDefinition, WorkflowTransitionResult } from "./workflows";
+export { auditApi } from "./audit";
+export type {
+  AuditScopeKind,
+  AuditSeverity,
+  AuditFinding,
+  AuditCounts,
+  AuditReport,
+  RemediationProposal,
+  RemediationActionKind,
+  RemediateRequest,
+  RemediateResult,
+  RunAuditOptions,
+} from "./audit";
 export { metricsApi } from "./metrics";
 export type {
   MetricsResult,

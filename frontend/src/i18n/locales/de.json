@@ -28,6 +28,7 @@
     "traceability": "Verknüpfungen",
     "impact": "Auswirkungsanalyse",
     "metrics": "SE-Metriken",
+    "audit": "SE-Auditor",
     "adrs": "ADRs",
     "risks": "Risiken",
     "issues": "Probleme",
@@ -745,5 +746,45 @@
       "unavailable": "Ähnlichkeitssuche ist vorübergehend nicht verfügbar.",
       "empty": "Keine ähnlichen Anforderungen gefunden."
     }
+  },
+  "audit": {
+    "title": "SE-Auditor",
+    "scope": {
+      "label": "Scope",
+      "document": "Dokument",
+      "project": "Projekt",
+      "global": "Global"
+    },
+    "scopeArtifact": {
+      "label": "Dokument (Wurzelartefakt)",
+      "empty": "Keine Artefakte verfügbar."
+    },
+    "severityFilter": {
+      "label": "Schweregrad",
+      "all": "Alle",
+      "blocker": "Blocker",
+      "warning": "Warnungen"
+    },
+    "counts": {
+      "total": "Findings",
+      "blockers": "Blocker",
+      "warnings": "Warnungen"
+    },
+    "tier": "Rigor-Stufe",
+    "refresh": "Aktualisieren",
+    "refreshing": "Wird aktualisiert...",
+    "loading": "Wird geladen...",
+    "loadError": "Audit-Findings konnten nicht geladen werden.",
+    "empty": "Keine Findings — der Trace-Graph ist für diesen Scope konsistent.",
+    "noWorkspace": "Workspace auswählen, um den SE-Auditor auszuführen.",
+    "severity": {
+      "blocker": "Blocker",
+      "warning": "Warnung"
+    },
+    "artifacts": "Betroffene Artefakte",
+    "adopt": "Übernehmen",
+    "adopting": "Wird übernommen...",
+    "adoptSuccess": "Behoben — die Korrektur wurde angewendet.",
+    "modify": "Anpassen"
   }
 }
