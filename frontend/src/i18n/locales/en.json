@@ -75,6 +75,20 @@
       "llm_provider": "LLM Provider"
     }
   },
+  "triLabelOverview": {
+    "title": "Tri-Label Overview",
+    "sectionHint": "Read-only reference of all 14 TraceLink types with their German/English downstream, upstream and neutral labels.",
+    "hint": "Read-only overview of all 14 TraceLink types with their German/English downstream, upstream and neutral labels. Not editable in this phase.",
+    "openButton": "View Tri-Label Overview",
+    "columns": {
+      "type": "Type",
+      "deDownstream": "DE Downstream",
+      "deUpstream": "DE Upstream",
+      "enDownstream": "EN Downstream",
+      "enUpstream": "EN Upstream",
+      "neutral": "Neutral (DE / EN)"
+    }
+  },
   "workspaceCreate": {
     "button": "Create workspace",
     "title": "Create new workspace",

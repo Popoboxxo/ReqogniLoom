@@ -8,3 +8,5 @@ export { AttributeVisibilityAdmin } from './AttributeVisibilityAdmin';
 export type { AttributeVisibilityAdminProps } from './AttributeVisibilityAdmin';
 export { SystemHealthDialog } from './SystemHealthDialog';
 export type { SystemHealthDialogProps } from './SystemHealthDialog';
+export { TriLabelOverviewDialog } from './TriLabelOverviewDialog';
+export type { TriLabelOverviewDialogProps } from './TriLabelOverviewDialog';

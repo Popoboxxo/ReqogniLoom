@@ -75,6 +75,20 @@
       "llm_provider": "LLM-Provider"
     }
   },
+  "triLabelOverview": {
+    "title": "Tri-Label-Übersicht",
+    "sectionHint": "Schreibgeschützte Referenz aller 14 TraceLink-Typen mit ihren deutschen/englischen Downstream-, Upstream- und Neutral-Labels.",
+    "hint": "Schreibgeschützte Übersicht aller 14 TraceLink-Typen mit ihren deutschen/englischen Downstream-, Upstream- und Neutral-Labels. In dieser Phase nicht bearbeitbar.",
+    "openButton": "Tri-Label-Übersicht anzeigen",
+    "columns": {
+      "type": "Typ",
+      "deDownstream": "DE Downstream",
+      "deUpstream": "DE Upstream",
+      "enDownstream": "EN Downstream",
+      "enUpstream": "EN Upstream",
+      "neutral": "Neutral (DE / EN)"
+    }
+  },
   "workspaceCreate": {
     "button": "Workspace erstellen",
     "title": "Neuen Workspace erstellen",
