@@ -24,6 +24,8 @@ import * as requirementsApi from '../../../api/requirements';
 import * as architectureApi from '../../../api/architecture';
 import * as testcasesApi from '../../../api/testcases';
 import * as adrsApi from '../../../api/adrs';
+import * as risksApi from '../../../api/risks';
+import * as issuesApi from '../../../api/issues';
 import * as tracelinksApi from '../../../api/tracelinks';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +36,8 @@ vi.mock('../../../api/requirements');
 vi.mock('../../../api/architecture');
 vi.mock('../../../api/testcases');
 vi.mock('../../../api/adrs');
+vi.mock('../../../api/risks');
+vi.mock('../../../api/issues');
 vi.mock('../../../api/tracelinks');
 
 vi.mock('react-i18next', () => ({
@@ -68,6 +72,14 @@ const MOCK_ADRS = [
   { id: 'adr-001', title: 'Use JWT tokens' },
 ];
 
+const MOCK_RISKS = [
+  { id: 'risk-001', title: 'Database failure' },
+];
+
+const MOCK_ISSUES = [
+  { id: 'issue-001', title: 'Performance degradation' },
+];
+
 function setupDefaultMocks(): void {
   vi.mocked(requirementsApi.requirementsApi.listAll).mockResolvedValue(
     MOCK_REQUIREMENTS as any
@@ -77,6 +89,8 @@ function setupDefaultMocks(): void {
   );
   vi.mocked(testcasesApi.testcasesApi.listAll).mockResolvedValue(MOCK_TEST_CASES as any);
   vi.mocked(adrsApi.adrsApi.listAll).mockResolvedValue(MOCK_ADRS as any);
+  vi.mocked(risksApi.risksApi.listAll).mockResolvedValue(MOCK_RISKS as any);
+  vi.mocked(issuesApi.issuesApi.listAll).mockResolvedValue(MOCK_ISSUES as any);
 }
 
 function renderDialog(overrides: Partial<React.ComponentProps<typeof CreateTraceLinkDialog>> = {}): void {
