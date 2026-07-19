@@ -247,10 +247,10 @@ export function TraceLinkPanel({
 
       {!loading && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)" }}>
-          {/* Upstream */}
+          {/* Upstream / Incoming */}
           <div>
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.upstream", "Upstream (Parent)")}
+              {t("tracelinks.upstream", "Incoming")} {upstream.length > 0 && <span style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{upstream.length}</span>}
             </h4>
             {upstream.length === 0 && (
               <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>
@@ -262,10 +262,10 @@ export function TraceLinkPanel({
             </ul>
           </div>
 
-          {/* Downstream */}
+          {/* Downstream / Outgoing */}
           <div>
             <h4 style={{ margin: "0 0 var(--space-2) 0", fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
-              {t("tracelinks.downstream", "Downstream (Child)")}
+              {t("tracelinks.downstream", "Outgoing")} {downstream.length > 0 && <span style={{ fontSize: "0.8rem", color: "var(--color-badge-info-text)", background: "var(--color-badge-info-bg)", borderRadius: "var(--radius-full)", padding: "2px 6px", marginLeft: "4px" }}>{downstream.length}</span>}
             </h4>
             {downstream.length === 0 && (
               <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", margin: 0 }}>
