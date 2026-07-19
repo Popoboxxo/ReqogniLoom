@@ -481,3 +481,17 @@ LOGGING = {
         },
     },
 }
+
+# ---------------------------------------------------------------------------
+# Self-initialisation on first start (REQ-188)
+# ---------------------------------------------------------------------------
+# When True (production/dev default), the ``application`` app connects a
+# ``post_migrate`` receiver that provisions the base admin, workspace and the
+# default workflow/permission definitions on a fresh database — replacing the
+# former dedicated ``bootstrap`` docker-compose service and the manual
+# ``provision_workflow_definitions`` step. The receiver fires inside the
+# single one-shot ``migrate`` container, so it runs exactly once per deploy
+# with no cross-process race. Overridden to False in ``settings_test`` so the
+# pytest suite (which builds its own fixtures and runs without
+# SYSTEM_ADMIN_PASSWORD) is never provisioned implicitly.
+SELF_INIT_ON_MIGRATE: bool = config("SELF_INIT_ON_MIGRATE", default=True, cast=bool)

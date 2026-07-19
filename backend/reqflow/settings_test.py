@@ -103,3 +103,11 @@ LLM_MODEL = ""
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
+
+# ---------------------------------------------------------------------------
+# Self-init (REQ-188) — disabled under test. The pytest suite migrates the test
+# database on every run, which fires ``post_migrate``; letting the self-init
+# receiver provision an admin here would either fail (no SYSTEM_ADMIN_PASSWORD)
+# or inject unexpected base rows into a suite that builds its own fixtures.
+# ---------------------------------------------------------------------------
+SELF_INIT_ON_MIGRATE = False

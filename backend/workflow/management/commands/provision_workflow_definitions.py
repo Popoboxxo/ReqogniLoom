@@ -39,8 +39,10 @@ from persistence.tenancy import TenantContext
 from workflow.models import WorkflowEngineDefinition
 from workflow.services import create_default_workflow
 
-# (item_type, preset key). Kept in sync with
-# application.workspace_service._WORKFLOW_ENTITY_TYPES.
+# (item_type, preset key). Kept in sync with the canonical
+# application.workspace_provisioning.WORKFLOW_ENTITY_TYPES. This Layer 1 command
+# keeps its own copy on purpose: it must not import upward from the Layer 2
+# application package.
 _ENTITY_PRESETS = (
     ("StakeholderNeed", "need_default"),
     ("Adr", "adr_default"),
