@@ -42,40 +42,15 @@ from presets.models import (
     TERMINOLOGY_CHOICES,
     WorkspacePresetConfig,
 )
-from workflow.services import create_default_workflow
 
 from application.base import NotFoundError, PermissionDeniedError, ServiceBase, ValidationError
+from application.workspace_provisioning import provision_workspace_defaults
 
 logger = logging.getLogger(__name__)
 
 
 _VALID_PRESETS = {key for key, _ in PRESET_CHOICES}
 _VALID_TERMINOLOGY_PROFILES = {key for key, _ in TERMINOLOGY_CHOICES}
-
-# REQ-165/REQ-166: entity types that receive a fixed-preset default workflow on
-# workspace provisioning. "Requirement" is provisioned separately with the
-# tier-dependent preset (minimal/standard/extended); these types always use
-# their dedicated per-entity preset. ChangeRequest reuses the existing
-# ccb_approval preset (no dedicated per-entity preset).
-_WORKFLOW_ENTITY_TYPES: tuple[tuple[str, str], ...] = (
-    ("StakeholderNeed", "need_default"),
-    ("Adr", "adr_default"),
-    ("Risk", "risk_default"),
-    ("Issue", "issue_default"),
-    ("TestCase", "testcase_default"),
-    ("ChangeRequest", "ccb_approval"),
-    # REQ-171: ArchitectureElement lifecycle (draft/in_review/approved/deprecated).
-    ("ArchitectureElement", "architecture_default"),
-    # REQ-173: Icd, Diagram, GlossaryTerm lifecycle
-    # (draft/in_review/approved/deprecated). Diagram.workspace_id (migration
-    # 0005, diagram/models.py) is nullable — existing rows predate workspace
-    # scoping and are backfilled separately, so DiagramViewSet's
-    # _resolve_workflow_target only exposes workflow transitions once a
-    # workspace has been assigned.
-    ("Icd", "icd_default"),
-    ("Diagram", "diagram_default"),
-    ("GlossaryTerm", "glossary_term_default"),
-)
 
 # Sentinel distinguishing "field omitted" from an explicit ``None`` in PATCH.
 _UNSET: object = object()
@@ -172,46 +147,16 @@ class WorkspaceService(ServiceBase):
             terminology_profile=terminology_profile,
         )
 
-        # Provision the preset-default Requirement workflow definition so
-        # transitions are available immediately (fixes "no transitions
-        # available" bug — without this, Requirement.status stays stuck at
-        # "draft" forever because no WorkflowEngineDefinition exists to
-        # initialize a WorkflowItemState against). tenant_id is passed
-        # explicitly: WorkflowEngineDefinition.objects.get_or_create() runs
-        # on the QuerySet, not the TenantManager, so the manager's
-        # tenant-auto-inject on create() is bypassed and must be supplied.
-        create_default_workflow(
+        # Seed the workspace's default workflow definitions (Requirement with
+        # the tier-dependent preset + the fixed-preset per-entity workflows) and
+        # the REQ-181/182 permission default. Shared with the REQ-188 first-start
+        # self-init so bootstrap and API-created workspaces are provisioned
+        # identically. Tenant context is already active (set above), so the
+        # non-scoped variant is used. Idempotent via get_or_create.
+        provision_workspace_defaults(
             workspace_id=workspace.id,
-            preset=preset,
-            item_type="Requirement",
             tenant_id=ctx.tenant_id,
-        )
-
-        # REQ-165/REQ-166: provision the per-entity default workflows so ADR,
-        # Risk, Issue, TestCase, StakeholderNeed and ChangeRequest all have a
-        # WorkflowEngineDefinition from the start (their WorkflowItemState init
-        # on create is otherwise a silent no-op). Fixed presets, independent of
-        # the workspace tier. Idempotent via get_or_create.
-        for item_type, preset_key in _WORKFLOW_ENTITY_TYPES:
-            create_default_workflow(
-                workspace_id=workspace.id,
-                preset=preset_key,
-                item_type=item_type,
-                tenant_id=ctx.tenant_id,
-            )
-
-        # REQ-181/182: symmetric permission-default provisioning. Link the new
-        # workspace to the tenant-wide GlobalPermissionDefinition via a
-        # WorkspacePermissionDefinition with is_customized=False (on-default). The
-        # tenant global is get-or-created (seeded from the live RBAC matrix) so a
-        # first workspace establishes it. This does NOT touch UserRole /
-        # ItemPermission rows, so real access is unchanged (shadow phase).
-        from auth_tenancy.services.permission_definition import (
-            PermissionDefinitionService,
-        )
-
-        PermissionDefinitionService().provision_workspace(
-            tenant_id=ctx.tenant_id, workspace_id=workspace.id
+            requirement_preset=preset,
         )
 
         self._audit(
@@ -266,34 +211,14 @@ class WorkspaceService(ServiceBase):
             terminology_profile=terminology,
         )
 
-        # Provision the preset-default Requirement workflow definition on the
-        # cloned target workspace (same gap as create_workspace — without it
-        # transitions are unavailable for every requirement in the clone).
-        create_default_workflow(
+        # Provision the cloned workspace's default workflows (Requirement with
+        # the source tier + fixed-preset per-entity workflows) and the permission
+        # default — same shared path as create_workspace, so the clone starts
+        # workflow-complete and "on-default". Tenant context is active.
+        provision_workspace_defaults(
             workspace_id=target.id,
-            preset=active_tier,
-            item_type="Requirement",
             tenant_id=ctx.tenant_id,
-        )
-
-        # REQ-165/REQ-166: same per-entity provisioning as create_workspace so a
-        # cloned workspace is workflow-complete for every entity type.
-        for item_type, preset_key in _WORKFLOW_ENTITY_TYPES:
-            create_default_workflow(
-                workspace_id=target.id,
-                preset=preset_key,
-                item_type=item_type,
-                tenant_id=ctx.tenant_id,
-            )
-
-        # REQ-181/182: same permission-default provisioning as create_workspace,
-        # so the cloned workspace starts "on-default" against the tenant global.
-        from auth_tenancy.services.permission_definition import (
-            PermissionDefinitionService,
-        )
-
-        PermissionDefinitionService().provision_workspace(
-            tenant_id=ctx.tenant_id, workspace_id=target.id
+            requirement_preset=active_tier,
         )
 
         # 2. Deep copy artifacts

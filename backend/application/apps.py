@@ -25,7 +25,52 @@ class ApplicationConfig(AppConfig):
     verbose_name = "ARCH-L1-004 ApplicationService"
 
     def ready(self) -> None:
-        """Wire signal-based cache invalidation (REQ-038, BE-7)."""
+        """Wire signal-based cache invalidation (REQ-038, BE-7) and the
+        first-start self-init receiver (REQ-188)."""
         from application.cache_invalidation import register_signals
 
         register_signals()
+
+        # REQ-188: self-initialise a fresh deployment (admin + base workspace +
+        # default workflow/permission definitions) on first start, replacing the
+        # dedicated ``bootstrap`` compose service and the manual
+        # ``provision_workflow_definitions`` command. Connected with this app
+        # config as ``sender`` so it fires exactly once per ``migrate`` run.
+        from django.db.models.signals import post_migrate
+
+        post_migrate.connect(
+            _run_self_init_on_migrate,
+            sender=self,
+            dispatch_uid="application.self_init.run_self_init",
+        )
+
+
+def _run_self_init_on_migrate(sender, **kwargs) -> None:
+    """post_migrate receiver: run self-init unless disabled (tests).
+
+    Two independent guards keep the pytest suite — which migrates a test database
+    on every run and would otherwise be implicitly provisioned — safe:
+
+    * ``settings.SELF_INIT_ON_MIGRATE`` (False under ``reqflow.settings_test``),
+      the explicit, documented switch, and
+    * a defensive test-runner check, because the docker image forces
+      ``DJANGO_SETTINGS_MODULE=reqflow.settings`` into every process, so a
+      ``docker compose exec backend pytest`` inherits the runtime settings
+      instead of ``settings_test`` and would slip past the flag alone.
+    """
+    import sys
+
+    from django.conf import settings
+
+    if not getattr(settings, "SELF_INIT_ON_MIGRATE", True):
+        return
+
+    # Defensive: never self-init while a test runner is active, whatever the
+    # settings module in effect. ``pytest`` is imported in the running process;
+    # ``manage.py test`` puts "test" as the management subcommand in argv.
+    if "pytest" in sys.modules or (len(sys.argv) > 1 and sys.argv[1] == "test"):
+        return
+
+    from application.self_init import run_self_init
+
+    run_self_init()

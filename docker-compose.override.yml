@@ -28,9 +28,9 @@ services:
       sh -c "python manage.py migrate --noinput &&
              python manage.py runserver 0.0.0.0:8000"
 
-  bootstrap:
-    # Development: run current source so provisioning changes apply without a
-    # rebuild (matches the backend/celery hot-reload mounts).
+  migrate:
+    # Development: run current source so the REQ-188 post_migrate self-init
+    # applies without a rebuild (matches the backend/celery hot-reload mounts).
     environment:
       DEBUG: ${DEBUG:-True}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
