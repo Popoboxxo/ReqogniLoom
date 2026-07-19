@@ -113,6 +113,63 @@ UID-Herleitung (in dieser Priorität):
 
 ---
 
+## Nachgelagerte Pässe (nach dem CSV-Import)
+
+Nach den vier CSV-Entity-Buckets laufen zwei Zusatz-Pässe **innerhalb desselben Kommandos**.
+`ENTITY_FIELD_SPECS` und `ImportService` bleiben dafür unangetastet — beide Features sind reine
+Zusatzlogik in `migrate_se_docs.py`.
+
+### Feature 1 — Architektur-Hierarchie (`parent_id`)
+
+`ArchitectureElement.parent_id` (REQ-L1-041) existiert im Datenmodell, ist aber **bewusst kein
+Feld** in `ENTITY_FIELD_SPECS` — der CSV-Weg transportiert es nicht. Nach dem Import löst ein
+zweiter Pass die Eltern-Beziehung **deterministisch aus der Ordnerstruktur** auf:
+
+| Element | `element_type` | Parent |
+|---------|----------------|--------|
+| `L1/Gesamtsystem/L1_Gesamtsystem_Architecture.md` → `ARCH-L1-000` | `subsystem` (Wurzel) | — (kein Parent) |
+| `.../L2/<System>/L2_<System>_Architecture.md` | `subsystem` | `ARCH-L1-000` (Wurzel) |
+| `.../L2/<System>/Components/COMP-<XX>-<NNN>_.../L3_..._Architecture.md` | `component` | uid des L2-Subsystems, dessen Verzeichnis (`.../L2/<System>`) nächster Vorfahre der Komponenten-Datei ist |
+
+**Service-vs-ORM-Entscheidung:** `ArchitectureService.update_architecture_element(...)` existiert,
+ist hier aber **nicht** nutzbar: Der Invariant **I2** (Standard/Extended-Rigor) verlangt
+`parent.level < child.level`, gemessen an der **aktuellen** Baumtiefe. Direkt nach dem flachen
+Import ist jedes Element eine Wurzel (Level 0), das erste Re-Parenting ist also immer
+`Level 0 → Level 0` und wird von I2 abgelehnt — der Domain-Service kann eine Hierarchie aus einem
+flachen Import prinzipiell nicht aufbauen. Ein Batch-Modus dafür wäre für einen Einmal-Job
+unverhältnismäßig. Daher schreibt dieser Pass `parent_id` per **direktem, klar kommentiertem
+ORM-Update** (`.update()`, kein Version-Bump, kein Domain-Event) — dokumentierter Migrations-Batch,
+**kein** regulärer API-Schreibweg.
+
+Idempotent: bereits korrekt gesetzte `parent_id` werden übersprungen. `--dry-run` schreibt nichts,
+meldet aber `would_assign`.
+
+### Feature 2 — Trace-Links aus `traceability-matrix.md`
+
+Die konsolidierte Matrix `docs/se/traceability-matrix.md` wird **als letzter Schritt** gelesen
+(Quelle **und** Ziel jedes Links müssen als Artefakt existieren). Sie wird nicht mehr als UNMAPPED
+gelistet. Pro Matrix-Abschnitt werden Markdown-Tabellenzeilen geparst; Zellen mit `—` sowie
+Platzhalter-Zeilen (`... (N weitere ...)`) und Spaltenköpfe erzeugen keinen Link.
+
+Link-Typ + Orientierung pro Abschnitt (so gewählt, dass sie auch die SE-Endpoint-Semantik
+`traceability.types.SE_LINK_SEMANTICS` erfüllen und damit im `se_mode` gültig bleiben):
+
+| Matrix-Abschnitt | Link (Source → Target) | Link-Typ | SE-Semantik |
+|------------------|------------------------|----------|-------------|
+| §1 REQ-L0 → REQ-L1 | REQ-L1 → REQ-L0 | `derives-from` | Requirement → StakeholderNeed |
+| §2 REQ-L1 → REQ-L2 | REQ-L2 → REQ-L1 | `derives-from` | Requirement → Requirement |
+| §3 REQ-L2 → Component | Component → REQ-L2 | `implements` | ArchitectureElement → Requirement |
+
+Die **Test-Case-Spalte** in §3 wird **bewusst nicht** verlinkt: TestCases werden von diesem
+Kommando nicht importiert (siehe „Bewusst NICHT importiert"), ein Link-Endpunkt würde nie
+aufgelöst. Erstellung über `TraceLinkService.create_trace_link(...)` — der reguläre,
+event-emittierende Weg (analog zu `ImportService` für die vier Entitäten). Vor jedem Erstellen wird
+geprüft, ob das Tripel (Source, Target, Link-Typ) bereits existiert (Idempotenz). Nicht auflösbare
+uids (Tippfehler, nicht importierte Ziele) werden als Warnung gemeldet und übersprungen — nie fatal.
+`--dry-run` schreibt nichts, meldet aber `resolved` / `already_linked` / `new`.
+
+---
+
 ## Idempotenz
 
 Jede importierte Zeile bekommt ein deterministisches `uid`-Feld (aus der `REQ-Lx-...`-ID, dem
@@ -121,6 +178,10 @@ Jede importierte Zeile bekommt ein deterministisches `uid`-Feld (aus der `REQ-Lx
 
 → **Beliebig oft wiederholbar.** Zweiter Lauf gegen denselben Workspace zeigt
 `already_imported = <alle>`, `new = 0`.
+
+Beide Zusatz-Pässe sind ebenfalls idempotent: bereits gesetzte `parent_id` (Feature 1) und
+bereits existierende Trace-Link-Tripel (Feature 2) werden übersprungen — ein zweiter Lauf schreibt
+weder neue Parents noch neue Links (`assigned = 0`, `created = 0`).
 
 ---
 
@@ -136,6 +197,11 @@ Der `--dry-run`-Report zeigt drei Kategorien:
    jede weitere wird übersprungen und gemeldet — kein automatisches Auto-Fixing der Quelle.
 3. **UNMAPPED-Liste** — Datei passt zu keiner der vier Mapping-Regeln. Kein Datenverlust,
    aber auch kein Import — Datei bleibt außen vor bis eine eigene Mapping-Regel ergänzt wird.
+4. **Parent-Warnungen** (Feature 1) — Komponente ohne auflösbaren L2-Subsystem-Parent in der
+   Ordnerstruktur, oder ein Parent-/Kind-Element fehlt unter den importierten
+   `ArchitectureElement`s. `parent_id` bleibt in dem Fall ungesetzt.
+5. **Trace-Link-Warnungen** (Feature 2) — nicht auflösbare Source-/Target-uid (Tippfehler in der
+   Matrix oder nicht importiertes Ziel wie eine TestCase). Der betroffene Link wird übersprungen.
 
 **Grundsatz:** nichts wird still verschluckt. Jede Datei landet entweder in einem Bucket,
 in der UNMAPPED-Liste oder in einer Warnung.

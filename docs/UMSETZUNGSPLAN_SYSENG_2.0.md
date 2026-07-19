@@ -43,87 +43,19 @@ Die Architektur-Dekomposition muss die Req-Ebene nachziehen.
 
 ---
 
-## 3. Workflows: Aktueller Systemstand vs. Neues Konzept
+## 3. KI-Copilot (Die Automatisierung)
 
-### 3.1 Analyse: Der aktuelle Systemstand
-Aktuell lädt die Methode `initialize_definition` in `backend/workflow/services.py` das JSON-Schema für die Workflows in die Workspace-Datenbank (`we_engine_definition`). 
-
-**Das Problem im Ist-Zustand:**
-Nur `Requirements` reagieren auf das eingestellte Rigor-Level (`active_tier`). 
-- Req (Minimal): `draft`, `done`
-- Req (Standard): `draft`, `approved`, `deprecated`
-- Req (Extended): `draft`, `in_review`, `approved`, `implemented`, `verified`, `deprecated`
-
-Alle anderen Artefakte ignorieren das Tier und laden dumme, statische Defaults:
-- `ArchitectureElements`: `["draft", "in_review", "approved", "deprecated"]`
-- `TestCases`: `["Draft", "Ready", "Approved", "Deprecated"]`
-
-Zudem enthält der alte Extended-Workflow für Requirements den Status `verified`. Das ist ein Anti-Pattern, da Verifikation eine berechenbare System-Metrik ist (Testausführung).
-
-### 3.2 Das neue Konzept: Menschlicher Workflow vs. Berechneter Badge
-> [!IMPORTANT]
-> **Trennungsprinzip:** Die Workflow-Engine verwaltet NUR noch Zustände, die **menschliche Arbeitsschritte** und **Verantwortlichkeiten** abbilden (inkl. "Implemented" als "Dev-Team ist fertig mit Coden"). 
->
-> Berechenbare Fakten (wie "Verified" oder "Baselined") verschwinden aus den manuellen Status-Transitions und werden vom UI als Badge `[✅ Verified]` berechnet.
-
-### 3.3 Das "Perfekte" Workflow-Modell (Je Modus, Je Artefakt)
-
-Hier ist die detaillierte Aufschlüsselung der menschlichen Zustände. Jeder Workspace erhält bei der Initialisierung genau diese JSON-States aus `definition_store.py`:
-
-#### 📄 Artefakt: Requirement (System / Subsystem / Component Req)
-* **Minimal (Agile):** 
-  `Draft` ➔ `Done` ➔ `Deprecated`
-  *(Sehr schnell. Erfasst -> Umgesetzt. Kein separates Approved).*
-* **Standard (INCOSE):** 
-  `Draft` ➔ `In Review` ➔ `Approved` ➔ `Implemented` ➔ `Deprecated`
-  *(Review als Qualitätsschranke. Approved signalisiert Dev-Ready. Implemented signalisiert "Code fertig").*
-* **Extended (Safety/DO-178C):** 
-  `Draft` ➔ `In Independent Review` ➔ `Approved` ➔ `In Implementation` ➔ `Implemented` ➔ `Deprecated`
-  *(Review erfordert Unabhängigkeit. Änderungen nach Approved erfordern oft einen Change Request. "In Implementation" macht sichtbar, woran gerade aktiv gebaut wird).*
-
-#### 💡 Artefakt: Stakeholder Need (Epic / Safety Goal)
-* **Minimal:** `Identified` ➔ `In Progress` ➔ `Done` ➔ `Deprecated`
-* **Standard:** `Elicited` ➔ `Analyzed` ➔ `Specified` ➔ `Validated`
-* **Extended:** `Defined` ➔ `Analyzed` (HARA zwingend) ➔ `Approved` ➔ `Validated`
-
-#### 🏗️ Artefakt: Architecture Element & ICD
-Architektur und ICDs sind Design-Spezifikationen. Ihr Workflow gleicht dem von Requirements, endet aber bei `Approved` (Architektur wird nicht "implementiert", sondern die ihr zugeordneten Requirements).
-* **Minimal:** `Draft` ➔ `Published` ➔ `Deprecated`
-* **Standard:** `Draft` ➔ `In Review` ➔ `Approved` ➔ `Deprecated`
-* **Extended:** `Draft` ➔ `In Review` ➔ `CCB Approved` ➔ `Deprecated`
-
-#### 🧪 Artefakt: TestCase
-Ein TestCase durchläuft zwei Phasen: Spezifikation (manuell) und Ausführung (automatisiert). Der Workflow kümmert sich nur um die Spezifikationsfreigabe.
-* **Minimal:** `Draft` ➔ `Active` ➔ `Deprecated`
-* **Standard:** `Draft` ➔ `In Review` ➔ `Ready For Execution` ➔ `Deprecated`
-  *(Erst bei 'Ready' darf der TestRunner das Skript ausführen)*
-* **Extended:** `Draft` ➔ `In Verification` (Trace-Check bestanden) ➔ `Ready For Execution` ➔ `Deprecated`
-
-#### 📝 Artefakt: ADR (Architecture Decision Record)
-* **Minimal:** `Proposed` ➔ `Accepted` ➔ `Superseded`
-* **Standard / Extended:** `Proposed` ➔ `Evaluated` ➔ `Approved` ➔ `Superseded`
-
-#### ⚠️ Artefakt: Risk
-Ein Risiko ist kein Design-Dokument, sondern ein Zustand der Projektwelt.
-* **Minimal:** `Identified` ➔ `Mitigated` ➔ `Closed`
-* **Standard:** `Identified` ➔ `Assessed` ➔ `Mitigating` ➔ `Closed`
-* **Extended:** `Identified` ➔ `Assessed` ➔ `Mitigating` ➔ `Residual Risk Accepted` ➔ `Closed`
-
----
-
-## 4. KI-Copilot (Die Automatisierung)
-
-### 4.1 Das Kern-Feature (N1): `architecture.decompose`
+### 3.1 Das Kern-Feature (N1): `architecture.decompose`
 * **Workflow:** User wählt ein L1-Subsystem. KI zerlegt es rekursiv **und** generiert die korrespondierenden abgeleiteten Requirements, inklusive aller internen TraceLinks (`decomposes`, `derives-from`, `allocated-to`).
 
-### 4.2 Weitere KI-Funktionen
+### 3.2 Weitere KI-Funktionen
 * **N3 (`traceability.suggest_links`):** KI nutzt Vektor-Embeddings (`pgvector`), um logische TraceLinks vorzuschlagen, die den Audit-Regeln fehlen.
 * **N5 (`test.derive_from_requirement`):** Generiert komplette `TestCase`-Drafts inkl. Testschritten basierend auf Requirements.
 * **N8 (`audit.ai_review`):** KI liest alle Auditor-Findings und bündelt sie zu strategischen Refactoring-Paketen.
 
 ---
 
-## 5. Umsetzungs-Phasenplan
+## 4. Umsetzungs-Phasenplan
 
 | Phase | Fokus | Zeitraum | Kern-Deliverables |
 |-------|-------|----------|-------------------|
@@ -131,4 +63,38 @@ Ein Risiko ist kein Design-Dokument, sondern ein Zustand der Projektwelt.
 | **Phase 2** | Auditor Core | Woche 2 | - RuleEngine mit Preset-Vererbung<br>- Scanner für TRACE-P1 bis P7 |
 | **Phase 3** | Auditor UI | Woche 3 | - Audit-Dashboard<br>- Adopt/Modify Workflow |
 | **Phase 4** | KI Copilot | Woche 4 | - Tool: `architecture.decompose` (N1) |
-| **Phase 5** | Workflows *(Letzte Prio)* | Woche 5 | - JSON-Schemas im `definition_store.py` für alle Artefakte auf `draft -> review -> released` umbauen.<br>- UI: Dynamische Badges für *Verified/Baselined* implementieren. |
+| **Phase 5** | Architecture Decisions | Woche 5 | - MADR-Parser & Linting<br>- REST & MCP APIs für ADRs<br>- eADR Code-Scanner (`@ADR`)<br>- KI-Agenten (`adr-specialist`, `concept-reviewer`) |
+
+---
+
+## 5. Architecture Decision Management (MADR & eADR)
+
+Basierend auf den Prinzipien von Michael Nygard und modernen Ansätzen (MADR, eADR) wird ReqFlow zu einer zentralen Plattform für Architekturentscheidungen **der Endanwender**.
+
+### 5.1 MADR als Standard-Format für Nutzer-Projekte
+ReqFlow befähigt seine Nutzer, die Architekturentscheidungen ihrer eigenen Projekte nach dem **MADR (Markdown Architectural Decision Records)** Standard zu verwalten.
+* **Bite-Sized & Versionskontrolliert:** ADRs werden als leichte Markdown-Dateien nah am Code (z.B. in `docs/decisions/` oder `doc/arch/adr-NNN.md`) gespeichert.
+* **Y-Statements:** Jede Entscheidung muss auf einem prägnanten Y-Statement basieren: *"In the context of [ctx], facing [concern], we decided for [option] and neglected [other options] to achieve [quality], accepting downside [consequence]."*
+* **Pflicht-Struktur:** Titel, Context & Problem Statement, Decision Drivers, Considered Options (mit Pros/Cons), Decision Outcome (inkl. Justification), Consequences (Good/Bad).
+
+### 5.2 eADR (Embedded ADRs) & MCP-Auflösung
+Um für die Nutzer die Kluft zwischen ihrer Systemdokumentation und ihrem Quellcode zu schließen, stellt ReqFlow eADR-Funktionen bereit.
+* Code-Elemente in den Repositories der Nutzer können direkt mit der zugehörigen Entscheidung verlinkt werden (z.B. via Annotationen wie `@ADR(9)` oder Kommentaren).
+* **MCP Endpoint für eADRs:** ReqFlow agiert als MCP-Server für die Nutzer. Agenten oder IDEs der Nutzer, die im Code über eine `@ADR(ID)`-Referenz stolpern, können diese ID dynamisch über ReqFlows MCP-Endpunkt (`mcp.eadr.resolve(id)`) auflösen, um den vollen Architektur-Kontext (das MADR) abzurufen.
+
+### 5.3 Agentische Services für ADRs (AI Copilot für Endanwender)
+ReqFlow bietet den Nutzern spezialisierte LLM-Agenten, die sie bei ihren Architekturentscheidungen unterstützen:
+* **Agent `adr-specialist` (Subagent):**
+  * Beobachtet Pull Requests und Issue-Diskussionen in den Nutzer-Repositories.
+  * Erkennt implizite Entscheidungen der Teams und draftet automatisch "saubere" MADRs inkl. vorformuliertem Y-Statement als Vorschlag.
+* **Agent `concept-reviewer` / `se-critic`:**
+  * Führt automatisierte Reviews von ADR-Entwürfen durch.
+  * Erkennt und warnt vor Anti-Patterns (z.B. *Pass Through*, *Siding*, *Dead End*, *Groundhog Day*, *Offended Reaction*).
+  * Linting der Markdown-Struktur auf Konformität zum "Bare Template" des MADR-Standards.
+
+### 5.4 API & Integrationen (Zurückgestellt / AI-First Fokus)
+*Hinweis: Die Bereitstellung klassischer REST-APIs für ADRs wird vorerst zurückgestellt. ReqFlow integriert sich stattdessen zu 100% agentisch in die Toolchain der Nutzer via MCP.*
+* **MCP Endpunkte (Model Context Protocol):**
+  * `mcp.adr.lint`: LLM-Tool zur Validierung eines Textes gegen die MADR-Regeln und Anti-Patterns.
+  * `mcp.adr.draft_y_statement`: Generiert aus einem Problemkontext das formale Y-Statement.
+  * `mcp.eadr.resolve`: Löst eine eADR-ID aus dem Quelltext auf und liefert das verknüpfte MADR zurück, oder findet alle Code-Referenzen zu einer bestimmten ADR-ID.
