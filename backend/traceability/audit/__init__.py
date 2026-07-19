@@ -33,6 +33,18 @@ from traceability.audit.types import (
     Severity,
 )
 
+# Importing the remediation module self-registers every Remediation via
+# ``@register_remediation`` (Phase 3 Adopt/Modify — analysis half). Kept at
+# package import time so ``get_remediation`` is populated for any caller.
+from traceability.audit.remediation import (  # noqa: E402
+    Remediation,
+    RemediationActionKind,
+    RemediationProposal,
+    get_registered_remediations,
+    get_remediation,
+    register_remediation,
+)
+
 __all__ = [
     "RuleEngine",
     "Rule",
@@ -44,4 +56,10 @@ __all__ = [
     "AuditScope",
     "Finding",
     "Severity",
+    "Remediation",
+    "RemediationActionKind",
+    "RemediationProposal",
+    "register_remediation",
+    "get_remediation",
+    "get_registered_remediations",
 ]

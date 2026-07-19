@@ -38,6 +38,10 @@ from rest_framework.routers import DefaultRouter
 from auth_tenancy.rest_item_permission import ItemPermissionViewSet
 from auth_tenancy.rest_workspace_members import WorkspaceMembersView
 from admin_ops.health_rest import SystemHealthView
+from rest_api.audit_views import (
+    WorkspaceAuditRemediateView,
+    WorkspaceAuditView,
+)
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
@@ -327,6 +331,18 @@ urlpatterns = [
         "permission-mismatches/",
         PermissionMismatchListView.as_view(),
         name="permission-mismatches",
+    ),
+    # SE-Auditor (SysEng 2.0 Phase 3) — workspace-scoped audit dashboard.
+    # remediate/ must precede the audit/ run route so it is not shadowed.
+    path(
+        "workspaces/<uuid:workspace_id>/audit/remediate/",
+        WorkspaceAuditRemediateView.as_view(),
+        name="workspace-audit-remediate",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/audit/",
+        WorkspaceAuditView.as_view(),
+        name="workspace-audit",
     ),
     # Canvas strokes (REQ-L1-056, IF-L1-058/060) — diagram sub-resource.
     path(
