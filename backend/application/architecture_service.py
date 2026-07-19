@@ -28,7 +28,14 @@ from uuid import UUID
 from django.db.models import F
 
 from auth_tenancy.context import AuthContext
-from persistence.models import ArchitectureElement, Artifact, ElementType, Tenant, Workspace
+from persistence.models import (
+    ArchitectureElement,
+    Artifact,
+    ElementType,
+    Tenant,
+    Workspace,
+    derive_architecture_role,
+)
 from persistence.transactions import atomic_transaction
 
 from application.artifact_service import _clean_custom_fields
@@ -113,15 +120,16 @@ class ArchitectureService(ServiceBase):
             custom_fields=_clean_custom_fields(custom_fields),
         )
 
-        # REQ-L1-044: hierarchy invariants I1/I3, rigor-gated via workspace preset.
-        # I3 replaces the former plain existence check and additionally rejects
-        # cross-workspace parents (behavior change: 400 instead of 404 for a
+        # REQ-L1-044 + SysEng 2.0 §1.2 (I5): hierarchy invariants, rigor-gated via
+        # workspace preset. For a child (parent_id set) I1/I3 apply; for a root
+        # (parent_id is None) I5 rejects a second root in the same workspace. The
+        # validator is therefore invoked for every create, not only for children.
+        # I3 also rejects cross-workspace parents (400 instead of 404 for a
         # dangling parent_id).
-        if parent_id is not None:
-            validator = ArchitectureElementInvariantValidator.for_workspace(workspace_id)
-            validator.validate_parent_assignment(
-                parent_id=parent_id, workspace_id=workspace_id
-            )
+        validator = ArchitectureElementInvariantValidator.for_workspace(workspace_id)
+        validator.validate_parent_assignment(
+            parent_id=parent_id, workspace_id=workspace_id
+        )
 
         arch_el = ArchitectureElement.objects.create(
             tenant=tenant,
@@ -233,19 +241,22 @@ class ArchitectureService(ServiceBase):
             arch_el.artifact.custom_fields = _clean_custom_fields(custom_fields)
             arch_el.artifact.save(update_fields=["custom_fields", "modified_at"])
 
-        # REQ-L1-044: invariant checks (I1-I3) before re-parenting
+        # REQ-L1-044 + SysEng 2.0 §1.2 (I5): invariant checks before re-parenting.
+        # Runs for any explicit parent_id change, including detaching to root
+        # (parent_id=None) so I5 rejects creating a second root. The element
+        # itself is excluded from the I5 root scan via element_id, so re-saving
+        # the existing root as root stays valid.
         if parent_id is not _UNSET:
-            if parent_id is not None:
-                workspace_id = arch_el.artifact.workspace_id
-                validator = ArchitectureElementInvariantValidator.for_workspace(
-                    workspace_id
-                )
-                validator.validate_parent_assignment(
-                    parent_id=parent_id,
-                    element=arch_el,
-                    element_id=arch_el_id,
-                    workspace_id=workspace_id,
-                )
+            workspace_id = arch_el.artifact.workspace_id
+            validator = ArchitectureElementInvariantValidator.for_workspace(
+                workspace_id
+            )
+            validator.validate_parent_assignment(
+                parent_id=parent_id,
+                element=arch_el,
+                element_id=arch_el_id,
+                workspace_id=workspace_id,
+            )
             arch_el.parent_id = parent_id
             changed_fields["parent_id"] = parent_id
 
@@ -332,6 +343,10 @@ class ArchitectureService(ServiceBase):
         # unless ``_level_annotated`` is pre-set. Compute all levels in a single
         # in-memory pass over the already-fetched set instead.
         self._annotate_levels(elements)
+        # SysEng 2.0 §1.2: derive the structural role (system/subsystem/component)
+        # from tree position in the same single-pass fashion (no per-element
+        # children query).
+        self._annotate_roles(elements)
         return elements
 
     @staticmethod
@@ -376,6 +391,31 @@ class ArchitectureService(ServiceBase):
                 resolved = el.get_level()
             level_cache[el.id] = resolved
             el._level_annotated = resolved
+
+    @staticmethod
+    def _annotate_roles(elements: List[ArchitectureElement]) -> None:
+        """Set ``_role_annotated`` on each element via a single in-memory pass.
+
+        SysEng 2.0 §1.2: the structural role is derived from tree position, not
+        read from the stored ``element_type``. Root (no parent) → 'system',
+        inner node (appears as some element's parent) → 'subsystem', leaf →
+        'component'. Root precedence over leaf is handled by
+        ``derive_architecture_role``.
+
+        The children check is resolved purely from the loaded set: any id that
+        appears as another element's ``parent_id`` has children. This mirrors
+        ``_annotate_levels`` and avoids one EXISTS query per element. When
+        ``list_architecture_elements`` excludes soft-deleted elements (the
+        default), their parents correctly collapse to leaves.
+        """
+        parent_ids_with_children = {
+            el.parent_id for el in elements if el.parent_id is not None
+        }
+        for el in elements:
+            el._role_annotated = derive_architecture_role(
+                has_parent=el.parent_id is not None,
+                has_children=el.id in parent_ids_with_children,
+            )
 
 
 __all__ = ["ArchitectureService"]

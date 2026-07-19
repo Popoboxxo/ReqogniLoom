@@ -449,6 +449,10 @@ class ArchitectureElementSerializer(
     )
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     level = serializers.IntegerField(read_only=True)
+    # SysEng 2.0 §1.2: structural role derived from tree position at runtime
+    # (root → system, inner → subsystem, leaf → component). Read-only and never
+    # accepted as input — element_type stays a separate free-text descriptor.
+    role = serializers.CharField(read_only=True)
     asil_level = serializers.ChoiceField(
         choices=['QM', 'A', 'B', 'C', 'D'],
         required=False,

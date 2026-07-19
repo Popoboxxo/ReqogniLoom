@@ -176,6 +176,13 @@ export type ElementType =
   | "layer"
   | "module";
 
+/**
+ * Structural role derived from the element's position in the decomposition tree
+ * (SysEng 2.0 §1.2). Computed by the backend, read-only — never sent on write.
+ * root → "system", inner node → "subsystem", leaf → "component".
+ */
+export type ArchitectureRole = "system" | "subsystem" | "component";
+
 export type ASILLevel = "QM" | "A" | "B" | "C" | "D" | null;
 
 export type MakeOrBuyDecision = "Make" | "Buy" | "Reuse" | null;
@@ -188,6 +195,8 @@ export interface ArchitectureElement {
   element_type: ElementType;
   parent_id?: UUID | null;
   level?: number;
+  /** SysEng 2.0 §1.2: derived structural role (read-only, computed from tree position). */
+  role?: ArchitectureRole;
   version: number;
   uid?: string | null;
   asil_level?: ASILLevel;

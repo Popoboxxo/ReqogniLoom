@@ -79,6 +79,50 @@ class ElementType(models.TextChoices):
     MODULE = "module", "Module"
 
 
+class ArchitectureRole(models.TextChoices):
+    """Structural role of an ArchitectureElement, *derived* from tree position.
+
+    SysEng 2.0 (UMSETZUNGSPLAN, §1.2): the architectural role is no longer read
+    from the stored free-text ``element_type`` field (which proved unreliable —
+    the "Banane" problem). Instead it is computed at runtime from where the
+    element sits in the decomposition tree:
+
+        * root  (no parent)   → SYSTEM     — exactly one per workspace tree
+        * inner (has children)→ SUBSYSTEM  — any depth between root and leaves
+        * leaf  (no children) → COMPONENT
+
+    Root position takes precedence over the leaf rule, so a lone element in an
+    otherwise empty tree is a SYSTEM. This enum is intentionally *not* persisted;
+    it exists only to give the derived value a single, typed vocabulary shared by
+    the model, the serializer and the API contract.
+    """
+
+    SYSTEM = "system", "System"
+    SUBSYSTEM = "subsystem", "Subsystem"
+    COMPONENT = "component", "Component"
+
+
+def derive_architecture_role(*, has_parent: bool, has_children: bool) -> str:
+    """Return the derived :class:`ArchitectureRole` for a tree position.
+
+    Single source of truth for the role-derivation rules (SysEng 2.0 §1.2).
+    Root beats leaf: an element without a parent is always a SYSTEM, even when
+    it currently has no children.
+
+    Args:
+        has_parent: Whether the element has a parent (``parent_id`` is set).
+        has_children: Whether the element has at least one (non-deleted) child.
+
+    Returns:
+        One of ``ArchitectureRole`` values as a lowercase string.
+    """
+    if not has_parent:
+        return ArchitectureRole.SYSTEM
+    if has_children:
+        return ArchitectureRole.SUBSYSTEM
+    return ArchitectureRole.COMPONENT
+
+
 class LifecycleStatus(models.TextChoices):
     """Soft-delete lifecycle status for entities that must not be hard-deleted by users.
 
@@ -837,6 +881,40 @@ class ArchitectureElement(TenantScopedModel):
         if parent is None:
             return 0  # Orphaned child fallback
         return 1 + parent.get_level()
+
+    @property
+    def role(self) -> str:
+        """Return the derived structural role (SysEng 2.0 §1.2).
+
+        Prefer the ``_role_annotated`` value set by
+        ``ArchitectureService._annotate_roles`` for bulk fetches (single
+        in-memory pass, no N+1). Falls back to ``get_role()`` for single-instance
+        access, which issues one existence query for the children check.
+        """
+        if hasattr(self, "_role_annotated"):
+            return self._role_annotated
+        return self.get_role()
+
+    def get_role(self) -> str:
+        """Compute the structural role from this element's tree position.
+
+        Root (parent IS NULL) → 'system'; inner node (has non-deleted children)
+        → 'subsystem'; leaf → 'component'. Excludes soft-deleted children so a
+        parent whose only child was removed correctly collapses back to a leaf.
+
+        NOTE: For bulk role retrieval use
+        ``ArchitectureService.list_architecture_elements`` which annotates the
+        whole workspace set in one pass. This method is the single-instance
+        fallback and runs one ``EXISTS`` query.
+        """
+        if self.parent_id is None:
+            return ArchitectureRole.SYSTEM
+        has_children = (
+            ArchitectureElement.objects.filter(parent_id=self.id)
+            .exclude(lifecycle_status=LifecycleStatus.DELETED)
+            .exists()
+        )
+        return derive_architecture_role(has_parent=True, has_children=has_children)
 
 
 class TraceLink(TenantScopedModel):

@@ -2811,6 +2811,12 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
     if level is None:
         level = 0
 
+    # SysEng 2.0 §1.2: derived structural role. Prefers the bulk-annotated
+    # ``_role_annotated`` (set by ArchitectureService for list responses) and
+    # falls back to the single-instance ``role`` property (one EXISTS query) on
+    # retrieve/create/update paths.
+    role = getattr(el, "role", None)
+
     return {
         "id": str(el.id),
         "workspace_id": str(el.artifact.workspace_id) if hasattr(el, "artifact") else None,
@@ -2820,6 +2826,7 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
         "element_type": getattr(el, "element_type", ""),
         "parent_id": str(el.parent_id) if getattr(el, "parent_id", None) else None,
         "level": level,
+        "role": role,
         "custom_fields": _artifact_custom_fields(el),
         "version": el.version,
         "created_at": el.created_at,

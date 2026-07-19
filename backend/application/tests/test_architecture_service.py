@@ -157,6 +157,13 @@ class TestCreateArchitectureElement:
                 "application.architecture_service.ArchitectureElement.objects.create",
                 return_value=mock_el,
             ),
+            # SysEng 2.0 I5: create now validates the single-root invariant for
+            # roots too; stub the root scan so this stays a pure unit test.
+            patch.object(
+                ArchitectureElementInvariantValidator,
+                "_get_existing_root",
+                return_value=None,
+            ),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
@@ -194,6 +201,11 @@ class TestCreateArchitectureElement:
             patch(
                 "application.architecture_service.ArchitectureElement.objects.create",
                 return_value=mock_el,
+            ),
+            patch.object(
+                ArchitectureElementInvariantValidator,
+                "_get_existing_root",
+                return_value=None,
             ),
             patch.object(svc, "_audit") as mock_audit,
             patch.object(svc, "_emit_event"),
@@ -619,6 +631,13 @@ class TestElementTypeValidation:
                     element_type=kw.get("element_type", "component")
                 ),
             ),
+            # SysEng 2.0 I5: create validates the single-root invariant even for
+            # roots — stub the root scan so element_type tests stay pure units.
+            patch.object(
+                ArchitectureElementInvariantValidator,
+                "_get_existing_root",
+                return_value=None,
+            ),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ))
@@ -905,9 +924,11 @@ class TestRigorInvariantGating:
     """REQ-L1-044: invariant sets are gated by rigor preset tier."""
 
     def test_default_rigor_preset_mapping(self):
-        """Minimal={I3}, Standard={I1,I2,I3}, Extended={I1,I2,I3,I4}."""
-        assert RIGOR_INVARIANT_PRESETS["minimal"] == frozenset({"I3"})
-        assert RIGOR_INVARIANT_PRESETS["standard"] == frozenset({"I1", "I2", "I3"})
+        """Minimal={I3,I5}, Standard={I1,I2,I3,I5}, Extended=all incl. I4/I5."""
+        assert RIGOR_INVARIANT_PRESETS["minimal"] == frozenset({"I3", "I5"})
+        assert RIGOR_INVARIANT_PRESETS["standard"] == frozenset(
+            {"I1", "I2", "I3", "I5"}
+        )
         assert RIGOR_INVARIANT_PRESETS["extended"] == ALL_INVARIANTS
 
     def test_for_tier_builds_gated_validator(self):
@@ -1152,7 +1173,9 @@ class TestInvariantServiceIntegration:
             parent_id=parent_id, workspace_id=WS_ID
         )
 
-    def test_create_without_parent_skips_validator(self):
+    def test_create_root_runs_validator_for_single_root_invariant(self):
+        """SysEng 2.0 I5: creating a root (no parent) still runs the validator
+        so a second root in the workspace is rejected."""
         svc = ArchitectureService()
         ctx = _make_ctx()
 
@@ -1169,7 +1192,10 @@ class TestInvariantServiceIntegration:
             stack.enter_context(patch.object(svc, "_emit_event"))
             svc.create_architecture_element(workspace_id=WS_ID, title="C", ctx=ctx)
 
-        mock_cls.for_workspace.assert_not_called()
+        mock_cls.for_workspace.assert_called_once_with(WS_ID)
+        mock_cls.for_workspace.return_value.validate_parent_assignment.assert_called_once_with(
+            parent_id=None, workspace_id=WS_ID
+        )
 
     def test_create_with_invalid_parent_raises_validation_error(self):
         """I3 violation aborts creation before the element row is written."""
@@ -1246,8 +1272,9 @@ class TestInvariantServiceIntegration:
         mock_cls.for_workspace.return_value.validate_parent_assignment.assert_called_once()
         assert mock_filter_qs.update.call_args.kwargs["parent_id"] == new_parent
 
-    def test_update_detach_parent_persists_none_without_validation(self):
-        """parent_id=None (detach to root) needs no invariant check."""
+    def test_update_detach_parent_runs_single_root_validation(self):
+        """SysEng 2.0 I5: detaching to root (parent_id=None) runs the validator
+        so a second root cannot be created, then persists parent_id=None."""
         svc = ArchitectureService()
         ctx = _make_ctx()
         mock_el = _make_arch_el(version=1)
@@ -1268,7 +1295,13 @@ class TestInvariantServiceIntegration:
                 arch_el_id=ARCH_EL_ID, ctx=ctx, expected_version=1, parent_id=None
             )
 
-        mock_cls.for_workspace.assert_not_called()
+        mock_cls.for_workspace.assert_called_once_with(mock_el.artifact.workspace_id)
+        mock_cls.for_workspace.return_value.validate_parent_assignment.assert_called_once_with(
+            parent_id=None,
+            element=mock_el,
+            element_id=ARCH_EL_ID,
+            workspace_id=mock_el.artifact.workspace_id,
+        )
         assert mock_filter_qs.update.call_args.kwargs["parent_id"] is None
 
     def test_update_without_parent_id_leaves_parent_untouched(self):
@@ -1298,5 +1331,144 @@ class TestInvariantServiceIntegration:
         update_kwargs = mock_filter_qs.update.call_args.kwargs
         assert "parent_id" not in update_kwargs
         assert update_kwargs["title"] == "New"
+
+
+# ---------------------------------------------------------------------------
+# SysEng 2.0 §1.2 — derived architecture role (root/inner/leaf → role)
+# ---------------------------------------------------------------------------
+
+from application.architecture_service import ArchitectureService as _ArchSvc  # noqa: E402
+from persistence.models import (  # noqa: E402
+    ArchitectureRole,
+    derive_architecture_role,
+)
+
+
+class TestDeriveArchitectureRole:
+    """SysEng 2.0 §1.2: the pure role-derivation mapping (SSOT)."""
+
+    def test_root_is_system_even_without_children(self):
+        assert (
+            derive_architecture_role(has_parent=False, has_children=False)
+            == ArchitectureRole.SYSTEM
+        )
+
+    def test_root_with_children_is_still_system(self):
+        assert (
+            derive_architecture_role(has_parent=False, has_children=True)
+            == ArchitectureRole.SYSTEM
+        )
+
+    def test_inner_node_is_subsystem(self):
+        assert (
+            derive_architecture_role(has_parent=True, has_children=True)
+            == ArchitectureRole.SUBSYSTEM
+        )
+
+    def test_leaf_is_component(self):
+        assert (
+            derive_architecture_role(has_parent=True, has_children=False)
+            == ArchitectureRole.COMPONENT
+        )
+
+
+class TestAnnotateRoles:
+    """SysEng 2.0 §1.2: ArchitectureService._annotate_roles single-pass."""
+
+    @staticmethod
+    def _node(el_id, parent_id):
+        el = MagicMock()
+        el.id = el_id
+        el.parent_id = parent_id
+        return el
+
+    def test_annotates_system_subsystem_component(self):
+        root_id, mid_id, leaf_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        elements = [
+            self._node(root_id, None),      # root → system
+            self._node(mid_id, root_id),    # has a child (leaf) → subsystem
+            self._node(leaf_id, mid_id),    # leaf → component
+        ]
+
+        _ArchSvc._annotate_roles(elements)
+
+        assert elements[0]._role_annotated == ArchitectureRole.SYSTEM
+        assert elements[1]._role_annotated == ArchitectureRole.SUBSYSTEM
+        assert elements[2]._role_annotated == ArchitectureRole.COMPONENT
+
+    def test_single_root_node_is_system(self):
+        only = self._node(uuid.uuid4(), None)
+        _ArchSvc._annotate_roles([only])
+        assert only._role_annotated == ArchitectureRole.SYSTEM
+
+
+# ---------------------------------------------------------------------------
+# SysEng 2.0 §1.2 — I5 single-root invariant (validator unit tests)
+# ---------------------------------------------------------------------------
+
+
+class TestInvariantI5SingleRoot:
+    """SysEng 2.0 §1.2 (I5): at most one root (System) per workspace."""
+
+    def test_second_root_raises_on_all_tiers(self):
+        existing = MagicMock()
+        existing.id = uuid.uuid4()
+        for tier in ("minimal", "standard", "extended"):
+            v = ArchitectureElementInvariantValidator.for_tier(tier)
+            with patch.object(
+                ArchitectureElementInvariantValidator,
+                "_get_existing_root",
+                return_value=existing,
+            ):
+                with pytest.raises(ValidationError, match=r"\[I5\]"):
+                    v.check_i5(
+                        new_parent_id=None,
+                        workspace_id=WS_ID,
+                        element_id=uuid.uuid4(),
+                    )
+
+    def test_first_root_passes(self):
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        with patch.object(
+            ArchitectureElementInvariantValidator,
+            "_get_existing_root",
+            return_value=None,
+        ):
+            v.check_i5(
+                new_parent_id=None, workspace_id=WS_ID, element_id=uuid.uuid4()
+            )  # must not raise
+
+    def test_assigning_a_parent_never_trips_i5(self):
+        """A non-None new_parent_id can never create a second root."""
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        with patch.object(
+            ArchitectureElementInvariantValidator, "_get_existing_root"
+        ) as scan:
+            v.check_i5(
+                new_parent_id=uuid.uuid4(),
+                workspace_id=WS_ID,
+                element_id=uuid.uuid4(),
+            )
+        scan.assert_not_called()
+
+    def test_existing_root_re_saved_as_root_is_allowed(self):
+        """The element under validation is excluded from the root scan."""
+        el_id = uuid.uuid4()
+        v = ArchitectureElementInvariantValidator.for_tier("standard")
+        captured = {}
+
+        def _scan(workspace_id, exclude_id=None):
+            captured["exclude_id"] = exclude_id
+            return None  # excluding self, no *other* root exists
+
+        with patch.object(
+            ArchitectureElementInvariantValidator,
+            "_get_existing_root",
+            side_effect=_scan,
+        ):
+            v.check_i5(
+                new_parent_id=None, workspace_id=WS_ID, element_id=el_id
+            )
+        assert captured["exclude_id"] == el_id
 
 

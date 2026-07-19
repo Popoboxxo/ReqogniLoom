@@ -218,6 +218,13 @@
     "level": "Ebene",
     "levelHint": "(Auto-berechnet aus der Hierarchie)",
     "levelAutoCalculated": "Ebene wird automatisch aus der Hierarchie berechnet.",
+    "role": "Rolle",
+    "roleHint": "Wird automatisch aus der Position im Baum abgeleitet (Wurzel = System, innerer Knoten = Subsystem, Blatt = Komponente). Ändert sich beim Verschieben des Elements.",
+    "roleValue": {
+      "system": "System",
+      "subsystem": "Subsystem",
+      "component": "Komponente"
+    },
     "parentElement": "Übergeordnetes Element",
     "noParent": "Kein Parent (Root / L0)",
     "tree": {

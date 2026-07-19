@@ -221,6 +221,13 @@
     "level": "Level",
     "levelHint": "(Auto-calculated from hierarchy)",
     "levelAutoCalculated": "Level is automatically calculated from the hierarchy.",
+    "role": "Role",
+    "roleHint": "Derived automatically from the element's position in the tree (root = System, inner = Subsystem, leaf = Component). Changes when you reparent the element.",
+    "roleValue": {
+      "system": "System",
+      "subsystem": "Subsystem",
+      "component": "Component"
+    },
     "parentElement": "Parent Element",
     "noParent": "No parent (Root / L0)",
     "tree": {
