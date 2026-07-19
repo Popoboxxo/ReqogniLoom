@@ -338,7 +338,14 @@ def _unmapped_reason(path: Path) -> str:
 
 
 def _stakeholder_need_row(uid: str, title: str, body: str) -> Dict[str, str]:
-    return {"title": title[:500], "description": _csv_safe(body), "uid": uid}
+    # Source documents (docs/se/L0/*.md) do not track status; draft is the
+    # conscious default for newly imported StakeholderNeeds.
+    return {
+        "title": title[:500],
+        "description": _csv_safe(body),
+        "status": "draft",
+        "uid": uid,
+    }
 
 
 def _requirement_level(uid: str) -> int:
@@ -347,10 +354,13 @@ def _requirement_level(uid: str) -> int:
 
 
 def _requirement_row(uid: str, title: str, body: str) -> Dict[str, str]:
+    # Source documents (docs/se/**/*_Requirements.md) do not track status; draft
+    # is the conscious default for newly imported Requirements.
     return {
         "title": title[:500],
         "description": _csv_safe(body),
         "level": str(_requirement_level(uid)),
+        "status": "draft",
         "uid": uid,
     }
 

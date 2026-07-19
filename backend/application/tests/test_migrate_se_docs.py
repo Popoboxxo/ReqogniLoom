@@ -298,3 +298,45 @@ def test_migrate_sets_hierarchy_trace_links_and_is_idempotent(tmp_path):
         assert version_after_second == version_after_first
     finally:
         clear_request_tenant()
+
+
+@pytest.mark.django_db
+def test_migrate_sets_status_field_to_draft(tmp_path):
+    """Verify that imported Requirements and StakeholderNeeds have status='draft'.
+
+    Source documents (docs/se/) do not track status for individual requirements
+    and stakeholder needs. This test ensures the migrate_se_docs command
+    explicitly sets status='draft' as the conscious default, rather than
+    relying on the model's implicit default.
+    """
+    call_command("seed_demo")
+    _build_docs_fixture(tmp_path)
+
+    call_command(
+        "migrate_se_docs",
+        docs_root=str(tmp_path),
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+
+    workspace = Workspace.unscoped.get(id=DEFAULT_WORKSPACE_ID)
+    set_request_tenant(workspace.tenant_id)
+    try:
+        # Check StakeholderNeed status.
+        sn = StakeholderNeed.objects.get(
+            uid="REQ-L0-001", artifact__workspace_id=workspace.id
+        )
+        assert sn.status == "draft"
+
+        # Check Requirement (L1 and L2) statuses.
+        req_l1 = Requirement.objects.get(
+            uid="REQ-L1-008", artifact__workspace_id=workspace.id
+        )
+        assert req_l1.status == "draft"
+
+        req_l2 = Requirement.objects.get(
+            uid="REQ-L2-AS-001", artifact__workspace_id=workspace.id
+        )
+        assert req_l2.status == "draft"
+    finally:
+        clear_request_tenant()
