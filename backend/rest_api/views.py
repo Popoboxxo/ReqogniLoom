@@ -782,6 +782,31 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             logger.exception("RequirementViewSet.decompose_next_level: unhandled exception")
             return _service_error_response(exc, lang)
 
+    @action(detail=True, methods=["post"], url_path="derive-testcase")
+    def derive_testcase(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/requirements/{pk}/derive-testcase/ — AI TestCase draft.
+
+        SysEng 2.0 N5 (test.derive_from_requirement). REQ-L2-AI-001: Draft/Accept
+        flow. Proposes a TestCase draft (title, description, steps) verifying
+        this requirement without persisting anything. Standard feature — no
+        rigor-preset / RuleEngine gate, unlike decompose_next_level.
+        """
+        lang = detect_lang(request)
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            result = AiDerivationService().derive_testcase_from_requirement(
+                get_auth_context(request), pk
+            )
+            return Response(result, status=status.HTTP_200_OK)
+        except ValidationError as e:
+            return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
+        except NotFoundError:
+            return Response(build_error_response("NOT_FOUND", lang), status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            logger.exception("RequirementViewSet.derive_testcase: unhandled exception")
+            return _service_error_response(exc, lang)
+
     @action(detail=True, methods=["get"], url_path="allocation")
     def allocation_coverage(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/requirements/{pk}/allocation/ — list allocations.
@@ -1390,12 +1415,49 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
-            item = self._svc().create_test_case(workspace_id=UUID(str(data["workspace_id"])), title=data["title"], ctx=ctx, description=data.get("description", ""), custom_fields=data.get("custom_fields"))
+            item = self._svc().create_test_case(
+                workspace_id=UUID(str(data["workspace_id"])),
+                title=data["title"],
+                ctx=ctx,
+                description=data.get("description", ""),
+                steps=data.get("steps") or None,
+                custom_fields=data.get("custom_fields"),
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(TestCaseSerializer(_test_to_dict(item)).data, status=status.HTTP_201_CREATED)
+
+        # SysEng 2.0 N5: optional 'verifies' TraceLink to the source requirement
+        # (ADR-L3-MC005-01 convention, mirrored here for the REST create path).
+        # Non-fatal: the TestCase is already created, so a link failure never
+        # turns the create into an error response. Instead, the outcome is
+        # surfaced via 'verifies_link_id' in the response body (present =
+        # link created, null = not requested or creation failed) — mirrors
+        # the MCP test.create 'trace_link_id' pattern (mcp_server/tools/tests.py).
+        linked_requirement_id = data.get("linked_requirement_id")
+        verifies_link_id: str | None = None
+        if linked_requirement_id:
+            try:
+                trace_link = TraceLinkService().create_trace_link(
+                    source_id=item.artifact_id,
+                    target_id=linked_requirement_id,
+                    link_type="verifies",
+                    ctx=ctx,
+                )
+                verifies_link_id = str(trace_link.id)
+            except Exception:
+                logger.warning(
+                    "TraceLinkService.create_trace_link failed for TestCase %s "
+                    "-> Requirement %s",
+                    item.id,
+                    linked_requirement_id,
+                    exc_info=True,
+                )
+
+        response_data = _test_to_dict(item)
+        response_data["verifies_link_id"] = verifies_link_id
+        return Response(TestCaseSerializer(response_data).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -2843,6 +2905,7 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
         "description": getattr(tc, "description", ""),
         "uid": getattr(tc, "uid", None),
         "status": getattr(tc, "status", "draft"),
+        "steps": getattr(tc, "steps", []) or [],
         "custom_fields": _artifact_custom_fields(tc),
         "version": tc.version,
         "created_at": tc.created_at,

@@ -59,6 +59,7 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "architecture.create",
     "architecture.update",
     "architecture.link",
+    "architecture.decompose_commit",
     "test.create",
     "test.update",
     "test.link",

@@ -449,13 +449,23 @@ class TestArchitectureToolGroup:
 
 class TestTestToolGroup:
 
-    def _group(self, service=None, trace_service=None):
+    def _group(self, service=None, trace_service=None, ai_derivation_service=None):
         service = service or MagicMock()
         trace_service = trace_service or MagicMock()
-        return TestToolGroup(service=service, trace_service=trace_service), service, trace_service
+        ai_derivation_service = ai_derivation_service or MagicMock()
+        return (
+            TestToolGroup(
+                service=service,
+                trace_service=trace_service,
+                ai_derivation_service=ai_derivation_service,
+            ),
+            service,
+            trace_service,
+            ai_derivation_service,
+        )
 
     def test_test_get_calls_service(self):
-        group, svc, _ = self._group()
+        group, svc, _, _ = self._group()
         tc = _mock_test_case()
         svc.get_test_case.return_value = tc
 
@@ -470,7 +480,7 @@ class TestTestToolGroup:
 
     @patch("mcp_server.tools.tests.write_mcp_audit")
     def test_test_create_calls_service_and_audits(self, mock_audit):
-        group, svc, trace_svc = self._group()
+        group, svc, trace_svc, _ = self._group()
         tc = _mock_test_case()
         svc.create_test_case.return_value = tc
 
@@ -486,7 +496,7 @@ class TestTestToolGroup:
 
     @patch("mcp_server.tools.tests.write_mcp_audit")
     def test_test_create_with_linked_req_creates_trace_link(self, mock_audit):
-        group, svc, trace_svc = self._group()
+        group, svc, trace_svc, _ = self._group()
         tc = _mock_test_case()
         svc.create_test_case.return_value = tc
         tl = _mock_trace_link()
@@ -509,7 +519,7 @@ class TestTestToolGroup:
 
     @patch("mcp_server.tools.tests.write_mcp_audit")
     def test_test_update_status_calls_update_test_status(self, mock_audit):
-        group, svc, _ = self._group()
+        group, svc, _, _ = self._group()
         tc = _mock_test_case()
         svc.update_test_status.return_value = tc
 
@@ -526,7 +536,7 @@ class TestTestToolGroup:
         mock_audit.assert_called_once()
 
     def test_test_update_invalid_status_returns_validation_error(self):
-        group, svc, _ = self._group()
+        group, svc, _, _ = self._group()
         result = group.execute_tool(
             tool_name="test.update",
             params={"id": "00000000-0000-0000-0000-000000000040", "data": {"status": "Unknown"}},
@@ -539,7 +549,7 @@ class TestTestToolGroup:
 
     @patch("mcp_server.tools.tests.write_mcp_audit")
     def test_test_link_creates_verifies_trace_link(self, mock_audit):
-        group, svc, trace_svc = self._group()
+        group, svc, trace_svc, _ = self._group()
         tc = _mock_test_case()
         svc.get_test_case.return_value = tc
         tl = _mock_trace_link()
@@ -559,7 +569,7 @@ class TestTestToolGroup:
         mock_audit.assert_called_once()
 
     def test_test_query_requires_workspace_id(self):
-        group, _, _ = self._group()
+        group, _, _, _ = self._group()
         result = group.execute_tool(
             tool_name="test.query",
             params={},
@@ -568,6 +578,70 @@ class TestTestToolGroup:
         )
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
+
+    # -----------------------------------------------------------------
+    # test.derive_from_requirement (SysEng 2.0 N5)
+    # -----------------------------------------------------------------
+
+    def test_derive_from_requirement_calls_service(self):
+        group, _, _, ai_svc = self._group()
+        req_id = "00000000-0000-0000-0000-000000000020"
+        ai_svc.derive_testcase_from_requirement.return_value = {
+            "draft": {
+                "title": "Test: Req",
+                "description": "Verifies the requirement.",
+                "steps": [{"step": "Do X", "expected_result": "Y happens"}],
+            },
+            "requirement_id": req_id,
+        }
+
+        result = group.execute_tool(
+            tool_name="test.derive_from_requirement",
+            params={"requirement_id": req_id},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert result.data["requirement_id"] == req_id
+        assert result.data["draft"]["title"] == "Test: Req"
+        ai_svc.derive_testcase_from_requirement.assert_called_once_with(
+            EDITOR_CTX, UUID(req_id)
+        )
+
+    def test_derive_from_requirement_not_found(self):
+        group, _, _, ai_svc = self._group()
+        ai_svc.derive_testcase_from_requirement.side_effect = NotFoundError("gone")
+
+        result = group.execute_tool(
+            tool_name="test.derive_from_requirement",
+            params={"requirement_id": "00000000-0000-0000-0000-000000000020"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+    def test_derive_from_requirement_requires_requirement_id(self):
+        group, _, _, _ = self._group()
+        result = group.execute_tool(
+            tool_name="test.derive_from_requirement",
+            params={},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_derive_from_requirement_is_not_a_write_tool(self):
+        """SysEng 2.0 N5: draft-only, must not require write RBAC (no persistence)."""
+        from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
+
+        tool_name = "test.derive_from_requirement"
+        assert not any(
+            tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES
+        )
 
 
 # ---------------------------------------------------------------------------

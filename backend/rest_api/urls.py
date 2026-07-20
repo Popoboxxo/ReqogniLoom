@@ -42,6 +42,10 @@ from rest_api.audit_views import (
     WorkspaceAuditRemediateView,
     WorkspaceAuditView,
 )
+from rest_api.architecture_decompose_views import (
+    WorkspaceArchitectureDecomposeCommitView,
+    WorkspaceArchitectureDecomposeView,
+)
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
@@ -343,6 +347,18 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/audit/",
         WorkspaceAuditView.as_view(),
         name="workspace-audit",
+    ),
+    # SysEng 2.0 N1 (architecture.decompose) — Draft-Staging copilot.
+    # commit/ must precede the generate route so it is not shadowed.
+    path(
+        "workspaces/<uuid:workspace_id>/architecture/decompose/commit/",
+        WorkspaceArchitectureDecomposeCommitView.as_view(),
+        name="workspace-architecture-decompose-commit",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/architecture/decompose/",
+        WorkspaceArchitectureDecomposeView.as_view(),
+        name="workspace-architecture-decompose",
     ),
     # Canvas strokes (REQ-L1-056, IF-L1-058/060) — diagram sub-resource.
     path(

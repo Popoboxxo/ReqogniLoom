@@ -20,6 +20,16 @@ import type {
   UUID,
 } from "../types";
 
+/**
+ * SysEng 2.0 N5 (test.derive_from_requirement): a single TestCase step, as
+ * persisted in the backend TestCase.steps JSONField and produced by the AI
+ * derivation draft.
+ */
+export interface TestCaseStep {
+  step: string;
+  expected_result: string;
+}
+
 /** Mirror of the backend TestCaseSerializer (REQ-L2-RA-001). */
 export interface TestCase {
   id: UUID;
@@ -27,6 +37,7 @@ export interface TestCase {
   title: string;
   description: string;
   status: string;
+  steps?: TestCaseStep[];
   version: number;
   uid?: string;
   custom_fields?: CustomFields;
@@ -57,6 +68,10 @@ export const testcasesApi = {
     title: string;
     description?: string;
     status?: string;
+    /** SysEng 2.0 N5: test steps (e.g. from an accepted AI derivation draft). */
+    steps?: TestCaseStep[];
+    /** SysEng 2.0 N5: optional requirement to auto-link via a 'verifies' TraceLink. */
+    linked_requirement_id?: UUID;
   }): Promise<TestCase> {
     return apiClient.post<TestCase>("/testcases/", data);
   },

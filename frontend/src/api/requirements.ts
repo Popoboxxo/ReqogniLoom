@@ -221,6 +221,27 @@ export const requirementsApi = {
   },
 
   /**
+   * SysEng 2.0 N5: AI-assisted TestCase draft derivation for a requirement.
+   *
+   * Calls POST /api/v1/requirements/{id}/derive-testcase/ which returns a
+   * single TestCase draft (title, description, steps) without persisting it
+   * (Draft/Accept pattern, REQ-L2-AI-001). Standard feature — no rigor-preset
+   * gate, unlike aiDecomposeNextLevel.
+   */
+  aiDeriveTestcase(
+    id: UUID
+  ): Promise<{
+    draft: {
+      title: string;
+      description: string;
+      steps: Array<{ step: string; expected_result: string }>;
+    };
+    requirement_id: string;
+  }> {
+    return apiClient.post(`/requirements/${id}/derive-testcase/`, {});
+  },
+
+  /**
    * REQ-L2-VS-004: fetch the top-N requirements most similar to the given one
    * by semantic (cosine) similarity over pgvector embeddings.
    *

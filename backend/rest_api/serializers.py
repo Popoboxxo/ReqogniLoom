@@ -514,6 +514,31 @@ class TestCaseSerializer(
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.CharField(max_length=64, default="draft")
     suspect = serializers.BooleanField(required=False, default=False)
+    # SysEng 2.0 N5 (test.derive_from_requirement): test steps, previously
+    # persisted on the model but not exposed through the API.
+    steps = serializers.ListField(
+        child=serializers.DictField(), required=False, default=list
+    )
+    # SysEng 2.0 N5: optional requirement to auto-link on create (write-only —
+    # mirrors the MCP test.create `linked_req_id` convention, ADR-L3-MC005-01).
+    linked_requirement_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Optional requirement UUID; creates a 'verifies' TraceLink on "
+            "create."
+        ),
+    )
+    # SysEng 2.0 N5: result of the auto-link attempt above — read-only,
+    # returned on create() so the client can detect a silently failed link
+    # instead of only getting a 201 with no signal (ADR-L3-MC005-01, mirrors
+    # the MCP test.create `trace_link_id` convention). Null/absent on any
+    # response that didn't attempt a link (e.g. retrieve/list/update), or if
+    # linked_requirement_id was omitted, or if the link creation failed.
+    verifies_link_id = serializers.UUIDField(
+        read_only=True, allow_null=True, required=False, default=None
+    )
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)

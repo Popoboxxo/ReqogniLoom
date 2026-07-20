@@ -478,6 +478,81 @@ class MockLlmProvider(LlmCapabilityInterface):
                 ]
             )
 
+        if purpose == "arch_decompose_tree":
+            # SysEng 2.0 N1 (architecture.decompose): deterministic, recursive
+            # decomposition tree. Each node bundles a child ArchitectureElement
+            # with a single derived Requirement so the N1 service can emit the
+            # full internal link set (decomposes / derives-from / allocated-to).
+            # ``breadth`` children per level, nested ``depth`` levels deep;
+            # element_type is a descriptive tag only ("subsystem" for inner
+            # nodes, "component" for leaves — the authoritative role is derived
+            # from tree position, UMSETZUNGSPLAN_SYSENG_2.0.md §1.2).
+            breadth = max(1, int(ctx.get("breadth", 2)))
+            depth = max(1, int(ctx.get("depth", 1)))
+            title_base = str(ctx.get("element_title") or "System")
+
+            def _build(prefix: str, level: int) -> list:
+                nodes = []
+                for i in range(breadth):
+                    label = f"{prefix}{i + 1}"
+                    has_children = level < depth
+                    nodes.append(
+                        {
+                            "title": f"{title_base} · Element {label}",
+                            "description": (
+                                f"Decomposed element {label} of {title_base}."
+                            ),
+                            "element_type": (
+                                "subsystem" if has_children else "component"
+                            ),
+                            "requirement": {
+                                "title": f"Requirement for {title_base} · {label}",
+                                "description": (
+                                    f"The element {label} shall fulfil its "
+                                    f"allocated part of {title_base}."
+                                ),
+                                "rationale": (
+                                    "Derived by the mock provider during "
+                                    "architecture decomposition."
+                                ),
+                            },
+                            "children": (
+                                _build(f"{label}.", level + 1)
+                                if has_children
+                                else []
+                            ),
+                        }
+                    )
+                return nodes
+
+            return json.dumps(_build("", 1))
+
+        if purpose == "test_derive_from_requirement":
+            # SysEng 2.0 N5 (test.derive_from_requirement): deterministic
+            # single TestCase draft (title, description, steps) verifying the
+            # given requirement. Unlike the array-shaped purposes above, this
+            # returns a single JSON *object* —
+            # AiDerivationService._parse_json_object expects that shape.
+            req_title = str(ctx.get("req_title") or "Requirement")
+            return json.dumps(
+                {
+                    "title": f"Test: {req_title}",
+                    "description": (
+                        f"Verifies that the system satisfies '{req_title}'."
+                    ),
+                    "steps": [
+                        {
+                            "step": "Set up preconditions for the requirement under test.",
+                            "expected_result": "System is in the required initial state.",
+                        },
+                        {
+                            "step": f"Exercise the behaviour described by '{req_title}'.",
+                            "expected_result": "The system behaves as specified by the requirement.",
+                        },
+                    ],
+                }
+            )
+
         return json.dumps([])
 
 

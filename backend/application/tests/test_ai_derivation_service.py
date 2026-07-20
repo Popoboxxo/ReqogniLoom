@@ -323,3 +323,115 @@ def test_old_template_with_only_req_title_still_renders(
     assert result == {"suggested_arch_element_ids": []}
     prompt = provider.calls[0]["prompt"]
     assert prompt == "Legacy prompt for Legacy Requirement Title only."
+
+
+# ---------------------------------------------------------------------------
+# Flow 4 (SysEng 2.0 N5) — derive a TestCase draft from a requirement
+# ---------------------------------------------------------------------------
+
+
+def test_derive_testcase_returns_draft(auth_context, workspace):
+    """Mock provider yields a single TestCase draft with title/description/steps."""
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="The system shall log in users", ctx=auth_context
+    )
+
+    result = AiDerivationService().derive_testcase_from_requirement(auth_context, req.id)
+
+    assert result["requirement_id"] == str(req.id)
+    draft = result["draft"]
+    assert set(draft.keys()) == {"title", "description", "steps"}
+    assert draft["title"]
+    assert draft["description"]
+    assert len(draft["steps"]) >= 1
+    for step in draft["steps"]:
+        assert set(step.keys()) == {"step", "expected_result"}
+
+
+def test_derive_testcase_no_preset_gate(auth_context, workspace):
+    """Unlike decompose_requirement_next_level, no allocation is required."""
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Unallocated requirement", ctx=auth_context
+    )
+
+    # Must not raise ValidationError despite having no allocated-to link.
+    result = AiDerivationService().derive_testcase_from_requirement(auth_context, req.id)
+    assert result["draft"]["title"]
+
+
+def test_derive_testcase_formats_prompt(auth_context, workspace, monkeypatch):
+    """The rendered prompt substitutes requirement title/description."""
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Distinctive Requirement Title",
+        description="Distinctive Requirement Description",
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(
+        json.dumps({"title": "t", "description": "d", "steps": []})
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_testcase_from_requirement(auth_context, req.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Distinctive Requirement Title" in prompt
+    assert "Distinctive Requirement Description" in prompt
+    assert "{req_title}" not in prompt and "{req_description}" not in prompt
+    assert provider.calls[0]["purpose"] == "test_derive_from_requirement"
+
+
+def test_derive_testcase_invalid_json_raises(auth_context, workspace, monkeypatch):
+    """A non-JSON provider response surfaces as LlmResponseError."""
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="R", ctx=auth_context
+    )
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _CaptureProvider("this is not json"),
+    )
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_testcase_from_requirement(auth_context, req.id)
+
+
+def test_derive_testcase_json_array_raises(auth_context, workspace, monkeypatch):
+    """A JSON array (not object) response is rejected — draft must be an object."""
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="R", ctx=auth_context
+    )
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _CaptureProvider(json.dumps([{"title": "t"}])),
+    )
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_testcase_from_requirement(auth_context, req.id)
+
+
+def test_derive_testcase_missing_requirement_raises(auth_context):
+    import uuid
+
+    with pytest.raises(NotFoundError):
+        AiDerivationService().derive_testcase_from_requirement(auth_context, uuid.uuid4())
+
+
+def test_derive_testcase_truncates_long_requirement_description(
+    auth_context, workspace, monkeypatch
+):
+    """An oversized requirement description is bounded before prompt embedding."""
+    long_description = "r" * (MAX_PROMPT_CONTENT_CHARS + 500)
+    req = RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Some requirement",
+        description=long_description,
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps({"title": "t", "description": "d", "steps": []}))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_testcase_from_requirement(auth_context, req.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert long_description not in prompt
+    assert "[truncated]" in prompt

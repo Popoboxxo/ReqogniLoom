@@ -789,5 +789,40 @@
     "adopting": "Adopting...",
     "adoptSuccess": "Resolved — the correction was applied.",
     "modify": "Modify"
+  },
+  "archDecompose": {
+    "trigger": "AI Decompose",
+    "title": "AI Decomposition (Copilot)",
+    "close": "Close",
+    "breadth": "Breadth (children per level)",
+    "depth": "Depth (levels)",
+    "generate": "Generate draft",
+    "generating": "Generating...",
+    "degraded": "Note: deterministic mock draft (no real LLM provider configured).",
+    "summary": "Draft: {{elements}} architecture elements, {{requirements}} derived requirements, {{links}} trace links.",
+    "derivedRequirement": "Derived requirement",
+    "commit": "Commit",
+    "committing": "Committing...",
+    "discard": "Discard",
+    "committed": "Committed: {{elements}} elements, {{requirements}} requirements, {{links}} links.",
+    "verified": "Auditor passed"
+  },
+  "deriveTestcase": {
+    "trigger": "Generate Test",
+    "title": "TestCase Draft (Copilot)",
+    "close": "Close",
+    "generate": "Generate draft",
+    "generating": "Generating...",
+    "fieldTitle": "Title",
+    "fieldDescription": "Description",
+    "fieldSteps": "Test steps",
+    "stepPlaceholder": "Action",
+    "expectedResultPlaceholder": "Expected result",
+    "addStep": "Add step",
+    "removeStep": "Remove",
+    "create": "Create test case",
+    "creating": "Creating...",
+    "discard": "Discard",
+    "created": "Test case \"{{title}}\" was created."
   }
 }

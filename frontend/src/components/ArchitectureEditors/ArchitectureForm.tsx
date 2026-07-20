@@ -53,6 +53,11 @@ interface ArchitectureFormProps {
    * Whether to show change_reason field (extended preset).
    */
   isExtendedPreset: boolean;
+
+  /**
+   * Called when user clicks "AI Decompose" button.
+   */
+  onDecompose?: () => void;
 }
 
 /**
@@ -196,6 +201,7 @@ export function ArchitectureForm({
   onSaved,
   onDelete,
   isExtendedPreset,
+  onDecompose,
 }: ArchitectureFormProps): JSX.Element {
   const { t } = useTranslation();
   const { visibleFields } = useEntityType();
@@ -379,6 +385,15 @@ export function ArchitectureForm({
         >
           {showDiff ? t('editor.hideDiff') : t('editor.viewDiff')}
         </button>
+        {onDecompose && (
+          <button
+            data-testid="arch-decompose-btn"
+            className="btn-secondary"
+            onClick={onDecompose}
+          >
+            {t('archDecompose.trigger')}
+          </button>
+        )}
       </div>
 
       {/* Header with UID and Version (read-only) */}

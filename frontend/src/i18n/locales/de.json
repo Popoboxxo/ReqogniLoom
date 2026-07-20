@@ -786,5 +786,40 @@
     "adopting": "Wird übernommen...",
     "adoptSuccess": "Behoben — die Korrektur wurde angewendet.",
     "modify": "Anpassen"
+  },
+  "archDecompose": {
+    "trigger": "KI-Zerlegung",
+    "title": "KI-Zerlegung (Copilot)",
+    "close": "Schließen",
+    "breadth": "Breite (Kinder je Ebene)",
+    "depth": "Tiefe (Ebenen)",
+    "generate": "Entwurf generieren",
+    "generating": "Wird generiert...",
+    "degraded": "Hinweis: deterministischer Mock-Entwurf (kein echter LLM-Provider konfiguriert).",
+    "summary": "Entwurf: {{elements}} Architektur-Elemente, {{requirements}} abgeleitete Anforderungen, {{links}} Trace-Links.",
+    "derivedRequirement": "Abgeleitete Anforderung",
+    "commit": "Übernehmen (committen)",
+    "committing": "Wird übernommen...",
+    "discard": "Verwerfen",
+    "committed": "Übernommen: {{elements}} Elemente, {{requirements}} Anforderungen, {{links}} Links.",
+    "verified": "Auditor bestanden"
+  },
+  "deriveTestcase": {
+    "trigger": "Testfall generieren",
+    "title": "Testfall-Entwurf (Copilot)",
+    "close": "Schließen",
+    "generate": "Entwurf generieren",
+    "generating": "Wird generiert...",
+    "fieldTitle": "Titel",
+    "fieldDescription": "Beschreibung",
+    "fieldSteps": "Testschritte",
+    "stepPlaceholder": "Aktion",
+    "expectedResultPlaceholder": "Erwartetes Ergebnis",
+    "addStep": "Schritt hinzufügen",
+    "removeStep": "Entfernen",
+    "create": "Testfall anlegen",
+    "creating": "Wird angelegt...",
+    "discard": "Verwerfen",
+    "created": "Testfall \"{{title}}\" wurde angelegt."
   }
 }
