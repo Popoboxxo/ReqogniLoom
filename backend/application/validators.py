@@ -12,6 +12,7 @@ rigor preset tier (Minimal / Standard / Extended):
     I2  level ordering: parent.level < child.level              standard, extended
     I3  no dangling / cross-workspace parent references         all tiers
     I4  allocated-to must not target an ancestor of the source  extended
+    I5  at most one root (SYSTEM) per workspace tree            all tiers
 
 Design notes:
 - The invariant/tier mapping is data-driven in RIGOR_INVARIANT_PRESETS.
@@ -41,17 +42,23 @@ INVARIANT_I1 = "I1"
 INVARIANT_I2 = "I2"
 INVARIANT_I3 = "I3"
 INVARIANT_I4 = "I4"
+INVARIANT_I5 = "I5"
 
 ALL_INVARIANTS: FrozenSet[str] = frozenset(
-    {INVARIANT_I1, INVARIANT_I2, INVARIANT_I3, INVARIANT_I4}
+    {INVARIANT_I1, INVARIANT_I2, INVARIANT_I3, INVARIANT_I4, INVARIANT_I5}
 )
 
 #: Default invariant sets per rigor tier — single source of truth at runtime.
+#: I5 (single root per workspace) is active on every tier: the SysEng 2.0 role
+#: derivation (§1.2) names the unique root the "System", so a second root would
+#: yield two competing System elements regardless of the rigor preset.
 RIGOR_INVARIANT_PRESETS: Mapping[str, FrozenSet[str]] = {
-    "minimal": frozenset({INVARIANT_I3}),
-    "standard": frozenset({INVARIANT_I1, INVARIANT_I2, INVARIANT_I3}),
+    "minimal": frozenset({INVARIANT_I3, INVARIANT_I5}),
+    "standard": frozenset(
+        {INVARIANT_I1, INVARIANT_I2, INVARIANT_I3, INVARIANT_I5}
+    ),
     "extended": frozenset(
-        {INVARIANT_I1, INVARIANT_I2, INVARIANT_I3, INVARIANT_I4}
+        {INVARIANT_I1, INVARIANT_I2, INVARIANT_I3, INVARIANT_I4, INVARIANT_I5}
     ),
 }
 
@@ -161,6 +168,27 @@ class ArchitectureElementInvariantValidator:
             .filter(id=element_id)
             .first()
         )
+
+    @staticmethod
+    def _get_existing_root(workspace_id, exclude_id=None):
+        """Return an existing non-deleted root in *workspace_id* (or None).
+
+        A "root" is an ArchitectureElement with ``parent_id IS NULL``. The
+        element currently being validated is excluded via *exclude_id* so that
+        re-saving an existing root as root does not trip the single-root
+        invariant. Soft-deleted elements are ignored.
+        """
+        from persistence.models import ArchitectureElement, LifecycleStatus
+
+        qs = (
+            ArchitectureElement.objects.filter(
+                artifact__workspace_id=workspace_id, parent_id__isnull=True
+            )
+            .exclude(lifecycle_status=LifecycleStatus.DELETED)
+        )
+        if exclude_id is not None:
+            qs = qs.exclude(id=exclude_id)
+        return qs.first()
 
     # ------------------------------------------------------------------
     # I1 — no circular parent references (standard, extended)
@@ -294,6 +322,43 @@ class ArchitectureElementInvariantValidator:
             current_id = current.parent_id if current is not None else None
 
     # ------------------------------------------------------------------
+    # I5 — at most one root (SYSTEM) per workspace (all tiers)
+    # ------------------------------------------------------------------
+
+    def check_i5(
+        self,
+        *,
+        new_parent_id: Optional[UUID],
+        workspace_id: UUID | str | None,
+        element_id: Optional[UUID] = None,
+    ) -> None:
+        """Reject a second root in the same workspace (SysEng 2.0 §1.2, I5).
+
+        Only relevant when the element *becomes* a root (``new_parent_id`` is
+        None) — assigning a real parent can never create a second root. The
+        first element in an empty workspace is always allowed to be the root;
+        adding another one is rejected because the derived role model names the
+        unique root the "System".
+
+        No-op when the invariant is disabled or the workspace cannot be
+        resolved (unit-test contexts without persistence).
+        """
+        if not self.is_enabled(INVARIANT_I5):
+            return
+        if new_parent_id is not None or workspace_id is None:
+            return
+        existing_root = self._get_existing_root(
+            workspace_id, exclude_id=element_id
+        )
+        if existing_root is not None:
+            raise ValidationError(
+                f"[I5] Workspace {workspace_id} already has a root "
+                f"ArchitectureElement ({existing_root.id}). A tree may have "
+                f"exactly one root (the System); attach this element under an "
+                f"existing element instead of making it a second root."
+            )
+
+    # ------------------------------------------------------------------
     # Orchestration entry points
     # ------------------------------------------------------------------
 
@@ -305,23 +370,30 @@ class ArchitectureElementInvariantValidator:
         element_id: Optional[UUID] = None,
         workspace_id: UUID | str | None = None,
     ) -> None:
-        """Run I3 → I1 → I2 for a (proposed) parent assignment.
+        """Run the hierarchy invariants for a (proposed) parent assignment.
 
-        Order matters: I3 resolves the parent, I1 guards against cycles
+        Root case (``parent_id is None``): only I5 (single root per workspace)
+        applies. Child case: I3 resolves the parent, I1 guards against cycles
         before I2 triggers the recursive get_level() traversal.
 
         Args:
-            parent_id: The proposed parent (None = root, always valid).
+            parent_id: The proposed parent (None = root).
             element: The element being re-parented (None on creation).
             element_id: Explicit element id (used when *element* is None).
-            workspace_id: Workspace for the cross-workspace check (I3).
+            workspace_id: Workspace for the cross-workspace (I3) and
+                single-root (I5) checks.
         """
-        if parent_id is None:
-            return
-        parent = self.check_i3(parent_id, workspace_id=workspace_id)
         effective_id = element_id if element_id is not None else getattr(
             element, "id", None
         )
+        if parent_id is None:
+            self.check_i5(
+                new_parent_id=None,
+                workspace_id=workspace_id,
+                element_id=effective_id,
+            )
+            return
+        parent = self.check_i3(parent_id, workspace_id=workspace_id)
         self.check_i1(element_id=effective_id, parent_id=parent_id)
         self.check_i2(element, parent)
 
@@ -373,4 +445,5 @@ __all__ = [
     "INVARIANT_I2",
     "INVARIANT_I3",
     "INVARIANT_I4",
+    "INVARIANT_I5",
 ]

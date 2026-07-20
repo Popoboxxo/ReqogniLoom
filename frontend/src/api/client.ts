@@ -16,7 +16,7 @@
  */
 
 import type { ApiError, PaginatedResponse } from "../types";
-import { ForbiddenError } from "./errors";
+import { ForbiddenError, UnprocessableEntityError } from "./errors";
 
 // ---------------------------------------------------------------------------
 // CSRF helpers (REQ-052)
@@ -132,6 +132,24 @@ async function apiFetch<T>(
       // Non-JSON body → fall back to the default message.
     }
     throw new ForbiddenError(detail);
+  }
+
+  // 422 → understood but not applicable (e.g. SE-Auditor remediate without
+  // an unambiguous auto-fix). A typed error so callers can distinguish it
+  // from a plain 400 and switch into a manual "Modify" state instead of
+  // showing a generic validation error (UMSETZUNGSPLAN_SYSENG_2.0.md §4).
+  if (response.status === 422) {
+    let detail: string | undefined;
+    try {
+      const body = await response.json();
+      detail =
+        (typeof body?.error?.message === "string" && body.error.message) ||
+        (typeof body?.detail === "string" && body.detail) ||
+        undefined;
+    } catch {
+      // Non-JSON body → fall back to the default message.
+    }
+    throw new UnprocessableEntityError(detail);
   }
 
   if (!response.ok) {

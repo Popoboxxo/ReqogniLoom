@@ -1,14 +1,19 @@
 """
-COMP-MC-006 CrossCuttingToolGroup — 4 cross-cutting MCP tools.
+COMP-MC-006 CrossCuttingToolGroup — 5 cross-cutting MCP tools.
 
 leaf_id : COMP-MC-006
 req_id  : REQ-L2-MC-004 (4 cross-cutting Tools),
           REQ-L2-MC-009 (direct ApplicationService access)
 
 Tools implemented:
-  traceability.query  — upstream/downstream TraceLink graph for an artifact
-  artifact.search     — full-text search across all artifact types
-  artifact.get_tree   — hierarchical artifact structure rooted at an artifact
+  traceability.query          — upstream/downstream TraceLink graph for an artifact
+  traceability.suggest_links  — SysEng 2.0 N3 (first stage): rank plausible
+                                 link targets for SE-Auditor findings that
+                                 name a missing trace link (mock LLM by
+                                 default). No pgvector/embedding dependency
+                                 (UMSETZUNGSPLAN_SYSENG_2.0.md §3.2).
+  artifact.search      — full-text search across all artifact types
+  artifact.get_tree    — hierarchical artifact structure rooted at an artifact
   workspace.get_context — workspace status summary for AI agent session start
 
 Interface contracts implemented:
@@ -37,6 +42,12 @@ from application.services import (
     TraceLinkService,
     ValidationError,
 )
+from application.traceability_suggest_service import (
+    SuggestLinksResponseError,
+    TraceabilitySuggestService,
+)
+
+from traceability.audit import AuditScope
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
@@ -48,16 +59,22 @@ from mcp_server.tools.base import (
 
 logger = logging.getLogger(__name__)
 
+# SysEng 2.0 N3 (traceability.suggest_links) — mirrors AuditToolGroup's
+# ``_VALID_AI_REVIEW_SCOPES`` in mcp_server/tools/audit.py (kept local here
+# to avoid a cross-tool-group import).
+_VALID_SUGGEST_LINKS_SCOPES = frozenset({"document", "project", "global"})
+
 
 class CrossCuttingToolGroup(BaseToolGroup):
-    """COMP-MC-006 — Cross-cutting tool group (4 tools).
+    """COMP-MC-006 — Cross-cutting tool group (5 tools).
 
-    All four tools are read-only and do NOT require audit entries.
+    All five tools are read-only and do NOT require audit entries.
     REQ-L2-MC-012: Lese-Operationen erzeugen KEINEN AuditLog-Eintrag.
     """
 
     _TOOL_MAP = {
         "traceability.query": "_handle_traceability_query",
+        "traceability.suggest_links": "_handle_traceability_suggest_links",
         "artifact.search": "_handle_artifact_search",
         "artifact.get_tree": "_handle_artifact_get_tree",
         "workspace.get_context": "_handle_workspace_get_context",
@@ -78,6 +95,36 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["artifact_id"],
+            },
+        },
+        {
+            "name": "traceability.suggest_links",
+            "description": (
+                "SysEng 2.0 N3 (first stage): run the SE-Auditor for a "
+                "workspace, filter findings that name a missing trace link "
+                "(TRACE-P1/-P1b/-P2), and rank each finding's deterministic "
+                "candidate pool via the LLM adapter (mock by default). "
+                "Read-only/advisory — nothing is persisted; every returned "
+                "finding/candidate reference is a real one from this run. "
+                "No pgvector/embedding search is performed."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the target workspace.",
+                    },
+                    "scope": {
+                        "type": "string",
+                        "description": "Optional baseline scope (document|project|global).",
+                    },
+                    "scope_artifact_id": {
+                        "type": "string",
+                        "description": "Required when scope=document (subtree root).",
+                    },
+                },
+                "required": ["workspace_id"],
             },
         },
         {
@@ -131,10 +178,12 @@ class CrossCuttingToolGroup(BaseToolGroup):
         artifact_service: Optional[ArtifactService] = None,
         search_service: Optional[SearchService] = None,
         trace_service: Optional[TraceLinkService] = None,
+        trace_suggest_service: Optional[TraceabilitySuggestService] = None,
     ) -> None:
         self._artifact_service = artifact_service or ArtifactService()
         self._search_service = search_service or SearchService()
         self._trace_service = trace_service or TraceLinkService()
+        self._trace_suggest_service = trace_suggest_service or TraceabilitySuggestService()
 
     # ------------------------------------------------------------------
     # traceability.query
@@ -190,6 +239,61 @@ class CrossCuttingToolGroup(BaseToolGroup):
             "links": links,
             "count": len(links),
         })
+
+    # ------------------------------------------------------------------
+    # traceability.suggest_links — SysEng 2.0 N3 (first stage)
+    # ------------------------------------------------------------------
+
+    def _handle_traceability_suggest_links(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """traceability.suggest_links — rank candidate link targets for
+        SE-Auditor findings that name a missing trace link (TRACE-P1/-P1b/
+        -P2). Deterministic keyword-overlap candidate search + LLM ranking
+        — no pgvector/embeddings (UMSETZUNGSPLAN_SYSENG_2.0.md §3.2).
+
+        Required params:
+            workspace_id : UUID of the target workspace.
+        Optional params:
+            scope             : ``"document" | "project" | "global"``.
+            scope_artifact_id : required when ``scope == "document"``.
+
+        No admin gate — mirrors ``traceability.query``/``audit.ai_review``:
+        any authenticated caller with workspace access may run it.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+
+        scope = params.get("scope")
+        scopes = None
+        if scope:
+            if scope not in _VALID_SUGGEST_LINKS_SCOPES:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"Parameter 'scope' must be one of "
+                    f"{sorted(_VALID_SUGGEST_LINKS_SCOPES)}.",
+                )
+            scope_artifact_id = params.get("scope_artifact_id") or None
+            if scope == "document" and not scope_artifact_id:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    "Parameter 'scope_artifact_id' is required when scope=document.",
+                )
+            scopes = [AuditScope(scope, artifact_id=scope_artifact_id)]
+
+        try:
+            result = self._trace_suggest_service.suggest_links(
+                workspace_id, auth_context, scopes=scopes
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except SuggestLinksResponseError as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except (ValidationError, ValueError) as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        return ToolResult.ok(result.to_dict())
 
     # ------------------------------------------------------------------
     # artifact.search

@@ -24,6 +24,7 @@ import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
+import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
 import { RightSidebar } from "../shared/ArtifactInspector";
@@ -96,6 +97,9 @@ export default function ArchitectureEditors(): JSX.Element {
   const [deriveTitle, setDeriveTitle] = useState("");
   const [isDeriving, setIsDeriving] = useState(false);
   const [deriveError, setDeriveError] = useState<string | null>(null);
+
+  // AI Decompose panel state
+  const [showDecomposePanel, setShowDecomposePanel] = useState(false);
 
   const handleDeriveRequirement = useCallback(async (): Promise<void> => {
     if (!element || !activeWorkspace) return;
@@ -431,6 +435,7 @@ export default function ArchitectureEditors(): JSX.Element {
                 onSaved={refresh}
                 onDelete={(id) => void handleDelete(id)}
                 isExtendedPreset={activeWorkspace?.preset === "extended"}
+                onDecompose={() => setShowDecomposePanel(true)}
               />
             </EntityTypeProvider>
 
@@ -544,6 +549,47 @@ export default function ArchitectureEditors(): JSX.Element {
                 {t("actions.cancel")}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showDecomposePanel && element && activeWorkspace && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1000,
+            overflow: "auto",
+            padding: "var(--space-4)",
+          }}
+          data-testid="arch-decompose-dialog"
+        >
+          <div
+            style={{
+              background: "var(--color-surface)",
+              borderRadius: "var(--radius-lg)",
+              boxShadow: "var(--shadow-md)",
+              maxWidth: "600px",
+              width: "100%",
+              maxHeight: "90vh",
+              overflow: "auto",
+            }}
+          >
+            <ArchitectureDecomposePanel
+              workspaceId={activeWorkspace.id}
+              element={{ id: element.id, title: element.title }}
+              onCommitted={() => {
+                setShowDecomposePanel(false);
+                refresh();
+              }}
+              onClose={() => setShowDecomposePanel(false)}
+            />
           </div>
         </div>
       )}

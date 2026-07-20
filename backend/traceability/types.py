@@ -48,6 +48,12 @@ class LinkType(str, Enum):
     USES_TERM = "uses-term"
     # REQ-L2-TE-020 ADR decision link (ADR -> ArchitectureElement):
     DECIDES = "decides"
+    # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4: additive Requirement/Need hierarchy
+    # link type — the hardcoded output of RequirementService.decompose() /
+    # derive_requirement(), replacing the workspace-configurable link type
+    # (formerly read from Workspace.decomposition_link_type). Not a rename of
+    # PARENT_CHILD: existing parent-child TraceLinks/baselines are untouched.
+    DECOMPOSES = "decomposes"
 
     @classmethod
     def values(cls) -> frozenset[str]:

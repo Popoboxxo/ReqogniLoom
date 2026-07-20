@@ -38,6 +38,7 @@ import { RequirementList } from './RequirementList';
 import { RequirementForm } from './RequirementForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
+import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import type { RequirementType } from '../../types';
@@ -77,6 +78,9 @@ export default function RequirementEditors(): JSX.Element {
   const [isAiDeriving, setIsAiDeriving] = useState(false);
   const [aiDeriveStatus, setAiDeriveStatus] = useState<string | null>(null);
   const [aiDeriveIsError, setAiDeriveIsError] = useState(false);
+
+  // SysEng 2.0 N5 (test.derive_from_requirement): AI TestCase-draft copilot
+  const [showDeriveTestcasePanel, setShowDeriveTestcasePanel] = useState(false);
 
   // Dynamic attribute configurations
   const [attributeVisibility, setAttributeVisibility] = useState<Record<string, boolean>>({
@@ -447,6 +451,17 @@ export default function RequirementEditors(): JSX.Element {
         </div>
       )}
 
+      {/* SysEng 2.0 N5: AI-generate a TestCase draft for this requirement */}
+      <div style={{ marginTop: 'var(--space-2)' }}>
+        <button
+          type="button"
+          onClick={() => setShowDeriveTestcasePanel(true)}
+          data-testid="req-derive-testcase-btn"
+        >
+          {t('deriveTestcase.trigger')}
+        </button>
+      </div>
+
       {/* REQ-L2-VS-004: semantic similarity search */}
       <SimilarRequirementsPanel
         requirementId={requirement.id}
@@ -475,12 +490,51 @@ export default function RequirementEditors(): JSX.Element {
   );
 
   return (
-    <SplitView
-      leftPanel={leftPanel}
-      rightPanel={rightPanel}
-      leftMinWidth={260}
-      leftMaxWidthPercent={70}
-      moduleType="requirements"
-    />
+    <>
+      {showDeriveTestcasePanel && requirement && activeWorkspace && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 1000,
+            overflow: 'auto',
+            padding: 'var(--space-4)',
+          }}
+          data-testid="derive-testcase-dialog"
+        >
+          <div
+            style={{
+              background: 'var(--color-surface)',
+              borderRadius: 'var(--radius-lg)',
+              boxShadow: 'var(--shadow-md)',
+              maxWidth: '600px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+            }}
+          >
+            <DeriveTestCasePanel
+              workspaceId={activeWorkspace.id}
+              requirement={{ id: requirement.id, title: requirement.title }}
+              onCreated={() => setShowDeriveTestcasePanel(false)}
+              onClose={() => setShowDeriveTestcasePanel(false)}
+            />
+          </div>
+        </div>
+      )}
+      <SplitView
+        leftPanel={leftPanel}
+        rightPanel={rightPanel}
+        leftMinWidth={260}
+        leftMaxWidthPercent={70}
+        moduleType="requirements"
+      />
+    </>
   );
 }

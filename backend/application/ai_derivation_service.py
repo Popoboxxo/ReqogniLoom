@@ -14,6 +14,10 @@ Flows (REQ-L2-AI-002):
   1. :meth:`derive_requirements_from_need` — StakeholderNeed -> SystemRequirements
   2. :meth:`suggest_architecture_for_requirement` — Requirement -> ArchitectureElement ids
   3. :meth:`decompose_requirement_next_level` — Requirement -> next-level requirement drafts
+  4. :meth:`derive_testcase_from_requirement` — Requirement -> TestCase draft
+     (SysEng 2.0 N5, ``test.derive_from_requirement``). Standard feature, no
+     RuleEngine/preset gate — unlike the architecture-decompose copilot (N1)
+     this flow has no rigor-preset dependency.
 
 LLM access goes through the ``llm_adapter`` provider registry. The default
 provider is ``mock`` (credential-free, deterministic) so the flows and their
@@ -55,6 +59,23 @@ logger = logging.getLogger(__name__)
 # real provider failed (REQ-078). Callers can test for it to warn the user that
 # the content is a deterministic placeholder, not a genuine LLM answer.
 MOCK_FALLBACK_MARKER = "[MOCK FALLBACK] "
+
+# SysEng 2.0 N5 (test.derive_from_requirement) prompt. Hardcoded rather than a
+# PromptTemplate slot: the flow is a standard feature (no rigor-preset gate),
+# and — mirroring the N1 precedent in architecture_decompose_service.py — a
+# new per-tenant editable slot would require a model field + migration for no
+# behavioural benefit while the default provider is the purpose-keyed mock.
+TESTCASE_DERIVE_PROMPT_TEMPLATE = (
+    "You are a test engineer. Derive one test case that verifies the "
+    "following requirement.\n\n"
+    "Requirement title: {req_title}\n"
+    "Requirement description: {req_description}\n\n"
+    "Respond with a single JSON object (no prose, no markdown fences) with "
+    'this exact shape: {"title": "<test case title>", "description": '
+    '"<short description>", "steps": [{"step": "<action>", '
+    '"expected_result": "<expected outcome>"}, ...]}. '
+    "Provide at least 2 and at most 6 steps."
+)
 
 # ---------------------------------------------------------------------------
 # LLM derivation response caching (REQ-105, DEEP_SYSTEM_ANALYSIS.md F5.1)
@@ -366,6 +387,70 @@ class AiDerivationService(ServiceBase):
             "parent_requirement_id": str(req.id),
         }
 
+    def derive_testcase_from_requirement(
+        self,
+        ctx: AuthContext,
+        requirement_id: UUID | str,
+    ) -> Dict[str, Any]:
+        """Flow 4 (SysEng 2.0 N5): propose a TestCase draft for a requirement.
+
+        Standard feature — unlike :meth:`decompose_requirement_next_level`
+        this flow has no rigor-preset / RuleEngine gate and works on any
+        requirement regardless of allocation state.
+
+        Follows the same Draft/Accept contract as the other flows: nothing is
+        persisted here. The caller (REST view / MCP tool) returns the draft to
+        the client, which persists it — after user review — via the existing
+        ``TestService.create_test_case`` path.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            requirement_id: Source requirement to derive a test case for.
+
+        Returns:
+            ``{"draft": {"title": str, "description": str, "steps":
+            [{"step": str, "expected_result": str}, ...]}, "requirement_id":
+            <uuid-str>}``.
+
+        Raises:
+            NotFoundError: The requirement does not exist for this tenant.
+            LlmResponseError: The provider returned non-JSON content.
+        """
+        self._set_tenant_context(ctx)
+
+        req = self._get_requirement(requirement_id)
+
+        prompt = self._render(
+            TESTCASE_DERIVE_PROMPT_TEMPLATE,
+            req_title=req.title,
+            req_description=truncate_prompt_content(req.description or ""),
+        )
+
+        raw = self._complete(
+            prompt,
+            purpose="test_derive_from_requirement",
+            artifact_id=req.artifact_id,
+            context={"req_title": req.title},
+        )
+        parsed = self._parse_json_object(raw)
+
+        raw_steps = parsed.get("steps")
+        steps = [
+            {
+                "step": str(step.get("step", "")),
+                "expected_result": str(step.get("expected_result", "")),
+            }
+            for step in raw_steps
+            if isinstance(step, dict)
+        ] if isinstance(raw_steps, list) else []
+
+        draft = {
+            "title": str(parsed.get("title", "")),
+            "description": str(parsed.get("description", "")),
+            "steps": steps,
+        }
+        return {"draft": draft, "requirement_id": str(req.id)}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -506,11 +591,39 @@ class AiDerivationService(ServiceBase):
             )
         return parsed
 
+    @staticmethod
+    def _parse_json_object(raw: str) -> Dict[str, Any]:
+        """Parse *raw* into a JSON object, tolerating Markdown code fences.
+
+        Sibling of :meth:`_parse_json_list` for flows whose LLM response is a
+        single JSON object rather than an array (SysEng 2.0 N5).
+
+        Raises:
+            LlmResponseError: When *raw* is not valid JSON or not an object.
+        """
+        text = raw.strip()
+        if text.startswith(MOCK_FALLBACK_MARKER):
+            text = text[len(MOCK_FALLBACK_MARKER):].strip()
+        if text.startswith("```"):
+            text = text.replace("```json", "").replace("```", "").strip()
+        try:
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise LlmResponseError(
+                "The LLM response was not valid JSON."
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise LlmResponseError(
+                "The LLM response was not a JSON object as expected."
+            )
+        return parsed
+
 
 __all__ = [
     "AiDerivationService",
     "LlmResponseError",
     "MOCK_FALLBACK_MARKER",
     "DERIVATION_CACHE_TTL_SECONDS",
+    "TESTCASE_DERIVE_PROMPT_TEMPLATE",
     "invalidate_derivation_cache",
 ]

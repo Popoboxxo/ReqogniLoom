@@ -12,10 +12,15 @@ Tools implemented:
   test.create   — create a new TestCase, optionally with TraceLink (write, audited)
   test.update   — update TestCase fields including execution_status (write, audited)
   test.link     — create a 'verifies' TraceLink between TestCase and Requirement (write, audited)
+  test.derive_from_requirement — SysEng 2.0 N5: propose a TestCase draft (title,
+                  description, steps) for a Requirement via the LLM adapter.
+                  Draft/Accept pattern (REQ-L2-AI-001): read-only, nothing is
+                  persisted; the caller re-uses test.create to accept the draft.
 
 Interface contracts implemented:
   IF-MC-INT-004  — inbound: execute_tool(tool_name, params, auth_context) -> ToolResult
-  IF-MC-EXT-OUT-003 — outbound: ApplicationService (TestService, TraceLinkService)
+  IF-MC-EXT-OUT-003 — outbound: ApplicationService (TestService, TraceLinkService,
+                       AiDerivationService)
 
 Architecture:
   docs/se/L1/Gesamtsystem/L2/McpServerSystem/Components/
@@ -34,6 +39,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext
 
+from application.ai_derivation_service import AiDerivationService, LlmResponseError
 from application.services import (
     NotFoundError,
     PermissionDeniedError,
@@ -88,6 +94,7 @@ class McpTestToolGroup(BaseToolGroup):
         "test.run_create": "_handle_run_create",
         "test.run_get": "_handle_run_get",
         "test.run_report_results": "_handle_run_report_results",
+        "test.derive_from_requirement": "_handle_derive_from_requirement",
     }
 
     _TOOL_SCHEMAS = [
@@ -215,6 +222,24 @@ class McpTestToolGroup(BaseToolGroup):
                 "required": ["run_id", "results"],
             },
         },
+        {
+            "name": "test.derive_from_requirement",
+            "description": (
+                "SysEng 2.0 N5: propose a TestCase draft (title, description, "
+                "steps) for a Requirement via the LLM adapter. Read-only — "
+                "nothing is persisted; accept the draft via test.create."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "requirement_id": {
+                        "type": "string",
+                        "description": "UUID of the source requirement.",
+                    },
+                },
+                "required": ["requirement_id"],
+            },
+        },
     ]
 
     def __init__(
@@ -222,10 +247,12 @@ class McpTestToolGroup(BaseToolGroup):
         service: Optional[TestService] = None,
         trace_service: Optional[TraceLinkService] = None,
         run_service: Optional[TestRunService] = None,
+        ai_derivation_service: Optional[AiDerivationService] = None,
     ) -> None:
         self._service = service or TestService()
         self._trace_service = trace_service or TraceLinkService()
         self._run_service = run_service or TestRunService()
+        self._ai_derivation_service = ai_derivation_service or AiDerivationService()
 
     # ------------------------------------------------------------------
     # test.get
@@ -637,6 +664,34 @@ class McpTestToolGroup(BaseToolGroup):
                 for r in created
             ],
         })
+
+    # ------------------------------------------------------------------
+    # test.derive_from_requirement (SysEng 2.0 N5)
+    # ------------------------------------------------------------------
+
+    def _handle_derive_from_requirement(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.derive_from_requirement — propose a TestCase draft (read-only).
+
+        Draft/Accept pattern (REQ-L2-AI-001): nothing is persisted here. The
+        caller reviews the returned draft and calls test.create to accept it.
+        Standard feature — no rigor-preset / RuleEngine gate.
+        """
+        requirement_id = require_uuid(params, "requirement_id")
+        try:
+            result = self._ai_derivation_service.derive_testcase_from_requirement(
+                auth_context, requirement_id
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except LlmResponseError as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        return ToolResult.ok(result)
 
 
 # Backward-compatible alias (canonical public name)

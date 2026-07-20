@@ -28,6 +28,7 @@
     "traceability": "Trace Links",
     "impact": "Impact Analysis",
     "metrics": "SE Metrics",
+    "audit": "SE-Auditor",
     "adrs": "ADRs",
     "risks": "Risks",
     "issues": "Issues",
@@ -73,6 +74,20 @@
       "celery_beat": "Celery Beat",
       "mcp_server": "MCP Server",
       "llm_provider": "LLM Provider"
+    }
+  },
+  "triLabelOverview": {
+    "title": "Tri-Label Overview",
+    "sectionHint": "Read-only reference of all 14 TraceLink types with their German/English downstream, upstream and neutral labels.",
+    "hint": "Read-only overview of all 14 TraceLink types with their German/English downstream, upstream and neutral labels. Not editable in this phase.",
+    "openButton": "View Tri-Label Overview",
+    "columns": {
+      "type": "Type",
+      "deDownstream": "DE Downstream",
+      "deUpstream": "DE Upstream",
+      "enDownstream": "EN Downstream",
+      "enUpstream": "EN Upstream",
+      "neutral": "Neutral (DE / EN)"
     }
   },
   "workspaceCreate": {
@@ -221,6 +236,13 @@
     "level": "Level",
     "levelHint": "(Auto-calculated from hierarchy)",
     "levelAutoCalculated": "Level is automatically calculated from the hierarchy.",
+    "role": "Role",
+    "roleHint": "Derived automatically from the element's position in the tree (root = System, inner = Subsystem, leaf = Component). Changes when you reparent the element.",
+    "roleValue": {
+      "system": "System",
+      "subsystem": "Subsystem",
+      "component": "Component"
+    },
     "parentElement": "Parent Element",
     "noParent": "No parent (Root / L0)",
     "tree": {
@@ -727,5 +749,80 @@
       "unavailable": "Similarity search is temporarily unavailable.",
       "empty": "No similar requirements found."
     }
+  },
+  "audit": {
+    "title": "SE-Auditor",
+    "scope": {
+      "label": "Scope",
+      "document": "Document",
+      "project": "Project",
+      "global": "Global"
+    },
+    "scopeArtifact": {
+      "label": "Document (root artifact)",
+      "empty": "No artifacts available."
+    },
+    "severityFilter": {
+      "label": "Severity",
+      "all": "All",
+      "blocker": "Blockers",
+      "warning": "Warnings"
+    },
+    "counts": {
+      "total": "Findings",
+      "blockers": "Blockers",
+      "warnings": "Warnings"
+    },
+    "tier": "Rigor tier",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing...",
+    "loading": "Loading...",
+    "loadError": "Could not load audit findings.",
+    "empty": "No findings — the trace graph is consistent for this scope.",
+    "noWorkspace": "Select a workspace to run the SE-Auditor.",
+    "severity": {
+      "blocker": "Blocker",
+      "warning": "Warning"
+    },
+    "artifacts": "Affected artifacts",
+    "adopt": "Adopt",
+    "adopting": "Adopting...",
+    "adoptSuccess": "Resolved — the correction was applied.",
+    "modify": "Modify"
+  },
+  "archDecompose": {
+    "trigger": "AI Decompose",
+    "title": "AI Decomposition (Copilot)",
+    "close": "Close",
+    "breadth": "Breadth (children per level)",
+    "depth": "Depth (levels)",
+    "generate": "Generate draft",
+    "generating": "Generating...",
+    "degraded": "Note: deterministic mock draft (no real LLM provider configured).",
+    "summary": "Draft: {{elements}} architecture elements, {{requirements}} derived requirements, {{links}} trace links.",
+    "derivedRequirement": "Derived requirement",
+    "commit": "Commit",
+    "committing": "Committing...",
+    "discard": "Discard",
+    "committed": "Committed: {{elements}} elements, {{requirements}} requirements, {{links}} links.",
+    "verified": "Auditor passed"
+  },
+  "deriveTestcase": {
+    "trigger": "Generate Test",
+    "title": "TestCase Draft (Copilot)",
+    "close": "Close",
+    "generate": "Generate draft",
+    "generating": "Generating...",
+    "fieldTitle": "Title",
+    "fieldDescription": "Description",
+    "fieldSteps": "Test steps",
+    "stepPlaceholder": "Action",
+    "expectedResultPlaceholder": "Expected result",
+    "addStep": "Add step",
+    "removeStep": "Remove",
+    "create": "Create test case",
+    "creating": "Creating...",
+    "discard": "Discard",
+    "created": "Test case \"{{title}}\" was created."
   }
 }

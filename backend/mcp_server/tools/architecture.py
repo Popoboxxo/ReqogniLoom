@@ -79,6 +79,10 @@ class ArchitectureToolGroup(BaseToolGroup):
         "architecture.create": "_handle_create",
         "architecture.update": "_handle_update",
         "architecture.link": "_handle_link",
+        # SysEng 2.0 N1 — Draft-Staging copilot (§3.1). generate = no DB write;
+        # commit = single-transaction persist + SE-Auditor verification.
+        "architecture.decompose": "_handle_decompose",
+        "architecture.decompose_commit": "_handle_decompose_commit",
     }
 
     _TOOL_SCHEMAS = [
@@ -154,6 +158,52 @@ class ArchitectureToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["arch_id", "target_id", "link_type"],
+            },
+        },
+        {
+            "name": "architecture.decompose",
+            "description": (
+                "SysEng 2.0 N1: generate a non-persistent decomposition draft "
+                "for an ArchitectureElement (child elements + derived "
+                "requirements + internal trace links). Review the returned "
+                "draft, then persist it via architecture.decompose_commit. "
+                "Available only in standard/extended rigor."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "element_id": {
+                        "type": "string",
+                        "description": "UUID of the ArchitectureElement (Subsystem) to decompose.",
+                    },
+                    "breadth": {
+                        "type": "integer",
+                        "description": "Child elements per level (1..5, default 2).",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Recursion depth (1..3, default 1).",
+                    },
+                },
+                "required": ["element_id"],
+            },
+        },
+        {
+            "name": "architecture.decompose_commit",
+            "description": (
+                "SysEng 2.0 N1: commit a reviewed decomposition draft in one "
+                "transaction. Rolls back entirely if any part fails or the "
+                "result violates ARCH-003/TRACE-P4/P5 (write, audited)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "draft": {
+                        "type": "object",
+                        "description": "The draft object returned by architecture.decompose.",
+                    },
+                },
+                "required": ["draft"],
             },
         },
     ]
@@ -353,6 +403,90 @@ class ArchitectureToolGroup(BaseToolGroup):
                 "link_type": link_type,
             }
         })
+
+    # ------------------------------------------------------------------
+    # architecture.decompose (SysEng 2.0 N1 — generate draft, no DB write)
+    # ------------------------------------------------------------------
+
+    def _handle_decompose(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """architecture.decompose — generate a non-persistent decomposition draft."""
+        from application.architecture_decompose_service import (
+            ArchitectureDecomposeService,
+            DecompositionNotAvailableError,
+        )
+
+        element_id = require_uuid(params, "element_id")
+        breadth = params.get("breadth", 2)
+        depth = params.get("depth", 1)
+        try:
+            draft = ArchitectureDecomposeService().generate_draft(
+                auth_context,
+                element_id,
+                breadth=int(breadth),
+                depth=int(depth),
+            )
+        except DecompositionNotAvailableError as exc:
+            return ToolResult.error("FEATURE_NOT_ENABLED", str(exc))
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok({"draft": draft.to_dict()})
+
+    # ------------------------------------------------------------------
+    # architecture.decompose_commit (SysEng 2.0 N1 — transactional commit)
+    # ------------------------------------------------------------------
+
+    def _handle_decompose_commit(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """architecture.decompose_commit — persist a reviewed draft atomically."""
+        from application.architecture_decompose_service import (
+            ArchitectureDecomposeService,
+            DecompositionAuditError,
+            DecompositionDraft,
+            DecompositionNotAvailableError,
+        )
+
+        raw_draft = params.get("draft")
+        if not isinstance(raw_draft, dict):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Parameter 'draft' (object) is required."
+            )
+        try:
+            draft = DecompositionDraft.from_dict(raw_draft)
+            result = ArchitectureDecomposeService().commit_draft(auth_context, draft)
+        except DecompositionNotAvailableError as exc:
+            return ToolResult.error("FEATURE_NOT_ENABLED", str(exc))
+        except DecompositionAuditError as exc:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                str(exc),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="create",
+            entity_type="ArchitectureElement",
+            entity_id=UUID(result.root_element_id),
+            tool_name="architecture.decompose_commit",
+            api_key=api_key,
+            details={
+                "created_element_ids": result.created_element_ids,
+                "created_requirement_ids": result.created_requirement_ids,
+            },
+        )
+        return ToolResult.ok(result.to_dict())
 
 
 __all__ = ["ArchitectureToolGroup"]

@@ -16,6 +16,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { workspacesApi } from "../../api/workspaces";
 import { BackupRestoreSection } from "../WorkspaceSettings/BackupRestoreSection";
 import { SystemHealthDialog } from "../AdminDialog/SystemHealthDialog";
+import { TriLabelOverviewDialog } from "../AdminDialog/TriLabelOverviewDialog";
 
 const cardStyle: React.CSSProperties = {
   background: "var(--color-surface)",
@@ -52,6 +53,7 @@ export function WorkspaceAdminSection(): JSX.Element {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const [showSystemHealth, setShowSystemHealth] = useState(false);
+  const [showTriLabelOverview, setShowTriLabelOverview] = useState(false);
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -160,6 +162,37 @@ export function WorkspaceAdminSection(): JSX.Element {
       <SystemHealthDialog
         isOpen={showSystemHealth}
         onClose={() => setShowSystemHealth(false)}
+      />
+
+      {/* Tri-Label Overview — read-only DE/EN TraceLink-type reference (UMSETZUNGSPLAN_SYSENG_2.0.md §1.3) */}
+      <section style={cardStyle} data-testid="tri-label-overview-section">
+        <h3 style={headingStyle}>{t("triLabelOverview.title", "Tri-Label Overview")}</h3>
+        <p
+          style={{
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
+            marginTop: 0,
+            marginBottom: "var(--space-3)",
+          }}
+        >
+          {t(
+            "triLabelOverview.sectionHint",
+            "Read-only reference of all 14 TraceLink types with their German/English downstream, upstream and neutral labels."
+          )}
+        </p>
+        <button
+          type="button"
+          data-testid="tri-label-overview-open-btn"
+          onClick={() => setShowTriLabelOverview(true)}
+          style={primaryButtonStyle}
+        >
+          {t("triLabelOverview.openButton", "View Tri-Label Overview")}
+        </button>
+      </section>
+
+      <TriLabelOverviewDialog
+        isOpen={showTriLabelOverview}
+        onClose={() => setShowTriLabelOverview(false)}
       />
 
       {/* Feature-flagged: Baselines & Backup/Restore (REQ-L1-046) */}

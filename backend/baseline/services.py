@@ -276,25 +276,79 @@ def preview_scope_items(
         ValueError: If ``scope`` is unknown, or if ``scope == "document"``
             without an ``artifact_id``.
     """
+    all_ids = resolve_scope_item_ids(
+        scope=scope,
+        workspace_id=workspace_id,
+        tenant_id=tenant_id,
+        artifact_id=artifact_id,
+    )
+
+    count = len(all_ids)
+    sample_ids = all_ids[: max(0, int(sample_limit))]
+
+    # Fetch titles (left-joined from Requirement and ArchitectureElement)
+    sample = _load_sample_items(sample_ids, tenant_id)
+
+    return ScopePreview(scope=scope, count=count, sample=sample)
+
+
+# ---------------------------------------------------------------------------
+# IF-BL-EXT-IN-001: resolve_scope_item_ids
+# ---------------------------------------------------------------------------
+
+
+def resolve_scope_item_ids(
+    scope: str,
+    workspace_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    artifact_id: Optional[uuid.UUID] = None,
+) -> list[str]:
+    """Return the full ordered list of artifact ids contained in *scope*.
+
+    Single source of truth for baseline-scope membership resolution. Shared by
+    :func:`preview_scope_items` (which derives a count + sample from it) and the
+    SysEng 2.0 SE-Auditor RuleEngine (TRACE-P7 baseline-scope consistency needs
+    the *complete* membership set, not just a sample). Read-only — nothing is
+    persisted.
+
+    Scope semantics (REQ-L2-BL-001):
+      document — the root Artifact + all descendants reachable via
+                 ``pl_artifact.parent_id`` (``artifact_id`` is required)
+      project  — all Artifacts in the Workspace
+      global   — all Artifacts in the Tenant (``workspace_id`` is ignored for
+                 the filter, but is still required for upstream permission
+                 checks)
+
+    Args:
+        scope: One of "document" | "project" | "global".
+        workspace_id: Target workspace UUID (used for project/document scopes).
+        tenant_id: Active tenant UUID (required for row-level isolation).
+        artifact_id: Required when ``scope == "document"``; the root artifact
+            whose subtree is being resolved.
+
+    Returns:
+        Ordered list of artifact id strings. Empty list when ``tenant_id`` is
+        ``None`` (no tenant-scoped query is possible without it).
+
+    Raises:
+        ValueError: If ``scope`` is unknown, or if ``scope == "document"``
+            without an ``artifact_id``.
+    """
     if scope not in ("document", "project", "global"):
         raise ValueError(f"Unknown scope: {scope!r}")
 
     if scope == "document" and artifact_id is None:
         raise ValueError("artifact_id is required for scope='document'")
 
-    # Reuse the scope resolver's logic to obtain the matching (item_id, ...)
-    # tuples, then join with Requirement/ArchitectureElement tables to surface a
-    # human-readable title for the sample. We do NOT load payload data — the
-    # preview is a lightweight count + sample.
-    from django.db import connection
-
     # If no tenant is supplied (e.g. a non-DRF call site such as a CLI tool
     # or a unit test that has not bootstrapped the tenant context), we cannot
-    # issue a tenant-scoped query. Return an empty preview rather than
-    # failing — the caller has already authorised the request, and "no data
-    # visible" is a safe default for a read-only preview.
+    # issue a tenant-scoped query. Return an empty set rather than failing —
+    # the caller has already authorised the request, and "no data visible" is
+    # a safe default for a read-only resolution.
     if tenant_id is None:
-        return ScopePreview(scope=scope, count=0, sample=[])
+        return []
+
+    from django.db import connection
 
     if scope == "project":
         sql_ids = """
@@ -346,15 +400,7 @@ def preview_scope_items(
 
     with connection.cursor() as cur:
         cur.execute(sql_ids, id_params)
-        all_ids = [row[0] for row in cur.fetchall()]
-
-    count = len(all_ids)
-    sample_ids = all_ids[: max(0, int(sample_limit))]
-
-    # Fetch titles (left-joined from Requirement and ArchitectureElement)
-    sample = _load_sample_items(sample_ids, tenant_id)
-
-    return ScopePreview(scope=scope, count=count, sample=sample)
+        return [row[0] for row in cur.fetchall()]
 
 
 def _load_sample_items(
@@ -418,6 +464,7 @@ __all__ = [
     "list_baselines",
     "get_item_at_baseline",
     "preview_scope_items",
+    "resolve_scope_item_ids",
     # Exceptions (re-exported for callers)
     "BaselineError",
     "BaselineImmutableError",

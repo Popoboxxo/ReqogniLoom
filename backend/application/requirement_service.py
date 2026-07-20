@@ -34,6 +34,7 @@ from django.db.models import F, QuerySet
 from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import Artifact, Requirement, Tenant, Workspace
 from persistence.transactions import TransactionContextManager, atomic_transaction
+from traceability.types import LinkType
 
 from application.base import (
     LlmNotConfiguredError,
@@ -615,9 +616,12 @@ class RequirementService(ServiceBase):
                         f"ArchitectureElement {arch_el_id} is not in workspace {workspace_id}"
                     )
 
-        # Resolve configured decomposition link type from workspace preset
-        workspace = Workspace.objects.filter(id=workspace_id).first()
-        decomposition_link_type = getattr(workspace, "decomposition_link_type", "parent-child")
+        # UMSETZUNGSPLAN_SYSENG_2.0.md §1.4: decompose() is hardcoded to always
+        # create LinkType.DECOMPOSES links, for ALL workspaces, regardless of
+        # Workspace.decomposition_link_type. That field is now functionally
+        # dead for this creation path (kept on the model — no migration/backfill;
+        # existing parent-child TraceLinks and baselines remain untouched).
+        decomposition_link_type = LinkType.DECOMPOSES.value
 
         result = DecompositionResultDTO(parent_id=requirement_id)
 

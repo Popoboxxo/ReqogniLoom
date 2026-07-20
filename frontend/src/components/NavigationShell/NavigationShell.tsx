@@ -77,6 +77,9 @@ const MermaidEditor = lazy(() => import("../mermaid/MermaidEditor"));
 const MetricsDashboard = lazy(
   () => import("../MetricsDashboard/MetricsDashboard")
 );
+const AuditDashboard = lazy(() =>
+  import("../Audit/audit-dashboard").then((m) => ({ default: m.AuditDashboard }))
+);
 const UserProfileSettings = lazy(
   () => import("../UserProfileSettings/UserProfileSettings")
 );
@@ -140,6 +143,7 @@ function AppShell(): JSX.Element {
               <Route path="/diagrams/:id/canvas" element={<CanvasEditorWrapper />} />
               <Route path="/diagrams/:id/mermaid" element={<MermaidEditorWrapper />} />
               <Route path="/metrics" element={<MetricsDashboard />} />
+              <Route path="/audit" element={<AuditDashboard />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
               <Route path="/system-settings" element={<SystemSettings />} />
               <Route

@@ -53,6 +53,11 @@ interface ArchitectureFormProps {
    * Whether to show change_reason field (extended preset).
    */
   isExtendedPreset: boolean;
+
+  /**
+   * Called when user clicks "AI Decompose" button.
+   */
+  onDecompose?: () => void;
 }
 
 /**
@@ -196,6 +201,7 @@ export function ArchitectureForm({
   onSaved,
   onDelete,
   isExtendedPreset,
+  onDecompose,
 }: ArchitectureFormProps): JSX.Element {
   const { t } = useTranslation();
   const { visibleFields } = useEntityType();
@@ -379,6 +385,15 @@ export function ArchitectureForm({
         >
           {showDiff ? t('editor.hideDiff') : t('editor.viewDiff')}
         </button>
+        {onDecompose && (
+          <button
+            data-testid="arch-decompose-btn"
+            className="btn-secondary"
+            onClick={onDecompose}
+          >
+            {t('archDecompose.trigger')}
+          </button>
+        )}
       </div>
 
       {/* Header with UID and Version (read-only) */}
@@ -416,7 +431,29 @@ export function ArchitectureForm({
             <label style={labelStyle}>Version</label>
             <VersionBadge version={element.version || 1} />
           </div>
-          <ReadOnlyField label="Hierarchy Level" value={element.level ?? 0} />
+          <ReadOnlyField label={t('arch.level')} value={element.level ?? 0} />
+          {/* SysEng 2.0 §1.2: structural role is derived from tree position by
+              the backend and shown read-only here — it is NOT the free-text
+              element_type field below and cannot be edited directly. Reparenting
+              an element (drag & drop in the tree) changes this value
+              automatically. */}
+          <div style={{ marginBottom: 'var(--space-4)' }}>
+            <label style={labelStyle}>{t('arch.role')}</label>
+            <div
+              data-testid="arch-role-display"
+              style={{
+                ...readOnlyStyle,
+                marginBottom: 0,
+                padding: 'var(--space-2) var(--space-3)',
+                color: 'var(--color-text)',
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 600,
+              }}
+              title={t('arch.roleHint')}
+            >
+              {element.role ? t(`arch.roleValue.${element.role}`) : '—'}
+            </div>
+          </div>
         </div>
 
         {/* REQ-171: WorkflowEngine-driven status editor. ArchitectureElement has
