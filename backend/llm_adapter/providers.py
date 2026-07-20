@@ -553,6 +553,93 @@ class MockLlmProvider(LlmCapabilityInterface):
                 }
             )
 
+        if purpose == "audit_ai_review":
+            # SysEng 2.0 N8 (audit.ai_review): deterministic grouping of the
+            # findings AiReviewService handed in via ``context["findings"]``
+            # (each a dict with index/rule_id/severity/artifact_ids/scope/
+            # scope_artifact_id, see AiReviewService._finding_payload). The
+            # mock never invents an index — it only re-emits the 'index'
+            # values it was given, grouped by (rule_id, scope_artifact_id),
+            # so AiReviewService's referential-integrity resolution always
+            # finds a match (§4 Phase 4b acceptance criterion).
+            findings = ctx.get("findings")
+            findings = findings if isinstance(findings, list) else []
+            groups: Dict[tuple, List[dict]] = {}
+            order: List[tuple] = []
+            for entry in findings:
+                if not isinstance(entry, dict):
+                    continue
+                key = (entry.get("rule_id"), entry.get("scope_artifact_id"))
+                if key not in groups:
+                    groups[key] = []
+                    order.append(key)
+                groups[key].append(entry)
+
+            packages = []
+            for key in order:
+                rule_id, scope_artifact_id = key
+                members = groups[key]
+                scope_label = f" (scope: {scope_artifact_id})" if scope_artifact_id else ""
+                packages.append(
+                    {
+                        "title": f"Refactoring package: {rule_id}{scope_label}",
+                        "rationale": (
+                            f"Bundles {len(members)} finding(s) for rule "
+                            f"'{rule_id}'{scope_label} into one strategic "
+                            "correction instead of fixing each one in isolation."
+                        ),
+                        "finding_indices": [
+                            m.get("index") for m in members if "index" in m
+                        ],
+                    }
+                )
+            return json.dumps(packages)
+
+        if purpose == "traceability_suggest_links":
+            # SysEng 2.0 N3 (traceability.suggest_links), first stage —
+            # deterministic findings-ranking, no vector search
+            # (UMSETZUNGSPLAN_SYSENG_2.0.md §3.2). TraceabilitySuggestService
+            # hands in ctx["findings"], each a dict with a 'finding_index'
+            # and a 'candidates' array that is ALREADY keyword-overlap-
+            # ranked highest-score-first (see
+            # TraceabilitySuggestService._build_candidates). The mock never
+            # invents a candidate_index or an artifact id — it only re-emits
+            # the 'candidate_index' values it was given, preserving their
+            # given order, so the service's referential-integrity
+            # resolution always finds a match (§4 Phase 4b acceptance
+            # criterion: "keine pgvector-Abhängigkeit im Code").
+            findings = ctx.get("findings")
+            findings = findings if isinstance(findings, list) else []
+            suggestions = []
+            for entry in findings:
+                if not isinstance(entry, dict):
+                    continue
+                candidates = entry.get("candidates")
+                candidates = candidates if isinstance(candidates, list) else []
+                indices = [
+                    c.get("candidate_index")
+                    for c in candidates
+                    if isinstance(c, dict) and "candidate_index" in c
+                ]
+                top_title = (
+                    candidates[0].get("title")
+                    if candidates and isinstance(candidates[0], dict)
+                    else None
+                )
+                rationale = (
+                    f"Highest keyword overlap with '{top_title}'."
+                    if top_title
+                    else "No distinguishing keyword overlap found among the candidates."
+                )
+                suggestions.append(
+                    {
+                        "finding_index": entry.get("finding_index"),
+                        "ranked_candidate_indices": indices,
+                        "rationale": rationale,
+                    }
+                )
+            return json.dumps(suggestions)
+
         return json.dumps([])
 
 

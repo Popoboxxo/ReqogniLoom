@@ -20,6 +20,15 @@ the view only translates HTTP <-> service call):
        proposal}. A finding without an unambiguous auto-fix returns HTTP 422
        with the reason (the UI turns this into a "Modify" / manual prompt).
 
+  POST /api/v1/workspaces/<workspace_id>/audit/ai-review/
+       SysEng 2.0 N8 (`audit.ai_review`, Phase 4b): run the SE-Auditor and
+       bundle its findings into strategic refactoring packages via the LLM
+       adapter (mock by default). Read-only / advisory — nothing is
+       persisted, and every returned finding reference is resolved against
+       the real audit run (see AiReviewService's referential-integrity
+       guarantee). Optional query params: same ``scope`` /
+       ``scope_artifact_id`` pair as the GET endpoint above.
+
 Module rationale: the codebase splits large view groups into dedicated modules
 (settings_views.py, global_default_views.py, diagram_views.py, ...) rather than
 growing the 5k-line views.py. This follows that established convention; the
@@ -34,6 +43,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from application.ai_review_service import AiReviewResponseError, AiReviewService
 from application.audit_service import AuditService
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from traceability.audit import AuditScope
@@ -168,4 +178,50 @@ class WorkspaceAuditRemediateView(APIView):
             )
 
 
-__all__ = ["WorkspaceAuditView", "WorkspaceAuditRemediateView"]
+class WorkspaceAuditAiReviewView(APIView):
+    """POST /api/v1/workspaces/<workspace_id>/audit/ai-review/ — SysEng 2.0 N8.
+
+    Runs the SE-Auditor (Phase 3) and bundles its findings into strategic
+    refactoring packages via the LLM adapter. Advisory only — no data is
+    mutated; individual findings are still fixed through the existing
+    ``audit/remediate/`` Adopt-Workflow.
+    """
+
+    def post(
+        self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
+    ) -> Response:
+        lang = detect_lang(request)
+        try:
+            scopes = _parse_scopes(request)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            result = AiReviewService().review(
+                workspace_id, get_auth_context(request), scopes=scopes
+            )
+            return Response(result.to_dict())
+        except NotFoundError as exc:
+            return Response(
+                build_error_response("NOT_FOUND", lang, message=str(exc)),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except AiReviewResponseError as exc:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception:
+            return Response(
+                build_error_response("INTERNAL_SERVER_ERROR", lang),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+__all__ = [
+    "WorkspaceAuditView",
+    "WorkspaceAuditRemediateView",
+    "WorkspaceAuditAiReviewView",
+]

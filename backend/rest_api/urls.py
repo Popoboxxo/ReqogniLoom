@@ -39,9 +39,11 @@ from auth_tenancy.rest_item_permission import ItemPermissionViewSet
 from auth_tenancy.rest_workspace_members import WorkspaceMembersView
 from admin_ops.health_rest import SystemHealthView
 from rest_api.audit_views import (
+    WorkspaceAuditAiReviewView,
     WorkspaceAuditRemediateView,
     WorkspaceAuditView,
 )
+from rest_api.traceability_suggest_views import WorkspaceTraceabilitySuggestLinksView
 from rest_api.architecture_decompose_views import (
     WorkspaceArchitectureDecomposeCommitView,
     WorkspaceArchitectureDecomposeView,
@@ -337,16 +339,30 @@ urlpatterns = [
         name="permission-mismatches",
     ),
     # SE-Auditor (SysEng 2.0 Phase 3) — workspace-scoped audit dashboard.
-    # remediate/ must precede the audit/ run route so it is not shadowed.
+    # remediate/ and ai-review/ must precede the audit/ run route so neither
+    # is shadowed.
     path(
         "workspaces/<uuid:workspace_id>/audit/remediate/",
         WorkspaceAuditRemediateView.as_view(),
         name="workspace-audit-remediate",
     ),
+    # SysEng 2.0 N8 (audit.ai_review, Phase 4b) — LLM refactoring packages.
+    path(
+        "workspaces/<uuid:workspace_id>/audit/ai-review/",
+        WorkspaceAuditAiReviewView.as_view(),
+        name="workspace-audit-ai-review",
+    ),
     path(
         "workspaces/<uuid:workspace_id>/audit/",
         WorkspaceAuditView.as_view(),
         name="workspace-audit",
+    ),
+    # SysEng 2.0 N3 (traceability.suggest_links, Phase 4b, first stage) —
+    # rank plausible link targets for SE-Auditor findings; no pgvector.
+    path(
+        "workspaces/<uuid:workspace_id>/traceability/suggest-links/",
+        WorkspaceTraceabilitySuggestLinksView.as_view(),
+        name="workspace-traceability-suggest-links",
     ),
     # SysEng 2.0 N1 (architecture.decompose) — Draft-Staging copilot.
     # commit/ must precede the generate route so it is not shadowed.

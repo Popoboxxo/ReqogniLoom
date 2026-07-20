@@ -667,9 +667,11 @@ class TestAuditToolGroupWiring:
         group = AuditToolGroup()
         assert group._dlq_service is not None
 
-    def test_tool_map_has_exactly_three_entries(self):
+    def test_tool_map_has_exactly_four_entries(self):
+        # SysEng 2.0 N8 (audit.ai_review, Phase 4b) added the 4th entry.
         assert set(AuditToolGroup._TOOL_MAP.keys()) == {
             "audit.query",
+            "audit.ai_review",
             "events.dlq_list",
             "events.dlq_replay",
         }

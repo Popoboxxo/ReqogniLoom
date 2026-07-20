@@ -10,6 +10,8 @@ req_id  : REQ-L1-046 (admin DR / observability),
 Tools implemented (admin-only):
 
   audit.query        (read)  — query the audit log with filters
+  audit.ai_review    (read)  — SysEng 2.0 N8: bundle SE-Auditor findings into
+                                LLM-generated refactoring packages
   events.dlq_list    (read)  — list events in the dead-letter queue
   events.dlq_replay  (write) — replay a single DLQ event back into the outbox
 
@@ -25,6 +27,10 @@ Architecture
   duplicate the business logic:
 
   - ``audit.query``      -> ``audit.services.query`` (COMP-AL-002)
+  - ``audit.ai_review``  -> ``application.ai_review_service.AiReviewService``
+    (SysEng 2.0 N8, UMSETZUNGSPLAN_SYSENG_2.0.md §4 Phase 4b) — itself a thin
+    wrapper over ``AuditService.run_audit`` (Phase 3) + the LLM adapter; this
+    handler duplicates none of that grouping logic.
   - ``events.dlq_list``  -> ``application.dlq_service.DlqService.list_dlq``
   - ``events.dlq_replay``-> ``application.dlq_service.DlqService.replay_dlq_event``
 
@@ -34,6 +40,11 @@ Architecture
   tenant context), and the DLQ service does check admin role itself as
   defence in depth. The MCP-level check guarantees a clean
   ``PERMISSION_DENIED`` response with no DB roundtrip.
+  ``audit.ai_review`` is the one exception: it is a workspace-scoped SE
+  copilot, not an admin-observability tool (unlike ``audit.query`` /
+  ``events.*``), so it intentionally does NOT gate on the admin role —
+  mirroring ``WorkspaceAuditView`` (Phase 3 REST), which any authenticated
+  workspace member may call.
 
 * ``events.dlq_replay`` is registered in ``_WRITE_TOOL_PREFIXES`` so the
   RBAC layer (REQ-L2-MC-007) requires at least editor role; the admin
@@ -80,6 +91,7 @@ from typing import Any, Dict, List, Optional
 
 from auth_tenancy.context import AuthContext
 
+from application.ai_review_service import AiReviewResponseError, AiReviewService
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
@@ -92,6 +104,7 @@ from audit.query import AuditQueryFilters
 from audit.services import query as audit_query
 
 from persistence.tenancy import TenantContext
+from traceability.audit import AuditScope
 
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
@@ -117,6 +130,11 @@ _DLQ_DEFAULT_LIMIT: int = 100
 _VALID_OPERATIONS = frozenset(
     choice for choice, _label in AuditEntry.OP_CHOICES
 )
+
+# SysEng 2.0 N8 (audit.ai_review) — mirrors WorkspaceAuditView's
+# ``_VALID_SCOPES`` in rest_api/audit_views.py (kept local here to avoid a
+# REST -> MCP import).
+_VALID_AI_REVIEW_SCOPES = frozenset({"document", "project", "global"})
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +222,7 @@ class AuditToolGroup(BaseToolGroup):
 
     _TOOL_MAP = {
         "audit.query": "_handle_audit_query",
+        "audit.ai_review": "_handle_ai_review",
         "events.dlq_list": "_handle_dlq_list",
         "events.dlq_replay": "_handle_dlq_replay",
     }
@@ -237,6 +256,34 @@ class AuditToolGroup(BaseToolGroup):
             },
         },
         {
+            "name": "audit.ai_review",
+            "description": (
+                "SysEng 2.0 N8: run the SE-Auditor for a workspace and bundle "
+                "its findings into strategic refactoring packages via the LLM "
+                "adapter (mock by default). Read-only/advisory — nothing is "
+                "persisted; every returned finding reference is a real finding "
+                "from this audit run."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the target workspace.",
+                    },
+                    "scope": {
+                        "type": "string",
+                        "description": "Optional baseline scope (document|project|global).",
+                    },
+                    "scope_artifact_id": {
+                        "type": "string",
+                        "description": "Required when scope=document (subtree root).",
+                    },
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
             "name": "events.dlq_list",
             "description": "List Domain-Event dead-letter-queue entries (admin-only, read).",
             "inputSchema": {
@@ -263,11 +310,16 @@ class AuditToolGroup(BaseToolGroup):
         },
     ]
 
-    def __init__(self, dlq_service: Optional[DlqService] = None) -> None:
+    def __init__(
+        self,
+        dlq_service: Optional[DlqService] = None,
+        ai_review_service: Optional[AiReviewService] = None,
+    ) -> None:
         # No constructor injection for the audit query — we always go
         # through the module-level ``audit.services.query`` facade so
         # that the tenant-context setup is the same as the REST adapter.
         self._dlq_service = dlq_service or DlqService()
+        self._ai_review_service = ai_review_service or AiReviewService()
 
     # ------------------------------------------------------------------
     # Common admin gate
@@ -415,6 +467,59 @@ class AuditToolGroup(BaseToolGroup):
                 "page_size": result.page_size,
             }
         )
+
+    # ------------------------------------------------------------------
+    # audit.ai_review (read) — SysEng 2.0 N8
+    # ------------------------------------------------------------------
+
+    def _handle_ai_review(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """audit.ai_review — bundle SE-Auditor findings into refactoring packages.
+
+        Required params:
+            workspace_id : UUID of the target workspace.
+        Optional params:
+            scope             : ``"document" | "project" | "global"``.
+            scope_artifact_id : required when ``scope == "document"``.
+
+        No admin gate (see module docstring) — any authenticated caller with
+        access to the workspace may run it, mirroring the Phase-3 REST
+        endpoint this tool sits next to.
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+
+        scope = params.get("scope")
+        scopes = None
+        if scope:
+            if scope not in _VALID_AI_REVIEW_SCOPES:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"Parameter 'scope' must be one of "
+                    f"{sorted(_VALID_AI_REVIEW_SCOPES)}.",
+                )
+            scope_artifact_id = params.get("scope_artifact_id") or None
+            if scope == "document" and not scope_artifact_id:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    "Parameter 'scope_artifact_id' is required when scope=document.",
+                )
+            scopes = [AuditScope(scope, artifact_id=scope_artifact_id)]
+
+        try:
+            result = self._ai_review_service.review(
+                workspace_id, auth_context, scopes=scopes
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except AiReviewResponseError as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        except (ValidationError, ValueError) as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        return ToolResult.ok(result.to_dict())
 
     # ------------------------------------------------------------------
     # events.dlq_list (read)
