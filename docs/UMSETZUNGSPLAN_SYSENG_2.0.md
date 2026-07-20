@@ -1,6 +1,6 @@
 # ReqFlow SysEng 2.0 — Detaillierter technischer Implementierungsplan
 
-> **Datum:** 2026-07-19 | **Status:** Entschieden — Implementierung läuft (Nutzer-Review abgeschlossen, 8 Entscheidungen bestätigt)
+> **Datum:** 2026-07-19 | **Status:** Entschieden — Implementierung läuft (Phasen 1-4, Phase 5 zurückgestellt; Nutzer-Review abgeschlossen, 8 Entscheidungen bestätigt)
 > **Scope:** Ontologie-Konsolidierung, zweisprachiges Link-Naming, Traceability-Auditor, AI-Erweiterungen & ADR-Erweiterung
 >
 > **Revisionshinweis:** Diese Fassung wurde gegen den produktiven Code geprüft (vier Recherche-/Review-Durchgänge,
@@ -552,6 +552,8 @@ Wahl, Backfill-Strategie) als eigener, zeitlich nicht fest eingeplanter Recherch
 die Erststufe von N3 (Findings-Ranking) als unzureichend bewertet wird.
 
 ### Phase 5 — ADR-Erweiterung (Woche 6)
+
+> **Status: zurückgestellt (2026-07-20) — noch offen.** Die inhaltliche Entscheidung steht fest (additive, nullable MADR-Felder am `Adr`-Modell, kein Breaking Change, siehe Migration/Rollback unten). Der Implementierungsstart wurde vom Nutzer zurückgestellt, da diese Phase eine DB-Schema-Migration erfordert (Bestätigungspflicht). Wird bei Bedarf separat freigegeben — kein automatischer Start im Rahmen der laufenden Implementierung.
 
 **Wichtig:** Diese Phase ist **keine Greenfield-Entwicklung**. Der ADR-Funktionsumfang existiert bereits
 produktiv (Datenmodell, Service, REST, MCP, Tests — siehe Abschnitt 5.1). Phase 5 erweitert den bestehenden
