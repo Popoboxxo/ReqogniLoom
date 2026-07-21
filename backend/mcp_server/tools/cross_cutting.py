@@ -160,7 +160,17 @@ class CrossCuttingToolGroup(BaseToolGroup):
         },
         {
             "name": "workspace.get_context",
-            "description": "Return a workspace status summary for agent orientation.",
+            "description": (
+                "Return a workspace status summary for agent orientation. "
+                "Response: result.workspace_context = {tenant_id, user_id, "
+                "active_roles (roles resolved for the calling API key), "
+                "workspace_id}. If workspace_id is given, additionally: "
+                "preset (active rigor preset name), preset_features (dict of "
+                "enabled feature flags for the preset), change_reason_policy, "
+                "terminology (dev_mode/se_mode label profile), and "
+                "open_requirements_count (Requirements with status != "
+                "'approved' in the workspace)."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {

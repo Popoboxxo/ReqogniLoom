@@ -35,6 +35,7 @@ from mcp_server.tools.requirements import RequirementsToolGroup
 from mcp_server.tools.architecture import ArchitectureToolGroup
 from mcp_server.tools.tests import TestToolGroup
 from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+from mcp_server.tools.needs import StakeholderNeedsToolGroup
 from mcp_server.tools.base import require_param, require_uuid, ParameterError
 
 
@@ -104,6 +105,19 @@ def _mock_trace_link(id_val=None):
     tl = MagicMock()
     tl.id = id_val or UUID("00000000-0000-0000-0000-000000000050")
     return tl
+
+
+def _mock_need(id_val=None, title="Test Need", description="", category="", status="draft"):
+    need = MagicMock()
+    need.id = id_val or UUID("00000000-0000-0000-0000-000000000060")
+    need.workspace_id = WORKSPACE_UUID
+    need.title = title
+    need.description = description
+    need.category = category
+    need.status = status
+    need.moscow_priority = "Must"
+    need.version = 1
+    return need
 
 
 # ---------------------------------------------------------------------------
@@ -643,6 +657,82 @@ class TestTestToolGroup:
             tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES
         )
 
+    # ------------------------------------------------------------------
+    # test.run_report_results (Codeberg #106 -- single object rejected)
+    # ------------------------------------------------------------------
+
+    def _group_with_run_service(self, run_service=None):
+        run_service = run_service or MagicMock()
+        group = TestToolGroup(
+            service=MagicMock(),
+            trace_service=MagicMock(),
+            run_service=run_service,
+            ai_derivation_service=MagicMock(),
+        )
+        return group, run_service
+
+    def test_run_report_results_accepts_single_object(self):
+        """A single result object (not wrapped in a list) must be accepted."""
+        group, run_svc = self._group_with_run_service()
+        run_svc.add_results_bulk.return_value = [MagicMock()]
+        run_id = "00000000-0000-0000-0000-000000000070"
+        tc_id = "00000000-0000-0000-0000-000000000071"
+
+        result = group.execute_tool(
+            tool_name="test.run_report_results",
+            params={
+                "run_id": run_id,
+                "results": {"test_case_id": tc_id, "status": "passed"},
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        run_svc.add_results_bulk.assert_called_once()
+        call_kwargs = run_svc.add_results_bulk.call_args.kwargs
+        assert call_kwargs["results"] == [
+            {
+                "test_case_id": tc_id,
+                "status": "passed",
+                "message": "",
+                "duration_ms": None,
+            }
+        ]
+
+    def test_run_report_results_accepts_list(self):
+        group, run_svc = self._group_with_run_service()
+        run_svc.add_results_bulk.return_value = [MagicMock()]
+        run_id = "00000000-0000-0000-0000-000000000070"
+        tc_id = "00000000-0000-0000-0000-000000000071"
+
+        result = group.execute_tool(
+            tool_name="test.run_report_results",
+            params={
+                "run_id": run_id,
+                "results": [{"test_case_id": tc_id, "status": "passed"}],
+            },
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        run_svc.add_results_bulk.assert_called_once()
+
+    def test_run_report_results_rejects_empty_list(self):
+        group, run_svc = self._group_with_run_service()
+
+        result = group.execute_tool(
+            tool_name="test.run_report_results",
+            params={"run_id": "00000000-0000-0000-0000-000000000070", "results": []},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        run_svc.add_results_bulk.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # CrossCuttingToolGroup tests (basic routing, no DB)
@@ -744,3 +834,77 @@ class TestCrossCuttingToolGroup:
         )
         assert result.success is False
         assert result.error_code == "UNKNOWN_TOOL"
+
+
+    def test_workspace_get_context_description_documents_response_fields(self):
+        """Codeberg #110 -- active_roles/preset/terminology/open_requirements_count
+        must be documented in the tool description, not just present at runtime."""
+        group, _, _, _ = self._group()
+        schema = next(
+            s for s in group.get_tool_schemas() if s["name"] == "workspace.get_context"
+        )
+        description = schema["description"]
+        for field in (
+            "active_roles",
+            "preset",
+            "preset_features",
+            "terminology",
+            "open_requirements_count",
+        ):
+            assert field in description, f"{field!r} missing from workspace.get_context description"
+
+
+# ---------------------------------------------------------------------------
+# StakeholderNeedsToolGroup tests (Codeberg #116 -- needs.query was missing)
+# ---------------------------------------------------------------------------
+
+class TestStakeholderNeedsToolGroup:
+
+    def _group(self, service=None):
+        if service is None:
+            service = MagicMock()
+        return StakeholderNeedsToolGroup(service=service), service
+
+    def test_needs_query_requires_workspace_id(self):
+        group, svc = self._group()
+        result = group.execute_tool(
+            tool_name="needs.query",
+            params={},  # no workspace_id
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.list_by_workspace.assert_not_called()
+
+    def test_needs_query_calls_service(self):
+        group, svc = self._group()
+        svc.list_by_workspace.return_value = [_mock_need()]
+
+        result = group.execute_tool(
+            tool_name="needs.query",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        svc.list_by_workspace.assert_called_once_with(
+            EDITOR_CTX, WORKSPACE_UUID, include_deleted=False
+        )
+        assert result.data["count"] == 1
+        assert result.data["needs"][0]["title"] == "Test Need"
+
+    def test_needs_query_passes_include_deleted(self):
+        group, svc = self._group()
+        svc.list_by_workspace.return_value = []
+
+        result = group.execute_tool(
+            tool_name="needs.query",
+            params={"workspace_id": str(WORKSPACE_UUID), "include_deleted": True},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        svc.list_by_workspace.assert_called_once_with(
+            EDITOR_CTX, WORKSPACE_UUID, include_deleted=True
+        )
