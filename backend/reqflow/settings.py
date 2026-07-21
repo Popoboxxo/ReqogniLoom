@@ -56,7 +56,35 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Security
 # ---------------------------------------------------------------------------
 SECRET_KEY: str = _get_required_secret("SECRET_KEY")
+
+# Deployment environment marker (SEC-01 hardening). A stray ``DEBUG=True`` in
+# a copied .env must never be able to enable the Django debug page in
+# production — it leaks SECRET_KEY, DB credentials, LLM_API_KEY and
+# FIELD_ENCRYPTION_KEY on every 500 response (CWE-489 / CWE-200). Rather than
+# silently coercing DEBUG to False (which would mask the misconfiguration),
+# process start is refused outright so the operator is forced to fix the env
+# before the instance ever serves a request.
+DJANGO_ENV: str = config("DJANGO_ENV", default="development").strip().lower()
 DEBUG: bool = config("DEBUG", default=False, cast=bool)
+if DJANGO_ENV in {"production", "prod"} and DEBUG:
+    raise ImproperlyConfigured(
+        "SECURITY: DEBUG=True is set while DJANGO_ENV=production. Refusing "
+        "to start: the Django debug page would leak SECRET_KEY, DB "
+        "credentials, LLM_API_KEY and FIELD_ENCRYPTION_KEY on every 500 "
+        "response (CWE-489 / CWE-200). Set DEBUG=False (or remove the "
+        "variable) for production deployments."
+    )
+elif DEBUG:
+    # Loud, unavoidable signal in the logs so a dev-True config is never
+    # mistaken for a safe production state.
+    import logging as _logging
+
+    _logging.getLogger("reqflow").warning(
+        "SECURITY: DEBUG=True is active. Never expose this instance "
+        "publicly — 500 responses leak full settings (secrets). Set "
+        "DJANGO_ENV=production to force a hard fail instead of an "
+        "accidental production debug leak."
+    )
 # Deliberately decoupled from DEBUG: some deployments run with DEBUG=False
 # (the correct production default, REQ-115) but are only reachable over plain
 # HTTP (e.g. an internal/sandbox IP with no TLS-terminating reverse proxy).
