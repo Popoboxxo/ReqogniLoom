@@ -274,14 +274,21 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
-        """POST /api/v1/workspaces/<workspace_id>/needs/ — create new need."""
+        """POST /api/v1/needs/ (flat) or /api/v1/workspaces/<workspace_id>/needs/ (nested) — create new need.
+
+        CR-06/CR-07: the flat route has no ``workspace_pk`` URL kwarg, so the
+        workspace id must be read from the validated request body instead.
+        Previously the nested-route kwarg was used unconditionally, which left
+        ``workspace_id`` as ``None`` for flat-route requests and made every
+        flat POST fail with "Workspace None not found" (404).
+        """
         lang = detect_lang(request)
         workspace_id = kwargs.get("workspace_pk")
-        
+
         data = dict(request.data)
         if "workspace_id" not in data and workspace_id:
             data["workspace_id"] = workspace_id
-            
+
         ser = StakeholderNeedSerializer(data=data)
         if not ser.is_valid():
             return Response(
@@ -292,6 +299,9 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # explicitly (would raise "multiple values"), parent_id/change_reason
         # are not part of StakeholderNeedService.create().
         payload = dict(ser.validated_data)
+        # Fall back to the body-supplied workspace_id (flat route) when the
+        # nested-route URL kwarg is absent.
+        workspace_id = workspace_id or payload.pop("workspace_id", None)
         for f in ("workspace_id", "parent_id", "change_reason"):
             payload.pop(f, None)
         try:

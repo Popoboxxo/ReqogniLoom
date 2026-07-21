@@ -39,6 +39,7 @@ from uuid import UUID
 
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
+from auth_tenancy.models import ROLE_ADMIN
 from auth_tenancy.services.authentication import AuthenticationService
 from auth_tenancy.services.authorization import AuthorizationService, Operation
 
@@ -414,7 +415,9 @@ class ToolRegistry:
             auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
 
             # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
-            if self._is_write_tool(tool_name):
+            if self._is_write_tool(tool_name) and not self._is_bootstrap_candidate(
+                tool_name, params, auth_ctx  # type: ignore[arg-type]
+            ):
                 rbac_error = self._check_rbac(auth_ctx)  # type: ignore[arg-type]
                 if rbac_error:
                     return ToolResult.error("PERMISSION_DENIED", rbac_error)
@@ -573,6 +576,26 @@ class ToolRegistry:
     def _is_write_tool(self, tool_name: str) -> bool:
         """Return True if tool_name is a write operation."""
         return any(tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES)
+
+    def _is_bootstrap_candidate(
+        self, tool_name: str, params: Dict[str, Any], ctx: AuthContext
+    ) -> bool:
+        """SEC-05: let a self-targeted admin-bootstrap ``user.assign_role``
+        call past the blanket write-RBAC gate.
+
+        This only defers the decision to ``AuthorizationService.assign_role``,
+        which still enforces the real invariant (zero active admins in the
+        target workspace) before the assignment is actually persisted, so a
+        caller who isn't genuinely bootstrapping still gets rejected there.
+        """
+        if tool_name != "user.assign_role":
+            return False
+        if str(params.get("role", "")).lower() != ROLE_ADMIN:
+            return False
+        try:
+            return UUID(str(params.get("user_id"))) == ctx.user_id
+        except (ValueError, TypeError):
+            return False
 
     def _check_rbac(self, ctx: AuthContext) -> Optional[str]:
         """Return error message if write is not permitted, else None.

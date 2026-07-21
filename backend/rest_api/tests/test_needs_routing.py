@@ -70,3 +70,53 @@ def test_flat_list_route_without_workspace_id_returns_400() -> None:
     view = StakeholderNeedViewSet.as_view({"get": "list"})
     response = view(req)
     assert response.status_code == 400
+
+
+def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
+    """Regression (CR-06/CR-07): POST /api/v1/needs/ (flat, no workspace_pk
+    URL kwarg) must read workspace_id from the request body. Previously the
+    view only looked at kwargs["workspace_pk"], so flat-route creation always
+    called the service with workspace_id=None and failed with a 404
+    ("Workspace None not found")."""
+    from unittest.mock import MagicMock
+
+    ws_id = str(uuid.uuid4())
+    factory = APIRequestFactory()
+    req = factory.post(
+        "/api/v1/needs/",
+        data={"workspace_id": ws_id, "title": "Flat-route need"},
+        format="json",
+    )
+    from auth_tenancy.context import AuthContext, AuthMethod
+
+    req.auth_context = AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+    view = StakeholderNeedViewSet.as_view({"post": "create"})
+
+    fake_dto = MagicMock()
+    fake_dto.to_dict.return_value = {
+        "id": str(uuid.uuid4()),
+        "workspace_id": ws_id,
+        "title": "Flat-route need",
+        "description": "",
+        "category": "",
+        "status": "draft",
+        "moscow_priority": None,
+        "uid": None,
+        "suspect": False,
+        "version": 1,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+    with patch(
+        "application.stakeholder_need_service.StakeholderNeedService.create",
+        return_value=fake_dto,
+    ) as mock_create:
+        response = view(req)
+
+    assert response.status_code == 201
+    assert str(mock_create.call_args.kwargs["workspace_id"]) == ws_id
