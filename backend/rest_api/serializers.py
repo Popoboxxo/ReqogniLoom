@@ -396,7 +396,9 @@ class RequirementSerializer(
         help_text="Unique identifier (read-only, auto-generated)",
     )
     version = serializers.IntegerField(read_only=True)
-    change_reason = SanitizedCharField(required=False, allow_blank=True)
+    # B006/#104: bounded like other short justification fields — unbounded
+    # TextField-backed CharFields allow unbounded-size payloads (DoS risk).
+    change_reason = SanitizedCharField(required=False, allow_blank=True, max_length=2000)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -444,7 +446,10 @@ class StakeholderNeedSerializer(
     uid = serializers.CharField(read_only=True, allow_null=True)
     suspect = serializers.BooleanField(read_only=True)
     version = serializers.IntegerField(read_only=True)
-    change_reason = SanitizedCharField(write_only=True, required=False, allow_blank=True)
+    # #104: bounded — see RequirementSerializer.change_reason.
+    change_reason = SanitizedCharField(
+        write_only=True, required=False, allow_blank=True, max_length=2000
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
 
@@ -822,8 +827,13 @@ class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     workspace_id = serializers.UUIDField(required=True)
     title = SanitizedCharField(max_length=200)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
-    context = SanitizedCharField(allow_blank=True, default="")
-    consequences = SanitizedCharField(allow_blank=True, default="")
+    # #104: matches the Adr.context/consequences model TextField(max_length=5000)
+    # cap — previously unbounded at the serializer layer, allowing oversized
+    # payloads to reach the model layer (where TextField.max_length is a
+    # form-validator only, not a DB constraint, and is not enforced here since
+    # this serializer doesn't call full_clean()).
+    context = SanitizedCharField(allow_blank=True, default="", max_length=5000)
+    consequences = SanitizedCharField(allow_blank=True, default="", max_length=5000)
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.ChoiceField(
         choices=["Draft", "In Review", "Approved", "Rejected", "Superseded"],
@@ -858,14 +868,16 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["technical", "operational", "organizational", "business"],
         default="technical",
     )
-    owner = serializers.CharField(allow_blank=True, default="")
+    # #104: matches Risk.owner model field (CharField(max_length=255)).
+    owner = serializers.CharField(allow_blank=True, default="", max_length=255)
     # REQ-L1-029 (FMEA): structured User FK for risk assignment, kept alongside
     # the legacy free-text `owner` field.
     owner_user_id = serializers.UUIDField(allow_null=True, required=False)
     owner_user_display = serializers.CharField(read_only=True, allow_null=True)
     # REQ-L1-029 (FMEA): detectability score (1=easy .. 10=impossible).
     detection = serializers.IntegerField(min_value=1, max_value=10, default=5)
-    mitigation_strategy = SanitizedCharField(allow_blank=True, default="")
+    # #104: narrative field, unbounded before — cap at 10000 chars (DoS risk).
+    mitigation_strategy = SanitizedCharField(allow_blank=True, default="", max_length=10000)
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.ChoiceField(
         choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
@@ -890,7 +902,8 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.CharField(read_only=True)
-    ci_job_id = serializers.CharField(allow_blank=True, default="")
+    # #104: matches TestRun.ci_job_id model field (CharField(max_length=255)).
+    ci_job_id = serializers.CharField(allow_blank=True, default="", max_length=255)
     started_at = serializers.DateTimeField(read_only=True)
     finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
     result_summary = serializers.JSONField(read_only=True, required=False)
@@ -912,7 +925,9 @@ class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer
     )
     executed_at = serializers.DateTimeField(read_only=True, allow_null=True)
     duration_ms = serializers.IntegerField(allow_null=True, required=False)
-    message = serializers.CharField(allow_blank=True, default="")
+    # #104: test log/failure message, unbounded before — cap at 10000 chars
+    # (DoS risk; long enough for typical stack traces/assertion output).
+    message = serializers.CharField(allow_blank=True, default="", max_length=10000)
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
 
@@ -987,8 +1002,9 @@ class ChangeRequestSerializer(PresetAwareSerializerMixin, serializers.Serializer
     workspace_id = serializers.UUIDField(required=True)
     title = SanitizedCharField(max_length=255)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
-    impact_assessment = SanitizedCharField(allow_blank=True, default="")
-    change_reason = SanitizedCharField(allow_blank=True, default="")
+    # #104: narrative CCB fields, unbounded before (DoS risk).
+    impact_assessment = SanitizedCharField(allow_blank=True, default="", max_length=10000)
+    change_reason = SanitizedCharField(allow_blank=True, default="", max_length=2000)
     status = serializers.ChoiceField(
         choices=["draft", "submitted", "under_review", "approved", "rejected", "implemented"],
         default="draft",
@@ -1139,8 +1155,10 @@ class CustomFieldValueSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     definition_id = serializers.UUIDField()
     artifact_id = serializers.UUIDField(read_only=True)
+    # #104: custom field values are user-authored free text (field_type=="text")
+    # and were unbounded before — cap to prevent oversized payloads (DoS risk).
     value = serializers.CharField(
-        allow_blank=True, allow_null=True, required=False, default=""
+        allow_blank=True, allow_null=True, required=False, default="", max_length=5000
     )
     # Definition metadata (read-only convenience fields).
     name = serializers.CharField(source="definition.name", read_only=True)
@@ -1216,7 +1234,8 @@ class GlossaryTermVersionSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     term_fk_id = serializers.UUIDField(read_only=True)
     term_version = serializers.IntegerField(read_only=True)
-    definition = serializers.CharField()
+    # #104: matches GlossaryTermSerializer.definition — unbounded before (DoS risk).
+    definition = serializers.CharField(max_length=20000)
     synonyms = serializers.JSONField(required=False, default=list)
     abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
     created_at = serializers.DateTimeField(read_only=True)
@@ -1235,7 +1254,8 @@ class GlossaryTermSerializer(serializers.Serializer):
             "ADR/Risk artifacts; named 'term' here per domain terminology)."
         ),
     )
-    definition = SanitizedCharField()
+    # #104: narrative definition field, unbounded before (DoS risk).
+    definition = SanitizedCharField(max_length=20000)
     synonyms = serializers.JSONField(required=False, default=list)
     abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
     version = serializers.IntegerField(read_only=True)
