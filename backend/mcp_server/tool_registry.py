@@ -34,7 +34,7 @@ import hashlib
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext, AuthMethod
@@ -218,9 +218,11 @@ class ToolRegistry:
         self,
         auth_service: Optional[AuthenticationService] = None,
         authz_service: Optional[AuthorizationService] = None,
+        workspace_exists: Optional[Callable[[str], bool]] = None,
     ) -> None:
         self._auth_service = auth_service or AuthenticationService()
         self._authz_service = authz_service or AuthorizationService()
+        self._workspace_exists_fn = workspace_exists or self._default_workspace_exists
         self._preset_cache = PresetCache()
         self._router: Optional[ToolGroupRouter] = None
 
@@ -412,6 +414,10 @@ class ToolRegistry:
 
             # --- Step 2: Resolve active roles ---
             workspace_id: Optional[str] = params.get("workspace_id")
+            if workspace_id and not self._workspace_exists_fn(workspace_id):
+                return ToolResult.error(
+                    "WORKSPACE_NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
+                )
             auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
 
             # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
@@ -638,6 +644,24 @@ class ToolRegistry:
                 return False
 
         return not features.get(feature_key, True)
+
+    @staticmethod
+    def _default_workspace_exists(workspace_id: str) -> bool:
+        """Return True if workspace_id refers to a real Workspace row.
+
+        Guards against #95: a malformed or nonexistent workspace_id used to
+        fail open (empty roles / auto-created preset config) and let read
+        tools proceed with an HTTP 200 instead of a clear error. Injectable
+        via the ``workspace_exists`` constructor arg so tests can stub it
+        out without needing DB access, matching auth_service/authz_service.
+        """
+        from persistence.models import Workspace
+
+        try:
+            workspace_uuid = UUID(str(workspace_id))
+        except (ValueError, TypeError):
+            return False
+        return Workspace.objects.filter(id=workspace_uuid).exists()
 
     @staticmethod
     def hash_api_key(plaintext: str) -> str:

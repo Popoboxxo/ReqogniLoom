@@ -149,7 +149,13 @@ class TestToolGroupRouter:
 class TestToolRegistryDispatch:
 
     def _make_registry(self, auth_claims=None, roles=("editor",)):
-        """Build a ToolRegistry with mocked auth services."""
+        """Build a ToolRegistry with mocked auth services.
+
+        ``workspace_exists`` is stubbed to always return True: these are unit
+        tests for RBAC/preset/routing behavior, not for the #95 workspace-
+        existence gate (see TestWorkspaceExistsGate below), and the fake
+        workspace ids used throughout this file are not real DB rows.
+        """
         auth_svc = MagicMock()
         authz_svc = MagicMock()
 
@@ -158,7 +164,11 @@ class TestToolRegistryDispatch:
         authz_svc.active_roles_for.return_value = roles
         authz_svc.decide_access.return_value = MagicMock(allow=True)
 
-        registry = ToolRegistry(auth_service=auth_svc, authz_service=authz_svc)
+        registry = ToolRegistry(
+            auth_service=auth_svc,
+            authz_service=authz_svc,
+            workspace_exists=lambda workspace_id: True,
+        )
         return registry, auth_svc, authz_svc
 
     def test_invalid_api_key_returns_auth_failed(self):

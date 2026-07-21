@@ -562,7 +562,11 @@ def _build_registry(*, roles=("admin",), service: MagicMock | None = None):
     authz_svc.active_roles_for.return_value = roles
     authz_svc.decide_access.return_value = MagicMock(allow=("viewer" not in roles))
 
-    registry = ToolRegistry(auth_service=auth_svc, authz_service=authz_svc)
+    registry = ToolRegistry(
+        auth_service=auth_svc,
+        authz_service=authz_svc,
+        workspace_exists=lambda workspace_id: True,
+    )
     registry._ensure_groups()
 
     if service is not None:
