@@ -540,7 +540,21 @@ class TestCaseSerializer(
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     uid = serializers.CharField(read_only=True, allow_null=True)
-    status = serializers.CharField(max_length=64, default="draft")
+    # REQ-165/REQ-166 (CR-08): `status` is a read-only mirror of the WorkflowEngine
+    # state, same pattern as RequirementSerializer.status (REQ-143). Neither
+    # create_test_case() nor update_test_case() (application/test_service.py)
+    # accept a client-supplied status, so marking the field read-only here makes
+    # the OpenAPI contract match the actual (already-correct) behavior instead of
+    # silently advertising a writable field that PATCH has always ignored. Change
+    # the lifecycle state via POST /api/v1/testcases/{id}/transitions/.
+    status = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Lifecycle state, read-only mirror of the WorkflowEngine (REQ-165). "
+            "Writes are ignored; transition via "
+            "POST /api/v1/testcases/{id}/transitions/."
+        ),
+    )
     suspect = serializers.BooleanField(required=False, default=False)
     # SysEng 2.0 N5 (test.derive_from_requirement): test steps, previously
     # persisted on the model but not exposed through the API.
@@ -932,6 +946,14 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="defect",
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
+    # REQ-165/REQ-166 (CR-08): stays writable (unlike RequirementSerializer/
+    # TestCaseSerializer.status) because IssueViewSet.create() legitimately
+    # accepts an initial status (no prior WorkflowItemState to diverge from) and
+    # several unit tests (test_serializers.py) validate/normalize this field
+    # directly. IssueViewSet.partial_update() deliberately does NOT forward
+    # `status` from PATCH to update_issue() — the WorkflowEngine is the single
+    # source of truth once the item exists (ADR-status-single-source.md); change
+    # the lifecycle state via POST /api/v1/issues/{id}/transitions/.
     status = NormalizedChoiceField(
         choices=["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
         default="Open",

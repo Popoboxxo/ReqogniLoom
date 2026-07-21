@@ -1470,6 +1470,9 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
+            # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded
+            # (and is now read-only on TestCaseSerializer, see there). Change the
+            # lifecycle state via POST /api/v1/testcases/{id}/transitions/.
             item = self._svc().update_test_case(test_case_id=UUID(pk), ctx=ctx, title=data.get("title"), description=data.get("description"), **extra_kwargs)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -3968,6 +3971,11 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded.
+            # update_issue() has no status parameter — the WorkflowEngine is the
+            # single source of truth once the item exists (ADR-status-single-
+            # source.md); a client-sent status is ignored here and the lifecycle
+            # state can only change via POST /api/v1/issues/{id}/transitions/.
             item = self._svc().update_issue(
                 issue_id=UUID(pk),
                 ctx=ctx,
