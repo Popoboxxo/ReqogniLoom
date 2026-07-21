@@ -173,7 +173,8 @@
   "dashboard": {
     "openItems": "Open Items",
     "preset": "Preset",
-    "empty": "No workspace found."
+    "empty": "No workspace found.",
+    "changeMode": "Change SE mode in workspace settings"
   },
   "editor": {
     "title": "Title",

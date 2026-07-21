@@ -170,7 +170,8 @@
   "dashboard": {
     "openItems": "Offene Elemente",
     "preset": "Preset",
-    "empty": "Kein Workspace gefunden."
+    "empty": "Kein Workspace gefunden.",
+    "changeMode": "SE-Modus in Workspace-Einstellungen ändern"
   },
   "editor": {
     "title": "Titel",
