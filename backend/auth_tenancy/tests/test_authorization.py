@@ -21,6 +21,7 @@ from auth_tenancy.services.authorization import (
     Operation,
     PresetPolicyValidator,
 )
+from persistence.models import User
 
 from .conftest import active_tenant
 
@@ -156,10 +157,11 @@ def test_non_admin_cannot_assign_role(tenant_a, user_a, workspace_a):
 
 
 @pytest.mark.django_db
-def test_non_member_target_rejected(tenant_a, user_a, workspace_a):
+def test_non_member_target_onboarded_by_admin(tenant_a, user_a, workspace_a):
+    """SEC-05: assigning a role to a non-member is onboarding, not an error."""
     svc = AuthorizationService()
-    with active_tenant(tenant_a), pytest.raises(ValueError):
-        svc.assign_role(
+    with active_tenant(tenant_a):
+        ur = svc.assign_role(
             actor_roles=(ROLE_ADMIN,),
             target_user_id=user_a.id,
             workspace_id=workspace_a.id,
@@ -169,6 +171,65 @@ def test_non_member_target_rejected(tenant_a, user_a, workspace_a):
             assigned_by_user_id=user_a.id,
             target_is_member=False,
         )
+        assert ur.role == ROLE_EDITOR
+        assert UserRole.objects.filter(
+            user_id=user_a.id, workspace_id=workspace_a.id, role=ROLE_EDITOR
+        ).exists()
+
+
+@pytest.mark.django_db
+def test_first_admin_bootstrap_self_assignment_allowed(tenant_a, user_a, workspace_a):
+    """SEC-05: a caller with no admin role anywhere may self-assign admin
+    when the workspace currently has zero active admin holders."""
+    svc = AuthorizationService()
+    with active_tenant(tenant_a):
+        ur = svc.assign_role(
+            actor_roles=(),
+            target_user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            tenant_id=tenant_a.id,
+            role=ROLE_ADMIN,
+            preset="extended",
+            assigned_by_user_id=user_a.id,
+            target_is_member=False,
+        )
+        assert ur.role == ROLE_ADMIN
+        assert ur.is_active
+
+
+@pytest.mark.django_db
+def test_bootstrap_exception_does_not_apply_once_admin_exists(
+    tenant_a, user_a, workspace_a
+):
+    """SEC-05 bootstrap is a one-time deadlock-breaker, not a standing hole:
+    once a workspace has an active admin, a non-admin caller still can't
+    self-assign admin."""
+    svc = AuthorizationService()
+    with active_tenant(tenant_a):
+        svc.assign_role(
+            actor_roles=(),
+            target_user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            tenant_id=tenant_a.id,
+            role=ROLE_ADMIN,
+            preset="extended",
+            assigned_by_user_id=user_a.id,
+            target_is_member=False,
+        )
+        second_user = User.objects.create(
+            username="carol", email="carol@a.test", tenant=tenant_a
+        )
+        with pytest.raises(PermissionDenied):
+            svc.assign_role(
+                actor_roles=(),
+                target_user_id=second_user.id,
+                workspace_id=workspace_a.id,
+                tenant_id=tenant_a.id,
+                role=ROLE_ADMIN,
+                preset="extended",
+                assigned_by_user_id=second_user.id,
+                target_is_member=False,
+            )
 
 
 @pytest.mark.django_db
