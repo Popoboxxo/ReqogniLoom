@@ -15,9 +15,11 @@
 > Backend-Tests zum Zeitpunkt der Prüfung: 386 passed / 1 failed (ReqIF-Regression, nicht Teil
 > dieser Analyse)
 >
-> **Hinweis Codeberg-Export:** `export_issues.md` enthält zum Prüfzeitpunkt nur 4 Issues
-> (#117–#120), Issue #117 ist im Export mitten im Fehlertext abgeschnitten. Unklar, ob dies
-> bereits alle im Tracker offenen QA-Issues sind — bei Bedarf erneuten Export anfordern.
+> **Hinweis Codeberg-Export (aktualisiert):** Ein vollständigerer Export unter
+> `test-results/export_issues.md` wurde nachgereicht und enthält tatsächlich **#89–#120** (32
+> Issues, nicht nur 4). Die ursprüngliche Fixliste unten deckt nur #117–#120 ab. Die
+> zusätzlichen Befunde #89–#116 sind in "Anhang: Weitere Codeberg-Findings (#89–#116)" erfasst
+> und werden schrittweise abgearbeitet.
 
 ---
 
@@ -31,7 +33,7 @@
 | MCP-Tool-Bugs (kritisch/hoch) | 9 | alle |
 | REST-Inkonsistenzen (mittel/niedrig) | 7 | alle |
 | UI-Bugs | 6 | alle |
-| Codeberg-Issues eingearbeitet | 4 (#117–#120) | siehe Anhang |
+| Codeberg-Issues eingearbeitet | 5 gefixt (#95, #117–#120) + 19 offen (#89–#116, davon 5 Duplikate) | siehe Anhang |
 | SE-Prozess-Lücken (architektonisch, kein Quick-Fix) | 8 | konzeptionell, alle |
 
 **Kernaussage:** Die Tool-Architektur (MCP + REST, 72 Tools) ist solide, aber (1) mehrere
@@ -124,7 +126,7 @@ weil keine gültigen Transitionen definiert sind, statt einen Fehler zu werfen).
 |---|---|---|---|---|
 | UI-01 | "Impact Analysis" Sidebar-Link → Redirect zu Dashboard (toter Link) | alle | Route/Component-Wiring prüfen | ⚪ Kein Fix nötig — live im Browser verifiziert: Route/Link ist korrekt verdrahtet, nicht reproduzierbar |
 | UI-02 | "SE-Auditor" Seite → Redirect zu Dashboard, Frontend nicht verdrahtet | standard+ (neues Feature aus SysEng 2.0) | Frontend-Route für SE-Auditor implementieren/verlinken | ⚪ Kein Fix nötig — live im Browser verifiziert: Route ist verdrahtet, nicht reproduzierbar |
-| UI-03 | ADRs/Risks-Seiten laden Daten, aber kein `<h2>`/`<h3>` Heading | extended | Heading-Komponente ergänzen (auch Accessibility-relevant) | 🔲 Offen — noch nicht bearbeitet |
+| UI-03 | ADRs/Risks/Issues-Seiten laden Daten, aber kein `<h2>`/`<h3>` Heading | extended (**Codeberg #101**, nennt explizit ADR/Issues/Risks) | Heading-Komponente ergänzen (auch Accessibility-relevant) | ✅ Gefixt (`4d730a9c`) — `<h3>` mit i18n-Key (`nav.adrs`/`nav.risks`/`nav.issues`) in `AdrList.tsx`, `RiskList.tsx`, `IssueList.tsx` ergänzt, UI-03-Fix in `AdrList`/`RiskList` live im Browser verifiziert — Codeberg #101 geschlossen |
 | UI-04 | SPA verliert Auth-Session nach ca. 5 Navigationen | alle | Token-Refresh/Session-Handling im Frontend debuggen | 🔲 Offen — noch nicht bearbeitet |
 | UI-05 | Stale-Ref-Navigation — Ref-IDs ändern sich zwischen Snapshots | alle | Ursache in State-Management/Caching prüfen | 🔲 Offen — noch nicht bearbeitet |
 | UI-06 | Dashboard-Card zeigt aktiven SE-Mode (z.B. "extended SE Mode") an, bietet aber keinen direkten Wechsel — nur über Settings-Seite erreichbar | alle (**Codeberg #118**) | Mode-Switcher direkt auf der Dashboard-Card ergänzen oder Card mit Link zu Settings versehen | ✅ Gefixt (`ffc6f4b6`), live verifiziert: Preset-Badge ist jetzt Button, navigiert zu `/settings` mit korrektem Workspace-Kontext — Codeberg #118 geschlossen |
@@ -183,8 +185,8 @@ KI-Decomposition liegt, nicht im Datenmodell.
    erledigt bzw. bereits vorher gelöst
 6. ✅ **P2 REST** (REST-01 bis REST-07) — erledigt (`cb90136f`; REST-02/04/05/06/07 kein Fix
    nötig, jeweils geprüft/verifiziert)
-7. **P2 UI** — UI-01/UI-02 verifiziert (kein Fix nötig), UI-06 erledigt (`ffc6f4b6`); UI-03,
-   UI-04, UI-05 noch offen
+7. **P2 UI** — UI-01/UI-02 verifiziert (kein Fix nötig), UI-06 erledigt (`ffc6f4b6`), UI-03
+   erledigt (`4d730a9c`); UI-04, UI-05 noch offen
 8. **P3 SE-Prozess** — eigene Produktentscheidung/eigenes Ticket, kein Sprint-Nebenbei-Fix
 
 **Detaillierter Fix-Fortschritt (Commits, Root-Cause-Analysen, Verifikation je Item):** siehe
@@ -202,7 +204,7 @@ kompakt zu halten).
 | `test-results/reqflow-standard-preset-assessment.md` | Workflow-Analyse standard-Preset, Audit-Findings, suggest_links-Qualität |
 | `test-results/reqflow_rest_api_bug_report.json` | 62 REST-Tests, strukturiert, extended-Workspace (B001-B010, SEC001-002) |
 | `test-results/reqflow-mcp-deep-dive-findings.json` | 20 MCP-Findings, strukturiert, standard-Workspace |
-| `test-results/export_issues.md` | Codeberg-Issue-Export (4 Issues #117-#120, unvollständig/abgeschnitten) |
+| `test-results/export_issues.md` | Codeberg-Issue-Export, vollständig: #89–#120 (32 Issues) |
 
 ---
 
@@ -216,6 +218,50 @@ Issue-Tracker: `https://codeberg.org/dduchrow/ai-native-reqflow-POC/issues` (Tit
 | #118 | Dashboard-Card zeigt 'extended SE Mode' - kein Wechsel moeglich | MEDIUM | UI-06 | ✅ Gefixt (siehe UI-06 oben, `ffc6f4b6`) — geschlossen |
 | #119 | Issue-Status ist case-sensitive | MEDIUM | REST-06 | ✅ Bereits vorher gelöst (siehe REST-06 oben, `ad658662`) — geschlossen |
 | #120 | test-runs Detail-Endpunkt braucht workspace_id als Query-Param | MEDIUM | REST-07 | ✅ Bereits korrekt implementiert (siehe REST-07 oben, `cb90136f`) — geschlossen |
+| #95 | MCP akzeptiert ungültige workspace_id klaglos — immer 200 statt 404/400 | MEDIUM | siehe Anhang unten | ✅ Gefixt (`363affaa`) — Codeberg-Schließung ausstehend (PAT nicht verfügbar) |
 
-**Offen:** Export-Datei ist unvollständig (nur 4 Issues, #117 inhaltlich abgeschnitten) — es ist
-nicht auszuschließen, dass weitere Issues im Tracker existieren, die im aktuellen Export fehlen.
+---
+
+## Anhang: Weitere Codeberg-Findings (#89–#116, nachträglich erfasst)
+
+Vollständiger Export (`test-results/export_issues.md`) enthält #89–#120. Oben bereits erfasst:
+#117–#120. #101 ist jetzt oben unter UI-03 mitgefixt. Verbleibende neue Funde:
+
+**Bereits abgedeckt / Duplikate (kein neuer Fix nötig):**
+
+| Codeberg-# | Titel | Duplikat von | Anmerkung |
+|---|---|---|---|
+| #97 | `requirement.derive` Schema sagt `id`, Server braucht 3 Parameter | MCP-04 | bereits gefixt |
+| #102 | Workflow Defaults: 0 States für 5/7 Entity-Types (standard) | WF-01 | bereits gelöst (REQ-165/166/167) |
+| #107 | `requirement.decompose` Schema sagt `id`, Server braucht `requirement_id` | MCP-03 | bereits gefixt |
+| #109 | `needs.update` crashte früher mit `AuthContext`-Bug | — | rein historisch, Issue selbst dokumentiert "bereits gefixt" |
+| #114 | Trace Links: 0 Verbindungen im Workspace | SE-01 | P3, architektonische Entscheidung, kein Quick-Fix |
+
+**Neue, noch offene Funde (Status wird schrittweise nachgetragen):**
+
+| Codeberg-# | Titel | Severity | Kategorie | Status |
+|---|---|---|---|---|
+| #89 | `tenant_id` vs. `workspace_id` — Doku-Verwirrung im Login-Response | MEDIUM | API/Doku | 🔲 Offen |
+| #90 | "Optional-Artefakte"-Switch in Sidebar ohne Wirkung | MEDIUM | Frontend | 🔲 Offen |
+| #91 | Kein `GET /api/v1/api-keys/{id}/` Detail-Endpoint | MEDIUM | REST | 🔲 Offen |
+| #92 | Dashboard-Daten stale nach Schreiboperation (kein Re-Fetch) | MEDIUM | Frontend | 🔲 Offen |
+| #94 | MCP `tools/list`-Schema: einige Tools mit generischem `kwargs` statt konkreter Parameter | MEDIUM | MCP | ✅ Gefixt (f09eb8be) — `GenericCrudToolGroup` (adr/risk/issue/glossary) liefert jetzt konkrete Feldlisten pro Entität in `create`/`update`-Schemas (`backend/mcp_server/tools/generic.py`), Feldnamen aus den jeweiligen ApplicationService-Signaturen übernommen. `additionalProperties: True` bleibt erhalten — keine Verhaltensänderung, nur Discoverability. Test: `test_create_and_update_schemas_expose_concrete_fields` in `test_generic_tool_group.py` |
+| #95 | MCP akzeptiert ungültige `workspace_id` klaglos — immer 200 statt 404/400 | MEDIUM | MCP (security-adjacent) | ✅ Gefixt (`363affaa`) — neues fail-closed `workspace_exists`-Gate in `ToolRegistry.dispatch_request`, DI-injectable (Konstruktor-Param, Default prüft `Workspace.objects.filter(id=...).exists()`), gibt `WORKSPACE_NOT_FOUND` statt stillem 200 zurück. 204 Tests grün, keine Regression. Codeberg-Schließung ausstehend (PAT nicht verfügbar) |
+| #96 | `user.create` (MCP) ohne Workspace-Mitgliedschaft → `user.assign_role` schlägt fehl | MEDIUM | MCP | 🔲 Offen |
+| #98 | React-Router-v7-Future-Flag-Warnings in Browser-Konsole | LOW | Frontend | 🔲 Offen |
+| #99 | `PytestCacheWarning` im Container (Non-Root-User, `.pytest_cache` nicht schreibbar) | LOW | Infra | 🔲 Offen |
+| #103 | Sidebar-Link "SE Metrics" (`/metrics`) redirected auf `/profile` | MEDIUM | Frontend-Routing | 🔲 Offen |
+| #104 | Kein Size-Limit für Textfelder (`description` etc.) — DoS-Risiko | MEDIUM | Backend (Security-adjacent) | 🔲 Offen |
+| #105 | Dashboard "18 Open Items" inkonsistent zu tatsächlich 6 Issues | MEDIUM | Frontend/Backend (Datenintegrität) | 🔲 Offen |
+| #106 | `test.run_report_results` akzeptiert nur Array, kein einzelnes Result-Objekt | MEDIUM | MCP | ✅ Gefixt (f09eb8be) — `_handle_run_report_results` in `backend/mcp_server/tools/tests.py` wrapped ein einzelnes `dict`-Result-Objekt jetzt automatisch in `[results_raw]`, bevor die bestehende Listen-Validierung greift. Schema-Beschreibung ergänzt. Tests: `test_run_report_results_accepts_single_object`/`_accepts_list`/`_rejects_empty_list` in `test_tool_groups.py` |
+| #108 | MCP akzeptiert seit REQ-126 keine Bearer-Token mehr, nur API-Key (kein Fallback) | MEDIUM | MCP/Auth | Kein Bug — beabsichtigt (REQ-052/REQ-L2-MC-006, e559175d). Die MCP-API-Key-Pflicht ist explizit gefordert (`docs/se/L1/Gesamtsystem/L2/McpServerSystem/Components/COMP-MC-002_ToolRegistry/L3_COMP-MC-002_Requirements.md:18`, REQ-L2-MC-006) und unabhängig von REQ-126 (das betrifft nur die REST-Bearer-Rollenauflösung, `docs/REQUIREMENTS.md:141`). Keine Verhaltensänderung — Fehlermeldung in `_validate_api_key` (`backend/mcp_server/tool_registry.py`) präzisiert: verweist jetzt explizit auf REQ-L2-MC-006/REQ-052 und stellt klar, dass kein Zusammenhang zu REQ-126 besteht. Test: `test_bearer_token_rejected_with_precise_req_reference` in `test_tool_registry.py` |
+| #110 | `workspace.get_context`: `active_roles` liegt undokumentiert unter `result.workspace_context.active_roles` | MEDIUM | MCP/Doku | ✅ Gefixt (f09eb8be) — Tool-Description von `workspace.get_context` (`backend/mcp_server/tools/cross_cutting.py`) dokumentiert jetzt die vollständige Response-Struktur (`active_roles`, `preset`, `preset_features`, `terminology`, `open_requirements_count`). Nur Doku-Änderung, kein Verhaltens-Fix. Test: `test_workspace_get_context_description_documents_response_fields` in `test_tool_groups.py` |
+| #111 | `prompt_template.get` mit unbekanntem Slot → unhilfreiche Fehlermeldung ohne Liste gültiger Slots | MEDIUM | MCP | Bereits behoben im Code, Regressionstest ergänzt (ede6a2fe) — `_handle_get` in `backend/mcp_server/tools/prompt_template.py` listete bereits alle gültigen Slots in der Fehlermeldung; `test_get_unknown_slot_is_validation_error` in `test_prompt_template_tool_group.py` prüfte das aber nicht. Assertion ergänzt, die den Message-Inhalt gegen `PROMPT_TEMPLATE_DEFAULTS` verifiziert |
+| #112 | "Download React DevTools"-Hinweis erscheint auch im Production-Build | LOW | Frontend | 🔲 Offen |
+| #113 | Custom Fields (5 definiert) nirgends befüllt, kein Onboarding-Hinweis | LOW | Feature-Lücke | 🔲 Offen |
+| #115 | ICD-Liste: leerer Zustand ohne Anleitung/Hinweistext | LOW | Frontend | 🔲 Offen |
+| #116 | `needs.query` (MCP) gibt leeres Array zurück, obwohl Need per REST bestätigt angelegt wurde | MEDIUM | MCP | ✅ Gefixt (f09eb8be) — Root Cause war schwerwiegender als der Titel nahelegt: `needs.query` existierte in `StakeholderNeedsToolGroup._TOOL_MAP` (`backend/mcp_server/tools/needs.py`) gar nicht, jeder Aufruf schlug mit `UNKNOWN_TOOL` fehl. Handler + Schema ergänzt, analog zu `requirement.query`, ruft `StakeholderNeedService.list_by_workspace` auf. Tests: `test_needs_query_requires_workspace_id`/`_calls_service`/`_passes_include_deleted` in `test_tool_groups.py` |
+
+**Nächste Schritte:** Diese Liste wird gemäß Standing-Instruction ("alle Probleme fixen")
+schrittweise abgearbeitet, priorisiert nach Security-Nähe (#95, #104, #108) und
+Datenintegrität (#105, #116) vor reinen Doku-/Kosmetik-Findings (#89, #98, #99, #112).
