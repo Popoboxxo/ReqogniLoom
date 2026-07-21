@@ -171,7 +171,7 @@
     "saved": "Configuration saved successfully."
   },
   "dashboard": {
-    "openItems": "Open Items",
+    "openItems": "Draft Requirements",
     "preset": "Preset",
     "empty": "No workspace found.",
     "changeMode": "Change SE mode in workspace settings"
@@ -269,6 +269,7 @@
     "upstream": "Upstream Links",
     "downstream": "Downstream Links",
     "none": "No links available.",
+    "unresolved": "Not resolvable",
     "placeholder": "Traceability view — in progress.",
     "empty": "No trace links available.",
     "source": "Source",
@@ -465,13 +466,13 @@
     "saved": "Saved.",
     "customFields": {
       "title": "Custom Fields",
-      "description": "Define additional fields that appear workspace-wide on all artifacts.",
+      "description": "Define additional fields for this workspace. Defined fields appear on every requirement's edit form, where they can be filled in.",
       "name": "Name",
       "type": "Type",
       "required": "Required",
       "options": "Options",
       "optionsHint": "Options, comma-separated",
-      "empty": "No fields defined yet."
+      "empty": "No fields defined yet. Add your first field below — it will then automatically appear on every requirement's edit form, where it can be filled in."
     },
     "dataManagement": "Data Management",
     "dataManagementHint": "Import existing requirements from a CSV file.",
@@ -558,6 +559,7 @@
   "icds": {
     "title": "Interface Control Documents",
     "empty": "No ICDs defined yet. Create one to capture the contract between two architecture elements.",
+    "needsElementsHint": "You need at least two architecture elements to create an ICD. Create them first in the Architecture section.",
     "create": "New ICD",
     "newVersion": "New Version",
     "nameLabel": "ICD Name",
