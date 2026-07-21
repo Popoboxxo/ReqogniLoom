@@ -881,7 +881,13 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
-    name = SanitizedCharField(max_length=255)
+    name = SanitizedCharField(
+        max_length=255,
+        help_text=(
+            "TestRun label (REST-01: equivalent to 'title' on Requirement/Issue/ADR/"
+            "Risk artifacts; named 'name' here for consistency with CI job naming)."
+        ),
+    )
     uid = serializers.CharField(read_only=True, allow_null=True)
     status = serializers.CharField(read_only=True)
     ci_job_id = serializers.CharField(allow_blank=True, default="")
@@ -1222,7 +1228,13 @@ class GlossaryTermSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
-    term = SanitizedCharField(max_length=255)
+    term = SanitizedCharField(
+        max_length=255,
+        help_text=(
+            "GlossaryTerm label (REST-01: equivalent to 'title' on Requirement/Issue/"
+            "ADR/Risk artifacts; named 'term' here per domain terminology)."
+        ),
+    )
     definition = SanitizedCharField()
     synonyms = serializers.JSONField(required=False, default=list)
     abbreviation = serializers.CharField(required=False, allow_blank=True, default="")

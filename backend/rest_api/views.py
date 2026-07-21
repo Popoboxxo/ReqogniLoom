@@ -4520,8 +4520,16 @@ class SearchViewSet(viewsets.ViewSet):
         query = request.query_params.get("q", "").strip()
         workspace_id_str = request.query_params.get("workspace_id")
 
-        # Empty query or missing workspace → return empty result without error
-        if not query or not workspace_id_str:
+        if not workspace_id_str:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Empty query → return empty result without error (workspace_id already validated)
+        if not query:
             return Response(
                 {
                     "results": [],
