@@ -76,6 +76,15 @@ class TestMermaidValidation:
         with pytest.raises(DiagramValidationError, match="must not be empty"):
             validator.validate_payload("flow", "mermaid", "   ")
 
+    def test_valid_mermaid_diagram_type(self, validator: DiagramValidator) -> None:
+        """CR-05 regression: diagram_type='mermaid' with payload_format='mermaid'.
+
+        Must validate cleanly regardless of the caller's rigor preset — this
+        validator has no preset awareness at all (see docs/
+        ANALYSE_SYSENG20_TESTBERICHT_FIXLISTE.md CR-05).
+        """
+        validator.validate_payload("mermaid", "mermaid", "flowchart TD\n  A --> B")
+
 
 # ---------------------------------------------------------------------------
 # REQ-L3-DV-001: PlantUML validation for all 3 diagram types
@@ -138,6 +147,26 @@ class TestJSONValidation:
     def test_empty_json_raises(self, validator: DiagramValidator) -> None:
         with pytest.raises(DiagramValidationError, match="must not be empty"):
             validator.validate_payload("context", "json", "")
+
+    def test_mermaid_type_non_json_content_raises_clean_error(
+        self, validator: DiagramValidator
+    ) -> None:
+        """CR-05 regression: diagram_type='mermaid' with the default
+        payload_format='json' and raw Mermaid text as content (i.e. a caller
+        that omits payload_format) must raise DiagramValidationError — not an
+        unhandled json.JSONDecodeError bubbling up as HTTP 500.
+
+        This is the underlying cause behind CR-05's "500 JSON-Parse-Error"
+        symptom (see docs/ANALYSE_SYSENG20_TESTBERICHT_FIXLISTE.md). It is
+        identical for every rigor preset because DiagramValidator never reads
+        preset/tier information — confirmed by manual reproduction against
+        both 'standard' and 'extended' workspaces, which now both return a
+        clean 400 (fixed together with CR-02, commit dcce2ad6).
+        """
+        with pytest.raises(DiagramValidationError, match="not valid JSON"):
+            validator.validate_payload(
+                "mermaid", "json", "flowchart TD\n  A --> B"
+            )
 
 
 # ---------------------------------------------------------------------------
