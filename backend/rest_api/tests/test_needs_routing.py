@@ -120,3 +120,51 @@ def test_flat_create_route_with_body_workspace_id_returns_201() -> None:
 
     assert response.status_code == 201
     assert str(mock_create.call_args.kwargs["workspace_id"]) == ws_id
+
+
+@pytest.mark.django_db
+def test_flat_create_route_minimal_preset_workspace_returns_201() -> None:
+    """Regression (CR-07): POST /api/v1/needs/ (flat route) must succeed for a
+    workspace using the ``minimal`` rigor preset, exercising the real
+    StakeholderNeedService end-to-end (no mocks). Before the CR-06 fix this
+    failed identically to CR-06 with "Workspace None not found" (404) because
+    the view never read ``workspace_id`` from the request body on the flat
+    route; the preset itself was never the actual root cause."""
+    from auth_tenancy.context import AuthContext, AuthMethod
+    from persistence.models import Tenant, User, Workspace
+    from persistence.tenancy import TenantContext
+
+    tenant = Tenant.objects.create(
+        id=uuid.uuid4(), name="cr07-minimal-tenant", slug=f"cr07-minimal-{uuid.uuid4().hex[:8]}"
+    )
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(
+            id=uuid.uuid4(), tenant=tenant, name="cr07-minimal-ws", preset="minimal"
+        )
+        user = User.objects.create(
+            id=uuid.uuid4(),
+            tenant=tenant,
+            username=f"cr07-minimal-{uuid.uuid4().hex[:8]}",
+            email="cr07-minimal@example.com",
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    factory = APIRequestFactory()
+    req = factory.post(
+        "/api/v1/needs/",
+        data={"workspace_id": str(workspace.id), "title": "CR-07 minimal-preset need"},
+        format="json",
+    )
+    req.auth_context = AuthContext(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+    view = StakeholderNeedViewSet.as_view({"post": "create"})
+    response = view(req)
+
+    assert response.status_code == 201
+    assert response.data["workspace_id"] == str(workspace.id)
