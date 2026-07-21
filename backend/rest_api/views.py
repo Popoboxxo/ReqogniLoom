@@ -3277,6 +3277,29 @@ class WorkspaceViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(WorkspaceSerializer(_workspace_to_dict(ws)).data)
 
+    def destroy(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """DELETE /api/v1/workspaces/{pk}/ — soft-close a workspace (REQ-L1-042, CR-01).
+
+        Mirrors the reversible ``POST .../close/`` action (sets
+        ``is_active=False``, ``closed_at``, ``closed_by``) so the standard
+        REST verb performs a real, admin-only, undoable operation instead of
+        raising ``NotImplementedError``. The irreversible full-cascade
+        hard-delete stays behind the dedicated, captcha-confirmed
+        ``POST /api/v1/workspaces/{pk}/delete/`` action and is intentionally
+        not triggered by plain DELETE.
+
+        Returns 204 on success.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().close_workspace(workspace_id=UUID(pk), ctx=ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=True, methods=["patch"], url_path="preset")
     def set_preset(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """PATCH /api/v1/workspaces/{pk}/preset/ — switch active preset tier.
