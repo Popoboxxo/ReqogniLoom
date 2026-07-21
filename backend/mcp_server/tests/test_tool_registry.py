@@ -183,6 +183,25 @@ class TestToolRegistryDispatch:
         assert result.success is False
         assert result.error_code == "AUTH_FAILED"
 
+    def test_bearer_token_rejected_with_precise_req_reference(self):
+        """Codeberg #108 -- not a bug: MCP intentionally requires API keys
+        (REQ-L2-MC-006, REQ-052). The error message must point to those
+        requirements and must NOT suggest a connection to REQ-126 (which is
+        the unrelated REST Bearer-token role-resolution fix)."""
+        registry, _, _ = self._make_registry()
+
+        result = registry.dispatch_request(
+            tool_name="requirement.get",
+            params={},
+            api_key="eyJhbGciOiJIUzI1NiJ9.fake.jwt",  # not an rf_... API key
+        )
+        assert result.success is False
+        assert result.error_code == "AUTH_FAILED"
+        assert "REQ-L2-MC-006" in result.message
+        assert "REQ-052" in result.message
+        assert "REQ-126" in result.message
+        assert "independent of REQ-126" in result.message
+
     def test_unknown_tool_returns_unknown_tool_error(self):
         registry, _, _ = self._make_registry()
 

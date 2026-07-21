@@ -474,15 +474,21 @@ class ToolRegistry:
             (None, error_message) on failure.
         """
         if not api_key.startswith("rf_"):
-            # MCP only accepts API keys (rf_...), never JWT bearer tokens
-            # (REQ-052 cookie/JWT auth is REST-only). A JWT sent via
-            # Authorization: Bearer would otherwise fail key lookup with the
-            # misleading "invalid_api_key" — this makes the real cause explicit.
+            # By design, MCP only accepts API keys (rf_...), never JWT bearer
+            # tokens: REQ-L2-MC-006 mandates API-key auth for the MCP server,
+            # and REQ-052 confines cookie/JWT auth to the REST adapter. This
+            # is unrelated to REQ-126 (symmetric role resolution for the REST
+            # Bearer-token path) — that requirement never changed MCP's auth
+            # method. A JWT sent via Authorization: Bearer would otherwise
+            # fail key lookup with the misleading "invalid_api_key" — this
+            # makes the real cause explicit.
             logger.debug("MCP auth: credential does not match API-key format")
             return None, (
                 "Authentication failed: bearer_not_supported — MCP requires an "
                 "API key (X-API-Key header or 'Authorization: Bearer rf_...'), "
-                "not a JWT bearer token"
+                "not a JWT bearer token. This is intentional (REQ-L2-MC-006, "
+                "REQ-052) and independent of REQ-126, which only concerns the "
+                "REST Bearer-token role-resolution path."
             )
 
         try:
