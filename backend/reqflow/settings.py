@@ -97,6 +97,29 @@ ALLOWED_HOSTS: list[str] = config(
 )
 
 # ---------------------------------------------------------------------------
+# APPEND_SLASH (CR-03 security fix)
+# ---------------------------------------------------------------------------
+# Django's default APPEND_SLASH=True makes CommonMiddleware try to redirect
+# any unmatched non-slash URL to its slash-terminated counterpart. For
+# unsafe methods (POST/PUT/PATCH) this is a double hazard:
+#   1. With DEBUG=True, django.middleware.common.CommonMiddleware raises a
+#      bare RuntimeError ("Django can't redirect to the slash URL while
+#      maintaining POST data") which surfaces as an HTTP 500 rendered by
+#      Django's technical debug page — a full settings/traceback disclosure
+#      (CWE-489 / CWE-200), on top of DEBUG already being hard-failed in
+#      production (see startup check above).
+#   2. With DEBUG=False no exception is raised, but the 301 redirect still
+#      silently drops the POST body, and most HTTP clients downgrade the
+#      method to GET on the redirected request — a confusing, unsafe
+#      fallback rather than a clean error.
+# Every route in this project (DRF's DefaultRouter, all explicit `path()`
+# entries, admin, health, schema) is already defined WITH a trailing slash,
+# so disabling APPEND_SLASH has no effect on correctly-formed requests: a
+# non-slash URL now returns a plain, immediate 404 instead of attempting a
+# lossy redirect.
+APPEND_SLASH = False
+
+# ---------------------------------------------------------------------------
 # Field-level encryption key (REQ-081)
 # ---------------------------------------------------------------------------
 # Encrypts persistence.LlmSettings.api_key at rest (see persistence/encryption.py

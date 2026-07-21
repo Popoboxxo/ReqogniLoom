@@ -160,9 +160,9 @@ class RequirementsToolGroup(BaseToolGroup):
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string"}
+                    "requirement_id": {"type": "string", "description": "UUID of the requirement."}
                 },
-                "required": ["id"]
+                "required": ["requirement_id"]
             }
         },
         {
@@ -182,9 +182,12 @@ class RequirementsToolGroup(BaseToolGroup):
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string"}
+                    "parent_requirement_id": {"type": "string", "description": "UUID of the parent requirement."},
+                    "architecture_element_id": {"type": "string", "description": "UUID of the ArchitectureElement to derive onto."},
+                    "title": {"type": "string", "description": "Title of the derived child requirement."},
+                    "description": {"type": "string", "description": "Optional description of the derived child requirement."}
                 },
-                "required": ["id"]
+                "required": ["parent_requirement_id", "architecture_element_id", "title"]
             }
         },
         {

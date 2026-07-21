@@ -108,12 +108,18 @@ class GenericCrudToolGroup(BaseToolGroup):
     def _to_dict(self, obj: Any) -> Dict[str, Any]:
         """Convert object to dict dynamically."""
         if hasattr(obj, "__dict__"):
+            import datetime
+            import uuid
+
             data = {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-            # Stringify UUIDs
+            # Stringify UUIDs and datetimes/dates (MCP-01: not JSON-serializable
+            # otherwise — same root cause affects ADR/Risk, see
+            # docs/ANALYSE_MCP_LIVE_TEST_BUGS.md §1).
             for k, v in data.items():
-                import uuid
                 if isinstance(v, uuid.UUID):
                     data[k] = str(v)
+                elif isinstance(v, (datetime.datetime, datetime.date)):
+                    data[k] = v.isoformat()
             return data
         return {"id": str(getattr(obj, "id", ""))}
 
