@@ -56,7 +56,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Security
 # ---------------------------------------------------------------------------
 SECRET_KEY: str = _get_required_secret("SECRET_KEY")
-DEBUG: bool = config("DEBUG", default=False, cast=bool)
+
+# Deployment environment gate (REQ-115 hardening). The safe default is
+# "production": DEBUG can NEVER be True there, even if a misconfigured .env
+# sets DEBUG=True. Only a deployment that explicitly opts into a non-production
+# environment (DJANGO_ENV=development|dev|local|test) may honour DEBUG=True.
+# This prevents an accidental prod DEBUG leak (verbose error pages, SQL, etc.).
+DJANGO_ENV: str = config("DJANGO_ENV", default="production").strip().lower()
+_NON_PROD_ENVS = {"development", "dev", "local", "test"}
+_debug_requested: bool = config("DEBUG", default=False, cast=bool)
+DEBUG: bool = _debug_requested and DJANGO_ENV in _NON_PROD_ENVS
 # Deliberately decoupled from DEBUG: some deployments run with DEBUG=False
 # (the correct production default, REQ-115) but are only reachable over plain
 # HTTP (e.g. an internal/sandbox IP with no TLS-terminating reverse proxy).

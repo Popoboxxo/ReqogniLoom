@@ -15,6 +15,10 @@ services:
   backend:
     # Development: Use dev server and hot-reload
     environment:
+      # DJANGO_ENV=development lets the settings hardening honour DEBUG=True here;
+      # in production (no override) DJANGO_ENV defaults to "production" and DEBUG
+      # is forced False regardless of the .env value (REQ-115 hardening).
+      DJANGO_ENV: ${DJANGO_ENV:-development}
       DEBUG: ${DEBUG:-True}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
@@ -32,6 +36,7 @@ services:
     # Development: run current source so the REQ-188 post_migrate self-init
     # applies without a rebuild (matches the backend/celery hot-reload mounts).
     environment:
+      DJANGO_ENV: ${DJANGO_ENV:-development}
       DEBUG: ${DEBUG:-True}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
     volumes:
@@ -40,6 +45,7 @@ services:
   celery:
     # Development: verbose logging
     environment:
+      DJANGO_ENV: ${DJANGO_ENV:-development}
       DEBUG: ${DEBUG:-True}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
