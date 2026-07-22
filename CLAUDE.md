@@ -3,7 +3,7 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v0.76.0 — `2026-07-18`
+> Generiert von agent-meta v0.78.0 — `2026-07-21`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
 > `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
@@ -110,7 +110,9 @@ Kategorien für `docs/REQUIREMENTS.md`:
 <!-- This block is automatically updated by sync.py on every sync. -->
 <!-- Manual changes here will be overwritten. -->
 
-Generiert von agent-meta v0.76.0 — `2026-07-18`
+> **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
+
+Generiert von agent-meta v0.78.0 — `2026-07-21`
 DoD-Preset: **spec-driven** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 
 > **Einstiegspunkt:** Starte mit dem `orchestrator`-Agenten für alle Entwicklungsaufgaben — Ausnahmen siehe Abschnitt »Orchestrator — Universal Router«.
