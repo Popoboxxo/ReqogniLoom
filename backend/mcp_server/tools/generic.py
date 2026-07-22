@@ -1,5 +1,8 @@
 """Generic MCP Tool Group for standard CRUD entities."""
 import inspect
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Callable, Dict
 
 from application.base import NotFoundError
@@ -105,16 +108,28 @@ class GenericCrudToolGroup(BaseToolGroup):
             },
         ]
     
+    @staticmethod
+    def _jsonify(value: Any) -> Any:
+        """Coerce a single value into a JSON-serializable form.
+
+        UUID/datetime/date/Decimal are not JSON-serializable by ``json.dumps``
+        and would crash the MCP response encoder (e.g. ``Issue.due_date``).
+        """
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        # datetime is a subclass of date; check it first for full ISO precision.
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return str(value)
+        return value
+
     def _to_dict(self, obj: Any) -> Dict[str, Any]:
         """Convert object to dict dynamically."""
         if hasattr(obj, "__dict__"):
             data = {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-            # Stringify UUIDs
-            for k, v in data.items():
-                import uuid
-                if isinstance(v, uuid.UUID):
-                    data[k] = str(v)
-            return data
+            # Coerce non-JSON-serializable values (UUID/datetime/date/Decimal).
+            return {k: self._jsonify(v) for k, v in data.items()}
         return {"id": str(getattr(obj, "id", ""))}
 
     def _handle_read(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
