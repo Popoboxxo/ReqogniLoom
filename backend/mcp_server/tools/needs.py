@@ -197,13 +197,20 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
             artifact_id = need_model.artifact_id
             
             trace_service = TraceLinkService()
-            incoming = trace_service.list_incoming(artifact_id, auth_context)
-            outgoing = trace_service.list_outgoing(artifact_id, auth_context)
-            
+            # query_trace_links returns NeighborResult objects whose neighbor is
+            # exposed as `entity_id` (not source_id/target_id). Upstream = incoming
+            # (links pointing at this artifact), downstream = outgoing.
+            incoming = trace_service.query_trace_links(
+                entity_id=artifact_id, direction="upstream", ctx=auth_context
+            )
+            outgoing = trace_service.query_trace_links(
+                entity_id=artifact_id, direction="downstream", ctx=auth_context
+            )
+
             return ToolResult.ok({
                 "source_need": str(need_id),
-                "incoming_traces": [{"source": str(t.source_id), "type": t.link_type} for t in incoming],
-                "outgoing_traces": [{"target": str(t.target_id), "type": t.link_type} for t in outgoing],
+                "incoming_traces": [{"source": str(t.entity_id), "type": t.link_type} for t in incoming],
+                "outgoing_traces": [{"target": str(t.entity_id), "type": t.link_type} for t in outgoing],
             })
         except StakeholderNeed.DoesNotExist:
             return ToolResult.error("NOT_FOUND", f"StakeholderNeed {need_id} not found.")
