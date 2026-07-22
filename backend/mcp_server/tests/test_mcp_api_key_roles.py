@@ -175,7 +175,18 @@ def admin_api_key(bearer_token: str) -> str:
 
 @pytest.fixture(scope="module")
 def seeded_workspace_id(bearer_token: str) -> str:
-    """Resolve the seeded workspace ID from the live stack."""
+    """Resolve the seeded workspace ID the admin actually holds a role in.
+
+    REQ-127 tests role *propagation*, which presupposes the admin has a role in
+    the target workspace. Picking an arbitrary ``workspaces[0]`` is fragile: the
+    list endpoint orders by ``-modified_at``, so a workspace created in the same
+    tenant during exploratory testing can sort ahead of the seeded workspace.
+    The admin holds no role there, yielding empty active_roles and a *false*
+    role-propagation regression signal. We therefore anchor on the canonical
+    seeded workspace by name (``DEFAULT_WORKSPACE_NAME`` in
+    ``auth_tenancy.provisioning``), which is the workspace bootstrap_admin binds
+    the admin's admin role to.
+    """
     status, data = _http_request(
         f"{REST_URL}/workspaces/",
         headers={"Authorization": f"Bearer {bearer_token}"},
@@ -183,7 +194,14 @@ def seeded_workspace_id(bearer_token: str) -> str:
     assert status == 200, f"List workspaces failed: {status}"
     workspaces = data if isinstance(data, list) else data.get("results", [])
     assert workspaces, "No workspaces found — is seed_demo loaded?"
-    return workspaces[0]["id"]
+    seeded = next(
+        (w for w in workspaces if w.get("name") == "Demo Workspace"), None
+    )
+    assert seeded, (
+        "Seeded 'Demo Workspace' not found — is bootstrap_admin/seed_demo "
+        f"loaded? Available workspaces: {[w.get('name') for w in workspaces]}"
+    )
+    return seeded["id"]
 
 
 # ---------------------------------------------------------------------------
