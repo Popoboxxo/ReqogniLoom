@@ -3050,6 +3050,29 @@ def _baseline_to_dict(bl: Any) -> dict[str, Any]:
     return result
 
 
+_TRUE_TOKENS = frozenset({"true", "1", "yes", "on"})
+_FALSE_TOKENS = frozenset({"false", "0", "no", "off"})
+
+
+def _coerce_bool(value: Any) -> bool:
+    """Coerce a JSON/form value into a bool, mirroring DRF BooleanField.
+
+    Raises ``ValueError`` for values that are not recognizable booleans so the
+    caller can return a 400 instead of silently treating them as truthy.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int,)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in _TRUE_TOKENS:
+            return True
+        if token in _FALSE_TOKENS:
+            return False
+    raise ValueError(f"Cannot coerce {value!r} to bool")
+
+
 def _workspace_to_dict(ws: Any) -> dict[str, Any]:
     """Convert Workspace ORM object to serializer-compatible dict.
 
@@ -3254,6 +3277,33 @@ class WorkspaceViewSet(BaseEntityViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
+            ws = None
+
+            # Lifecycle toggle: a client-sent ``is_active`` must not be silently
+            # dropped. Route it to the dedicated close/reactivate service methods
+            # (admin-gated, set closed_at/closed_by, emit distinct audit ops) so
+            # the lifecycle logic is not duplicated or bypassed here (REQ-L1-042).
+            if "is_active" in request.data:
+                try:
+                    desired_active = _coerce_bool(request.data["is_active"])
+                except ValueError:
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="is_active must be a boolean",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if desired_active:
+                    ws = self._svc().reactivate_workspace(
+                        workspace_id=UUID(pk), ctx=ctx
+                    )
+                else:
+                    ws = self._svc().close_workspace(
+                        workspace_id=UUID(pk), ctx=ctx
+                    )
+
             # Forward only fields the client actually supplied (PATCH semantics);
             # the service applies the sentinel default to the rest.
             fields = {
@@ -3267,7 +3317,11 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 )
                 if key in request.data
             }
-            ws = self._svc().update_metadata(ctx, UUID(pk), **fields)
+            if fields:
+                ws = self._svc().update_metadata(ctx, UUID(pk), **fields)
+            elif ws is None:
+                # No recognized field supplied — return current state unchanged.
+                ws = self._svc().get_workspace(UUID(pk), ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
