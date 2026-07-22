@@ -1,7 +1,7 @@
 # Analyse: SysEng 2.0 Testbericht — Konsolidierte Fixliste
 
 > Status: **P0 (Sicherheit/Crashes/Workflow-Init) + P1 (MCP) + P2-REST umgesetzt, verifiziert,
-> committed. P2-UI teilweise (UI-06 gefixt, UI-01/02 kein Fix nötig; UI-03/04/05 offen).
+> committed. P2-UI teilweise (UI-03/UI-05/UI-06 gefixt, UI-01/02 kein Fix nötig; UI-04 offen).
 > P3 (SE-Prozess) noch offen.** Fix-Fortschritt live getrackt in
 > `project_syseng20_testbericht_fixliste`-Memory. Konsolidiert alle Befunde aus
 > `test-results/` (5 Dateien, 3 Workspace-Presets × UI-Sweep + REST API + MCP Deep Dive +
