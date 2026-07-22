@@ -159,6 +159,11 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
+    volumes:
+      # REQ-L1-046: persist admin_ops DR backups (written to /app/backups) on a
+      # named volume so they survive restarts/rebuilds and are writable by the
+      # non-root app user (the image seeds ownership; see backend/Dockerfile).
+      - backend_dr_backups:/app/backups
     ports:
       - "8000:8000"
     logging:
@@ -342,3 +347,4 @@ services:
 volumes:
   postgres_data:
   postgres_backup_data:  # REQ-102: retained pg_dump backups
+  backend_dr_backups:    # REQ-L1-046: admin_ops DR backup JSON files (/app/backups)

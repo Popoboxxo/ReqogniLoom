@@ -68,6 +68,14 @@ RUN addgroup --system app && adduser --system --ingroup app app
 # Ensure working directory is owned by app user
 RUN chown -R app:app /app
 
+# DR backups (admin_ops, REQ-L1-046) are written to <BASE_DIR>/backups = /app/backups.
+# Pre-create the directory owned by the non-root app user so:
+#   * the runtime image can write here without a permission error, and
+#   * a Docker named volume mounted at /app/backups inherits app:app ownership
+#     on first initialisation (Docker seeds a fresh volume from the image path),
+#     which also survives the dev bind-mount of ./backend over /app.
+RUN mkdir -p /app/backups && chown app:app /app/backups
+
 # Collect static files (required for production deployment).
 # Settings fail fast when secrets are unset (REQ-115/REQ-081); collectstatic
 # only needs importable settings, so build-only dummy values are injected for
