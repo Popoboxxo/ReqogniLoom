@@ -26,11 +26,18 @@ interface LinkItemProps {
 
 function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  // UI-05: an empty/undefined route means resolveArtifactRef could not
+  // resolve this linked artifact (lookup failure or unknown type). Do not
+  // guess a Requirement route in that case — treat the entry as
+  // non-navigable instead of silently jumping to the wrong artifact.
+  const isNavigable = Boolean(route);
 
   const handleClick = (): void => {
+    if (!isNavigable) return;
     // Navigate to the linked artifact — may be a Requirement, ArchitectureElement
     // or TestCase (REQ-L1-003), not necessarily another Requirement.
-    navigate(route ?? `/requirements/${linkedId}`);
+    navigate(route as string);
   };
 
   return (
@@ -71,7 +78,14 @@ function LinkItem({ link, linkedId, title, route }: LinkItemProps): JSX.Element 
       </span>
       <button
         onClick={handleClick}
-        style={{ fontSize: "0.75rem", cursor: "pointer", flexShrink: 0 }}
+        disabled={!isNavigable}
+        title={isNavigable ? undefined : t("traceability.unresolved")}
+        style={{
+          fontSize: "0.75rem",
+          cursor: isNavigable ? "pointer" : "not-allowed",
+          opacity: isNavigable ? 1 : 0.4,
+          flexShrink: 0,
+        }}
       >
         →
       </button>

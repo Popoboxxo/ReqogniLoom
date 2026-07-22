@@ -31,7 +31,13 @@ const ROUTE_BASE_BY_TYPE: Record<string, string> = {
 };
 
 function fallbackRef(id: UUID): ArtifactRef {
-  return { title: `(${id.slice(0, 8)}…)`, route: `/requirements/${id}` };
+  // UI-05: a lookup failure or an unmapped artifact_type must not fake a
+  // Requirement route — that silently sent users to the wrong artifact
+  // (the target route "changed" depending on whether the lookup happened
+  // to succeed or fail). An empty route marks the ref as "not resolvable";
+  // callers (TraceLinkPanel, TraceabilityPanel) already render/must render
+  // a plain, non-navigable label instead of a clickable link for it.
+  return { title: `(${id.slice(0, 8)}…)`, route: "" };
 }
 
 /** Resolves title + route for an arbitrary linked artifact id. Never throws. */
