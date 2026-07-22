@@ -21,7 +21,6 @@ e2e/node_modules/
 .claude/pending-tasks.md
 .claude/settings.json
 .claude/settings.local.json
-.gemini/GEMINI.md
 .gemini/agents/
 .gemini/commands/
 .gemini/rules/

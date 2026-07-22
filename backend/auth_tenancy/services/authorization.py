@@ -267,32 +267,56 @@ class AuthorizationService:
     ) -> UserRole:
         """Assign ``role`` to a user in a workspace (admin-guarded).
 
+        A user becomes a workspace member precisely by receiving their first
+        role assignment here, so a non-member target is the normal onboarding
+        case, not an error (SEC-05: the previous membership gate made it
+        impossible for anyone to ever join a workspace for the first time).
+
+        Two admin-guard paths exist:
+        - Normal path: caller must hold ``admin`` in ``actor_roles``.
+        - First-admin bootstrap: a caller with no admin role anywhere may
+          self-assign ``admin`` in a workspace that currently has zero active
+          admin holders (SEC-05 deadlock — otherwise a brand-new tenant could
+          never produce its first admin).
+
         Args:
-            actor_roles: Active roles of the caller (must include ``admin``).
+            actor_roles: Active roles of the caller.
             target_user_id: User receiving the role.
             workspace_id: Target workspace.
             tenant_id: Owning tenant (for the new row).
             role: Role name to assign.
             preset: Active workspace preset (gates Approver).
             assigned_by_user_id: Caller user id (audit trail).
-            target_is_member: Whether the target is a workspace member.
+            target_is_member: Retained for call-site/audit compatibility;
+                no longer gates the assignment (see above).
 
         Returns:
             The created (or reactivated) :class:`UserRole`.
 
         Raises:
-            PermissionDenied: Caller lacks the Admin role.
-            ValueError: Role invalid for preset, or target is not a member.
+            PermissionDenied: Caller lacks the Admin role and does not
+                qualify for the first-admin bootstrap exception.
+            ValueError: Role unknown, or invalid for the preset.
         """
-        if ROLE_ADMIN not in {r.lower() for r in actor_roles}:
-            raise PermissionDenied(required_role=ROLE_ADMIN)
+        del target_is_member  # no longer a rejection gate (SEC-05)
 
         normalized = role.lower()
         if normalized not in _RBAC_MATRIX:
             raise ValueError(f"Unknown role: {role!r}")
 
-        if not target_is_member:
-            raise ValueError("Target user is not a member of the workspace.")
+        is_first_admin_bootstrap = (
+            normalized == ROLE_ADMIN
+            and target_user_id == assigned_by_user_id
+            and not UserRole.objects.filter(
+                workspace_id=workspace_id,
+                role=ROLE_ADMIN,
+                suspended_at__isnull=True,
+            ).exists()
+        )
+        if not is_first_admin_bootstrap and ROLE_ADMIN not in {
+            r.lower() for r in actor_roles
+        }:
+            raise PermissionDenied(required_role=ROLE_ADMIN)
 
         if not PresetPolicyValidator.is_role_allowed_in_preset(normalized, preset):
             raise ValueError(

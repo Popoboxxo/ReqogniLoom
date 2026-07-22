@@ -40,10 +40,18 @@ function AppInner(): JSX.Element {
 }
 // ---------------------------------------------------------------------------
 
+// React Router v7 future flags (Codeberg #98): opt into the upcoming v7
+// defaults early so the console stays free of "future flag" warnings and the
+// eventual v7 upgrade is a no-op for these two behaviors.
+const ROUTER_FUTURE_FLAGS = {
+  v7_startTransition: true,
+  v7_relativeSplatPath: true,
+};
+
 export const App = (): JSX.Element => (
   <ThemeProvider>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter future={ROUTER_FUTURE_FLAGS}>
         <AppInner />
       </BrowserRouter>
     </QueryClientProvider>

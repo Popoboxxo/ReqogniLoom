@@ -146,6 +146,31 @@ describe("TraceabilityPanel", () => {
     expect(upstreamSections.length).toBeGreaterThan(0);
   });
 
+  it("[UI-05] disables navigation for a link with an unresolved (empty) route", () => {
+    const upstreamLinks: TraceLink[] = [
+      {
+        id: "link-unresolved",
+        source_id: "req-unresolved",
+        target_id: "req-current",
+        link_type: "derives-from",
+        version: 1,
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    renderWithRouter(
+      <TraceabilityPanel
+        upstreamLinks={upstreamLinks}
+        downstreamLinks={[]}
+        linkedTitles={{ "req-unresolved": "(req-unre…)" }}
+        linkedRoutes={{ "req-unresolved": "" }}
+      />
+    );
+
+    const navButton = screen.getByRole("button");
+    expect(navButton).toBeDisabled();
+  });
+
   it("includes title in tooltip on link item", () => {
     const upstreamLinks: TraceLink[] = [
       {

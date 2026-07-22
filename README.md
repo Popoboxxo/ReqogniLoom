@@ -171,6 +171,10 @@ Re-running `seed_demo` is safe (idempotent); it skips artifacts that already exi
       -d '{"username":"admin","password":"your-password"}'
     # → {"token": "eyJhbGc...", "user": {...}, "tenant_id": "...", "roles": ["admin"]}
     ```
+    > **Note:** `tenant_id` identifies the tenant (RLS isolation boundary), it is
+    > **not** the `workspace_id` most CRUD endpoints require as a query parameter.
+    > Fetch available workspaces via `GET /api/v1/workspaces/` and use the
+    > returned `id` as `workspace_id`.
   - **Use token:** `Authorization: Bearer <token>` header on all subsequent requests
   - **Validate token:** `GET /api/v1/auth/me/` returns the authenticated user
   - **Full OpenAPI docs:** http://localhost:8000/api/v1/docs/
@@ -806,6 +810,10 @@ curl -X POST http://localhost:8000/api/v1/auth/login/ \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "your-password"}'
 # → {"token": "eyJhbGc...", "user": {...}, "tenant_id": "...", "roles": ["admin"]}
+
+# tenant_id != workspace_id: tenant_id is the RLS isolation boundary, while most
+# CRUD endpoints below expect a workspace_id query parameter (a preset/config
+# scope within the tenant). Look up workspace IDs via GET /api/v1/workspaces/.
 
 # Use the token in subsequent requests
 curl -H "Authorization: Bearer <token>" \

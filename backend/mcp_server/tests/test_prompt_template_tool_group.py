@@ -87,7 +87,11 @@ def test_get_falls_back_to_default_without_row(pt_ctx):
 
 
 def test_get_unknown_slot_is_validation_error(pt_ctx):
-    """An unknown slot name yields a VALIDATION_ERROR ToolResult."""
+    """An unknown slot name yields a VALIDATION_ERROR ToolResult.
+
+    Regression guard (Codeberg #111): the error message must list all valid
+    slot names so a caller can self-correct without reading the source.
+    """
     _tenant, ctx = pt_ctx
 
     group = PromptTemplateToolGroup()
@@ -100,6 +104,8 @@ def test_get_unknown_slot_is_validation_error(pt_ctx):
 
     assert not result.success
     assert result.error_code == "VALIDATION_ERROR"
+    for valid_slot in PROMPT_TEMPLATE_DEFAULTS:
+        assert valid_slot in result.message
 
 
 def test_get_missing_slot_is_validation_error(pt_ctx):

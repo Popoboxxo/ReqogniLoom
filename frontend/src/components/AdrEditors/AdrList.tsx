@@ -84,6 +84,17 @@ export function AdrList({
 
   return (
     <div>
+      <h3
+        style={{
+          fontSize: 'var(--font-size-lg)',
+          fontWeight: 600,
+          margin: 0,
+          marginBottom: 'var(--space-3)',
+          color: 'var(--color-text)',
+        }}
+      >
+        {t('nav.adrs')}
+      </h3>
       <ListToolbar
         testIdPrefix="adr-list"
         searchValue={listSearch}

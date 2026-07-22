@@ -69,14 +69,17 @@ class PermissionDefinitionService(ServiceBase):
         """Return the tenant's global definition, seeding it if absent.
 
         Seeds ``permission_json`` from :func:`default_permission_matrix` (the
-        live RBAC matrix) and ``enforcement_mode='shadow'`` so a first access
-        never changes any access decision.
+        live RBAC matrix) and ``enforcement_mode='authoritative'`` (SEC-02 /
+        REQ-186 end-state). Because the seeded matrix mirrors the coded legacy
+        matrix 1:1, an immediately-authoritative tenant sees decision-for-
+        decision identical verdicts to the legacy check — the matrix simply
+        governs from day one instead of only being observed.
         """
         obj, _created = GlobalPermissionDefinition.unscoped.get_or_create(
             tenant_id=tenant_id,
             defaults={
                 "permission_json": default_permission_matrix(),
-                "enforcement_mode": GlobalPermissionDefinition.ENFORCEMENT_SHADOW,
+                "enforcement_mode": GlobalPermissionDefinition.ENFORCEMENT_AUTHORITATIVE,
             },
         )
         return obj

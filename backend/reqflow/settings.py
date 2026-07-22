@@ -56,7 +56,35 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Security
 # ---------------------------------------------------------------------------
 SECRET_KEY: str = _get_required_secret("SECRET_KEY")
+
+# Deployment environment marker (SEC-01 hardening). A stray ``DEBUG=True`` in
+# a copied .env must never be able to enable the Django debug page in
+# production — it leaks SECRET_KEY, DB credentials, LLM_API_KEY and
+# FIELD_ENCRYPTION_KEY on every 500 response (CWE-489 / CWE-200). Rather than
+# silently coercing DEBUG to False (which would mask the misconfiguration),
+# process start is refused outright so the operator is forced to fix the env
+# before the instance ever serves a request.
+DJANGO_ENV: str = config("DJANGO_ENV", default="development").strip().lower()
 DEBUG: bool = config("DEBUG", default=False, cast=bool)
+if DJANGO_ENV in {"production", "prod"} and DEBUG:
+    raise ImproperlyConfigured(
+        "SECURITY: DEBUG=True is set while DJANGO_ENV=production. Refusing "
+        "to start: the Django debug page would leak SECRET_KEY, DB "
+        "credentials, LLM_API_KEY and FIELD_ENCRYPTION_KEY on every 500 "
+        "response (CWE-489 / CWE-200). Set DEBUG=False (or remove the "
+        "variable) for production deployments."
+    )
+elif DEBUG:
+    # Loud, unavoidable signal in the logs so a dev-True config is never
+    # mistaken for a safe production state.
+    import logging as _logging
+
+    _logging.getLogger("reqflow").warning(
+        "SECURITY: DEBUG=True is active. Never expose this instance "
+        "publicly — 500 responses leak full settings (secrets). Set "
+        "DJANGO_ENV=production to force a hard fail instead of an "
+        "accidental production debug leak."
+    )
 # Deliberately decoupled from DEBUG: some deployments run with DEBUG=False
 # (the correct production default, REQ-115) but are only reachable over plain
 # HTTP (e.g. an internal/sandbox IP with no TLS-terminating reverse proxy).
@@ -67,6 +95,29 @@ AUTH_COOKIE_SECURE: bool = config("AUTH_COOKIE_SECURE", default=not DEBUG, cast=
 ALLOWED_HOSTS: list[str] = config(
     "ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv()
 )
+
+# ---------------------------------------------------------------------------
+# APPEND_SLASH (CR-03 security fix)
+# ---------------------------------------------------------------------------
+# Django's default APPEND_SLASH=True makes CommonMiddleware try to redirect
+# any unmatched non-slash URL to its slash-terminated counterpart. For
+# unsafe methods (POST/PUT/PATCH) this is a double hazard:
+#   1. With DEBUG=True, django.middleware.common.CommonMiddleware raises a
+#      bare RuntimeError ("Django can't redirect to the slash URL while
+#      maintaining POST data") which surfaces as an HTTP 500 rendered by
+#      Django's technical debug page — a full settings/traceback disclosure
+#      (CWE-489 / CWE-200), on top of DEBUG already being hard-failed in
+#      production (see startup check above).
+#   2. With DEBUG=False no exception is raised, but the 301 redirect still
+#      silently drops the POST body, and most HTTP clients downgrade the
+#      method to GET on the redirected request — a confusing, unsafe
+#      fallback rather than a clean error.
+# Every route in this project (DRF's DefaultRouter, all explicit `path()`
+# entries, admin, health, schema) is already defined WITH a trailing slash,
+# so disabling APPEND_SLASH has no effect on correctly-formed requests: a
+# non-slash URL now returns a plain, immediate 404 instead of attempting a
+# lossy redirect.
+APPEND_SLASH = False
 
 # ---------------------------------------------------------------------------
 # Field-level encryption key (REQ-081)
