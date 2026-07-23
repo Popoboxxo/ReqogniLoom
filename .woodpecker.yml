@@ -43,7 +43,7 @@ steps:
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
-      DJANGO_SETTINGS_MODULE: reqflow.settings
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings
       SECRET_KEY: test-only-secret-key
       AUTH_JWT_SECRET: test-only-jwt-key
       FIELD_ENCRYPTION_KEY: test-only-encryption-key

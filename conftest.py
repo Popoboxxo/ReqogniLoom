@@ -5,7 +5,7 @@ import os
 import sys
 
 # Set Django settings module before importing Django
-os.environ['DJANGO_SETTINGS_MODULE'] = 'reqflow.settings'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'reqogniloom.settings'
 
 # Add backend to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))

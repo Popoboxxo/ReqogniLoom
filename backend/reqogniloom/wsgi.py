@@ -7,6 +7,6 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "reqflow.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "reqogniloom.settings")
 
 application = get_wsgi_application()

@@ -19,8 +19,8 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from reqflow.health import HealthView
-from reqflow.version import VersionView
+from reqogniloom.health import HealthView
+from reqogniloom.version import VersionView
 
 urlpatterns = [
     # Health check endpoint (REQ-063) — for container readiness probes
