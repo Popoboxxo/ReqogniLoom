@@ -15,6 +15,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
 import { versionApi, type VersionInfo } from "../../api/version";
+import { APP_NAME } from "../../config/app-name";
 
 export function LoginPage(): JSX.Element {
   const { t } = useTranslation();
@@ -105,7 +106,7 @@ export function LoginPage(): JSX.Element {
         }}
       >
         <div style={{ textAlign: "center", marginBottom: "var(--space-4)" }}>
-          <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, margin: 0 }}>ReqFlow</h1>
+          <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, margin: 0 }}>{APP_NAME}</h1>
           <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: "var(--space-1) 0 0 0" }}>
             AI-native Requirements Management
           </p>

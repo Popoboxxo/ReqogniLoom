@@ -1,4 +1,4 @@
-// ESLint 9 flat config for ReqFlow frontend.
+// ESLint 9 flat config for ReqogniLoom frontend.
 // Uses typescript-eslint v7 in legacy plugin+parser mode (ESLint 9 compatible).
 
 import js from '@eslint/js';
