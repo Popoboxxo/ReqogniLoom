@@ -1,4 +1,4 @@
-agent-meta-version: 0.78.0
+agent-meta-version: 0.82.0
 test-repo:
   enabled: false
   path: ''
@@ -74,15 +74,15 @@ systems-engineering:
   current_phase: SE-Phasen 1-6 abgeschlossen (v2-Backlog); Pipeline B (Leaf) implementiert,
     Pipeline C (Continue) für v2.0 geplant
 project:
-  name: ReqFlow
-  prefix: rf
-  short: reqflow
+  name: ReqogniLoom
+  prefix: ReqLo
+  short: reqogniloom
 gitignore:
   local: true
   generated: true
   settings: true
 variables:
-  PROJECT_NAME: ReqFlow
+  PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
     Artefakt-Zerlegung, REST API + nativem MCP Server (11 Tool-Gruppen, 40+ Tools),
     LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation,
@@ -107,7 +107,7 @@ variables:
   INTERNAL_DOCS_LANGUAGE: Deutsch
   CODE_LANGUAGE: Englisch
   GIT_PLATFORM: Codeberg
-  GIT_REMOTE_URL: https://codeberg.org/dduchrow/ai-native-reqflow-POC.git
+  GIT_REMOTE_URL: https://github.com/Popoboxxo/ReqogniLoom.git
   GIT_MAIN_BRANCH: main
   BUILD_COMMAND: docker-compose build
   TEST_COMMAND: pytest (Backend) + npm test (Frontend)
@@ -124,7 +124,7 @@ variables:
   BUILD_COMMANDS: docker-compose build
   DEV_STACK_START: docker-compose up
   DEV_STACK_RELOAD: docker-compose restart (oder Hot Reload je nach Service)
-  PROJECT_CONTEXT: 'ReqFlow ist ein AI-natives Requirements- und Test-Management-Tool
+  PROJECT_CONTEXT: 'ReqogniLoom ist ein AI-natives Requirements- und Test-Management-Tool
     mit MBSE-Unterstützung. Tech-Stack: Django 4.2+ (Backend) + React 18 + TypeScript
     (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen:
     REST API unter /api/v1/ (DRF, 16 ViewSets + 2 APIViews, JWT-Auth, OpenAPI via
@@ -137,8 +137,8 @@ variables:
     Terminology-Profile (dev_mode/se_mode), Audit-Log, Multi-Tenancy via Row-Level-Security.
     LLM-Adapter: Anthropic, OpenAI, Ollama, mock (Default: mock).'
   ARCHITECTURE: "backend/\n  manage.py                              # Django Entry-Point\n\
-    \  reqflow/settings.py                    # Konfiguration (DRF, Auth, Apps, Celery)\n\
-    \  reqflow/urls.py                        # URL-Routing (/api/v1/, /mcp/, /admin/)\n\
+    \  reqogniloom/settings.py                    # Konfiguration (DRF, Auth, Apps, Celery)\n\
+    \  reqogniloom/urls.py                        # URL-Routing (/api/v1/, /mcp/, /admin/)\n\
     \  persistence/                           # Layer 0 Foundation (TenantScopedModel,\
     \ AuditableModel)\n  auth_tenancy/                          # Layer 0 (JWT-Auth,\
     \ RBAC, TenantContext)\n  presets/                               # Layer 0 (PresetRegistry,\
@@ -172,7 +172,7 @@ variables:
     persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability,
     workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api,
     mcp_server #   Ext: diagram, icd, se_metrics, resilience, admin_ops, test_runs
-    #   reqflow/  # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py)
+    #   reqogniloom/  # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py)
 
     frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/
     #   src/styles/  src/test/  src/types/
@@ -189,8 +189,8 @@ variables:
 
     '
   ENTRY_POINT_PATTERN: 'backend/manage.py            — Django Management (migrate,
-    seed_demo, runserver, shell, check) backend/reqflow/settings.py     — Settings-Entry
-    (DRF, JWT, Celery, Apps) backend/reqflow/urls.py         — URL-Routing (/api/v1/,
+    seed_demo, runserver, shell, check) backend/reqogniloom/settings.py     — Settings-Entry
+    (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/api/v1/,
     /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point
     (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider,
     Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection)
@@ -373,8 +373,8 @@ variables:
     - Redis: localhost:6379 (intern: redis:6379)
 
     '
-  SERVICE_NAME: reqflow-backend
-  CONTAINER_NAME: ai-native-reqflow-poc-backend-1
+  SERVICE_NAME: reqogniloom-backend
+  CONTAINER_NAME: ai-native-reqogniloom-poc-backend-1
   PRIMARY_PORT: '8000'
   EXTRA_PORTS: '- 5173 (frontend Vite)
 
@@ -413,7 +413,7 @@ variables:
     '
   VERSION_DIST_BEHAVIOUR: '1. VERSION-Datei erhöhen — SemVer-Schema X.Y.Z, KEIN "v"-Präfix
     in der Datei (Präfix nur im Git-Tag, siehe Schritt 5: vX.Y.Z). Root-VERSION-Datei
-    ist Single Source of Truth für backend/reqflow/version.py (Fallback wenn APP_VERSION-ENV
+    ist Single Source of Truth für backend/reqogniloom/version.py (Fallback wenn APP_VERSION-ENV
     fehlt).
 
     2. frontend/package.json "version"-Feld SYNCHRON auf denselben Wert wie VERSION
@@ -443,7 +443,7 @@ variables:
   SE_MAX_DEPTH: 4
   SE_MAX_CRITIC_ITERATIONS: 1
   SE_MAX_PARALLEL_CELLS: 3
-  DOCKER_STACKS_OVERVIEW: 'ReqFlow verwendet eine einzige `docker-compose.yml` im
+  DOCKER_STACKS_OVERVIEW: 'ReqogniLoom verwendet eine einzige `docker-compose.yml` im
     Projekt-Root mit 5 Services:
 
     - postgres (PostgreSQL 16-alpine, persistent via Volume `postgres_data`)
@@ -514,7 +514,10 @@ orchestrator:
     main-chat: true
     ask-user: true
     meta-feedback: false
-  mode: advisory
+  mode: strict
+  provider-overrides:
+    Claude:
+      mode: main-chat
 viz:
   enabled: false
   mode: 'off'
