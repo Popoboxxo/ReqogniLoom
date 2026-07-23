@@ -1057,6 +1057,19 @@ class CustomFieldDefinitionSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True)
     modified_at = serializers.DateTimeField(read_only=True)
 
+    # Custom field names end up as object keys wherever the frontend indexes a
+    # value map by field name; these three are unsafe there (prototype
+    # pollution via `obj[name] = value` bracket assignment) even though they
+    # are inert as plain Django CharField values (QA-66).
+    _RESERVED_NAMES = frozenset({"__proto__", "constructor", "prototype"})
+
+    def validate_name(self, value: str) -> str:
+        if value.strip().lower() in self._RESERVED_NAMES:
+            raise serializers.ValidationError(
+                f"'{value}' is a reserved name and cannot be used as a custom field name."
+            )
+        return value
+
     def validate(self, attrs: dict) -> dict:
         """Enforce that dropdown fields carry at least one option.
 

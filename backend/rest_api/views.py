@@ -312,6 +312,9 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """PATCH /api/v1/needs/<id>/ — update need fields."""
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         ser = StakeholderNeedSerializer(data=request.data, partial=True)
         if not ser.is_valid():
             return Response(
@@ -582,6 +585,9 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         complexity_fibonacci, verification_method).
         """
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         ser = RequirementSerializer(data=request.data, partial=True)
         if not ser.is_valid():
             logger.error(f"Validation failed for Requirement PATCH {pk}: data={request.data}, errors={ser.errors}")
@@ -1231,6 +1237,9 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         REQ-L3-RF004-004: Accepts ASIL level and Make-or-Buy decision.
         """
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         # REQ-L1-044: element_id context enables hierarchy invariant checks
         ser = ArchitectureElementSerializer(
             data=request.data, partial=True, context={"element_id": pk}
@@ -1461,6 +1470,9 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         ser = TestCaseSerializer(data=request.data, partial=True)
         if not ser.is_valid():
             return Response(build_error_response("VALIDATION_ERROR", lang, details=[{"field": k, "errors": v} for k, v in ser.errors.items()]), status=status.HTTP_400_BAD_REQUEST)
@@ -3610,6 +3622,9 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/adrs/{pk}/ — update an ADR. Returns 200."""
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         ser = AdrSerializer(data=request.data, partial=True)
         if not ser.is_valid():
             return Response(
@@ -3809,6 +3824,9 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/risks/{pk}/ — update a Risk. Returns 200."""
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         ser = RiskSerializer(data=request.data, partial=True)
         if not ser.is_valid():
             return Response(
@@ -4009,6 +4027,9 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/issues/{pk}/ — update an Issue. Returns 200."""
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         ser = IssueSerializer(data=request.data, partial=True)
         if not ser.is_valid():
             return Response(
@@ -4224,6 +4245,9 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """PATCH /api/v1/change-requests/{pk}/ — update a CR. Returns 200."""
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         ser = ChangeRequestSerializer(data=request.data, partial=True)
         if not ser.is_valid():
             return Response(
@@ -5059,6 +5083,9 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
         lang = detect_lang(request)
+        status_rejection = self._reject_status_in_patch(request, lang)
+        if status_rejection is not None:
+            return status_rejection
         try:
             term_id = UUID(pk)
             definition = request.data.get("definition")

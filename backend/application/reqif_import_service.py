@@ -597,6 +597,21 @@ class ReqifImportService(ServiceBase):
                 )
                 target_uuid = None
 
+        # REQ-147: the SPEC-OBJECT identifier encodes the *source* artifact's
+        # id, so importing the same ReqIF file into a different workspace
+        # never matches there — the id-based lookup above always misses and
+        # every reimport minted a fresh artifact (doubling on each run). Fall
+        # back to matching an existing row by its stable business ``uid``
+        # within this workspace, which is what makes cross-workspace reimport
+        # idempotent instead of a duplicate-generating loop.
+        if existing_artifact is None and uid:
+            entity_model = Requirement if kind == "Requirement" else StakeholderNeed
+            existing_entity = entity_model.objects.filter(
+                artifact__workspace_id=workspace.id, uid=uid
+            ).first()
+            if existing_entity is not None:
+                existing_artifact = existing_entity.artifact
+
         if existing_artifact is not None:
             entity = (
                 Requirement.objects.filter(artifact_id=existing_artifact.id).first()

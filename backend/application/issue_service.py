@@ -152,8 +152,12 @@ class IssueService(ServiceBase):
         self,
         workspace_id: UUID,
         title: str,
-        severity: str,
         ctx: AuthContext,
+        # REQ-127: default mirrors IssueSerializer's severity default so MCP
+        # callers (which forward raw params with no serializer in front) don't
+        # crash with a missing-argument TypeError when severity is omitted,
+        # same as every other optional field below.
+        severity: str = "medium",
         description: str = "",
         category: str = "defect",
         assignee_id: Optional[UUID] = None,

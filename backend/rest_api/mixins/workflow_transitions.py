@@ -216,6 +216,32 @@ class WorkflowTransitionsMixin:
         )
 
     @staticmethod
+    def _reject_status_in_patch(request: Request, lang: str) -> Response | None:
+        """Reject a PATCH payload that carries ``status`` (QA-123).
+
+        ``status`` is a read-only serializer field for every workflow-backed
+        entity, so DRF silently drops it from ``validated_data`` — the request
+        returned HTTP 200 with ``version`` bumped from the other fields, but
+        the status itself never changed and the caller was given no signal
+        that their change was ignored. Status may only move through the
+        WorkflowEngine via ``POST .../transitions/``, so a PATCH containing it
+        is rejected outright instead of pretending to succeed.
+        """
+        if isinstance(request.data, dict) and "status" in request.data:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=(
+                        "status cannot be changed via PATCH; use "
+                        "POST .../transitions/ with a target_state instead."
+                    ),
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    @staticmethod
     def _error(exc: Exception, lang: str) -> Response:
         """Translate a service exception into the standard error Response.
 

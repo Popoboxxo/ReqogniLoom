@@ -374,9 +374,10 @@ class TestRequirementStatusSingleSource:
         svc.get_requirement.return_value = req
         return svc
 
-    def test_partial_update_ignores_status(self) -> None:
-        """A client-sent `status` is neither forwarded to the service nor 4xx'd,
-        and the response reflects the true engine-owned value."""
+    def test_partial_update_rejects_status(self) -> None:
+        """A client-sent `status` is rejected with a clear 400 (QA-123) instead
+        of silently succeeding — a prior 200-with-silent-ignore misled callers
+        into believing their status change had applied."""
         data = {"title": "Updated", "status": "approved"}
         factory = APIRequestFactory()
         req = factory.patch("/api/v1/requirements/123/", data=data, format="json")
@@ -385,11 +386,10 @@ class TestRequirementStatusSingleSource:
         svc_mock = self._svc_mock(status="draft")
         with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
             response = view(req, pk=str(uuid.uuid4()))
-        assert response.status_code == 200
-        # Ignored on write:
-        assert "status" not in svc_mock.update_requirement.call_args.kwargs
-        # Response shows the true (mirror) value, not the client's "approved":
-        assert response.data["status"] == "draft"
+        assert response.status_code == 400
+        assert "transitions" in response.data["error"]["message"]
+        # Never even reaches the service:
+        svc_mock.update_requirement.assert_not_called()
 
     def test_transitions_get_lists_allowed(self) -> None:
         """GET transitions returns current_state + allowed target states."""
