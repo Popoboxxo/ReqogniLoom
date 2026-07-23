@@ -64,7 +64,17 @@ class GlossaryService(ServiceBase):
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
         )
         if not include_deleted:
-            qs = qs.exclude(lifecycle_status="deleted")
+            # Phase 0: delete() routes soft-delete through
+            # workflow.services.outdate(). GlossaryTerm is NOT wired into
+            # _STATUS_MIRROR_MODELS (no mirrored status column), so the
+            # workflow state lives solely in WorkflowItemState — filter there
+            # instead of on the now-dead `lifecycle_status` column.
+            from workflow.models import WorkflowItemState
+
+            outdated_ids = WorkflowItemState.objects.filter(
+                item_type="GlossaryTerm", current_state="outdated"
+            ).values_list("item_id", flat=True)
+            qs = qs.exclude(id__in=outdated_ids)
         return [GlossaryTermDTO.from_orm(t) for t in qs.order_by("term")]
 
     @atomic_transaction
@@ -110,6 +120,23 @@ class GlossaryService(ServiceBase):
             # Changed from actor_id to user_id to fix bug
         created_by_id=ctx.user_id,
         )
+
+        # Initialise workflow state (REQ-006/Phase 0): without this,
+        # delete()'s workflow.services.outdate() call has no WorkflowItemState
+        # to transition and raises WorkflowItemState.DoesNotExist.
+        try:
+            from workflow.services import initialize_workflow_states
+
+            initialize_workflow_states(
+                item_ids=[gt.id],
+                item_type="GlossaryTerm",
+                workspace_id=workspace_id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug(
+                "GlossaryService: workflow init skipped for term=%s", gt.id
+            )
 
         return GlossaryTermDTO.from_orm(gt)
 

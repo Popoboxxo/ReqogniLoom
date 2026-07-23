@@ -369,7 +369,11 @@ class AdrService(ServiceBase):
             workspace_id=workspace_id, tenant_id=ctx.tenant_id
         )
         if not include_deleted:
-            qs = qs.exclude(status=Adr.Status.DELETED)
+            # Phase 0: delete_adr() routes through workflow.services.outdate(),
+            # which mirrors the new state as "outdated" (not Adr.Status.DELETED)
+            # into Adr.status via _STATUS_MIRROR_MODELS. Filter on the value
+            # outdate() actually writes.
+            qs = qs.exclude(status="outdated")
         return qs.order_by("created_at")
 
     def list_adrs_by_status(

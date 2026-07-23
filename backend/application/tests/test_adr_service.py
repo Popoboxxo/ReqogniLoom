@@ -797,3 +797,46 @@ class TestAdrArtifactBackingAndTraceLinks:
 
         # REQ-006: backing Artifact must also remain in DB
         assert Artifact.objects.filter(id=artifact_id).exists(), "Artifact must remain in DB after soft-delete"
+
+    def test_list_adrs_excludes_outdated_by_default(self, te020_ctx, te020_workspace):
+        """Phase 0 regression: list_adrs() must exclude ADRs soft-deleted via
+        workflow.services.outdate(), which mirrors "outdated" into Adr.status
+        (not Adr.Status.DELETED)."""
+        from persistence.tenancy import TenantContext
+        from workflow.services import create_default_workflow
+
+        TenantContext.set_tenant(te020_workspace.tenant_id)
+        try:
+            create_default_workflow(
+                workspace_id=te020_workspace.id,
+                preset="adr_default",
+                item_type="Adr",
+                tenant_id=te020_workspace.tenant_id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        svc = AdrService()
+        kept = svc.create_adr(
+            workspace_id=te020_workspace.id,
+            title="Kept ADR",
+            description="Stays visible.",
+            ctx=te020_ctx,
+        )
+        deleted = svc.create_adr(
+            workspace_id=te020_workspace.id,
+            title="Deleted ADR",
+            description="Gets soft-deleted.",
+            ctx=te020_ctx,
+        )
+
+        svc.delete_adr(deleted.id, te020_ctx)
+
+        results = svc.list_adrs(te020_workspace.id, te020_ctx)
+        ids = {a.id for a in results}
+        assert kept.id in ids
+        assert deleted.id not in ids
+
+        results_incl = svc.list_adrs(te020_workspace.id, te020_ctx, include_deleted=True)
+        ids_incl = {a.id for a in results_incl}
+        assert deleted.id in ids_incl

@@ -538,11 +538,18 @@ class TestGetArchitectureElement:
                 "application.architecture_service.ArchitectureElement.objects.select_related",
                 return_value=mock_qs,
             ),
+            patch(
+                "workflow.models.WorkflowItemState.objects.filter",
+                return_value=MagicMock(values_list=MagicMock(return_value=[])),
+            ),
         ):
             result = svc.list_architecture_elements(WS_ID, ctx)
 
-        # REQ-006: .exclude(lifecycle_status='deleted') must be called by default
-        mock_qs.exclude.assert_called_once_with(lifecycle_status="deleted")
+        # Phase 0: ArchitectureElement is not wired into _STATUS_MIRROR_MODELS,
+        # so the default filter excludes ids whose WorkflowItemState is
+        # "outdated" (id__in=<outdated ids>), instead of a lifecycle_status field.
+        mock_qs.exclude.assert_called_once()
+        assert "id__in" in mock_qs.exclude.call_args.kwargs
         assert result == mock_elements
 
     def test_list_include_deleted_skips_exclude(self):
@@ -1478,5 +1485,118 @@ class TestInvariantI5SingleRoot:
                 new_parent_id=None, workspace_id=WS_ID, element_id=el_id
             )
         assert captured["exclude_id"] == el_id
+
+
+# ---------------------------------------------------------------------------
+# Regression: list_architecture_elements must exclude outdated elements
+# (Phase 0 fix — WorkflowItemState is the only source of truth, since
+# ArchitectureElement is not wired into workflow._STATUS_MIRROR_MODELS).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def arch_outdate_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="arch-outdate-tenant", slug="arch-outdate-tenant")
+
+
+@pytest.fixture
+def arch_outdate_user(arch_outdate_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="arch-outdate-user",
+        email="arch-outdate@example.com",
+        tenant=arch_outdate_tenant,
+    )
+
+
+@pytest.fixture
+def arch_outdate_workspace(arch_outdate_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(arch_outdate_tenant.id)
+    try:
+        return Workspace.objects.create(
+            tenant=arch_outdate_tenant, name="arch-outdate-workspace"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def arch_outdate_ctx(arch_outdate_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=arch_outdate_user.id,
+        tenant_id=arch_outdate_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="arch-outdate-tenant",
+    )
+
+
+class TestListArchitectureElementsExcludesOutdated:
+    """Phase 0 regression: deleted (outdated) ArchitectureElements must not
+    reappear in list_architecture_elements()."""
+
+    def test_deleted_element_excluded_from_default_list(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        from persistence.tenancy import TenantContext
+        from workflow.models import WorkflowItemState
+        from workflow.services import create_default_workflow
+
+        TenantContext.set_tenant(arch_outdate_workspace.tenant_id)
+        try:
+            create_default_workflow(
+                workspace_id=arch_outdate_workspace.id,
+                preset="architecture_default",
+                item_type="ArchitectureElement",
+                tenant_id=arch_outdate_workspace.tenant_id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        svc = ArchitectureService()
+        kept = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Kept Component",
+            ctx=arch_outdate_ctx,
+        )
+        # I5 invariant: only one root per workspace — attach the second
+        # element under the first instead of making it a second root.
+        deleted = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Deleted Component",
+            ctx=arch_outdate_ctx,
+            parent_id=kept.id,
+        )
+
+        svc.delete_architecture_element(arch_el_id=deleted.id, ctx=arch_outdate_ctx)
+
+        item_state = WorkflowItemState.objects.get(
+            item_id=deleted.id, item_type="ArchitectureElement"
+        )
+        assert item_state.current_state == "outdated"
+
+        elements = svc.list_architecture_elements(
+            workspace_id=arch_outdate_workspace.id, ctx=arch_outdate_ctx
+        )
+        ids = {el.id for el in elements}
+        assert kept.id in ids
+        assert deleted.id not in ids
+
+        elements_incl = svc.list_architecture_elements(
+            workspace_id=arch_outdate_workspace.id,
+            ctx=arch_outdate_ctx,
+            include_deleted=True,
+        )
+        ids_incl = {el.id for el in elements_incl}
+        assert deleted.id in ids_incl
 
 

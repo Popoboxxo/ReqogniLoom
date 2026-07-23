@@ -434,7 +434,11 @@ class RequirementService(ServiceBase):
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            qs = qs.exclude(lifecycle_status="deleted")
+            # Phase 0: delete_requirement() routes through workflow.services.outdate(),
+            # which mirrors the new state into Requirement.status (not
+            # lifecycle_status) via _STATUS_MIRROR_MODELS. Filter on the field
+            # that outdate() actually writes.
+            qs = qs.exclude(status="outdated")
         if status:
             qs = qs.filter(status=status)
         return qs
@@ -787,7 +791,8 @@ class RequirementService(ServiceBase):
 
         rows = (
             Requirement.objects.filter(artifact__workspace_id=workspace_id)
-            .exclude(lifecycle_status="deleted")
+            # Phase 0: outdate() mirrors into `status`, not `lifecycle_status`.
+            .exclude(status="outdated")
             .only("id", "title", "description")
         )
         artifacts = [
