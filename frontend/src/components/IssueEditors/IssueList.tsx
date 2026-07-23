@@ -83,6 +83,17 @@ export function IssueList({
 
   return (
     <div>
+      <h3
+        style={{
+          fontSize: 'var(--font-size-lg)',
+          fontWeight: 600,
+          margin: 0,
+          marginBottom: 'var(--space-3)',
+          color: 'var(--color-text)',
+        }}
+      >
+        {t('nav.issues')}
+      </h3>
       <ListToolbar
         testIdPrefix="issue-list"
         searchValue={listSearch}

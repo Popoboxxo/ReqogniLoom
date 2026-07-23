@@ -22,9 +22,14 @@ import pytest
 
 from rest_api.serializers import (
     QUERYSET_OPTIMIZATIONS,
+    AdrSerializer,
+    ChangeRequestSerializer,
+    GlossaryTermSerializer,
     IssueSerializer,
     RequirementSerializer,
+    RiskSerializer,
     StandardPagination,
+    TestRunResultSerializer,
     TraceLinkSerializer,
     apply_queryset_optimizations,
     build_error_response,
@@ -207,6 +212,107 @@ class TestRequirementSerializer:
         ser = RequirementSerializer(data=data)
         assert not ser.is_valid()
         assert "description" in ser.errors
+
+    def test_oversized_change_reason_rejected(self) -> None:
+        """#104: change_reason had no max_length, allowing unbounded payloads."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "change_reason": "A" * 2001,
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "change_reason" in ser.errors
+
+
+# ---------------------------------------------------------------------------
+# #104 — free-text size limits across entity serializers
+# ---------------------------------------------------------------------------
+
+
+class TestFreeTextSizeLimits:
+    """Regression (#104): backend had no size limit for free-text fields
+    (description, rationale, notes, context, etc.), allowing unbounded
+    payloads to reach the database (DoS risk)."""
+
+    def test_adr_context_oversized_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test ADR",
+            "context": "A" * 5001,
+        }
+        ser = AdrSerializer(data=data)
+        assert not ser.is_valid()
+        assert "context" in ser.errors
+
+    def test_adr_consequences_oversized_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test ADR",
+            "consequences": "A" * 5001,
+        }
+        ser = AdrSerializer(data=data)
+        assert not ser.is_valid()
+        assert "consequences" in ser.errors
+
+    def test_risk_owner_oversized_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test Risk",
+            "owner": "A" * 256,
+        }
+        ser = RiskSerializer(data=data)
+        assert not ser.is_valid()
+        assert "owner" in ser.errors
+
+    def test_risk_mitigation_strategy_oversized_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test Risk",
+            "mitigation_strategy": "A" * 10001,
+        }
+        ser = RiskSerializer(data=data)
+        assert not ser.is_valid()
+        assert "mitigation_strategy" in ser.errors
+
+    def test_test_run_result_message_oversized_rejected(self) -> None:
+        data = {
+            "test_case_id": str(uuid.uuid4()),
+            "message": "A" * 10001,
+        }
+        ser = TestRunResultSerializer(data=data)
+        assert not ser.is_valid()
+        assert "message" in ser.errors
+
+    def test_change_request_impact_assessment_oversized_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test CR",
+            "impact_assessment": "A" * 10001,
+        }
+        ser = ChangeRequestSerializer(data=data)
+        assert not ser.is_valid()
+        assert "impact_assessment" in ser.errors
+
+    def test_change_request_change_reason_oversized_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test CR",
+            "change_reason": "A" * 2001,
+        }
+        ser = ChangeRequestSerializer(data=data)
+        assert not ser.is_valid()
+        assert "change_reason" in ser.errors
+
+    def test_glossary_term_definition_oversized_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "term": "Test Term",
+            "definition": "A" * 20001,
+        }
+        ser = GlossaryTermSerializer(data=data)
+        assert not ser.is_valid()
+        assert "definition" in ser.errors
 
 
 # ---------------------------------------------------------------------------

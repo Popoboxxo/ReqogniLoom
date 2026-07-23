@@ -274,14 +274,21 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
-        """POST /api/v1/workspaces/<workspace_id>/needs/ — create new need."""
+        """POST /api/v1/needs/ (flat) or /api/v1/workspaces/<workspace_id>/needs/ (nested) — create new need.
+
+        CR-06/CR-07: the flat route has no ``workspace_pk`` URL kwarg, so the
+        workspace id must be read from the validated request body instead.
+        Previously the nested-route kwarg was used unconditionally, which left
+        ``workspace_id`` as ``None`` for flat-route requests and made every
+        flat POST fail with "Workspace None not found" (404).
+        """
         lang = detect_lang(request)
         workspace_id = kwargs.get("workspace_pk")
-        
+
         data = dict(request.data)
         if "workspace_id" not in data and workspace_id:
             data["workspace_id"] = workspace_id
-            
+
         ser = StakeholderNeedSerializer(data=data)
         if not ser.is_valid():
             return Response(
@@ -292,6 +299,9 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # explicitly (would raise "multiple values"), parent_id/change_reason
         # are not part of StakeholderNeedService.create().
         payload = dict(ser.validated_data)
+        # Fall back to the body-supplied workspace_id (flat route) when the
+        # nested-route URL kwarg is absent.
+        workspace_id = workspace_id or payload.pop("workspace_id", None)
         for f in ("workspace_id", "parent_id", "change_reason"):
             payload.pop(f, None)
         try:
@@ -1482,6 +1492,9 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
             ctx = get_auth_context(request)
+            # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded
+            # (and is now read-only on TestCaseSerializer, see there). Change the
+            # lifecycle state via POST /api/v1/testcases/{id}/transitions/.
             item = self._svc().update_test_case(test_case_id=UUID(pk), ctx=ctx, title=data.get("title"), description=data.get("description"), **extra_kwargs)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -3340,6 +3353,29 @@ class WorkspaceViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(WorkspaceSerializer(_workspace_to_dict(ws)).data)
 
+    def destroy(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """DELETE /api/v1/workspaces/{pk}/ — soft-close a workspace (REQ-L1-042, CR-01).
+
+        Mirrors the reversible ``POST .../close/`` action (sets
+        ``is_active=False``, ``closed_at``, ``closed_by``) so the standard
+        REST verb performs a real, admin-only, undoable operation instead of
+        raising ``NotImplementedError``. The irreversible full-cascade
+        hard-delete stays behind the dedicated, captcha-confirmed
+        ``POST /api/v1/workspaces/{pk}/delete/`` action and is intentionally
+        not triggered by plain DELETE.
+
+        Returns 204 on success.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().close_workspace(workspace_id=UUID(pk), ctx=ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=True, methods=["patch"], url_path="preset")
     def set_preset(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
         """PATCH /api/v1/workspaces/{pk}/preset/ — switch active preset tier.
@@ -4043,6 +4079,11 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         data = ser.validated_data
         try:
             ctx = get_auth_context(request)
+            # REQ-165/REQ-166 (CR-08): `status` is intentionally NOT forwarded.
+            # update_issue() has no status parameter — the WorkflowEngine is the
+            # single source of truth once the item exists (ADR-status-single-
+            # source.md); a client-sent status is ignored here and the lifecycle
+            # state can only change via POST /api/v1/issues/{id}/transitions/.
             item = self._svc().update_issue(
                 issue_id=UUID(pk),
                 ctx=ctx,
@@ -4557,8 +4598,16 @@ class SearchViewSet(viewsets.ViewSet):
         query = request.query_params.get("q", "").strip()
         workspace_id_str = request.query_params.get("workspace_id")
 
-        # Empty query or missing workspace → return empty result without error
-        if not query or not workspace_id_str:
+        if not workspace_id_str:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="workspace_id is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Empty query → return empty result without error (workspace_id already validated)
+        if not query:
             return Response(
                 {
                     "results": [],

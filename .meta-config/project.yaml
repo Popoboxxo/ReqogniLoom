@@ -1,4 +1,4 @@
-agent-meta-version: 0.76.0
+agent-meta-version: 0.78.0
 test-repo:
   enabled: false
   path: ''
@@ -551,8 +551,8 @@ lifecycle-triggers:
     task: Update CODEBASE_OVERVIEW.md and ARCHITECTURE.md for this release.
   - agent: release
     task: Tag, Changelog-Highlight und Release-Build via scripts/build.sh (bzw. make
-      build) für die Release-Version — kein nacktes docker-compose build (sonst
-      bleiben APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown").
+      build) für die Release-Version — kein nacktes docker-compose build (sonst bleiben
+      APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown").
 hooks:
   lifecycle-check:
     enabled: true
@@ -572,6 +572,9 @@ model-overrides:
     senior-developer: claude-opus-4-8
     developer: claude-sonnet-5
     principal-developer: claude-opus-4-8
+  Opencode:
+    principal-developer: opencode-go/kimi-k3
+    se-senior-developer: opencode-go/kimi-k2.6
 dod:
   req-traceability: false
   tests-required: false

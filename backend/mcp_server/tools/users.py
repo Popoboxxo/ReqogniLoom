@@ -91,6 +91,7 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from auth_tenancy.errors import PermissionDenied as AuthTenancyPermissionDenied
 from auth_tenancy.models import (
     ROLE_ADMIN,
     ROLE_APPROVER,
@@ -496,17 +497,28 @@ class UsersToolGroup(BaseToolGroup):
         parameter validation, error mapping and the MCP-level audit
         entry. ``AuthorizationService.assign_role`` re-checks the admin
         role as defence in depth.
-        """
-        denied = self._check_admin(auth_context)
-        if denied is not None:
-            return denied
 
+        The pre-gate below is skipped for a self-assigned ``admin`` role
+        (SEC-05 first-admin bootstrap candidate) so a caller with no admin
+        role anywhere can still reach the service, which is the one place
+        that knows whether the workspace actually has zero active admins.
+        Every other combination still needs an admin caller up front.
+        """
         target_user_id = require_uuid(params, "user_id")
         workspace_id = require_uuid(params, "workspace_id")
         try:
             role = _normalize_role(params.get("role"))
         except ParameterError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        is_bootstrap_candidate = (
+            role == ROLE_ADMIN and target_user_id == auth_context.user_id
+        )
+        if not is_bootstrap_candidate:
+            denied = self._check_admin(auth_context)
+            if denied is not None:
+                return denied
+
         preset = params.get("preset")
         if not isinstance(preset, str) or not preset.strip():
             return ToolResult.error(
@@ -542,7 +554,7 @@ class UsersToolGroup(BaseToolGroup):
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
-        except PermissionDeniedError as exc:
+        except (PermissionDeniedError, AuthTenancyPermissionDenied) as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except (ValidationError, ValueError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))

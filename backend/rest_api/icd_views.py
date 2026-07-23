@@ -233,6 +233,16 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
                 },
                 status=status.HTTP_201_CREATED,
             )
+        except ValueError as exc:
+            # #104: create_icd() raises ValueError on ContractValidator syntax
+            # failures (missing fields, wrong types, oversized free-text —
+            # SEMANTIC_DESCRIPTION_MAX_LENGTH). This is a client input error,
+            # not a server fault, so map it to 400 instead of falling through
+            # to the generic 500 handler below.
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
@@ -305,6 +315,13 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             return Response(
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValueError as exc:
+            # #104: see create() — syntax/size validation errors are client
+            # errors (400), not server faults.
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as exc:
             return Response(

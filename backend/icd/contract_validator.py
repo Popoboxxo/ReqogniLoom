@@ -77,6 +77,12 @@ class ContractValidator:
         "invariants",
     )
 
+    # #104: semantic_description is a free-text TextField with no DB-level or
+    # view-level size limit (IcdViewSet builds the DTO straight from
+    # request.data — no DRF serializer in this path). Bound it here so
+    # unbounded payloads are rejected as a clean syntax error (DoS risk).
+    SEMANTIC_DESCRIPTION_MAX_LENGTH = 10000
+
     def validate_syntax(self, payload: dict[str, Any]) -> ValidationResult:
         """Check that a payload contains all required Design-by-Contract fields.
 
@@ -103,6 +109,17 @@ class ContractValidator:
                 errors.append(
                     f"Field '{field_name}' must be a list, got {type(value).__name__}"
                 )
+
+        semantic_description = payload.get("semantic_description")
+        if (
+            isinstance(semantic_description, str)
+            and len(semantic_description) > self.SEMANTIC_DESCRIPTION_MAX_LENGTH
+        ):
+            errors.append(
+                "Field 'semantic_description' exceeds maximum length of "
+                f"{self.SEMANTIC_DESCRIPTION_MAX_LENGTH} characters "
+                f"(got {len(semantic_description)})"
+            )
 
         return ValidationResult(
             is_breaking=False,

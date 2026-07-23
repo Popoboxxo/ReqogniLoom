@@ -435,6 +435,24 @@ export default function IcdView(): JSX.Element {
             >
               + {t("icds.create")}
             </h3>
+
+            {!isLoadingArch && architectureElements.length < 2 && (
+              <p
+                data-testid="icd-needs-elements-hint"
+                style={{
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-muted)",
+                  background: "var(--color-surface-raised)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-3) var(--space-4)",
+                  marginBottom: "var(--space-4)",
+                }}
+              >
+                {t("icds.needsElementsHint")}
+              </p>
+            )}
+
             <label htmlFor="icd-name" style={labelStyle}>
               {t("icds.nameLabel")}
             </label>

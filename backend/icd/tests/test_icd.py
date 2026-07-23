@@ -183,6 +183,46 @@ class TestContractValidatorSyntax:
         )
         assert result.is_valid_syntax is True
 
+    def test_oversized_semantic_description_rejected(self):
+        """Regression (#104): semantic_description is a TextField reached via
+        IcdViewSet.create()/partial_update(), which builds the DTO straight
+        from request.data without a DRF serializer — no size limit existed,
+        allowing unbounded payloads (DoS risk)."""
+        from icd.contract_validator import ContractValidator
+
+        v = ContractValidator()
+        result = v.validate_syntax(
+            {
+                "direction": "unidirectional",
+                "interface_type": "REST",
+                "semantic_description": "A" * (
+                    ContractValidator.SEMANTIC_DESCRIPTION_MAX_LENGTH + 1
+                ),
+                "preconditions": [],
+                "postconditions": [],
+                "invariants": [],
+            }
+        )
+        assert result.is_valid_syntax is False
+        assert any("semantic_description" in e for e in result.syntax_errors)
+
+    def test_semantic_description_at_max_length_accepted(self):
+        """Boundary check: exactly the max length must still pass (#104)."""
+        from icd.contract_validator import ContractValidator
+
+        v = ContractValidator()
+        result = v.validate_syntax(
+            {
+                "direction": "unidirectional",
+                "interface_type": "REST",
+                "semantic_description": "A" * ContractValidator.SEMANTIC_DESCRIPTION_MAX_LENGTH,
+                "preconditions": [],
+                "postconditions": [],
+                "invariants": [],
+            }
+        )
+        assert result.is_valid_syntax is True
+
 
 class TestContractValidatorSemantics:
     """REQ-L2-ICD-003: breaking-change detection rules."""

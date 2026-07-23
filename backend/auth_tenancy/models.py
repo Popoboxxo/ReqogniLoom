@@ -338,15 +338,22 @@ class GlobalPermissionDefinition(TenantScopedModel):
 
     ``enforcement_mode`` is the per-tenant rollout phase for REQ-186/187:
 
-        ``shadow`` (default)  Legacy UserRole/ItemPermission still DECIDES; the
+        ``shadow``            Legacy UserRole/ItemPermission still DECIDES; the
                               new model is evaluated in parallel and any
                               disagreement is written to
-                              :class:`PermissionDecisionMismatch`. Safe default —
-                              no access decision changes on migrate.
+                              :class:`PermissionDecisionMismatch`.
         ``authoritative``     The new model DECIDES; legacy rows remain written
                               (dual-write) so the flag can be flipped back
                               without data loss until the legacy check is
                               physically removed in a later contract migration.
+
+    The model default is ``authoritative`` (SEC-02 / REQ-186 end-state): a
+    freshly seeded matrix is derived 1:1 from the coded legacy RBAC matrix, so
+    day-1 authoritative decisions are identical to legacy — the matrix simply
+    becomes the live, editable source of truth from the start. Tenants created
+    before the cutover were flipped by migration
+    ``0007_flip_enforcement_authoritative`` under the REQ-187 evidence gate
+    (only tenants with zero pending mismatches were flipped).
     """
 
     ENFORCEMENT_SHADOW = "shadow"
@@ -360,7 +367,7 @@ class GlobalPermissionDefinition(TenantScopedModel):
     enforcement_mode = models.CharField(
         max_length=16,
         choices=ENFORCEMENT_MODE_CHOICES,
-        default=ENFORCEMENT_SHADOW,
+        default=ENFORCEMENT_AUTHORITATIVE,
     )
 
     class Meta:
