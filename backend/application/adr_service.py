@@ -308,9 +308,17 @@ class AdrService(ServiceBase):
 
         workspace_id = adr.workspace_id
 
-        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
-        adr.status = Adr.Status.DELETED
-        adr.save(update_fields=["status"])
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of writing status directly.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=adr.id,
+            item_type="Adr",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via adr.delete",
+        )
 
         self._audit(ctx=ctx, operation="delete", entity_type="Adr", entity_id=adr_id)
         self._emit_event(

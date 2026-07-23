@@ -376,9 +376,17 @@ class RequirementService(ServiceBase):
 
         workspace_id = requirement.artifact.workspace_id
 
-        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
-        requirement.lifecycle_status = "deleted"
-        requirement.save(update_fields=["lifecycle_status"])
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of writing lifecycle_status directly.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=requirement.id,
+            item_type="Requirement",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via requirement.delete",
+        )
 
         self._audit(ctx=ctx, operation="delete", entity_type="Requirement", entity_id=requirement_id)
         self._emit_event(

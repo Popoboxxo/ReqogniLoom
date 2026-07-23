@@ -523,10 +523,11 @@ class TestDeleteRequirement:
                 svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
     def test_delete_cascades_trace_links_and_deletes(self):
-        """delete_requirement soft-deletes by setting lifecycle_status='deleted' (REQ-006).
+        """delete_requirement soft-deletes via workflow.services.outdate() (REQ-006, Phase 0).
 
-        Physical deletion and trace-link cascade were replaced by a soft-delete:
-        the requirement row and its TraceLinks remain for audit purposes.
+        Physical deletion is not performed: the requirement row and its
+        TraceLinks remain for audit purposes; the soft-delete marker is now
+        the workflow engine's "outdated" state instead of a direct field write.
         """
         svc = RequirementService()
         ctx = _make_ctx()
@@ -549,11 +550,17 @@ class TestDeleteRequirement:
             ),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
-        assert mock_req.lifecycle_status == "deleted"
-        mock_req.save.assert_called_once_with(update_fields=["lifecycle_status"])
+        mock_outdate.assert_called_once_with(
+            item_id=mock_req.id,
+            item_type="Requirement",
+            workspace_id=mock_req.artifact.workspace_id,
+            ctx=ctx,
+            reason="deleted via requirement.delete",
+        )
 
     def test_audit_entry_on_delete(self):
         """_audit is invoked with operation='delete'."""
@@ -579,6 +586,7 @@ class TestDeleteRequirement:
             patch.object(svc._trace_link_service, "cascade_delete_trace_links"),
             patch.object(svc, "_audit") as mock_audit,
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate"),
         ):
             svc.delete_requirement(requirement_id=REQ_ID, ctx=ctx)
 
