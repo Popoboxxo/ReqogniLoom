@@ -106,7 +106,7 @@ variables:
   DOCS_LANGUAGE: Englisch
   INTERNAL_DOCS_LANGUAGE: Deutsch
   CODE_LANGUAGE: Englisch
-  GIT_PLATFORM: Codeberg
+  GIT_PLATFORM: GitHub
   GIT_REMOTE_URL: https://github.com/Popoboxxo/ReqogniLoom.git
   GIT_MAIN_BRANCH: main
   BUILD_COMMAND: docker-compose build
@@ -129,7 +129,7 @@ variables:
     (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen:
     REST API unter /api/v1/ (DRF, 16 ViewSets + 2 APIViews, JWT-Auth, OpenAPI via
     drf-spectacular) und nativer MCP Server unter /mcp/ (JSON-RPC 2.0, Transports:
-    HTTP, SSE, stdio; 11 Tool-Gruppen mit 40+ Tools; API-Key `rfk_*`). Fähigkeiten:
+    HTTP, SSE, stdio; 11 Tool-Gruppen mit 40+ Tools; API-Key `reqlo_*`). Fähigkeiten:
     Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management,
     8 Trace-Link-Typen, Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level),
     History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import,

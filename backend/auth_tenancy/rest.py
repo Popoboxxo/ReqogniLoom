@@ -39,7 +39,7 @@ from .services import (
 _AUTH_HEADER = "HTTP_AUTHORIZATION"
 _API_KEY_HEADER = "HTTP_X_API_KEY"
 _BEARER_PREFIX = "Bearer "
-_API_KEY_PLAINTEXT_PREFIX = "rf_"
+_API_KEY_PLAINTEXT_PREFIX = "reqlo_"
 
 # httpOnly access-token cookie (REQ-052). The SPA never reads this cookie;
 # the browser attaches it automatically on same-origin requests, which keeps
@@ -163,7 +163,7 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
         header = request.META.get(_AUTH_HEADER, "")
         if header.startswith(_BEARER_PREFIX):
             credential = header[len(_BEARER_PREFIX):].strip()
-            # A Bearer-carried API key (rf_ prefix) is treated as an API key
+            # A Bearer-carried API key (reqlo_ prefix) is treated as an API key
             # (REQ-L2-AT-002 allows ``Authorization: Bearer <api_key>``).
             if credential.startswith(_API_KEY_PLAINTEXT_PREFIX):
                 return self._authn.validate_api_key(credential), False

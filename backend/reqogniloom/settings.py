@@ -349,7 +349,7 @@ SPECTACULAR_SETTINGS = {
                 "description": (
                     "Bearer token authentication. "
                     "Use 'Authorization: Bearer <token>' header. "
-                    "API keys (rf_ prefix) are also accepted via this header."
+                    "API keys (reqlo_ prefix) are also accepted via this header."
                 ),
             }
         }

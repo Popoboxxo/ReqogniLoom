@@ -290,7 +290,7 @@ def _make_api_key(user: User, tenant: Tenant) -> str:
     """Create an active ApiKey row for *user* and return its plaintext.
 
     The plaintext is generated via the project's canonical
-    ``generate_api_key_plaintext()`` (format ``rf_<40 chars>``). The
+    ``generate_api_key_plaintext()`` (format ``reqlo_<40 chars>``). The
     ApiKey row is created with the ``unscoped`` manager because
     authentication-time lookups use it.
     """
