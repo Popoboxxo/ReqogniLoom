@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
-  <!-- ReqFlow — AI-native Requirements and Test Management Tool
-       This template serves as the entry point for the full multi-container ReqFlow stack.
+  <!-- ReqogniLoom — AI-native Requirements and Test Management Tool
+       This template serves as the entry point for the full multi-container ReqogniLoom stack.
        The stack (9 services: postgres, postgres-backup, redis, backend, migrate, bootstrap, celery, celery-beat, frontend)
        is deployed via Unraid's Docker Compose Manager Plus plugin using deployment/unraid/docker-compose.yaml.
   -->
 
   <!-- Mandatory Metadata -->
-  <Name>ReqFlow</Name>
-  <Repository>https://codeberg.org/dduchrow/ai-native-reqflow-POC</Repository>
-  <Registry>codeberg.org</Registry>
+  <Name>ReqogniLoom</Name>
+  <Repository>https://github.com/Popoboxxo/ReqogniLoom</Repository>
+  <Registry>ghcr.io</Registry>
   <Network>bridge</Network>
 
   <!-- Category and Classification -->
   <Category>Tools:Management</Category>
-  <Icon>https://raw.githubusercontent.com/your-icon-cdn-or-repo/reqflow-icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/your-icon-cdn-or-repo/reqogniloom-icon.png</Icon>
 
   <!-- UI Entry Point -->
   <WebUI>http://[IP]:[PORT:5554]</WebUI>
@@ -23,12 +23,12 @@
   <TemplateURL>https://raw.githubusercontent.com/your-repo/deployment/unraid/reqflow.xml</TemplateURL>
 
   <!-- Support and Project Links -->
-  <Support>https://github.com/your-issue-tracker</Support>
-  <Project>https://codeberg.org/dduchrow/ai-native-reqflow-POC</Project>
+  <Support>https://github.com/Popoboxxo/ReqogniLoom/issues</Support>
+  <Project>https://github.com/Popoboxxo/ReqogniLoom</Project>
 
   <!-- Overview — Clear explanation of how this template works -->
   <Overview>
-    ReqFlow is an AI-native Requirements and Test Management tool with MBSE support.
+    ReqogniLoom is an AI-native Requirements and Test Management tool with MBSE support.
     This template installs the frontend UI and triggers the full 9-container stack deployment via Compose Manager Plus.
 
     IMPORTANT: This template does NOT manage all 9 containers directly (postgres, redis, backend, migrate, bootstrap, celery, celery-beat, frontend).
@@ -36,7 +36,7 @@
 
     Before first use:
     1. Install Unraid Compose Manager Plus plugin (or equivalent Docker Compose orchestrator)
-    2. Import the stack from the git repo: https://codeberg.org/dduchrow/ai-native-reqflow-POC/tree/main/deployment/unraid/
+    2. Import the stack from the git repo: https://github.com/Popoboxxo/ReqogniLoom/tree/main/deployment/unraid/
     3. Configure environment variables (.env) with your secrets (DB_PASSWORD, REDIS_PASSWORD, SYSTEM_ADMIN_PASSWORD, etc.)
     4. Start the stack via Compose Manager Plus — all 9 services will launch in proper dependency order
 
@@ -55,7 +55,7 @@
   <Config Name="Frontend Port" Target="5554" Default="5554" Mode="rw" Description="Port where frontend is accessible (mapped to internal port 80)" Type="Port" Display="always" Required="true" Mask="false"/>
 
   <!-- ===== Data Persistence ===== -->
-  <Config Name="ReqFlow Data Path" Target="/mnt/user/appdata/reqflow" Default="/mnt/user/appdata/reqflow" Mode="rw" Description="Unraid host path for ReqFlow data (databases, backups, logs). Subdirectories: /db (postgres), /backup, /scripts" Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="ReqogniLoom Data Path" Target="/mnt/user/appdata/reqogniloom" Default="/mnt/user/appdata/reqogniloom" Mode="rw" Description="Unraid host path for ReqogniLoom data (databases, backups, logs). Subdirectories: /db (postgres), /backup, /scripts" Type="Path" Display="always" Required="true" Mask="false"/>
 
   <!-- ===== Database Secrets (marked for Compose Manager Plus to inject) ===== -->
   <Config Name="DB_PASSWORD" Target="DB_PASSWORD" Default="" Mode="rw" Description="PostgreSQL database password (generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" Type="Variable" Display="always" Required="true" Mask="true"/>
@@ -99,6 +99,6 @@
   <Config Name="DEFAULT_TENANT_ID" Target="DEFAULT_TENANT_ID" Default="1" Mode="rw" Description="Default tenant ID for single-tenant deployments (keep as 1 unless multi-tenant setup)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <!-- ===== Build Context (optional, only needed if using Compose Manager Plus build fallback) ===== -->
-  <Config Name="REPO_ROOT" Target="REPO_ROOT" Default="" Mode="rw" Description="Absolute path to ai-native-reqflow-POC repo checkout on this Unraid host (needed if building images locally). Example: /mnt/user/appdata/ai-native-reqflow-POC" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="REPO_ROOT" Target="REPO_ROOT" Default="" Mode="rw" Description="Absolute path to ReqogniLoom repo checkout on this Unraid host (needed if building images locally). Example: /mnt/user/appdata/ReqogniLoom" Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
 </Container>

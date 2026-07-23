@@ -1,5 +1,5 @@
 import os, django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'reqflow.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'reqogniloom.settings')
 django.setup()
 from django.test import Client
 c = Client()

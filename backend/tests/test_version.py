@@ -2,7 +2,7 @@
 Tests for GET /api/v1/version/ — deployed build/commit metadata.
 
 Covers the env-var-first, git-fallback resolution order in
-``reqflow.version._resolve_commit_sha``. The git fallback is mocked so the
+``reqogniloom.version._resolve_commit_sha``. The git fallback is mocked so the
 suite never depends on the actual repo's ``.git`` state (a CI/build
 container legitimately ships without one).
 """
@@ -44,7 +44,7 @@ class TestVersionEndpoint:
         monkeypatch.delenv("BUILD_TIME", raising=False)
 
         with patch(
-            "reqflow.version.subprocess.run",
+            "reqogniloom.version.subprocess.run",
             side_effect=FileNotFoundError("git not installed"),
         ):
             resp = _get_version()
@@ -61,7 +61,7 @@ class TestVersionEndpoint:
         fake_result = type(
             "FakeCompletedProcess", (), {"stdout": "deadbeefcafef00d1234\n"}
         )()
-        with patch("reqflow.version.subprocess.run", return_value=fake_result):
+        with patch("reqogniloom.version.subprocess.run", return_value=fake_result):
             resp = _get_version()
 
         body = resp.json()
@@ -84,7 +84,7 @@ class TestAppVersion:
         """No APP_VERSION env var -> read the root VERSION file (dev fallback)."""
         monkeypatch.delenv("APP_VERSION", raising=False)
 
-        with patch("reqflow.version.Path.read_text", return_value="0.2.0\n"):
+        with patch("reqogniloom.version.Path.read_text", return_value="0.2.0\n"):
             body = _get_version().json()
 
         assert body["app_version"] == "0.2.0"
@@ -94,7 +94,7 @@ class TestAppVersion:
         monkeypatch.delenv("APP_VERSION", raising=False)
 
         with patch(
-            "reqflow.version.Path.read_text",
+            "reqogniloom.version.Path.read_text",
             side_effect=FileNotFoundError("no VERSION file"),
         ):
             resp = _get_version()

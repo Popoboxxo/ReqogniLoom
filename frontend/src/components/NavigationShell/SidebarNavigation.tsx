@@ -14,6 +14,7 @@
 import React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { APP_NAME } from "../../config/app-name";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -307,7 +308,7 @@ export function SidebarNavigation(): JSX.Element {
             letterSpacing: "0.01em",
           }}
         >
-          ReqFlow
+          {APP_NAME}
         </span>
       </div>
 

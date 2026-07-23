@@ -169,8 +169,8 @@ def test_plaintext_key_never_persisted(user_a):
 
 def test_generated_key_format():
     key = generate_api_key_plaintext()
-    assert key.startswith("rf_")
-    assert len(key) == 43  # "rf_" + 40
+    assert key.startswith("reqlo_")
+    assert len(key) == 46  # "reqlo_" + 40
 
 
 @pytest.mark.django_db
@@ -178,7 +178,7 @@ def test_create_returns_plaintext_once(user_a):
     result = _service().create_api_key(
         user_id=user_a.id, tenant_id=user_a.tenant_id, name="ci"
     )
-    assert result.plaintext.startswith("rf_")
+    assert result.plaintext.startswith("reqlo_")
 
 
 @pytest.mark.django_db

@@ -2,18 +2,18 @@
 Dedicated Django settings for the pytest test suite (REQ-037).
 
 Rationale (DEEP_SYSTEM_ANALYSIS.md BE-6):
-    The default `reqflow.settings` module reads runtime configuration from the
+    The default `reqogniloom.settings` module reads runtime configuration from the
     environment (`.env`). Running pytest against it means tests inherit the
     production cache, Celery and LLM configuration — a stray `.env` value can
     silently change test behaviour.
 
-    This module imports everything from `reqflow.settings` and overrides ONLY
+    This module imports everything from `reqogniloom.settings` and overrides ONLY
     the pieces that must be deterministic and side-effect-free during testing.
     Nothing else is changed, so the production configuration stays the single
     source of truth for all non-test settings.
 
 Usage:
-    Referenced via `django_settings_module = "reqflow.settings_test"` in
+    Referenced via `django_settings_module = "reqogniloom.settings_test"` in
     backend/pyproject.toml — pytest-django picks it up automatically.
 
 Note on the database:
@@ -41,7 +41,7 @@ os.environ.setdefault(
     "FIELD_ENCRYPTION_KEY", "KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis="
 )
 
-from reqflow.settings import *  # noqa: F401,F403,E402 — intentional settings re-export
+from reqogniloom.settings import *  # noqa: F401,F403,E402 — intentional settings re-export
 
 # ---------------------------------------------------------------------------
 # Database — explicit PostgreSQL test database (docker-compose service).
@@ -53,9 +53,9 @@ DATABASES = {
         # Defaults match the CI postgres service; DB_* env vars override so
         # the suite also runs against a local compose stack whose credentials
         # come from .env (no trivial defaults there since REQ-058).
-        "NAME": config("DB_NAME", default="reqflow"),
-        "USER": config("DB_USER", default="reqflow"),
-        "PASSWORD": config("DB_PASSWORD", default="reqflow"),
+        "NAME": config("DB_NAME", default="reqogniloom"),
+        "USER": config("DB_USER", default="reqogniloom"),
+        "PASSWORD": config("DB_PASSWORD", default="reqogniloom"),
         "HOST": config("DB_HOST", default="postgres"),
         "PORT": config("DB_PORT", default="5432"),
     }
@@ -74,7 +74,7 @@ DEBUG = True
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "reqflow-test-cache",
+        "LOCATION": "reqogniloom-test-cache",
     }
 }
 

@@ -1,12 +1,12 @@
-# ReqFlow
+# ReqogniLoom
 
 **AI-native requirements and test management for systems engineering.**
 
-## What is ReqFlow?
+## What is ReqogniLoom?
 
-ReqFlow is an AI-integrated requirements management and test case tracking system designed for organizations ranging from simple project management to complex systems engineering workflows. Built on Django, React 18, and PostgreSQL, ReqFlow provides scalable artifact-based traceability, workflow automation, and intelligent integration points for large language models.
+ReqogniLoom is an AI-integrated requirements management and test case tracking system designed for organizations ranging from simple project management to complex systems engineering workflows. Built on Django, React 18, and PostgreSQL, ReqogniLoom provides scalable artifact-based traceability, workflow automation, and intelligent integration points for large language models.
 
-Whether you're managing a small backlog or orchestrating a multi-level systems architecture with MBSE-style decomposition, ReqFlow adapts to your rigor level and integrates seamlessly with your LLM tools.
+Whether you're managing a small backlog or orchestrating a multi-level systems architecture with MBSE-style decomposition, ReqogniLoom adapts to your rigor level and integrates seamlessly with your LLM tools.
 
 ## Features
 
@@ -63,7 +63,7 @@ Layer 0 (Base)     │  Persistence, Auth & Tenancy, Presets, Audit Log
 Cross-Cutting      │  SE Metrics, Resilience (Retry/Circuit-Breaker)
 ```
 
-**V-Model Traceability:** ReqFlow follows a 3-tier V-Model decomposition (L0 stakeholder needs → L1 system requirements → L2 subsystem requirements → L3 components), with full REQ traceability from stakeholder needs down to test cases.
+**V-Model Traceability:** ReqogniLoom follows a 3-tier V-Model decomposition (L0 stakeholder needs → L1 system requirements → L2 subsystem requirements → L3 components), with full REQ traceability from stakeholder needs down to test cases.
 
 **Services:** postgres (PostgreSQL) + redis (caching/Celery) + backend (Django :8000) + frontend (Vite :5173) + celery (async tasks)
 
@@ -78,8 +78,8 @@ Cross-Cutting      │  SE Metrics, Resilience (Retry/Circuit-Breaker)
 ### 1. Clone and Build
 
 ```bash
-git clone <repository-url>
-cd ai-native-reqflow-POC
+git clone https://github.com/Popoboxxo/ReqogniLoom.git
+cd ReqogniLoom
 docker-compose build
 ```
 
@@ -183,7 +183,7 @@ Re-running `seed_demo` is safe (idempotent); it skips artifacts that already exi
 
 ### 8. (Optional) Configure LLM Provider
 
-By default, ReqFlow runs in **mock mode** (no actual LLM calls). To enable AI features:
+By default, ReqogniLoom runs in **mock mode** (no actual LLM calls). To enable AI features:
 
 ```bash
 # Stop the running stack
@@ -213,8 +213,8 @@ All containers should show `Up (healthy)` or `Up`.
 
 ### 9. Connect an MCP Client (Claude Desktop / Cursor)
 
-You can connect external AI assistants like Claude Desktop or Cursor to ReqFlow's MCP server.
-ReqFlow exposes an SSE (Server-Sent Events) transport endpoint for remote connections.
+You can connect external AI assistants like Claude Desktop or Cursor to ReqogniLoom's MCP server.
+ReqogniLoom exposes an SSE (Server-Sent Events) transport endpoint for remote connections.
 
 **Important:** You need an active API key to authenticate (see Step 5 above).
 
@@ -225,7 +225,7 @@ Edit your `claude_desktop_config.json` (usually located at `~/Library/Applicatio
 ```json
 {
   "mcpServers": {
-    "reqflow": {
+    "reqogniloom": {
       "command": "curl",
       "args": [
         "-N", 
@@ -237,13 +237,13 @@ Edit your `claude_desktop_config.json` (usually located at `~/Library/Applicatio
   }
 }
 ```
-*Note: Since ReqFlow provides an HTTP/SSE endpoint, we use `curl -N` to pipe the SSE stream into Claude Desktop's standard input. Alternatively, you can write a tiny Node.js script that connects to the SSE URL and bridges it to stdio.*
+*Note: Since ReqogniLoom provides an HTTP/SSE endpoint, we use `curl -N` to pipe the SSE stream into Claude Desktop's standard input. Alternatively, you can write a tiny Node.js script that connects to the SSE URL and bridges it to stdio.*
 
 #### Example: Cursor IDE
 
 In Cursor, go to **Settings > Features > MCP**:
 1. Click **+ Add new MCP server**
-2. **Name**: `ReqFlow`
+2. **Name**: `ReqogniLoom`
 3. **Type**: `sse`
 4. **URL**: `http://localhost:8000/mcp/sse/`
 5. **Headers**: Add a header `X-API-Key` with your API Key value.
@@ -284,7 +284,7 @@ curl http://localhost:8000/mcp/
 
 ## Running Tests
 
-ReqFlow has **1,400+ tests** across 4 layers. Run them based on what you need to verify.
+ReqogniLoom has **1,400+ tests** across 4 layers. Run them based on what you need to verify.
 
 ### Quick Reference (Makefile)
 
@@ -307,14 +307,14 @@ The sections below document each layer manually (without Docker/Make) for fine-g
 ### Prerequisites
 
 ```bash
-# Database: ReqFlow tests require PostgreSQL.
+# Database: ReqogniLoom tests require PostgreSQL.
 # Option A (recommended): Use the running Docker stack's Postgres
 docker-compose up -d postgres
 export DB_HOST=localhost   # Linux/macOS
 # Windows PowerShell: $env:DB_HOST="localhost"
 
-# Option B: Local PostgreSQL with a 'reqflow' database
-createdb reqflow
+# Option B: Local PostgreSQL with a 'reqogniloom' database
+createdb reqogniloom
 export DB_HOST=localhost   # Linux/macOS
 # Windows PowerShell: $env:DB_HOST="localhost"
 ```
@@ -358,7 +358,7 @@ pytest --keepdb
 python manage.py check && pytest -q
 ```
 
-> **Warning:** It is highly discouraged to run `pytest` against the actual development database, as tests will truncate tables and delete your data. `pytest` automatically creates a separate `test_reqflow` database. Use `--keepdb` to persist this test database between runs.
+> **Warning:** It is highly discouraged to run `pytest` against the actual development database, as tests will truncate tables and delete your data. `pytest` automatically creates a separate `test_reqogniloom` database. Use `--keepdb` to persist this test database between runs.
 > For End-to-End Tests (Playwright), the tests *do* run against the actual development environment.
 
 **Status:** ~1,400 tests passing (last verified 2026-06-28 on `feat/se-implementation`).
@@ -405,7 +405,7 @@ npm run mcp:playwright       # starte Playwright MCP Server für LLM-Agenten
 
 ## Production Deployment
 
-ReqFlow is designed for self-hosted deployment on Linux/Unix servers using Docker Compose. This section covers hardening the stack for production use.
+ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using Docker Compose. This section covers hardening the stack for production use.
 
 ### Prerequisites
 
@@ -419,8 +419,8 @@ ReqFlow is designed for self-hosted deployment on Linux/Unix servers using Docke
 1. **Clone and prepare:**
 
    ```bash
-   git clone <repository-url>
-   cd ai-native-reqflow-POC
+   git clone https://github.com/Popoboxxo/ReqogniLoom.git
+   cd ReqogniLoom
    cp .env.example .env
    ```
 
@@ -482,7 +482,7 @@ ReqFlow is designed for self-hosted deployment on Linux/Unix servers using Docke
 ### Reverse Proxy Setup (nginx example)
 
 ```nginx
-# /etc/nginx/sites-available/reqflow
+# /etc/nginx/sites-available/reqogniloom
 upstream backend {
     server localhost:8000;
 }
@@ -600,13 +600,13 @@ docker-compose logs -f
 **Backup database:**
 
 ```bash
-docker-compose exec postgres pg_dump -U reqflow reqflow > backup.sql
+docker-compose exec postgres pg_dump -U reqogniloom reqogniloom > backup.sql
 ```
 
 **Restore database:**
 
 ```bash
-docker-compose exec -T postgres psql -U reqflow reqflow < backup.sql
+docker-compose exec -T postgres psql -U reqogniloom reqogniloom < backup.sql
 ```
 
 ### Scaling Considerations
@@ -648,7 +648,7 @@ docker-compose up -d
 
 # Reset database (⚠️ WARNING: Deletes all data)
 docker-compose down
-docker volume rm ai-native-reqflow-poc_postgres_data
+docker volume rm reqogniloom_postgres_data
 docker-compose up -d
 docker-compose exec backend python manage.py migrate
 ```
@@ -662,7 +662,7 @@ docker-compose exec backend python manage.py migrate
 - **CSRF/Cross-Origin enforcement** — pytest's `APIRequestFactory` and `django.test.Client` disable CSRF checks by default (`enforce_csrf_checks=False`), so CSRF token validation is rarely triggered in automated tests. Playwright API tests using the `request.post` fixture send no `Origin` header (triggering no CSRF origin check), and Playwright UI tests ran against `localhost:5173`, which is already whitelisted in the default `CSRF_TRUSTED_ORIGINS` (so no rejection is visible).
   - **Concrete example:** REQ-138 identified a missing `CSRF_TRUSTED_ORIGINS` entry that blocked all cross-origin POST/PATCH/DELETE from the frontend in production, but passed 38+ automated tests undetected.
   - **Fix:** REQ-139 adds a targeted regression test using `Client(enforce_csrf_checks=True)`.
-  - **Test infrastructure:** See `backend/reqflow/settings_test.py` for test-specific Django settings.
+  - **Test infrastructure:** See `backend/reqogniloom/settings_test.py` for test-specific Django settings.
 
 **Recommendation:** After release-critical changes to auth or cross-origin handling, manually verify CSRF rejection with a real browser or add targeted tests using strict CSRF enforcement.
 
@@ -685,7 +685,7 @@ find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
 
 ## MCP Server
 
-ReqFlow ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **11 tool groups** (40+ individual tools) for requirements engineering, test management, traceability, workspace administration, permissions, backups, audit, and user management.
+ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **11 tool groups** (40+ individual tools) for requirements engineering, test management, traceability, workspace administration, permissions, backups, audit, and user management.
 
 ### Transport Endpoints
 
@@ -739,7 +739,7 @@ curl -X POST http://localhost:8000/mcp/ \
 ```json
 {
   "mcpServers": {
-    "reqflow": {
+    "reqogniloom": {
       "command": "curl",
       "args": [
         "-s",
@@ -758,7 +758,7 @@ curl -X POST http://localhost:8000/mcp/ \
 ```json
 {
   "mcpServers": {
-    "reqflow": {
+    "reqogniloom": {
       "command": "curl",
       "args": [
         "-s",
@@ -800,7 +800,7 @@ See [`docs/CODEBASE_OVERVIEW.md`](docs/CODEBASE_OVERVIEW.md) for the complete to
 
 ## REST API
 
-ReqFlow provides a RESTful API for programmatic access to all features.
+ReqogniLoom provides a RESTful API for programmatic access to all features.
 
 ### Quick Start
 
@@ -895,7 +895,7 @@ Key variables (see `.env.example` for full list):
 
 ```bash
 # Database
-DATABASE_URL=postgresql://user:password@postgres:5432/reqflow
+DATABASE_URL=postgresql://user:password@postgres:5432/reqogniloom
 
 # Redis
 REDIS_URL=redis://redis:6379/0
@@ -947,7 +947,7 @@ docker-compose up
 ```bash
 # Reset database (⚠️ deletes all data)
 docker-compose down
-docker volume rm ai-native-reqflow-poc_postgres_data
+docker volume rm reqogniloom_postgres_data
 docker-compose up
 docker-compose exec backend python manage.py migrate
 ```
@@ -1005,7 +1005,7 @@ Detailed requirement and architecture specifications: [`docs/se/`](docs/se/)
 
 ## AI-Readable E2E Test Output
 
-ReqFlow utilizes Playwright for end-to-end testing and provides two scripts that produce compact, AI-readable output. Because LLM context windows are limited, standard test outputs are too noisy. These scripts generate minimal, highly readable logs that a developer can paste into an AI assistant for failure analysis.
+ReqogniLoom utilizes Playwright for end-to-end testing and provides two scripts that produce compact, AI-readable output. Because LLM context windows are limited, standard test outputs are too noisy. These scripts generate minimal, highly readable logs that a developer can paste into an AI assistant for failure analysis.
 
 **These scripts are always triggered manually by the developer — never run autonomously by AI agents.**
 

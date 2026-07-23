@@ -3,9 +3,9 @@ from celery import Celery
 from kombu import Queue
 
 # Set the default Django settings module for the 'celery' program.
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'reqflow.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'reqogniloom.settings')
 
-app = Celery('reqflow')
+app = Celery('reqogniloom')
 
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.

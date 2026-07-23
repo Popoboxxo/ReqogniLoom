@@ -1,7 +1,7 @@
 [tool.pytest.ini_options]
 # REQ-037: isolate the test suite from production config (cache/celery/llm).
 # pytest-django reads the uppercase DJANGO_SETTINGS_MODULE ini option.
-DJANGO_SETTINGS_MODULE = "reqflow.settings_test"
+DJANGO_SETTINGS_MODULE = "reqogniloom.settings_test"
 python_files = ["tests.py", "test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -16,6 +16,6 @@ omit = [
     "*/migrations/*",
     "*/tests/*",
     "manage.py",
-    "reqflow/wsgi.py",
-    "reqflow/asgi.py",
+    "reqogniloom/wsgi.py",
+    "reqogniloom/asgi.py",
 ]

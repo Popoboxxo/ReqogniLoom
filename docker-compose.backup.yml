@@ -6,9 +6,9 @@ version: '3.8'
 services:
   backup:
     image: postgres:16
-    container_name: reqflow_backup
+    container_name: reqogniloom_backup
     environment:
-      PGPASSWORD: ${DB_PASSWORD:-reqflow}
+      PGPASSWORD: ${DB_PASSWORD:-reqogniloom}
     volumes:
       - ./backups:/backups
     command: >
@@ -16,15 +16,15 @@ services:
         echo 'Starting PostgreSQL backup...' &&
         pg_dump \
           -h postgres \
-          -U ${DB_USER:-reqflow} \
-          -d ${DB_NAME:-reqflow} \
+          -U ${DB_USER:-reqogniloom} \
+          -d ${DB_NAME:-reqogniloom} \
           -F custom \
-          -f /backups/reqflow_$(date +%Y%m%d_%H%M%S).dump &&
+          -f /backups/reqogniloom_$(date +%Y%m%d_%H%M%S).dump &&
         echo 'Backup completed successfully'
       "
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - reqflow_network
+      - reqogniloom_network
     restart: "no"

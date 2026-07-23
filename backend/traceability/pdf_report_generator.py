@@ -200,7 +200,7 @@ def _build_requirement_document(data: dict[str, Any]) -> bytes:
         topMargin=20 * mm,
         bottomMargin=20 * mm,
         title=f"Requirement Document — {data['workspace_name']}",
-        author="ReqFlow",
+        author="ReqogniLoom",
     )
 
     styles = getSampleStyleSheet()
@@ -312,7 +312,7 @@ def _build_traceability_matrix(data: dict[str, Any]) -> bytes:
         topMargin=20 * mm,
         bottomMargin=20 * mm,
         title=f"Traceability Matrix — {data['workspace_name']}",
-        author="ReqFlow",
+        author="ReqogniLoom",
     )
 
     styles = getSampleStyleSheet()

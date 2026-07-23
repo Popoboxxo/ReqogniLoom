@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # ─────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
-# Build metadata stamping — exposed via GET /api/v1/version/ (reqflow/version.py).
+# Build metadata stamping — exposed via GET /api/v1/version/ (reqogniloom/version.py).
 # A runtime image built from this Dockerfile ships no repo root / .git directory,
 # so these build args are the authoritative source of the deployed
 # version/commit/build time. Stamp them at build time, e.g.:
@@ -102,4 +102,4 @@ USER app
 # Production: Gunicorn managing uvicorn ASGI workers (REQ-044).
 # ASGI is required so the async MCP SSE transport streams without blocking a
 # sync worker per connected client. Multi-worker deployment (4 workers).
-CMD ["gunicorn", "reqflow.asgi:application", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "4"]
+CMD ["gunicorn", "reqogniloom.asgi:application", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "4"]

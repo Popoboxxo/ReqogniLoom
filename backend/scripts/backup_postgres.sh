@@ -1,7 +1,7 @@
 #!/bin/sh
 # REQ-102: PostgreSQL backup strategy for the postgres_data volume.
 #
-# Creates a timestamped, gzip-compressed pg_dump of the ReqFlow database and
+# Creates a timestamped, gzip-compressed pg_dump of the ReqogniLoom database and
 # retains only the most recent backups. Designed to run inside a lightweight
 # postgres:16-alpine sidecar container (see docker-compose.yml postgres-backup).
 #
@@ -21,7 +21,7 @@ BACKUP_DIR="${BACKUP_DIR:-/backups}"
 BACKUP_RETENTION="${BACKUP_RETENTION:-7}"
 
 timestamp="$(date +%Y%m%d_%H%M%S)"
-outfile="${BACKUP_DIR}/reqflow_${timestamp}.sql.gz"
+outfile="${BACKUP_DIR}/reqogniloom_${timestamp}.sql.gz"
 
 mkdir -p "${BACKUP_DIR}"
 
@@ -40,7 +40,7 @@ pg_dump \
 echo "[backup] wrote $(du -h "${outfile}" | cut -f1) to ${outfile}"
 
 # Retention: keep only the newest BACKUP_RETENTION dumps, delete the rest.
-ls -1t "${BACKUP_DIR}"/reqflow_*.sql.gz 2>/dev/null \
+ls -1t "${BACKUP_DIR}"/reqogniloom_*.sql.gz 2>/dev/null \
   | tail -n "+$((BACKUP_RETENTION + 1))" \
   | while read -r old; do
       echo "[backup] pruning old backup ${old}"

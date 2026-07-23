@@ -4,8 +4,8 @@ Leaf node: ARCH-L1-009 / LlmAdapterSystem / COMP-LA-005
 REQ-IDs: REQ-042, REQ-L2-LA-008, REQ-L3-LA005-001, REQ-L3-LA005-002
 
 This module registers ``run_capability`` as a ``@shared_task`` so it is picked
-up by ``reqflow.celery:app.autodiscover_tasks()`` and therefore known to the
-worker started via ``celery -A reqflow worker``.
+up by ``reqogniloom.celery:app.autodiscover_tasks()`` and therefore known to the
+worker started via ``celery -A reqogniloom worker``.
 
 The previous implementation created a throw-away Celery app inside the
 dispatcher on every call. That app was never wired to the project's worker, so

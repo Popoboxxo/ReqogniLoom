@@ -19,13 +19,13 @@ class TestRequiredSecrets:
         Verify that settings_test module successfully imports despite no production env vars.
 
         This test passes by definition when running under pytest-django with
-        django_settings_module = "reqflow.settings_test", proving that the
+        django_settings_module = "reqogniloom.settings_test", proving that the
         settings_test module correctly pre-sets the required secrets before
         importing settings.py.
         """
         # If we're running this test, settings_test.py has already been imported
         # without raising ImproperlyConfigured, proving the setup works.
-        from reqflow import settings_test
+        from reqogniloom import settings_test
 
         # Verify the test defaults are set
         assert hasattr(settings_test, "SECRET_KEY")
@@ -37,7 +37,7 @@ class TestRequiredSecrets:
         """
         Verify that _get_required_secret returns the env var value when it exists.
         """
-        from reqflow.settings import _get_required_secret
+        from reqogniloom.settings import _get_required_secret
 
         # Test that it returns a value when env var is set
         os.environ["TEST_SECRET_VARIABLE"] = "test-value-12345"
@@ -50,7 +50,7 @@ class TestRequiredSecrets:
         Verify that _get_required_secret raises ImproperlyConfigured when var is not set.
         """
         from django.core.exceptions import ImproperlyConfigured
-        from reqflow.settings import _get_required_secret
+        from reqogniloom.settings import _get_required_secret
 
         # Test that it raises ImproperlyConfigured when not set
         with pytest.raises(ImproperlyConfigured) as exc_info:

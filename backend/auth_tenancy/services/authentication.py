@@ -31,8 +31,8 @@ from ..errors import AuthenticationFailed
 from ..jwt_tokens import decode_jwt
 from ..models import MAX_ACTIVE_API_KEYS_PER_USER, ApiKey
 
-# API-key plaintext format: "rf_" + 40 url-safe-ish chars (REQ-L3-AT001-003).
-_API_KEY_PREFIX = "rf_"
+# API-key plaintext format: "reqlo_" + 40 url-safe-ish chars (REQ-L3-AT001-003).
+_API_KEY_PREFIX = "reqlo_"
 _API_KEY_RANDOM_LEN = 40
 _API_KEY_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -60,7 +60,7 @@ def hash_api_key(plaintext: str) -> str:
 
 
 def generate_api_key_plaintext() -> str:
-    """Generate a new plaintext key ``rf_<40 chars>`` (REQ-L3-AT001-003)."""
+    """Generate a new plaintext key ``reqlo_<40 chars>`` (REQ-L3-AT001-003)."""
     body = "".join(secrets.choice(_API_KEY_ALPHABET) for _ in range(_API_KEY_RANDOM_LEN))
     return f"{_API_KEY_PREFIX}{body}"
 
@@ -144,7 +144,7 @@ class AuthenticationService:
         exists yet at authentication time.
 
         Args:
-            plaintext: The raw API key (e.g. ``rf_...``).
+            plaintext: The raw API key (e.g. ``reqlo_...``).
 
         Returns:
             Immutable identity claims for the key's user and tenant.

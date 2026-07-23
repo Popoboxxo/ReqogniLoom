@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 _UNKNOWN = "unknown"
 
 # Root VERSION file, resolved relative to this module:
-#   backend/reqflow/version.py -> backend/reqflow -> backend -> <repo root>
+#   backend/reqogniloom/version.py -> backend/reqogniloom -> backend -> <repo root>
 # Only present for local/non-container runs; a built image ships no repo root,
 # so the container path relies on the APP_VERSION env var (stamped at build).
 _VERSION_FILE = Path(__file__).resolve().parent.parent.parent / "VERSION"

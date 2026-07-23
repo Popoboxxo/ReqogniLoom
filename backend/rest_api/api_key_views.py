@@ -134,7 +134,7 @@ class ApiKeyViewSet(ViewSet):
           {
             "id": "<uuid>",
             "name": "my-api-key-label",
-            "plaintext": "rf_<40 chars>",   // ONLY shown here, never again
+            "plaintext": "reqlo_<40 chars>",   // ONLY shown here, never again
             "warning": "Save this key now — it will not be shown again."
           }
 

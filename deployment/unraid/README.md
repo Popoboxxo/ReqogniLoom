@@ -1,10 +1,10 @@
-# ReqFlow Unraid Deployment
+# ReqogniLoom Unraid Deployment
 
-This directory contains configurations for deploying ReqFlow on Unraid via Docker Compose Manager Plus.
+This directory contains configurations for deploying ReqogniLoom on Unraid via Docker Compose Manager Plus.
 
 ## Overview
 
-ReqFlow is an AI-native Requirements and Test Management tool with MBSE support. The full stack consists of 9 services:
+ReqogniLoom is an AI-native Requirements and Test Management tool with MBSE support. The full stack consists of 9 services:
 
 - **postgres** (PostgreSQL 16 with pgvector) — persistent database
 - **postgres-backup** — automated daily backups
@@ -31,7 +31,7 @@ ReqFlow is an AI-native Requirements and Test Management tool with MBSE support.
 1. In Unraid WebUI → **Apps** → **Compose Manager Plus**
 2. **Add New Stack** → paste the repository URL:
    ```
-   https://codeberg.org/dduchrow/ai-native-reqflow-POC
+   https://github.com/Popoboxxo/ReqogniLoom
    ```
 3. Point to the stack file:
    ```
@@ -67,7 +67,7 @@ ReqFlow is an AI-native Requirements and Test Management tool with MBSE support.
    **Unraid-Specific Paths:**
    ```bash
    # If using Compose Manager's build fallback, set repo root:
-   REPO_ROOT=/mnt/user/appdata/ai-native-reqflow-POC
+   REPO_ROOT=/mnt/user/appdata/ai-native-reqogniloom-POC
    
    # Or use pre-built images (no build needed, Compose Manager just pulls)
    # — in that case, leave build: sections out of docker-compose.yaml
@@ -95,17 +95,17 @@ Compose Manager Plus will auto-create the Docker network, but **you must pre-cre
 
 ```bash
 # On Unraid terminal or SSH:
-mkdir -p /mnt/user/appdata/reqflow/{db,backup,scripts}
+mkdir -p /mnt/user/appdata/reqogniloom/{db,backup,scripts}
 
 # Optional: Set proper permissions (docker user)
-chown -R 999:999 /mnt/user/appdata/reqflow
-chmod -R 755 /mnt/user/appdata/reqflow
+chown -R 999:999 /mnt/user/appdata/reqogniloom
+chmod -R 755 /mnt/user/appdata/reqogniloom
 ```
 
 The docker-compose.yaml binds these volumes:
-- `/mnt/user/appdata/reqflow/db` → postgres data
-- `/mnt/user/appdata/reqflow/backup` → automated backups
-- `/mnt/user/appdata/reqflow/scripts` → backup scripts (optional)
+- `/mnt/user/appdata/reqogniloom/db` → postgres data
+- `/mnt/user/appdata/reqogniloom/backup` → automated backups
+- `/mnt/user/appdata/reqogniloom/scripts` → backup scripts (optional)
 
 ### Step 4: Start the Stack
 
@@ -160,7 +160,7 @@ See `.env.example` for all options. Key categories:
 |----------|-----------|-------|
 | **Secrets** | SECRET_KEY, DB_PASSWORD, REDIS_PASSWORD, SYSTEM_ADMIN_PASSWORD | Generate fresh values, never reuse |
 | **Frontend** | VITE_API_BASE_URL, VITE_ALLOWED_HOSTS | Baked into build — rebuild frontend after changes |
-| **Database** | DB_NAME, DB_USER, DB_PASSWORD | Defaults: db_name=reqflow, db_user=reqflow |
+| **Database** | DB_NAME, DB_USER, DB_PASSWORD | Defaults: db_name=reqogniloom, db_user=reqogniloom |
 | **Redis** | REDIS_PASSWORD | Optional (auth), defaults to no password if empty |
 | **CORS/CSRF** | CORS_ALLOWED_ORIGINS, CSRF_TRUSTED_ORIGINS | Required for production HTTPS access |
 | **LLM Provider** | LLM_PROVIDER, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL | Options: anthropic, openai, ollama, mock (default) |
@@ -175,21 +175,21 @@ See `.env.example` for all options. Key categories:
 
 ### Data Persistence
 
-All volumes bind to `/mnt/user/appdata/reqflow/`:
+All volumes bind to `/mnt/user/appdata/reqogniloom/`:
 
 ```yaml
 postgres:
   volumes:
-    - /mnt/user/appdata/reqflow/db:/var/lib/postgresql/data
+    - /mnt/user/appdata/reqogniloom/db:/var/lib/postgresql/data
 
 postgres-backup:
   volumes:
-    - /mnt/user/appdata/reqflow/backup:/backups
+    - /mnt/user/appdata/reqogniloom/backup:/backups
 ```
 
 **Backup retention:** Automated daily backups (configurable). Manually restore with:
 ```bash
-docker compose exec postgres pg_restore -U reqflow -d reqflow < /mnt/user/appdata/reqflow/backup/dump.sql
+docker compose exec postgres pg_restore -U reqogniloom -d reqogniloom < /mnt/user/appdata/reqogniloom/backup/dump.sql
 ```
 
 ## Common Tasks
@@ -224,7 +224,7 @@ docker compose -f deployment/unraid/docker-compose.yaml ps
 ### Manual Database Backup
 
 ```bash
-docker compose -f deployment/unraid/docker-compose.yaml exec postgres pg_dump -U reqflow reqflow > /mnt/user/appdata/reqflow/backup/manual-$(date +%s).sql
+docker compose -f deployment/unraid/docker-compose.yaml exec postgres pg_dump -U reqogniloom reqogniloom > /mnt/user/appdata/reqogniloom/backup/manual-$(date +%s).sql
 ```
 
 ### Reset Admin Password
@@ -259,7 +259,7 @@ docker compose -f deployment/unraid/docker-compose.yaml exec backend python mana
 ### Database Won't Start
 
 - Check disk space: `df /mnt/user/appdata/`
-- Check volume permissions: `ls -la /mnt/user/appdata/reqflow/db/`
+- Check volume permissions: `ls -la /mnt/user/appdata/reqogniloom/db/`
 - View postgres logs: `docker compose logs postgres`
 
 ### Admin Bootstrap Didn't Provision
@@ -274,15 +274,15 @@ docker compose -f deployment/unraid/docker-compose.yaml exec backend python mana
 2. **Store `.env` securely** — never commit to version control
 3. **Rotate secrets periodically** — regenerate SECRET_KEY, DB_PASSWORD, etc.
 4. **Restrict Unraid access** — authenticate WebUI, disable unnecessary ports
-5. **Audit logs** — check ReqFlow audit logs for suspicious activity (REST API: `/api/v1/audit-logs/`)
+5. **Audit logs** — check ReqogniLoom audit logs for suspicious activity (REST API: `/api/v1/audit-logs/`)
 
 ## Support and Documentation
 
-- **Repository:** https://codeberg.org/dduchrow/ai-native-reqflow-POC
-- **Issues:** https://github.com/your-issue-tracker
+- **Repository:** https://github.com/Popoboxxo/ReqogniLoom
+- **Issues:** https://github.com/Popoboxxo/ReqogniLoom/issues
 - **Architecture:** See `docs/ARCHITECTURE.md` in the repo
 - **API Documentation:** http://your-domain:5554/api/schema/ (Swagger UI)
 
 ---
 
-**Generated for ReqFlow v0.2.0** — Last updated: July 2026
+**Generated for ReqogniLoom v0.2.0** — Last updated: July 2026

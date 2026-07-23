@@ -418,7 +418,7 @@ class ProtocolHandler:
                     "tools": {}
                 },
                 "serverInfo": {
-                    "name": "ReqFlow",
+                    "name": "ReqogniLoom",
                     "version": "1.0.0"
                 }
             })

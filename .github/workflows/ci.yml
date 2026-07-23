@@ -81,7 +81,7 @@ jobs:
       - name: Run pytest
         working-directory: backend
         env:
-          DJANGO_SETTINGS_MODULE: reqflow.settings_test
+          DJANGO_SETTINGS_MODULE: reqogniloom.settings_test
           SECRET_KEY: ci-test-secret-key
           AUTH_JWT_SECRET: ci-test-auth-jwt-secret
           DEBUG: 'True'

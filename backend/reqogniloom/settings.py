@@ -210,7 +210,7 @@ MIDDLEWARE = [
 # ---------------------------------------------------------------------------
 # URL Configuration
 # ---------------------------------------------------------------------------
-ROOT_URLCONF = "reqflow.urls"
+ROOT_URLCONF = "reqogniloom.urls"
 
 # ---------------------------------------------------------------------------
 # Templates
@@ -234,8 +234,8 @@ TEMPLATES = [
 # ---------------------------------------------------------------------------
 # WSGI / ASGI
 # ---------------------------------------------------------------------------
-WSGI_APPLICATION = "reqflow.wsgi.application"
-ASGI_APPLICATION = "reqflow.asgi.application"
+WSGI_APPLICATION = "reqogniloom.wsgi.application"
+ASGI_APPLICATION = "reqogniloom.asgi.application"
 
 # ---------------------------------------------------------------------------
 # Database — ARCH-L1-010 PersistenceLayer
@@ -244,9 +244,9 @@ ASGI_APPLICATION = "reqflow.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB_NAME", default="reqflow"),
-        "USER": config("DB_USER", default="reqflow"),
-        "PASSWORD": config("DB_PASSWORD", default="reqflow"),
+        "NAME": config("DB_NAME", default="reqogniloom"),
+        "USER": config("DB_USER", default="reqogniloom"),
+        "PASSWORD": config("DB_PASSWORD", default="reqogniloom"),
         "HOST": config("DB_HOST", default="postgres"),
         "PORT": config("DB_PORT", default="5432"),
     }
@@ -307,7 +307,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # REQ-071: unify all DRF errors into {"error": {"code", "message", "details"}}
-    "EXCEPTION_HANDLER": "rest_api.error_envelope.reqflow_exception_handler",
+    "EXCEPTION_HANDLER": "rest_api.error_envelope.reqogniloom_exception_handler",
     # COMP-RA-002: Pagination — default 25, max 100 (REQ-L3-RA002-003)
     "DEFAULT_PAGINATION_CLASS": "rest_api.serializers.StandardPagination",
     "PAGE_SIZE": 25,
@@ -326,7 +326,7 @@ REST_FRAMEWORK = {
 #   the schema URL is accessible publicly via the URL conf).
 # ---------------------------------------------------------------------------
 SPECTACULAR_SETTINGS = {
-    "TITLE": "ReqFlow API",
+    "TITLE": "ReqogniLoom API",
     "DESCRIPTION": (
         "AI-native Requirements Management Tool. "
         "Dual-interface: REST API + MCP Server (ADR-01). "
@@ -349,7 +349,7 @@ SPECTACULAR_SETTINGS = {
                 "description": (
                     "Bearer token authentication. "
                     "Use 'Authorization: Bearer <token>' header. "
-                    "API keys (rf_ prefix) are also accepted via this header."
+                    "API keys (reqlo_ prefix) are also accepted via this header."
                 ),
             }
         }
@@ -366,8 +366,8 @@ SPECTACULAR_SETTINGS = {
 # in all environments (both test and production).
 # ---------------------------------------------------------------------------
 AUTH_JWT_SECRET: str = _get_required_secret("AUTH_JWT_SECRET")
-AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqflow")
-AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqflow-api")
+AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqogniloom")
+AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqogniloom-api")
 # Access-token lifetime in seconds (default 12h).
 AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=43200, cast=int)
 
@@ -501,7 +501,7 @@ LOGGING = {
             "level": "DEBUG" if DEBUG else "WARNING",
             "propagate": False,
         },
-        "reqflow": {
+        "reqogniloom": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
