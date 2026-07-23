@@ -209,3 +209,65 @@ def test_real_services_construct_without_error(service_class_path, prefix):
     assert group._update_method is not None
     assert group._delete_method is not None
     assert group._read_method is not None
+
+
+# ---------------------------------------------------------------------------
+# Concrete field schemas (Codeberg #94 — generic additionalProperties: True
+# gave no discoverability of the real fields per entity)
+# ---------------------------------------------------------------------------
+
+_EXPECTED_CREATE_FIELDS = {
+    "adr": {"title", "description", "context", "consequences", "status", "uid"},
+    "risk": {
+        "title", "probability", "impact", "description", "category", "owner",
+        "mitigation_strategy", "status", "uid", "detection", "owner_user_id",
+    },
+    "issue": {
+        "title", "severity", "description", "category", "assignee_id",
+        "due_date", "tags", "status", "uid",
+    },
+    "glossary": {"term", "definition", "synonyms", "abbreviation"},
+}
+
+_EXPECTED_UPDATE_FIELDS = {
+    "adr": {"title", "description", "context", "consequences", "change_reason"},
+    "risk": {
+        "title", "description", "probability", "impact", "category", "owner",
+        "mitigation_strategy", "change_reason", "detection", "owner_user_id",
+    },
+    "issue": {
+        "title", "description", "severity", "category", "due_date", "tags",
+        "change_reason",
+    },
+    "glossary": {"definition", "synonyms", "abbreviation"},
+}
+
+
+@pytest.mark.parametrize(
+    "service_class_path,prefix",
+    [
+        ("application.adr_service.AdrService", "adr"),
+        ("application.risk_service.RiskService", "risk"),
+        ("application.issue_service.IssueService", "issue"),
+        ("application.glossary_service.GlossaryService", "glossary"),
+    ],
+)
+def test_create_and_update_schemas_expose_concrete_fields(service_class_path, prefix):
+    """The generic CRUD schemas must list concrete, entity-specific field
+    names — not just a bare additionalProperties: True bag (Codeberg #94)."""
+    import importlib
+
+    module_path, class_name = service_class_path.rsplit(".", 1)
+    service_class = getattr(importlib.import_module(module_path), class_name)
+
+    group = GenericCrudToolGroup(prefix, service_class)
+    schemas = {s["name"]: s for s in group.get_tool_schemas()}
+
+    create_props = set(schemas[f"{prefix}.create"]["inputSchema"]["properties"].keys())
+    update_props = set(schemas[f"{prefix}.update"]["inputSchema"]["properties"].keys())
+
+    assert _EXPECTED_CREATE_FIELDS[prefix] <= create_props
+    assert _EXPECTED_UPDATE_FIELDS[prefix] <= update_props
+    # additionalProperties stays True — no behaviour change, just documentation.
+    assert schemas[f"{prefix}.create"]["inputSchema"]["additionalProperties"] is True
+    assert schemas[f"{prefix}.update"]["inputSchema"]["additionalProperties"] is True

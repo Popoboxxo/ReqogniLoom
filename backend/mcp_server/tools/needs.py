@@ -9,6 +9,7 @@ from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
+    optional_uuid,
     require_param,
     require_uuid,
 )
@@ -32,6 +33,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
 
     _TOOL_MAP = {
         "needs.read": "_handle_read",
+        "needs.query": "_handle_query",
         "needs.create": "_handle_create",
         "needs.update": "_handle_update",
         "needs.get_traces": "_handle_get_traces",
@@ -48,6 +50,21 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                     "id": {"type": "string", "description": "UUID of the stakeholder need."},
                 },
                 "required": ["id"],
+            },
+        },
+        {
+            "name": "needs.query",
+            "description": "List StakeholderNeeds for a workspace.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "include_deleted": {
+                        "type": "boolean",
+                        "description": "Include soft-deleted needs (default: false).",
+                    },
+                },
+                "required": ["workspace_id"],
             },
         },
         {
@@ -128,6 +145,25 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         return ToolResult.ok({"need": _need_to_dict(need)})
+
+    def _handle_query(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """needs.query — list StakeholderNeeds, optionally filtered by workspace."""
+        workspace_id = optional_uuid(params, "workspace_id")
+        if not workspace_id:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'workspace_id' is required for needs.query.",
+            )
+        include_deleted = bool(params.get("include_deleted", False))
+        needs = self._service.list_by_workspace(
+            auth_context, workspace_id, include_deleted=include_deleted
+        )
+        return ToolResult.ok({
+            "needs": [_need_to_dict(n) for n in needs],
+            "count": len(needs),
+        })
 
     def _handle_create(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str

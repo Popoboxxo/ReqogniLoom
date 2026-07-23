@@ -15,11 +15,13 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 interface WorkspaceCardProps {
   workspace: WorkspaceWithMetrics;
   onSelect: (workspace: WorkspaceWithMetrics) => void;
+  onOpenSettings: (workspace: WorkspaceWithMetrics) => void;
 }
 
 export function WorkspaceCard({
   workspace,
   onSelect,
+  onOpenSettings,
 }: WorkspaceCardProps): JSX.Element {
   const { t } = useTranslation();
   const { terminologyLabel } = useWorkspace();
@@ -84,7 +86,15 @@ export function WorkspaceCard({
           >
             {workspace.name}
           </h3>
-          <span
+          <button
+            type="button"
+            data-testid="workspace-card-preset-badge"
+            title={t("dashboard.changeMode")}
+            aria-label={t("dashboard.changeMode")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenSettings(workspace);
+            }}
             style={{
               background: "var(--color-badge-draft)",
               color: "var(--color-badge-draft-text)",
@@ -94,10 +104,13 @@ export function WorkspaceCard({
               fontWeight: 600,
               whiteSpace: "nowrap",
               flexShrink: 0,
+              border: "none",
+              cursor: "pointer",
+              font: "inherit",
             }}
           >
             {workspace.preset}
-          </span>
+          </button>
         </div>
         <div
           style={{

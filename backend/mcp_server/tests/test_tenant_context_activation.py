@@ -121,7 +121,11 @@ def _build_registry(
     authz_svc.active_roles_for.return_value = roles
     authz_svc.decide_access.return_value = MagicMock(allow=True)
 
-    registry = ToolRegistry(auth_service=auth_svc, authz_service=authz_svc)
+    registry = ToolRegistry(
+        auth_service=auth_svc,
+        authz_service=authz_svc,
+        workspace_exists=lambda workspace_id: True,
+    )
 
     stub_group = MagicMock()
 

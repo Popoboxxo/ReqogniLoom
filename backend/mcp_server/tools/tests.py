@@ -196,14 +196,17 @@ class McpTestToolGroup(BaseToolGroup):
         },
         {
             "name": "test.run_report_results",
-            "description": "Add a bulk list of results to a TestRun (write, audited).",
+            "description": "Add result(s) to a TestRun (write, audited).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "run_id": {"type": "string", "description": "UUID of the test run."},
                     "results": {
                         "type": "array",
-                        "description": "List of result entries.",
+                        "description": (
+                            "List of result entries. A single result object "
+                            "(not wrapped in an array) is also accepted."
+                        ),
                         "items": {
                             "type": "object",
                             "properties": {
@@ -600,6 +603,10 @@ class McpTestToolGroup(BaseToolGroup):
         """
         run_id = require_uuid(params, "run_id")
         results_raw = params.get("results", [])
+
+        # Accept a single result object as well as a list (REQ-L2-MC-013).
+        if isinstance(results_raw, dict):
+            results_raw = [results_raw]
 
         if not results_raw or not isinstance(results_raw, list):
             return ToolResult.error(

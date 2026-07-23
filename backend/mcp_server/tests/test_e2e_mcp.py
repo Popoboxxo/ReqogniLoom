@@ -92,7 +92,11 @@ def _build_registry(*, roles=("admin",), service: MagicMock = None):
         allow=("viewer" not in roles)
     )
 
-    registry = ToolRegistry(auth_service=auth_svc, authz_service=authz_svc)
+    registry = ToolRegistry(
+        auth_service=auth_svc,
+        authz_service=authz_svc,
+        workspace_exists=lambda workspace_id: True,
+    )
 
     # Force the real groups to be initialised, then swap in a mocked
     # WorkspaceService for AdminToolGroup so the lifecycle handlers

@@ -117,9 +117,14 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
   // ---- Visibility ----
 
   describe('visibility', () => {
-    it('renders dialog when isOpen=true', () => {
+    it('renders dialog when isOpen=true', async () => {
       renderDialog();
       expect(screen.getByTestId('create-trace-link-dialog')).toBeInTheDocument();
+      // Opening the dialog kicks off an async element load; await it so its
+      // state updates settle inside act() and don't leak past the assertion.
+      await waitFor(() => {
+        expect(screen.getByTestId('create-trace-link-target-list')).toBeInTheDocument();
+      });
     });
 
     it('does not render when isOpen=false', () => {
@@ -139,7 +144,7 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
       expect(onClose).toHaveBeenCalledOnce();
     });
 
-    it('calls onClose when backdrop is clicked', () => {
+    it('calls onClose when backdrop is clicked', async () => {
       const onClose = vi.fn();
       renderDialog({ onClose });
 
@@ -148,6 +153,10 @@ describe('CreateTraceLinkDialog (REQ-005)', () => {
       fireEvent.click(overlay, { target: overlay });
       // Note: jsdom doesn't propagate e.target correctly for overlay clicks,
       // so we test just that the dialog renders and close button works separately.
+      // Await the async element load so its state updates settle inside act().
+      await waitFor(() => {
+        expect(screen.getByTestId('create-trace-link-target-list')).toBeInTheDocument();
+      });
       expect(screen.getByTestId('create-trace-link-dialog')).toBeInTheDocument();
     });
   });

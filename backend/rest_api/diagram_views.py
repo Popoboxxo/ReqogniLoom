@@ -44,6 +44,7 @@ from diagram.services import (
     list_versions,
     update_diagram,
     DiagramResult,
+    DiagramValidationError,
 )
 from persistence.models import Tenant, User
 from rest_api.auth_enforcer import get_auth_context
@@ -194,6 +195,14 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
                 self._diagram_to_dict(diagram),
                 status=status.HTTP_201_CREATED,
             )
+        except DiagramValidationError as exc:
+            # REQ-L3-DV-001/CR-02: payload failed type-specific validation
+            # (e.g. type=block without 'nodes') — fail cleanly with 400
+            # instead of leaking as an unhandled 500.
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             return Response(
                 build_error_response("INTERNAL_SERVER_ERROR", lang, message=str(exc)),
@@ -261,6 +270,12 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
             return Response(
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except DiagramValidationError as exc:
+            # Same validation-before-persistence contract as create() (CR-02).
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as exc:
             return Response(

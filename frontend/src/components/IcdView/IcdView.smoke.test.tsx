@@ -149,4 +149,46 @@ describe("IcdView (REQ-053 smoke tests)", () => {
     const inputs = document.querySelectorAll("input, textarea, select");
     expect(inputs.length).toBeGreaterThan(0);
   });
+
+  it("[Codeberg #115] shows a hint when fewer than two architecture elements exist", async () => {
+    vi.mocked(icdsModule.icdsApi.list).mockResolvedValue({ results: [] } as any);
+    vi.mocked(archModule.architectureApi.listAll).mockResolvedValue([
+      { id: "arch-only-one", title: "Lonely Element", element_type: "component" },
+    ] as any);
+    const user = userEvent.setup();
+
+    renderIcdView();
+
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    const createBtn = screen.getByRole("button", { name: /new|create|icd/i });
+    await user.click(createBtn);
+
+    expect(
+      await screen.findByTestId("icd-needs-elements-hint"),
+    ).toBeInTheDocument();
+  });
+
+  it("[Codeberg #115] does not show the hint once two or more architecture elements exist", async () => {
+    vi.mocked(icdsModule.icdsApi.list).mockResolvedValue({ results: [] } as any);
+    vi.mocked(archModule.architectureApi.listAll).mockResolvedValue([
+      { id: "arch-001", title: "Element A", element_type: "component" },
+      { id: "arch-002", title: "Element B", element_type: "component" },
+    ] as any);
+    const user = userEvent.setup();
+
+    renderIcdView();
+
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    const createBtn = screen.getByRole("button", { name: /new|create|icd/i });
+    await user.click(createBtn);
+
+    await screen.findByTestId("create-icd-form");
+    expect(screen.queryByTestId("icd-needs-elements-hint")).not.toBeInTheDocument();
+  });
 });

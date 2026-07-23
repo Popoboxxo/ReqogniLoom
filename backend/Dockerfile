@@ -50,6 +50,15 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Codeberg #99: pytest run as the non-root "app" user (below) cannot always
+# create /app/.pytest_cache/... (e.g. read-only/foreign-UID container
+# filesystems in some orchestrators). The cache buys nothing across ephemeral
+# containers anyway, so disable the cache provider for any pytest invocation
+# inside this image rather than chasing filesystem permissions. Host-side
+# `pytest` runs (outside Docker) are unaffected, since this only applies
+# within this container's environment.
+ENV PYTEST_ADDOPTS="-p no:cacheprovider"
+
 # Install runtime-only system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \

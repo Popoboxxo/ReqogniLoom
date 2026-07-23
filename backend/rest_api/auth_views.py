@@ -89,6 +89,16 @@ class LoginView(APIView):
     PUBLIC endpoint: ``authentication_classes`` is emptied and ``AllowAny`` is set
     so neither the global ``BearerTokenAuthentication`` nor ``RbacPermission``
     apply (a caller without a token must be able to log in).
+
+    .. note:: ``tenant_id`` vs. ``workspace_id`` (Codeberg #89)
+        The response body's ``tenant_id`` identifies the *tenant* — the
+        row-level-security isolation boundary (one tenant may contain several
+        workspaces). It is **not** the same value that most CRUD endpoints
+        expect as the ``workspace_id`` query parameter, which selects a
+        specific preset/configuration scope *within* that tenant. Callers must
+        fetch the caller's workspaces via ``GET /api/v1/workspaces/`` (scoped
+        automatically to the resolved tenant) and pass the desired workspace's
+        ``id`` as ``workspace_id`` on subsequent requests.
     """
 
     authentication_classes: list = []
@@ -127,6 +137,8 @@ class LoginView(APIView):
             {
                 "token": token,
                 "user": _user_payload(user, roles),
+                # Tenant isolation boundary, NOT the workspace_id required by CRUD
+                # endpoints — see the class docstring (Codeberg #89).
                 "tenant_id": str(user.tenant_id) if user.tenant_id else None,
                 "roles": list(roles),
             },

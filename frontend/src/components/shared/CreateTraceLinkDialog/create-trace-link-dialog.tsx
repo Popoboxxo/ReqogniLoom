@@ -19,6 +19,7 @@ import React, {
   useEffect,
   useMemo,
   useCallback,
+  useRef,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { requirementsApi } from '../../../api/requirements';
@@ -361,6 +362,16 @@ export function CreateTraceLinkDialog({
 }: CreateTraceLinkDialogProps): JSX.Element | null {
   const { t } = useTranslation();
 
+  // Keep the latest `t` in a ref so data-loading callbacks can read it without
+  // taking a dependency on it. react-i18next normally returns a referentially
+  // stable `t`, but a language switch (or an unstable test/wrapper) yields a
+  // fresh `t` on every render. If `loadElements` depended on `t` directly, a
+  // new `loadElements` identity each render would re-fire the open/reset effect
+  // below (which calls it), producing an infinite re-render loop that starves
+  // the event loop. Reading `t` via a ref keeps `loadElements` stable.
+  const tRef = useRef(t);
+  tRef.current = t;
+
   // All loaded elements (before filtering)
   const [allElements, setAllElements] = useState<TargetElement[]>([]);
   const [isLoadingElements, setIsLoadingElements] = useState(false);
@@ -393,13 +404,14 @@ export function CreateTraceLinkDialog({
         issuesApi.listAll(workspaceId).catch(() => []),
       ]);
 
+      const untitled = tRef.current('editor.untitled');
       const all: TargetElement[] = [
-        ...reqs.map((r) => ({ id: r.id, title: r.title || t('editor.untitled'), artifactType: 'requirement' as const })),
-        ...archs.map((a) => ({ id: a.id, title: a.title || t('editor.untitled'), artifactType: 'architecture' as const })),
-        ...tcs.map((tc) => ({ id: tc.id, title: tc.title || t('editor.untitled'), artifactType: 'testcase' as const })),
-        ...adrList.map((a) => ({ id: a.id, title: a.title || t('editor.untitled'), artifactType: 'adr' as const })),
-        ...riskList.map((r) => ({ id: r.id, title: r.title || t('editor.untitled'), artifactType: 'risk' as const })),
-        ...issueList.map((i) => ({ id: i.id, title: i.title || t('editor.untitled'), artifactType: 'issue' as const })),
+        ...reqs.map((r) => ({ id: r.id, title: r.title || untitled, artifactType: 'requirement' as const })),
+        ...archs.map((a) => ({ id: a.id, title: a.title || untitled, artifactType: 'architecture' as const })),
+        ...tcs.map((tc) => ({ id: tc.id, title: tc.title || untitled, artifactType: 'testcase' as const })),
+        ...adrList.map((a) => ({ id: a.id, title: a.title || untitled, artifactType: 'adr' as const })),
+        ...riskList.map((r) => ({ id: r.id, title: r.title || untitled, artifactType: 'risk' as const })),
+        ...issueList.map((i) => ({ id: i.id, title: i.title || untitled, artifactType: 'issue' as const })),
       ];
 
       setAllElements(all);
@@ -408,7 +420,7 @@ export function CreateTraceLinkDialog({
     } finally {
       setIsLoadingElements(false);
     }
-  }, [workspaceId, t]);
+  }, [workspaceId]);
 
   // Reset form and load elements when the dialog opens
   useEffect(() => {

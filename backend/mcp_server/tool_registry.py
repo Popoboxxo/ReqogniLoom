@@ -34,11 +34,12 @@ import hashlib
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
+from auth_tenancy.models import ROLE_ADMIN
 from auth_tenancy.services.authentication import AuthenticationService
 from auth_tenancy.services.authorization import AuthorizationService, Operation
 
@@ -217,9 +218,11 @@ class ToolRegistry:
         self,
         auth_service: Optional[AuthenticationService] = None,
         authz_service: Optional[AuthorizationService] = None,
+        workspace_exists: Optional[Callable[[str], bool]] = None,
     ) -> None:
         self._auth_service = auth_service or AuthenticationService()
         self._authz_service = authz_service or AuthorizationService()
+        self._workspace_exists_fn = workspace_exists or self._default_workspace_exists
         self._preset_cache = PresetCache()
         self._router: Optional[ToolGroupRouter] = None
 
@@ -411,10 +414,16 @@ class ToolRegistry:
 
             # --- Step 2: Resolve active roles ---
             workspace_id: Optional[str] = params.get("workspace_id")
+            if workspace_id and not self._workspace_exists_fn(workspace_id):
+                return ToolResult.error(
+                    "WORKSPACE_NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
+                )
             auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
 
             # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
-            if self._is_write_tool(tool_name):
+            if self._is_write_tool(tool_name) and not self._is_bootstrap_candidate(
+                tool_name, params, auth_ctx  # type: ignore[arg-type]
+            ):
                 rbac_error = self._check_rbac(auth_ctx)  # type: ignore[arg-type]
                 if rbac_error:
                     return ToolResult.error("PERMISSION_DENIED", rbac_error)
@@ -465,15 +474,21 @@ class ToolRegistry:
             (None, error_message) on failure.
         """
         if not api_key.startswith("rf_"):
-            # MCP only accepts API keys (rf_...), never JWT bearer tokens
-            # (REQ-052 cookie/JWT auth is REST-only). A JWT sent via
-            # Authorization: Bearer would otherwise fail key lookup with the
-            # misleading "invalid_api_key" — this makes the real cause explicit.
+            # By design, MCP only accepts API keys (rf_...), never JWT bearer
+            # tokens: REQ-L2-MC-006 mandates API-key auth for the MCP server,
+            # and REQ-052 confines cookie/JWT auth to the REST adapter. This
+            # is unrelated to REQ-126 (symmetric role resolution for the REST
+            # Bearer-token path) — that requirement never changed MCP's auth
+            # method. A JWT sent via Authorization: Bearer would otherwise
+            # fail key lookup with the misleading "invalid_api_key" — this
+            # makes the real cause explicit.
             logger.debug("MCP auth: credential does not match API-key format")
             return None, (
                 "Authentication failed: bearer_not_supported — MCP requires an "
                 "API key (X-API-Key header or 'Authorization: Bearer rf_...'), "
-                "not a JWT bearer token"
+                "not a JWT bearer token. This is intentional (REQ-L2-MC-006, "
+                "REQ-052) and independent of REQ-126, which only concerns the "
+                "REST Bearer-token role-resolution path."
             )
 
         try:
@@ -574,6 +589,26 @@ class ToolRegistry:
         """Return True if tool_name is a write operation."""
         return any(tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES)
 
+    def _is_bootstrap_candidate(
+        self, tool_name: str, params: Dict[str, Any], ctx: AuthContext
+    ) -> bool:
+        """SEC-05: let a self-targeted admin-bootstrap ``user.assign_role``
+        call past the blanket write-RBAC gate.
+
+        This only defers the decision to ``AuthorizationService.assign_role``,
+        which still enforces the real invariant (zero active admins in the
+        target workspace) before the assignment is actually persisted, so a
+        caller who isn't genuinely bootstrapping still gets rejected there.
+        """
+        if tool_name != "user.assign_role":
+            return False
+        if str(params.get("role", "")).lower() != ROLE_ADMIN:
+            return False
+        try:
+            return UUID(str(params.get("user_id"))) == ctx.user_id
+        except (ValueError, TypeError):
+            return False
+
     def _check_rbac(self, ctx: AuthContext) -> Optional[str]:
         """Return error message if write is not permitted, else None.
 
@@ -615,6 +650,24 @@ class ToolRegistry:
                 return False
 
         return not features.get(feature_key, True)
+
+    @staticmethod
+    def _default_workspace_exists(workspace_id: str) -> bool:
+        """Return True if workspace_id refers to a real Workspace row.
+
+        Guards against #95: a malformed or nonexistent workspace_id used to
+        fail open (empty roles / auto-created preset config) and let read
+        tools proceed with an HTTP 200 instead of a clear error. Injectable
+        via the ``workspace_exists`` constructor arg so tests can stub it
+        out without needing DB access, matching auth_service/authz_service.
+        """
+        from persistence.models import Workspace
+
+        try:
+            workspace_uuid = UUID(str(workspace_id))
+        except (ValueError, TypeError):
+            return False
+        return Workspace.objects.filter(id=workspace_uuid).exists()
 
     @staticmethod
     def hash_api_key(plaintext: str) -> str:

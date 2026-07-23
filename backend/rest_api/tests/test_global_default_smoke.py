@@ -103,7 +103,8 @@ def test_global_permission_matrix_and_flip(admin_client):
     resp = client.get("/api/v1/permission-defaults/")
     assert resp.status_code == 200, resp.content
     body = resp.json()
-    assert body["enforcement_mode"] == "shadow"
+    # SEC-02: new tenants start authoritative (matrix mirrors legacy 1:1).
+    assert body["enforcement_mode"] == "authoritative"
     assert body["permission_json"]["editor"]["read"] is True
 
     # PUT with enforcement_mode in body → 400 ENFORCEMENT_MODE_NOT_EDITABLE_HERE.
@@ -135,6 +136,16 @@ def test_global_permission_matrix_and_flip(admin_client):
     assert resp.status_code == 200
     assert resp.json()["pending_mismatch_count"] == 0
 
+    # Rollback to shadow needs no confirmation (puts the tenant into the
+    # shadow phase so the guarded shadow→authoritative flip can be tested).
+    resp = client.post(
+        "/api/v1/permission-defaults/enforcement/flip/",
+        {"enforcement_mode": "shadow"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.json()["enforcement_mode"] == "shadow"
+
     # Flip guard: wrong confirmed count → 409 MISMATCH_COUNT_STALE.
     resp = client.post(
         "/api/v1/permission-defaults/enforcement/flip/",
@@ -152,15 +163,6 @@ def test_global_permission_matrix_and_flip(admin_client):
     )
     assert resp.status_code == 200, resp.content
     assert resp.json()["enforcement_mode"] == "authoritative"
-
-    # Rollback needs no confirmation.
-    resp = client.post(
-        "/api/v1/permission-defaults/enforcement/flip/",
-        {"enforcement_mode": "shadow"},
-        format="json",
-    )
-    assert resp.status_code == 200
-    assert resp.json()["enforcement_mode"] == "shadow"
 
 
 @override_settings(**_JWT)

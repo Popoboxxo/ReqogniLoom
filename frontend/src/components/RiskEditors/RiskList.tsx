@@ -84,6 +84,17 @@ export function RiskList({
 
   return (
     <div>
+      <h3
+        style={{
+          fontSize: 'var(--font-size-lg)',
+          fontWeight: 600,
+          margin: 0,
+          marginBottom: 'var(--space-3)',
+          color: 'var(--color-text)',
+        }}
+      >
+        {t('nav.risks')}
+      </h3>
       <ListToolbar
         testIdPrefix="risk-list"
         searchValue={listSearch}

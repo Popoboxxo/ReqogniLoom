@@ -56,6 +56,15 @@ class SimilarTraceLinkDTO:
     similarity_score: float
 
 
+@dataclass
+class TraceEdgeDTO:
+    """A single incoming/outgoing TraceLink edge (MCP-05, Codeberg #117)."""
+
+    source_id: UUID
+    target_id: UUID
+    link_type: str
+
+
 class TraceLinkService(ServiceBase):
     """TraceLink CRUD and cascade-delete for COMP-AS-005.
 
@@ -659,6 +668,31 @@ class TraceLinkService(ServiceBase):
                 if getattr(r, "link_type", None) == link_type
             ]
         return results
+
+    def list_incoming(self, entity_id: UUID, ctx: AuthContext) -> List[TraceEdgeDTO]:
+        """List TraceLinks where *entity_id* is the target (MCP-05, Codeberg #117).
+
+        "Incoming" mirrors upstream traversal (QueryEngine returns the link
+        sources for links whose target is *entity_id*, see
+        propagate_suspect_status below for the upstream/downstream convention).
+        """
+        neighbors = self.query_trace_links(entity_id, direction="upstream", ctx=ctx)
+        return [
+            TraceEdgeDTO(
+                source_id=n.entity_id, target_id=entity_id, link_type=n.link_type
+            )
+            for n in neighbors
+        ]
+
+    def list_outgoing(self, entity_id: UUID, ctx: AuthContext) -> List[TraceEdgeDTO]:
+        """List TraceLinks where *entity_id* is the source (MCP-05, Codeberg #117)."""
+        neighbors = self.query_trace_links(entity_id, direction="downstream", ctx=ctx)
+        return [
+            TraceEdgeDTO(
+                source_id=entity_id, target_id=n.entity_id, link_type=n.link_type
+            )
+            for n in neighbors
+        ]
 
     def propagate_suspect_status(self, source_id: UUID, ctx: AuthContext) -> None:
         """Propagate 'suspect' status to dependent artifacts (SN-30).

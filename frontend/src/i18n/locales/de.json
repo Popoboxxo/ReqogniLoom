@@ -168,9 +168,10 @@
     "saved": "Konfiguration erfolgreich gespeichert."
   },
   "dashboard": {
-    "openItems": "Offene Elemente",
+    "openItems": "Anforderungsentwürfe (Entwurf)",
     "preset": "Preset",
-    "empty": "Kein Workspace gefunden."
+    "empty": "Kein Workspace gefunden.",
+    "changeMode": "SE-Modus in Workspace-Einstellungen ändern"
   },
   "editor": {
     "title": "Titel",
@@ -265,6 +266,7 @@
     "upstream": "Upstream-Links",
     "downstream": "Downstream-Links",
     "none": "Keine Links vorhanden.",
+    "unresolved": "Nicht auflösbar",
     "placeholder": "Traceability-Anzeige — in Bearbeitung.",
     "empty": "Keine TraceLinks vorhanden.",
     "source": "Quelle",
@@ -461,13 +463,13 @@
     "saved": "Gespeichert.",
     "customFields": {
       "title": "Benutzerdefinierte Felder",
-      "description": "Definiere zusätzliche Felder, die workspace-weit an allen Artefakten erscheinen.",
+      "description": "Definiere zusätzliche Felder für dieses Workspace. Definierte Felder erscheinen im Bearbeitungsformular jeder Anforderung (Requirement) und können dort ausgefüllt werden.",
       "name": "Name",
       "type": "Typ",
       "required": "Pflicht",
       "options": "Optionen",
       "optionsHint": "Optionen, Komma-getrennt",
-      "empty": "Noch keine Felder definiert."
+      "empty": "Noch keine Felder definiert. Lege unten dein erstes Feld an — es erscheint danach automatisch im Bearbeitungsformular jeder Anforderung, wo es ausgefüllt werden kann."
     },
     "dataManagement": "Datenverwaltung",
     "dataManagementHint": "Bestehende Anforderungen aus einer CSV-Datei importieren.",
@@ -554,6 +556,7 @@
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
     "empty": "Noch keine ICDs definiert. Erstellen Sie eines, um den Vertrag zwischen zwei Architekturelementen zu erfassen.",
+    "needsElementsHint": "Es werden mindestens zwei Architekturelemente benötigt, um ein ICD anzulegen. Legen Sie diese zuerst im Bereich Architektur an.",
     "create": "Neues ICD",
     "newVersion": "Neue Version",
     "nameLabel": "ICD-Name",

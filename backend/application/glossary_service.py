@@ -142,7 +142,7 @@ class GlossaryService(ServiceBase):
 
         # Update version and save
         gt.version = F("version") + 1
-        gt.modified_by_id = ctx.actor_id
+        gt.modified_by_id = ctx.user_id
         gt.save(update_fields=["definition", "synonyms", "abbreviation", "version", "modified_at", "modified_by"])
         gt.refresh_from_db(fields=["version"])
 

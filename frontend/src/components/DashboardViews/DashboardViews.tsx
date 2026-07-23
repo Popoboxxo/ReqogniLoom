@@ -32,6 +32,12 @@ export default function DashboardViews(): JSX.Element {
     navigate("/requirements");
   };
 
+  // UI-06: navigate to workspace settings (SE-mode switch) from the dashboard card
+  const handleOpenSettings = (workspace: WorkspaceWithMetrics): void => {
+    setActiveWorkspace(workspace);
+    navigate("/settings");
+  };
+
   if (isLoading) {
     return (
       <p
@@ -131,6 +137,7 @@ export default function DashboardViews(): JSX.Element {
               key={ws.id}
               workspace={ws}
               onSelect={handleSelectWorkspace}
+              onOpenSettings={handleOpenSettings}
             />
           ))}
         </div>
