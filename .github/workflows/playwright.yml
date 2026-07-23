@@ -81,7 +81,7 @@ jobs:
         run: python manage.py runserver 0.0.0.0:8000 &
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
