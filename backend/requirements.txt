@@ -12,7 +12,7 @@ psycopg2-binary>=2.9,<3.0
 # Vector similarity search (REQ-L2-VS-004) — pgvector Django integration
 # (VectorField, HnswIndex, CosineDistance). Requires the pgvector Postgres
 # extension in the DB image (pgvector/pgvector:pg16, provisioned by devops).
-pgvector>=0.3.0,<0.4.0
+pgvector>=0.5.0,<0.6.0
 
 # Async task queue (ARCH-L1-016 ResilienceOrchestrator)
 celery>=5.3,<6.0
