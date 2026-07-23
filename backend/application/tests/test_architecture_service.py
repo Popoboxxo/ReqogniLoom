@@ -401,8 +401,9 @@ class TestDeleteArchitectureElement:
             with pytest.raises(NotFoundError, match="ArchitectureElement"):
                 svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
 
-    def test_soft_delete_sets_lifecycle_status(self):
-        """REQ-006: delete_architecture_element sets lifecycle_status='deleted', does NOT hard-delete."""
+    def test_delete_calls_outdate(self):
+        """REQ-006/Phase 0: delete_architecture_element routes the soft-delete
+        through workflow.services.outdate(), does NOT hard-delete."""
         svc = ArchitectureService()
         ctx = _make_ctx()
         mock_el = _make_arch_el()
@@ -425,13 +426,19 @@ class TestDeleteArchitectureElement:
             ),
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
 
-        # REQ-006: lifecycle_status set to 'deleted', NOT hard-deleted
-        assert mock_el.lifecycle_status == "deleted"
-        mock_el.save.assert_called_once_with(update_fields=["lifecycle_status"])
+        mock_outdate.assert_called_once_with(
+            item_id=mock_el.id,
+            item_type="ArchitectureElement",
+            workspace_id=mock_el.artifact.workspace_id,
+            ctx=ctx,
+            reason="deleted via architecture.delete",
+        )
         mock_el.delete.assert_not_called()
+        mock_el.save.assert_not_called()
 
     def test_soft_delete_does_not_cascade_tracelinks(self):
         """REQ-006: soft-delete must NOT cascade-delete TraceLinks (preserve audit trail)."""
@@ -460,6 +467,7 @@ class TestDeleteArchitectureElement:
             ) as mock_cascade,
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate"),
         ):
             svc.delete_architecture_element(arch_el_id=ARCH_EL_ID, ctx=ctx)
 

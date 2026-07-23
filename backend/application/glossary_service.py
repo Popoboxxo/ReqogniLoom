@@ -169,6 +169,14 @@ class GlossaryService(ServiceBase):
         gt = GlossaryTerm.objects.filter(id=term_id).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
-        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
-        gt.lifecycle_status = "deleted"
-        gt.save(update_fields=["lifecycle_status"])
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of writing lifecycle_status directly.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=gt.id,
+            item_type="GlossaryTerm",
+            workspace_id=gt.workspace_id,
+            ctx=ctx,
+            reason="deleted via glossary.delete",
+        )

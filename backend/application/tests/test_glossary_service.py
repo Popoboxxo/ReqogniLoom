@@ -84,22 +84,31 @@ class TestGlossaryTermDTO:
 class TestGlossaryServiceSoftDelete:
     """REQ-006: delete() must soft-delete (lifecycle_status='deleted'), not hard-delete."""
 
-    def test_soft_delete_sets_lifecycle_status(self):
-        """delete() sets lifecycle_status='deleted', NOT gt.delete() (REQ-006)."""
+    def test_delete_calls_outdate(self):
+        """delete() routes the soft-delete through workflow.services.outdate()
+        instead of writing lifecycle_status directly (REQ-006, Phase 0)."""
         svc = GlossaryService()
         ctx = _make_ctx()
         mock_term = _make_term()
         mock_term.save = MagicMock()
 
-        with patch("application.glossary_service.GlossaryTerm.objects") as mock_mgr:
+        with (
+            patch("application.glossary_service.GlossaryTerm.objects") as mock_mgr,
+            patch("workflow.services.outdate") as mock_outdate,
+        ):
             mock_mgr.filter.return_value.first.return_value = mock_term
             svc.delete(ctx, TERM_ID)
 
-        # REQ-006: lifecycle_status set to 'deleted'
-        assert mock_term.lifecycle_status == "deleted"
-        mock_term.save.assert_called_once_with(update_fields=["lifecycle_status"])
-        # Hard-delete must NOT be called
+        mock_outdate.assert_called_once_with(
+            item_id=mock_term.id,
+            item_type="GlossaryTerm",
+            workspace_id=mock_term.workspace_id,
+            ctx=ctx,
+            reason="deleted via glossary.delete",
+        )
+        # Hard-delete must NOT be called, lifecycle_status must not be written directly
         mock_term.delete.assert_not_called()
+        mock_term.save.assert_not_called()
 
     def test_delete_not_found_raises(self):
         """delete() raises NotFoundError when term does not exist."""
