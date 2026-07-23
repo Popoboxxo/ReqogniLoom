@@ -10,7 +10,7 @@ services:
   postgres:
     # Development: lower resource limits OK
     environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-reqflow}  # Weak password OK for dev
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-reqogniloom}  # Weak password OK for dev
 
   backend:
     # Development: Use dev server and hot-reload
@@ -53,7 +53,7 @@ services:
       # Hot-reload: mount source code
       - ./backend:/app
     command: >
-      sh -c "celery -A reqflow worker --loglevel=debug"
+      sh -c "celery -A reqogniloom worker --loglevel=debug"
 
   frontend:
     # Development: Use dev server with Vite hot module replacement

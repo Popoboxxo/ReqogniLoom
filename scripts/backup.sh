@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ###############################################################################
-# PostgreSQL Backup Script for ReqFlow
+# PostgreSQL Backup Script for ReqogniLoom
 #
 # Description:
 #   Backup the PostgreSQL database using pg_dump via Docker Compose.
@@ -16,9 +16,9 @@
 #   ./scripts/backup.sh --list       # List existing backups
 #
 # Environment Variables:
-#   DB_USER      - PostgreSQL username (default: reqflow)
-#   DB_PASSWORD  - PostgreSQL password (default: reqflow)
-#   DB_NAME      - Database name (default: reqflow)
+#   DB_USER      - PostgreSQL username (default: reqogniloom)
+#   DB_PASSWORD  - PostgreSQL password (default: reqogniloom)
+#   DB_NAME      - Database name (default: reqogniloom)
 #   BACKUP_RETENTION_DAYS - Days to keep backups (default: 7)
 #
 # Requirements:
@@ -26,7 +26,7 @@
 #   - postgres service running (docker-compose.yml)
 #   - Write permission to ./backups/ directory
 #
-# Author: ReqFlow DevOps
+# Author: ReqogniLoom DevOps
 # Last Updated: 2026-07-14
 ###############################################################################
 
@@ -171,9 +171,9 @@ main() {
       echo "  --help        Show this help message"
       echo ""
       echo "Environment Variables:"
-      echo "  DB_USER              PostgreSQL username (default: reqflow)"
-      echo "  DB_PASSWORD          PostgreSQL password (default: reqflow)"
-      echo "  DB_NAME              Database name (default: reqflow)"
+      echo "  DB_USER              PostgreSQL username (default: reqogniloom)"
+      echo "  DB_PASSWORD          PostgreSQL password (default: reqogniloom)"
+      echo "  DB_NAME              Database name (default: reqogniloom)"
       echo "  BACKUP_RETENTION_DAYS Days to keep backups (default: 7)"
       ;;
     *)

@@ -1,4 +1,4 @@
-# ReqFlow — Developer Task Runner
+# ReqogniLoom — Developer Task Runner
 #
 # Test targets run against the running Docker Compose dev stack.
 # Start it first with: docker-compose up -d

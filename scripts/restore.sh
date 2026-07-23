@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ###############################################################################
-# PostgreSQL Restore Script for ReqFlow
+# PostgreSQL Restore Script for ReqogniLoom
 #
 # Description:
 #   Restore a PostgreSQL database from a backup dump file created by backup.sh.
@@ -17,14 +17,14 @@
 #   ./scripts/restore.sh --help                     # Show help
 #
 # Examples:
-#   ./scripts/restore.sh backups/reqflow_20260714_143022.dump
+#   ./scripts/restore.sh backups/reqogniloom_20260714_143022.dump
 #   ./scripts/restore.sh --latest
 #   ./scripts/restore.sh --list
 #
 # Environment Variables:
-#   DB_USER      - PostgreSQL username (default: reqflow)
-#   DB_PASSWORD  - PostgreSQL password (default: reqflow)
-#   DB_NAME      - Database name (default: reqflow)
+#   DB_USER      - PostgreSQL username (default: reqogniloom)
+#   DB_PASSWORD  - PostgreSQL password (default: reqogniloom)
+#   DB_NAME      - Database name (default: reqogniloom)
 #   RESTORE_CONFIRM - Skip confirmation if set to "yes" (default: no)
 #
 # Requirements:
@@ -37,7 +37,7 @@
 #   This operation OVERWRITES the current database.
 #   Always verify you have the correct backup file before proceeding.
 #
-# Author: ReqFlow DevOps
+# Author: ReqogniLoom DevOps
 # Last Updated: 2026-07-14
 ###############################################################################
 
@@ -153,7 +153,7 @@ confirm_restore() {
   echo ""
   log_warn "WARNING: This will OVERWRITE the current database!"
   echo -e "  Backup file: ${BLUE}$backup_file${NC}"
-  echo -e "  Database: ${BLUE}${DB_NAME:-reqflow}${NC}"
+  echo -e "  Database: ${BLUE}${DB_NAME:-reqogniloom}${NC}"
   echo ""
 
   read -p "Type 'restore' to confirm, or press Enter to cancel: " -r confirmation
@@ -180,10 +180,10 @@ run_restore() {
 
   if [ "$file_extension" = "dump" ]; then
     # Custom format (pg_restore)
-    restore_command="pg_restore -h postgres -U \${DB_USER:-reqflow} -d \${DB_NAME:-reqflow} --clean --if-exists -v /tmp/backup.dump"
+    restore_command="pg_restore -h postgres -U \${DB_USER:-reqogniloom} -d \${DB_NAME:-reqogniloom} --clean --if-exists -v /tmp/backup.dump"
   elif [ "$file_extension" = "sql" ]; then
     # Plain text SQL format (psql)
-    restore_command="psql -h postgres -U \${DB_USER:-reqflow} -d \${DB_NAME:-reqflow} -f /tmp/backup.sql"
+    restore_command="psql -h postgres -U \${DB_USER:-reqogniloom} -d \${DB_NAME:-reqogniloom} -f /tmp/backup.sql"
   else
     log_error "Unsupported backup file format: $file_extension (expected .dump or .sql)"
     exit 1
@@ -194,7 +194,7 @@ run_restore() {
   # Copy backup file to temp and run restore via postgres container
   if docker-compose --version &> /dev/null; then
     docker-compose -f docker-compose.yml exec -T postgres bash -c "
-      export PGPASSWORD=\${DB_PASSWORD:-reqflow}
+      export PGPASSWORD=\${DB_PASSWORD:-reqogniloom}
       $restore_command
     " < "$backup_file" || {
       log_error "Restore operation failed"
@@ -202,7 +202,7 @@ run_restore() {
     }
   else
     docker compose -f docker-compose.yml exec -T postgres bash -c "
-      export PGPASSWORD=\${DB_PASSWORD:-reqflow}
+      export PGPASSWORD=\${DB_PASSWORD:-reqogniloom}
       $restore_command
     " < "$backup_file" || {
       log_error "Restore operation failed"
@@ -244,13 +244,13 @@ main() {
       echo "  --help        Show this help message"
       echo ""
       echo "Environment Variables:"
-      echo "  DB_USER          PostgreSQL username (default: reqflow)"
-      echo "  DB_PASSWORD      PostgreSQL password (default: reqflow)"
-      echo "  DB_NAME          Database name (default: reqflow)"
+      echo "  DB_USER          PostgreSQL username (default: reqogniloom)"
+      echo "  DB_PASSWORD      PostgreSQL password (default: reqogniloom)"
+      echo "  DB_NAME          Database name (default: reqogniloom)"
       echo "  RESTORE_CONFIRM  Skip confirmation if set to 'yes' (default: no)"
       echo ""
       echo "Examples:"
-      echo "  $0 backups/reqflow_20260714_143022.dump"
+      echo "  $0 backups/reqogniloom_20260714_143022.dump"
       echo "  $0 --latest"
       echo "  RESTORE_CONFIRM=yes $0 --latest"
       ;;

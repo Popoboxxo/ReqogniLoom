@@ -36,8 +36,8 @@ services:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-reqflow}
-      POSTGRES_USER: ${DB_USER:-reqflow}
+      POSTGRES_DB: ${DB_NAME:-reqogniloom}
+      POSTGRES_USER: ${DB_USER:-reqogniloom}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       # NOTE: If you change DB_PASSWORD after initial setup, the existing postgres volume
@@ -51,7 +51,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-reqflow}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-reqogniloom}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,14 +64,14 @@ services:
   # (BACKUP_INTERVAL seconds, default 24h). Each run writes a timestamped,
   # gzip-compressed pg_dump to the postgres_backup_data volume and prunes all
   # but the newest BACKUP_RETENTION (default 7) dumps. Restore with:
-  #   gunzip -c reqflow_<ts>.sql.gz | psql -h postgres -U $DB_USER -d $DB_NAME
+  #   gunzip -c reqogniloom_<ts>.sql.gz | psql -h postgres -U $DB_USER -d $DB_NAME
   postgres-backup:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_HOST: postgres
-      POSTGRES_DB: ${DB_NAME:-reqflow}
-      POSTGRES_USER: ${DB_USER:-reqflow}
+      POSTGRES_DB: ${DB_NAME:-reqogniloom}
+      POSTGRES_USER: ${DB_USER:-reqogniloom}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       BACKUP_DIR: /backups
       BACKUP_RETENTION: ${BACKUP_RETENTION:-7}
@@ -139,12 +139,12 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DJANGO_SETTINGS_MODULE: reqflow.settings
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
-      DB_NAME: ${DB_NAME:-reqflow}
-      DB_USER: ${DB_USER:-reqflow}
+      DB_NAME: ${DB_NAME:-reqogniloom}
+      DB_USER: ${DB_USER:-reqogniloom}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
@@ -205,11 +205,11 @@ services:
       dockerfile: Dockerfile
     env_file: .env
     environment:
-      DJANGO_SETTINGS_MODULE: reqflow.settings
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
-      DB_NAME: ${DB_NAME:-reqflow}
-      DB_USER: ${DB_USER:-reqflow}
+      DB_NAME: ${DB_NAME:-reqogniloom}
+      DB_USER: ${DB_USER:-reqogniloom}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
@@ -242,11 +242,11 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DJANGO_SETTINGS_MODULE: reqflow.settings
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
-      DB_NAME: ${DB_NAME:-reqflow}
-      DB_USER: ${DB_USER:-reqflow}
+      DB_NAME: ${DB_NAME:-reqogniloom}
+      DB_USER: ${DB_USER:-reqogniloom}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
@@ -263,7 +263,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "celery -A reqflow inspect ping -d celery@$$HOSTNAME"]
+      test: ["CMD-SHELL", "celery -A reqogniloom inspect ping -d celery@$$HOSTNAME"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -273,11 +273,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqflow project
+    # TODO(ARCH-L1-016): Replace app name once Celery is configured in reqogniloom project
     # REQ-077: single worker consumes all queues. Split into dedicated workers
     # (e.g. a high-concurrency -Q llm worker) when workloads need to scale apart.
     command: >
-      sh -c "celery -A reqflow worker --loglevel=info -Q default,llm,events"
+      sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events"
 
   # ─────────────────────────────────────────────────────────
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
@@ -289,11 +289,11 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DJANGO_SETTINGS_MODULE: reqflow.settings
+      DJANGO_SETTINGS_MODULE: reqogniloom.settings
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
-      DB_NAME: ${DB_NAME:-reqflow}
-      DB_USER: ${DB_USER:-reqflow}
+      DB_NAME: ${DB_NAME:-reqogniloom}
+      DB_USER: ${DB_USER:-reqogniloom}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
@@ -315,7 +315,7 @@ services:
       redis:
         condition: service_healthy
     command: >
-      sh -c "celery -A reqflow beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+      sh -c "celery -A reqogniloom beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
 
   # ─────────────────────────────────────────────────────────
   # React Frontend — ARCH-L1-001 ReactFrontend
