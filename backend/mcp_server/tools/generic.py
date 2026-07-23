@@ -9,104 +9,6 @@ from application.base import NotFoundError
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import BaseToolGroup, ToolResult, require_uuid
 
-# Concrete, per-entity field documentation for the generic CRUD tool group
-# (Codeberg #94). ``additionalProperties: True`` remains on the schemas so
-# behaviour is unchanged — this only makes the well-known fields discoverable
-# for MCP clients instead of forcing them to read the source.
-# Field names/types are taken from the corresponding ApplicationService
-# create/update signatures (see application/adr_service.py, risk_service.py,
-# issue_service.py, glossary_service.py).
-_ENTITY_CREATE_FIELDS: Dict[str, Dict[str, Any]] = {
-    "adr": {
-        "title": {"type": "string", "description": "ADR title (3-200 chars)."},
-        "description": {"type": "string", "description": "Full ADR description (max 10,000 chars)."},
-        "context": {"type": "string", "description": "Optional context section (max 5,000 chars)."},
-        "consequences": {"type": "string", "description": "Optional consequences section (max 5,000 chars)."},
-        "status": {"type": "string", "description": "Initial status (default: Draft)."},
-        "uid": {"type": "string", "description": "Optional human-readable ID."},
-    },
-    "risk": {
-        "title": {"type": "string", "description": "Risk title."},
-        "probability": {"type": "string", "description": "One of low|medium|high."},
-        "impact": {"type": "string", "description": "One of low|medium|high."},
-        "description": {"type": "string", "description": "Optional description."},
-        "category": {
-            "type": "string",
-            "description": "One of technical|operational|organizational|business.",
-        },
-        "owner": {"type": "string", "description": "Optional owner name."},
-        "mitigation_strategy": {"type": "string", "description": "Optional mitigation strategy."},
-        "status": {"type": "string", "description": "Initial status (default: Identified)."},
-        "uid": {"type": "string", "description": "Optional human-readable ID."},
-        "detection": {"type": "integer", "description": "Detection difficulty 1-10 (default: 5)."},
-        "owner_user_id": {"type": "string", "description": "UUID of the owning user (optional)."},
-    },
-    "issue": {
-        "title": {"type": "string", "description": "Issue title."},
-        "severity": {"type": "string", "description": "One of critical|high|medium|low."},
-        "description": {"type": "string", "description": "Optional description."},
-        "category": {
-            "type": "string",
-            "description": "One of defect|improvement|documentation|question.",
-        },
-        "assignee_id": {"type": "string", "description": "UUID of the assignee (optional)."},
-        "due_date": {"type": "string", "description": "Optional ISO 8601 due datetime."},
-        "tags": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Optional list of string tags.",
-        },
-        "status": {"type": "string", "description": "Initial status (default: Open)."},
-        "uid": {"type": "string", "description": "Optional human-readable ID."},
-    },
-    "glossary": {
-        "term": {"type": "string", "description": "The glossary term (required)."},
-        "definition": {"type": "string", "description": "Definition of the term (required)."},
-        "synonyms": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Optional list of synonyms.",
-        },
-        "abbreviation": {"type": "string", "description": "Optional abbreviation."},
-    },
-}
-
-_ENTITY_UPDATE_FIELDS: Dict[str, Dict[str, Any]] = {
-    "adr": {
-        "title": {"type": "string"},
-        "description": {"type": "string"},
-        "context": {"type": "string"},
-        "consequences": {"type": "string"},
-        "change_reason": {"type": "string", "description": "Optional change rationale for audit."},
-    },
-    "risk": {
-        "title": {"type": "string"},
-        "description": {"type": "string"},
-        "probability": {"type": "string", "description": "One of low|medium|high."},
-        "impact": {"type": "string", "description": "One of low|medium|high."},
-        "category": {"type": "string"},
-        "owner": {"type": "string"},
-        "mitigation_strategy": {"type": "string"},
-        "change_reason": {"type": "string", "description": "Optional change rationale for audit."},
-        "detection": {"type": "integer", "description": "Detection difficulty 1-10."},
-        "owner_user_id": {"type": "string", "description": "UUID of the owning user (optional)."},
-    },
-    "issue": {
-        "title": {"type": "string"},
-        "description": {"type": "string"},
-        "severity": {"type": "string", "description": "One of critical|high|medium|low."},
-        "category": {"type": "string"},
-        "due_date": {"type": "string", "description": "Optional ISO 8601 due datetime."},
-        "tags": {"type": "array", "items": {"type": "string"}},
-        "change_reason": {"type": "string", "description": "Optional change rationale for audit."},
-    },
-    "glossary": {
-        "definition": {"type": "string"},
-        "synonyms": {"type": "array", "items": {"type": "string"}},
-        "abbreviation": {"type": "string"},
-    },
-}
-
 
 def _resolve_method(service: Any, prefix: str, action: str) -> Callable[..., Any]:
     """Resolve a service's create/update/delete method.
@@ -176,7 +78,6 @@ class GenericCrudToolGroup(BaseToolGroup):
                             "type": "string",
                             "description": "UUID of the target workspace.",
                         },
-                        **_ENTITY_CREATE_FIELDS.get(prefix, {}),
                     },
                     "required": ["workspace_id"],
                     "additionalProperties": True,
@@ -189,7 +90,6 @@ class GenericCrudToolGroup(BaseToolGroup):
                     "type": "object",
                     "properties": {
                         "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
-                        **_ENTITY_UPDATE_FIELDS.get(prefix, {}),
                     },
                     "required": ["id"],
                     "additionalProperties": True,
