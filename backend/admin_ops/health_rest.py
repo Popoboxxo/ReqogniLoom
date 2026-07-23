@@ -60,7 +60,7 @@ _RECENT_EVENTS_LIMIT = 20
 
 
 def _check_database() -> dict[str, str]:
-    """Check PostgreSQL connectivity (mirrors reqflow.health.HealthView)."""
+    """Check PostgreSQL connectivity (mirrors reqogniloom.health.HealthView)."""
     try:
         connection.ensure_connection()
         return {"name": "database", "status": STATUS_OK, "detail": "connected"}
@@ -89,7 +89,7 @@ def _check_redis() -> dict[str, str]:
 def _check_celery_worker() -> dict[str, str]:
     """Check for at least one responding Celery worker via a bounded ping."""
     try:
-        from reqflow.celery import app as celery_app  # noqa: PLC0415 - avoids circular import
+        from reqogniloom.celery import app as celery_app  # noqa: PLC0415 - avoids circular import
 
         replies = celery_app.control.inspect(timeout=_CHECK_TIMEOUT_S).ping()
         if not replies:

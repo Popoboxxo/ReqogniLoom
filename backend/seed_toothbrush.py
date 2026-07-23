@@ -4,7 +4,7 @@ import sys
 import random
 from uuid import uuid4
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'reqflow.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'reqogniloom.settings')
 django.setup()
 
 from auth_tenancy.context import AuthContext, AuthMethod

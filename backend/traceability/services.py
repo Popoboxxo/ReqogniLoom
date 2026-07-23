@@ -83,7 +83,7 @@ _vcrm_gen = VCRMReportGenerator(
 # the shared Redis cache (REQ-033) with a short TTL and invalidated on any
 # TraceLink mutation (see application.cache_invalidation).
 TRACEABILITY_MATRIX_CACHE_TTL = 300  # seconds (5 minutes)
-_MATRIX_CACHE_PREFIX = "reqflow:traceability-matrix"
+_MATRIX_CACHE_PREFIX = "reqogniloom:traceability-matrix"
 
 
 def traceability_matrix_cache_key(
@@ -93,7 +93,7 @@ def traceability_matrix_cache_key(
     """Return the shared-cache key for a workspace's VCRM matrix (REQ-104).
 
     The key is workspace-scoped and varies by baseline snapshot so baseline
-    diffs never collide with the live matrix. It shares the ``reqflow:``
+    diffs never collide with the live matrix. It shares the ``reqogniloom:``
     namespace used by ``application.cache_invalidation`` so the existing
     workspace pattern-invalidation also reaches these keys.
     """

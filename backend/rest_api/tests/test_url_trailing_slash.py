@@ -7,7 +7,7 @@ non-slash URLs to their slash-terminated counterpart. For unsafe methods
 settings-leaking HTTP 500 debug page when ``DEBUG=True``) or silently
 dropped the POST body via a 301 redirect (when ``DEBUG=False``).
 
-Fix: ``APPEND_SLASH = False`` in ``reqflow/settings.py`` — every route in
+Fix: ``APPEND_SLASH = False`` in ``reqogniloom/settings.py`` — every route in
 this project is already registered with a trailing slash, so a non-slash
 URL now returns a plain, immediate 404 instead of attempting a lossy
 redirect, in every rigor preset and regardless of ``DEBUG``.

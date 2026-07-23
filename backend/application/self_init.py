@@ -47,7 +47,7 @@ from application.workspace_provisioning import (
     provision_workspace_defaults_scoped,
 )
 
-logger = logging.getLogger("reqflow")
+logger = logging.getLogger("reqogniloom")
 
 # Fallback tier for the base workspace's Requirement workflow if — for any
 # reason — the WorkspacePresetConfig cannot be read. provision_admin creates the

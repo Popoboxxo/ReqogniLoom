@@ -11,7 +11,7 @@ Per the A.6 task brief, this file is owned by the test_runs scope and
 is intentionally kept as a placeholder until test_runs graduates into a
 fully separate Django app. At that point the ``results`` action can be
 moved to a ``TestRunViewSet`` defined here and this ``urlpatterns`` list
-will be the wire-in point for ``reqflow.urls`` / ``rest_api.urls``.
+will be the wire-in point for ``reqogniloom.urls`` / ``rest_api.urls``.
 
 Until then, **no URL wiring change is required**: the existing route
 ``GET/POST /api/v1/test-runs/{id}/results/`` continues to be served by

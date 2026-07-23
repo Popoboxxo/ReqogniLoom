@@ -36,10 +36,10 @@ WS_ID = str(uuid.uuid4())
 
 
 def test_key_builders_are_namespaced_and_workspace_scoped():
-    assert ci.preset_cache_key(WS_ID) == f"reqflow:preset:{WS_ID}"
-    assert ci.terminology_cache_key(WS_ID) == f"reqflow:terminology:{WS_ID}"
-    assert ci.features_cache_key(WS_ID) == f"reqflow:features:{WS_ID}"
-    assert ci.workflow_def_cache_key(WS_ID) == f"reqflow:workflow-def:{WS_ID}"
+    assert ci.preset_cache_key(WS_ID) == f"reqogniloom:preset:{WS_ID}"
+    assert ci.terminology_cache_key(WS_ID) == f"reqogniloom:terminology:{WS_ID}"
+    assert ci.features_cache_key(WS_ID) == f"reqogniloom:features:{WS_ID}"
+    assert ci.workflow_def_cache_key(WS_ID) == f"reqogniloom:workflow-def:{WS_ID}"
 
 
 # ---------------------------------------------------------------------------

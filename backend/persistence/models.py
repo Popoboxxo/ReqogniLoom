@@ -1449,7 +1449,7 @@ class LlmSettings(TenantScopedModel):
     )
     # REQ-081: Fernet ciphertext, not plaintext. Never read/write this field
     # directly — use the ``api_key`` property below, which transparently
-    # encrypts/decrypts using FIELD_ENCRYPTION_KEY (reqflow/settings.py).
+    # encrypts/decrypts using FIELD_ENCRYPTION_KEY (reqogniloom/settings.py).
     api_key_encrypted = models.TextField(
         blank=True,
         default="",

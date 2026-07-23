@@ -197,7 +197,7 @@ class McpHttpTransportView(CorsMixin, View):
         """Return server info / health check for HTTP GET."""
         return HttpResponse(
             json.dumps({
-                "server": "ReqFlow MCP Server",
+                "server": "ReqogniLoom MCP Server",
                 "protocol": "JSON-RPC 2.0",
                 # REQ-131: advertise only implemented transports. SSE is not
                 # a functional transport, so declaring it here misleads clients.

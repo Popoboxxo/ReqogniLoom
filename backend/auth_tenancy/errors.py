@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 # Documentation base for the ``doc_url`` field (no secrets, public docs).
-_DOC_BASE = "https://docs.reqflow.local/errors"
+_DOC_BASE = "https://docs.reqogniloom.local/errors"
 
 # Error code -> (http_status, {"en": ..., "de": ...}).
 # REQ-L3-AT001-004 fixes the allowed code set.

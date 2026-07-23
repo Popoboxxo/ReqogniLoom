@@ -44,7 +44,7 @@ _API_KEY_PLAINTEXT_PREFIX = "rf_"
 # httpOnly access-token cookie (REQ-052). The SPA never reads this cookie;
 # the browser attaches it automatically on same-origin requests, which keeps
 # the JWT out of JavaScript reach (XSS mitigation). See LoginView/LogoutView.
-ACCESS_COOKIE_NAME = "reqflow_access"
+ACCESS_COOKIE_NAME = "reqogniloom_access"
 
 
 def _resolve_roles_from_db(user_id: Any) -> tuple[str, ...]:
@@ -153,7 +153,7 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
 
         Returns ``(claims, via_cookie)`` on success or ``None`` when no credential
         is present. ``via_cookie`` is ``True`` only when the token came from the
-        httpOnly ``reqflow_access`` cookie (drives CSRF enforcement, REQ-052).
+        httpOnly ``reqogniloom_access`` cookie (drives CSRF enforcement, REQ-052).
         Header and API-key credentials take precedence over the cookie.
         """
         api_key = request.META.get(_API_KEY_HEADER)

@@ -156,7 +156,7 @@ class LogoutView(APIView):
 
     Requires a valid credential (any authenticated role) and, on the cookie auth
     path, a CSRF token — both enforced by the global authentication layer. The
-    response deletes ``reqflow_access`` so a subsequent request is anonymous.
+    response deletes ``reqogniloom_access`` so a subsequent request is anonymous.
     """
 
     permission_classes = [HasOperationPermission]

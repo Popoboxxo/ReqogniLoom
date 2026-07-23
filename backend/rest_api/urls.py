@@ -139,7 +139,7 @@ router.register(r"glossary", GlossaryTermViewSet, basename="glossary")
 
 # ---------------------------------------------------------------------------
 # URL patterns
-# /api/v1/ is the mount point (defined in reqflow/urls.py)
+# /api/v1/ is the mount point (defined in reqogniloom/urls.py)
 # Schema endpoints bypass auth (REQ-L3-RA005-001 AC, REQ-L3-RA003-001 AC)
 # ---------------------------------------------------------------------------
 

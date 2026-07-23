@@ -69,7 +69,7 @@ def test_llm_task_has_correct_name():
     """[REQ-075] run_capability task uses the expected registered task name.
 
     The name 'llm_adapter.run_capability' must match the route configured in
-    reqflow/celery.py task_routes so the message is delivered to the 'llm'
+    reqogniloom/celery.py task_routes so the message is delivered to the 'llm'
     queue and not silently dropped on the default queue.
     """
     from llm_adapter.tasks import run_capability
@@ -77,7 +77,7 @@ def test_llm_task_has_correct_name():
     assert run_capability.name == "llm_adapter.run_capability", (
         f"Task name mismatch: expected 'llm_adapter.run_capability', "
         f"got {run_capability.name!r}. "
-        "The name must match the route in reqflow/celery.py task_routes."
+        "The name must match the route in reqogniloom/celery.py task_routes."
     )
 
 

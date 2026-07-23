@@ -237,7 +237,7 @@ class TestIndividualCheckGuards:
     def test_check_celery_worker_guards_broker_errors(self) -> None:
         from admin_ops import health_rest
 
-        with patch("reqflow.celery.app.control") as mock_control:
+        with patch("reqogniloom.celery.app.control") as mock_control:
             mock_control.inspect.side_effect = OSError("broker unreachable")
             result = health_rest._check_celery_worker()
 

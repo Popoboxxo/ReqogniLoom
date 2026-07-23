@@ -51,10 +51,10 @@ def _run_self_init_on_migrate(sender, **kwargs) -> None:
     Two independent guards keep the pytest suite — which migrates a test database
     on every run and would otherwise be implicitly provisioned — safe:
 
-    * ``settings.SELF_INIT_ON_MIGRATE`` (False under ``reqflow.settings_test``),
+    * ``settings.SELF_INIT_ON_MIGRATE`` (False under ``reqogniloom.settings_test``),
       the explicit, documented switch, and
     * a defensive test-runner check, because the docker image forces
-      ``DJANGO_SETTINGS_MODULE=reqflow.settings`` into every process, so a
+      ``DJANGO_SETTINGS_MODULE=reqogniloom.settings`` into every process, so a
       ``docker compose exec backend pytest`` inherits the runtime settings
       instead of ``settings_test`` and would slip past the flag alone.
     """

@@ -38,11 +38,11 @@ logger = logging.getLogger(__name__)
 
 # Signal dispatch namespace — guards against duplicate registration when
 # ``ready()`` is called more than once (e.g. autoreload).
-_DISPATCH_UID = "reqflow.cache_invalidation"
+_DISPATCH_UID = "reqogniloom.cache_invalidation"
 
 # Shared-cache key namespace. Keys are workspace-scoped so a single mutation
 # invalidates every cached view of that workspace's configuration.
-_KEY_PREFIX = "reqflow"
+_KEY_PREFIX = "reqogniloom"
 
 
 # ---------------------------------------------------------------------------

@@ -236,7 +236,7 @@ def _render_vcrm_pdf(matrix: VCRMMatrix, workspace_id: uuid.UUID) -> bytes:
         topMargin=20 * mm,
         bottomMargin=20 * mm,
         title=f"VCRM Report — {workspace_id}",
-        author="ReqFlow",
+        author="ReqogniLoom",
     )
 
     styles = getSampleStyleSheet()

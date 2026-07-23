@@ -51,7 +51,7 @@ User = get_user_model()
 
 
 @admin.register(User)
-class ReqFlowUserAdmin(admin.ModelAdmin):
+class ReqogniLoomUserAdmin(admin.ModelAdmin):
     """Admin view for the ReqFlow User model.
 
     Uses a tailored ModelAdmin (not django.contrib.auth.admin.UserAdmin)
