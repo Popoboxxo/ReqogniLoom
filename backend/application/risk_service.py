@@ -409,7 +409,17 @@ class RiskService(ServiceBase):
                 risk_id,
             )
 
-        risk.delete()
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of hard-deleting the row.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=risk.id,
+            item_type="Risk",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via risk.delete",
+        )
 
         self._audit(ctx=ctx, operation="delete", entity_type="Risk", entity_id=risk_id)
         self._emit_event(

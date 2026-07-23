@@ -360,7 +360,17 @@ class IssueService(ServiceBase):
                 issue_id,
             )
 
-        issue.delete()
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of hard-deleting the row.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=issue.id,
+            item_type="Issue",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via issue.delete",
+        )
 
         self._audit(
             ctx=ctx, operation="delete", entity_type="Issue", entity_id=issue_id
