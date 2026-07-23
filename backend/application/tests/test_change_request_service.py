@@ -296,7 +296,10 @@ class TestUpdateChangeRequest:
 
 
 class TestDeleteChangeRequest:
-    def test_delete_removes_cr(self):
+    def test_delete_calls_outdate_not_hard_delete(self):
+        """REQ-006/Phase 0: delete_change_request() routes the soft-delete
+        through workflow.services.outdate() instead of a queryset-level
+        hard delete."""
         svc = ChangeRequestService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         cr = _make_cr()
@@ -307,13 +310,21 @@ class TestDeleteChangeRequest:
             patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             mock_objects.filter.return_value.first.return_value = cr
             mock_objects.filter.return_value.delete = MagicMock()
             svc.delete_change_request(cr_id=CR_ID, ctx=ctx)
 
-        # Verify delete was called
-        mock_objects.filter.return_value.delete.assert_called_once()
+        # Verify outdate was called, and the hard delete queryset was NOT
+        mock_outdate.assert_called_once_with(
+            item_id=CR_ID,
+            item_type="ChangeRequest",
+            workspace_id=cr.workspace_id,
+            ctx=ctx,
+            reason="deleted via change_request.delete",
+        )
+        mock_objects.filter.return_value.delete.assert_not_called()
 
     def test_delete_not_found_raises(self):
         svc = ChangeRequestService()
