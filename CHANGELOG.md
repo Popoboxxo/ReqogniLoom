@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] — 2026-07-23
+
+### Changed
+- Complete product rebranding: ReqFlow → ReqogniLoom (Prefix: ReqLo)
+- Django project package renamed from `reqflow` to `reqogniloom` (BREAKING)
+- API key prefix changed from `rf_` to `reqlo_` (BREAKING)
+- JWT issuer and audience identifiers updated to ReqogniLoom (BREAKING)
+- Auth cookie name updated (BREAKING)
+
+### Added
+- Configurable app display name in frontend (allows easy whiteboarding for custom deployments)
+
+### Fixed
+- Multiple critical deployment and container runtime issues resolved
+- Nginx PID redirect to /tmp for non-root container compatibility
+- MCP generic CRUD response serialization for datetime/date/Decimal values
+- WorkflowEngineDefinition auto-provisioning on workspace create
+- TraceLink query routing fixed (missing list_incoming/list_outgoing)
+
+### Notes
+- **BREAKING CHANGE ADVISORY**: Existing ReqFlow instances must migrate:
+  - Session tokens will be invalidated (users must re-login)
+  - API keys must be regenerated with new `reqlo_` prefix
+  - JWT tokens using old issuer/audience will be rejected
+  - Custom cookies referencing old names must be updated
+
 ## [0.2.0] — 2026-07-19
 
 ### Added
