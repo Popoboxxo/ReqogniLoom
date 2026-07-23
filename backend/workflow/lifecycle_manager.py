@@ -355,6 +355,71 @@ class StateLifecycleManager:
             signature_seal=validation_result.seal,
         )
 
+    @transaction.atomic
+    def force_transition(
+        self,
+        item_id: UUID,
+        item_type: str,
+        workspace_id: UUID,
+        target_state: str,
+        change_reason: str,
+        actor: str,
+    ) -> TransitionOutcome:
+        """Transition an item to ``target_state`` bypassing normal
+        preset-transition validation.
+
+        Used exclusively by the outdate()/reactivate() escape hatch —
+        outdating must work from ANY current state, on ANY preset, even ones
+        that never modeled a "rejected"-style path in their transitions list.
+
+        Args:
+            item_id:       UUID of the item to transition.
+            item_type:     Entity type string.
+            workspace_id:  Workspace UUID.
+            target_state:  New state to force onto the item.
+            change_reason: Audit reason string for the history entry.
+            actor:         User UUID string or AI-agent client identifier.
+
+        Returns:
+            TransitionOutcome with the transition details.
+
+        Raises:
+            WorkflowItemState.DoesNotExist: No item state record found.
+        """
+        item_state = (
+            WorkflowItemState.objects.select_for_update()
+            .get(item_id=item_id, item_type=item_type, workspace_id=workspace_id)
+        )
+        previous_state = item_state.current_state
+        item_state.current_state = target_state
+        item_state.version += 1
+        item_state.save(update_fields=["current_state", "version"])
+
+        # Use the unscoped manager to bypass TenantManager.get_queryset()
+        # during INSERT (tenant_id comes from item_state.tenant_id), mirroring
+        # perform_transition's history-append pattern above.
+        now = datetime.now(timezone.utc)
+        history = WorkflowHistoryEntry.unscoped.create(
+            item_state=item_state,
+            from_state=previous_state,
+            to_state=target_state,
+            transitioned_by=actor,
+            transitioned_at=now,
+            change_reason=change_reason or "",
+            workspace_id=workspace_id,
+            tenant_id=item_state.tenant_id,
+        )
+
+        self._sync_status_mirror(item_id, item_type, target_state)
+
+        return TransitionOutcome(
+            item_state_id=item_state.pk,
+            history_entry_id=history.pk,
+            previous_state=previous_state,
+            new_state=target_state,
+            signature_seal=None,
+        )
+
     @staticmethod
     def _sync_status_mirror(item_id: UUID, item_type: str, new_state: str) -> None:
         """Write the denormalized ``status`` mirror on the persistence entity (REQ-143).

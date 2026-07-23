@@ -22,6 +22,8 @@ Import paths for downstream consumers:
 Public API surface (IF-WE-EXT-IN-001):
     transition(item_id, target_state, change_reason, ctx, *, credential, item_type,
                workspace_id) -> TransitionResult
+    outdate(item_id, item_type, workspace_id, ctx, *, reason) -> TransitionResult
+    reactivate(item_id, item_type, workspace_id, ctx) -> TransitionResult
 
 Public API surface (IF-WE-EXT-IN-002):
     initialize_workflow_states(item_ids, item_type, workspace_id, ctx) -> list
@@ -261,6 +263,111 @@ def transition(
         transitioned_by=str(ctx.user_id),
         validation_result=result,
         change_reason=change_reason,
+    )
+
+    return TransitionResult(
+        item_id=item_id_uuid,
+        previous_state=outcome.previous_state,
+        new_state=outcome.new_state,
+        history_entry_id=outcome.history_entry_id,
+        signature_seal=outcome.signature_seal,
+    )
+
+
+def outdate(
+    item_id: UUID | str,
+    item_type: str,
+    workspace_id: UUID | str,
+    ctx: AuthContext,
+    *,
+    reason: str = "",
+) -> TransitionResult:
+    """Mark an item as outdated (soft-delete), regardless of its current
+    workflow state or which preset it uses.
+
+    Always available — this is the system-level escape hatch, not a
+    business-process transition, so it bypasses the normal preset-transition
+    validation (COMP-WE-002) entirely via
+    ``StateLifecycleManager.force_transition``.
+
+    Args:
+        item_id:      UUID of the item to outdate.
+        item_type:    Entity type (e.g. "Requirement").
+        workspace_id: Workspace UUID.
+        ctx:          AuthContext (``user_id`` is recorded as the actor).
+        reason:       Optional audit reason for the history entry.
+
+    Returns:
+        TransitionResult with the transition details (``new_state`` ==
+        "outdated").
+    """
+    item_id_uuid = UUID(str(item_id))
+    workspace_uuid = UUID(str(workspace_id))
+
+    outcome: TransitionOutcome = _get_lifecycle().force_transition(
+        item_id=item_id_uuid,
+        item_type=item_type,
+        workspace_id=workspace_uuid,
+        target_state="outdated",
+        change_reason=reason,
+        actor=str(ctx.user_id),
+    )
+
+    return TransitionResult(
+        item_id=item_id_uuid,
+        previous_state=outcome.previous_state,
+        new_state=outcome.new_state,
+        history_entry_id=outcome.history_entry_id,
+        signature_seal=outcome.signature_seal,
+    )
+
+
+def reactivate(
+    item_id: UUID | str,
+    item_type: str,
+    workspace_id: UUID | str,
+    ctx: AuthContext,
+) -> TransitionResult:
+    """Restore an outdated item to whatever state it was in immediately
+    before it was outdated.
+
+    The restore target is read from the most recent WorkflowHistoryEntry
+    that transitioned the item into "outdated".
+
+    Args:
+        item_id:      UUID of the item to reactivate.
+        item_type:    Entity type (e.g. "Requirement").
+        workspace_id: Workspace UUID.
+        ctx:          AuthContext (``user_id`` is recorded as the actor).
+
+    Returns:
+        TransitionResult with the transition details.
+
+    Raises:
+        ValueError: The item's current state is not "outdated".
+    """
+    item_id_uuid = UUID(str(item_id))
+    workspace_uuid = UUID(str(workspace_id))
+
+    lifecycle = _get_lifecycle()
+    item_state = lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid)
+    if item_state is None or item_state.current_state != "outdated":
+        raise ValueError("item is not outdated")
+
+    last_outdate_entry = (
+        WorkflowHistoryEntry.objects.filter(item_state=item_state, to_state="outdated")
+        .order_by("-transitioned_at")
+        .first()
+    )
+    restore_to = last_outdate_entry.from_state
+
+    outcome: TransitionOutcome = lifecycle.force_transition(
+        item_id=item_id_uuid,
+        item_type=item_type,
+        workspace_id=workspace_uuid,
+        target_state=restore_to,
+        change_reason="reactivated",
+        actor=str(ctx.user_id),
     )
 
     return TransitionResult(
@@ -676,6 +783,8 @@ def check_downgrade_compatibility(
 
 __all__ = [
     "transition",
+    "outdate",
+    "reactivate",
     "initialize_workflow_states",
     "get_definition",
     "get_available_transitions",
