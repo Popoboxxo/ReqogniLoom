@@ -176,16 +176,19 @@ class ArchitectureElementInvariantValidator:
         A "root" is an ArchitectureElement with ``parent_id IS NULL``. The
         element currently being validated is excluded via *exclude_id* so that
         re-saving an existing root as root does not trip the single-root
-        invariant. Soft-deleted elements are ignored.
-        """
-        from persistence.models import ArchitectureElement, LifecycleStatus
+        invariant. Soft-deleted (outdated) elements are ignored.
 
-        qs = (
-            ArchitectureElement.objects.filter(
-                artifact__workspace_id=workspace_id, parent_id__isnull=True
-            )
-            .exclude(lifecycle_status=LifecycleStatus.DELETED)
-        )
+        ArchitectureElement has no denormalized status mirror — ``outdate()``
+        writes only to ``WorkflowItemState``, never ``lifecycle_status`` (dead
+        column for this type, see ``workflow.services.outdated_item_ids``) — so
+        the exclusion is done against that table instead.
+        """
+        from persistence.models import ArchitectureElement
+        from workflow.services import outdated_item_ids
+
+        qs = ArchitectureElement.objects.filter(
+            artifact__workspace_id=workspace_id, parent_id__isnull=True
+        ).exclude(id__in=outdated_item_ids("ArchitectureElement"))
         if exclude_id is not None:
             qs = qs.exclude(id=exclude_id)
         return qs.first()

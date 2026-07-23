@@ -69,12 +69,9 @@ class GlossaryService(ServiceBase):
             # _STATUS_MIRROR_MODELS (no mirrored status column), so the
             # workflow state lives solely in WorkflowItemState — filter there
             # instead of on the now-dead `lifecycle_status` column.
-            from workflow.models import WorkflowItemState
+            from workflow.services import outdated_item_ids
 
-            outdated_ids = WorkflowItemState.objects.filter(
-                item_type="GlossaryTerm", current_state="outdated"
-            ).values_list("item_id", flat=True)
-            qs = qs.exclude(id__in=outdated_ids)
+            qs = qs.exclude(id__in=outdated_item_ids("GlossaryTerm"))
         return [GlossaryTermDTO.from_orm(t) for t in qs.order_by("term")]
 
     @atomic_transaction

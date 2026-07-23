@@ -229,12 +229,19 @@ def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenS
 
 
 def _architecture_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenSet[str]:
-    """Return artifact ids of active ArchitectureElements in the workspace."""
-    from persistence.models import ArchitectureElement, LifecycleStatus
+    """Return artifact ids of active ArchitectureElements in the workspace.
+
+    ArchitectureElement has no status mirror — ``outdate()`` writes only
+    ``WorkflowItemState`` (the dead ``lifecycle_status`` column is never
+    touched), so "active" is computed against
+    ``workflow.services.outdated_item_ids`` instead.
+    """
+    from persistence.models import ArchitectureElement
+    from workflow.services import outdated_item_ids
 
     qs = ArchitectureElement.unscoped.filter(
         tenant_id=tenant_id, artifact__workspace_id=workspace_id
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+    ).exclude(id__in=outdated_item_ids("ArchitectureElement", tenant_id=tenant_id))
     return frozenset(str(v) for v in qs.values_list("artifact_id", flat=True))
 
 

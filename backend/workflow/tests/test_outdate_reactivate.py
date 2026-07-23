@@ -158,3 +158,58 @@ def test_reactivate_raises_if_not_currently_outdated(requirement_with_workflow, 
             )
     finally:
         TenantContext.clear_tenant()
+
+
+# ---------------------------------------------------------------------------
+# Regression (Phase 0 final review, Fund 2): outdate() must self-heal a
+# missing WorkflowItemState instead of crashing with DoesNotExist. Previously
+# only documented for GlossaryTerm (legacy pre-workflow data), but nothing
+# prevents any entity type from reaching outdate() without an item state --
+# e.g. a definition exists but initialize_workflow_states() was never called
+# for a particular item.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_outdate_self_heals_missing_workflow_item_state(tenant, workspace, auth_ctx):
+    """An item with a workflow definition but NO WorkflowItemState row must
+    still be outdate()-able (no DoesNotExist crash), landing in "outdated"."""
+    from persistence.models import Artifact, Requirement
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="standard",
+            item_type="Requirement",
+            tenant_id=tenant.id,
+        )
+
+        # Create the Requirement directly via the ORM (bypassing
+        # RequirementService.create_requirement(), which would normally call
+        # initialize_workflow_states()) to simulate a legacy row that never
+        # got a WorkflowItemState.
+        artifact = Artifact.objects.create(workspace=workspace, artifact_type="requirement")
+        requirement = Requirement.objects.create(
+            tenant=tenant, artifact=artifact, title="Legacy Requirement"
+        )
+
+        assert not WorkflowItemState.objects.filter(
+            item_id=requirement.id, item_type="Requirement"
+        ).exists()
+
+        result = outdate(
+            item_id=requirement.id,
+            item_type="Requirement",
+            workspace_id=workspace.id,
+            ctx=auth_ctx,
+            reason="legacy row soft-delete",
+        )
+
+        assert result.new_state == "outdated"
+        item_state = WorkflowItemState.objects.get(
+            item_id=requirement.id, item_type="Requirement"
+        )
+        assert item_state.current_state == "outdated"
+    finally:
+        TenantContext.clear_tenant()

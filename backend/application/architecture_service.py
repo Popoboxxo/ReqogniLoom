@@ -349,12 +349,9 @@ class ArchitectureService(ServiceBase):
             # _STATUS_MIRROR_MODELS (no mirrored status column), so the
             # workflow state lives solely in WorkflowItemState — filter there
             # instead of on the now-dead `lifecycle_status` column.
-            from workflow.models import WorkflowItemState
+            from workflow.services import outdated_item_ids
 
-            outdated_ids = WorkflowItemState.objects.filter(
-                item_type="ArchitectureElement", current_state="outdated"
-            ).values_list("item_id", flat=True)
-            qs = qs.exclude(id__in=outdated_ids)
+            qs = qs.exclude(id__in=outdated_item_ids("ArchitectureElement"))
         elements = list(qs)
         # REQ-L2-RA-013 / REQ-070: eliminate N+1 on tree depth. The ``level``
         # property recurses into the DB (one query per ancestor per element)

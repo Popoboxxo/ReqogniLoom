@@ -400,3 +400,81 @@ class TestNoPgvectorDependency:
                 f"MockLlmProvider.complete()'s traceability_suggest_links branch "
                 f"must not contain a '{forbidden}' code path."
             )
+
+
+# ---------------------------------------------------------------------------
+# Regression (Phase 0 final review, Fund 1 #3): _candidate_pool() must exclude
+# Requirements/ArchitectureElements soft-deleted via workflow.services.outdate().
+# ---------------------------------------------------------------------------
+
+
+class TestCandidatePoolExcludesOutdatedArtifacts:
+    def test_outdated_requirement_excluded_from_trace_p1b_pool(self, tenant, workspace, ctx):
+        from traceability.audit.registry import TRACE_P1B
+        from workflow.services import create_default_workflow, outdate
+
+        with _active(tenant):
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant.id,
+            )
+            source = _requirement(tenant, workspace, "Source Requirement")
+            kept = _requirement(tenant, workspace, "Kept Requirement")
+            deleted = _requirement(tenant, workspace, "Deleted Requirement")
+
+            outdate(
+                item_id=deleted.id,
+                item_type="Requirement",
+                workspace_id=workspace.id,
+                ctx=ctx,
+                reason="test soft-delete",
+            )
+
+            pool = TraceabilitySuggestService._candidate_pool(
+                TRACE_P1B, str(source.artifact_id), str(tenant.id), str(workspace.id)
+            )
+
+        assert str(kept.artifact_id) in pool
+        assert str(deleted.artifact_id) not in pool
+
+    def test_outdated_architecture_element_excluded_from_trace_p2_pool(
+        self, tenant, workspace, ctx
+    ):
+        from persistence.models import ArchitectureElement
+        from traceability.audit.registry import TRACE_P2
+        from workflow.services import create_default_workflow, outdate
+
+        with _active(tenant):
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="architecture_default",
+                item_type="ArchitectureElement",
+                tenant_id=tenant.id,
+            )
+            source = _requirement(tenant, workspace, "Source Requirement")
+
+            kept_art = _artifact(tenant, workspace, "ArchitectureElement")
+            kept = ArchitectureElement.objects.create(
+                tenant=tenant, artifact=kept_art, title="Kept AE"
+            )
+            deleted_art = _artifact(tenant, workspace, "ArchitectureElement")
+            deleted = ArchitectureElement.objects.create(
+                tenant=tenant, artifact=deleted_art, title="Deleted AE"
+            )
+
+            outdate(
+                item_id=deleted.id,
+                item_type="ArchitectureElement",
+                workspace_id=workspace.id,
+                ctx=ctx,
+                reason="test soft-delete",
+            )
+
+            pool = TraceabilitySuggestService._candidate_pool(
+                TRACE_P2, str(source.artifact_id), str(tenant.id), str(workspace.id)
+            )
+
+        assert str(kept.artifact_id) in pool
+        assert str(deleted.artifact_id) not in pool

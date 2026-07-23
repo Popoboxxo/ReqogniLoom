@@ -300,10 +300,26 @@ class TestNoAutomaticRemediation:
             child.parent = root
             child.save(update_fields=["parent"])
             # Make the parent dangling: soft-delete it -> TRACE-P4 fires.
-            from persistence.models import LifecycleStatus
+            # ArchitectureElement has no status mirror (Phase 0) — the
+            # soft-delete state lives only in WorkflowItemState, written by
+            # workflow.services.outdate(); the dead `lifecycle_status` column
+            # is never touched, so flipping it directly (as this test used to)
+            # no longer has any effect on "active" detection.
+            from workflow.services import create_default_workflow, outdate
 
-            root.lifecycle_status = LifecycleStatus.DELETED
-            root.save(update_fields=["lifecycle_status"])
+            create_default_workflow(
+                workspace_id=workspace.id,
+                preset="architecture_default",
+                item_type="ArchitectureElement",
+                tenant_id=tenant.id,
+            )
+            outdate(
+                item_id=root.id,
+                item_type="ArchitectureElement",
+                workspace_id=workspace.id,
+                ctx=ctx,
+                reason="test soft-delete",
+            )
 
             svc = AuditService()
             report = svc.run_audit(workspace.id, ctx, tier="extended")

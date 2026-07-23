@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from persistence.models import ArchitectureElement, LifecycleStatus, RequirementLevel
+from persistence.models import ArchitectureElement, RequirementLevel
 from traceability.audit import AuditScope, RuleEngine
 from traceability.audit.registry import ARCH_003, TRACE_P4, TRACE_P5
 from traceability.audit.rules import decomposition_consistency  # noqa: F401  (registers rules)
@@ -31,6 +31,42 @@ def _architecture_element(tenant, workspace, *, parent=None, title="AE"):
     artifact = make_artifact(tenant, workspace, artifact_type="architecture-element")
     return ArchitectureElement.objects.create(
         tenant=tenant, artifact=artifact, title=title, parent=parent
+    )
+
+
+def _soft_delete_arch_element(tenant, workspace, element) -> None:
+    """Soft-delete *element* via ``workflow.services.outdate()`` (Phase 0).
+
+    ArchitectureElement has no status mirror — ``outdate()`` writes only
+    ``WorkflowItemState``, never ``lifecycle_status`` (dead column for this
+    type). Directly flipping ``lifecycle_status`` (this helper's predecessor)
+    no longer has any effect on the "active" rules read.
+    """
+    import uuid
+
+    from auth_tenancy.context import AuthContext
+    from workflow.services import create_default_workflow, outdate
+
+    create_default_workflow(
+        workspace_id=workspace.id,
+        preset="architecture_default",
+        item_type="ArchitectureElement",
+        tenant_id=tenant.id,
+    )
+    ctx = AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name=tenant.name,
+    )
+    outdate(
+        item_id=element.id,
+        item_type="ArchitectureElement",
+        workspace_id=workspace.id,
+        ctx=ctx,
+        reason="test soft-delete",
     )
 
 
@@ -58,8 +94,7 @@ class TestTraceP4:
         with active_tenant(tenant_a):
             root = _architecture_element(tenant_a, workspace_a, title="System")
             child = _architecture_element(tenant_a, workspace_a, parent=root, title="Sub")
-            root.lifecycle_status = LifecycleStatus.DELETED
-            root.save(update_fields=["lifecycle_status"])
+            _soft_delete_arch_element(tenant_a, workspace_a, root)
 
             result = _run(tenant_a, workspace_a)
 
@@ -72,8 +107,7 @@ class TestTraceP4:
         with active_tenant(tenant_a):
             root = _architecture_element(tenant_a, workspace_a, title="System")
             child = _architecture_element(tenant_a, workspace_a, parent=root, title="Sub")
-            root.lifecycle_status = LifecycleStatus.DELETED
-            root.save(update_fields=["lifecycle_status"])
+            _soft_delete_arch_element(tenant_a, workspace_a, root)
 
             result = _run(tenant_a, workspace_a, tier="standard")
 
@@ -270,8 +304,7 @@ class TestMinimalPresetNoFindings:
         with active_tenant(tenant_a):
             root = _architecture_element(tenant_a, workspace_a, title="System")
             child = _architecture_element(tenant_a, workspace_a, parent=root, title="Sub")
-            root.lifecycle_status = LifecycleStatus.DELETED
-            root.save(update_fields=["lifecycle_status"])
+            _soft_delete_arch_element(tenant_a, workspace_a, root)
 
             parent_req_artifact, _ = make_requirement(
                 tenant_a, workspace_a, title="Parent Req"

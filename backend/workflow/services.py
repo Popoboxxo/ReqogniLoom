@@ -45,6 +45,8 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 from auth_tenancy.context import AuthContext
 
 from .definition_store import (
@@ -290,6 +292,16 @@ def outdate(
     validation (COMP-WE-002) entirely via
     ``StateLifecycleManager.force_transition``.
 
+    Self-healing (Phase 0 follow-up): ``force_transition`` requires an
+    existing ``WorkflowItemState`` row (plain ``.get()``, raises
+    ``WorkflowItemState.DoesNotExist`` otherwise) — a legacy item created
+    before the workflow engine was wired in for its type (previously only
+    known for ``GlossaryTerm``, but nothing prevents it for any type) would
+    make outdating it crash instead of soft-deleting it. If no state exists
+    yet, one is lazily created at the definition's initial state via
+    ``StateLifecycleManager.ensure_item_state`` (idempotent, race-safe) before
+    forcing the transition to "outdated".
+
     Args:
         item_id:      UUID of the item to outdate.
         item_type:    Entity type (e.g. "Requirement").
@@ -304,7 +316,14 @@ def outdate(
     item_id_uuid = UUID(str(item_id))
     workspace_uuid = UUID(str(workspace_id))
 
-    outcome: TransitionOutcome = _get_lifecycle().force_transition(
+    lifecycle = _get_lifecycle()
+    if lifecycle.get_item_state(item_id_uuid, item_type, workspace_uuid) is None:
+        dto = _get_store().get_definition(workspace_uuid, item_type)
+        lifecycle.ensure_item_state(
+            item_id_uuid, item_type, workspace_uuid, dto.initial_state
+        )
+
+    outcome: TransitionOutcome = lifecycle.force_transition(
         item_id=item_id_uuid,
         item_type=item_type,
         workspace_id=workspace_uuid,
@@ -521,6 +540,45 @@ def get_history(
     return _get_lifecycle().get_history(
         item_id_uuid, item_type, workspace_uuid
     )
+
+
+def outdated_item_ids(
+    item_type: str, *, tenant_id: UUID | str | None = None
+) -> "QuerySet[UUID]":
+    """Return the ``item_id`` set currently in the ``"outdated"`` state for
+    *item_type* (Phase 0 status-model unification follow-up).
+
+    Entity types without a denormalized status mirror (see
+    ``lifecycle_manager._STATUS_MIRROR_MODELS`` — e.g. ``ArchitectureElement``,
+    ``GlossaryTerm``) have their soft-delete state recorded *only* in
+    ``WorkflowItemState``; the dead ``lifecycle_status`` column is never
+    written by ``outdate()``. Any caller that needs to exclude soft-deleted
+    rows of such a type must filter here instead of on ``lifecycle_status``.
+
+    Args:
+        item_type: Entity type key (e.g. ``"ArchitectureElement"``).
+        tenant_id: When given, queries via the ``unscoped`` manager with an
+            explicit tenant filter — for call sites that run outside a
+            request-scoped ``TenantContext`` and already do explicit
+            tenant filtering (mirrors the ``Model.unscoped.filter(tenant_id=...)``
+            pattern used throughout ``traceability/audit/``). When ``None``
+            (default), uses the tenant-scoped ``objects`` manager, which
+            relies on the active thread-local ``TenantContext`` — the normal
+            case for request-scoped service calls.
+
+    Returns:
+        Lazy ``QuerySet`` of ``item_id`` UUIDs — pass to
+        ``qs.exclude(id__in=outdated_item_ids(...))``.
+    """
+    if tenant_id is not None:
+        qs = WorkflowItemState.unscoped.filter(
+            tenant_id=tenant_id, item_type=item_type, current_state="outdated"
+        )
+    else:
+        qs = WorkflowItemState.objects.filter(
+            item_type=item_type, current_state="outdated"
+        )
+    return qs.values_list("item_id", flat=True)
 
 
 def create_default_workflow(
@@ -789,6 +847,7 @@ __all__ = [
     "get_definition",
     "get_available_transitions",
     "get_history",
+    "outdated_item_ids",
     "create_default_workflow",
     "update_custom_workflow",
     "add_definition_state",
