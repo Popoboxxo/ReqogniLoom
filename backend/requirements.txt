@@ -25,7 +25,7 @@ pytest-django>=4.8,<5.0
 pypdf>=4.0,<6.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
-reportlab>=4.0,<5.0
+reportlab>=5.0.0,<6.0
 
 # WSGI/ASGI HTTP Server (production deployment)
 # gunicorn runs the ASGI app via uvicorn workers so the async MCP SSE
