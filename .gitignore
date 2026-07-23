@@ -6,6 +6,7 @@ frontend/node_modules/
 e2e/node_modules/
 e2e/test-results/
 e2e/node_modules/
+graphify-out/
 
 .continue
 
@@ -28,6 +29,10 @@ e2e/node_modules/
 .gemini/settings.json
 .gemini/settings.local.json
 .mcp.json
+.meta-config/env.ps1
+.meta-config/env.sh
+.meta-config/env.unset.ps1
+.meta-config/env.unset.sh
 .opencode/agents/
 .opencode/commands/
 .opencode/settings.local.json
