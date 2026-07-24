@@ -1002,3 +1002,103 @@ def test_change_impact_is_not_a_write_tool():
     from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
 
     assert "context.change_impact" not in _WRITE_TOOL_PREFIXES
+
+
+@pytest.fixture
+def architecture_parent_with_child(tenant_workspace_ctx):
+    """A parent ArchitectureElement with one direct decomposition child
+    (plain FK ``parent``/``children`` tree, NOT a TraceLink) for
+    ``context.change_impact``'s ArchitectureElement children-walk tests.
+    Returns (parent_id, child_id, workspace_id)."""
+    from application.architecture_service import ArchitectureService
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    _ensure_workflow(tenant, workspace, "standard", "ArchitectureElement")
+
+    svc = ArchitectureService()
+    parent = svc.create_architecture_element(
+        workspace_id=workspace.id, title="Parent Element", ctx=ctx
+    )
+    child = svc.create_architecture_element(
+        workspace_id=workspace.id, title="Child Element", ctx=ctx, parent_id=parent.id
+    )
+
+    return parent.id, child.id, workspace.id
+
+
+@pytest.mark.django_db
+def test_change_impact_includes_architecture_element_child_via_fk_tree(
+    architecture_parent_with_child, auth_ctx
+):
+    """The ArchitectureElement decomposition tree is a plain FK
+    ``parent``/``children`` relation (no TraceLink) — ``context.change_impact``
+    must walk it separately from the TraceLink graph (see docstring of
+    ``_handle_change_impact``)."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    parent_id, child_id, workspace_id = architecture_parent_with_child
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "context.change_impact",
+        params={"entity_id": str(parent_id), "entity_type": "ArchitectureElement"},
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result.success is True
+    affected = result.data["affected_entities"]
+    assert len(affected) == 1
+    entry = affected[0]
+    assert entry["id"] == str(child_id)
+    assert entry["entity_type"] == "ArchitectureElement"
+    assert entry["title"] == "Child Element"
+    assert entry["link_type"] == "parent-child"
+    assert entry["relation"] == "child"
+
+
+@pytest.mark.django_db
+def test_change_impact_excludes_outdated_architecture_element_child_by_default(
+    architecture_parent_with_child, auth_ctx
+):
+    """An outdate()'d ArchitectureElement child must not appear in
+    ``affected_entities`` by default, but must appear with
+    ``include_outdated=True`` — mirrors ``test_change_impact_excludes_
+    outdated_neighbour_by_default``, but exercises the FK children-walk's
+    own ``outdated_item_ids()``-based filter (the mechanism that caused
+    Critical findings in Phase 0/Phase 1)."""
+    from application.architecture_service import ArchitectureService
+    from mcp_server.tools.architecture import ArchitectureToolGroup
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    parent_id, child_id, workspace_id = architecture_parent_with_child
+
+    arch_group = ArchitectureToolGroup(service=ArchitectureService())
+    outdate_result = arch_group._handle_outdate(
+        params={"id": str(child_id), "reason": "obsolete"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert outdate_result.success is True
+
+    group = CrossCuttingToolGroup()
+
+    result_default = group.execute_tool(
+        "context.change_impact",
+        params={"entity_id": str(parent_id), "entity_type": "ArchitectureElement"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result_default.success is True
+    assert result_default.data["affected_entities"] == []
+
+    result_incl = group.execute_tool(
+        "context.change_impact",
+        params={
+            "entity_id": str(parent_id),
+            "entity_type": "ArchitectureElement",
+            "include_outdated": True,
+        },
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result_incl.success is True
+    affected = result_incl.data["affected_entities"]
+    assert len(affected) == 1
+    assert affected[0]["id"] == str(child_id)
