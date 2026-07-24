@@ -70,6 +70,7 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "test.link",
     "test.run_create",
     "test.run_report_results",
+    "test.derive_from_requirement",
     "test.outdate",
     "test.reactivate",
     "workspace.close",
@@ -120,6 +121,16 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "diagram.update",
     "diagram.outdate",
     "diagram.reactivate",
+    # REQ-L2-AI-003 (Phase 3): mode="write" makes these previously
+    # preview-only tools capable of mutation, so they now require Editor+
+    # (the RBAC gate is name-based, not mode-aware — mode="preview" calls by
+    # these tool names are gated too; see mcp_server/tools/ai_derivation.py).
+    "ai_derivation.derive_requirements_from_need",
+    "ai_derivation.suggest_architecture_for_requirement",
+    "ai_derivation.decompose_requirement_next_level",
+    "ai_derivation.derive_risks_from_architecture",
+    "ai_derivation.derive_glossary_from_workspace",
+    "ai_derivation.derive_adr_from_decision",
 )
 
 # ---------------------------------------------------------------------------

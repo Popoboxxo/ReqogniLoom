@@ -665,6 +665,78 @@ class MockLlmProvider(LlmCapabilityInterface):
                 ]
             )
 
+        if purpose == "derive_risks_from_architecture":
+            # Phase 3 (ai_derivation.derive_risks_from_architecture):
+            # deterministic risk drafts for the given architecture element.
+            # Mirrors the array-shaped purposes above (e.g.
+            # sysreq_decompose_next_level) — always emits valid enum values
+            # for probability/impact so the happy path never hits the
+            # service's defensive clamp, which is instead exercised by a
+            # capturing fake provider in tests.
+            ae_title = str(ctx.get("ae_title") or "Architecture element")
+            return json.dumps(
+                [
+                    {
+                        "title": f"Delivery risk for {ae_title}",
+                        "description": (
+                            f"Risk that '{ae_title}' is not delivered on time "
+                            "or does not meet its quality bar."
+                        ),
+                        "probability": "medium",
+                        "impact": "medium",
+                        "category": "technical",
+                    }
+                ]
+            )
+
+        if purpose == "derive_glossary_from_workspace":
+            # Phase 3, Task 4 (ai_derivation.derive_glossary_from_workspace):
+            # deterministic single-term draft. Never invents workspace
+            # content — it just confirms a term was requested for the given
+            # workspace, mirroring the shape the real prompt asks for.
+            workspace_id = str(ctx.get("workspace_id") or "workspace")
+            return json.dumps(
+                [
+                    {
+                        "term": f"Term for {workspace_id}",
+                        "definition": (
+                            "Placeholder definition extracted from the "
+                            "workspace's requirements and architecture "
+                            "(mock provider — no semantic extraction "
+                            "performed)."
+                        ),
+                        "synonyms": [],
+                        "abbreviation": "",
+                    }
+                ]
+            )
+
+        if purpose == "derive_adr_from_decision":
+            # Phase 3, Task 5 (ai_derivation.derive_adr_from_decision):
+            # deterministic single ADR draft (title, description, context,
+            # consequences) structuring the given free-text decision. Unlike
+            # the array-shaped purposes above, this returns a single JSON
+            # *object* — AiDerivationService._parse_json_object expects that
+            # shape (mirrors "test_derive_from_requirement" above).
+            decision_description = str(
+                ctx.get("decision_description") or "the decision"
+            )
+            return json.dumps(
+                {
+                    "title": f"Decision: {decision_description[:60]}",
+                    "description": decision_description,
+                    "context": (
+                        "Context extracted from the free-text decision "
+                        "description (mock provider — no semantic "
+                        "extraction performed)."
+                    ),
+                    "consequences": (
+                        "Consequences not yet assessed (mock provider "
+                        "placeholder)."
+                    ),
+                }
+            )
+
         return json.dumps([])
 
 

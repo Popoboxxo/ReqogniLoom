@@ -18,6 +18,24 @@ Flows (REQ-L2-AI-002):
      (SysEng 2.0 N5, ``test.derive_from_requirement``). Standard feature, no
      RuleEngine/preset gate — unlike the architecture-decompose copilot (N1)
      this flow has no rigor-preset dependency.
+  5. :meth:`derive_risks_from_architecture` — ArchitectureElement -> Risk
+     drafts (Phase 3, ``ai_derivation.derive_risks_from_architecture``).
+     Standard feature, no rigor-preset gate, same shape as flow 4.
+  6. :meth:`derive_glossary_from_workspace` — Workspace -> GlossaryTerm
+     drafts (Phase 3, ``ai_derivation.derive_glossary_from_workspace``).
+     Standard feature, no rigor-preset gate. Unlike flows 1-5, the write
+     path creates NO trace link back to the source (a bare Workspace id is
+     not a resolvable TraceLinkService source, see
+     :meth:`_write_glossary_term_draft`).
+  7. :meth:`derive_adr_from_decision` — free-text Decision -> Adr draft
+     (Phase 3, Task 5, ``ai_derivation.derive_adr_from_decision``). Standard
+     feature, no rigor-preset gate. The INPUT is raw free text (no source
+     entity id at all — there is nothing to fetch), so — like flow 6 — the
+     write path creates NO trace link. Unlike flow 6, this is NOT because
+     the target type cannot be linked (an ``Adr`` has a real backing
+     ``Artifact`` and is a perfectly resolvable TraceLink endpoint); it is
+     because there is no *source* entity to link it from in the first
+     place. See :meth:`_write_adr_draft`.
 
 LLM access goes through the ``llm_adapter`` provider registry. The default
 provider is ``mock`` (credential-free, deterministic) so the flows and their
@@ -34,7 +52,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID
 
 from django.core.cache import cache
@@ -47,11 +65,15 @@ from persistence.models import (
     Requirement,
     StakeholderNeed,
     TraceLink,
+    Workspace,
 )
 from traceability.types import LinkType
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.glossary_service import GlossaryService
+from application.models import Risk
 from llm_adapter.providers import truncate_prompt_content
+from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +97,54 @@ TESTCASE_DERIVE_PROMPT_TEMPLATE = (
     '"<short description>", "steps": [{"step": "<action>", '
     '"expected_result": "<expected outcome>"}, ...]}. '
     "Provide at least 2 and at most 6 steps."
+)
+
+# Phase 3 (Architecture -> Risk derive pair) prompt. Hardcoded rather than a
+# PromptTemplate slot for the same reason as TESTCASE_DERIVE_PROMPT_TEMPLATE
+# above: this is a new slot not among the 3 existing tenant-editable slots,
+# and adding per-tenant CRUD for it is Phase 4's job (PromptTemplate model +
+# migration), not this flow's.
+ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE = (
+    "You are a systems engineer performing risk identification. Given the "
+    "following architecture element, propose realistic risks that could "
+    "threaten its successful delivery or operation.\n\n"
+    "Architecture element title: {ae_title}\n"
+    "Architecture element description: {ae_description}\n\n"
+    "Respond with a JSON array (no prose, no markdown fences) of objects "
+    'with this exact shape: {"title": "<risk title>", "description": '
+    '"<short description>", "probability": "<low|medium|high>", '
+    '"impact": "<low|medium|high>", "category": '
+    '"<technical|operational|organizational|business>"}. '
+    "'probability' and 'impact' MUST be exactly one of 'low', 'medium' or "
+    "'high' — no other values are valid."
+)
+
+# Phase 3 (Workspace -> Glossary derive pair, Task 4) prompt. Hardcoded for
+# the same reason as ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE above.
+WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE = (
+    "You are a systems engineer extracting a project glossary. Given the "
+    "following requirement and architecture element titles/descriptions from "
+    "a workspace, extract domain-specific terms and their definitions.\n\n"
+    "Workspace content:\n{workspace_text}\n\n"
+    "Respond with a JSON array (no prose, no markdown fences) of objects "
+    'with this exact shape: {"term": "<term>", "definition": '
+    '"<short definition>", "synonyms": ["<synonym>", ...], "abbreviation": '
+    '"<abbreviation or empty string>"}. Only extract terms that are actually '
+    "domain-specific (not generic English words)."
+)
+
+# Phase 3 (Decision -> ADR derive pair, Task 5) prompt. Hardcoded for the same
+# reason as ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE above.
+DECISION_TO_ADR_PROMPT_TEMPLATE = (
+    "You are a systems engineer documenting an architecture decision. Given "
+    "the following free-text description of a decision, structure it into "
+    "an Architecture Decision Record.\n\n"
+    "Decision description:\n{decision_description}\n\n"
+    "Respond with a single JSON object (no prose, no markdown fences) with "
+    'this exact shape: {"title": "<short ADR title>", "description": '
+    '"<what was decided>", "context": "<the problem/forces that led to this '
+    'decision>", "consequences": "<what becomes easier or harder as a '
+    'result>"}.'
 )
 
 # ---------------------------------------------------------------------------
@@ -451,6 +521,223 @@ class AiDerivationService(ServiceBase):
         }
         return {"draft": draft, "requirement_id": str(req.id)}
 
+    def derive_risks_from_architecture(
+        self,
+        ctx: AuthContext,
+        architecture_element_id: UUID | str,
+    ) -> Dict[str, Any]:
+        """Flow 5 (Phase 3): propose risk drafts for an architecture element.
+
+        Standard feature — like :meth:`derive_testcase_from_requirement`, this
+        flow has no rigor-preset / RuleEngine gate and works on any
+        architecture element regardless of its position in the tree.
+
+        Follows the same Draft/Accept contract as the other flows: nothing is
+        persisted here. ``probability``/``impact`` are exactly the enum
+        fields :meth:`application.risk_service.RiskService.create_risk`
+        requires — the LLM is instructed to only emit valid enum values, but
+        the parsed response is still defensively clamped to a valid value
+        (falling back to ``"medium"``) rather than trusting the provider, so
+        a misbehaving/hallucinating provider can never crash this flow or
+        produce a draft ``create_risk`` would reject.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            architecture_element_id: Source architecture element to derive
+                risk drafts for.
+
+        Returns:
+            ``{"drafts": [{title, description, probability, impact,
+            category}], "architecture_element_id": <uuid-str>}``.
+
+        Raises:
+            NotFoundError: The architecture element does not exist for this
+                tenant.
+            LlmResponseError: The provider returned non-JSON content.
+        """
+        self._set_tenant_context(ctx)
+
+        ae = self._get_architecture_element(architecture_element_id)
+
+        prompt = self._render(
+            ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE,
+            ae_title=ae.title,
+            ae_description=truncate_prompt_content(ae.description or ""),
+        )
+
+        raw = self._complete(
+            prompt,
+            purpose="derive_risks_from_architecture",
+            artifact_id=ae.artifact_id,
+            context={"ae_title": ae.title},
+        )
+        items = self._parse_json_list(raw)
+
+        drafts = [
+            {
+                "title": str(item.get("title", "")),
+                "description": str(item.get("description", "")),
+                "probability": self._clamp_choice(
+                    item.get("probability"), Risk.Probability.values, "medium"
+                ),
+                "impact": self._clamp_choice(
+                    item.get("impact"), Risk.Impact.values, "medium"
+                ),
+                "category": self._clamp_choice(
+                    item.get("category"), Risk.Category.values, "technical"
+                ),
+            }
+            for item in items
+            if isinstance(item, dict)
+        ]
+        return {"drafts": drafts, "architecture_element_id": str(ae.id)}
+
+    def derive_glossary_from_workspace(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+    ) -> Dict[str, Any]:
+        """Flow 6 (Phase 3, Task 4): propose glossary term drafts for a workspace.
+
+        Standard feature — like :meth:`derive_testcase_from_requirement` and
+        :meth:`derive_risks_from_architecture`, this flow has no rigor-preset
+        / RuleEngine gate. Unlike those two, the source is not a single
+        artifact but every Requirement and ArchitectureElement currently in
+        the workspace: their titles and descriptions are collected into one
+        block of text and handed to the LLM to extract domain terms from.
+        This intentionally reuses only a lightweight, direct query — not the
+        full context-assembly machinery of the N1 architecture-decompose
+        copilot, which this flow does not need.
+
+        Follows the same Draft/Accept contract as the other flows: nothing is
+        persisted here.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            workspace_id: Workspace to scan for candidate terms.
+
+        Returns:
+            ``{"drafts": [{term, definition, synonyms, abbreviation}],
+            "workspace_id": <uuid-str>}``.
+
+        Raises:
+            NotFoundError: The workspace does not exist for this tenant.
+            LlmResponseError: The provider returned non-JSON content.
+        """
+        self._set_tenant_context(ctx)
+
+        workspace = self._get_workspace(workspace_id)
+
+        fragments: List[str] = []
+        requirements = Requirement.objects.filter(
+            artifact__workspace_id=workspace.id
+        )
+        for req in requirements:
+            fragments.append(
+                f"Requirement: {req.title}\n"
+                f"{truncate_prompt_content(req.description or '')}"
+            )
+        arch_elements = ArchitectureElement.objects.filter(
+            artifact__workspace_id=workspace.id
+        )
+        for ae in arch_elements:
+            fragments.append(
+                f"Architecture element: {ae.title}\n"
+                f"{truncate_prompt_content(ae.description or '')}"
+            )
+        workspace_text = "\n\n".join(fragments) or (
+            "(workspace has no requirements or architecture elements yet)"
+        )
+
+        prompt = self._render(
+            WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE, workspace_text=workspace_text
+        )
+
+        raw = self._complete(
+            prompt,
+            purpose="derive_glossary_from_workspace",
+            artifact_id=str(workspace.id),
+            context={"workspace_id": str(workspace.id)},
+        )
+        items = self._parse_json_list(raw)
+
+        drafts = [
+            {
+                "term": str(item.get("term", "")),
+                "definition": str(item.get("definition", "")),
+                "synonyms": (
+                    [str(s) for s in item["synonyms"]]
+                    if isinstance(item.get("synonyms"), list)
+                    else []
+                ),
+                "abbreviation": str(item.get("abbreviation", "")),
+            }
+            for item in items
+            if isinstance(item, dict)
+        ]
+        return {"drafts": drafts, "workspace_id": str(workspace.id)}
+
+    def derive_adr_from_decision(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+        decision_description: str,
+    ) -> Dict[str, Any]:
+        """Flow 7 (Phase 3, Task 5): structure a free-text decision into an ADR draft.
+
+        Standard feature — like :meth:`derive_testcase_from_requirement`,
+        :meth:`derive_risks_from_architecture` and
+        :meth:`derive_glossary_from_workspace`, this flow has no rigor-preset
+        / RuleEngine gate. Unlike all of those, the source is not an existing
+        artifact at all: ``decision_description`` is raw free text supplied by
+        the caller, so there is no id to fetch and no ``NotFoundError`` path
+        for the source (only ``workspace_id`` — the target workspace the ADR
+        will be created in on write — is validated to exist).
+
+        Follows the same Draft/Accept contract as the other flows: nothing is
+        persisted here.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            workspace_id: Workspace the resulting ADR draft would belong to
+                (validated so ``mode="preview"`` fails fast on a bad
+                workspace id rather than only on the later write call).
+            decision_description: Free-text description of the decision to
+                structure.
+
+        Returns:
+            ``{"draft": {"title": str, "description": str, "context": str,
+            "consequences": str}, "workspace_id": <uuid-str>}``.
+
+        Raises:
+            NotFoundError: The workspace does not exist for this tenant.
+            LlmResponseError: The provider returned non-JSON content.
+        """
+        self._set_tenant_context(ctx)
+
+        workspace = self._get_workspace(workspace_id)
+
+        prompt = self._render(
+            DECISION_TO_ADR_PROMPT_TEMPLATE,
+            decision_description=truncate_prompt_content(decision_description or ""),
+        )
+
+        raw = self._complete(
+            prompt,
+            purpose="derive_adr_from_decision",
+            artifact_id=str(workspace.id),
+            context={"decision_description": decision_description},
+        )
+        parsed = self._parse_json_object(raw)
+
+        draft = {
+            "title": str(parsed.get("title", "")),
+            "description": str(parsed.get("description", "")),
+            "context": str(parsed.get("context", "")),
+            "consequences": str(parsed.get("consequences", "")),
+        }
+        return {"draft": draft, "workspace_id": str(workspace.id)}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -466,6 +753,66 @@ class AiDerivationService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
         return req
 
+    def _get_stakeholder_need(
+        self, stakeholder_need_id: UUID | str
+    ) -> StakeholderNeed:
+        """Return a tenant-scoped StakeholderNeed or raise NotFoundError.
+
+        Mirrors :meth:`_get_requirement`; used by the write-mode path (Phase
+        3) to resolve the source need's workspace before persisting a
+        derived Requirement.
+        """
+        need = (
+            StakeholderNeed.objects.select_related("artifact")
+            .filter(id=stakeholder_need_id)
+            .first()
+        )
+        if need is None:
+            raise NotFoundError(f"StakeholderNeed {stakeholder_need_id} not found")
+        return need
+
+    def _get_architecture_element(
+        self, architecture_element_id: UUID | str
+    ) -> ArchitectureElement:
+        """Return a tenant-scoped ArchitectureElement or raise NotFoundError.
+
+        Mirrors :meth:`_get_requirement` / :meth:`_get_stakeholder_need`; used
+        by :meth:`derive_risks_from_architecture` (Phase 3).
+        """
+        ae = (
+            ArchitectureElement.objects.select_related("artifact")
+            .filter(id=architecture_element_id)
+            .first()
+        )
+        if ae is None:
+            raise NotFoundError(
+                f"ArchitectureElement {architecture_element_id} not found"
+            )
+        return ae
+
+    def _get_workspace(self, workspace_id: UUID | str) -> Workspace:
+        """Return a tenant-scoped Workspace or raise NotFoundError.
+
+        Mirrors :meth:`_get_requirement` / :meth:`_get_architecture_element`;
+        used by :meth:`derive_glossary_from_workspace` (Phase 3, Task 4).
+        """
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+        return workspace
+
+    @staticmethod
+    def _clamp_choice(value: Any, valid_values: List[str], default: str) -> str:
+        """Return *value* if it is one of *valid_values*, else *default*.
+
+        Defensive guard against a hallucinating/misbehaving LLM response
+        (:meth:`derive_risks_from_architecture`): ``RiskService.create_risk``
+        requires ``probability``/``impact``/``category`` to be exact enum
+        values, so an invalid or missing value must never propagate as far
+        as that call.
+        """
+        return value if value in valid_values else default
+
     @staticmethod
     def _allocated_target_ids(req: Requirement) -> List[UUID]:
         """Return the artifact ids this requirement is ``allocated-to``."""
@@ -474,6 +821,400 @@ class AiDerivationService(ServiceBase):
             link_type=LinkType.ALLOCATED_TO.value,
         ).values_list("target_id", flat=True)
         return list(links)
+
+    # ------------------------------------------------------------------
+    # Write-mode helpers (Phase 3, REQ-L2-AI-003) — shared by the three
+    # AiDerivationToolGroup tools when invoked with mode="write". Every
+    # write flow still starts from the same draft the mode="preview" path
+    # returns; only the persistence step is new here.
+    # ------------------------------------------------------------------
+
+    @atomic_transaction
+    def _write_derived_entity(
+        self,
+        *,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        item_type: str,
+        create_fn: Callable[[], Any],
+        source_entity_id: UUID | str,
+        source_item_type: str,
+        link_type: str,
+        policy: str = "manual",
+        new_entity_is_link_source: bool = False,
+    ) -> Dict[str, Any]:
+        """Persist one derived draft entity and link it back to its source.
+
+        Shared by all four derive tools' write path: ``create_fn`` is a
+        zero-arg closure the caller builds (e.g. a bound
+        ``RequirementService().create_requirement(...)`` call) that persists
+        exactly one derived entity. This helper then:
+
+          1. Calls ``create_fn()`` to create the entity.
+          2. Creates a ``link_type`` TraceLink between *source_entity_id* and
+             the new entity (REQ-L2-AS-010, via TraceLinkService). By default
+             *source_entity_id* is the link source and the new entity is the
+             target (e.g. ``derives-from``: ChildReq --derives-from--> ParentReq
+             uses ``source_entity_id=parent``, ``created=child`` — so the link
+             is created with source=source_entity_id, target=created, which
+             reads backwards from the SE convention documented in
+             ``TraceLinkService.propagate_suspect_status`` but matches how the
+             existing derive tools built their links pre-Phase-3). When
+             ``new_entity_is_link_source=True`` the direction is reversed
+             (source=created, target=source_entity_id) — required for link
+             types whose SE endpoint semantics fix the *new* entity as the
+             source, e.g. ``verifies``: TestCase --verifies--> Requirement
+             (``traceability.types.SE_LINK_SEMANTICS``).
+          3. When ``policy == "auto"``, walks the new entity forward through
+             its real workflow transitions via :meth:`_auto_approve`.
+
+        The whole body runs inside a single ``transaction.atomic()`` block
+        (via :func:`~persistence.transactions.atomic_transaction`): if trace
+        link creation fails (e.g. an invalid link type or an SE-mode
+        semantics violation), the just-created entity is rolled back too —
+        no orphaned, un-linked entity is left behind (REQ-L3-PL003-002).
+
+        Args:
+            ctx: Authenticated, tenant-scoped context (also the actor
+                recorded on the trace link and any auto-transitions).
+            workspace_id: Workspace the derived entity belongs to.
+            item_type: Workflow ``item_type`` of the newly created entity
+                (e.g. ``"Requirement"``) — used only for ``policy="auto"``.
+            create_fn: Zero-arg closure that persists and returns the new
+                entity (must expose ``.id`` and ``.artifact_id`` attributes).
+            source_entity_id: Id of the entity the new one was derived from.
+            source_item_type: Workflow ``item_type`` of *source_entity_id*
+                (kept for caller-side documentation/audit — TraceLinkService
+                resolves the concrete artifact type on its own).
+            link_type: One of ``traceability.types.LinkType`` (e.g.
+                ``"derives-from"``).
+            policy: ``"manual"`` (default, leaves the entity in its initial
+                "draft" state) or ``"auto"`` (best-effort auto-approval).
+            new_entity_is_link_source: ``False`` (default) creates the link as
+                source=*source_entity_id*, target=new entity. ``True`` reverses
+                it — see point 2 above. Needed because
+                ``TraceLinkService._resolve_artifact_id`` does not know how to
+                resolve a bare ``TestCase`` id, so the new entity's own
+                ``artifact_id`` is always used instead of its primary key when
+                building the link (see below).
+
+        Returns:
+            ``{"id": <uuid-str>, "status": <final status string>,
+            "trace_link_id": <uuid-str>}``.
+        """
+        self._set_tenant_context(ctx)
+
+        created = create_fn()
+        # TraceLinkService._resolve_artifact_id only resolves bare
+        # Artifact/Requirement/ArchitectureElement/Adr ids, not e.g. TestCase
+        # ids — use the artifact backing every derived entity directly so
+        # this helper works for any item_type.
+        created_ref = created.artifact_id
+
+        from application.trace_link_service import TraceLinkService
+
+        if new_entity_is_link_source:
+            link_source, link_target = created_ref, source_entity_id
+        else:
+            link_source, link_target = source_entity_id, created_ref
+
+        link = TraceLinkService().create_trace_link(
+            source_id=link_source,
+            target_id=link_target,
+            link_type=link_type,
+            ctx=ctx,
+        )
+
+        status = "draft"
+        if policy == "auto":
+            status = self._auto_approve(item_type, created.id, workspace_id, ctx)
+
+        return {
+            "id": str(created.id),
+            "status": status,
+            "trace_link_id": str(link.id),
+        }
+
+    @atomic_transaction
+    def _write_glossary_term_draft(
+        self,
+        *,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        term: str,
+        definition: str,
+        synonyms: List[str],
+        abbreviation: str,
+        policy: str = "manual",
+    ) -> Dict[str, Any]:
+        """Persist one derived GlossaryTerm draft (Phase 3, Task 4).
+
+        Deliberately NOT built on :meth:`_write_derived_entity`, unlike every
+        other write-mode helper in this class. Two things that helper relies
+        on do not hold for this pair:
+
+          1. ``_write_derived_entity`` links the new entity back to its
+             source via ``TraceLinkService.create_trace_link``, which resolves
+             its ``source_id``/``target_id`` through
+             ``_resolve_artifact_id`` — that only accepts a bare
+             Artifact/Requirement/ArchitectureElement/Adr id, never a
+             Workspace id (verified by reading the method directly). So no
+             trace link back to the source Workspace can ever be created for
+             this flow. Decision -> ADR (:meth:`_write_adr_draft`) also
+             creates no trace link, but for a different reason: there the
+             *target* type (``Adr``) is a perfectly resolvable TraceLink
+             endpoint — there simply is no source entity id at all, since
+             the flow's input is raw free text, not an existing artifact.
+          2. ``_write_derived_entity`` also assumes the created entity exposes
+             ``.artifact_id`` (used as the trace-link endpoint even when no
+             link involves it) — ``GlossaryTerm`` has no backing Artifact at
+             all (unlike Requirement/Risk/ArchitectureElement), so that
+             assumption does not hold either.
+
+        ``policy="auto"`` still reuses :meth:`_auto_approve`: unlike the
+        trace-link machinery this flow genuinely doesn't need,
+        ``GlossaryTerm`` *does* have its own real design/review/approve/retire
+        workflow (``glossary_term_default``, see
+        ``workflow/management/commands/provision_workflow_definitions.py``),
+        so best-effort auto-advancement is still meaningful here.
+
+        ``GlossaryService.create`` already raises :class:`ValidationError`
+        for a colliding ``(workspace, term)`` pair (REQ-L1-044's
+        ``unique_together`` constraint) via its own pre-check — the caller
+        (``AiDerivationToolGroup``) catches that the same way it already
+        catches ``ValidationError`` from every other write-mode helper, so no
+        extra handling is needed here.
+
+        Returns:
+            ``{"id": <uuid-str>, "term": str, "status": <final status string>}``.
+        """
+        self._set_tenant_context(ctx)
+
+        created = GlossaryService().create(
+            ctx=ctx,
+            workspace_id=workspace_id,
+            term=term,
+            definition=definition,
+            synonyms=synonyms,
+            abbreviation=abbreviation,
+        )
+
+        status = "draft"
+        if policy == "auto":
+            status = self._auto_approve(
+                "GlossaryTerm", created.id, workspace_id, ctx
+            )
+
+        return {"id": str(created.id), "term": created.term, "status": status}
+
+    @atomic_transaction
+    def _write_adr_draft(
+        self,
+        *,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        title: str,
+        description: str,
+        context: str,
+        consequences: str,
+        policy: str = "manual",
+    ) -> Dict[str, Any]:
+        """Persist one derived Adr draft (Phase 3, Task 5).
+
+        Deliberately NOT built on :meth:`_write_derived_entity`, like
+        :meth:`_write_glossary_term_draft` — but for a different reason.
+        ``Adr`` *does* have a backing ``Artifact`` (unlike ``GlossaryTerm``)
+        and its own primary key is directly resolvable by
+        ``TraceLinkService._resolve_artifact_id`` (it is explicitly listed
+        there alongside Artifact/Requirement/ArchitectureElement, see
+        :meth:`_write_derived_entity`'s docstring) — so, unlike the Workspace
+        -> Glossary pair, nothing about *this* target type rules out a trace
+        link.
+
+        The reason no trace link is created here is entirely on the *source*
+        side: :meth:`derive_adr_from_decision`'s input, ``decision_description``,
+        is raw free text supplied by the caller — there is no existing
+        artifact id to link from at all, resolvable or not. Every other
+        write-mode helper in this class is handed a real ``source_entity_id``;
+        this is the one flow in this phase whose entire premise (a Decision is
+        not a persisted entity) rules that out structurally, not because of a
+        resolution limitation.
+
+        ``policy="auto"`` still reuses :meth:`_auto_approve`: ``Adr`` has its
+        own real design/review/approve/retire workflow
+        (``adr_default``, see
+        ``workflow/management/commands/provision_workflow_definitions.py``),
+        so best-effort auto-advancement is meaningful here exactly as it is
+        for the other write-mode helpers.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            workspace_id: Workspace the new ADR belongs to.
+            title: ADR title (``AdrService.create_adr`` validates length).
+            description: ADR description.
+            context: ADR context section.
+            consequences: ADR consequences section.
+            policy: ``"manual"`` (default) or ``"auto"``.
+
+        Returns:
+            ``{"id": <uuid-str>, "status": <final state string>}`` — no
+            ``trace_link_id`` key (see above).
+
+        Raises:
+            NotFoundError: The workspace (or tenant) does not exist.
+            ValidationError: ``title``/``description`` fail
+                ``AdrService.create_adr``'s own validation.
+        """
+        self._set_tenant_context(ctx)
+
+        from application.adr_service import AdrService
+
+        created = AdrService().create_adr(
+            workspace_id=workspace_id,
+            title=title,
+            description=description,
+            ctx=ctx,
+            context=context,
+            consequences=consequences,
+        )
+
+        status = "draft"
+        if policy == "auto":
+            status = self._auto_approve("Adr", created.id, workspace_id, ctx)
+
+        return {"id": str(created.id), "status": status}
+
+    def _auto_approve(
+        self,
+        item_type: str,
+        item_id: UUID | str,
+        workspace_id: UUID | str,
+        ctx: AuthContext,
+    ) -> str:
+        """Best-effort: walk *item_id* forward through its real transitions.
+
+        Takes one hop at a time (via ``workflow.services.get_available_transitions``
+        / ``transition``), always preferring the first available transition
+        whose target state is not flagged ``is_outdated_equivalent`` in the
+        workflow definition's ``state_meta`` (Phase 0) — an "auto-approve"
+        policy must never auto-reject/auto-deprecate the entity it just
+        created. Stops after 5 hops (defends against a pathological cyclic
+        definition), as soon as no non-terminal transition remains, or once
+        the intended destination is reached (see below).
+
+        Explicit target (Phase 3, ``auto_approve_target`` in ``state_meta``):
+        if the preset marks a state as the intended "auto" destination (e.g.
+        ``adr_default``'s "Approved", ``risk_default``'s "Mitigated"), the
+        walk stops as soon as that state is reached — crossing an approval
+        gate if that is what it takes to get there — and never continues past
+        it. This is what lets ``policy="auto"`` reach an entity's real steady
+        state instead of stalling one hop early at the first approval gate.
+
+        Fallback (no explicit target defined anywhere in this workflow):
+        the walk stops *before* taking a transition that requires an approval
+        role (see :meth:`_is_approval_gate`), exactly as before this preset
+        gained explicit metadata. This fixes a bug where an actor holding
+        ``approver``/``admin`` could otherwise walk a freshly-derived entity
+        all the way to a business-terminal state such as ``Risk.Closed`` or
+        ``Adr.Superseded`` — states that mean "this is done/superseded", not
+        "this was just created". Without explicit target metadata, "auto"
+        may only perform the self-service submission hops an ``editor`` could
+        already do unsupervised; the first genuine approval decision (a
+        transition whose ``allowed_roles`` do not include ``editor``) is left
+        for a human to take explicitly, regardless of whether *ctx* actually
+        holds a role that could pass it.
+
+        Never raises: a validation failure (e.g. the caller's roles do not
+        allow the next transition, or ``change_reason`` requirements are not
+        met) simply stops the walk at whatever state was last reached — the
+        entity stays a valid, persisted draft either way.
+
+        Returns:
+            The final workflow state name reached (``"draft"`` if no
+            transition could be taken at all).
+        """
+        from workflow.definition_store import get_state_meta
+        from workflow.models import WorkflowEngineDefinition
+        from workflow.services import get_available_transitions, transition
+
+        current_state = "draft"
+        try:
+            for _ in range(5):
+                available = get_available_transitions(
+                    item_id=item_id, item_type=item_type, workspace_id=workspace_id
+                )
+                current_state = available.current_state or current_state
+
+                definition = WorkflowEngineDefinition.objects.filter(
+                    workspace_id=workspace_id, item_type=item_type
+                ).first()
+                workflow_json = definition.workflow_json if definition else {}
+
+                if get_state_meta(workflow_json, current_state).get(
+                    "auto_approve_target", False
+                ):
+                    # Reached the preset's explicit "auto" destination — stop
+                    # here regardless of what transitions remain open.
+                    break
+
+                if not available.transitions:
+                    break
+
+                has_explicit_target = any(
+                    meta.get("auto_approve_target", False)
+                    for meta in workflow_json.get("state_meta", {}).values()
+                )
+
+                next_transition = next(
+                    (
+                        t
+                        for t in available.transitions
+                        if not get_state_meta(workflow_json, t.to_state).get(
+                            "is_outdated_equivalent", False
+                        )
+                    ),
+                    None,
+                )
+                if next_transition is None:
+                    break
+
+                if self._is_approval_gate(next_transition) and not has_explicit_target:
+                    # No explicit destination defined for this preset — fall
+                    # back to the safe default: never cross an approval
+                    # decision unsupervised.
+                    break
+
+                result = transition(
+                    item_id=item_id,
+                    target_state=next_transition.to_state,
+                    change_reason=f"auto-approved via AI-Derivation ({item_type})",
+                    ctx=ctx,
+                    item_type=item_type,
+                    workspace_id=workspace_id,
+                )
+                current_state = result.new_state
+        except Exception:  # noqa: BLE001 — auto-approve must never break a write
+            logger.warning(
+                "Auto-approve stopped for %s %s at state %s",
+                item_type,
+                item_id,
+                current_state,
+                exc_info=True,
+            )
+        return current_state
+
+    @staticmethod
+    def _is_approval_gate(transition_dto: "TransitionDefinitionDTO") -> bool:
+        """True if *transition_dto* is a genuine approval decision.
+
+        A transition an ``editor`` can already take unsupervised (its
+        ``allowed_roles`` includes ``"editor"``) is a self-service submission
+        step (e.g. ``draft -> in_review``), not an approval — ``_auto_approve``
+        may cross it. A transition restricted to ``approver``/``admin`` (no
+        ``editor``) is the real "someone signed off on this" gate and must be
+        left to an explicit, human-initiated transition call instead.
+        """
+        return "editor" not in transition_dto.allowed_roles
 
     @staticmethod
     def _get_slot(ctx: AuthContext, slot: str) -> str:
@@ -625,5 +1366,7 @@ __all__ = [
     "MOCK_FALLBACK_MARKER",
     "DERIVATION_CACHE_TTL_SECONDS",
     "TESTCASE_DERIVE_PROMPT_TEMPLATE",
+    "WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE",
+    "DECISION_TO_ADR_PROMPT_TEMPLATE",
     "invalidate_derivation_cache",
 ]
