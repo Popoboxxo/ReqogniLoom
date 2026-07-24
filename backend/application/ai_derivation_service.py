@@ -1099,19 +1099,30 @@ class AiDerivationService(ServiceBase):
         workflow definition's ``state_meta`` (Phase 0) — an "auto-approve"
         policy must never auto-reject/auto-deprecate the entity it just
         created. Stops after 5 hops (defends against a pathological cyclic
-        definition), as soon as no non-terminal transition remains, or —
-        crucially — *before* taking a transition that requires an approval
-        role (see :meth:`_is_approval_gate`).
+        definition), as soon as no non-terminal transition remains, or once
+        the intended destination is reached (see below).
 
-        The last point fixes a bug where an actor holding ``approver``/``admin``
-        could walk a freshly-derived entity all the way to a business-terminal
-        state such as ``Risk.Closed`` or ``Adr.Superseded`` — states that mean
-        "this is done/superseded", not "this was just created". "Auto-approve"
-        must only ever perform the self-service submission hops an ``editor``
-        could already do unsupervised; the first genuine approval decision
-        (a transition whose ``allowed_roles`` do not include ``editor``) is
-        left for a human to take explicitly, regardless of whether *ctx*
-        actually holds a role that could pass it.
+        Explicit target (Phase 3, ``auto_approve_target`` in ``state_meta``):
+        if the preset marks a state as the intended "auto" destination (e.g.
+        ``adr_default``'s "Approved", ``risk_default``'s "Mitigated"), the
+        walk stops as soon as that state is reached — crossing an approval
+        gate if that is what it takes to get there — and never continues past
+        it. This is what lets ``policy="auto"`` reach an entity's real steady
+        state instead of stalling one hop early at the first approval gate.
+
+        Fallback (no explicit target defined anywhere in this workflow):
+        the walk stops *before* taking a transition that requires an approval
+        role (see :meth:`_is_approval_gate`), exactly as before this preset
+        gained explicit metadata. This fixes a bug where an actor holding
+        ``approver``/``admin`` could otherwise walk a freshly-derived entity
+        all the way to a business-terminal state such as ``Risk.Closed`` or
+        ``Adr.Superseded`` — states that mean "this is done/superseded", not
+        "this was just created". Without explicit target metadata, "auto"
+        may only perform the self-service submission hops an ``editor`` could
+        already do unsupervised; the first genuine approval decision (a
+        transition whose ``allowed_roles`` do not include ``editor``) is left
+        for a human to take explicitly, regardless of whether *ctx* actually
+        holds a role that could pass it.
 
         Never raises: a validation failure (e.g. the caller's roles do not
         allow the next transition, or ``change_reason`` requirements are not
@@ -1133,13 +1144,26 @@ class AiDerivationService(ServiceBase):
                     item_id=item_id, item_type=item_type, workspace_id=workspace_id
                 )
                 current_state = available.current_state or current_state
-                if not available.transitions:
-                    break
 
                 definition = WorkflowEngineDefinition.objects.filter(
                     workspace_id=workspace_id, item_type=item_type
                 ).first()
                 workflow_json = definition.workflow_json if definition else {}
+
+                if get_state_meta(workflow_json, current_state).get(
+                    "auto_approve_target", False
+                ):
+                    # Reached the preset's explicit "auto" destination — stop
+                    # here regardless of what transitions remain open.
+                    break
+
+                if not available.transitions:
+                    break
+
+                has_explicit_target = any(
+                    meta.get("auto_approve_target", False)
+                    for meta in workflow_json.get("state_meta", {}).values()
+                )
 
                 next_transition = next(
                     (
@@ -1154,9 +1178,10 @@ class AiDerivationService(ServiceBase):
                 if next_transition is None:
                     break
 
-                if self._is_approval_gate(next_transition):
-                    # A real approval decision — stop here instead of crossing
-                    # it unsupervised, no matter which roles *ctx* holds.
+                if self._is_approval_gate(next_transition) and not has_explicit_target:
+                    # No explicit destination defined for this preset — fall
+                    # back to the safe default: never cross an approval
+                    # decision unsupervised.
                     break
 
                 result = transition(

@@ -757,14 +757,13 @@ def test_auto_approve_stops_before_approval_gate_for_risk(auth_context, workspac
     """Regression test: an actor holding "approver"+"admin" must not have a
     freshly-derived Risk auto-walked all the way to "Closed".
 
-    ``risk_default`` (see ``_risk_transitions``) intentionally has no
-    ``state_meta`` for "Closed" (it is not considered
-    ``is_outdated_equivalent`` — a closed risk is historically valuable, not
-    hidden), so the old is-outdated-only skip guard was a no-op here and the
-    walk reached the business-terminal "Closed" state in 3 unsupervised hops.
-    "editor"-gated hops (Identified->Monitored, Monitored->Mitigated) are
-    self-service and may still be crossed; the first approver-only gate
-    (Mitigated->Closed) must stop the walk instead.
+    ``risk_default`` (see ``_risk_transitions``) marks "Mitigated" as the
+    explicit ``auto_approve_target`` (Phase 3) — reachable via two
+    "editor"-gated, self-service hops (Identified->Monitored,
+    Monitored->Mitigated) with no approval gate to cross. "Closed" carries no
+    such marker (a closed risk is historically valuable, not an "auto"
+    destination), so the walk must stop at "Mitigated" instead of crossing
+    the approver-only "Mitigated -> Closed" gate.
     """
     from application.risk_service import RiskService
     from workflow.services import create_default_workflow
@@ -808,12 +807,12 @@ def test_auto_approve_stops_before_approval_gate_for_adr(auth_context, workspace
     """Regression test: an actor holding "approver"+"admin" must not have a
     freshly-derived Adr auto-walked all the way to "Superseded"/"Rejected".
 
-    ``adr_default`` (see ``_adr_transitions``) has no ``state_meta`` either
-    (Superseded/Rejected are historically meaningful, not "outdated/hidden"),
-    so before this fix the walk crossed "In Review -> Approved" (an approval
-    gate) and then kept going straight to "Superseded". The walk must stop
-    once it reaches the first approval-only transition ("In Review ->
-    Approved" requires "approver"/"admin", no "editor") instead of crossing it.
+    ``adr_default`` (see ``_adr_transitions``) marks "Approved" as the
+    explicit ``auto_approve_target`` (Phase 3) — the intended "auto" steady
+    state for an ADR. The walk therefore *does* cross "In Review -> Approved"
+    (an approval-only gate) since that is the marked destination, but must
+    stop immediately once "Approved" is reached instead of continuing on to
+    the business-terminal "Superseded".
     """
     from application.adr_service import AdrService
     from workflow.services import create_default_workflow
@@ -851,7 +850,53 @@ def test_auto_approve_stops_before_approval_gate_for_adr(auth_context, workspace
     status = svc._auto_approve("Adr", created.id, workspace.id, admin_ctx)
 
     assert status not in ("Superseded", "Rejected")
-    assert status == "In Review"
+    assert status == "Approved"
+
+
+def test_auto_approve_falls_back_to_gate_stop_when_no_explicit_target(
+    auth_context, workspace
+):
+    """Preset without ``auto_approve_target`` metadata keeps the pre-Phase-3
+    behaviour: stop *before* the first approval-only gate, even for an actor
+    holding "approver"+"admin".
+
+    ``"extended"`` (see ``_extended_transitions``) has no ``auto_approve_target``
+    entries in its ``state_meta`` (only "deprecated" carries
+    ``is_outdated_equivalent``), so ``_auto_approve`` must fall back to the
+    gate-stop rule and never cross "in_review -> approved" (approver/admin-only)
+    unsupervised — regardless of the metadata added for ``adr_default`` /
+    ``risk_default``.
+    """
+    from workflow.services import create_default_workflow
+
+    admin_ctx = AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+
+    TenantContext.set_tenant(admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    created = RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Derived Req Fallback", ctx=admin_ctx,
+    )
+
+    svc = AiDerivationService()
+    status = svc._auto_approve("Requirement", created.id, workspace.id, admin_ctx)
+
+    assert status == "in_review"
 
 
 # ---------------------------------------------------------------------------

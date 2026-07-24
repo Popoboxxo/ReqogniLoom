@@ -592,10 +592,23 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "adr_default": {
         "states": ["Draft", "In Review", "Approved", "Rejected", "Superseded"],
         "transitions": _adr_transitions(),
+        # REQ-Phase3: "auto" derivation policy should reach the entity's
+        # intended steady state, not stop at the first approval gate
+        # ("In Review" -> "Approved" is approver/admin-only). "Approved" is
+        # explicitly marked as the auto-approve target so _auto_approve
+        # crosses that one gate and then stops (never continues on to the
+        # business-terminal "Superseded").
+        "state_meta": {"Approved": {"auto_approve_target": True}},
     },
     "risk_default": {
         "states": ["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
         "transitions": _risk_transitions(),
+        # REQ-Phase3: "Mitigated" is the sensible auto-approve endpoint — it
+        # is reachable via editor-only hops (no gate-crossing needed here),
+        # sits directly before the approver-only "Closed" gate, and matches
+        # the intermediate state already asserted by the regression test
+        # (test_auto_approve_stops_before_approval_gate_for_risk).
+        "state_meta": {"Mitigated": {"auto_approve_target": True}},
     },
     "issue_default": {
         "states": ["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
@@ -637,14 +650,22 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
 
 
 def get_state_meta(workflow_json: dict, state_name: str) -> dict:
-    """Return per-state metadata (currently just `is_outdated_equivalent`).
+    """Return per-state metadata (`is_outdated_equivalent`, `auto_approve_target`).
 
-    Backward-compatible: workflow_json blobs written before this key existed
-    have no "state_meta" entry at all, and any state not explicitly listed
-    inside "state_meta" defaults to not-outdated.
+    Backward-compatible: workflow_json blobs written before either key
+    existed have no "state_meta" entry at all, and any state not explicitly
+    listed inside "state_meta" defaults to not-outdated / not-an-auto-target.
+    Callers that only set one of the two keys on a given state (e.g. Phase 0's
+    ``{"is_outdated_equivalent": True}``) still get the other key back via
+    this default so ``.get("auto_approve_target")`` never raises on old data.
     """
     state_meta = workflow_json.get("state_meta", {})
-    return state_meta.get(state_name, {"is_outdated_equivalent": False})
+    entry = state_meta.get(state_name, {})
+    return {
+        "is_outdated_equivalent": False,
+        "auto_approve_target": False,
+        **entry,
+    }
 
 
 # ---------------------------------------------------------------------------
