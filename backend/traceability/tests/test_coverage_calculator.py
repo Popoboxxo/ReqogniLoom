@@ -286,3 +286,69 @@ class TestGetCoverageData:
 
         entry = next(e for e in data.entries if e.requirement_id == str(req.id))
         assert entry.test_cases[0]["result"] == "Passed"
+
+    def test_get_coverage_data_excludes_outdated_requirements_when_requested(
+        self, calc, tenant_a, workspace_a
+    ):
+        """``include_outdated=False`` (default) excludes outdated Requirements
+        from ``entries``; ``include_outdated=True`` includes them again.
+
+        Requirement.status is a denormalized WorkflowEngine lifecycle mirror
+        (same pattern as ``_entity_counts``/``_entity_lists`` in
+        ``mcp_server/tools/cross_cutting.py``) — setting it directly here
+        avoids pulling in the full workflow-transition machinery for this
+        test.
+        """
+        with active_tenant(tenant_a):
+            _, kept_req = make_requirement(tenant_a, workspace_a, "Kept")
+            _, outdated_req = make_requirement(tenant_a, workspace_a, "Outdated")
+            outdated_req.status = "outdated"
+            outdated_req.save(update_fields=["status"])
+
+            data_default = calc.get_coverage_data(workspace_a.id)
+            data_incl = calc.get_coverage_data(workspace_a.id, include_outdated=True)
+
+        assert not any(
+            e.requirement_id == str(outdated_req.id) for e in data_default.entries
+        )
+        assert any(e.requirement_id == str(kept_req.id) for e in data_default.entries)
+
+        assert any(
+            e.requirement_id == str(outdated_req.id) for e in data_incl.entries
+        )
+        assert any(e.requirement_id == str(kept_req.id) for e in data_incl.entries)
+
+    def test_get_coverage_data_excludes_outdated_test_cases_from_entry(
+        self, calc, tenant_a, workspace_a
+    ):
+        """A verifying TestCase that is outdated must not appear in
+        ``entry.test_cases`` unless ``include_outdated=True`` is passed.
+        """
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-1")
+            active_tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-Active")
+            outdated_tc_art, outdated_tc = make_test_case(
+                tenant_a, workspace_a, "TC-Outdated"
+            )
+            outdated_tc.status = "outdated"
+            outdated_tc.save(update_fields=["status"])
+
+            make_trace_link(active_tc_art, art_req, tenant_a, "verifies")
+            make_trace_link(outdated_tc_art, art_req, tenant_a, "verifies")
+
+            data_default = calc.get_coverage_data(workspace_a.id)
+            data_incl = calc.get_coverage_data(workspace_a.id, include_outdated=True)
+
+        entry_default = next(
+            e for e in data_default.entries if e.requirement_id == str(req.id)
+        )
+        default_tc_ids = {tc["id"] for tc in entry_default.test_cases}
+        assert str(active_tc_art.id) in default_tc_ids
+        assert str(outdated_tc_art.id) not in default_tc_ids
+
+        entry_incl = next(
+            e for e in data_incl.entries if e.requirement_id == str(req.id)
+        )
+        incl_tc_ids = {tc["id"] for tc in entry_incl.test_cases}
+        assert str(active_tc_art.id) in incl_tc_ids
+        assert str(outdated_tc_art.id) in incl_tc_ids

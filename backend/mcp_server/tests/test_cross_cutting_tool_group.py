@@ -486,6 +486,172 @@ def test_get_context_full_depth_includes_all_fields(
     assert any(e["title"] == "Outdated" for e in outdate_entries)
 
 
+# ---------------------------------------------------------------------------
+# context.test_coverage (Phase 2, Task 5)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def requirement_with_tests(tenant_workspace_ctx):
+    """A workspace with a Requirement verified by one TestCase (via TraceLink
+    link_type=verifies) and a second, unverified Requirement (a coverage gap).
+    """
+    from application.requirement_service import RequirementService
+    from application.test_service import TestService
+    from application.trace_link_service import TraceLinkService
+    from traceability.types import LinkType
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    _ensure_workflow(tenant, workspace, "standard", "Requirement")
+    _ensure_workflow(tenant, workspace, "standard", "TestCase")
+
+    req_svc = RequirementService()
+    requirement = req_svc.create_requirement(workspace_id=workspace.id, title="Req", ctx=ctx)
+    gap_requirement = req_svc.create_requirement(
+        workspace_id=workspace.id, title="Uncovered Req", ctx=ctx
+    )
+
+    test_svc = TestService()
+    test_case = test_svc.create_test_case(
+        workspace_id=workspace.id, title="Verifying Test", ctx=ctx
+    )
+
+    trace_svc = TraceLinkService()
+    trace_svc.create_trace_link(
+        source_id=test_case.artifact_id,
+        target_id=requirement.id,
+        link_type=LinkType.VERIFIES.value,
+        ctx=ctx,
+    )
+
+    return requirement.id, workspace.id, gap_requirement.id
+
+
+@pytest.mark.django_db
+def test_context_test_coverage_returns_test_cases_and_gaps(requirement_with_tests, auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    req_id, workspace_id, gap_req_id = requirement_with_tests
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "context.test_coverage",
+        params={"requirement_id": str(req_id)},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is True
+    assert "test_cases" in result.data
+    assert "gaps" in result.data  # requirements without any linked test case, per the design spec's "Lücken" wording
+    assert len(result.data["test_cases"]) == 1
+    assert result.data["gaps"] == []
+
+
+@pytest.mark.django_db
+def test_context_test_coverage_reports_gap_for_uncovered_requirement(
+    requirement_with_tests, auth_ctx
+):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    req_id, workspace_id, gap_req_id = requirement_with_tests
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "context.test_coverage",
+        params={"requirement_id": str(gap_req_id)},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is True
+    assert result.data["test_cases"] == []
+    assert result.data["gaps"] == [str(gap_req_id)]
+
+
+@pytest.mark.django_db
+def test_context_test_coverage_requires_requirement_id(auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "context.test_coverage", params={}, auth_context=auth_ctx, api_key=""
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+def test_context_test_coverage_not_found_for_unknown_requirement(auth_ctx):
+    import uuid
+
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "context.test_coverage",
+        params={"requirement_id": str(uuid.uuid4())},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is False
+    assert result.error_code == "NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_context_test_coverage_excludes_outdated_test_case_by_default(
+    workspace_with_outdated_requirement, auth_ctx
+):
+    """A verifying TestCase that is outdated must not appear in
+    ``test_cases`` unless ``include_outdated=True`` is passed — mirrors the
+    ``CoverageCalculator.get_coverage_data(include_outdated=...)`` contract.
+    """
+    from application.test_service import TestService
+    from application.trace_link_service import TraceLinkService
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from mcp_server.tools.tests import McpTestToolGroup
+    from traceability.types import LinkType
+
+    workspace_id, tenant_id, outdated_req_id = workspace_with_outdated_requirement
+
+    from persistence.models import Tenant, Workspace
+
+    workspace = Workspace.objects.get(id=workspace_id)
+    tenant = Tenant.objects.get(id=tenant_id)
+    _ensure_workflow(tenant, workspace, "standard", "TestCase")
+
+    test_svc = TestService()
+    test_case = test_svc.create_test_case(
+        workspace_id=workspace_id, title="Outdated Test", ctx=auth_ctx
+    )
+    trace_svc = TraceLinkService()
+    trace_svc.create_trace_link(
+        source_id=test_case.artifact_id,
+        target_id=outdated_req_id,
+        link_type=LinkType.VERIFIES.value,
+        ctx=auth_ctx,
+    )
+
+    tests_group = McpTestToolGroup(service=test_svc)
+    outdate_result = tests_group.execute_tool(
+        "test.outdate",
+        params={"id": str(test_case.id), "reason": "obsolete"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert outdate_result.success is True
+
+    group = CrossCuttingToolGroup()
+    result_default = group.execute_tool(
+        "context.test_coverage",
+        params={"requirement_id": str(outdated_req_id)},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result_default.success is True
+    assert result_default.data["test_cases"] == []
+    assert result_default.data["gaps"] == [str(outdated_req_id)]
+
+    result_incl = group.execute_tool(
+        "context.test_coverage",
+        params={"requirement_id": str(outdated_req_id), "include_outdated": True},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result_incl.success is True
+    assert len(result_incl.data["test_cases"]) == 1
+    assert result_incl.data["gaps"] == []
+
+
 @pytest.fixture
 def workspace_with_many_requirements(tenant_workspace_ctx):
     """A workspace with enough Requirements that a naive summary payload

@@ -107,6 +107,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "artifact.get_tree": "_handle_artifact_get_tree",
         "workspace.get_context": "_handle_workspace_get_context",
         "workspace.llm_system_prompt": "_handle_llm_system_prompt",
+        "context.test_coverage": "_handle_test_coverage",
     }
 
     _TOOL_SCHEMAS = [
@@ -256,6 +257,31 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "context.test_coverage",
+            "description": (
+                "Return the TestCases verifying a single Requirement, plus "
+                "coverage gaps, for AI-agent context building. Response: "
+                "result.test_cases (list of {id, result}) and result.gaps "
+                "(list — the Requirement's own id when it has no verifying "
+                "TestCase, else empty). ``include_outdated`` (default false) "
+                "includes outdated Requirements/TestCases in the lookup."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "requirement_id": {
+                        "type": "string",
+                        "description": "UUID of the Requirement to look up coverage for.",
+                    },
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "Include outdated Requirements/TestCases (default false).",
+                    },
+                },
+                "required": ["requirement_id"],
             },
         },
     ]
@@ -673,6 +699,53 @@ class CrossCuttingToolGroup(BaseToolGroup):
             prompt_text = prompt_text[: budget * 4] + "\n... (truncated)"
 
         return ToolResult.ok({"system_prompt": prompt_text})
+
+    # ------------------------------------------------------------------
+    # context.test_coverage
+    # ------------------------------------------------------------------
+
+    def _handle_test_coverage(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """context.test_coverage — TestCases verifying a Requirement + gaps.
+
+        REQ-L2-MC-004 (Phase 2, Task 5). Read-only — no audit entry (see
+        class docstring). ``include_outdated`` is forwarded to
+        ``CoverageCalculator.get_coverage_data`` (default false: outdated
+        Requirements/TestCases are excluded).
+        """
+        req_id_str = params.get("requirement_id")
+        if not req_id_str:
+            return ToolResult.error("VALIDATION_ERROR", "requirement_id is required")
+        include_outdated = bool(params.get("include_outdated", False))
+
+        from persistence.models import Requirement
+        from persistence.tenancy import TenantContext
+
+        TenantContext.set_tenant(auth_context.tenant_id)
+        try:
+            requirement = Requirement.objects.get(
+                id=UUID(str(req_id_str)), tenant_id=auth_context.tenant_id
+            )
+        except (Requirement.DoesNotExist, ValueError):
+            return ToolResult.error("NOT_FOUND", f"Requirement {req_id_str} not found")
+
+        from traceability.coverage_calculator import CoverageCalculator
+
+        calc = CoverageCalculator()
+        data = calc.get_coverage_data(
+            requirement.artifact.workspace_id, include_outdated=include_outdated
+        )
+        entry = next(
+            (e for e in data.entries if e.requirement_id == str(requirement.id)), None
+        )
+
+        if entry is None:
+            return ToolResult.ok({"test_cases": [], "gaps": [str(requirement.id)]})
+        return ToolResult.ok({
+            "test_cases": entry.test_cases,
+            "gaps": [] if entry.test_cases else [str(requirement.id)],
+        })
 
     def _recent_changes(
         self, *, workspace_id: UUID, tenant_id: UUID, limit: int = 10

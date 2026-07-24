@@ -324,6 +324,7 @@ class ToolRegistry:
             "test": TestToolGroup(),
             "traceability": cross_cutting_tool_group,
             "artifact": cross_cutting_tool_group,
+            "context": cross_cutting_tool_group,
             "workspace": AdminToolGroup(),
             "permissions": PermissionsToolGroup(),
             "admin": BackupToolGroup(),

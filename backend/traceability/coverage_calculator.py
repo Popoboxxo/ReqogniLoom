@@ -144,6 +144,7 @@ class CoverageCalculator:
         self,
         workspace_id: uuid.UUID,
         baseline_id: Optional[uuid.UUID] = None,
+        include_outdated: bool = False,
     ) -> CoverageData:
         """Return per-requirement test-case assignments for VCRM generation.
 
@@ -152,17 +153,26 @@ class CoverageCalculator:
         (currently uses live data; baseline snapshot integration is a
         future extension — the parameter is accepted and forwarded).
 
+        Args:
+            workspace_id: The workspace to compute coverage data for.
+            baseline_id: Reserved for future baseline-snapshot reads.
+            include_outdated: When False (default), outdated Requirements are
+                excluded from ``entries`` entirely, and outdated verifying
+                TestCases are excluded from each remaining entry's
+                ``test_cases`` list. Both Requirement and TestCase mirror
+                lifecycle state via a denormalized ``status`` column (same
+                pattern as ``mcp_server.tools.cross_cutting._entity_counts``).
+
         Returns:
             CoverageData with per-requirement test-case lists.
         """
         tenant_id = TenantContext.get_tenant()
 
         # Load requirements in workspace
-        requirements = list(
-            Requirement.objects.filter(
-                artifact__workspace_id=workspace_id
-            ).values("id", "artifact_id", "title")
-        )
+        req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        if not include_outdated:
+            req_qs = req_qs.exclude(status="outdated")
+        requirements = list(req_qs.values("id", "artifact_id", "title"))
 
         if not requirements:
             return CoverageData(entries=[])
@@ -183,6 +193,11 @@ class CoverageCalculator:
         }
         result_by_testcase = self._latest_testrun_status(testcase_artifact_ids)
 
+        if not include_outdated:
+            testcase_artifact_ids = self._exclude_outdated_testcase_ids(
+                testcase_artifact_ids
+            )
+
         # Build per-requirement test-case map. The Requirement is the link
         # TARGET and the TestCase is the SOURCE (SE `verifies` convention).
         req_testcases: dict[str, list[dict]] = {
@@ -190,9 +205,9 @@ class CoverageCalculator:
         }
         for link_info in verifies_links:
             req_art_id = link_info["req_artifact_id"]
-            if req_art_id in req_id_map:
+            tc_art_id = link_info["testcase_artifact_id"]
+            if req_art_id in req_id_map and tc_art_id in testcase_artifact_ids:
                 req_id = req_id_map[req_art_id]
-                tc_art_id = link_info["testcase_artifact_id"]
                 req_testcases[req_id].append({
                     "id": tc_art_id,
                     "result": result_by_testcase.get(tc_art_id, "Not Run"),
@@ -254,6 +269,27 @@ class CoverageCalculator:
                 continue  # first row per TestCase is the latest (ordering)
             latest[tc_art_id] = status_labels.get(row["status"], "Not Run")
         return latest
+
+    def _exclude_outdated_testcase_ids(
+        self, testcase_artifact_ids: set[str]
+    ) -> set[str]:
+        """Filter *testcase_artifact_ids* down to non-outdated TestCases.
+
+        TestCase.status is a denormalized WorkflowEngine lifecycle mirror
+        (same pattern as Requirement.status) — a plain ``status != "outdated"``
+        filter is therefore the cheapest correct point to apply this, no
+        ``outdated_item_ids()`` join needed (that helper is for entity types
+        without a status mirror, e.g. ArchitectureElement).
+        """
+        if not testcase_artifact_ids:
+            return set()
+
+        from persistence.models import TestCase
+
+        active_ids = TestCase.objects.filter(
+            artifact_id__in=testcase_artifact_ids
+        ).exclude(status="outdated").values_list("artifact_id", flat=True)
+        return {str(tc_id) for tc_id in active_ids}
 
     def _get_covered_artifact_ids(
         self,
