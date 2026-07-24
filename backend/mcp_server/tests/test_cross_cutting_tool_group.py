@@ -625,3 +625,42 @@ def test_llm_system_prompt_unknown_workspace_returns_not_found(auth_ctx):
 
     assert result.success is False
     assert result.error_code == "NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_llm_system_prompt_role_is_label_only_does_not_filter_data(workspace_with_data, auth_ctx):
+    """REQ-L2-MC-004 (Phase 2, Task 4): ``role`` in workspace.llm_system_prompt
+    is echoed as a text label only ("Du bist als {role} unterwegs") and never
+    filters the underlying data. The requirements and architecture sections
+    must be identical regardless of role."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    workspace_id, tenant_id = workspace_with_data
+    group = CrossCuttingToolGroup()
+
+    result_dev = group.execute_tool(
+        "workspace.llm_system_prompt",
+        params={"workspace_id": str(workspace_id), "role": "developer"},
+        auth_context=auth_ctx, api_key="",
+    )
+    result_tester = group.execute_tool(
+        "workspace.llm_system_prompt",
+        params={"workspace_id": str(workspace_id), "role": "tester"},
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result_dev.success is True
+    assert result_tester.success is True
+
+    prompt_dev = result_dev.data["system_prompt"]
+    prompt_tester = result_tester.data["system_prompt"]
+
+    # Extract the requirements and architecture sections (everything after the role line)
+    # to verify the substantive data is identical
+    dev_sections = prompt_dev.split("## Aktive Requirements")[1] if "## Aktive Requirements" in prompt_dev else ""
+    tester_sections = prompt_tester.split("## Aktive Requirements")[1] if "## Aktive Requirements" in prompt_tester else ""
+    assert dev_sections == tester_sections, "Requirements and architecture sections must be identical"
+
+    # Verify the role label is echoed correctly in each prompt
+    assert "Du bist als developer unterwegs" in prompt_dev
+    assert "Du bist als tester unterwegs" in prompt_tester

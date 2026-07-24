@@ -626,10 +626,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         ``_entity_lists`` (Tasks 1-2) rather than querying separately.
         Read-only — no audit entry (see class docstring).
         """
-        workspace_id_str = params.get("workspace_id")
-        if not workspace_id_str:
-            return ToolResult.error("VALIDATION_ERROR", "workspace_id is required")
-        workspace_id = UUID(str(workspace_id_str))
+        workspace_id = require_uuid(params, "workspace_id")
         role = params.get("role", "")
         include_outdated = bool(params.get("include_outdated", False))
 
