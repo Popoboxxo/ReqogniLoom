@@ -351,6 +351,7 @@ class TestListChangeRequests:
         ctx = _make_ctx(tenant_id=TENANT_ID)
         mock_qs = MagicMock()
         mock_qs.filter.return_value = mock_qs
+        mock_qs.exclude.return_value = mock_qs
         mock_qs.order_by.return_value = mock_qs
 
         with (
@@ -360,6 +361,8 @@ class TestListChangeRequests:
             mock_objects.filter.return_value = mock_qs
             result = svc.list_change_requests(workspace_id=WS_ID, ctx=ctx)
 
+        # Default include_deleted=False excludes outdated CRs (Phase 1 Task 4).
+        mock_qs.exclude.assert_called_once_with(status="outdated")
         assert result is mock_qs.order_by.return_value
 
     def test_list_applies_status_filter(self):
@@ -379,6 +382,24 @@ class TestListChangeRequests:
             )
 
         mock_qs.filter.assert_called_with(status="under_review")
+
+    def test_list_include_deleted_true_skips_exclude(self):
+        """Phase 1 Task 4: include_deleted=True must surface outdated CRs too,
+        mirroring AdrService/RiskService/IssueService.list_*."""
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.order_by.return_value = mock_qs
+
+        with (
+            patch.object(svc, "_set_tenant_context"),
+            patch("application.change_request_service.ChangeRequest.objects") as mock_objects,
+        ):
+            mock_objects.filter.return_value = mock_qs
+            svc.list_change_requests(workspace_id=WS_ID, ctx=ctx, include_deleted=True)
+
+        mock_qs.exclude.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

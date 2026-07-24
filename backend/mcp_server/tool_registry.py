@@ -108,6 +108,10 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "glossary.delete",
     "glossary.outdate",
     "glossary.reactivate",
+    "change_request.create",
+    "change_request.update",
+    "change_request.outdate",
+    "change_request.reactivate",
     "prompt_template.create",
     "prompt_template.update",
     "prompt_template.delete",
@@ -297,6 +301,7 @@ class ToolRegistry:
         from application.risk_service import RiskService
         from application.issue_service import IssueService
         from application.glossary_service import GlossaryService
+        from application.change_request_service import ChangeRequestService
 
         # REQ-129: share ONE instance across prefixes that belong to the same
         # tool group. CrossCuttingToolGroup owns both the ``traceability`` and
@@ -322,6 +327,9 @@ class ToolRegistry:
             "risk": GenericCrudToolGroup("risk", RiskService),
             "issue": GenericCrudToolGroup("issue", IssueService),
             "glossary": GenericCrudToolGroup("glossary", GlossaryService, item_type="GlossaryTerm"),
+            "change_request": GenericCrudToolGroup(
+                "change_request", ChangeRequestService, item_type="ChangeRequest"
+            ),
             "prompt_template": PromptTemplateToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
         })

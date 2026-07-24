@@ -362,6 +362,7 @@ class ChangeRequestService(ServiceBase):
         workspace_id: UUID,
         ctx,
         status_filter: Optional[str] = None,
+        include_deleted: bool = False,
     ) -> QuerySet:
         """Return ChangeRequests in *workspace_id* (tenant-scoped, REQ-157).
 
@@ -369,6 +370,11 @@ class ChangeRequestService(ServiceBase):
             workspace_id: Target workspace UUID.
             ctx: Resolved AuthContext.
             status_filter: Optional CCB state to filter by (e.g. 'under_review').
+            include_deleted: If True, include outdated ChangeRequests. Mirrors
+                AdrService/RiskService/IssueService.list_* (Phase 1 Task 4):
+                delete_change_request() routes through workflow.services.outdate(),
+                which mirrors the "outdated" state into ChangeRequest.status via
+                _STATUS_MIRROR_MODELS. Excluded by default.
 
         Returns:
             QuerySet of ChangeRequest ORM instances ordered by creation date.
@@ -379,6 +385,8 @@ class ChangeRequestService(ServiceBase):
         )
         if status_filter:
             qs = qs.filter(status=status_filter)
+        if not include_deleted:
+            qs = qs.exclude(status="outdated")
         return qs.order_by("created_at")
 
     # ---------- Status Transition (REQ-157, IF-AS-INT-003) ----------

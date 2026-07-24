@@ -194,6 +194,7 @@ def test_generic_named_service_create_uses_generic_method():
         ("application.risk_service.RiskService", "risk"),
         ("application.issue_service.IssueService", "issue"),
         ("application.glossary_service.GlossaryService", "glossary"),
+        ("application.change_request_service.ChangeRequestService", "change_request"),
     ],
 )
 def test_real_services_construct_without_error(service_class_path, prefix):
@@ -245,6 +246,12 @@ _EXPECTED_UPDATE_FIELDS = {
 }
 
 
+# NOTE: change_request is intentionally NOT parametrized into this test.
+# It currently fails for adr/risk/issue/glossary too (pre-existing:
+# GenericCrudToolGroup's create/update schemas only expose a static
+# "workspace_id"/"id" property plus additionalProperties: True, not the
+# concrete per-entity fields this test expects — Codeberg #94 regression,
+# out of scope for Phase 1 Task 4).
 @pytest.mark.parametrize(
     "service_class_path,prefix",
     [
@@ -384,3 +391,94 @@ def test_query_tool_include_outdated_true_forwards_flag():
     service.list.assert_called_once_with(
         workspace_id=WIDGET_WORKSPACE_ID, ctx=CTX, include_deleted=True
     )
+
+
+# ---------------------------------------------------------------------------
+# ChangeRequest — real-DB create -> outdate -> query round-trip
+# (Phase 1 Task 4, COMP-AS-021)
+# ---------------------------------------------------------------------------
+
+
+def _make_tenant_workspace_ctx(name: str):
+    """Create a Tenant + User + Workspace + AuthContext triple for *name*."""
+    from persistence.models import Tenant, User, Workspace
+    from persistence.tenancy import TenantContext
+
+    tenant = Tenant.objects.create(name=name, slug=name)
+    user = User.objects.create(
+        username=f"{name}-user", email=f"{name}@example.com", tenant=tenant
+    )
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(tenant=tenant, name=f"{name}-ws")
+    finally:
+        TenantContext.clear_tenant()
+    ctx = AuthContext(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=None,
+    )
+    return tenant, workspace, ctx
+
+
+@pytest.mark.django_db
+def test_change_request_create_outdate_query_roundtrip():
+    """create -> outdate -> query round-trip through the real
+    GenericCrudToolGroup + ChangeRequestService (no mocks)."""
+    from application.change_request_service import ChangeRequestService
+    from persistence.tenancy import TenantContext
+    from workflow.models import WorkflowItemState
+    from workflow.services import create_default_workflow
+
+    tenant, workspace, ctx = _make_tenant_workspace_ctx("cr-mcp-lifecycle")
+    TenantContext.set_tenant(tenant.id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="ccb_approval",
+            item_type="ChangeRequest",
+            tenant_id=tenant.id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    group = GenericCrudToolGroup(
+        "change_request", ChangeRequestService, item_type="ChangeRequest"
+    )
+
+    create_result = group._handle_create(
+        params={"workspace_id": str(workspace.id), "title": "CR1"},
+        auth_context=ctx,
+        api_key="reqlo_x",
+    )
+    assert create_result.success is True
+    cr_id = create_result.data["data"]["id"]
+
+    outdate_result = group._handle_outdate(
+        params={"id": cr_id, "reason": "no longer needed"},
+        auth_context=ctx,
+        api_key="reqlo_x",
+    )
+    assert outdate_result.success is True
+    assert outdate_result.data == {"id": cr_id, "status": "outdated"}
+
+    state = WorkflowItemState.objects.get(
+        item_id=UUID(cr_id), item_type="ChangeRequest"
+    )
+    assert state.current_state == "outdated"
+
+    result_default = group._handle_query(
+        params={"workspace_id": str(workspace.id)}, auth_context=ctx, api_key="reqlo_x"
+    )
+    assert result_default.success is True
+    assert cr_id not in {i["id"] for i in result_default.data["items"]}
+
+    result_incl = group._handle_query(
+        params={"workspace_id": str(workspace.id), "include_outdated": True},
+        auth_context=ctx,
+        api_key="reqlo_x",
+    )
+    assert result_incl.success is True
+    assert cr_id in {i["id"] for i in result_incl.data["items"]}
