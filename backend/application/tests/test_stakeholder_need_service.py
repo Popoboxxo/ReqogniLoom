@@ -377,17 +377,23 @@ class TestDeleteStakeholderNeed:
             mock_select.return_value = mock_query
 
             # Call delete WITH change_reason
-            svc.delete(
-                ctx=ctx,
-                need_id=NEED_ID,
-                change_reason="Duplicate entry",  # Provided — should succeed
-            )
+            with patch("workflow.services.outdate") as mock_outdate:
+                svc.delete(
+                    ctx=ctx,
+                    need_id=NEED_ID,
+                    change_reason="Duplicate entry",  # Provided — should succeed
+                )
 
             mock_policy_svc.is_change_reason_required.assert_called_once_with(
                 str(WS_ID)
             )
-            assert need.lifecycle_status == "deleted"
-            need.save.assert_called_once_with(update_fields=["lifecycle_status"])
+            mock_outdate.assert_called_once_with(
+                item_id=need.id,
+                item_type="StakeholderNeed",
+                workspace_id=WS_ID,
+                ctx=ctx,
+                reason="deleted via needs.delete",
+            )
 
     def test_delete_with_optional_preset_ignores_change_reason_policy(self):
         """delete() does not enforce change_reason when preset is optional."""
@@ -412,13 +418,14 @@ class TestDeleteStakeholderNeed:
             mock_select.return_value = mock_query
 
             # Call delete WITHOUT change_reason (should succeed for optional preset)
-            svc.delete(
-                ctx=ctx,
-                need_id=NEED_ID,
-                change_reason="",  # Empty, but preset is optional
-            )
+            with patch("workflow.services.outdate") as mock_outdate:
+                svc.delete(
+                    ctx=ctx,
+                    need_id=NEED_ID,
+                    change_reason="",  # Empty, but preset is optional
+                )
 
-            assert need.lifecycle_status == "deleted"
+            mock_outdate.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -427,17 +434,17 @@ class TestDeleteStakeholderNeed:
 
 
 class TestSoftDeleteStakeholderNeed:
-    """REQ-006: Soft-delete path tests."""
+    """REQ-006/Phase 0: Soft-delete path tests — delete() routes through
+    workflow.services.outdate() instead of writing lifecycle_status directly."""
 
-    def test_delete_sets_lifecycle_status_deleted(self):
-        """delete() sets lifecycle_status='deleted' instead of hard-deleting."""
+    def test_delete_calls_outdate_not_hard_delete(self):
+        """delete() calls workflow.services.outdate() instead of hard-deleting."""
         svc = StakeholderNeedService(preset_policy_service=None)
         need = MagicMock()
         artifact = MagicMock()
         artifact.workspace_id = WS_ID
         need.artifact = artifact
         need.id = NEED_ID
-        need.lifecycle_status = "active"
 
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -448,10 +455,16 @@ class TestSoftDeleteStakeholderNeed:
             mock_query.get.return_value = need
             mock_select.return_value = mock_query
 
-            svc.delete(ctx=ctx, need_id=NEED_ID)
+            with patch("workflow.services.outdate") as mock_outdate:
+                svc.delete(ctx=ctx, need_id=NEED_ID)
 
-        assert need.lifecycle_status == "deleted"
-        need.save.assert_called_once_with(update_fields=["lifecycle_status"])
+        mock_outdate.assert_called_once_with(
+            item_id=need.id,
+            item_type="StakeholderNeed",
+            workspace_id=WS_ID,
+            ctx=ctx,
+            reason="deleted via needs.delete",
+        )
         artifact.delete.assert_not_called()
 
     def test_delete_does_not_hard_delete_artifact(self):
@@ -472,12 +485,15 @@ class TestSoftDeleteStakeholderNeed:
             mock_query.get.return_value = need
             mock_select.return_value = mock_query
 
-            svc.delete(ctx=ctx, need_id=NEED_ID)
+            with patch("workflow.services.outdate"):
+                svc.delete(ctx=ctx, need_id=NEED_ID)
 
         artifact.delete.assert_not_called()
 
     def test_list_by_workspace_excludes_deleted_by_default(self):
-        """list_by_workspace() excludes lifecycle_status='deleted' by default."""
+        """list_by_workspace() excludes status='outdated' by default (Phase 0:
+        outdate() mirrors the "outdated" state into `status`, not
+        `lifecycle_status`)."""
         svc = StakeholderNeedService(preset_policy_service=None)
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -491,7 +507,7 @@ class TestSoftDeleteStakeholderNeed:
 
             result = svc.list_by_workspace(ctx=ctx, workspace_id=WS_ID)
 
-        mock_qs.exclude.assert_called_once_with(lifecycle_status="deleted")
+        mock_qs.exclude.assert_called_once_with(status="outdated")
         assert result == []
 
     def test_list_by_workspace_include_deleted_returns_all(self):
@@ -509,6 +525,116 @@ class TestSoftDeleteStakeholderNeed:
             result = svc.list_by_workspace(ctx=ctx, workspace_id=WS_ID, include_deleted=True)
 
         mock_qs.exclude.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Integration: delete() end-to-end via the real WorkflowEngine (Phase 0/Task 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def need_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="need-outdate-tenant", slug="need-outdate-tenant")
+
+
+@pytest.fixture
+def need_user(need_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="need-outdate-user",
+        email="need-outdate@example.com",
+        tenant=need_tenant,
+    )
+
+
+@pytest.fixture
+def need_workspace(need_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(need_tenant.id)
+    try:
+        return Workspace.objects.create(tenant=need_tenant, name="need-outdate-workspace")
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def need_ctx(need_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=need_user.id,
+        tenant_id=need_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="need-outdate-tenant",
+    )
+
+
+@pytest.fixture
+def need_with_workflow(need_ctx, need_workspace):
+    """Create a default StakeholderNeed workflow + a persisted StakeholderNeed.
+
+    Returns (need_id, workspace_id).
+    """
+    from persistence.tenancy import TenantContext
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(need_workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=need_workspace.id,
+            preset="need_default",
+            item_type="StakeholderNeed",
+            tenant_id=need_workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    svc = StakeholderNeedService(preset_policy_service=None)
+    need = svc.create(
+        ctx=need_ctx,
+        workspace_id=need_workspace.id,
+        title="Outdate Target",
+    )
+    return need.id, need_workspace.id
+
+
+class TestDeleteCallsRealOutdate:
+    """Task 1 (Phase 1 prerequisite cleanup): delete() must transition the
+    item to "outdated" via the real WorkflowEngine, not a direct field write."""
+
+    def test_delete_calls_outdate_not_lifecycle_status(self, need_with_workflow, need_ctx):
+        from workflow.models import WorkflowItemState
+
+        item_id, workspace_id = need_with_workflow
+        StakeholderNeedService(preset_policy_service=None).delete(
+            ctx=need_ctx, need_id=item_id
+        )
+
+        item_state = WorkflowItemState.objects.get(
+            item_id=item_id, item_type="StakeholderNeed"
+        )
+        assert item_state.current_state == "outdated"
+
+    def test_deleted_need_excluded_from_default_list(self, need_with_workflow, need_ctx):
+        item_id, workspace_id = need_with_workflow
+        svc = StakeholderNeedService(preset_policy_service=None)
+
+        svc.delete(ctx=need_ctx, need_id=item_id)
+
+        results = svc.list_by_workspace(ctx=need_ctx, workspace_id=workspace_id)
+        assert item_id not in [n.id for n in results]
+
+        results_incl = svc.list_by_workspace(
+            ctx=need_ctx, workspace_id=workspace_id, include_deleted=True
+        )
+        assert item_id in [n.id for n in results_incl]
 
 
 # ---------------------------------------------------------------------------
@@ -657,7 +783,8 @@ class TestStakeholderNeedEventEmission:
             mock_select.return_value = mock_query
 
             # Must not raise AttributeError (the DomainEventOutbox bug).
-            svc.delete(ctx=ctx, need_id=NEED_ID)
+            with patch("workflow.services.outdate"):
+                svc.delete(ctx=ctx, need_id=NEED_ID)
 
         mock_event_bus.publish.assert_called_once()
         assert self._emitted_event_types(mock_event_bus) == ["StakeholderNeedDeleted"]

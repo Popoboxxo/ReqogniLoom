@@ -151,7 +151,10 @@ class StakeholderNeedService(ServiceBase):
             tenant_id=ctx.tenant_id, artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            needs = needs.exclude(lifecycle_status="deleted")
+            # Phase 0: outdate() mirrors the "outdated" state into `status`,
+            # not `lifecycle_status` (StakeholderNeed is registered in
+            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS).
+            needs = needs.exclude(status="outdated")
         return [StakeholderNeedDTO.from_orm(n) for n in needs]
 
     @atomic_transaction
@@ -224,7 +227,7 @@ class StakeholderNeedService(ServiceBase):
     def delete(
         self, ctx: AuthContext, need_id: UUID | str, change_reason: str = ""
     ) -> None:
-        """Soft-delete StakeholderNeed by setting lifecycle_status to 'deleted' (REQ-006).
+        """Soft-delete StakeholderNeed via the workflow engine's outdate() (REQ-006, Phase 0).
 
         Physical deletion intentionally avoided — Hard-delete available only via
         Django admin.
@@ -242,8 +245,16 @@ class StakeholderNeedService(ServiceBase):
                     raise ValidationError("change_reason is required by preset policy.")
 
         workspace_id = need.artifact.workspace_id
-        need.lifecycle_status = "deleted"
-        need.save(update_fields=["lifecycle_status"])
+
+        from workflow.services import outdate
+
+        outdate(
+            item_id=need.id,
+            item_type="StakeholderNeed",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via needs.delete",
+        )
 
         self._emit_event(
             self._make_event(

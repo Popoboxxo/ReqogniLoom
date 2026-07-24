@@ -290,7 +290,7 @@ class DiagramViewSet(WorkflowTransitionsMixin, ViewSet):
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            delete_diagram(UUID(pk), ctx.tenant_id)
+            delete_diagram(UUID(pk), ctx.tenant_id, ctx=ctx)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Diagram.DoesNotExist:
             return Response(

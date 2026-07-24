@@ -446,12 +446,20 @@ class RiskService(ServiceBase):
             raise NotFoundError(f"Risk {risk_id} not found")
         return risk
 
-    def list_risks(self, workspace_id: UUID, ctx: AuthContext) -> QuerySet[Risk]:
+    def list_risks(
+        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+    ) -> QuerySet[Risk]:
         """Return all Risks in *workspace_id* (tenant-scoped, REQ-L3-RISK-010).
 
         Args:
             workspace_id: Target workspace UUID.
             ctx: Resolved AuthContext.
+            include_deleted: When False (default), excludes Risks soft-deleted
+                via ``workflow.services.outdate()`` (REQ-006, Phase 0). ``Risk``
+                is registered in
+                ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, so
+                ``outdate()`` writes ``"outdated"`` into the mirrored
+                ``status`` field.
 
         Returns:
             QuerySet of Risk ORM instances ordered by risk_score descending.
@@ -460,9 +468,10 @@ class RiskService(ServiceBase):
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
-        return Risk.objects.filter(
-            workspace_id=workspace_id, tenant_id=ctx.tenant_id
-        ).order_by("-risk_score")
+        qs = Risk.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
+        if not include_deleted:
+            qs = qs.exclude(status="outdated")
+        return qs.order_by("-risk_score")
 
     def query_risks_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext
