@@ -211,3 +211,82 @@ def test_get_context_token_budget_workspace_override():
     assert _get_context_token_budget(ws, "summary") == 500
     # non-overridden depth still falls back to the default
     assert _get_context_token_budget(ws, "normal") == 2000
+
+
+@pytest.mark.django_db
+def test_get_context_test_pass_count_ignores_null_executed_at_placeholder(tenant_workspace_ctx, auth_ctx):
+    """Test that most-recent TestRunResult subquery correctly handles NULL executed_at.
+
+    Regression test for bug where TestRunResult.executed_at NULL placeholder
+    (status='not_run') was picked instead of real result with executed_at timestamp
+    due to ORDER BY executed_at DESC placing NULLs first on PostgreSQL.
+
+    Verifies fix using F("executed_at").desc(nulls_last=True).
+    """
+    from datetime import datetime, timezone
+    from persistence.models import Artifact, TestCase, TestRun, TestRunResult, Workspace
+    from application.test_service import TestService
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    _ensure_workflow(tenant, workspace, "standard", "TestCase")
+
+    # Create a TestCase
+    TenantContext.set_tenant(tenant.id)
+    try:
+        tc_service = TestService()
+        test_case = tc_service.create_test_case(
+            workspace_id=workspace.id,
+            title="Test with Placeholder Result",
+            ctx=ctx,
+        )
+        test_case_id = test_case.id
+
+        # Create a TestRun
+        test_run = TestRun.objects.create(
+            workspace_id=workspace.id,
+            name="Test Run 1",
+            created_by_id=ctx.user_id,
+        )
+
+        # Create placeholder TestRunResult (status='not_run', executed_at=NULL)
+        # This mimics what create_test_run does initially
+        placeholder = TestRunResult.objects.create(
+            test_run=test_run,
+            test_case_id=test_case_id,
+            status="not_run",
+            executed_at=None,
+        )
+
+        # Create real passed TestRunResult with timestamp (comes later)
+        real_result = TestRunResult.objects.create(
+            test_run=test_run,
+            test_case_id=test_case_id,
+            status="passed",
+            executed_at=datetime.now(timezone.utc),
+        )
+
+    finally:
+        TenantContext.clear_tenant()
+
+    # Call workspace.get_context with depth that includes test counts
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.get_context",
+        params={"workspace_id": str(workspace.id), "depth": "summary"},
+        auth_context=ctx,
+        api_key="",
+    )
+
+    assert result.success is True
+    ctx_data = result.data["workspace_context"]
+
+    # Verify that the passed test is correctly counted
+    # (should be 1 for "pass", not 0 — the NULL placeholder should be ignored)
+    assert ctx_data["tests"]["pass"] == 1, (
+        f"Expected pass count=1 (real result), got {ctx_data['tests']['pass']}. "
+        "Subquery may have picked NULL placeholder instead of real result."
+    )
+    # The placeholder is not a "fail", so fail count should remain 0
+    assert ctx_data["tests"]["fail"] == 0

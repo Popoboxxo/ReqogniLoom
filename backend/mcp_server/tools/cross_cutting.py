@@ -32,7 +32,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from django.db.models import OuterRef, Subquery
+from django.db.models import F, OuterRef, Subquery
 
 from auth_tenancy.context import AuthContext
 
@@ -572,7 +572,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         # each TestCase's most recent TestRunResult.status.
         latest_result_status = (
             TestRunResult.objects.filter(test_case_id=OuterRef("pk"))
-            .order_by("-executed_at", "-id")
+            .order_by(F("executed_at").desc(nulls_last=True), "-id")
             .values("status")[:1]
         )
         test_pass = test_active_qs.annotate(
