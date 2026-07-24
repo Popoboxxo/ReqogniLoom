@@ -352,7 +352,6 @@ class TraceabilitySuggestService(ServiceBase):
         """
         from persistence.models import (
             ArchitectureElement,
-            LifecycleStatus,
             Requirement,
             StakeholderNeed,
         )
@@ -370,11 +369,14 @@ class TraceabilitySuggestService(ServiceBase):
                 pool[aid] = (title, description, artifact_type)
 
         if rule_id in (TRACE_P1, TRACE_P1B):
-            # StakeholderNeed delete was never migrated onto workflow.outdate() —
-            # its lifecycle_status column is still the live soft-delete marker.
+            # StakeholderNeed is registered in
+            # workflow.lifecycle_manager._STATUS_MIRROR_MODELS and its delete()
+            # path calls workflow.services.outdate(), which writes status ==
+            # "outdated" — the same status mirror Requirement uses. The
+            # now-legacy lifecycle_status field is never touched by outdate().
             needs = StakeholderNeed.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
-            ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+            ).exclude(status="outdated")
             _add(needs, "stakeholder_need")
         if rule_id == TRACE_P1B:
             # Requirement has a status mirror (outdate() writes Requirement.status).

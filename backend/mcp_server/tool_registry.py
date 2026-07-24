@@ -110,6 +110,7 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "glossary.reactivate",
     "change_request.create",
     "change_request.update",
+    "change_request.delete",
     "change_request.outdate",
     "change_request.reactivate",
     "prompt_template.create",

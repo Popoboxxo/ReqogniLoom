@@ -396,6 +396,7 @@ class TestToolRegistryDispatch:
         for tool_name in [
             "change_request.create",
             "change_request.update",
+            "change_request.delete",
             "change_request.outdate",
             "change_request.reactivate",
         ]:
@@ -406,6 +407,51 @@ class TestToolRegistryDispatch:
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
+
+    def test_generic_crud_write_tools_all_covered_by_write_prefixes(self):
+        """Structural regression guard: every tool name a
+        ``GenericCrudToolGroup`` instance advertises via ``get_tool_schemas()``
+        that is not a read-only ``.read``/``.query`` tool must be present in
+        ``_WRITE_TOOL_PREFIXES``.
+
+        This is the general form of the bug found in Phase 1 final review:
+        ``change_request.delete`` is auto-registered by ``GenericCrudToolGroup``
+        (it routes to ``outdate()``) but was missing from the RBAC write-gate
+        list, letting a Viewer call it unauthenticated for writes. This test
+        would have caught that regression automatically for any current or
+        future ``GenericCrudToolGroup`` entity.
+        """
+        from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
+        from mcp_server.tools.generic import GenericCrudToolGroup
+        from application.adr_service import AdrService
+        from application.risk_service import RiskService
+        from application.issue_service import IssueService
+        from application.glossary_service import GlossaryService
+        from application.change_request_service import ChangeRequestService
+
+        groups = [
+            GenericCrudToolGroup("adr", AdrService),
+            GenericCrudToolGroup("risk", RiskService),
+            GenericCrudToolGroup("issue", IssueService),
+            GenericCrudToolGroup("glossary", GlossaryService, item_type="GlossaryTerm"),
+            GenericCrudToolGroup(
+                "change_request", ChangeRequestService, item_type="ChangeRequest"
+            ),
+        ]
+
+        read_only_suffixes = (".read", ".query")
+        missing = []
+        for group in groups:
+            for schema in group.get_tool_schemas():
+                name = schema["name"]
+                if name.endswith(read_only_suffixes):
+                    continue
+                if not any(name == wt or name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES):
+                    missing.append(name)
+
+        assert missing == [], (
+            f"GenericCrudToolGroup tool(s) not gated by RBAC write check: {missing}"
+        )
 
     # ------------------------------------------------------------------
     # list_tools RBAC filtering (REQ-108)

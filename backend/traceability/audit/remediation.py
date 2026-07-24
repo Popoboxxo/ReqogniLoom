@@ -219,12 +219,20 @@ def clear_remediation_registry() -> None:  # pragma: no cover — test/tooling h
 
 
 def _stakeholder_need_artifact_ids(tenant_id: str, workspace_id: str) -> FrozenSet[str]:
-    """Return artifact ids of active StakeholderNeeds in the workspace."""
-    from persistence.models import LifecycleStatus, StakeholderNeed
+    """Return artifact ids of active StakeholderNeeds in the workspace.
+
+    StakeholderNeed is registered in
+    ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` and its ``delete()``
+    path calls ``workflow.services.outdate()``, which writes ``status ==
+    "outdated"`` — the same status mirror Requirement uses. The now-legacy
+    ``lifecycle_status`` field is never touched by ``outdate()``, so filtering
+    on it here would silently treat a deleted StakeholderNeed as still active.
+    """
+    from persistence.models import StakeholderNeed
 
     qs = StakeholderNeed.unscoped.filter(
         tenant_id=tenant_id, artifact__workspace_id=workspace_id
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+    ).exclude(status="outdated")
     return frozenset(str(v) for v in qs.values_list("artifact_id", flat=True))
 
 
