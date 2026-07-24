@@ -302,6 +302,7 @@ class ToolRegistry:
         from mcp_server.tools.generic import GenericCrudToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from mcp_server.tools.diagram import DiagramToolGroup
+        from mcp_server.tools.custom_field import CustomFieldToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -338,6 +339,7 @@ class ToolRegistry:
             "prompt_template": PromptTemplateToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
             "diagram": DiagramToolGroup(),
+            "custom_field": CustomFieldToolGroup(),
         })
 
     def list_tools(
