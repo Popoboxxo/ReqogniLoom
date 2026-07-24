@@ -24,10 +24,21 @@ _OLD_SLOT_NAMES = (
 
 
 def _split_singleton_rows(apps, schema_editor):
-    """Turn each tenant's old 3-slot singleton row into 3 named v1 rows."""
+    """Turn each tenant's old 3-slot singleton row into 3 named v1 rows.
+
+    Only rows with ``name IS NULL`` are old-shape singleton rows (0043 added
+    ``name`` as nullable; already-split rows always have it set). Restricting
+    the outer loop to ``name__isnull=True`` is what makes a re-run of this
+    function idempotent: without it, a second call would iterate over the
+    already-created new-shape rows too and unconditionally ``.delete()``
+    each one at the end of the outer loop body (the inner per-slot
+    ``already_exists`` guard only protects the *create* calls, not the
+    trailing delete), silently wiping out the just-migrated data instead of
+    leaving it untouched.
+    """
     PromptTemplate = apps.get_model("persistence", "PromptTemplate")
 
-    for old_row in PromptTemplate.objects.all():
+    for old_row in PromptTemplate.objects.filter(name__isnull=True):
         for slot_name in _OLD_SLOT_NAMES:
             content = getattr(old_row, slot_name, None)
             if content is None:

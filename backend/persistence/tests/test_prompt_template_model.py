@@ -15,9 +15,12 @@ conftest.py) before touching ``PromptTemplate.objects`` because it is a
 """
 from __future__ import annotations
 
-import pytest
-from django.db import IntegrityError
+import threading
 
+import pytest
+from django.db import IntegrityError, connection
+
+from persistence.tenancy import TenantContext
 from persistence.tests.conftest import active_tenant
 
 
@@ -90,4 +93,70 @@ def test_workspace_override_and_tenant_global_coexist(tenant, workspace):
         ).count() == 1
         assert PromptTemplate.objects.filter(
             tenant=tenant, name="need_to_sysreq", workspace_id=workspace.id, is_active=True
+        ).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_active_template_creation_only_one_succeeds(tenant):
+    """Two overlapping writers targeting the same scope must not both win.
+
+    Regression test for the TOCTOU race in ``PromptTemplate.save()``: a
+    plain ``exists()`` check followed by an ``INSERT`` lets two concurrent
+    processes both observe "no conflict" before either commits, producing
+    two active rows for the same ``(tenant, workspace_id, name)`` scope.
+
+    Uses real OS threads (each gets its own DB connection and, since
+    ``TenantContext`` is thread-local — see ``persistence/tenancy.py`` — its
+    own tenant context) racing to create the *same* active row via
+    ``threading.Barrier`` to start both writers as close together as
+    possible. With the ``select_for_update()``-based fix in ``save()``, the
+    second writer blocks on the DB lock until the first commits, then loses
+    the conflict check deterministically — so exactly one of the two must
+    succeed and the other must raise ``IntegrityError``, regardless of
+    scheduling order. ``transaction=True`` (``TransactionTestCase``
+    semantics) is required: the default ``django_db`` fixture wraps a test
+    in one outer transaction, which would make the second connection unable
+    to see the first connection's row at all.
+    """
+    from persistence.models import PromptTemplate
+
+    outcomes: dict[str, str] = {}
+    start_barrier = threading.Barrier(2)
+
+    def _worker(key: str, content: str) -> None:
+        try:
+            start_barrier.wait(timeout=5)
+            with active_tenant(tenant):
+                PromptTemplate.objects.create(
+                    tenant=tenant,
+                    name="need_to_sysreq",
+                    content=content,
+                    version=1,
+                    is_active=True,
+                    workspace_id=None,
+                )
+            outcomes[key] = "ok"
+        except IntegrityError:
+            outcomes[key] = "conflict"
+        except Exception as exc:  # pragma: no cover - diagnostic aid only
+            outcomes[key] = f"error:{exc!r}"
+        finally:
+            TenantContext.clear_tenant()
+            connection.close()
+
+    t1 = threading.Thread(target=_worker, args=("writer_1", "v1 from writer 1"))
+    t2 = threading.Thread(target=_worker, args=("writer_2", "v1 from writer 2"))
+    t1.start()
+    t2.start()
+    t1.join(timeout=15)
+    t2.join(timeout=15)
+
+    assert not t1.is_alive() and not t2.is_alive(), "worker thread did not finish in time"
+    assert set(outcomes) == {"writer_1", "writer_2"}
+    assert list(outcomes.values()).count("ok") == 1, outcomes
+    assert list(outcomes.values()).count("conflict") == 1, outcomes
+
+    with active_tenant(tenant):
+        assert PromptTemplate.objects.filter(
+            tenant=tenant, name="need_to_sysreq", workspace_id=None, is_active=True
         ).count() == 1

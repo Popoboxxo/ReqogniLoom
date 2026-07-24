@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import uuid
 
-from django.db import IntegrityError, models
+from django.db import IntegrityError, models, transaction
 
 # REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
 # (see requirements.txt) and the ``vector`` Postgres extension (provisioned by
@@ -1624,28 +1624,52 @@ class PromptTemplate(TenantScopedModel):
     def save(self, *args: object, **kwargs: object) -> None:
         """Persist the row, enforcing at most one active row per scope.
 
+        Concurrency note: a plain ``exists()`` check followed by an insert is
+        a TOCTOU race — two concurrent writers targeting the same ``(tenant,
+        workspace_id, name)`` scope could both pass the check before either
+        commits. ``select_for_update()`` on the ``PromptTemplate`` filter
+        itself would *not* close this race: under Postgres' default READ
+        COMMITTED isolation, ``SELECT ... FOR UPDATE`` takes no lock when the
+        filtered query returns zero rows (there is nothing to lock), so two
+        concurrent "no conflict yet" reads can still both proceed to insert.
+        Instead, this locks the row that unconditionally already exists for
+        this scope — the parent ``Tenant`` row — via ``select_for_update()``
+        inside an explicit ``transaction.atomic()`` block, using it as a
+        mutex: a second writer for the same tenant blocks on that lock until
+        the first transaction commits or rolls back, and only then performs
+        its own conflict check against the now-committed state. This
+        serializes ``PromptTemplate`` writes per tenant (coarser than
+        per-scope), which is an accepted trade-off to avoid introducing a
+        Postgres partial unique index (see class docstring).
+
         Raises:
             IntegrityError: If ``is_active=True`` and another row already is
                 active for the same ``(tenant, workspace_id, name)`` scope.
         """
         if self.is_active:
-            conflict_exists = (
-                PromptTemplate.objects.filter(
-                    tenant_id=self.tenant_id,
-                    workspace_id=self.workspace_id,
-                    name=self.name,
-                    is_active=True,
+            with transaction.atomic():
+                # Mutex: block until any other in-flight writer for this
+                # tenant's PromptTemplate rows has committed or rolled back.
+                Tenant.objects.select_for_update().get(pk=self.tenant_id)
+                conflict_exists = (
+                    PromptTemplate.objects.filter(
+                        tenant_id=self.tenant_id,
+                        workspace_id=self.workspace_id,
+                        name=self.name,
+                        is_active=True,
+                    )
+                    .exclude(pk=self.pk)
+                    .exists()
                 )
-                .exclude(pk=self.pk)
-                .exists()
-            )
-            if conflict_exists:
-                raise IntegrityError(
-                    "Another active PromptTemplate already exists for "
-                    f"(tenant={self.tenant_id}, workspace_id={self.workspace_id}, "
-                    f"name={self.name!r})."
-                )
-        super().save(*args, **kwargs)
+                if conflict_exists:
+                    raise IntegrityError(
+                        "Another active PromptTemplate already exists for "
+                        f"(tenant={self.tenant_id}, workspace_id={self.workspace_id}, "
+                        f"name={self.name!r})."
+                    )
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
