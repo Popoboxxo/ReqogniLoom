@@ -179,7 +179,7 @@ def test_missing_uuid_is_validation_error(ai_ctx):
     assert result.error_code == "VALIDATION_ERROR"
 
 
-def test_schema_advertises_five_tools():
+def test_schema_advertises_six_tools():
     schemas = AiDerivationToolGroup().get_tool_schemas()
     names = {s["name"] for s in schemas}
     assert names == {
@@ -188,6 +188,7 @@ def test_schema_advertises_five_tools():
         "ai_derivation.decompose_requirement_next_level",
         "ai_derivation.derive_risks_from_architecture",
         "ai_derivation.derive_glossary_from_workspace",
+        "ai_derivation.derive_adr_from_decision",
     }
 
 
@@ -375,7 +376,7 @@ def test_invalid_mode_is_validation_error(ai_ctx):
 
 
 def test_ai_derivation_tool_names_registered_as_write_tools():
-    """All five tools are name-gated as write tools (tool_registry._WRITE_TOOL_PREFIXES),
+    """All six tools are name-gated as write tools (tool_registry._WRITE_TOOL_PREFIXES),
     complementing the real-RBAC-dispatch proof below.
     """
     from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
@@ -389,6 +390,7 @@ def test_ai_derivation_tool_names_registered_as_write_tools():
     )
     assert "ai_derivation.derive_risks_from_architecture" in _WRITE_TOOL_PREFIXES
     assert "ai_derivation.derive_glossary_from_workspace" in _WRITE_TOOL_PREFIXES
+    assert "ai_derivation.derive_adr_from_decision" in _WRITE_TOOL_PREFIXES
 
 
 def test_derive_glossary_from_workspace_tool(ai_ctx):
@@ -482,6 +484,113 @@ def test_derive_glossary_from_workspace_write_mode_duplicate_term_is_reported_as
     assert result.data["written"] == []
     assert len(result.data["failed"]) == 1
     assert "already exists" in result.data["failed"][0]["error"]
+
+
+def test_derive_adr_from_decision_tool(ai_ctx):
+    _tenant, ctx, workspace = ai_ctx
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_adr_from_decision",
+        {
+            "workspace_id": str(workspace.id),
+            "decision_description": "We will use Postgres instead of MySQL.",
+        },
+        ctx,
+    )
+
+    assert result.success
+    assert result.data["workspace_id"] == str(workspace.id)
+    draft = result.data["draft"]
+    assert set(draft.keys()) == {"title", "description", "context", "consequences"}
+
+
+def test_derive_adr_from_decision_missing_workspace_is_not_found(ai_ctx):
+    import uuid
+
+    _tenant, ctx, _workspace = ai_ctx
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_adr_from_decision",
+        {
+            "workspace_id": str(uuid.uuid4()),
+            "decision_description": "Some decision.",
+        },
+        ctx,
+    )
+
+    assert not result.success
+    assert result.error_code == "NOT_FOUND"
+
+
+def test_derive_adr_from_decision_missing_description_is_validation_error(ai_ctx):
+    _tenant, ctx, workspace = ai_ctx
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_adr_from_decision",
+        {"workspace_id": str(workspace.id)},
+        ctx,
+    )
+
+    assert not result.success
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+def test_derive_adr_from_decision_write_mode_persists_adr_no_trace_link(ai_ctx):
+    """The write path creates NO trace_link_id — analogous to the Glossary
+    pair's test, but for a different reason (see
+    AiDerivationService._write_adr_draft's docstring): there is no source
+    entity to link from, not an unresolvable target type.
+    """
+    _tenant, ctx, workspace = ai_ctx
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_adr_from_decision",
+        {
+            "workspace_id": str(workspace.id),
+            "decision_description": "We will use Postgres instead of MySQL.",
+            "mode": "write",
+        },
+        ctx,
+    )
+
+    assert result.success
+    written = result.data["written"]
+    assert "trace_link_id" not in written
+    assert written["status"] == "draft"
+    from application.models import Adr
+
+    assert Adr.objects.filter(id=written["id"]).exists()
+
+
+def test_derive_adr_from_decision_write_mode_no_trace_link_created_at_all(ai_ctx):
+    """Explicit end-to-end proof: after a write, no TraceLink row references
+    the new Adr's artifact at all (not just that the response omits the key).
+    """
+    _tenant, ctx, workspace = ai_ctx
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_adr_from_decision",
+        {
+            "workspace_id": str(workspace.id),
+            "decision_description": "We will use Postgres instead of MySQL.",
+            "mode": "write",
+        },
+        ctx,
+    )
+
+    assert result.success
+    from application.models import Adr
+    from persistence.models import TraceLink
+
+    adr = Adr.objects.get(id=result.data["written"]["id"])
+    assert not TraceLink.objects.filter(
+        source_id=adr.artifact_id
+    ).exists() and not TraceLink.objects.filter(target_id=adr.artifact_id).exists()
 
 
 @pytest.mark.django_db

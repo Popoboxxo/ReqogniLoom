@@ -36,6 +36,14 @@ Tools:
       not a resolvable TraceLinkService source and GlossaryTerm has no
       backing Artifact either, see
       ``AiDerivationService._write_glossary_term_draft``'s docstring).
+  ai_derivation.derive_adr_from_decision(workspace_id, decision_description, mode, policy)
+      Free-text Decision -> proposed ADR draft (write: creates one Adr;
+      creates NO TraceLink — unlike the Glossary pair, this is not because
+      ``Adr`` can't be a trace-link endpoint (it can — it has a real backing
+      Artifact), but because there is no source *entity* at all to link
+      from: ``decision_description`` is raw free text, not an existing
+      artifact id, see ``AiDerivationService._write_adr_draft``'s
+      docstring).
 
 The default LLM provider is ``mock`` (credential-free, deterministic), so the
 tools work without external configuration (REQ-L2-AI-002).
@@ -133,6 +141,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         "ai_derivation.decompose_requirement_next_level": "_handle_decompose_next_level",
         "ai_derivation.derive_risks_from_architecture": "_handle_derive_risks_from_architecture",
         "ai_derivation.derive_glossary_from_workspace": "_handle_derive_glossary_from_workspace",
+        "ai_derivation.derive_adr_from_decision": "_handle_derive_adr_from_decision",
     }
 
     _TOOL_SCHEMAS = [
@@ -243,6 +252,35 @@ class AiDerivationToolGroup(BaseToolGroup):
                     **_MODE_POLICY_SCHEMA_PROPERTIES,
                 },
                 "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "ai_derivation.derive_adr_from_decision",
+            "description": (
+                "Structure a free-text decision description into an ADR "
+                "draft (title, description, context, consequences). "
+                "mode='preview' (default) returns the draft only; "
+                "mode='write' persists it as an Adr. No trace link is "
+                "created (the input is raw free text, not an existing "
+                "artifact id — there is no source entity to link from)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the workspace the resulting ADR would "
+                            "belong to."
+                        ),
+                    },
+                    "decision_description": {
+                        "type": "string",
+                        "description": "Free-text description of the decision.",
+                    },
+                    **_MODE_POLICY_SCHEMA_PROPERTIES,
+                },
+                "required": ["workspace_id", "decision_description"],
             },
         },
     ]
@@ -607,6 +645,63 @@ class AiDerivationToolGroup(BaseToolGroup):
         if failed:
             response["failed"] = failed
         return ToolResult.ok(response)
+
+    def _handle_derive_adr_from_decision(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        workspace_id = require_uuid(params, "workspace_id")
+        decision_description = params.get("decision_description")
+        if not isinstance(decision_description, str) or not decision_description.strip():
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "'decision_description' must be a non-empty string.",
+            )
+        mode, policy = _parse_mode_policy(params)
+
+        try:
+            preview = self._service.derive_adr_from_decision(
+                auth_context, workspace_id, decision_description=decision_description
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except LlmResponseError as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        if mode == "preview":
+            return ToolResult.ok(preview)
+
+        # Unlike the other write paths, this one creates NO trace link (see
+        # AiDerivationService._write_adr_draft's docstring): the input,
+        # decision_description, is raw free text — there is no source
+        # entity id at all to link from, regardless of whether Adr itself
+        # is a resolvable TraceLink endpoint (it is).
+        draft = preview["draft"]
+        try:
+            result = self._service._write_adr_draft(
+                ctx=auth_context,
+                workspace_id=workspace_id,
+                title=draft["title"],
+                description=draft["description"],
+                context=draft["context"],
+                consequences=draft["consequences"],
+                policy=policy,
+            )
+        except (ValidationError, NotFoundError) as exc:
+            error_code = "VALIDATION_ERROR" if isinstance(exc, ValidationError) else "NOT_FOUND"
+            return ToolResult.error(error_code, str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="derive_adr_from_decision",
+            entity_type="Adr",
+            entity_id=UUID(result["id"]),
+            tool_name="ai_derivation.derive_adr_from_decision",
+            api_key=api_key,
+            details={"workspace_id": str(workspace_id), "policy": policy},
+        )
+        return ToolResult.ok({"written": result})
 
 
 __all__ = ["AiDerivationToolGroup"]

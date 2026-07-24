@@ -711,6 +711,32 @@ class MockLlmProvider(LlmCapabilityInterface):
                 ]
             )
 
+        if purpose == "derive_adr_from_decision":
+            # Phase 3, Task 5 (ai_derivation.derive_adr_from_decision):
+            # deterministic single ADR draft (title, description, context,
+            # consequences) structuring the given free-text decision. Unlike
+            # the array-shaped purposes above, this returns a single JSON
+            # *object* — AiDerivationService._parse_json_object expects that
+            # shape (mirrors "test_derive_from_requirement" above).
+            decision_description = str(
+                ctx.get("decision_description") or "the decision"
+            )
+            return json.dumps(
+                {
+                    "title": f"Decision: {decision_description[:60]}",
+                    "description": decision_description,
+                    "context": (
+                        "Context extracted from the free-text decision "
+                        "description (mock provider — no semantic "
+                        "extraction performed)."
+                    ),
+                    "consequences": (
+                        "Consequences not yet assessed (mock provider "
+                        "placeholder)."
+                    ),
+                }
+            )
+
         return json.dumps([])
 
 

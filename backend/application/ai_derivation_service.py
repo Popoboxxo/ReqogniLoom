@@ -27,6 +27,15 @@ Flows (REQ-L2-AI-002):
      path creates NO trace link back to the source (a bare Workspace id is
      not a resolvable TraceLinkService source, see
      :meth:`_write_glossary_term_draft`).
+  7. :meth:`derive_adr_from_decision` — free-text Decision -> Adr draft
+     (Phase 3, Task 5, ``ai_derivation.derive_adr_from_decision``). Standard
+     feature, no rigor-preset gate. The INPUT is raw free text (no source
+     entity id at all — there is nothing to fetch), so — like flow 6 — the
+     write path creates NO trace link. Unlike flow 6, this is NOT because
+     the target type cannot be linked (an ``Adr`` has a real backing
+     ``Artifact`` and is a perfectly resolvable TraceLink endpoint); it is
+     because there is no *source* entity to link it from in the first
+     place. See :meth:`_write_adr_draft`.
 
 LLM access goes through the ``llm_adapter`` provider registry. The default
 provider is ``mock`` (credential-free, deterministic) so the flows and their
@@ -122,6 +131,20 @@ WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE = (
     '"<short definition>", "synonyms": ["<synonym>", ...], "abbreviation": '
     '"<abbreviation or empty string>"}. Only extract terms that are actually '
     "domain-specific (not generic English words)."
+)
+
+# Phase 3 (Decision -> ADR derive pair, Task 5) prompt. Hardcoded for the same
+# reason as ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE above.
+DECISION_TO_ADR_PROMPT_TEMPLATE = (
+    "You are a systems engineer documenting an architecture decision. Given "
+    "the following free-text description of a decision, structure it into "
+    "an Architecture Decision Record.\n\n"
+    "Decision description:\n{decision_description}\n\n"
+    "Respond with a single JSON object (no prose, no markdown fences) with "
+    'this exact shape: {"title": "<short ADR title>", "description": '
+    '"<what was decided>", "context": "<the problem/forces that led to this '
+    'decision>", "consequences": "<what becomes easier or harder as a '
+    'result>"}.'
 )
 
 # ---------------------------------------------------------------------------
@@ -654,6 +677,67 @@ class AiDerivationService(ServiceBase):
         ]
         return {"drafts": drafts, "workspace_id": str(workspace.id)}
 
+    def derive_adr_from_decision(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+        decision_description: str,
+    ) -> Dict[str, Any]:
+        """Flow 7 (Phase 3, Task 5): structure a free-text decision into an ADR draft.
+
+        Standard feature — like :meth:`derive_testcase_from_requirement`,
+        :meth:`derive_risks_from_architecture` and
+        :meth:`derive_glossary_from_workspace`, this flow has no rigor-preset
+        / RuleEngine gate. Unlike all of those, the source is not an existing
+        artifact at all: ``decision_description`` is raw free text supplied by
+        the caller, so there is no id to fetch and no ``NotFoundError`` path
+        for the source (only ``workspace_id`` — the target workspace the ADR
+        will be created in on write — is validated to exist).
+
+        Follows the same Draft/Accept contract as the other flows: nothing is
+        persisted here.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            workspace_id: Workspace the resulting ADR draft would belong to
+                (validated so ``mode="preview"`` fails fast on a bad
+                workspace id rather than only on the later write call).
+            decision_description: Free-text description of the decision to
+                structure.
+
+        Returns:
+            ``{"draft": {"title": str, "description": str, "context": str,
+            "consequences": str}, "workspace_id": <uuid-str>}``.
+
+        Raises:
+            NotFoundError: The workspace does not exist for this tenant.
+            LlmResponseError: The provider returned non-JSON content.
+        """
+        self._set_tenant_context(ctx)
+
+        workspace = self._get_workspace(workspace_id)
+
+        prompt = self._render(
+            DECISION_TO_ADR_PROMPT_TEMPLATE,
+            decision_description=truncate_prompt_content(decision_description or ""),
+        )
+
+        raw = self._complete(
+            prompt,
+            purpose="derive_adr_from_decision",
+            artifact_id=str(workspace.id),
+            context={"decision_description": decision_description},
+        )
+        parsed = self._parse_json_object(raw)
+
+        draft = {
+            "title": str(parsed.get("title", "")),
+            "description": str(parsed.get("description", "")),
+            "context": str(parsed.get("context", "")),
+            "consequences": str(parsed.get("consequences", "")),
+        }
+        return {"draft": draft, "workspace_id": str(workspace.id)}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -876,8 +960,11 @@ class AiDerivationService(ServiceBase):
              Artifact/Requirement/ArchitectureElement/Adr id, never a
              Workspace id (verified by reading the method directly). So no
              trace link back to the source Workspace can ever be created for
-             this flow — this is a deliberate asymmetry, the same one already
-             documented for Decision -> ADR.
+             this flow. Decision -> ADR (:meth:`_write_adr_draft`) also
+             creates no trace link, but for a different reason: there the
+             *target* type (``Adr``) is a perfectly resolvable TraceLink
+             endpoint — there simply is no source entity id at all, since
+             the flow's input is raw free text, not an existing artifact.
           2. ``_write_derived_entity`` also assumes the created entity exposes
              ``.artifact_id`` (used as the trace-link endpoint even when no
              link involves it) — ``GlossaryTerm`` has no backing Artifact at
@@ -919,6 +1006,83 @@ class AiDerivationService(ServiceBase):
             )
 
         return {"id": str(created.id), "term": created.term, "status": status}
+
+    @atomic_transaction
+    def _write_adr_draft(
+        self,
+        *,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        title: str,
+        description: str,
+        context: str,
+        consequences: str,
+        policy: str = "manual",
+    ) -> Dict[str, Any]:
+        """Persist one derived Adr draft (Phase 3, Task 5).
+
+        Deliberately NOT built on :meth:`_write_derived_entity`, like
+        :meth:`_write_glossary_term_draft` — but for a different reason.
+        ``Adr`` *does* have a backing ``Artifact`` (unlike ``GlossaryTerm``)
+        and its own primary key is directly resolvable by
+        ``TraceLinkService._resolve_artifact_id`` (it is explicitly listed
+        there alongside Artifact/Requirement/ArchitectureElement, see
+        :meth:`_write_derived_entity`'s docstring) — so, unlike the Workspace
+        -> Glossary pair, nothing about *this* target type rules out a trace
+        link.
+
+        The reason no trace link is created here is entirely on the *source*
+        side: :meth:`derive_adr_from_decision`'s input, ``decision_description``,
+        is raw free text supplied by the caller — there is no existing
+        artifact id to link from at all, resolvable or not. Every other
+        write-mode helper in this class is handed a real ``source_entity_id``;
+        this is the one flow in this phase whose entire premise (a Decision is
+        not a persisted entity) rules that out structurally, not because of a
+        resolution limitation.
+
+        ``policy="auto"`` still reuses :meth:`_auto_approve`: ``Adr`` has its
+        own real design/review/approve/retire workflow
+        (``adr_default``, see
+        ``workflow/management/commands/provision_workflow_definitions.py``),
+        so best-effort auto-advancement is meaningful here exactly as it is
+        for the other write-mode helpers.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            workspace_id: Workspace the new ADR belongs to.
+            title: ADR title (``AdrService.create_adr`` validates length).
+            description: ADR description.
+            context: ADR context section.
+            consequences: ADR consequences section.
+            policy: ``"manual"`` (default) or ``"auto"``.
+
+        Returns:
+            ``{"id": <uuid-str>, "status": <final state string>}`` — no
+            ``trace_link_id`` key (see above).
+
+        Raises:
+            NotFoundError: The workspace (or tenant) does not exist.
+            ValidationError: ``title``/``description`` fail
+                ``AdrService.create_adr``'s own validation.
+        """
+        self._set_tenant_context(ctx)
+
+        from application.adr_service import AdrService
+
+        created = AdrService().create_adr(
+            workspace_id=workspace_id,
+            title=title,
+            description=description,
+            ctx=ctx,
+            context=context,
+            consequences=consequences,
+        )
+
+        status = "draft"
+        if policy == "auto":
+            status = self._auto_approve("Adr", created.id, workspace_id, ctx)
+
+        return {"id": str(created.id), "status": status}
 
     def _auto_approve(
         self,
@@ -1148,5 +1312,6 @@ __all__ = [
     "DERIVATION_CACHE_TTL_SECONDS",
     "TESTCASE_DERIVE_PROMPT_TEMPLATE",
     "WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE",
+    "DECISION_TO_ADR_PROMPT_TEMPLATE",
     "invalidate_derivation_cache",
 ]

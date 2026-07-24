@@ -895,3 +895,113 @@ def test_write_glossary_term_draft_duplicate_term_raises_validation_error(
             abbreviation="",
             policy="manual",
         )
+
+
+# ---------------------------------------------------------------------------
+# Flow 7 (Phase 3, Task 5) — derive an ADR draft from a free-text decision
+# ---------------------------------------------------------------------------
+
+
+def test_derive_adr_from_decision_returns_title_description_context(
+    auth_context, workspace
+):
+    result = AiDerivationService().derive_adr_from_decision(
+        auth_context,
+        workspace.id,
+        decision_description=(
+            "We will use Postgres instead of MySQL for better JSON support."
+        ),
+    )
+
+    assert result["workspace_id"] == str(workspace.id)
+    assert "draft" in result
+    for key in ("title", "description", "context", "consequences"):
+        assert key in result["draft"]
+
+
+def test_derive_adr_from_decision_formats_prompt(auth_context, workspace, monkeypatch):
+    provider = _CaptureProvider(
+        json.dumps(
+            {
+                "title": "t",
+                "description": "d",
+                "context": "c",
+                "consequences": "e",
+            }
+        )
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_adr_from_decision(
+        auth_context, workspace.id, decision_description="Distinctive decision text"
+    )
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Distinctive decision text" in prompt
+    assert "{decision_description}" not in prompt
+    assert provider.calls[0]["purpose"] == "derive_adr_from_decision"
+
+
+def test_derive_adr_from_decision_invalid_json_raises(
+    auth_context, workspace, monkeypatch
+):
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _CaptureProvider("this is not json"),
+    )
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_adr_from_decision(
+            auth_context, workspace.id, decision_description="Some decision"
+        )
+
+
+def test_derive_adr_from_decision_missing_workspace_raises(auth_context):
+    import uuid
+
+    with pytest.raises(NotFoundError):
+        AiDerivationService().derive_adr_from_decision(
+            auth_context, uuid.uuid4(), decision_description="Some decision"
+        )
+
+
+# ---------------------------------------------------------------------------
+# _write_adr_draft (Phase 3, Task 5)
+# ---------------------------------------------------------------------------
+
+
+def test_write_adr_draft_persists_adr_no_trace_link(auth_context, workspace):
+    """The written entity carries no trace_link_id (no TraceLink is created)."""
+    from application.models import Adr
+
+    svc = AiDerivationService()
+
+    result = svc._write_adr_draft(
+        ctx=auth_context,
+        workspace_id=workspace.id,
+        title="Use Postgres over MySQL",
+        description="We will use Postgres for better JSON support.",
+        context="Need strong JSON querying capabilities.",
+        consequences="Team must ramp up on Postgres-specific features.",
+        policy="manual",
+    )
+
+    assert "trace_link_id" not in result
+    assert result["status"] == "draft"
+    assert Adr.objects.filter(id=result["id"]).exists()
+
+
+def test_write_adr_draft_invalid_title_raises_validation_error(auth_context, workspace):
+    """Title below AdrService.create_adr's 3-char minimum surfaces as ValidationError."""
+    svc = AiDerivationService()
+
+    with pytest.raises(ValidationError):
+        svc._write_adr_draft(
+            ctx=auth_context,
+            workspace_id=workspace.id,
+            title="ab",
+            description="Some description.",
+            context="",
+            consequences="",
+            policy="manual",
+        )

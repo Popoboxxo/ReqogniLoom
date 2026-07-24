@@ -130,6 +130,7 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "ai_derivation.decompose_requirement_next_level",
     "ai_derivation.derive_risks_from_architecture",
     "ai_derivation.derive_glossary_from_workspace",
+    "ai_derivation.derive_adr_from_decision",
 )
 
 # ---------------------------------------------------------------------------
