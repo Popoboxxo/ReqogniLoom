@@ -753,6 +753,107 @@ def test_auto_approve_never_raises_when_role_lacks_permission(
     assert status == "draft"
 
 
+def test_auto_approve_stops_before_approval_gate_for_risk(auth_context, workspace):
+    """Regression test: an actor holding "approver"+"admin" must not have a
+    freshly-derived Risk auto-walked all the way to "Closed".
+
+    ``risk_default`` (see ``_risk_transitions``) intentionally has no
+    ``state_meta`` for "Closed" (it is not considered
+    ``is_outdated_equivalent`` — a closed risk is historically valuable, not
+    hidden), so the old is-outdated-only skip guard was a no-op here and the
+    walk reached the business-terminal "Closed" state in 3 unsupervised hops.
+    "editor"-gated hops (Identified->Monitored, Monitored->Mitigated) are
+    self-service and may still be crossed; the first approver-only gate
+    (Mitigated->Closed) must stop the walk instead.
+    """
+    from application.risk_service import RiskService
+    from workflow.services import create_default_workflow
+
+    admin_ctx = AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+
+    TenantContext.set_tenant(admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="risk_default",
+            item_type="Risk",
+            tenant_id=admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    created = RiskService().create_risk(
+        workspace_id=workspace.id,
+        title="Derived Risk",
+        probability="medium",
+        impact="medium",
+        ctx=admin_ctx,
+    )
+
+    svc = AiDerivationService()
+    status = svc._auto_approve("Risk", created.id, workspace.id, admin_ctx)
+
+    assert status not in ("Closed", "Accepted")
+    assert status == "Mitigated"
+
+
+def test_auto_approve_stops_before_approval_gate_for_adr(auth_context, workspace):
+    """Regression test: an actor holding "approver"+"admin" must not have a
+    freshly-derived Adr auto-walked all the way to "Superseded"/"Rejected".
+
+    ``adr_default`` (see ``_adr_transitions``) has no ``state_meta`` either
+    (Superseded/Rejected are historically meaningful, not "outdated/hidden"),
+    so before this fix the walk crossed "In Review -> Approved" (an approval
+    gate) and then kept going straight to "Superseded". The walk must stop
+    once it reaches the first approval-only transition ("In Review ->
+    Approved" requires "approver"/"admin", no "editor") instead of crossing it.
+    """
+    from application.adr_service import AdrService
+    from workflow.services import create_default_workflow
+
+    admin_ctx = AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+
+    TenantContext.set_tenant(admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="adr_default",
+            item_type="Adr",
+            tenant_id=admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    created = AdrService().create_adr(
+        workspace_id=workspace.id,
+        title="Derived ADR",
+        description="from decision",
+        ctx=admin_ctx,
+        context="ctx",
+        consequences="consequences",
+    )
+
+    svc = AiDerivationService()
+    status = svc._auto_approve("Adr", created.id, workspace.id, admin_ctx)
+
+    assert status not in ("Superseded", "Rejected")
+    assert status == "In Review"
+
+
 # ---------------------------------------------------------------------------
 # Flow 6 (Phase 3, Task 4) — derive glossary term drafts from a workspace
 # ---------------------------------------------------------------------------

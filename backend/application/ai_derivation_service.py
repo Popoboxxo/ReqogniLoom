@@ -1099,7 +1099,19 @@ class AiDerivationService(ServiceBase):
         workflow definition's ``state_meta`` (Phase 0) — an "auto-approve"
         policy must never auto-reject/auto-deprecate the entity it just
         created. Stops after 5 hops (defends against a pathological cyclic
-        definition) or as soon as no non-terminal transition remains.
+        definition), as soon as no non-terminal transition remains, or —
+        crucially — *before* taking a transition that requires an approval
+        role (see :meth:`_is_approval_gate`).
+
+        The last point fixes a bug where an actor holding ``approver``/``admin``
+        could walk a freshly-derived entity all the way to a business-terminal
+        state such as ``Risk.Closed`` or ``Adr.Superseded`` — states that mean
+        "this is done/superseded", not "this was just created". "Auto-approve"
+        must only ever perform the self-service submission hops an ``editor``
+        could already do unsupervised; the first genuine approval decision
+        (a transition whose ``allowed_roles`` do not include ``editor``) is
+        left for a human to take explicitly, regardless of whether *ctx*
+        actually holds a role that could pass it.
 
         Never raises: a validation failure (e.g. the caller's roles do not
         allow the next transition, or ``change_reason`` requirements are not
@@ -1142,6 +1154,11 @@ class AiDerivationService(ServiceBase):
                 if next_transition is None:
                     break
 
+                if self._is_approval_gate(next_transition):
+                    # A real approval decision — stop here instead of crossing
+                    # it unsupervised, no matter which roles *ctx* holds.
+                    break
+
                 result = transition(
                     item_id=item_id,
                     target_state=next_transition.to_state,
@@ -1160,6 +1177,19 @@ class AiDerivationService(ServiceBase):
                 exc_info=True,
             )
         return current_state
+
+    @staticmethod
+    def _is_approval_gate(transition_dto: "TransitionDefinitionDTO") -> bool:
+        """True if *transition_dto* is a genuine approval decision.
+
+        A transition an ``editor`` can already take unsupervised (its
+        ``allowed_roles`` includes ``"editor"``) is a self-service submission
+        step (e.g. ``draft -> in_review``), not an approval — ``_auto_approve``
+        may cross it. A transition restricted to ``approver``/``admin`` (no
+        ``editor``) is the real "someone signed off on this" gate and must be
+        left to an explicit, human-initiated transition call instead.
+        """
+        return "editor" not in transition_dto.allowed_roles
 
     @staticmethod
     def _get_slot(ctx: AuthContext, slot: str) -> str:
