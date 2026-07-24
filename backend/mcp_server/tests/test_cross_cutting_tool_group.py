@@ -145,6 +145,64 @@ def test_get_context_normal_depth_returns_item_lists(workspace_with_data, auth_c
     assert isinstance(ctx["tests_list"], list)
 
 
+@pytest.fixture
+def workspace_with_outdated_architecture_element(tenant_workspace_ctx):
+    """A workspace with one active + one outdate()'d ArchitectureElement."""
+    from application.architecture_service import ArchitectureService
+    from mcp_server.tools.architecture import ArchitectureToolGroup
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    _ensure_workflow(tenant, workspace, "standard", "ArchitectureElement")
+
+    svc = ArchitectureService()
+    kept = svc.create_architecture_element(workspace_id=workspace.id, title="Kept", ctx=ctx)
+    outdated_el = svc.create_architecture_element(
+        workspace_id=workspace.id, title="Outdated", ctx=ctx, parent_id=kept.id
+    )
+
+    group = ArchitectureToolGroup(service=svc)
+    result = group._handle_outdate(
+        params={"id": str(outdated_el.id), "reason": "obsolete"},
+        auth_context=ctx,
+        api_key="x",
+    )
+    assert result.success is True
+
+    return workspace.id, tenant.id, kept.id, outdated_el.id
+
+
+@pytest.mark.django_db
+def test_get_context_normal_depth_marks_outdated_architecture_element_status(
+    workspace_with_outdated_architecture_element, auth_ctx
+):
+    """REQ-006 fix: architecture_list ``status`` must reflect the real
+    WorkflowItemState-based outdated flag, not the dead
+    ``lifecycle_status`` mirror field (which is never written by outdate()).
+    """
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    workspace_id, tenant_id, kept_id, outdated_id = workspace_with_outdated_architecture_element
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "workspace.get_context",
+        params={
+            "workspace_id": str(workspace_id),
+            "depth": "normal",
+            "include_outdated": True,
+        },
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is True
+    architecture_list = result.data["workspace_context"]["architecture_list"]
+    by_id = {str(item["id"]): item for item in architecture_list}
+
+    assert str(outdated_id) in by_id
+    assert by_id[str(outdated_id)]["status"] == "outdated"
+    assert str(kept_id) in by_id
+    assert by_id[str(kept_id)]["status"] == "active"
+
+
 @pytest.mark.django_db
 def test_get_context_summary_depth_omits_item_lists(workspace_with_data, auth_ctx):
     """REQ-L2-MC-004 (Phase 2, Task 2): depth=summary must not compute item lists."""
@@ -162,6 +220,73 @@ def test_get_context_summary_depth_omits_item_lists(workspace_with_data, auth_ct
     assert "requirements_list" not in ctx
     assert "architecture_list" not in ctx
     assert "tests_list" not in ctx
+
+
+@pytest.fixture
+def workspace_with_verified_test_case(tenant_workspace_ctx):
+    """A workspace with a Requirement, a TestCase verifying it (via TraceLink
+    link_type=verifies), and a second, unlinked TestCase.
+    """
+    from application.requirement_service import RequirementService
+    from application.test_service import TestService
+    from application.trace_link_service import TraceLinkService
+    from traceability.types import LinkType
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    _ensure_workflow(tenant, workspace, "standard", "Requirement")
+    _ensure_workflow(tenant, workspace, "standard", "TestCase")
+
+    req_svc = RequirementService()
+    requirement = req_svc.create_requirement(workspace_id=workspace.id, title="Req", ctx=ctx)
+
+    test_svc = TestService()
+    linked_test = test_svc.create_test_case(
+        workspace_id=workspace.id, title="Linked Test", ctx=ctx
+    )
+    unlinked_test = test_svc.create_test_case(
+        workspace_id=workspace.id, title="Unlinked Test", ctx=ctx
+    )
+
+    trace_svc = TraceLinkService()
+    trace_svc.create_trace_link(
+        source_id=linked_test.artifact_id,
+        target_id=requirement.id,
+        link_type=LinkType.VERIFIES.value,
+        ctx=ctx,
+    )
+
+    return workspace.id, tenant.id, requirement.id, linked_test.id, unlinked_test.id
+
+
+@pytest.mark.django_db
+def test_get_context_normal_depth_resolves_linked_req_id_via_verifies_tracelink(
+    workspace_with_verified_test_case, auth_ctx
+):
+    """Regression test: tests_list.linked_req_id must resolve the real
+    Requirement ID via the correlated TraceLink(link_type=verifies) subquery
+    — not just "is a list".
+    """
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    workspace_id, tenant_id, requirement_id, linked_test_id, unlinked_test_id = (
+        workspace_with_verified_test_case
+    )
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "workspace.get_context",
+        params={"workspace_id": str(workspace_id), "depth": "normal"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is True
+    tests_list = result.data["workspace_context"]["tests_list"]
+    by_id = {str(item["id"]): item for item in tests_list}
+
+    assert str(linked_test_id) in by_id
+    assert by_id[str(linked_test_id)]["linked_req_id"] == requirement_id
+
+    assert str(unlinked_test_id) in by_id
+    assert by_id[str(unlinked_test_id)]["linked_req_id"] is None
 
 
 @pytest.mark.django_db

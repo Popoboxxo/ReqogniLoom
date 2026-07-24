@@ -664,18 +664,29 @@ class CrossCuttingToolGroup(BaseToolGroup):
             req_qs = req_qs.exclude(status="outdated")
         requirements = list(req_qs.values("id", "title", "status", "level"))
 
+        # NOTE: ArchitectureElement.lifecycle_status is a dead field — it is
+        # NEVER written by outdate() (see workflow/services.py and
+        # persistence/models.py). The real outdated state lives exclusively
+        # in WorkflowItemState, resolved via outdated_item_ids() below. The
+        # "status" key exposed to callers must reflect that, not the
+        # (always-active-looking) lifecycle_status mirror.
+        arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
         arch_qs = ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
         if not include_outdated:
-            arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
             arch_qs = arch_qs.exclude(id__in=arch_outdated_ids)
-        architecture = list(
-            arch_qs.values(
+        architecture = [
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "type": item["type"],
+                "status": "outdated" if item["id"] in arch_outdated_ids else "active",
+            }
+            for item in arch_qs.values(
                 "id",
                 name=F("title"),
                 type=F("element_type"),
-                status=F("lifecycle_status"),
             )
-        )
+        ]
 
         linked_req_subquery = _Subquery(
             TraceLink.objects.filter(
