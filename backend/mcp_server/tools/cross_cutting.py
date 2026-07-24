@@ -106,6 +106,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "artifact.search": "_handle_artifact_search",
         "artifact.get_tree": "_handle_artifact_get_tree",
         "workspace.get_context": "_handle_workspace_get_context",
+        "workspace.llm_system_prompt": "_handle_llm_system_prompt",
     }
 
     _TOOL_SCHEMAS = [
@@ -225,6 +226,36 @@ class CrossCuttingToolGroup(BaseToolGroup):
                         "description": "Optional caller role label (documentation only, never filters data).",
                     },
                 },
+            },
+        },
+        {
+            "name": "workspace.llm_system_prompt",
+            "description": (
+                "Render a natural-language system prompt for AI-agent session "
+                "start, built from the same entity data as "
+                "``workspace.get_context`` (active requirements, architecture "
+                "elements, test coverage). Response: result.system_prompt "
+                "(str). Read-only — does not persist or mutate anything. "
+                "``role`` is echoed as a text label only (\"Du bist als "
+                "{role} unterwegs\") and never filters the underlying data."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the workspace to summarise.",
+                    },
+                    "role": {
+                        "type": "string",
+                        "description": "Optional caller role label (documentation only, never filters data).",
+                    },
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "Include outdated items in the underlying entity data (default false).",
+                    },
+                },
+                "required": ["workspace_id"],
             },
         },
     ]
@@ -580,6 +611,71 @@ class CrossCuttingToolGroup(BaseToolGroup):
         context_data["workspace_id"] = workspace_id_str
 
         return ToolResult.ok({"workspace_context": context_data})
+
+    # ------------------------------------------------------------------
+    # workspace.llm_system_prompt
+    # ------------------------------------------------------------------
+
+    def _handle_llm_system_prompt(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """workspace.llm_system_prompt — render a natural-language system
+        prompt for AI-agent session start.
+
+        REQ-L2-MC-004 (Phase 2, Task 4): reuses ``_entity_counts``/
+        ``_entity_lists`` (Tasks 1-2) rather than querying separately.
+        Read-only — no audit entry (see class docstring).
+        """
+        workspace_id_str = params.get("workspace_id")
+        if not workspace_id_str:
+            return ToolResult.error("VALIDATION_ERROR", "workspace_id is required")
+        workspace_id = UUID(str(workspace_id_str))
+        role = params.get("role", "")
+        include_outdated = bool(params.get("include_outdated", False))
+
+        from persistence.models import Workspace
+        from persistence.tenancy import TenantContext
+
+        TenantContext.set_tenant(auth_context.tenant_id)
+        try:
+            workspace = Workspace.objects.get(id=workspace_id, tenant_id=auth_context.tenant_id)
+        except Workspace.DoesNotExist:
+            return ToolResult.error("NOT_FOUND", f"Workspace {workspace_id} not found")
+
+        counts = self._entity_counts(
+            workspace_id=workspace_id, tenant_id=auth_context.tenant_id, include_outdated=include_outdated
+        )
+        lists = self._entity_lists(
+            workspace_id=workspace_id, tenant_id=auth_context.tenant_id, include_outdated=include_outdated
+        )
+
+        # TODO(future phase): once WorkspaceGoal exists, prepend the approved
+        # goal here as the prompt's first sentence, per the design spec's
+        # Phase 0.4/2.2 intent. Deliberately NOT implemented now — WorkspaceGoal
+        # was descoped from Phase 0.
+
+        lines = [f'Du arbeitest am Projekt "{workspace.name}".']
+        if role:
+            lines.append(f"Du bist als {role} unterwegs.")
+        lines.append("")
+        lines.append("## Aktive Requirements")
+        for req in lists["requirements_list"][:20]:  # cap list length defensively regardless of token-budget truncation
+            lines.append(f"- [{req.get('level', '?')}] {req['title']} (status: {req['status']})")
+        lines.append("")
+        lines.append("## Architecture")
+        for ae in lists["architecture_list"][:20]:
+            lines.append(f"- {ae['name']} (type: {ae.get('type', '?')}, status: {ae['status']})")
+        lines.append("")
+        lines.append(
+            f"## Testabdeckung\n{counts['tests']['pass']} pass, {counts['tests']['fail']} fail"
+        )
+
+        prompt_text = "\n".join(lines)
+        budget = _get_context_token_budget(workspace, "normal")
+        if budget is not None and len(prompt_text) // 4 > budget:
+            prompt_text = prompt_text[: budget * 4] + "\n... (truncated)"
+
+        return ToolResult.ok({"system_prompt": prompt_text})
 
     def _recent_changes(
         self, *, workspace_id: UUID, tenant_id: UUID, limit: int = 10

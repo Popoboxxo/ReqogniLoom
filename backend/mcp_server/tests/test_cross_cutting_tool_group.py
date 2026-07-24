@@ -570,3 +570,58 @@ def test_workspace_can_override_token_budget(workspace_with_data, auth_ctx):
     assert "requirements_list" not in ctx
     assert "architecture_list" not in ctx
     assert "tests_list" not in ctx
+
+
+@pytest.mark.django_db
+def test_llm_system_prompt_includes_requirements_and_architecture(workspace_with_data, auth_ctx):
+    """REQ-L2-MC-004 (Phase 2, Task 4): ``workspace.llm_system_prompt`` renders
+    a natural-language system prompt from the same entity data as
+    ``workspace.get_context``."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    workspace_id, tenant_id = workspace_with_data
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.llm_system_prompt",
+        params={"workspace_id": str(workspace_id), "role": "developer"},
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result.success is True
+    prompt = result.data["system_prompt"]
+    assert isinstance(prompt, str)
+    assert "Requirements" in prompt or "requirement" in prompt.lower()
+
+
+@pytest.mark.django_db
+def test_llm_system_prompt_missing_workspace_id_returns_validation_error(auth_ctx):
+    """workspace_id is required for workspace.llm_system_prompt."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.llm_system_prompt",
+        params={},
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+def test_llm_system_prompt_unknown_workspace_returns_not_found(auth_ctx):
+    """Unknown workspace_id returns NOT_FOUND, not a raw exception."""
+    import uuid
+
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.llm_system_prompt",
+        params={"workspace_id": str(uuid.uuid4())},
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result.success is False
+    assert result.error_code == "NOT_FOUND"
