@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import uuid
 
-from django.db import models
+from django.db import IntegrityError, models
 
 # REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
 # (see requirements.txt) and the ``vector`` Postgres extension (provisioned by
@@ -1558,61 +1558,94 @@ PROMPT_TEMPLATE_DEFAULTS: dict[str, str] = {
 
 
 class PromptTemplate(TenantScopedModel):
-    """Per-tenant editable LLM prompt templates (REQ-L2-PT-001).
+    """Named, versioned, workspace-overridable LLM prompt template (REQ-L2-PT-001).
 
-    Singleton per tenant (unique constraint on ``tenant``). Each field is a
-    prompt "slot" whose factory default is stored in ``PROMPT_TEMPLATE_DEFAULTS``.
-    ``reset_slot`` / ``reset_all`` restore the default content for a slot.
+    Phase 4 replaces the previous 3-fixed-slot tenant singleton with an
+    open-ended, named template model: ``name`` identifies the template (e.g.
+    ``"need_to_sysreq"``, ``"testcase_derive"`` — not an enum, since the set of
+    templates is no longer fixed to 3). ``workspace_id=None`` is the
+    tenant-wide default; a non-null ``workspace_id`` overrides it for that
+    workspace only. Multiple versions may exist per ``(tenant, workspace_id,
+    name)`` scope; ``is_active`` marks the one currently in effect.
+
+    Uniqueness: at most one ``is_active=True`` row per ``(tenant,
+    workspace_id, name)``. Enforced at the **application level** in
+    :meth:`save`, not via a Postgres partial unique index — this codebase has
+    no existing precedent for ``condition=`` partial indexes in its migrations
+    (checked: zero hits across ``persistence/migrations/*.py``), so
+    application-level enforcement keeps this constraint's mechanism
+    consistent with the rest of ``persistence/``. It mirrors the existing
+    idiom used by e.g. ``CustomFieldDefinitionService`` of raising/catching
+    :class:`~django.db.IntegrityError` around a uniqueness violation, so
+    calling services can catch it the same way.
+
+    Note on ``version``: this model repurposes the inherited
+    :class:`AuditableModel` ``version`` field (normally a per-row optimistic-
+    concurrency counter, see COMP-PL-003) to mean the template's version
+    number within its ``(tenant, workspace_id, name)`` scope instead.
+    ``PromptTemplate`` rows are effectively immutable once created — a new
+    prompt version is a new row, not an in-place update — so the
+    optimistic-locking use case the base field exists for does not apply to
+    this model.
     """
 
-    #: Read-only default constants (mirrors module-level defaults for callers
-    #: that hold a model instance).
-    DEFAULTS = PROMPT_TEMPLATE_DEFAULTS
-
-    need_to_sysreq = models.TextField(
-        default=DEFAULT_NEED_TO_SYSREQ,
-        help_text="Prompt: stakeholder need -> system requirements.",
+    name = models.CharField(
+        max_length=100,
+        help_text="Template identifier, e.g. 'need_to_sysreq' (open-ended, not an enum).",
     )
-    sysreq_to_arch_assign = models.TextField(
-        default=DEFAULT_SYSREQ_TO_ARCH_ASSIGN,
-        help_text="Prompt: system requirement -> architecture assignment.",
+    content = models.TextField(help_text="Prompt template body.")
+    version = models.PositiveIntegerField(
+        default=1,
+        help_text="Version number within the (tenant, workspace_id, name) scope; starts at 1.",
     )
-    sysreq_decompose_next_level = models.TextField(
-        default=DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL,
-        help_text="Prompt: decompose system requirement to the next level.",
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this version is the active one for its (tenant, workspace_id, name) scope.",
+    )
+    workspace_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Workspace override scope. NULL means tenant-wide default.",
     )
 
     class Meta:
         db_table = "pl_prompt_template"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant"], name="uq_prompt_template_tenant"
+        indexes = [
+            models.Index(
+                fields=["tenant", "workspace_id", "name"],
+                name="ix_prompt_template_scope",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"PromptTemplate(tenant={self.tenant_id})"
+        scope = f"workspace={self.workspace_id}" if self.workspace_id else "global"
+        return f"PromptTemplate(name={self.name!r}, {scope}, v{self.version})"
 
-    def get_slot(self, slot_name: str) -> str:
-        """Return the current content for ``slot_name``.
+    def save(self, *args: object, **kwargs: object) -> None:
+        """Persist the row, enforcing at most one active row per scope.
 
         Raises:
-            KeyError: If ``slot_name`` is not a known prompt slot.
+            IntegrityError: If ``is_active=True`` and another row already is
+                active for the same ``(tenant, workspace_id, name)`` scope.
         """
-        if slot_name not in PROMPT_TEMPLATE_DEFAULTS:
-            raise KeyError(slot_name)
-        return getattr(self, slot_name)
-
-    def reset_slot(self, slot_name: str) -> None:
-        """Restore ``slot_name`` to its factory default (not saved)."""
-        if slot_name not in PROMPT_TEMPLATE_DEFAULTS:
-            raise KeyError(slot_name)
-        setattr(self, slot_name, PROMPT_TEMPLATE_DEFAULTS[slot_name])
-
-    def reset_all(self) -> None:
-        """Restore every slot to its factory default (not saved)."""
-        for slot_name, default in PROMPT_TEMPLATE_DEFAULTS.items():
-            setattr(self, slot_name, default)
+        if self.is_active:
+            conflict_exists = (
+                PromptTemplate.objects.filter(
+                    tenant_id=self.tenant_id,
+                    workspace_id=self.workspace_id,
+                    name=self.name,
+                    is_active=True,
+                )
+                .exclude(pk=self.pk)
+                .exists()
+            )
+            if conflict_exists:
+                raise IntegrityError(
+                    "Another active PromptTemplate already exists for "
+                    f"(tenant={self.tenant_id}, workspace_id={self.workspace_id}, "
+                    f"name={self.name!r})."
+                )
+        super().save(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
