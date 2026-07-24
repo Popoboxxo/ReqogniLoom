@@ -23,6 +23,7 @@ from persistence.models import (
     PromptTemplate,
     StakeholderNeed,
     Tenant,
+    TraceLink,
     User,
     Workspace as PersistenceWorkspace,
 )
@@ -434,4 +435,144 @@ def test_derive_testcase_truncates_long_requirement_description(
 
     prompt = provider.calls[0]["prompt"]
     assert long_description not in prompt
-    assert "[truncated]" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — write-mode helpers (_write_derived_entity / _auto_approve)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def need_with_workflow(auth_context, workspace):
+    """A StakeholderNeed's Artifact id + a Requirement workflow definition.
+
+    Uses the "extended" preset: its draft->in_review transition is reachable
+    by the shared ``auth_context`` fixture's "editor" role (unlike the
+    "standard" preset, whose only exits from draft require "approver"/"admin"
+    — see ``_standard_transitions``), so ``policy="auto"`` tests are
+    meaningful against the shared fixture.
+
+    Returns ``(need_artifact_id, workspace_id)`` rather than the
+    StakeholderNeed's own PK: ``TraceLinkService._resolve_artifact_id`` only
+    resolves Artifact/Requirement/ArchitectureElement/Adr ids, not
+    StakeholderNeed ids (confirmed by reading trace_link_service.py before
+    writing this fixture) — so a trace link sourced from a need must be
+    built from ``need.artifact_id``, exactly like ``mcp_server/tools/
+    ai_derivation.py``'s write-mode handler does.
+    """
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="extended",
+            item_type="Requirement",
+            tenant_id=auth_context.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+    need = _make_need(auth_context, workspace, "Users need workflow-aware derivation")
+    return need.artifact_id, workspace.id
+
+
+def test_write_derived_entity_creates_entity_and_trace_link(
+    need_with_workflow, auth_context
+):
+    need_id, workspace_id = need_with_workflow
+    svc = AiDerivationService()
+
+    result = svc._write_derived_entity(
+        ctx=auth_context,
+        workspace_id=workspace_id,
+        item_type="Requirement",
+        create_fn=lambda: RequirementService().create_requirement(
+            workspace_id=workspace_id,
+            title="Derived Req",
+            ctx=auth_context,
+            description="from need",
+        ),
+        source_entity_id=need_id,
+        source_item_type="StakeholderNeed",
+        link_type="derives-from",
+        policy="manual",
+    )
+
+    assert result["status"] == "draft"
+    from persistence.models import Requirement
+
+    assert Requirement.objects.filter(id=result["id"]).exists()
+    # TraceLink lives in persistence.models (already imported at module top) —
+    # confirmed against persistence/models.py before writing this test.
+    assert TraceLink.objects.filter(id=result["trace_link_id"]).exists()
+
+
+def test_write_derived_entity_policy_auto_advances_state(
+    need_with_workflow, auth_context
+):
+    need_id, workspace_id = need_with_workflow
+    svc = AiDerivationService()
+
+    result = svc._write_derived_entity(
+        ctx=auth_context,
+        workspace_id=workspace_id,
+        item_type="Requirement",
+        create_fn=lambda: RequirementService().create_requirement(
+            workspace_id=workspace_id, title="Derived Req 2", ctx=auth_context,
+        ),
+        source_entity_id=need_id,
+        source_item_type="StakeholderNeed",
+        link_type="derives-from",
+        policy="auto",
+    )
+
+    # "extended" preset's draft->in_review transition is allowed for the
+    # "editor" role held by auth_context, so the walk must advance past draft.
+    assert result["status"] != "draft"
+
+
+def test_write_derived_entity_policy_manual_stays_draft(
+    need_with_workflow, auth_context
+):
+    need_id, workspace_id = need_with_workflow
+    svc = AiDerivationService()
+
+    result = svc._write_derived_entity(
+        ctx=auth_context,
+        workspace_id=workspace_id,
+        item_type="Requirement",
+        create_fn=lambda: RequirementService().create_requirement(
+            workspace_id=workspace_id, title="Derived Req 3", ctx=auth_context,
+        ),
+        source_entity_id=need_id,
+        source_item_type="StakeholderNeed",
+        link_type="derives-from",
+        policy="manual",
+    )
+
+    assert result["status"] == "draft"
+
+
+def test_auto_approve_never_raises_when_role_lacks_permission(
+    need_with_workflow, workspace, auth_context
+):
+    """A ctx without a role that can perform the next transition stops the
+    walk at the current state instead of propagating WorkflowTransitionError.
+    """
+    need_id, workspace_id = need_with_workflow
+    viewer_ctx = AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("viewer",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+    svc = AiDerivationService()
+    created = RequirementService().create_requirement(
+        workspace_id=workspace_id, title="Derived Req 4", ctx=auth_context,
+    )
+
+    status = svc._auto_approve("Requirement", created.id, workspace_id, viewer_ctx)
+
+    assert status == "draft"

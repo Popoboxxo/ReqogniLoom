@@ -34,7 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID
 
 from django.core.cache import cache
@@ -466,6 +466,24 @@ class AiDerivationService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
         return req
 
+    def _get_stakeholder_need(
+        self, stakeholder_need_id: UUID | str
+    ) -> StakeholderNeed:
+        """Return a tenant-scoped StakeholderNeed or raise NotFoundError.
+
+        Mirrors :meth:`_get_requirement`; used by the write-mode path (Phase
+        3) to resolve the source need's workspace before persisting a
+        derived Requirement.
+        """
+        need = (
+            StakeholderNeed.objects.select_related("artifact")
+            .filter(id=stakeholder_need_id)
+            .first()
+        )
+        if need is None:
+            raise NotFoundError(f"StakeholderNeed {stakeholder_need_id} not found")
+        return need
+
     @staticmethod
     def _allocated_target_ids(req: Requirement) -> List[UUID]:
         """Return the artifact ids this requirement is ``allocated-to``."""
@@ -474,6 +492,159 @@ class AiDerivationService(ServiceBase):
             link_type=LinkType.ALLOCATED_TO.value,
         ).values_list("target_id", flat=True)
         return list(links)
+
+    # ------------------------------------------------------------------
+    # Write-mode helpers (Phase 3, REQ-L2-AI-003) — shared by the three
+    # AiDerivationToolGroup tools when invoked with mode="write". Every
+    # write flow still starts from the same draft the mode="preview" path
+    # returns; only the persistence step is new here.
+    # ------------------------------------------------------------------
+
+    def _write_derived_entity(
+        self,
+        *,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        item_type: str,
+        create_fn: Callable[[], Any],
+        source_entity_id: UUID | str,
+        source_item_type: str,
+        link_type: str,
+        policy: str = "manual",
+    ) -> Dict[str, Any]:
+        """Persist one derived draft entity and link it back to its source.
+
+        Shared by all three derive tools' write path: ``create_fn`` is a
+        zero-arg closure the caller builds (e.g. a bound
+        ``RequirementService().create_requirement(...)`` call) that persists
+        exactly one derived entity. This helper then:
+
+          1. Calls ``create_fn()`` to create the entity.
+          2. Creates a ``link_type`` TraceLink from *source_entity_id* to the
+             new entity (REQ-L2-AS-010, via TraceLinkService).
+          3. When ``policy == "auto"``, walks the new entity forward through
+             its real workflow transitions via :meth:`_auto_approve`.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context (also the actor
+                recorded on the trace link and any auto-transitions).
+            workspace_id: Workspace the derived entity belongs to.
+            item_type: Workflow ``item_type`` of the newly created entity
+                (e.g. ``"Requirement"``) — used only for ``policy="auto"``.
+            create_fn: Zero-arg closure that persists and returns the new
+                entity (must expose an ``.id`` attribute).
+            source_entity_id: Id of the entity the new one was derived from.
+            source_item_type: Workflow ``item_type`` of *source_entity_id*
+                (kept for caller-side documentation/audit — TraceLinkService
+                resolves the concrete artifact type on its own).
+            link_type: One of ``traceability.types.LinkType`` (e.g.
+                ``"derives-from"``).
+            policy: ``"manual"`` (default, leaves the entity in its initial
+                "draft" state) or ``"auto"`` (best-effort auto-approval).
+
+        Returns:
+            ``{"id": <uuid-str>, "status": <final status string>,
+            "trace_link_id": <uuid-str>}``.
+        """
+        self._set_tenant_context(ctx)
+
+        created = create_fn()
+
+        from application.trace_link_service import TraceLinkService
+
+        link = TraceLinkService().create_trace_link(
+            source_id=source_entity_id,
+            target_id=created.id,
+            link_type=link_type,
+            ctx=ctx,
+        )
+
+        status = "draft"
+        if policy == "auto":
+            status = self._auto_approve(item_type, created.id, workspace_id, ctx)
+
+        return {
+            "id": str(created.id),
+            "status": status,
+            "trace_link_id": str(link.id),
+        }
+
+    def _auto_approve(
+        self,
+        item_type: str,
+        item_id: UUID | str,
+        workspace_id: UUID | str,
+        ctx: AuthContext,
+    ) -> str:
+        """Best-effort: walk *item_id* forward through its real transitions.
+
+        Takes one hop at a time (via ``workflow.services.get_available_transitions``
+        / ``transition``), always preferring the first available transition
+        whose target state is not flagged ``is_outdated_equivalent`` in the
+        workflow definition's ``state_meta`` (Phase 0) — an "auto-approve"
+        policy must never auto-reject/auto-deprecate the entity it just
+        created. Stops after 5 hops (defends against a pathological cyclic
+        definition) or as soon as no non-terminal transition remains.
+
+        Never raises: a validation failure (e.g. the caller's roles do not
+        allow the next transition, or ``change_reason`` requirements are not
+        met) simply stops the walk at whatever state was last reached — the
+        entity stays a valid, persisted draft either way.
+
+        Returns:
+            The final workflow state name reached (``"draft"`` if no
+            transition could be taken at all).
+        """
+        from workflow.definition_store import get_state_meta
+        from workflow.models import WorkflowEngineDefinition
+        from workflow.services import get_available_transitions, transition
+
+        current_state = "draft"
+        try:
+            for _ in range(5):
+                available = get_available_transitions(
+                    item_id=item_id, item_type=item_type, workspace_id=workspace_id
+                )
+                current_state = available.current_state or current_state
+                if not available.transitions:
+                    break
+
+                definition = WorkflowEngineDefinition.objects.filter(
+                    workspace_id=workspace_id, item_type=item_type
+                ).first()
+                workflow_json = definition.workflow_json if definition else {}
+
+                next_transition = next(
+                    (
+                        t
+                        for t in available.transitions
+                        if not get_state_meta(workflow_json, t.to_state).get(
+                            "is_outdated_equivalent", False
+                        )
+                    ),
+                    None,
+                )
+                if next_transition is None:
+                    break
+
+                result = transition(
+                    item_id=item_id,
+                    target_state=next_transition.to_state,
+                    change_reason=f"auto-approved via AI-Derivation ({item_type})",
+                    ctx=ctx,
+                    item_type=item_type,
+                    workspace_id=workspace_id,
+                )
+                current_state = result.new_state
+        except Exception:  # noqa: BLE001 — auto-approve must never break a write
+            logger.warning(
+                "Auto-approve stopped for %s %s at state %s",
+                item_type,
+                item_id,
+                current_state,
+                exc_info=True,
+            )
+        return current_state
 
     @staticmethod
     def _get_slot(ctx: AuthContext, slot: str) -> str:

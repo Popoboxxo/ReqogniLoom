@@ -120,6 +120,13 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "diagram.update",
     "diagram.outdate",
     "diagram.reactivate",
+    # REQ-L2-AI-003 (Phase 3): mode="write" makes these three previously
+    # preview-only tools capable of mutation, so they now require Editor+
+    # (the RBAC gate is name-based, not mode-aware — mode="preview" calls by
+    # these tool names are gated too; see mcp_server/tools/ai_derivation.py).
+    "ai_derivation.derive_requirements_from_need",
+    "ai_derivation.suggest_architecture_for_requirement",
+    "ai_derivation.decompose_requirement_next_level",
 )
 
 # ---------------------------------------------------------------------------
