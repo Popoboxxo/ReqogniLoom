@@ -16,6 +16,7 @@ Public import paths:
         update_diagram,
         get_diagram,
         list_versions,
+        list_diagrams,
         get_mcp_artifact,
         canvas_auto_save,
         get_canvas_diagram,
@@ -30,13 +31,16 @@ Architecture:
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from diagram.canvas_editor import CanvasEditor, CanvasExportResult  # noqa: F401
 from diagram.manager import DiagramManager, DiagramResult, DiagramValidationError  # noqa: F401
 from diagram.mermaid_live_renderer import MermaidLiveRenderer, LivePreviewData  # noqa: F401
 from diagram.models import Diagram, DiagramVersion  # noqa: F401
 from diagram.mcp_artifact_provider import McpArtifactProvider
+
+if TYPE_CHECKING:
+    from auth_tenancy.context import AuthContext
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (lazy-initialised, stateless)
@@ -187,15 +191,22 @@ def get_diagram_header(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> Diagram:
     return Diagram.objects.get(id=diagram_id, tenant_id=tenant_id)
 
 
-def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-    """Delete a tenant-scoped Diagram and all its versions (REQ-066).
+def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: "AuthContext") -> None:
+    """Soft-delete a tenant-scoped Diagram via the workflow engine's outdate()
+    (REQ-066, REQ-006/Phase 0).
 
-    Encapsulates the tenant-scoped ORM lookup + cascade delete so REST views
-    stay ORM-free.
+    Encapsulates the tenant-scoped ORM lookup so REST views stay ORM-free.
+    Physical deletion intentionally avoided — the Diagram row and its
+    versions remain for audit/history purposes; ``outdate()`` marks the item
+    "outdated" in ``WorkflowItemState`` (Diagram is not registered in
+    ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, so no denormalized
+    field on Diagram itself is written).
 
     Args:
         diagram_id: UUID of the Diagram to delete.
         tenant_id:  Active tenant primary key (isolation boundary).
+        ctx:        Resolved AuthContext of the caller (REQ-165/REQ-167: the
+            WorkflowEngine is the sole authority for the transition).
 
     Raises:
         Diagram.DoesNotExist: If no diagram with the given id exists for the
@@ -203,8 +214,49 @@ def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
 
     req_id: REQ-066, REQ-L2-DS-001
     """
+    from workflow.services import outdate
+
     diagram = Diagram.objects.get(id=diagram_id, tenant_id=tenant_id)
-    diagram.delete()
+    outdate(
+        item_id=diagram.id,
+        item_type="Diagram",
+        workspace_id=diagram.workspace_id,
+        ctx=ctx,
+        reason="deleted via diagram delete",
+    )
+
+
+def list_diagrams(
+    workspace_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    include_deleted: bool = False,
+) -> list[Diagram]:
+    """Return all Diagrams for a workspace, tenant-scoped (MCP diagram.query).
+
+    Diagram has no denormalized status mirror field (see ``delete_diagram``
+    docstring) — soft-deleted (outdated) rows are excluded via
+    ``workflow.services.outdated_item_ids("Diagram", ...)`` instead of a
+    ``lifecycle_status`` filter.
+
+    Args:
+        workspace_id:    UUID of the owning workspace.
+        tenant_id:       Active tenant primary key (isolation boundary).
+        include_deleted: If True, include outdated (soft-deleted) diagrams.
+            Defaults to False.
+
+    Returns:
+        List of Diagram ORM objects, newest first.
+
+    req_id: REQ-066, REQ-173, REQ-L2-DS-001
+    """
+    qs = Diagram.objects.filter(workspace_id=workspace_id, tenant_id=tenant_id)
+    if not include_deleted:
+        from workflow.services import outdated_item_ids
+
+        qs = qs.exclude(
+            id__in=outdated_item_ids("Diagram", tenant_id=tenant_id)
+        )
+    return list(qs.order_by("-created_at"))
 
 
 def list_versions(diagram_id: uuid.UUID) -> list[DiagramVersion]:
@@ -412,6 +464,7 @@ __all__ = [
     "get_diagram",
     "get_diagram_header",
     "delete_diagram",
+    "list_diagrams",
     "list_versions",
     "get_mcp_artifact",
     # Canvas editor — COMP-DS-006

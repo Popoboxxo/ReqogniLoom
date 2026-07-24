@@ -42,12 +42,11 @@ enforced synchronously at link-creation time. These rules only check
 
 Soft-deleted artifacts are excluded from every check in this module — a
 deleted Requirement/ArchitectureElement/StakeholderNeed cannot meaningfully be
-"orphaned" or "unallocated". "Soft-deleted" is per-type: StakeholderNeed still
-uses ``lifecycle_status == LifecycleStatus.DELETED`` (its delete path was never
-migrated onto ``workflow.services.outdate()``); Requirement uses
-``status == "outdated"`` (the status mirror ``outdate()`` writes); Architecture
-Element has no mirror at all and is checked against
-``workflow.services.outdated_item_ids`` (state lives only in
+"orphaned" or "unallocated". "Soft-deleted" is per-type: StakeholderNeed and
+Requirement both use ``status == "outdated"`` (both are registered in
+``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` and the mirror is written
+by ``outdate()``); Architecture Element has no mirror at all and is checked
+against ``workflow.services.outdated_item_ids`` (state lives only in
 ``WorkflowItemState``).
 """
 from __future__ import annotations
@@ -58,7 +57,6 @@ from django.db.models import Q
 
 from persistence.models import (
     ArchitectureElement,
-    LifecycleStatus,
     Requirement,
     RequirementLevel,
     StakeholderNeed,
@@ -111,11 +109,19 @@ def _active_requirements(context: AuditContext) -> Dict[str, str]:
 
 
 def _active_stakeholder_need_ids(context: AuditContext) -> FrozenSet[str]:
-    """Return the artifact-id set of active StakeholderNeeds (L0)."""
+    """Return the artifact-id set of active StakeholderNeeds (L0).
+
+    StakeholderNeed is registered in
+    ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS`` and its ``delete()``
+    path calls ``workflow.services.outdate()``, which writes ``status ==
+    "outdated"`` — the same status mirror Requirement uses. The now-legacy
+    ``lifecycle_status`` field is never touched by ``outdate()``, so filtering
+    on it here would silently treat a deleted StakeholderNeed as still active.
+    """
     qs = StakeholderNeed.unscoped.filter(
         tenant_id=context.tenant_id,
         artifact__workspace_id=context.workspace_id,
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+    ).exclude(status="outdated")
     return frozenset(str(v) for v in qs.values_list("artifact_id", flat=True))
 
 

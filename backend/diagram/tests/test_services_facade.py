@@ -97,23 +97,55 @@ class TestServiceFacadeGet:
         assert result.renderable is not None
 
 
-class TestServiceFacadeDelete:
-    """REQ-066: delete_diagram facade (ORM out of the REST view)."""
+def _make_auth_ctx(*, tenant_id, user_id=None):
+    """Build a minimal real AuthContext for delete_diagram()'s outdate() call."""
+    from auth_tenancy.context import AuthContext
 
-    def test_delete_diagram_removes_row(self, tenant_a, workspace_a):
+    return AuthContext(
+        user_id=user_id or uuid.uuid4(),
+        tenant_id=tenant_id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="diagram-facade-test-tenant",
+    )
+
+
+class TestServiceFacadeDelete:
+    """REQ-066/REQ-006 (Phase 0): delete_diagram facade routes through
+    workflow.services.outdate() instead of hard-deleting (ORM out of the
+    REST view)."""
+
+    def test_delete_diagram_calls_outdate_not_hard_delete(self, tenant_a, workspace_a):
         from diagram.models import Diagram
+        from workflow.models import WorkflowItemState
+        from workflow.services import create_default_workflow
 
         with active_tenant(tenant_a):
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="diagram_default",
+                item_type="Diagram",
+                tenant_id=tenant_a.id,
+            )
             diagram = create_diagram(
                 name="Delete Target",
                 diagram_type="block",
                 payload_format="mermaid",
                 content=VALID_MERMAID_BLOCK,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
-            delete_diagram(diagram.id, tenant_a.id)
+            ctx = _make_auth_ctx(tenant_id=tenant_a.id)
+            delete_diagram(diagram.id, tenant_a.id, ctx=ctx)
 
-        assert not Diagram.unscoped.filter(id=diagram.id).exists()
+            # Not hard-deleted — row and versions remain for audit purposes.
+            assert Diagram.unscoped.filter(id=diagram.id).exists()
+
+            item_state = WorkflowItemState.objects.get(
+                item_id=diagram.id, item_type="Diagram"
+            )
+            assert item_state.current_state == "outdated"
 
     def test_delete_other_tenant_raises(self, tenant_a, tenant_b, workspace_a):
         from diagram.models import Diagram
@@ -128,8 +160,9 @@ class TestServiceFacadeDelete:
             )
 
         with active_tenant(tenant_b):
+            ctx = _make_auth_ctx(tenant_id=tenant_b.id)
             with pytest.raises(Diagram.DoesNotExist):
-                delete_diagram(diagram.id, tenant_b.id)
+                delete_diagram(diagram.id, tenant_b.id, ctx=ctx)
 
 
 class TestServiceFacadeListVersions:

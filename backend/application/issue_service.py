@@ -399,12 +399,20 @@ class IssueService(ServiceBase):
             raise NotFoundError(f"Issue {issue_id} not found")
         return issue
 
-    def list_issues(self, workspace_id: UUID, ctx: AuthContext) -> QuerySet[Issue]:
+    def list_issues(
+        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+    ) -> QuerySet[Issue]:
         """Return all Issues in *workspace_id* (tenant-scoped, REQ-L3-ISSUE-011).
 
         Args:
             workspace_id: Target workspace UUID.
             ctx: Resolved AuthContext.
+            include_deleted: When False (default), excludes Issues soft-deleted
+                via ``workflow.services.outdate()`` (REQ-006, Phase 0). ``Issue``
+                is registered in
+                ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, so
+                ``outdate()`` writes ``"outdated"`` into the mirrored
+                ``status`` field.
 
         Returns:
             QuerySet of Issue ORM instances.
@@ -413,9 +421,10 @@ class IssueService(ServiceBase):
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
         """
         self._set_tenant_context(ctx)
-        return Issue.objects.filter(
-            workspace_id=workspace_id, tenant_id=ctx.tenant_id
-        ).order_by("created_at")
+        qs = Issue.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
+        if not include_deleted:
+            qs = qs.exclude(status="outdated")
+        return qs.order_by("created_at")
 
     def list_issues_by_severity(
         self, workspace_id: UUID, severity: str, ctx: AuthContext

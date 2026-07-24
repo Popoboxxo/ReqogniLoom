@@ -41,6 +41,82 @@ RISK_ID = uuid.uuid4()
 TENANT_ID = uuid.uuid4()
 
 
+# ---------------------------------------------------------------------------
+# DB-backed fixtures (Task 1 / Phase 1 prerequisite cleanup: outdate() e2e)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def risk_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="risk-outdate-tenant", slug="risk-outdate-tenant")
+
+
+@pytest.fixture
+def risk_user(risk_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="risk-outdate-user",
+        email="risk-outdate@example.com",
+        tenant=risk_tenant,
+    )
+
+
+@pytest.fixture
+def risk_workspace(risk_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(risk_tenant.id)
+    try:
+        return Workspace.objects.create(tenant=risk_tenant, name="risk-outdate-workspace")
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def auth_ctx(risk_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=risk_user.id,
+        tenant_id=risk_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="risk-outdate-tenant",
+    )
+
+
+@pytest.fixture
+def risk(auth_ctx, risk_workspace):
+    """Persisted Risk with a default workflow, for outdate()-based delete tests."""
+    from persistence.tenancy import TenantContext
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(risk_workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=risk_workspace.id,
+            preset="risk_default",
+            item_type="Risk",
+            tenant_id=risk_workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    svc = RiskService()
+    return svc.create_risk(
+        workspace_id=risk_workspace.id,
+        title="Outdate Target Risk",
+        probability="low",
+        impact="low",
+        ctx=auth_ctx,
+    )
+
+
 def _make_risk(**kwargs):
     risk = MagicMock(spec=Risk)
     risk.id = kwargs.get("id", RISK_ID)
@@ -487,6 +563,66 @@ class TestDeleteRisk:
             reason="deleted via risk.delete",
         )
         existing.delete.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# list_risks (REQ-006/Phase 0: outdated-filtering)
+# ---------------------------------------------------------------------------
+
+
+class TestListRisksExcludesOutdated:
+    """REQ-006/Phase 0: list_risks() excludes Risks soft-deleted via
+    workflow.services.outdate() by default."""
+
+    def test_list_risks_excludes_outdated_by_default(self):
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+        ):
+            qs_mock = MagicMock()
+            qs_mock.exclude.return_value = qs_mock
+            qs_mock.order_by.return_value = []
+            mock_mgr.filter.return_value = qs_mock
+
+            svc.list_risks(workspace_id=WS_ID, ctx=ctx)
+
+        qs_mock.exclude.assert_called_once_with(status="outdated")
+
+    def test_list_risks_include_deleted_skips_exclude(self):
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+        ):
+            qs_mock = MagicMock()
+            qs_mock.order_by.return_value = []
+            mock_mgr.filter.return_value = qs_mock
+
+            svc.list_risks(workspace_id=WS_ID, ctx=ctx, include_deleted=True)
+
+        qs_mock.exclude.assert_not_called()
+
+    def test_delete_then_list_excludes_end_to_end(self, risk, auth_ctx):
+        """DB-backed: delete_risk() (outdate()) removes the risk from the
+        default list_risks() result; include_deleted=True still returns it."""
+        svc = RiskService()
+
+        svc.delete_risk(risk_id=risk.id, ctx=auth_ctx)
+
+        results = list(svc.list_risks(workspace_id=risk.workspace_id, ctx=auth_ctx))
+        assert risk.id not in [r.id for r in results]
+
+        results_incl = list(
+            svc.list_risks(
+                workspace_id=risk.workspace_id, ctx=auth_ctx, include_deleted=True
+            )
+        )
+        assert risk.id in [r.id for r in results_incl]
 
 
 # ---------------------------------------------------------------------------

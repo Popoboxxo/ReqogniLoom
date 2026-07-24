@@ -41,6 +41,81 @@ ISSUE_ID = uuid.uuid4()
 TENANT_ID = uuid.uuid4()
 
 
+# ---------------------------------------------------------------------------
+# DB-backed fixtures (Task 1 / Phase 1 prerequisite cleanup: outdate() e2e)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def issue_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="issue-outdate-tenant", slug="issue-outdate-tenant")
+
+
+@pytest.fixture
+def issue_user(issue_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="issue-outdate-user",
+        email="issue-outdate@example.com",
+        tenant=issue_tenant,
+    )
+
+
+@pytest.fixture
+def issue_workspace(issue_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(issue_tenant.id)
+    try:
+        return Workspace.objects.create(tenant=issue_tenant, name="issue-outdate-workspace")
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def auth_ctx(issue_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=issue_user.id,
+        tenant_id=issue_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="issue-outdate-tenant",
+    )
+
+
+@pytest.fixture
+def issue(auth_ctx, issue_workspace):
+    """Persisted Issue with a default workflow, for outdate()-based delete tests."""
+    from persistence.tenancy import TenantContext
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(issue_workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=issue_workspace.id,
+            preset="issue_default",
+            item_type="Issue",
+            tenant_id=issue_workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    svc = IssueService()
+    return svc.create_issue(
+        workspace_id=issue_workspace.id,
+        title="Outdate Target Issue",
+        severity="medium",
+        ctx=auth_ctx,
+    )
+
+
 def _make_issue(**kwargs):
     issue = MagicMock(spec=Issue)
     issue.id = kwargs.get("id", ISSUE_ID)
@@ -343,6 +418,66 @@ class TestDeleteIssue:
             mock_mgr.filter.return_value.first.return_value = None
             with pytest.raises(NotFoundError):
                 svc.delete_issue(issue_id=ISSUE_ID, ctx=ctx)
+
+
+# ---------------------------------------------------------------------------
+# list_issues (REQ-006/Phase 0: outdated-filtering)
+# ---------------------------------------------------------------------------
+
+
+class TestListIssuesExcludesOutdated:
+    """REQ-006/Phase 0: list_issues() excludes Issues soft-deleted via
+    workflow.services.outdate() by default."""
+
+    def test_list_issues_excludes_outdated_by_default(self):
+        svc = IssueService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with (
+            patch("application.issue_service.Issue.objects") as mock_mgr,
+            patch("application.issue_service.IssueService._set_tenant_context"),
+        ):
+            qs_mock = MagicMock()
+            qs_mock.exclude.return_value = qs_mock
+            qs_mock.order_by.return_value = []
+            mock_mgr.filter.return_value = qs_mock
+
+            svc.list_issues(workspace_id=WS_ID, ctx=ctx)
+
+        qs_mock.exclude.assert_called_once_with(status="outdated")
+
+    def test_list_issues_include_deleted_skips_exclude(self):
+        svc = IssueService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+
+        with (
+            patch("application.issue_service.Issue.objects") as mock_mgr,
+            patch("application.issue_service.IssueService._set_tenant_context"),
+        ):
+            qs_mock = MagicMock()
+            qs_mock.order_by.return_value = []
+            mock_mgr.filter.return_value = qs_mock
+
+            svc.list_issues(workspace_id=WS_ID, ctx=ctx, include_deleted=True)
+
+        qs_mock.exclude.assert_not_called()
+
+    def test_delete_then_list_excludes_end_to_end(self, issue, auth_ctx):
+        """DB-backed: delete_issue() (outdate()) removes the issue from the
+        default list_issues() result; include_deleted=True still returns it."""
+        svc = IssueService()
+
+        svc.delete_issue(issue_id=issue.id, ctx=auth_ctx)
+
+        results = list(svc.list_issues(workspace_id=issue.workspace_id, ctx=auth_ctx))
+        assert issue.id not in [i.id for i in results]
+
+        results_incl = list(
+            svc.list_issues(
+                workspace_id=issue.workspace_id, ctx=auth_ctx, include_deleted=True
+            )
+        )
+        assert issue.id in [i.id for i in results_incl]
 
 
 # ---------------------------------------------------------------------------

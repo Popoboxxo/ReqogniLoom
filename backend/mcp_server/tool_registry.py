@@ -57,15 +57,21 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "requirement.decompose",
     "requirement.validate",
     "requirement.derive",
+    "requirement.outdate",
+    "requirement.reactivate",
     "architecture.create",
     "architecture.update",
     "architecture.link",
     "architecture.decompose_commit",
+    "architecture.outdate",
+    "architecture.reactivate",
     "test.create",
     "test.update",
     "test.link",
     "test.run_create",
     "test.run_report_results",
+    "test.outdate",
+    "test.reactivate",
     "workspace.close",
     "workspace.reactivate",
     "workspace.delete",
@@ -80,21 +86,40 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "needs.create",
     "needs.update",
     "needs.delete",
+    "needs.outdate",
+    "needs.reactivate",
     "adr.create",
     "adr.update",
     "adr.delete",
+    "adr.outdate",
+    "adr.reactivate",
     "risk.create",
     "risk.update",
     "risk.delete",
+    "risk.outdate",
+    "risk.reactivate",
     "issue.create",
     "issue.update",
     "issue.delete",
+    "issue.outdate",
+    "issue.reactivate",
     "glossary.create",
     "glossary.update",
     "glossary.delete",
+    "glossary.outdate",
+    "glossary.reactivate",
+    "change_request.create",
+    "change_request.update",
+    "change_request.delete",
+    "change_request.outdate",
+    "change_request.reactivate",
     "prompt_template.create",
     "prompt_template.update",
     "prompt_template.delete",
+    "diagram.create",
+    "diagram.update",
+    "diagram.outdate",
+    "diagram.reactivate",
 )
 
 # ---------------------------------------------------------------------------
@@ -277,10 +302,13 @@ class ToolRegistry:
         from mcp_server.tools.ai_derivation import AiDerivationToolGroup
         from mcp_server.tools.generic import GenericCrudToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
+        from mcp_server.tools.diagram import DiagramToolGroup
+        from mcp_server.tools.custom_field import CustomFieldToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
         from application.glossary_service import GlossaryService
+        from application.change_request_service import ChangeRequestService
 
         # REQ-129: share ONE instance across prefixes that belong to the same
         # tool group. CrossCuttingToolGroup owns both the ``traceability`` and
@@ -305,9 +333,14 @@ class ToolRegistry:
             "adr": GenericCrudToolGroup("adr", AdrService),
             "risk": GenericCrudToolGroup("risk", RiskService),
             "issue": GenericCrudToolGroup("issue", IssueService),
-            "glossary": GenericCrudToolGroup("glossary", GlossaryService),
+            "glossary": GenericCrudToolGroup("glossary", GlossaryService, item_type="GlossaryTerm"),
+            "change_request": GenericCrudToolGroup(
+                "change_request", ChangeRequestService, item_type="ChangeRequest"
+            ),
             "prompt_template": PromptTemplateToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
+            "diagram": DiagramToolGroup(),
+            "custom_field": CustomFieldToolGroup(),
         })
 
     def list_tools(

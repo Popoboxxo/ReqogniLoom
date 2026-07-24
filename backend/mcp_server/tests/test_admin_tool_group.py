@@ -369,6 +369,71 @@ class TestAdminToolGroup:
         svc.delete_workspace.assert_not_called()
 
     # ------------------------------------------------------------------
+    # workspace.get_preferences (read-only)
+    # ------------------------------------------------------------------
+
+    def test_get_preferences_returns_workspace_config_fields(self):
+        """workspace.get_preferences returns the 5 config fields from Workspace."""
+        group, svc, _ = self._group()
+        ws = _mock_workspace()
+        ws.preset = {"type": "standard"}
+        ws.ai_prompts = {"level_1": "prompt text"}
+        ws.decomposition_link_type = "parent-child"
+        ws.default_link_type = "derives-from"
+        ws.language = "en"
+        svc.get_workspace.return_value = ws
+
+        result = group.execute_tool(
+            tool_name="workspace.get_preferences",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert "result" in result.data
+        data = result.data["result"]
+        assert data["workspace_id"] == str(WORKSPACE_UUID)
+        assert "preset" in data
+        assert data["preset"] == {"type": "standard"}
+        assert "ai_prompts" in data
+        assert data["ai_prompts"] == {"level_1": "prompt text"}
+        assert "decomposition_link_type" in data
+        assert data["decomposition_link_type"] == "parent-child"
+        assert "default_link_type" in data
+        assert data["default_link_type"] == "derives-from"
+        assert "language" in data
+        assert data["language"] == "en"
+        svc.get_workspace.assert_called_once_with(WORKSPACE_UUID, ADMIN_CTX)
+
+    def test_get_preferences_not_found(self):
+        """workspace.get_preferences returns NOT_FOUND when workspace missing."""
+        group, svc, _ = self._group()
+        svc.get_workspace.side_effect = NotFoundError("Workspace not found")
+
+        result = group.execute_tool(
+            tool_name="workspace.get_preferences",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+    def test_get_preferences_missing_workspace_id_returns_validation_error(self):
+        """workspace.get_preferences requires workspace_id parameter."""
+        group, svc, _ = self._group()
+        result = group.execute_tool(
+            tool_name="workspace.get_preferences",
+            params={},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        svc.get_workspace.assert_not_called()
+
+    # ------------------------------------------------------------------
     # Fallthrough: workspace.get_context + unknown workspace.* tools
     # ------------------------------------------------------------------
 
@@ -442,10 +507,11 @@ class TestAdminToolGroupWiring:
         assert group._service is not None
         assert group._cross_cutting is not None
 
-    def test_tool_map_has_exactly_three_entries(self):
+    def test_tool_map_has_exactly_four_entries(self):
         """Guard against accidental additions or removals."""
         assert set(AdminToolGroup._TOOL_MAP.keys()) == {
             "workspace.close",
             "workspace.reactivate",
             "workspace.delete",
+            "workspace.get_preferences",
         }

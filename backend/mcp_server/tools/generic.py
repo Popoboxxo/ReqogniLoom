@@ -34,17 +34,42 @@ def _resolve_id_param(method: Callable[..., Any]) -> str:
     raise TypeError(f"Could not resolve ID parameter for {method!r}")
 
 
+def _resolve_list_method(service: Any, prefix: str) -> Callable[..., Any]:
+    """Resolve a service's list method for ``{prefix}.query``.
+
+    Services expose the entity list under differing names: plural
+    entity-specific (``list_adrs``, ``list_risks``, ``list_issues``),
+    workspace-scoped generic (``GlossaryService.list_by_workspace``), or a
+    bare generic ``list``. Tried in that order.
+    """
+    for candidate in (f"list_{prefix}s", f"list_{prefix}", "list_by_workspace", "list"):
+        method = getattr(service, candidate, None)
+        if method is not None:
+            return method
+    raise AttributeError(
+        f"{service.__class__.__name__} exposes no recognizable list method for prefix '{prefix}'"
+    )
+
+
 class GenericCrudToolGroup(BaseToolGroup):
     """Generic tool group for standard CRUD operations."""
 
-    def __init__(self, prefix: str, service_class: Any):
+    def __init__(self, prefix: str, service_class: Any, item_type: str | None = None):
         self.prefix = prefix
         self._service = service_class()
+        # Workflow item_type string (e.g. "Adr", "GlossaryTerm") passed to
+        # workflow.services.outdate()/reactivate() — PascalCase, distinct
+        # from the lowercase `prefix` used for tool-name routing. Defaults
+        # to prefix.capitalize() (works for adr/risk/issue); entities whose
+        # workflow item_type doesn't match their prefix 1:1 (e.g. glossary
+        # -> "GlossaryTerm") must pass it explicitly at registration.
+        self._item_type = item_type or prefix.capitalize()
         # Resolved once so the handlers below don't need per-entity branching.
         self._read_method = _resolve_method(self._service, prefix, "get")
         self._create_method = _resolve_method(self._service, prefix, "create")
         self._update_method = _resolve_method(self._service, prefix, "update")
         self._delete_method = _resolve_method(self._service, prefix, "delete")
+        self._list_method = _resolve_list_method(self._service, prefix)
         self._read_id_param = _resolve_id_param(self._read_method)
         self._update_id_param = _resolve_id_param(self._update_method)
         self._delete_id_param = _resolve_id_param(self._delete_method)
@@ -54,6 +79,9 @@ class GenericCrudToolGroup(BaseToolGroup):
             f"{prefix}.create": "_handle_create",
             f"{prefix}.update": "_handle_update",
             f"{prefix}.delete": "_handle_delete",
+            f"{prefix}.outdate": "_handle_outdate",
+            f"{prefix}.reactivate": "_handle_reactivate",
+            f"{prefix}.query": "_handle_query",
         }
         # Instance-level JSON schemas (prefix is only known at construction).
         self._TOOL_SCHEMAS = [
@@ -104,6 +132,47 @@ class GenericCrudToolGroup(BaseToolGroup):
                         "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
                     },
                     "required": ["id"],
+                },
+            },
+            {
+                "name": f"{prefix}.outdate",
+                "description": f"Soft-delete a {prefix} entity via the workflow engine's outdate escape hatch (write).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
+                        "reason": {"type": "string", "description": "Optional audit reason."},
+                    },
+                    "required": ["id"],
+                },
+            },
+            {
+                "name": f"{prefix}.reactivate",
+                "description": f"Restore an outdated {prefix} entity to its previous state (write).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
+                    },
+                    "required": ["id"],
+                },
+            },
+            {
+                "name": f"{prefix}.query",
+                "description": f"List {prefix} entities in a workspace (read-only).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "workspace_id": {
+                            "type": "string",
+                            "description": "UUID of the target workspace.",
+                        },
+                        "include_outdated": {
+                            "type": "boolean",
+                            "description": "If true, include outdated (soft-deleted) entities. Defaults to false.",
+                        },
+                    },
+                    "required": ["workspace_id"],
                 },
             },
         ]
@@ -163,5 +232,64 @@ class GenericCrudToolGroup(BaseToolGroup):
         try:
             self._delete_method(ctx=auth_context, **{self._delete_id_param: obj_id})
             return ToolResult.ok({"status": "deleted"})
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+    def _resolve_workspace_id(self, *, obj_id: uuid.UUID, auth_context: AuthContext) -> uuid.UUID:
+        """Fetch the entity and read its ``workspace_id`` — the same
+        resolution the entity services use internally before calling
+        ``workflow.services.outdate()`` (e.g. ``AdrService.delete_adr``).
+        """
+        obj = self._read_method(ctx=auth_context, **{self._read_id_param: obj_id})
+        return obj.workspace_id
+
+    def _handle_outdate(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        obj_id = require_uuid(params, "id")
+        reason = params.get("reason", "")
+        from workflow.services import outdate
+
+        try:
+            workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
+            outdate(
+                item_id=obj_id,
+                item_type=self._item_type,
+                workspace_id=workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        return ToolResult.ok({"id": str(obj_id), "status": "outdated"})
+
+    def _handle_reactivate(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        obj_id = require_uuid(params, "id")
+        from workflow.services import reactivate
+
+        try:
+            workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
+            result = reactivate(
+                item_id=obj_id,
+                item_type=self._item_type,
+                workspace_id=workspace_id,
+                ctx=auth_context,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValueError as exc:
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        return ToolResult.ok({"id": str(obj_id), "status": result.new_state})
+
+    def _handle_query(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        workspace_id = require_uuid(params, "workspace_id")
+        include_outdated = params.get("include_outdated", False)
+        try:
+            results = self._list_method(
+                workspace_id=workspace_id, ctx=auth_context, include_deleted=include_outdated
+            )
+            return ToolResult.ok({"items": [self._to_dict(r) for r in results]})
         except Exception as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))

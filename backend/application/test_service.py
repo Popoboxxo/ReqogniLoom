@@ -279,8 +279,14 @@ class TestService(ServiceBase):
         workspace_id: UUID,
         ctx: AuthContext,
         test_type: Optional[str] = None,
+        include_deleted: bool = False,
     ) -> QuerySet[TestCase]:
         """Return TestCases in *workspace_id*, optionally filtered by test_type.
+
+        REQ-006: Excludes outdated (soft-deleted) test cases by default. Pass
+        ``include_deleted=True`` for admin/audit access. ``TestCase`` is
+        registered in ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``,
+        so outdate() mirrors the "outdated" state into the `status` column.
 
         REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
@@ -289,6 +295,8 @@ class TestService(ServiceBase):
         qs = TestCase.objects.select_related("artifact").filter(
             artifact__workspace_id=workspace_id
         )
+        if not include_deleted:
+            qs = qs.exclude(status="outdated")
         if test_type is not None:
             qs = qs.filter(artifact__artifact_type=f"TestCase:{test_type}")
         return qs
