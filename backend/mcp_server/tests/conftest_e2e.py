@@ -326,7 +326,7 @@ def e2e_api_key_viewer(e2e_user_viewer: User, e2e_tenant: Tenant) -> str:
 @pytest.fixture
 def e2e_api_key_invalid() -> str:
     """A plain string for negative-auth tests (no DB row exists)."""
-    return "rf_e2e_invalid_xxx"
+    return "reqlo_e2e_invalid_xxx"
 
 
 # ---------------------------------------------------------------------------

@@ -434,8 +434,10 @@ class TestDeleteTestCase:
             with pytest.raises(NotFoundError, match="TestCase"):
                 svc.delete_test_case(test_case_id=TC_ID, ctx=ctx)
 
-    def test_delete_cascades_trace_links(self):
-        """cascade_delete_trace_links called before test_case.delete()."""
+    def test_delete_cascades_trace_links_and_calls_outdate_not_hard_delete(self):
+        """cascade_delete_trace_links called, then the soft-delete routes
+        through workflow.services.outdate() instead of test_case.delete()
+        (REQ-006/Phase 0)."""
         svc = TestService()
         ctx = _make_ctx()
         mock_tc = _make_test_case()
@@ -460,11 +462,19 @@ class TestDeleteTestCase:
             ) as mock_cascade,
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             svc.delete_test_case(test_case_id=TC_ID, ctx=ctx)
 
         mock_cascade.assert_called_once()
-        mock_tc.delete.assert_called_once()
+        mock_outdate.assert_called_once_with(
+            item_id=mock_tc.id,
+            item_type="TestCase",
+            workspace_id=mock_tc.artifact.workspace_id,
+            ctx=ctx,
+            reason="deleted via test.delete",
+        )
+        mock_tc.delete.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

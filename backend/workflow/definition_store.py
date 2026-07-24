@@ -507,6 +507,7 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "standard": {
         "states": ["draft", "approved", "deprecated"],
         "transitions": _standard_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "extended": {
         # REQ-L2-WE-011: "implemented"/"verified" added after "approved" to
@@ -516,6 +517,7 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         # both states remain valid members of this preset (backward-compatible).
         "states": ["draft", "in_review", "approved", "implemented", "verified", "deprecated"],
         "transitions": _extended_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "ccb_approval": {
         # REQ-157: CCB (Configuration Control Board) approval workflow for
@@ -579,11 +581,13 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
                 "signature_gate": False,
             },
         ],
+        "state_meta": {"rejected": {"is_outdated_equivalent": True}},
     },
     # REQ-165/REQ-166: per-entity-type defaults (see builders above).
     "need_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _need_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "adr_default": {
         "states": ["Draft", "In Review", "Approved", "Rejected", "Superseded"],
@@ -596,16 +600,19 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "issue_default": {
         "states": ["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
         "transitions": _issue_transitions(),
+        "state_meta": {"Wontfix": {"is_outdated_equivalent": True}},
     },
     "testcase_default": {
         "states": ["Draft", "Ready", "Approved", "Deprecated"],
         "transitions": _testcase_transitions(),
+        "state_meta": {"Deprecated": {"is_outdated_equivalent": True}},
     },
     # REQ-171: ArchitectureElement default workflow (no status mirror; state
     # lives in WorkflowItemState only). "draft" is the initial_state.
     "architecture_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _architecture_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     # REQ-173: Icd, Diagram, GlossaryTerm share one design/review/approve/retire
     # lifecycle (see _design_lifecycle_transitions). None has a denormalized
@@ -614,16 +621,30 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     "icd_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _design_lifecycle_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "diagram_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _design_lifecycle_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
     "glossary_term_default": {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _design_lifecycle_transitions(),
+        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
     },
 }
+
+
+def get_state_meta(workflow_json: dict, state_name: str) -> dict:
+    """Return per-state metadata (currently just `is_outdated_equivalent`).
+
+    Backward-compatible: workflow_json blobs written before this key existed
+    have no "state_meta" entry at all, and any state not explicitly listed
+    inside "state_meta" defaults to not-outdated.
+    """
+    state_meta = workflow_json.get("state_meta", {})
+    return state_meta.get(state_name, {"is_outdated_equivalent": False})
 
 
 # ---------------------------------------------------------------------------
@@ -1295,4 +1316,5 @@ __all__ = [
     "StateReferencedError",
     "NoGlobalSourceError",
     "PRESET_SCHEMAS",
+    "get_state_meta",
 ]

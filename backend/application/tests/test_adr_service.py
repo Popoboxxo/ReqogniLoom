@@ -434,8 +434,9 @@ class TestTransitionStatus:
 class TestDeleteAdr:
     """REQ-006: delete_adr() must soft-delete (status='Deleted'), not hard-delete."""
 
-    def test_soft_delete_sets_status_to_deleted(self):
-        """delete_adr sets status='Deleted' instead of removing the row (REQ-006)."""
+    def test_delete_adr_calls_outdate(self):
+        """delete_adr routes the soft-delete through workflow.services.outdate()
+        instead of writing status='Deleted' directly (REQ-006, Phase 0)."""
         svc = AdrService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
         existing_adr = _make_adr()
@@ -448,15 +449,21 @@ class TestDeleteAdr:
             patch("application.adr_service.AdrService._audit"),
             patch("application.adr_service.AdrService._emit_event"),
             patch("application.adr_service.AdrService._make_event", return_value=MagicMock()),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.delete_adr(adr_id=ADR_ID, ctx=ctx)
 
-        # REQ-006: status set to Deleted, NOT hard-deleted
-        assert existing_adr.status == Adr.Status.DELETED
-        existing_adr.save.assert_called_once_with(update_fields=["status"])
-        # Hard-delete must NOT be called
+        mock_outdate.assert_called_once_with(
+            item_id=existing_adr.id,
+            item_type="Adr",
+            workspace_id=existing_adr.workspace_id,
+            ctx=ctx,
+            reason="deleted via adr.delete",
+        )
+        # Hard-delete must NOT be called, and status must NOT be written directly
         existing_adr.delete.assert_not_called()
+        existing_adr.save.assert_not_called()
 
     def test_soft_delete_does_not_cascade_tracelinks(self):
         """delete_adr must NOT cascade-delete TraceLinks on soft-delete (REQ-006)."""
@@ -473,6 +480,7 @@ class TestDeleteAdr:
             patch("application.adr_service.AdrService._audit"),
             patch("application.adr_service.AdrService._emit_event"),
             patch("application.adr_service.AdrService._make_event", return_value=MagicMock()),
+            patch("workflow.services.outdate"),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.delete_adr(adr_id=ADR_ID, ctx=ctx)
@@ -493,6 +501,7 @@ class TestDeleteAdr:
             patch("application.adr_service.AdrService._audit"),
             patch("application.adr_service.AdrService._emit_event") as mock_emit,
             patch("application.adr_service.AdrService._make_event", return_value=MagicMock()),
+            patch("workflow.services.outdate"),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
             svc.delete_adr(adr_id=ADR_ID, ctx=ctx)
@@ -745,8 +754,26 @@ class TestAdrArtifactBackingAndTraceLinks:
         )
 
     def test_delete_adr_soft_deletes_and_preserves_artifact(self, te020_ctx, te020_workspace):
-        """REQ-006: delete_adr() soft-deletes (status='Deleted'), preserves ADR + Artifact in DB."""
+        """REQ-006/Phase 0: delete_adr() soft-deletes via workflow.services.outdate(),
+        preserves ADR + Artifact in DB, and moves the WorkflowItemState to "outdated"."""
         from persistence.models import Artifact
+        from persistence.tenancy import TenantContext
+        from workflow.models import WorkflowItemState
+        from workflow.services import create_default_workflow
+
+        # A default workflow definition must exist for "Adr" so that
+        # create_adr()'s initialize_workflow_states() actually creates a
+        # WorkflowItemState — otherwise outdate() has nothing to transition.
+        TenantContext.set_tenant(te020_workspace.tenant_id)
+        try:
+            create_default_workflow(
+                workspace_id=te020_workspace.id,
+                preset="adr_default",
+                item_type="Adr",
+                tenant_id=te020_workspace.tenant_id,
+            )
+        finally:
+            TenantContext.clear_tenant()
 
         svc = AdrService()
         adr = svc.create_adr(
@@ -760,10 +787,56 @@ class TestAdrArtifactBackingAndTraceLinks:
 
         svc.delete_adr(adr.id, te020_ctx)
 
-        # REQ-006: ADR row must still exist (soft-delete)
+        # REQ-006: ADR row must still exist (soft-delete, not hard-delete)
         adr_in_db = Adr.objects.filter(id=adr.id).first()
         assert adr_in_db is not None, "ADR must remain in DB after soft-delete"
-        assert adr_in_db.status == Adr.Status.DELETED, "ADR must have status='Deleted'"
+
+        # Phase 0: the workflow engine's state is now the source of truth.
+        item_state = WorkflowItemState.objects.get(item_id=adr.id, item_type="Adr")
+        assert item_state.current_state == "outdated"
 
         # REQ-006: backing Artifact must also remain in DB
         assert Artifact.objects.filter(id=artifact_id).exists(), "Artifact must remain in DB after soft-delete"
+
+    def test_list_adrs_excludes_outdated_by_default(self, te020_ctx, te020_workspace):
+        """Phase 0 regression: list_adrs() must exclude ADRs soft-deleted via
+        workflow.services.outdate(), which mirrors "outdated" into Adr.status
+        (not Adr.Status.DELETED)."""
+        from persistence.tenancy import TenantContext
+        from workflow.services import create_default_workflow
+
+        TenantContext.set_tenant(te020_workspace.tenant_id)
+        try:
+            create_default_workflow(
+                workspace_id=te020_workspace.id,
+                preset="adr_default",
+                item_type="Adr",
+                tenant_id=te020_workspace.tenant_id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        svc = AdrService()
+        kept = svc.create_adr(
+            workspace_id=te020_workspace.id,
+            title="Kept ADR",
+            description="Stays visible.",
+            ctx=te020_ctx,
+        )
+        deleted = svc.create_adr(
+            workspace_id=te020_workspace.id,
+            title="Deleted ADR",
+            description="Gets soft-deleted.",
+            ctx=te020_ctx,
+        )
+
+        svc.delete_adr(deleted.id, te020_ctx)
+
+        results = svc.list_adrs(te020_workspace.id, te020_ctx)
+        ids = {a.id for a in results}
+        assert kept.id in ids
+        assert deleted.id not in ids
+
+        results_incl = svc.list_adrs(te020_workspace.id, te020_ctx, include_deleted=True)
+        ids_incl = {a.id for a in results_incl}
+        assert deleted.id in ids_incl

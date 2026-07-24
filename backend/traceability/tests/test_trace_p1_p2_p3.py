@@ -19,7 +19,6 @@ import pytest
 import traceability.audit.rules.trace_derivation_allocation  # noqa: F401  (registration)
 from persistence.models import (
     ArchitectureElement,
-    LifecycleStatus,
     Requirement,
     RequirementLevel,
     StakeholderNeed,
@@ -162,10 +161,13 @@ class TestTraceP1b:
         assert _findings(result, TRACE_P1B) == []
 
     def test_deleted_requirement_is_excluded(self, tenant_a, workspace_a):
+        """Requirement has a status mirror (Phase 0) — ``outdate()`` writes
+        ``status``, not the dead ``lifecycle_status`` column, so the fixture
+        must set the field the rule actually reads."""
         with active_tenant(tenant_a):
             art, req = _requirement(tenant_a, workspace_a, title="Deleted")
-            req.lifecycle_status = LifecycleStatus.DELETED
-            req.save(update_fields=["lifecycle_status"])
+            req.status = "outdated"
+            req.save(update_fields=["status"])
 
             result = _run("standard", workspace_a, tenant_a)
 

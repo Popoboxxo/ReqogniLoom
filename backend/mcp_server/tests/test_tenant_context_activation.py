@@ -51,8 +51,8 @@ from persistence.tenancy import TenantContext, TenantContextNotSetError
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 TENANT_ID = UUID("00000000-0000-0000-0000-000000000002")
 API_KEY_ID = UUID("00000000-0000-0000-0000-000000000003")
-VALID_API_KEY = "rf_tenant_context_test_key"
-INVALID_API_KEY = "rf_invalid_key_xxx"
+VALID_API_KEY = "reqlo_tenant_context_test_key"
+INVALID_API_KEY = "reqlo_invalid_key_xxx"
 
 
 def _claims() -> IdentityClaims:

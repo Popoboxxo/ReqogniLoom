@@ -899,8 +899,19 @@ class ArchitectureElement(TenantScopedModel):
         """Compute the structural role from this element's tree position.
 
         Root (parent IS NULL) → 'system'; inner node (has non-deleted children)
-        → 'subsystem'; leaf → 'component'. Excludes soft-deleted children so a
-        parent whose only child was removed correctly collapses back to a leaf.
+        → 'subsystem'; leaf → 'component'. Excludes soft-deleted (outdated)
+        children so a parent whose only child was removed correctly collapses
+        back to a leaf.
+
+        ArchitectureElement has no denormalized status mirror — ``outdate()``
+        (``workflow.services``) writes only to ``WorkflowItemState``, never
+        ``lifecycle_status`` (dead column for this type). The children check
+        therefore excludes against ``workflow.services.outdated_item_ids``
+        instead. This is a deliberate, narrow Layer 0 -> Layer 1 import
+        (lazy, local to this method) mirroring the same escape hatch already
+        used by ``ArchitectureService``/``GlossaryService`` at Layer 2 — the
+        alternative (re-adding a real status column just to keep this method
+        layer-pure) is a larger persistence migration for no functional gain.
 
         NOTE: For bulk role retrieval use
         ``ArchitectureService.list_architecture_elements`` which annotates the
@@ -909,9 +920,11 @@ class ArchitectureElement(TenantScopedModel):
         """
         if self.parent_id is None:
             return ArchitectureRole.SYSTEM
+        from workflow.services import outdated_item_ids
+
         has_children = (
             ArchitectureElement.objects.filter(parent_id=self.id)
-            .exclude(lifecycle_status=LifecycleStatus.DELETED)
+            .exclude(id__in=outdated_item_ids("ArchitectureElement"))
             .exists()
         )
         return derive_architecture_role(has_parent=True, has_children=has_children)

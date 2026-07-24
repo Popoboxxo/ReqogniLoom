@@ -245,7 +245,17 @@ class TestService(ServiceBase):
             UUID(str(artifact_id)), ctx
         )
 
-        test_case.delete()
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of hard-deleting the row.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=test_case.id,
+            item_type="TestCase",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via test.delete",
+        )
 
         self._audit(ctx=ctx, operation="delete", entity_type="TestCase", entity_id=test_case_id)
         self._emit_event(

@@ -95,13 +95,17 @@ def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, O
     ``artifact_id`` to correlate ``allocated-to`` TraceLinks (which point at
     Artifact ids) back to a tree position.
     """
-    from persistence.models import ArchitectureElement, LifecycleStatus
+    # ArchitectureElement has no status mirror — outdate() writes only
+    # WorkflowItemState (dead lifecycle_status column for this type), so
+    # "non-deleted" is computed against that table instead.
+    from persistence.models import ArchitectureElement
+    from workflow.services import outdated_item_ids
 
     rows = (
         ArchitectureElement.unscoped.filter(
             tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
         )
-        .exclude(lifecycle_status=LifecycleStatus.DELETED)
+        .exclude(id__in=outdated_item_ids("ArchitectureElement", tenant_id=context.tenant_id))
         .values("id", "parent_id", "artifact_id")
     )
     return {
@@ -114,14 +118,18 @@ def _fetch_architecture_elements(context: AuditContext) -> Dict[str, Dict[str, O
 
 
 def _fetch_requirement_levels(context: AuditContext) -> Dict[str, Optional[int]]:
-    """Return ``{requirement_artifact_id: level_or_None}`` for non-deleted requirements."""
-    from persistence.models import LifecycleStatus, Requirement
+    """Return ``{requirement_artifact_id: level_or_None}`` for non-deleted requirements.
+
+    Requirement has a status mirror — ``outdate()`` writes
+    ``Requirement.status``, not the dead ``lifecycle_status`` column.
+    """
+    from persistence.models import Requirement
 
     rows = (
         Requirement.unscoped.filter(
             tenant_id=context.tenant_id, artifact__workspace_id=context.workspace_id
         )
-        .exclude(lifecycle_status=LifecycleStatus.DELETED)
+        .exclude(status="outdated")
         .values("artifact_id", "level")
     )
     return {str(row["artifact_id"]): row["level"] for row in rows}

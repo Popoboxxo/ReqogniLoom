@@ -292,10 +292,11 @@ class ChangeRequestService(ServiceBase):
 
     @transaction.atomic
     def delete_change_request(self, cr_id: UUID, ctx) -> None:
-        """Soft-delete a ChangeRequest — not physically removed (REQ-006 pattern).
+        """Outdate a change request (soft-delete via the workflow engine).
 
-        Sets status to 'rejected' as the closest soft-delete marker; physical
-        deletion is available only via the Django admin panel.
+        Transitions the item's WorkflowItemState to "outdated" — the record is
+        never removed from the database, and can be restored via
+        workflow.services.reactivate().
 
         Args:
             cr_id: UUID of the ChangeRequest to delete.
@@ -311,7 +312,18 @@ class ChangeRequestService(ServiceBase):
             raise NotFoundError(f"ChangeRequest {cr_id} not found")
 
         workspace_id = cr.workspace_id
-        ChangeRequest.objects.filter(id=cr_id).delete()
+
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of a queryset-level hard delete.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=cr_id,
+            item_type="ChangeRequest",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via change_request.delete",
+        )
 
         self._audit(
             ctx=ctx,

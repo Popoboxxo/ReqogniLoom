@@ -40,10 +40,15 @@ Endpoint-type legality (may ``Requirement`` link to ``StakeholderNeed`` via
 enforced synchronously at link-creation time. These rules only check
 *existence* of the required link, never re-validate its endpoint types.
 
-Soft-deleted artifacts (``lifecycle_status == LifecycleStatus.DELETED``) are
-excluded from every check in this module — a deleted Requirement/
-ArchitectureElement/StakeholderNeed cannot meaningfully be "orphaned" or
-"unallocated".
+Soft-deleted artifacts are excluded from every check in this module — a
+deleted Requirement/ArchitectureElement/StakeholderNeed cannot meaningfully be
+"orphaned" or "unallocated". "Soft-deleted" is per-type: StakeholderNeed still
+uses ``lifecycle_status == LifecycleStatus.DELETED`` (its delete path was never
+migrated onto ``workflow.services.outdate()``); Requirement uses
+``status == "outdated"`` (the status mirror ``outdate()`` writes); Architecture
+Element has no mirror at all and is checked against
+``workflow.services.outdated_item_ids`` (state lives only in
+``WorkflowItemState``).
 """
 from __future__ import annotations
 
@@ -68,6 +73,7 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
+from workflow.services import outdated_item_ids
 
 # ---------------------------------------------------------------------------
 # Shared, read-only data access helpers (audit infrastructure — mirrors the
@@ -95,7 +101,7 @@ def _active_requirements(context: AuditContext) -> Dict[str, str]:
             tenant_id=context.tenant_id,
             artifact__workspace_id=context.workspace_id,
         )
-        .exclude(lifecycle_status=LifecycleStatus.DELETED)
+        .exclude(status="outdated")
         .filter(Q(level__isnull=True) | ~Q(level=RequirementLevel.L4_MATERIAL))
     )
     return {
@@ -118,7 +124,7 @@ def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
     qs = ArchitectureElement.unscoped.filter(
         tenant_id=context.tenant_id,
         artifact__workspace_id=context.workspace_id,
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+    ).exclude(id__in=outdated_item_ids("ArchitectureElement", tenant_id=context.tenant_id))
     return {
         str(artifact_id): title
         for artifact_id, title in qs.values_list("artifact_id", "title")

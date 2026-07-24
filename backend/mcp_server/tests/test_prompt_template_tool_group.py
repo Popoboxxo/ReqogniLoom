@@ -23,7 +23,7 @@ from persistence.models import (
 
 from mcp_server.tools.prompt_template import PromptTemplateToolGroup
 
-_API_KEY = "rf_testkey_pt"
+_API_KEY = "reqlo_testkey_pt"
 
 
 @pytest.fixture

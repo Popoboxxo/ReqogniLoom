@@ -212,7 +212,7 @@ class TestToolRegistryDispatch:
         result = registry.dispatch_request(
             tool_name="nonexistent.tool",
             params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
-            api_key="rf_validkey",
+            api_key="reqlo_validkey",
         )
         assert result.success is False
         assert result.error_code == "UNKNOWN_TOOL"
@@ -228,7 +228,7 @@ class TestToolRegistryDispatch:
         result = registry.dispatch_request(
             tool_name="requirement.create",
             params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
-            api_key="rf_validkey",
+            api_key="reqlo_validkey",
         )
         assert result.success is False
         assert result.error_code == "PERMISSION_DENIED"
@@ -245,7 +245,7 @@ class TestToolRegistryDispatch:
         result = registry.dispatch_request(
             tool_name="requirement.create",
             params={"title": "Test", "workspace_id": "00000000-0000-0000-0000-000000000010"},
-            api_key="rf_validkey",
+            api_key="reqlo_validkey",
         )
         assert mock_group.execute_tool.called
 
@@ -259,7 +259,7 @@ class TestToolRegistryDispatch:
         result = registry.dispatch_request(
             tool_name="requirement.get",
             params={"id": "00000000-0000-0000-0000-000000000099"},
-            api_key="rf_validkey",
+            api_key="reqlo_validkey",
         )
         authz_svc.decide_access.assert_not_called()
 
@@ -275,7 +275,7 @@ class TestToolRegistryDispatch:
         result = registry.dispatch_request(
             tool_name="traceability.query",
             params={"workspace_id": "ws-preset", "artifact_id": "00000000-0000-0000-0000-000000000001"},
-            api_key="rf_validkey",
+            api_key="reqlo_validkey",
         )
         assert result.success is False
         assert result.error_code == "FEATURE_NOT_ENABLED"
@@ -289,13 +289,13 @@ class TestToolRegistryDispatch:
         result = registry.dispatch_request(
             tool_name="requirement.get",
             params={"id": "00000000-0000-0000-0000-000000000001"},
-            api_key="rf_validkey",
+            api_key="reqlo_validkey",
         )
         assert result.success is False
         assert result.error_code == "INTERNAL_ERROR"
 
     def test_api_key_hash_method(self):
-        hash_val = ToolRegistry.hash_api_key("rf_test")
+        hash_val = ToolRegistry.hash_api_key("reqlo_test")
         assert hash_val.startswith("sha256:")
         assert len(hash_val) == len("sha256:") + 64
 
@@ -311,7 +311,7 @@ class TestToolRegistryDispatch:
             result = registry.dispatch_request(
                 tool_name=tool_name,
                 params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
-                api_key="rf_validkey",
+                api_key="reqlo_validkey",
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
@@ -328,7 +328,7 @@ class TestToolRegistryDispatch:
             result = registry.dispatch_request(
                 tool_name=tool_name,
                 params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
-                api_key="rf_validkey",
+                api_key="reqlo_validkey",
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
@@ -345,7 +345,7 @@ class TestToolRegistryDispatch:
             result = registry.dispatch_request(
                 tool_name=tool_name,
                 params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
-                api_key="rf_validkey",
+                api_key="reqlo_validkey",
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
@@ -362,7 +362,7 @@ class TestToolRegistryDispatch:
             result = registry.dispatch_request(
                 tool_name=tool_name,
                 params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
-                api_key="rf_validkey",
+                api_key="reqlo_validkey",
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
@@ -379,7 +379,7 @@ class TestToolRegistryDispatch:
             result = registry.dispatch_request(
                 tool_name=tool_name,
                 params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
-                api_key="rf_validkey",
+                api_key="reqlo_validkey",
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
@@ -406,7 +406,7 @@ class TestToolRegistryDispatch:
         self._register_mixed_tools(registry)
 
         tools = registry.list_tools(
-            api_key="rf_validkey", workspace_id=self._WORKSPACE_ID
+            api_key="reqlo_validkey", workspace_id=self._WORKSPACE_ID
         )
         names = {t["name"] for t in tools}
         assert "requirement.get" in names
@@ -418,7 +418,7 @@ class TestToolRegistryDispatch:
         self._register_mixed_tools(registry)
 
         tools = registry.list_tools(
-            api_key="rf_validkey", workspace_id=self._WORKSPACE_ID
+            api_key="reqlo_validkey", workspace_id=self._WORKSPACE_ID
         )
         names = {t["name"] for t in tools}
         assert "requirement.get" in names
@@ -432,7 +432,7 @@ class TestToolRegistryDispatch:
         self._register_mixed_tools(registry)
 
         with pytest.raises(McpAuthenticationError):
-            registry.list_tools(api_key="rf_badkey", workspace_id=self._WORKSPACE_ID)
+            registry.list_tools(api_key="reqlo_badkey", workspace_id=self._WORKSPACE_ID)
 
     def test_list_tools_bearer_jwt_raises_auth_error(self):
         import pytest
@@ -458,7 +458,7 @@ class TestToolRegistryDispatch:
             result = registry.dispatch_request(
                 tool_name=tool_name,
                 params={"workspace_id": "00000000-0000-0000-0000-000000000010"},
-                api_key="rf_validkey",
+                api_key="reqlo_validkey",
             )
             assert result.success is False
             assert result.error_code == "PERMISSION_DENIED"
@@ -593,7 +593,7 @@ class TestListToolsDeduplication:
             user_role.objects.filter.return_value.values_list.return_value = [
                 "editor"
             ]
-            tools = registry.list_tools(api_key="rf_validkey")
+            tools = registry.list_tools(api_key="reqlo_validkey")
 
         names = [t["name"] for t in tools]
         assert len(names) == len(set(names)), f"duplicate tool names: {names}"
@@ -608,7 +608,7 @@ class TestListToolsDeduplication:
             user_role.objects.filter.return_value.values_list.return_value = [
                 "editor"
             ]
-            tools = registry.list_tools(api_key="rf_validkey")
+            tools = registry.list_tools(api_key="reqlo_validkey")
 
         names = [t["name"] for t in tools]
         assert len(names) == len(set(names)), (

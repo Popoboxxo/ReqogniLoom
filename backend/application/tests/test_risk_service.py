@@ -457,7 +457,10 @@ class TestUpdateRisk:
 
 
 class TestDeleteRisk:
-    def test_cascades_tracelinks_and_deletes(self):
+    def test_cascades_tracelinks_and_calls_outdate_not_hard_delete(self):
+        """REQ-006/Phase 0: delete_risk() cascades TraceLinks but routes the
+        soft-delete through workflow.services.outdate() instead of a hard
+        Risk.delete()."""
         mock_tls = MagicMock()
         svc = RiskService(trace_link_service=mock_tls)
         ctx = _make_ctx(tenant_id=TENANT_ID)
@@ -470,12 +473,20 @@ class TestDeleteRisk:
             patch("application.risk_service.RiskService._audit"),
             patch("application.risk_service.RiskService._emit_event"),
             patch("application.risk_service.RiskService._make_event", return_value=MagicMock()),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             mock_mgr.filter.return_value.first.return_value = existing
             svc.delete_risk(risk_id=RISK_ID, ctx=ctx)
 
         mock_tls.cascade_delete_trace_links.assert_called_once_with(RISK_ID, ctx)
-        existing.delete.assert_called_once()
+        mock_outdate.assert_called_once_with(
+            item_id=existing.id,
+            item_type="Risk",
+            workspace_id=existing.workspace_id,
+            ctx=ctx,
+            reason="deleted via risk.delete",
+        )
+        existing.delete.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

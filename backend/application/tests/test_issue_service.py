@@ -300,7 +300,10 @@ class TestUpdateIssue:
 
 
 class TestDeleteIssue:
-    def test_cascades_tracelinks_and_deletes(self):
+    def test_cascades_tracelinks_and_calls_outdate_not_hard_delete(self):
+        """REQ-006/Phase 0: delete_issue() cascades TraceLinks but routes the
+        soft-delete through workflow.services.outdate() instead of a hard
+        Issue.delete()."""
         mock_tls = MagicMock()
         svc = IssueService(trace_link_service=mock_tls)
         ctx = _make_ctx(tenant_id=TENANT_ID)
@@ -313,12 +316,20 @@ class TestDeleteIssue:
             patch("application.issue_service.IssueService._audit"),
             patch("application.issue_service.IssueService._emit_event"),
             patch("application.issue_service.IssueService._make_event", return_value=MagicMock()),
+            patch("workflow.services.outdate") as mock_outdate,
         ):
             mock_mgr.filter.return_value.first.return_value = existing
             svc.delete_issue(issue_id=ISSUE_ID, ctx=ctx)
 
         mock_tls.cascade_delete_trace_links.assert_called_once_with(ISSUE_ID, ctx)
-        existing.delete.assert_called_once()
+        mock_outdate.assert_called_once_with(
+            item_id=existing.id,
+            item_type="Issue",
+            workspace_id=existing.workspace_id,
+            ctx=ctx,
+            reason="deleted via issue.delete",
+        )
+        existing.delete.assert_not_called()
 
     def test_not_found_raises(self):
         svc = IssueService()

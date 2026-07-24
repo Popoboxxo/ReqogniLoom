@@ -70,7 +70,7 @@ VIEWER_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
-VALID_API_KEY = "rf_admin_audit_key"
+VALID_API_KEY = "reqlo_admin_audit_key"
 EVENT_UUID = UUID("00000000-0000-0000-0000-0000000000aa")
 WORKSPACE_UUID = UUID("00000000-0000-0000-0000-0000000000bb")
 ENTITY_UUID = UUID("00000000-0000-0000-0000-0000000000cc")
@@ -836,7 +836,7 @@ class TestE2EAuditQuery:
             handler,
             "audit.query",
             {"workspace_id": str(WORKSPACE_UUID)},
-            api_key="rf_bad_key",
+            api_key="reqlo_bad_key",
         )
 
         assert "error" in response

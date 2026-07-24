@@ -68,7 +68,7 @@ VIEWER_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
-VALID_API_KEY = "rf_admin_test_key"
+VALID_API_KEY = "reqlo_admin_test_key"
 BACKUP_UUID = UUID("00000000-0000-0000-0000-000000000099")
 
 
@@ -657,7 +657,7 @@ class TestE2EAdminBackupCreate:
         auth_svc.validate_api_key.side_effect = AuthenticationFailed("invalid_api_key")
         handler = _handler(registry)
 
-        response = _post(handler, "admin.backup_create", {}, api_key="rf_bad_key")
+        response = _post(handler, "admin.backup_create", {}, api_key="reqlo_bad_key")
 
         assert "error" in response
         assert response["error"]["code"] == ERROR_CODE_MAP["AUTH_FAILED"]

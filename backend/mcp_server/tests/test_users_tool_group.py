@@ -63,7 +63,7 @@ VIEWER_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
-VALID_API_KEY = "rf_test_admin_key"
+VALID_API_KEY = "reqlo_test_admin_key"
 TARGET_USER_ID = UUID("00000000-0000-0000-0000-0000000000a1")
 WORKSPACE_ID = UUID("00000000-0000-0000-0000-0000000000b1")
 USER_ROLE_ID = UUID("00000000-0000-0000-0000-0000000000c1")
@@ -1002,7 +1002,7 @@ class TestE2EUserList:
             handler,
             "user.list",
             {"workspace_id": str(WORKSPACE_ID)},
-            api_key="rf_bad_key",
+            api_key="reqlo_bad_key",
         )
 
         assert "error" in response

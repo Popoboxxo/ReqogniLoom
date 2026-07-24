@@ -64,7 +64,14 @@ class GlossaryService(ServiceBase):
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
         )
         if not include_deleted:
-            qs = qs.exclude(lifecycle_status="deleted")
+            # Phase 0: delete() routes soft-delete through
+            # workflow.services.outdate(). GlossaryTerm is NOT wired into
+            # _STATUS_MIRROR_MODELS (no mirrored status column), so the
+            # workflow state lives solely in WorkflowItemState — filter there
+            # instead of on the now-dead `lifecycle_status` column.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("GlossaryTerm"))
         return [GlossaryTermDTO.from_orm(t) for t in qs.order_by("term")]
 
     @atomic_transaction
@@ -110,6 +117,23 @@ class GlossaryService(ServiceBase):
             # Changed from actor_id to user_id to fix bug
         created_by_id=ctx.user_id,
         )
+
+        # Initialise workflow state (REQ-006/Phase 0): without this,
+        # delete()'s workflow.services.outdate() call has no WorkflowItemState
+        # to transition and raises WorkflowItemState.DoesNotExist.
+        try:
+            from workflow.services import initialize_workflow_states
+
+            initialize_workflow_states(
+                item_ids=[gt.id],
+                item_type="GlossaryTerm",
+                workspace_id=workspace_id,
+                ctx=ctx,
+            )
+        except Exception:
+            logger.debug(
+                "GlossaryService: workflow init skipped for term=%s", gt.id
+            )
 
         return GlossaryTermDTO.from_orm(gt)
 
@@ -169,6 +193,14 @@ class GlossaryService(ServiceBase):
         gt = GlossaryTerm.objects.filter(id=term_id).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
-        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
-        gt.lifecycle_status = "deleted"
-        gt.save(update_fields=["lifecycle_status"])
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of writing lifecycle_status directly.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=gt.id,
+            item_type="GlossaryTerm",
+            workspace_id=gt.workspace_id,
+            ctx=ctx,
+            reason="deleted via glossary.delete",
+        )

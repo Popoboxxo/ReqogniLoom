@@ -356,6 +356,7 @@ class TraceabilitySuggestService(ServiceBase):
             Requirement,
             StakeholderNeed,
         )
+        from workflow.services import outdated_item_ids
 
         pool: Dict[str, Tuple[str, str, str]] = {}
 
@@ -369,19 +370,24 @@ class TraceabilitySuggestService(ServiceBase):
                 pool[aid] = (title, description, artifact_type)
 
         if rule_id in (TRACE_P1, TRACE_P1B):
+            # StakeholderNeed delete was never migrated onto workflow.outdate() —
+            # its lifecycle_status column is still the live soft-delete marker.
             needs = StakeholderNeed.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
             ).exclude(lifecycle_status=LifecycleStatus.DELETED)
             _add(needs, "stakeholder_need")
         if rule_id == TRACE_P1B:
+            # Requirement has a status mirror (outdate() writes Requirement.status).
             reqs = Requirement.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
-            ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+            ).exclude(status="outdated")
             _add(reqs, "requirement")
         if rule_id == TRACE_P2:
+            # ArchitectureElement has no status mirror — outdate() only writes
+            # WorkflowItemState (see workflow.services.outdated_item_ids).
             arch = ArchitectureElement.unscoped.filter(
                 tenant_id=tenant_id, artifact__workspace_id=workspace_id
-            ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+            ).exclude(id__in=outdated_item_ids("ArchitectureElement", tenant_id=tenant_id))
             _add(arch, "architecture_element")
         return pool
 

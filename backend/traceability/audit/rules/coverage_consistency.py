@@ -70,7 +70,6 @@ from typing import Dict, FrozenSet, List, Set, Tuple
 
 from persistence.models import (
     ArchitectureElement,
-    LifecycleStatus,
     Requirement,
     RequirementLevel,
     TestCase,
@@ -85,6 +84,7 @@ from traceability.audit.registry import (
 )
 from traceability.audit.types import AuditContext, Finding, Severity
 from traceability.types import LinkType
+from workflow.services import outdated_item_ids
 
 # Used by TRACE-P6 only (_superseded_artifact_ids below); see the
 # "TRACE-P6 / VERIF-P8 'supersedes' note" section of the module docstring —
@@ -105,11 +105,15 @@ _DECOMPOSITION_LINK_TYPES: FrozenSet[str] = frozenset(
 
 
 def _active_requirements(context: AuditContext) -> Dict[str, Tuple[str, int | None]]:
-    """Return ``{artifact_id: (title, level)}`` for active Requirements."""
+    """Return ``{artifact_id: (title, level)}`` for active Requirements.
+
+    "Active" excludes ``status="outdated"`` (the Requirement status mirror
+    ``outdate()`` writes) — not the dead ``lifecycle_status`` column.
+    """
     qs = Requirement.unscoped.filter(
         tenant_id=context.tenant_id,
         artifact__workspace_id=context.workspace_id,
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+    ).exclude(status="outdated")
     return {
         str(artifact_id): (title, level)
         for artifact_id, title, level in qs.values_list("artifact_id", "title", "level")
@@ -117,11 +121,17 @@ def _active_requirements(context: AuditContext) -> Dict[str, Tuple[str, int | No
 
 
 def _active_architecture_elements(context: AuditContext) -> Dict[str, str]:
-    """Return ``{artifact_id: title}`` for active ArchitectureElements."""
+    """Return ``{artifact_id: title}`` for active ArchitectureElements.
+
+    ArchitectureElement has no status mirror — ``outdate()`` writes only
+    ``WorkflowItemState``, so "active" is computed against that table
+    (``workflow.services.outdated_item_ids``) instead of the dead
+    ``lifecycle_status`` column.
+    """
     qs = ArchitectureElement.unscoped.filter(
         tenant_id=context.tenant_id,
         artifact__workspace_id=context.workspace_id,
-    ).exclude(lifecycle_status=LifecycleStatus.DELETED)
+    ).exclude(id__in=outdated_item_ids("ArchitectureElement", tenant_id=context.tenant_id))
     return {
         str(artifact_id): title
         for artifact_id, title in qs.values_list("artifact_id", "title")

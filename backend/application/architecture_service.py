@@ -298,9 +298,17 @@ class ArchitectureService(ServiceBase):
 
         workspace_id = arch_el.artifact.workspace_id
 
-        # REQ-006: soft-delete — mark as deleted, do NOT remove from DB.
-        arch_el.lifecycle_status = "deleted"
-        arch_el.save(update_fields=["lifecycle_status"])
+        # REQ-006/Phase 0: route soft-delete through the workflow engine's
+        # outdate() escape hatch instead of writing lifecycle_status directly.
+        from workflow.services import outdate
+
+        outdate(
+            item_id=arch_el.id,
+            item_type="ArchitectureElement",
+            workspace_id=workspace_id,
+            ctx=ctx,
+            reason="deleted via architecture.delete",
+        )
 
         self._audit(ctx=ctx, operation="delete", entity_type="ArchitectureElement", entity_id=arch_el_id)
         self._emit_event(
@@ -336,7 +344,14 @@ class ArchitectureService(ServiceBase):
             artifact__workspace_id=workspace_id
         )
         if not include_deleted:
-            qs = qs.exclude(lifecycle_status="deleted")
+            # Phase 0: delete_architecture_element() routes soft-delete through
+            # workflow.services.outdate(). ArchitectureElement is NOT wired into
+            # _STATUS_MIRROR_MODELS (no mirrored status column), so the
+            # workflow state lives solely in WorkflowItemState — filter there
+            # instead of on the now-dead `lifecycle_status` column.
+            from workflow.services import outdated_item_ids
+
+            qs = qs.exclude(id__in=outdated_item_ids("ArchitectureElement"))
         elements = list(qs)
         # REQ-L2-RA-013 / REQ-070: eliminate N+1 on tree depth. The ``level``
         # property recurses into the DB (one query per ancestor per element)
