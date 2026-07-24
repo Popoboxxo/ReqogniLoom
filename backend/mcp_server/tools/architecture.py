@@ -79,6 +79,8 @@ class ArchitectureToolGroup(BaseToolGroup):
         "architecture.create": "_handle_create",
         "architecture.update": "_handle_update",
         "architecture.link": "_handle_link",
+        "architecture.outdate": "_handle_outdate",
+        "architecture.reactivate": "_handle_reactivate",
         # SysEng 2.0 N1 — Draft-Staging copilot (§3.1). generate = no DB write;
         # commit = single-transaction persist + SE-Auditor verification.
         "architecture.decompose": "_handle_decompose",
@@ -104,6 +106,10 @@ class ArchitectureToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "If true, include outdated (soft-deleted) elements. Defaults to false.",
+                    },
                 },
                 "required": ["workspace_id"],
             },
@@ -158,6 +164,29 @@ class ArchitectureToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["arch_id", "target_id", "link_type"],
+            },
+        },
+        {
+            "name": "architecture.outdate",
+            "description": "Soft-delete an ArchitectureElement via the workflow engine's outdate escape hatch (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the architecture element."},
+                    "reason": {"type": "string", "description": "Optional audit reason."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "architecture.reactivate",
+            "description": "Restore an outdated ArchitectureElement to its previous state (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the architecture element."},
+                },
+                "required": ["id"],
             },
         },
         {
@@ -247,8 +276,11 @@ class ArchitectureToolGroup(BaseToolGroup):
                 "VALIDATION_ERROR",
                 "Parameter 'workspace_id' is required for architecture.query.",
             )
+        include_outdated = bool(params.get("include_outdated", False))
         try:
-            elements = self._service.list_architecture_elements(workspace_id, auth_context)
+            elements = self._service.list_architecture_elements(
+                workspace_id, auth_context, include_deleted=include_outdated
+            )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok({
@@ -403,6 +435,88 @@ class ArchitectureToolGroup(BaseToolGroup):
                 "link_type": link_type,
             }
         })
+
+    # ------------------------------------------------------------------
+    # architecture.outdate
+    # ------------------------------------------------------------------
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """architecture.outdate — soft-delete via the workflow engine (write, audited)."""
+        arch_id = require_uuid(params, "id")
+        reason: str = params.get("reason", "")
+
+        try:
+            el = self._service.get_architecture_element(arch_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=arch_id,
+                item_type="ArchitectureElement",
+                workspace_id=el.artifact.workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="outdate",
+            entity_type="ArchitectureElement",
+            entity_id=arch_id,
+            tool_name="architecture.outdate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(arch_id), "status": "outdated"})
+
+    # ------------------------------------------------------------------
+    # architecture.reactivate
+    # ------------------------------------------------------------------
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """architecture.reactivate — restore a previously outdated ArchitectureElement (write, audited)."""
+        arch_id = require_uuid(params, "id")
+
+        try:
+            el = self._service.get_architecture_element(arch_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import reactivate
+
+        try:
+            result = reactivate(
+                item_id=arch_id,
+                item_type="ArchitectureElement",
+                workspace_id=el.artifact.workspace_id,
+                ctx=auth_context,
+            )
+        except ValueError as exc:
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="reactivate",
+            entity_type="ArchitectureElement",
+            entity_id=arch_id,
+            tool_name="architecture.reactivate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(arch_id), "status": result.new_state})
 
     # ------------------------------------------------------------------
     # architecture.decompose (SysEng 2.0 N1 — generate draft, no DB write)

@@ -91,6 +91,8 @@ class RequirementsToolGroup(BaseToolGroup):
         "requirement.validate": "_handle_validate",
         "requirement.derive": "_handle_derive",
         "requirement.check_consistency": "_handle_check_consistency",
+        "requirement.outdate": "_handle_outdate",
+        "requirement.reactivate": "_handle_reactivate",
     }
     
     _TOOL_SCHEMAS = [
@@ -111,7 +113,11 @@ class RequirementsToolGroup(BaseToolGroup):
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "description": "UUID of the workspace."}
+                    "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "If true, include outdated (soft-deleted) requirements. Defaults to false.",
+                    },
                 }
             }
         },
@@ -200,7 +206,30 @@ class RequirementsToolGroup(BaseToolGroup):
                 },
                 "required": ["workspace_id"]
             }
-        }
+        },
+        {
+            "name": "requirement.outdate",
+            "description": "Soft-delete a requirement via the workflow engine's outdate escape hatch (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the requirement."},
+                    "reason": {"type": "string", "description": "Optional audit reason."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "requirement.reactivate",
+            "description": "Restore an outdated requirement to its previous state (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the requirement."},
+                },
+                "required": ["id"],
+            },
+        },
     ]
 
     def __init__(self, service: Optional[RequirementService] = None) -> None:
@@ -237,8 +266,11 @@ class RequirementsToolGroup(BaseToolGroup):
                 "VALIDATION_ERROR",
                 "Parameter 'workspace_id' is required for requirement.query.",
             )
+        include_outdated = bool(params.get("include_outdated", False))
         try:
-            reqs = self._service.list_requirements(workspace_id, auth_context)
+            reqs = self._service.list_requirements(
+                workspace_id, auth_context, include_deleted=include_outdated
+            )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok({
@@ -325,6 +357,88 @@ class RequirementsToolGroup(BaseToolGroup):
             api_key=api_key,
         )
         return ToolResult.ok({"requirement": _requirement_to_dict(req)})
+
+    # ------------------------------------------------------------------
+    # requirement.outdate
+    # ------------------------------------------------------------------
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.outdate — soft-delete via the workflow engine (write, audited)."""
+        req_id = require_uuid(params, "id")
+        reason: str = params.get("reason", "")
+
+        try:
+            req = self._service.get_requirement(req_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=req_id,
+                item_type="Requirement",
+                workspace_id=req.artifact.workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="outdate",
+            entity_type="Requirement",
+            entity_id=req_id,
+            tool_name="requirement.outdate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(req_id), "status": "outdated"})
+
+    # ------------------------------------------------------------------
+    # requirement.reactivate
+    # ------------------------------------------------------------------
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """requirement.reactivate — restore a previously outdated requirement (write, audited)."""
+        req_id = require_uuid(params, "id")
+
+        try:
+            req = self._service.get_requirement(req_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import reactivate
+
+        try:
+            result = reactivate(
+                item_id=req_id,
+                item_type="Requirement",
+                workspace_id=req.artifact.workspace_id,
+                ctx=auth_context,
+            )
+        except ValueError as exc:
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="reactivate",
+            entity_type="Requirement",
+            entity_id=req_id,
+            tool_name="requirement.reactivate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(req_id), "status": result.new_state})
 
     # ------------------------------------------------------------------
     # requirement.decompose

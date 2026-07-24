@@ -536,7 +536,11 @@ class TestGetTestCase:
             patch(
                 "application.test_service.TestCase.objects.select_related",
                 return_value=MagicMock(
-                    filter=MagicMock(return_value=mock_list)
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            exclude=MagicMock(return_value=mock_list)
+                        )
+                    )
                 ),
             ),
         ):

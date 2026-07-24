@@ -95,6 +95,8 @@ class McpTestToolGroup(BaseToolGroup):
         "test.run_get": "_handle_run_get",
         "test.run_report_results": "_handle_run_report_results",
         "test.derive_from_requirement": "_handle_derive_from_requirement",
+        "test.outdate": "_handle_outdate",
+        "test.reactivate": "_handle_reactivate",
     }
 
     _TOOL_SCHEMAS = [
@@ -116,6 +118,10 @@ class McpTestToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "If true, include outdated (soft-deleted) test cases. Defaults to false.",
+                    },
                 },
                 "required": ["workspace_id"],
             },
@@ -243,6 +249,29 @@ class McpTestToolGroup(BaseToolGroup):
                 "required": ["requirement_id"],
             },
         },
+        {
+            "name": "test.outdate",
+            "description": "Soft-delete a TestCase via the workflow engine's outdate escape hatch (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the test case."},
+                    "reason": {"type": "string", "description": "Optional audit reason."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "test.reactivate",
+            "description": "Restore an outdated TestCase to its previous state (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the test case."},
+                },
+                "required": ["id"],
+            },
+        },
     ]
 
     def __init__(
@@ -288,8 +317,11 @@ class McpTestToolGroup(BaseToolGroup):
                 "VALIDATION_ERROR",
                 "Parameter 'workspace_id' is required for test.query.",
             )
+        include_outdated = bool(params.get("include_outdated", False))
         try:
-            test_cases = self._service.list_test_cases(workspace_id, auth_context)
+            test_cases = self._service.list_test_cases(
+                workspace_id, auth_context, include_deleted=include_outdated
+            )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         return ToolResult.ok({
@@ -699,6 +731,88 @@ class McpTestToolGroup(BaseToolGroup):
         except LlmResponseError as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
         return ToolResult.ok(result)
+
+    # ------------------------------------------------------------------
+    # test.outdate
+    # ------------------------------------------------------------------
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.outdate — soft-delete via the workflow engine (write, audited)."""
+        tc_id = require_uuid(params, "id")
+        reason: str = params.get("reason", "")
+
+        try:
+            tc = self._service.get_test_case(tc_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=tc_id,
+                item_type="TestCase",
+                workspace_id=tc.artifact.workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="outdate",
+            entity_type="TestCase",
+            entity_id=tc_id,
+            tool_name="test.outdate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(tc_id), "status": "outdated"})
+
+    # ------------------------------------------------------------------
+    # test.reactivate
+    # ------------------------------------------------------------------
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """test.reactivate — restore a previously outdated TestCase (write, audited)."""
+        tc_id = require_uuid(params, "id")
+
+        try:
+            tc = self._service.get_test_case(tc_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        from workflow.services import reactivate
+
+        try:
+            result = reactivate(
+                item_id=tc_id,
+                item_type="TestCase",
+                workspace_id=tc.artifact.workspace_id,
+                ctx=auth_context,
+            )
+        except ValueError as exc:
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="reactivate",
+            entity_type="TestCase",
+            entity_id=tc_id,
+            tool_name="test.reactivate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(tc_id), "status": result.new_state})
 
 
 # Backward-compatible alias (canonical public name)

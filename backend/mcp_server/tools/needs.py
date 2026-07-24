@@ -12,6 +12,7 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    write_mcp_audit,
 )
 
 
@@ -38,6 +39,8 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         "needs.update": "_handle_update",
         "needs.get_traces": "_handle_get_traces",
         "needs.derive_requirements": "_handle_derive",
+        "needs.outdate": "_handle_outdate",
+        "needs.reactivate": "_handle_reactivate",
     }
 
     _TOOL_SCHEMAS = [
@@ -123,6 +126,29 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         {
             "name": "needs.derive_requirements",
             "description": "Derive system requirements from a StakeholderNeed asynchronously (LLM).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "needs.outdate",
+            "description": "Soft-delete a StakeholderNeed via the workflow engine's outdate escape hatch (write).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                    "reason": {"type": "string", "description": "Optional audit reason."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "needs.reactivate",
+            "description": "Restore an outdated StakeholderNeed to its previous state (write).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -273,5 +299,76 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except Exception as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+    def _handle_outdate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """needs.outdate — soft-delete via the workflow engine (write, audited)."""
+        need_id = require_uuid(params, "id")
+        reason: str = params.get("reason", "")
+
+        try:
+            need = self._service.get(auth_context, need_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=need_id,
+                item_type="StakeholderNeed",
+                workspace_id=need.workspace_id,
+                ctx=auth_context,
+                reason=reason,
+            )
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="outdate",
+            entity_type="StakeholderNeed",
+            entity_id=need_id,
+            tool_name="needs.outdate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(need_id), "status": "outdated"})
+
+    def _handle_reactivate(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """needs.reactivate — restore a previously outdated StakeholderNeed (write, audited)."""
+        need_id = require_uuid(params, "id")
+
+        try:
+            need = self._service.get(auth_context, need_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+
+        from workflow.services import reactivate
+
+        try:
+            result = reactivate(
+                item_id=need_id,
+                item_type="StakeholderNeed",
+                workspace_id=need.workspace_id,
+                ctx=auth_context,
+            )
+        except ValueError as exc:
+            return ToolResult.error("INVALID_STATE", str(exc))
+        except Exception as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="reactivate",
+            entity_type="StakeholderNeed",
+            entity_id=need_id,
+            tool_name="needs.reactivate",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(need_id), "status": result.new_state})
+
 
 __all__ = ["StakeholderNeedsToolGroup"]
