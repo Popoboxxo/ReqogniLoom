@@ -15,6 +15,8 @@ Tools implemented:
   artifact.search      — full-text search across all artifact types
   artifact.get_tree    — hierarchical artifact structure rooted at an artifact
   workspace.get_context — workspace status summary for AI agent session start
+  context.change_impact — trace-link + hierarchy walk plus LLM-assisted
+                          impact ranking for a proposed change
 
 Interface contracts implemented:
   IF-MC-INT-005  — inbound: execute_tool(tool_name, params, auth_context) -> ToolResult
@@ -28,6 +30,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -93,6 +96,73 @@ def _get_context_token_budget(workspace: Any, depth: str) -> Optional[int]:
     return overrides.get(depth, DEFAULT_CONTEXT_TOKEN_BUDGETS[depth])
 
 
+# REQ-L2-MC-004 (Phase 2, Task 6): entity_type -> tenant-scoped model class,
+# used by ``context.change_impact`` both to resolve the anchor entity and to
+# bulk-resolve its trace-linked neighbours. Deliberately the same four "core"
+# types the rest of this module already understands (see ``_entity_counts``/
+# ``_entity_lists``) -- Diagram/Adr/etc. neighbours still surface in the
+# result (see ``_resolve_change_impact_candidates``), just without a resolved
+# title/outdated flag.
+_CHANGE_IMPACT_PROMPT_TEMPLATE = (
+    'A change is proposed for an artifact: "{change_description}"\n\n'
+    "The following entities are linked to it (via TraceLink or "
+    "decomposition). For EACH one, assess whether it is genuinely impacted "
+    "by this specific change. Return a JSON array of objects, one per "
+    "input entity, each with exactly these keys: 'id' (echo the given id "
+    "unchanged), 'likely_affected' (bool), 'rationale' (short string).\n\n"
+    "Linked entities: {candidates_json}"
+)
+
+
+def _complete_change_impact(prompt: str, *, context: Dict[str, Any]) -> str:
+    """LLM completion for ``context.change_impact`` candidate ranking.
+
+    DECISION (Phase 2, Task 6 -- see task-6-report.md): this is a third,
+    deliberately minimal, local copy of the ``_complete()`` pattern already
+    duplicated by ``AiDerivationService._complete`` (cached, returns ``str``)
+    and ``TraceabilitySuggestService._complete`` (uncached, returns a
+    ``(raw, provider_name, degraded)`` tuple). Those two had already
+    diverged in signature/return shape before this task started, so
+    extracting a shared helper now would first require picking (or
+    parameterizing) a canonical shape -- a larger, riskier refactor of two
+    already-shipped services that is out of scope for this read-only leaf
+    tool. Mirrors the simpler, uncached ``TraceabilitySuggestService``
+    variant, since each call here carries a caller-supplied
+    ``change_description`` that makes prompt-hash caching unlikely to ever
+    hit. Never raises: on any provider configuration error it degrades to
+    the credential-free mock (REQ-L2-AI-002; default provider is ``mock``).
+    """
+    from django.conf import settings
+
+    from application.ai_derivation_service import MOCK_FALLBACK_MARKER
+    from llm_adapter.providers import (
+        LlmNotConfiguredError,
+        LlmProviderUnknownError,
+        MockLlmProvider,
+        get_provider,
+    )
+
+    provider_name = getattr(settings, "LLM_PROVIDER", "mock")
+    try:
+        provider = get_provider()
+    except (LlmNotConfiguredError, LlmProviderUnknownError) as error:
+        logger.warning(
+            "context.change_impact: provider %s unavailable, using mock. %s",
+            provider_name,
+            error,
+        )
+        result = MockLlmProvider().complete(
+            prompt, purpose="context_change_impact", context=context
+        )
+        # Fallback output is intentionally not cached/marked so downstream
+        # parsing can strip the marker (mirrors AiDerivationService._complete).
+        return f"{MOCK_FALLBACK_MARKER}{result}"
+
+    return provider.complete(
+        prompt, purpose="context_change_impact", context=context
+    )
+
+
 class CrossCuttingToolGroup(BaseToolGroup):
     """COMP-MC-006 — Cross-cutting tool group (5 tools).
 
@@ -108,6 +178,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "workspace.get_context": "_handle_workspace_get_context",
         "workspace.llm_system_prompt": "_handle_llm_system_prompt",
         "context.test_coverage": "_handle_test_coverage",
+        "context.change_impact": "_handle_change_impact",
     }
 
     _TOOL_SCHEMAS = [
@@ -282,6 +353,52 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["requirement_id"],
+            },
+        },
+        {
+            "name": "context.change_impact",
+            "description": (
+                "Return entities potentially affected by a proposed change "
+                "to a single Requirement/ArchitectureElement/TestCase/"
+                "StakeholderNeed, for AI-agent context building. Gathers "
+                "upstream+downstream TraceLink neighbours plus (for an "
+                "ArchitectureElement anchor) direct decomposition children, "
+                "then asks the LLM adapter (mock by default) to annotate "
+                "each with a rough affected/rationale verdict against "
+                "``change_description``. Response: result.affected_entities "
+                "(list of {id, entity_type, title, link_type, relation, "
+                "likely_affected, rationale}) and result.change_description "
+                "(echoed back). ``include_outdated`` (default false) "
+                "excludes outdated neighbours. Read-only/advisory -- "
+                "nothing is persisted."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "entity_id": {
+                        "type": "string",
+                        "description": "UUID of the entity being changed.",
+                    },
+                    "entity_type": {
+                        "type": "string",
+                        "enum": [
+                            "Requirement",
+                            "ArchitectureElement",
+                            "TestCase",
+                            "StakeholderNeed",
+                        ],
+                        "description": "Type of the entity being changed.",
+                    },
+                    "change_description": {
+                        "type": "string",
+                        "description": "Natural-language description of the proposed change.",
+                    },
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "Include outdated neighbours (default false).",
+                    },
+                },
+                "required": ["entity_id", "entity_type"],
             },
         },
     ]
@@ -746,6 +863,287 @@ class CrossCuttingToolGroup(BaseToolGroup):
             "test_cases": entry.test_cases,
             "gaps": [] if entry.test_cases else [str(requirement.id)],
         })
+
+    # ------------------------------------------------------------------
+    # context.change_impact
+    # ------------------------------------------------------------------
+
+    #: entity_type -> model class, for anchor resolution in
+    #: ``_handle_change_impact``/``_resolve_change_impact_candidates``.
+    _CHANGE_IMPACT_ENTITY_TYPES = (
+        "Requirement",
+        "ArchitectureElement",
+        "TestCase",
+        "StakeholderNeed",
+    )
+
+    def _handle_change_impact(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """context.change_impact — entities potentially affected by a change.
+
+        REQ-L2-MC-004 (Phase 2, Task 6). Read-only — no audit entry (see
+        class docstring). Gathers upstream+downstream TraceLink neighbours
+        of the given entity, plus (for an ArchitectureElement anchor) its
+        direct decomposition children — that hierarchy is a plain FK tree
+        (``ArchitectureElement.parent``/``children``), NOT expressed via
+        TraceLinks (``traceability.types.SE_LINK_SEMANTICS`` has no
+        ArchitectureElement/ArchitectureElement 'parent-child' pair, unlike
+        Requirement decomposition which uses the 'decomposes'/'derives-from'
+        TraceLink types and is therefore already covered by the trace walk).
+        The LLM adapter (mock by default) then annotates each candidate with
+        a rough affected/rationale verdict against ``change_description``;
+        that step degrades gracefully (never raises) so an LLM outage still
+        returns the raw candidate list with a neutral default annotation.
+        """
+        entity_id_str = params.get("entity_id")
+        entity_type = params.get("entity_type")
+        change_description = params.get("change_description", "") or ""
+        include_outdated = bool(params.get("include_outdated", False))
+
+        if not entity_id_str or not entity_type:
+            return ToolResult.error(
+                "VALIDATION_ERROR", "entity_id and entity_type are required"
+            )
+        try:
+            entity_id = UUID(str(entity_id_str))
+        except (ValueError, AttributeError):
+            return ToolResult.error(
+                "VALIDATION_ERROR", f"'{entity_id_str}' is not a valid UUID"
+            )
+
+        if entity_type not in self._CHANGE_IMPACT_ENTITY_TYPES:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Parameter 'entity_type' must be one of "
+                f"{sorted(self._CHANGE_IMPACT_ENTITY_TYPES)}.",
+            )
+
+        from persistence.models import ArchitectureElement, Requirement, StakeholderNeed, TestCase
+        from persistence.tenancy import TenantContext
+
+        entity_models: Dict[str, Any] = {
+            "Requirement": Requirement,
+            "ArchitectureElement": ArchitectureElement,
+            "TestCase": TestCase,
+            "StakeholderNeed": StakeholderNeed,
+        }
+        model = entity_models[entity_type]
+
+        TenantContext.set_tenant(auth_context.tenant_id)
+        try:
+            entity = model.objects.get(id=entity_id, tenant_id=auth_context.tenant_id)
+        except model.DoesNotExist:
+            return ToolResult.error(
+                "NOT_FOUND", f"{entity_type} {entity_id} not found"
+            )
+
+        from traceability.services import query as te_query
+        from traceability.types import normalize_artifact_type
+
+        raw_neighbors: List[Dict[str, Any]] = []
+        for direction in ("upstream", "downstream"):
+            for neighbor in te_query(
+                artifact_id=entity.artifact_id, direction=direction, transitive=False
+            ):
+                raw_neighbors.append({
+                    "artifact_id": neighbor.entity_id,
+                    # neighbor.entity_type is the raw Artifact.artifact_type
+                    # column, which for TestCase carries a "TestCase:<type>"
+                    # sub-type suffix (see traceability.types.normalize_
+                    # artifact_type) -- normalize it so grouping/lookup below
+                    # matches the plain entity-type keys the rest of this
+                    # module uses ("TestCase", not "TestCase:Unit").
+                    "entity_type": normalize_artifact_type(neighbor.entity_type),
+                    "link_type": neighbor.link_type,
+                    "relation": direction,
+                })
+
+        if entity_type == "ArchitectureElement":
+            for child in ArchitectureElement.objects.filter(
+                parent_id=entity.id, tenant_id=auth_context.tenant_id
+            ):
+                raw_neighbors.append({
+                    "artifact_id": child.artifact_id,
+                    "entity_type": "ArchitectureElement",
+                    "link_type": "parent-child",
+                    "relation": "child",
+                })
+
+        candidates = self._resolve_change_impact_candidates(
+            raw_neighbors, tenant_id=auth_context.tenant_id
+        )
+
+        if not include_outdated:
+            candidates = [c for c in candidates if not c["outdated"]]
+
+        affected_entities = self._rank_change_impact_candidates(
+            candidates, change_description
+        )
+
+        return ToolResult.ok({
+            "affected_entities": affected_entities,
+            "change_description": change_description,
+        })
+
+    def _resolve_change_impact_candidates(
+        self, raw_neighbors: List[Dict[str, Any]], *, tenant_id: UUID
+    ) -> List[Dict[str, Any]]:
+        """Bulk-resolve each raw neighbour's business id/title/outdated flag.
+
+        ``raw_neighbors`` entries carry an Artifact id (``artifact_id``) —
+        the TraceLink graph's native identifier (see
+        ``traceability.query_engine.QueryEngine``) — which is resolved here
+        to the caller-facing business-entity id (Requirement/ArchitectureElement/
+        TestCase/StakeholderNeed .id), mirroring
+        ``CoverageCalculator.get_coverage_data``'s ``artifact_id -> id`` map.
+
+        Uses the same two-track outdated-exclusion split as
+        ``_entity_counts``/``_entity_lists``: Requirement/TestCase/
+        StakeholderNeed carry a denormalized ``status`` mirror column,
+        ArchitectureElement's soft-delete state lives only in
+        ``WorkflowItemState`` (resolved via ``outdated_item_ids``).
+        Neighbour types this tool does not resolve business ids/titles for
+        (e.g. Adr, Diagram) are still surfaced — with the raw artifact id as
+        ``id``, ``title=None`` and ``outdated=False`` — so the trace graph
+        is never silently truncated.
+        """
+        from persistence.models import ArchitectureElement, Requirement, StakeholderNeed, TestCase
+        from workflow.services import outdated_item_ids
+
+        by_type: Dict[str, List[Dict[str, Any]]] = {}
+        for neighbor in raw_neighbors:
+            by_type.setdefault(neighbor["entity_type"], []).append(neighbor)
+
+        resolved: List[Dict[str, Any]] = []
+
+        mirrored_models = {
+            "Requirement": Requirement,
+            "TestCase": TestCase,
+            "StakeholderNeed": StakeholderNeed,
+        }
+        for type_name, model in mirrored_models.items():
+            neighbors = by_type.pop(type_name, [])
+            if not neighbors:
+                continue
+            artifact_ids = [n["artifact_id"] for n in neighbors]
+            rows_by_artifact = {
+                row["artifact_id"]: row
+                for row in model.objects.filter(
+                    artifact_id__in=artifact_ids
+                ).values("id", "artifact_id", "title", "status")
+            }
+            for neighbor in neighbors:
+                row = rows_by_artifact.get(neighbor["artifact_id"])
+                if row is None:
+                    continue
+                resolved.append({
+                    "id": str(row["id"]),
+                    "entity_type": type_name,
+                    "title": row["title"],
+                    "link_type": neighbor["link_type"],
+                    "relation": neighbor["relation"],
+                    "outdated": row["status"] == "outdated",
+                })
+
+        arch_neighbors = by_type.pop("ArchitectureElement", [])
+        if arch_neighbors:
+            artifact_ids = [n["artifact_id"] for n in arch_neighbors]
+            outdated_ids = set(
+                outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
+            )
+            rows_by_artifact = {
+                row["artifact_id"]: row
+                for row in ArchitectureElement.objects.filter(
+                    artifact_id__in=artifact_ids
+                ).values("id", "artifact_id", "title")
+            }
+            for neighbor in arch_neighbors:
+                row = rows_by_artifact.get(neighbor["artifact_id"])
+                if row is None:
+                    continue
+                resolved.append({
+                    "id": str(row["id"]),
+                    "entity_type": "ArchitectureElement",
+                    "title": row["title"],
+                    "link_type": neighbor["link_type"],
+                    "relation": neighbor["relation"],
+                    "outdated": row["id"] in outdated_ids,
+                })
+
+        for type_name, neighbors in by_type.items():
+            for neighbor in neighbors:
+                resolved.append({
+                    "id": str(neighbor["artifact_id"]),
+                    "entity_type": type_name,
+                    "title": None,
+                    "link_type": neighbor["link_type"],
+                    "relation": neighbor["relation"],
+                    "outdated": False,
+                })
+
+        return resolved
+
+    def _rank_change_impact_candidates(
+        self, candidates: List[Dict[str, Any]], change_description: str
+    ) -> List[Dict[str, Any]]:
+        """LLM-assisted ranking/annotation of trace-linked candidates.
+
+        Never raises — any provider/parse failure falls back to the
+        unannotated candidate list (``likely_affected=True``, empty
+        ``rationale``) so this read-only tool always returns the real trace
+        graph even if the LLM step is degraded or misconfigured.
+        """
+        if not candidates:
+            return []
+
+        from application.ai_derivation_service import AiDerivationService
+
+        prompt = _CHANGE_IMPACT_PROMPT_TEMPLATE.format(
+            change_description=change_description or "(no description given)",
+            candidates_json=json.dumps([
+                {
+                    "id": c["id"],
+                    "entity_type": c["entity_type"],
+                    "title": c["title"],
+                    "link_type": c["link_type"],
+                    "relation": c["relation"],
+                }
+                for c in candidates
+            ]),
+        )
+        context = {"candidates": [{"id": c["id"]} for c in candidates]}
+
+        annotations: Dict[str, Dict[str, Any]] = {}
+        try:
+            raw = _complete_change_impact(prompt, context=context)
+            parsed = AiDerivationService._parse_json_list(raw)
+            annotations = {
+                entry["id"]: entry
+                for entry in parsed
+                if isinstance(entry, dict) and entry.get("id")
+            }
+        except Exception:
+            logger.warning(
+                "context.change_impact: LLM ranking failed/unparseable, "
+                "returning unannotated candidates.",
+                exc_info=True,
+            )
+
+        return [
+            {
+                "id": c["id"],
+                "entity_type": c["entity_type"],
+                "title": c["title"],
+                "link_type": c["link_type"],
+                "relation": c["relation"],
+                "likely_affected": annotations.get(c["id"], {}).get(
+                    "likely_affected", True
+                ),
+                "rationale": annotations.get(c["id"], {}).get("rationale", ""),
+            }
+            for c in candidates
+        ]
 
     def _recent_changes(
         self, *, workspace_id: UUID, tenant_id: UUID, limit: int = 10

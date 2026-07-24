@@ -640,6 +640,31 @@ class MockLlmProvider(LlmCapabilityInterface):
                 )
             return json.dumps(suggestions)
 
+        if purpose == "context_change_impact":
+            # REQ-L2-MC-004 (Phase 2, Task 6: context.change_impact) —
+            # deterministic ranking mock. Like ``traceability_suggest_links``
+            # above, it never invents an id: it only re-emits the 'id'
+            # values handed in via ``ctx["candidates"]`` (each already a
+            # real trace-linked entity resolved by the MCP tool), so the
+            # caller's referential-integrity merge always finds a match.
+            candidates = ctx.get("candidates")
+            candidates = candidates if isinstance(candidates, list) else []
+            return json.dumps(
+                [
+                    {
+                        "id": c.get("id"),
+                        "likely_affected": True,
+                        "rationale": (
+                            "Directly linked to the changed entity via the "
+                            "trace graph (mock provider — no semantic "
+                            "assessment performed)."
+                        ),
+                    }
+                    for c in candidates
+                    if isinstance(c, dict) and c.get("id")
+                ]
+            )
+
         return json.dumps([])
 
 

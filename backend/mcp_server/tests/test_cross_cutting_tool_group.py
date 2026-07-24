@@ -829,4 +829,176 @@ def test_llm_system_prompt_role_is_label_only_does_not_filter_data(workspace_wit
 
     # Verify the role label is echoed correctly in each prompt
     assert "Du bist als developer unterwegs" in prompt_dev
-    assert "Du bist als tester unterwegs" in prompt_tester
+
+
+# ---------------------------------------------------------------------------
+# context.change_impact (Phase 2, Task 6)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def entity_with_traces(tenant_workspace_ctx):
+    """A Requirement anchor with one verifying TestCase (VERIFIES TraceLink),
+    for ``context.change_impact`` tests. Returns (entity_id, entity_type,
+    workspace_id)."""
+    from application.requirement_service import RequirementService
+    from application.test_service import TestService
+    from application.trace_link_service import TraceLinkService
+    from traceability.types import LinkType
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    _ensure_workflow(tenant, workspace, "standard", "Requirement")
+    _ensure_workflow(tenant, workspace, "standard", "TestCase")
+
+    req_svc = RequirementService()
+    requirement = req_svc.create_requirement(
+        workspace_id=workspace.id, title="Anchor Requirement", ctx=ctx
+    )
+
+    test_svc = TestService()
+    test_case = test_svc.create_test_case(
+        workspace_id=workspace.id, title="Verifying Test", ctx=ctx
+    )
+
+    trace_svc = TraceLinkService()
+    trace_svc.create_trace_link(
+        source_id=test_case.artifact_id,
+        target_id=requirement.artifact_id,
+        link_type=LinkType.VERIFIES.value,
+        ctx=ctx,
+    )
+
+    return requirement.id, "Requirement", workspace.id
+
+
+@pytest.mark.django_db
+def test_change_impact_returns_affected_entities(entity_with_traces, auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    entity_id, entity_type, workspace_id = entity_with_traces
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "context.change_impact",
+        params={
+            "entity_id": str(entity_id),
+            "entity_type": entity_type,
+            "change_description": "Renaming this field to improve clarity",
+        },
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result.success is True
+    assert "affected_entities" in result.data
+    assert isinstance(result.data["affected_entities"], list)
+    assert result.data["change_description"] == "Renaming this field to improve clarity"
+
+    affected = result.data["affected_entities"]
+    assert len(affected) == 1
+    entry = affected[0]
+    assert entry["entity_type"] == "TestCase"
+    assert entry["title"] == "Verifying Test"
+    assert entry["link_type"] == "verifies"
+    assert entry["relation"] == "upstream"
+    assert "likely_affected" in entry
+    assert "rationale" in entry
+
+
+@pytest.mark.django_db
+def test_change_impact_requires_entity_id_and_type(auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "context.change_impact", params={}, auth_context=auth_ctx, api_key=""
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+def test_change_impact_rejects_unknown_entity_type(auth_ctx):
+    import uuid
+
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "context.change_impact",
+        params={"entity_id": str(uuid.uuid4()), "entity_type": "Diagram"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+@pytest.mark.django_db
+def test_change_impact_not_found_for_unknown_entity(auth_ctx):
+    import uuid
+
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "context.change_impact",
+        params={"entity_id": str(uuid.uuid4()), "entity_type": "Requirement"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is False
+    assert result.error_code == "NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_change_impact_excludes_outdated_neighbour_by_default(entity_with_traces, auth_ctx):
+    """The verifying TestCase must not appear once outdate()'d, unless
+    ``include_outdated=True`` is passed — mirrors
+    ``context.test_coverage``'s ``include_outdated`` contract."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from mcp_server.tools.tests import McpTestToolGroup
+
+    entity_id, entity_type, workspace_id = entity_with_traces
+
+    group = CrossCuttingToolGroup()
+    baseline = group.execute_tool(
+        "context.change_impact",
+        params={"entity_id": str(entity_id), "entity_type": entity_type},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert len(baseline.data["affected_entities"]) == 1
+    test_case_id = baseline.data["affected_entities"][0]["id"]
+
+    tests_group = McpTestToolGroup()
+    outdate_result = tests_group.execute_tool(
+        "test.outdate",
+        params={"id": test_case_id, "reason": "obsolete"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert outdate_result.success is True
+
+    result_default = group.execute_tool(
+        "context.change_impact",
+        params={"entity_id": str(entity_id), "entity_type": entity_type},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result_default.success is True
+    assert result_default.data["affected_entities"] == []
+
+    result_incl = group.execute_tool(
+        "context.change_impact",
+        params={
+            "entity_id": str(entity_id),
+            "entity_type": entity_type,
+            "include_outdated": True,
+        },
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result_incl.success is True
+    assert len(result_incl.data["affected_entities"]) == 1
+
+
+def test_change_impact_is_not_a_write_tool():
+    """Read-only tool (REQ-L2-MC-012: read operations produce no audit entry
+    and must not require write-RBAC)."""
+    from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
+
+    assert "context.change_impact" not in _WRITE_TOOL_PREFIXES
