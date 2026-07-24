@@ -303,6 +303,109 @@ class TestTestCaseLifecycleTools:
         ids_incl = {r["id"] for r in result_incl.data["test_cases"]}
         assert str(deleted.id) in ids_incl
 
+    # ------------------------------------------------------------------
+    # test.derive_from_requirement mode="write" (Phase 3, REQ-L2-AI-003)
+    # ------------------------------------------------------------------
+
+    def test_derive_from_requirement_preview_mode_unchanged(self):
+        """mode omitted (defaults to 'preview') returns the identical Phase-2 shape."""
+        from application.requirement_service import RequirementService
+
+        _tenant, workspace, ctx = _make_tenant_workspace_ctx("tc-mcp-derive-preview")
+        req = RequirementService().create_requirement(
+            workspace_id=workspace.id, title="Req1", ctx=ctx
+        )
+        group = TestToolGroup()
+
+        result = group._handle_derive_from_requirement(
+            params={"requirement_id": str(req.id)}, auth_context=ctx, api_key="reqlo_x"
+        )
+        result_explicit_preview = group._handle_derive_from_requirement(
+            params={"requirement_id": str(req.id), "mode": "preview"},
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+
+        assert result.success and result_explicit_preview.success
+        assert set(result.data.keys()) == {"draft", "requirement_id"}
+        assert result.data == result_explicit_preview.data
+
+    def test_derive_from_requirement_write_mode_persists_testcase_and_verifies_link(self):
+        from application.requirement_service import RequirementService
+        from persistence.models import TestCase as TestCaseModel, TraceLink
+
+        _tenant, workspace, ctx = _make_tenant_workspace_ctx("tc-mcp-derive-write")
+        req = RequirementService().create_requirement(
+            workspace_id=workspace.id, title="Req1", ctx=ctx
+        )
+        group = TestToolGroup()
+
+        result = group._handle_derive_from_requirement(
+            params={"requirement_id": str(req.id), "mode": "write"},
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+
+        assert result.success is True
+        written = result.data["written"]
+        assert written["status"] == "draft"
+
+        tc = TestCaseModel.objects.get(id=written["id"])
+        assert tc.steps  # mock provider's structured steps were preserved as-is
+
+        link = TraceLink.objects.get(id=written["trace_link_id"])
+        # 'verifies' SE endpoint semantics: TestCase is the source, Requirement
+        # the target (traceability.types.SE_LINK_SEMANTICS), matching test.link.
+        assert str(link.source_id) == str(tc.artifact_id)
+        assert str(link.target_id) == str(req.artifact_id)
+        assert link.link_type == "verifies"
+
+    def test_derive_from_requirement_write_mode_not_found(self):
+        _tenant, _workspace, ctx = _make_tenant_workspace_ctx("tc-mcp-derive-notfound")
+        group = TestToolGroup()
+
+        result = group._handle_derive_from_requirement(
+            params={
+                "requirement_id": "00000000-0000-0000-0000-000000009999",
+                "mode": "write",
+            },
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
+
+    def test_derive_from_requirement_invalid_mode_is_validation_error(self):
+        from application.requirement_service import RequirementService
+
+        _tenant, workspace, ctx = _make_tenant_workspace_ctx("tc-mcp-derive-badmode")
+        req = RequirementService().create_requirement(
+            workspace_id=workspace.id, title="Req1", ctx=ctx
+        )
+        group = TestToolGroup()
+
+        result = group.execute_tool(
+            tool_name="test.derive_from_requirement",
+            params={"requirement_id": str(req.id), "mode": "bogus"},
+            auth_context=ctx,
+            api_key="reqlo_x",
+        )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+
+    def test_derive_from_requirement_is_registered_as_write_tool(self):
+        """REQ-L2-MC-007: mode='write' makes this tool capable of mutation, so
+        (like the three ai_derivation.* tools, Phase 3) it is now registered
+        in tool_registry._WRITE_TOOL_PREFIXES. That RBAC gate is name-based,
+        not mode-aware: as of Phase 3 a Viewer can no longer call this tool at
+        all — including mode='preview'. This supersedes the pre-Phase-3
+        assumption in test_tool_groups.py's
+        test_derive_from_requirement_is_not_a_write_tool (updated alongside).
+        """
+        from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
+
+        assert "test.derive_from_requirement" in _WRITE_TOOL_PREFIXES
+
 
 # ---------------------------------------------------------------------------
 # StakeholderNeedsToolGroup

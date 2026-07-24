@@ -513,17 +513,30 @@ class AiDerivationService(ServiceBase):
         source_item_type: str,
         link_type: str,
         policy: str = "manual",
+        new_entity_is_link_source: bool = False,
     ) -> Dict[str, Any]:
         """Persist one derived draft entity and link it back to its source.
 
-        Shared by all three derive tools' write path: ``create_fn`` is a
+        Shared by all four derive tools' write path: ``create_fn`` is a
         zero-arg closure the caller builds (e.g. a bound
         ``RequirementService().create_requirement(...)`` call) that persists
         exactly one derived entity. This helper then:
 
           1. Calls ``create_fn()`` to create the entity.
-          2. Creates a ``link_type`` TraceLink from *source_entity_id* to the
-             new entity (REQ-L2-AS-010, via TraceLinkService).
+          2. Creates a ``link_type`` TraceLink between *source_entity_id* and
+             the new entity (REQ-L2-AS-010, via TraceLinkService). By default
+             *source_entity_id* is the link source and the new entity is the
+             target (e.g. ``derives-from``: ChildReq --derives-from--> ParentReq
+             uses ``source_entity_id=parent``, ``created=child`` — so the link
+             is created with source=source_entity_id, target=created, which
+             reads backwards from the SE convention documented in
+             ``TraceLinkService.propagate_suspect_status`` but matches how the
+             existing derive tools built their links pre-Phase-3). When
+             ``new_entity_is_link_source=True`` the direction is reversed
+             (source=created, target=source_entity_id) — required for link
+             types whose SE endpoint semantics fix the *new* entity as the
+             source, e.g. ``verifies``: TestCase --verifies--> Requirement
+             (``traceability.types.SE_LINK_SEMANTICS``).
           3. When ``policy == "auto"``, walks the new entity forward through
              its real workflow transitions via :meth:`_auto_approve`.
 
@@ -540,7 +553,7 @@ class AiDerivationService(ServiceBase):
             item_type: Workflow ``item_type`` of the newly created entity
                 (e.g. ``"Requirement"``) — used only for ``policy="auto"``.
             create_fn: Zero-arg closure that persists and returns the new
-                entity (must expose an ``.id`` attribute).
+                entity (must expose ``.id`` and ``.artifact_id`` attributes).
             source_entity_id: Id of the entity the new one was derived from.
             source_item_type: Workflow ``item_type`` of *source_entity_id*
                 (kept for caller-side documentation/audit — TraceLinkService
@@ -549,6 +562,13 @@ class AiDerivationService(ServiceBase):
                 ``"derives-from"``).
             policy: ``"manual"`` (default, leaves the entity in its initial
                 "draft" state) or ``"auto"`` (best-effort auto-approval).
+            new_entity_is_link_source: ``False`` (default) creates the link as
+                source=*source_entity_id*, target=new entity. ``True`` reverses
+                it — see point 2 above. Needed because
+                ``TraceLinkService._resolve_artifact_id`` does not know how to
+                resolve a bare ``TestCase`` id, so the new entity's own
+                ``artifact_id`` is always used instead of its primary key when
+                building the link (see below).
 
         Returns:
             ``{"id": <uuid-str>, "status": <final status string>,
@@ -557,12 +577,22 @@ class AiDerivationService(ServiceBase):
         self._set_tenant_context(ctx)
 
         created = create_fn()
+        # TraceLinkService._resolve_artifact_id only resolves bare
+        # Artifact/Requirement/ArchitectureElement/Adr ids, not e.g. TestCase
+        # ids — use the artifact backing every derived entity directly so
+        # this helper works for any item_type.
+        created_ref = created.artifact_id
 
         from application.trace_link_service import TraceLinkService
 
+        if new_entity_is_link_source:
+            link_source, link_target = created_ref, source_entity_id
+        else:
+            link_source, link_target = source_entity_id, created_ref
+
         link = TraceLinkService().create_trace_link(
-            source_id=source_entity_id,
-            target_id=created.id,
+            source_id=link_source,
+            target_id=link_target,
             link_type=link_type,
             ctx=ctx,
         )

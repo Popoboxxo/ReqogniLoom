@@ -70,6 +70,7 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "test.link",
     "test.run_create",
     "test.run_report_results",
+    "test.derive_from_requirement",
     "test.outdate",
     "test.reactivate",
     "workspace.close",

@@ -14,8 +14,11 @@ Tools implemented:
   test.link     — create a 'verifies' TraceLink between TestCase and Requirement (write, audited)
   test.derive_from_requirement — SysEng 2.0 N5: propose a TestCase draft (title,
                   description, steps) for a Requirement via the LLM adapter.
-                  Draft/Accept pattern (REQ-L2-AI-001): read-only, nothing is
-                  persisted; the caller re-uses test.create to accept the draft.
+                  Draft/Accept pattern (REQ-L2-AI-001), now with mode="write"
+                  support (Phase 3, REQ-L2-AI-003): mode="preview" (default)
+                  returns the draft only; mode="write" persists it as a
+                  TestCase and creates a 'verifies' TraceLink back to the
+                  source Requirement (write, audited).
 
 Interface contracts implemented:
   IF-MC-INT-004  — inbound: execute_tool(tool_name, params, auth_context) -> ToolResult
@@ -29,7 +32,15 @@ Architecture:
 
 ADR-L3-MC005-01: test.create auto-links to linked_req_id via 'verifies' TraceLink.
 ADR-L3-MC005-02: Test-status written via test.update as data field.
-ADR-L3-MC005-03: TraceLinks only via test.link or test.create.
+ADR-L3-MC005-03: TraceLinks only via test.link, test.create, or (Phase 3)
+  test.derive_from_requirement's mode="write" path.
+
+REQ-L2-MC-007: because mode="write" makes test.derive_from_requirement capable
+of mutation, it is registered in mcp_server.tool_registry's
+_WRITE_TOOL_PREFIXES (Phase 3). That RBAC gate is name-based (not mode-aware),
+so — mirroring the same deliberate restriction documented in
+mcp_server/tools/ai_derivation.py — a Viewer can no longer call this tool at
+all, including mode="preview".
 """
 from __future__ import annotations
 
@@ -50,6 +61,10 @@ from application.services import (
 )
 
 from mcp_server.protocol_handler import ToolResult
+from mcp_server.tools.ai_derivation import (
+    _MODE_POLICY_SCHEMA_PROPERTIES,
+    _parse_mode_policy,
+)
 from mcp_server.tools.base import (
     BaseToolGroup,
     optional_uuid,
@@ -57,6 +72,7 @@ from mcp_server.tools.base import (
     require_uuid,
     write_mcp_audit,
 )
+from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
 
@@ -235,8 +251,10 @@ class McpTestToolGroup(BaseToolGroup):
             "name": "test.derive_from_requirement",
             "description": (
                 "SysEng 2.0 N5: propose a TestCase draft (title, description, "
-                "steps) for a Requirement via the LLM adapter. Read-only — "
-                "nothing is persisted; accept the draft via test.create."
+                "steps) for a Requirement via the LLM adapter. mode='preview' "
+                "(default) returns the draft only; mode='write' persists it as "
+                "a TestCase and links it back to the requirement via a "
+                "'verifies' trace link."
             ),
             "inputSchema": {
                 "type": "object",
@@ -245,6 +263,7 @@ class McpTestToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "UUID of the source requirement.",
                     },
+                    **_MODE_POLICY_SCHEMA_PROPERTIES,
                 },
                 "required": ["requirement_id"],
             },
@@ -711,15 +730,20 @@ class McpTestToolGroup(BaseToolGroup):
     def _handle_derive_from_requirement(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """test.derive_from_requirement — propose a TestCase draft (read-only).
+        """test.derive_from_requirement — propose (or persist) a TestCase draft.
 
-        Draft/Accept pattern (REQ-L2-AI-001): nothing is persisted here. The
-        caller reviews the returned draft and calls test.create to accept it.
-        Standard feature — no rigor-preset / RuleEngine gate.
+        Draft/Accept pattern (REQ-L2-AI-001), extended with mode/policy
+        (Phase 3, REQ-L2-AI-003): mode="preview" (default, unchanged Phase-2
+        behaviour) returns the draft only; mode="write" persists it as a
+        TestCase via TestService.create_test_case and creates the 'verifies'
+        TraceLink back to the source requirement via
+        AiDerivationService._write_derived_entity.
         """
         requirement_id = require_uuid(params, "requirement_id")
+        mode, policy = _parse_mode_policy(params)
+
         try:
-            result = self._ai_derivation_service.derive_testcase_from_requirement(
+            preview = self._ai_derivation_service.derive_testcase_from_requirement(
                 auth_context, requirement_id
             )
         except NotFoundError as exc:
@@ -730,7 +754,55 @@ class McpTestToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except LlmResponseError as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
-        return ToolResult.ok(result)
+
+        if mode == "preview":
+            return ToolResult.ok(preview)
+
+        try:
+            req = self._ai_derivation_service._get_requirement(requirement_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        workspace_id = req.artifact.workspace_id
+        draft = preview["draft"]
+
+        # The TestCase model already has a structured JSONField `steps`
+        # (list of {step, expected_result}) — see persistence.models.TestCase
+        # — so the draft's steps are persisted as-is via TestService, no
+        # folding into `description` needed.
+        try:
+            result = self._ai_derivation_service._write_derived_entity(
+                ctx=auth_context,
+                workspace_id=workspace_id,
+                item_type="TestCase",
+                create_fn=lambda: self._service.create_test_case(
+                    workspace_id=workspace_id,
+                    title=draft["title"],
+                    ctx=auth_context,
+                    description=draft["description"],
+                    steps=draft["steps"],
+                ),
+                # SE endpoint semantics fix TestCase as the link *source* for
+                # 'verifies' (traceability.types.SE_LINK_SEMANTICS), so the
+                # new TestCase — not the requirement — must be the source.
+                source_entity_id=requirement_id,
+                source_item_type="Requirement",
+                link_type=LinkType.VERIFIES.value,
+                policy=policy,
+                new_entity_is_link_source=True,
+            )
+        except (ValidationError, NotFoundError) as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="derive_from_requirement",
+            entity_type="TestCase",
+            entity_id=UUID(result["id"]),
+            tool_name="test.derive_from_requirement",
+            api_key=api_key,
+            details={"source_requirement_id": str(requirement_id), "policy": policy},
+        )
+        return ToolResult.ok({"written": result})
 
     # ------------------------------------------------------------------
     # test.outdate

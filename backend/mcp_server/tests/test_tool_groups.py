@@ -648,12 +648,17 @@ class TestTestToolGroup:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
 
-    def test_derive_from_requirement_is_not_a_write_tool(self):
-        """SysEng 2.0 N5: draft-only, must not require write RBAC (no persistence)."""
+    def test_derive_from_requirement_is_registered_as_write_tool(self):
+        """Phase 3 (REQ-L2-AI-003): mode='write' makes this tool capable of
+        mutation, so it is now registered in tool_registry._WRITE_TOOL_PREFIXES
+        (name-based gate, not mode-aware — see mcp_server/tools/tests.py
+        module docstring). Supersedes the pre-Phase-3
+        test_derive_from_requirement_is_not_a_write_tool assumption.
+        """
         from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
 
         tool_name = "test.derive_from_requirement"
-        assert not any(
+        assert any(
             tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES
         )
 
