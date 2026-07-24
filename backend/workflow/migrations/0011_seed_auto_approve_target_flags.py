@@ -47,7 +47,7 @@ def seed_auto_approve_targets(apps, schema_editor):
     # defaults and are not considered "customized" away from this metadata,
     # so backfill them directly by preset name too.
     for record in WorkflowEngineDefinition.objects.filter(
-        preset__in=list(AUTO_APPROVE_TARGET_BY_PRESET.keys())
+        preset__in=list(AUTO_APPROVE_TARGET_BY_PRESET.keys()), is_customized=False
     ):
         additions = AUTO_APPROVE_TARGET_BY_PRESET.get(record.preset)
         if not additions:
