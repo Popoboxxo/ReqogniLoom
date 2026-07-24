@@ -32,6 +32,8 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from django.db.models import OuterRef, Subquery
+
 from auth_tenancy.context import AuthContext
 
 from application.services import (
@@ -63,6 +65,32 @@ logger = logging.getLogger(__name__)
 # ``_VALID_AI_REVIEW_SCOPES`` in mcp_server/tools/audit.py (kept local here
 # to avoid a cross-tool-group import).
 _VALID_SUGGEST_LINKS_SCOPES = frozenset({"document", "project", "global"})
+
+# REQ-L2-MC-004 (Phase 2, Task 1): default token budgets per ``depth`` value
+# for ``workspace.get_context``. Overridable per-workspace via
+# ``Workspace.ai_prompts["context_token_budgets"]``. ``None`` = unbounded.
+# Applying the budget to the actual response payload is Task 3 — this module
+# only exposes the read helper for now.
+DEFAULT_CONTEXT_TOKEN_BUDGETS: Dict[str, Optional[int]] = {
+    "summary": 300,
+    "normal": 2000,
+    "full": None,
+}
+
+_VALID_CONTEXT_DEPTHS = frozenset(DEFAULT_CONTEXT_TOKEN_BUDGETS)
+
+
+def _get_context_token_budget(workspace: Any, depth: str) -> Optional[int]:
+    """Return the token budget for *depth*, honouring per-workspace overrides.
+
+    REQ-L2-MC-004 (Phase 2): ``workspace.ai_prompts["context_token_budgets"]``
+    may override any of the ``DEFAULT_CONTEXT_TOKEN_BUDGETS`` entries. Not yet
+    applied to the actual response (Task 3) — this is the read helper only.
+    """
+    overrides = (getattr(workspace, "ai_prompts", None) or {}).get(
+        "context_token_budgets", {}
+    )
+    return overrides.get(depth, DEFAULT_CONTEXT_TOKEN_BUDGETS[depth])
 
 
 class CrossCuttingToolGroup(BaseToolGroup):
@@ -169,7 +197,12 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "enabled feature flags for the preset), change_reason_policy, "
                 "terminology (dev_mode/se_mode label profile), and "
                 "open_requirements_count (Requirements with status != "
-                "'approved' in the workspace)."
+                "'approved' in the workspace). ``depth`` (summary|normal|full, "
+                "default summary) also adds entity counts: requirements, "
+                "architecture, tests, risks. ``include_outdated`` (default "
+                "false) includes outdated items in those counts. ``role`` is "
+                "an optional label echoed back for prompt-shaping by the "
+                "caller — it never filters the returned data."
             ),
             "inputSchema": {
                 "type": "object",
@@ -177,6 +210,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "workspace_id": {
                         "type": "string",
                         "description": "Optional UUID of the workspace to summarise.",
+                    },
+                    "depth": {
+                        "type": "string",
+                        "enum": ["summary", "normal", "full"],
+                        "description": "Response depth (default 'summary').",
+                    },
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": "Include outdated items in entity counts (default false).",
+                    },
+                    "role": {
+                        "type": "string",
+                        "description": "Optional caller role label (documentation only, never filters data).",
                     },
                 },
             },
@@ -408,14 +454,32 @@ class CrossCuttingToolGroup(BaseToolGroup):
         """workspace.get_context — full workspace status summary for agent orientation.
 
         REQ-L2-MC-004: returns preset, terminology, coverage summary, open requirements.
+
+        Phase 2 (Task 1): ``depth`` (summary|normal|full) additionally returns
+        per-entity-type counts (requirements/architecture/tests/risks).
+        ``include_outdated`` controls whether outdated items are folded into
+        those counts. ``role`` is a label only — it is echoed back verbatim
+        and MUST NOT change which data is returned (no per-role filtering).
         """
         workspace_id_str = params.get("workspace_id")
+        depth = params.get("depth") or "summary"
+        if depth not in _VALID_CONTEXT_DEPTHS:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Parameter 'depth' must be one of {sorted(_VALID_CONTEXT_DEPTHS)}.",
+            )
+        include_outdated = bool(params.get("include_outdated", False))
+        role = params.get("role") or ""
 
         context_data: Dict[str, Any] = {
             "tenant_id": str(auth_context.tenant_id),
             "user_id": str(auth_context.user_id),
             "active_roles": list(auth_context.active_roles),
         }
+        if role:
+            # Label only (documentation/prompt-shaping) — never used below to
+            # filter or alter the entity counts/preset/terminology data.
+            context_data["role"] = role
 
         if workspace_id_str:
             workspace_id = str(workspace_id_str)
@@ -445,16 +509,113 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 from persistence.tenancy import TenantContext
 
                 TenantContext.set_tenant(auth_context.tenant_id)
-                open_count = Requirement.objects.filter(
+                open_reqs_qs = Requirement.objects.filter(
                     artifact__workspace_id=UUID(workspace_id)
-                ).exclude(status="approved").count()
-                context_data["open_requirements_count"] = open_count
+                ).exclude(status="approved")
+                # REQ-006 fix: outdated requirements must not count as "open"
+                # unless the caller explicitly asked to include them.
+                if not include_outdated:
+                    open_reqs_qs = open_reqs_qs.exclude(status="outdated")
+                context_data["open_requirements_count"] = open_reqs_qs.count()
             except Exception:
                 logger.debug("Could not count open requirements")
+
+            try:
+                context_data.update(
+                    self._entity_counts(
+                        workspace_id=UUID(workspace_id),
+                        tenant_id=auth_context.tenant_id,
+                        include_outdated=include_outdated,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "Could not compute entity counts for workspace=%s", workspace_id
+                )
 
         context_data["workspace_id"] = workspace_id_str
 
         return ToolResult.ok({"workspace_context": context_data})
+
+    def _entity_counts(
+        self, *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
+    ) -> Dict[str, Any]:
+        """Return per-entity-type counts for ``workspace.get_context`` depth.
+
+        REQ-L2-MC-004 (Phase 2, Task 1). Two different "outdated" exclusion
+        mechanisms are used depending on whether the entity type has a
+        denormalized ``status`` mirror column (Requirement, TestCase) or not
+        (ArchitectureElement — soft-delete state lives only in
+        ``WorkflowItemState``, see ``ArchitectureElement.get_role()``).
+        """
+        from persistence.models import ArchitectureElement, Requirement, TestCase, TestRunResult
+        from application.models import Risk
+        from workflow.services import outdated_item_ids
+
+        req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        req_outdated = req_qs.filter(status="outdated").count()
+        req_active = req_qs.exclude(status="outdated").count()
+
+        arch_qs = ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
+        arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
+        arch_total = arch_qs.count()
+        arch_outdated = arch_qs.filter(id__in=arch_outdated_ids).count()
+
+        test_qs = TestCase.objects.filter(artifact__workspace_id=workspace_id)
+        test_outdated = test_qs.filter(status="outdated").count()
+        test_active_qs = test_qs.exclude(status="outdated")
+        test_active = test_active_qs.count()
+        # TestCase.status is the WorkflowEngine lifecycle mirror
+        # (Draft/Ready/Approved/Deprecated/outdated) — it does NOT carry
+        # pass/fail execution results. Those live on TestRunResult (one row
+        # per TestCase execution within a TestRun); "pass"/"fail" here means
+        # each TestCase's most recent TestRunResult.status.
+        latest_result_status = (
+            TestRunResult.objects.filter(test_case_id=OuterRef("pk"))
+            .order_by("-executed_at", "-id")
+            .values("status")[:1]
+        )
+        test_pass = test_active_qs.annotate(
+            _latest_result_status=Subquery(latest_result_status)
+        ).filter(_latest_result_status="passed").count()
+        test_fail = test_active_qs.annotate(
+            _latest_result_status=Subquery(latest_result_status)
+        ).filter(_latest_result_status="failed").count()
+
+        risk_qs = Risk.objects.filter(workspace_id=workspace_id)
+        risk_open = risk_qs.filter(status=Risk.RiskStatus.IDENTIFIED).count()
+        risk_mitigated = risk_qs.filter(status=Risk.RiskStatus.MITIGATED).count()
+        risk_accepted = risk_qs.filter(status=Risk.RiskStatus.ACCEPTED).count()
+
+        # NOTE: "outdated" is always reported (agents need to see how many
+        # items were soft-deleted), and "total" always covers active+outdated.
+        # ``include_outdated`` does not hide the outdated count here — it only
+        # governs whether outdated items are included in list-level responses
+        # (Task 2/3 depth=normal/full) and in ``open_requirements_count``
+        # above. "active" always excludes outdated regardless of the flag.
+        return {
+            "requirements": {
+                "active": req_active,
+                "outdated": req_outdated,
+                "total": req_active + req_outdated,
+            },
+            "architecture": {
+                "active": arch_total - arch_outdated,
+                "outdated": arch_outdated,
+                "total": arch_total,
+            },
+            "tests": {
+                "active": test_active,
+                "pass": test_pass,
+                "fail": test_fail,
+                "outdated": test_outdated,
+            },
+            "risks": {
+                "open": risk_open,
+                "mitigated": risk_mitigated,
+                "accepted": risk_accepted,
+            },
+        }
 
 
 __all__ = ["CrossCuttingToolGroup"]
