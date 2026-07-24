@@ -115,6 +115,10 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "prompt_template.create",
     "prompt_template.update",
     "prompt_template.delete",
+    "diagram.create",
+    "diagram.update",
+    "diagram.outdate",
+    "diagram.reactivate",
 )
 
 # ---------------------------------------------------------------------------
@@ -297,6 +301,7 @@ class ToolRegistry:
         from mcp_server.tools.ai_derivation import AiDerivationToolGroup
         from mcp_server.tools.generic import GenericCrudToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
+        from mcp_server.tools.diagram import DiagramToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -332,6 +337,7 @@ class ToolRegistry:
             ),
             "prompt_template": PromptTemplateToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
+            "diagram": DiagramToolGroup(),
         })
 
     def list_tools(

@@ -16,6 +16,7 @@ Public import paths:
         update_diagram,
         get_diagram,
         list_versions,
+        list_diagrams,
         get_mcp_artifact,
         canvas_auto_save,
         get_canvas_diagram,
@@ -225,6 +226,39 @@ def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: "AuthContex
     )
 
 
+def list_diagrams(
+    workspace_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    include_deleted: bool = False,
+) -> list[Diagram]:
+    """Return all Diagrams for a workspace, tenant-scoped (MCP diagram.query).
+
+    Diagram has no denormalized status mirror field (see ``delete_diagram``
+    docstring) — soft-deleted (outdated) rows are excluded via
+    ``workflow.services.outdated_item_ids("Diagram", ...)`` instead of a
+    ``lifecycle_status`` filter.
+
+    Args:
+        workspace_id:    UUID of the owning workspace.
+        tenant_id:       Active tenant primary key (isolation boundary).
+        include_deleted: If True, include outdated (soft-deleted) diagrams.
+            Defaults to False.
+
+    Returns:
+        List of Diagram ORM objects, newest first.
+
+    req_id: REQ-066, REQ-173, REQ-L2-DS-001
+    """
+    qs = Diagram.objects.filter(workspace_id=workspace_id, tenant_id=tenant_id)
+    if not include_deleted:
+        from workflow.services import outdated_item_ids
+
+        qs = qs.exclude(
+            id__in=outdated_item_ids("Diagram", tenant_id=tenant_id)
+        )
+    return list(qs.order_by("-created_at"))
+
+
 def list_versions(diagram_id: uuid.UUID) -> list[DiagramVersion]:
     """Return all DiagramVersions for a Diagram, sorted by version_number.
 
@@ -430,6 +464,7 @@ __all__ = [
     "get_diagram",
     "get_diagram_header",
     "delete_diagram",
+    "list_diagrams",
     "list_versions",
     "get_mcp_artifact",
     # Canvas editor — COMP-DS-006
