@@ -20,7 +20,7 @@
     "@codemirror/view": "^6.34.0",
     "@dagrejs/dagre": "^3.0.0",
     "@tanstack/react-query": "^5.101.2",
-    "@tanstack/react-virtual": "^3.14.6",
+    "@tanstack/react-virtual": "^3.14.8",
     "@xyflow/react": "^12.11.2",
     "fabric": "^6.4.0",
     "i18next": "^23.0.0",
