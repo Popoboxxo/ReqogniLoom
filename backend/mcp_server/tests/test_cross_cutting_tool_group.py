@@ -454,3 +454,119 @@ def test_get_context_test_pass_count_ignores_null_executed_at_placeholder(tenant
     )
     # The placeholder is not a "fail", so fail count should remain 0
     assert ctx_data["tests"]["fail"] == 0
+
+
+@pytest.mark.django_db
+def test_get_context_full_depth_includes_all_fields(
+    workspace_with_outdated_requirement, auth_ctx
+):
+    """REQ-L2-MC-004 (Phase 2, Task 3): depth=full adds recent_changes on top
+    of everything depth=normal already returns."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    workspace_id, tenant_id, outdated_req_id = workspace_with_outdated_requirement
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.get_context",
+        params={"workspace_id": str(workspace_id), "depth": "full"},
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result.success is True
+    ctx = result.data["workspace_context"]
+    assert isinstance(ctx["requirements_list"], list)
+    assert isinstance(ctx["architecture_list"], list)
+    assert isinstance(ctx["tests_list"], list)
+    assert isinstance(ctx["recent_changes"], list)
+    assert len(ctx["recent_changes"]) >= 1
+
+    entry = ctx["recent_changes"][0]
+    assert entry.keys() >= {"entity_type", "title", "timestamp"}
+    outdate_entries = [e for e in ctx["recent_changes"] if e["entity_type"] == "Requirement"]
+    assert any(e["title"] == "Outdated" for e in outdate_entries)
+
+
+@pytest.fixture
+def workspace_with_many_requirements(tenant_workspace_ctx):
+    """A workspace with enough Requirements that a naive summary payload
+    would exceed the default ``summary`` token budget (300 tokens)."""
+    from application.requirement_service import RequirementService
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    _ensure_workflow(tenant, workspace, "standard", "Requirement")
+
+    svc = RequirementService()
+    for i in range(50):
+        svc.create_requirement(
+            workspace_id=workspace.id,
+            title=f"Requirement number {i} with a fairly long descriptive title",
+            ctx=ctx,
+        )
+
+    return workspace.id, tenant.id
+
+
+@pytest.mark.django_db
+def test_get_context_summary_depth_is_truncated_under_budget(
+    workspace_with_many_requirements, auth_ctx
+):
+    """REQ-L2-MC-004 (Phase 2, Task 3): depth=summary must stay under the
+    configured token budget even if the naive payload would exceed it."""
+    import json
+
+    from mcp_server.tools.cross_cutting import (
+        CrossCuttingToolGroup,
+        DEFAULT_CONTEXT_TOKEN_BUDGETS,
+    )
+
+    workspace_id, tenant_id = workspace_with_many_requirements
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.get_context",
+        params={"workspace_id": str(workspace_id), "depth": "summary"},
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result.success is True
+    ctx = result.data["workspace_context"]
+    estimated_tokens = len(json.dumps(ctx, default=str)) // 4
+    assert estimated_tokens <= DEFAULT_CONTEXT_TOKEN_BUDGETS["summary"]
+    # depth=summary never had list keys to begin with — the budget should
+    # never raise, just leave the (already small) payload as-is.
+    assert ctx["requirements"]["total"] >= 50
+
+
+@pytest.mark.django_db
+def test_workspace_can_override_token_budget(workspace_with_data, auth_ctx):
+    """REQ-L2-MC-004 (Phase 2, Task 3): a workspace-level
+    ``ai_prompts["context_token_budgets"]`` override must be honoured."""
+    import json
+
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    workspace_id, tenant_id = workspace_with_data
+
+    TenantContext.set_tenant(tenant_id)
+    try:
+        workspace = Workspace.objects.get(id=workspace_id)
+        workspace.ai_prompts = {"context_token_budgets": {"normal": 1}}
+        workspace.save()
+    finally:
+        TenantContext.clear_tenant()
+
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.get_context",
+        params={"workspace_id": str(workspace_id), "depth": "normal"},
+        auth_context=auth_ctx, api_key="",
+    )
+
+    assert result.success is True
+    ctx = result.data["workspace_context"]
+    # Budget of 1 token forces every list key to be dropped.
+    assert "requirements_list" not in ctx
+    assert "architecture_list" not in ctx
+    assert "tests_list" not in ctx

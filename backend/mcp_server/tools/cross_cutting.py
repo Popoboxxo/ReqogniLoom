@@ -547,9 +547,126 @@ class CrossCuttingToolGroup(BaseToolGroup):
                         "Could not compute entity lists for workspace=%s", workspace_id
                     )
 
+            if depth == "full":
+                try:
+                    context_data["recent_changes"] = self._recent_changes(
+                        workspace_id=UUID(workspace_id),
+                        tenant_id=auth_context.tenant_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Could not compute recent_changes for workspace=%s", workspace_id
+                    )
+
+            # REQ-L2-MC-004 (Phase 2, Task 3): apply the per-depth token
+            # budget as the final step, honouring per-workspace overrides
+            # (Workspace.ai_prompts["context_token_budgets"]).
+            try:
+                from persistence.models import Workspace
+                from persistence.tenancy import TenantContext as _TenantContext
+
+                _TenantContext.set_tenant(auth_context.tenant_id)
+                workspace_obj = Workspace.objects.filter(id=UUID(workspace_id)).first()
+            except Exception:
+                logger.debug(
+                    "Could not load workspace for token-budget lookup workspace=%s",
+                    workspace_id,
+                )
+                workspace_obj = None
+
+            budget = _get_context_token_budget(workspace_obj, depth)
+            context_data = self._truncate_to_budget(context_data, budget)
+
         context_data["workspace_id"] = workspace_id_str
 
         return ToolResult.ok({"workspace_context": context_data})
+
+    def _recent_changes(
+        self, *, workspace_id: UUID, tenant_id: UUID, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Return the most recent workflow transitions across all item types.
+
+        REQ-L2-MC-004 (Phase 2, Task 3): ``depth=full`` field. Queries
+        ``WorkflowHistoryEntry`` directly via its own ``workspace_id`` column
+        (confirmed present on the model — no per-entity-type join needed to
+        find the entries themselves). Titles are then resolved in a second,
+        bulk step per ``item_type`` (one query per distinct entity type
+        represented in the result, not one query per entry).
+        """
+        from workflow.models import WorkflowHistoryEntry
+
+        entries = list(
+            WorkflowHistoryEntry.objects.filter(workspace_id=workspace_id)
+            .select_related("item_state")
+            .order_by("-transitioned_at")[:limit]
+        )
+        if not entries:
+            return []
+
+        ids_by_type: Dict[str, List[UUID]] = {}
+        for entry in entries:
+            ids_by_type.setdefault(entry.item_state.item_type, []).append(
+                entry.item_state.item_id
+            )
+
+        # item_type -> (model, title field name)
+        title_lookup: Dict[str, Any] = {}
+        try:
+            from persistence.models import ArchitectureElement, Requirement, TestCase
+
+            type_model_map = {
+                "Requirement": Requirement,
+                "ArchitectureElement": ArchitectureElement,
+                "TestCase": TestCase,
+            }
+            for item_type, item_ids in ids_by_type.items():
+                model = type_model_map.get(item_type)
+                if model is None:
+                    continue
+                title_lookup.update(
+                    dict(model.objects.filter(id__in=item_ids).values_list("id", "title"))
+                )
+        except Exception:
+            logger.debug("Could not resolve titles for recent_changes workspace=%s", workspace_id)
+
+        return [
+            {
+                "entity_type": entry.item_state.item_type,
+                "title": title_lookup.get(
+                    entry.item_state.item_id, str(entry.item_state.item_id)
+                ),
+                "timestamp": (
+                    entry.transitioned_at.isoformat() if entry.transitioned_at else None
+                ),
+            }
+            for entry in entries
+        ]
+
+    def _truncate_to_budget(
+        self, context_data: Dict[str, Any], budget: "int | None"
+    ) -> Dict[str, Any]:
+        """Soft-truncate *context_data* under *budget* tokens — never raises.
+
+        REQ-L2-MC-004 (Phase 2, Task 3): rough token estimate (1 token ~= 4
+        chars of the JSON-serialized payload). If over budget, drop the
+        most expensive list-shaped keys first, re-checking after each drop,
+        until under budget or nothing left to drop.
+        """
+        import json
+
+        if budget is None:
+            return context_data
+
+        serialized = json.dumps(context_data, default=str)
+        if len(serialized) // 4 <= budget:
+            return context_data
+
+        trimmed = dict(context_data)
+        for list_key in ("tests_list", "architecture_list", "requirements_list", "recent_changes"):
+            if len(json.dumps(trimmed, default=str)) // 4 <= budget:
+                break
+            trimmed.pop(list_key, None)
+        return trimmed
 
     def _entity_counts(
         self, *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
