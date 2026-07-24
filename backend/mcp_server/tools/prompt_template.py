@@ -69,13 +69,12 @@ regardless of whether a prior active row exists. Rationale:
 from __future__ import annotations
 
 from typing import Any, Dict
-from uuid import UUID
 
 from django.db import IntegrityError
 
+from application.prompt_template_versioning import publish_new_version
 from auth_tenancy.context import AuthContext
 from persistence.models import PROMPT_TEMPLATE_DEFAULTS, PromptTemplate
-from persistence.transactions import atomic_transaction
 
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -288,7 +287,7 @@ class PromptTemplateToolGroup(BaseToolGroup):
         ).exists()
 
         try:
-            new_row = self._publish_new_version(
+            new_row = publish_new_version(
                 tenant_id=auth_context.tenant_id,
                 name=str(name),
                 content=str(content),
@@ -324,46 +323,6 @@ class PromptTemplateToolGroup(BaseToolGroup):
                 "content": new_row.content,
             }
         )
-
-    @staticmethod
-    @atomic_transaction
-    def _publish_new_version(
-        *, tenant_id: UUID, name: str, content: str, workspace_id: UUID | None
-    ) -> PromptTemplate:
-        """Deactivate the current active row (if any) and create version N+1.
-
-        Runs inside a single ``atomic_transaction`` so that deactivating the
-        prior row and creating the new one either both happen or neither
-        does. ``PromptTemplate.save()`` already enforces "at most one active
-        row per (tenant, workspace_id, name)" via its own Tenant-row mutex
-        (see that method's docstring) -- this method does not need to
-        duplicate that locking, only to sequence the two saves inside one
-        transaction.
-        """
-        prior = (
-            PromptTemplate.objects.filter(
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-                name=name,
-                is_active=True,
-            )
-            .first()
-        )
-        next_version = (prior.version + 1) if prior is not None else 1
-        if prior is not None:
-            prior.is_active = False
-            prior.save(update_fields=["is_active"])
-
-        new_row = PromptTemplate(
-            tenant_id=tenant_id,
-            name=name,
-            content=content,
-            version=next_version,
-            is_active=True,
-            workspace_id=workspace_id,
-        )
-        new_row.save()
-        return new_row
 
 
 __all__ = ["PromptTemplateToolGroup"]

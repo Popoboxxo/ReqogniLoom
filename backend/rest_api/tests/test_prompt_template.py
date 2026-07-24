@@ -129,8 +129,11 @@ def test_patch_updates_single_slot_leaving_others_intact(pt_tenant):
     )
 
     set_request_tenant(pt_tenant.id)
-    row = PromptTemplate.objects.get(tenant_id=pt_tenant.id)
-    assert row.need_to_sysreq == "custom prompt {n}"
+    row = PromptTemplate.objects.get(
+        tenant_id=pt_tenant.id, name="need_to_sysreq", workspace_id=None
+    )
+    assert row.content == "custom prompt {n}"
+    assert row.is_active is True
 
 
 @override_settings(**_JWT_OVERRIDES)
@@ -226,16 +229,36 @@ def test_non_admin_is_forbidden(pt_tenant):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-def test_singleton_one_row_per_tenant(pt_tenant):
-    """Repeated access never creates more than one row per tenant."""
+def test_singleton_one_active_row_per_tenant_scope(pt_tenant):
+    """At most one ACTIVE tenant-global row per slot; GET never creates rows.
+
+    Phase 4 replaced the old 3-fixed-field tenant-singleton PromptTemplate
+    with a named/versioned model (see ``persistence.models.PromptTemplate``),
+    so "exactly one row per tenant" no longer holds -- a reset publishes a
+    new version rather than mutating in place, and untouched slots never get
+    a row at all. What the REST contract actually guarantees is: (a) GET is
+    read-only and never creates a row, and (b) at most one row is *active*
+    per (tenant, workspace_id=None, name) scope at any time.
+    """
     client = APIClient()
     _auth(client, _login(client, "ptadmin"))
 
     client.get("/api/v1/prompt-templates/")
+    set_request_tenant(pt_tenant.id)
+    assert PromptTemplate.objects.filter(tenant_id=pt_tenant.id).count() == 0
+
     client.patch(
         "/api/v1/prompt-templates/", {"need_to_sysreq": "x"}, format="json"
     )
     client.post("/api/v1/prompt-templates/reset/", {}, format="json")
 
     set_request_tenant(pt_tenant.id)
-    assert PromptTemplate.objects.filter(tenant_id=pt_tenant.id).count() == 1
+    # Only "need_to_sysreq" was ever customised, so only it has row history;
+    # the reset published a second (default-content) version of it.
+    assert PromptTemplate.objects.filter(tenant_id=pt_tenant.id).count() == 2
+    assert (
+        PromptTemplate.objects.filter(
+            tenant_id=pt_tenant.id, is_active=True
+        ).count()
+        == 1
+    )
