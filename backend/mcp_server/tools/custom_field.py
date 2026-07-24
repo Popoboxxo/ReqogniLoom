@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional
 from auth_tenancy.context import AuthContext
 
 from application.custom_field_service import CustomFieldService
+from application.services import NotFoundError
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -102,9 +103,11 @@ class CustomFieldToolGroup(BaseToolGroup):
 
         try:
             definition = service.get_definition(auth_context, definition_id)
+        except NotFoundError:
+            return ToolResult.error("NOT_FOUND", "Custom field definition not found")
         except Exception as exc:
-            # CustomFieldService.get_definition raises NotFoundError or similar
-            return ToolResult.error("NOT_FOUND", str(exc))
+            logger.exception("Error fetching custom field definition id=%s", definition_id)
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
 
         return ToolResult.ok({"definition": _definition_to_dict(definition)})
 
