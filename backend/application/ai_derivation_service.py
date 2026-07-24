@@ -59,7 +59,7 @@ from django.core.cache import cache
 
 from auth_tenancy.context import AuthContext
 from persistence.models import (
-    PROMPT_TEMPLATE_DEFAULTS,
+    PROMPT_TEMPLATE_DEFAULTS as _CORE_PROMPT_TEMPLATE_DEFAULTS,
     ArchitectureElement,
     PromptTemplate,
     Requirement,
@@ -146,6 +146,25 @@ DECISION_TO_ADR_PROMPT_TEMPLATE = (
     'decision>", "consequences": "<what becomes easier or harder as a '
     'result>"}.'
 )
+
+# Canonical slot registry for this module's 7 derive flows (Phase 4,
+# REQ-L2-PT-001). Deliberately NOT the same object as
+# ``persistence.models.PROMPT_TEMPLATE_DEFAULTS`` (imported above as
+# ``_CORE_PROMPT_TEMPLATE_DEFAULTS``): that dict only knows the original 3
+# tenant-editable slots and is still relied on as-is by other, not-yet-migrated
+# callers (``settings_service.py``, ``mcp_server/tools/prompt_template.py``,
+# the REST prompt-template views) — extending it in place would be an
+# out-of-scope change to Layer 0 persistence code. This module-local dict
+# merges that base with the 4 Phase-3 hardcoded prompt constants above, giving
+# :meth:`AiDerivationService._get_template_content` one factory-default
+# lookup table covering all 7 names this service derives with.
+PROMPT_TEMPLATE_DEFAULTS: Dict[str, str] = {
+    **_CORE_PROMPT_TEMPLATE_DEFAULTS,
+    "testcase_derive": TESTCASE_DERIVE_PROMPT_TEMPLATE,
+    "architecture_to_risk": ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE,
+    "workspace_to_glossary": WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE,
+    "decision_to_adr": DECISION_TO_ADR_PROMPT_TEMPLATE,
+}
 
 # ---------------------------------------------------------------------------
 # LLM derivation response caching (REQ-105, DEEP_SYSTEM_ANALYSIS.md F5.1)
@@ -275,7 +294,9 @@ class AiDerivationService(ServiceBase):
         if need is None:
             raise NotFoundError(f"StakeholderNeed {stakeholder_need_id} not found")
 
-        template = self._get_slot(ctx, "need_to_sysreq")
+        template = self._get_template_content(
+            ctx, "need_to_sysreq", workspace_id=need.artifact.workspace_id
+        )
         prompt = self._render(
             template,
             n=count,
@@ -351,7 +372,9 @@ class AiDerivationService(ServiceBase):
         ]
         available_ids = {entry["id"] for entry in arch_payload}
 
-        template = self._get_slot(ctx, "sysreq_to_arch_assign")
+        template = self._get_template_content(
+            ctx, "sysreq_to_arch_assign", workspace_id=workspace_id
+        )
         prompt = self._render(
             template,
             req_title=req.title,
@@ -422,7 +445,11 @@ class AiDerivationService(ServiceBase):
             for ae in arch_elements
         ]
 
-        template = self._get_slot(ctx, "sysreq_decompose_next_level")
+        template = self._get_template_content(
+            ctx,
+            "sysreq_decompose_next_level",
+            workspace_id=req.artifact.workspace_id,
+        )
         prompt = self._render(
             template,
             req_title=req.title,
@@ -490,8 +517,11 @@ class AiDerivationService(ServiceBase):
 
         req = self._get_requirement(requirement_id)
 
+        template = self._get_template_content(
+            ctx, "testcase_derive", workspace_id=req.artifact.workspace_id
+        )
         prompt = self._render(
-            TESTCASE_DERIVE_PROMPT_TEMPLATE,
+            template,
             req_title=req.title,
             req_description=truncate_prompt_content(req.description or ""),
         )
@@ -559,8 +589,11 @@ class AiDerivationService(ServiceBase):
 
         ae = self._get_architecture_element(architecture_element_id)
 
+        template = self._get_template_content(
+            ctx, "architecture_to_risk", workspace_id=ae.artifact.workspace_id
+        )
         prompt = self._render(
-            ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE,
+            template,
             ae_title=ae.title,
             ae_description=truncate_prompt_content(ae.description or ""),
         )
@@ -649,9 +682,10 @@ class AiDerivationService(ServiceBase):
             "(workspace has no requirements or architecture elements yet)"
         )
 
-        prompt = self._render(
-            WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE, workspace_text=workspace_text
+        template = self._get_template_content(
+            ctx, "workspace_to_glossary", workspace_id=workspace.id
         )
+        prompt = self._render(template, workspace_text=workspace_text)
 
         raw = self._complete(
             prompt,
@@ -717,8 +751,11 @@ class AiDerivationService(ServiceBase):
 
         workspace = self._get_workspace(workspace_id)
 
+        template = self._get_template_content(
+            ctx, "decision_to_adr", workspace_id=workspace.id
+        )
         prompt = self._render(
-            DECISION_TO_ADR_PROMPT_TEMPLATE,
+            template,
             decision_description=truncate_prompt_content(decision_description or ""),
         )
 
@@ -1217,16 +1254,40 @@ class AiDerivationService(ServiceBase):
         return "editor" not in transition_dto.allowed_roles
 
     @staticmethod
-    def _get_slot(ctx: AuthContext, slot: str) -> str:
-        """Return the tenant's prompt content for *slot* (or the factory default).
+    def _get_template_content(
+        ctx: AuthContext, name: str, workspace_id: "UUID | None" = None
+    ) -> str:
+        """Return the effective prompt content for *name* (Phase 4, REQ-L2-PT-001).
+
+        Fallback chain, most-specific first:
+
+          1. The active workspace-scoped override
+             (``workspace_id=workspace_id, name=name``) — only consulted when
+             *workspace_id* is given.
+          2. The active tenant-global row (``workspace_id=None, name=name``).
+          3. ``PROMPT_TEMPLATE_DEFAULTS[name]`` — this module's factory
+             default, covering all 7 derive-flow prompts.
 
         The default manager is already tenant-scoped by the active
-        TenantContext, so a plain ``.filter().first()`` is sufficient.
+        TenantContext (set by every caller via ``_set_tenant_context``), so
+        ``tenant_id=ctx.tenant_id`` here is belt-and-suspenders, not the sole
+        scoping mechanism.
         """
-        row = PromptTemplate.objects.filter(tenant_id=ctx.tenant_id).first()
+        if workspace_id is not None:
+            row = PromptTemplate.objects.filter(
+                tenant_id=ctx.tenant_id,
+                workspace_id=workspace_id,
+                name=name,
+                is_active=True,
+            ).first()
+            if row is not None:
+                return row.content
+        row = PromptTemplate.objects.filter(
+            tenant_id=ctx.tenant_id, workspace_id=None, name=name, is_active=True
+        ).first()
         if row is not None:
-            return row.get_slot(slot)
-        return PROMPT_TEMPLATE_DEFAULTS[slot]
+            return row.content
+        return PROMPT_TEMPLATE_DEFAULTS[name]
 
     @staticmethod
     def _render(template: str, **values: Any) -> str:

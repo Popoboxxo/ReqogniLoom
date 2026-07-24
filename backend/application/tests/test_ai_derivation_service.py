@@ -92,6 +92,77 @@ class _CaptureProvider:
 
 
 # ---------------------------------------------------------------------------
+# Task 2 (Phase 4) — _get_template_content unified fallback chain
+# ---------------------------------------------------------------------------
+
+
+def test_get_template_content_falls_back_workspace_then_global_then_factory(
+    tenant, workspace, auth_context
+):
+    """workspace override -> tenant-global -> factory default, in that order."""
+    from uuid import uuid4
+
+    from application.ai_derivation_service import TESTCASE_DERIVE_PROMPT_TEMPLATE
+
+    svc = AiDerivationService()
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        # No rows at all -> factory default
+        assert (
+            svc._get_template_content(auth_context, "testcase_derive")
+            == TESTCASE_DERIVE_PROMPT_TEMPLATE
+        )
+
+        # Tenant-global row exists -> used over factory default
+        PromptTemplate.objects.create(
+            tenant_id=auth_context.tenant_id,
+            name="testcase_derive",
+            content="GLOBAL OVERRIDE {req_title}",
+            version=1,
+            is_active=True,
+            workspace_id=None,
+        )
+        assert "GLOBAL OVERRIDE" in svc._get_template_content(
+            auth_context, "testcase_derive"
+        )
+
+        # Workspace-specific row exists -> used over tenant-global
+        PromptTemplate.objects.create(
+            tenant_id=auth_context.tenant_id,
+            name="testcase_derive",
+            content="WORKSPACE OVERRIDE {req_title}",
+            version=1,
+            is_active=True,
+            workspace_id=workspace.id,
+        )
+        assert "WORKSPACE OVERRIDE" in svc._get_template_content(
+            auth_context, "testcase_derive", workspace_id=workspace.id
+        )
+        # but a DIFFERENT workspace still gets the tenant-global one
+        assert "GLOBAL OVERRIDE" in svc._get_template_content(
+            auth_context, "testcase_derive", workspace_id=uuid4()
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def test_get_template_content_covers_all_seven_names():
+    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 7 template names."""
+    from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
+
+    assert set(PROMPT_TEMPLATE_DEFAULTS.keys()) == {
+        "need_to_sysreq",
+        "sysreq_to_arch_assign",
+        "sysreq_decompose_next_level",
+        "testcase_derive",
+        "architecture_to_risk",
+        "workspace_to_glossary",
+        "decision_to_adr",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Flow 1 — derive requirements from a stakeholder need
 # ---------------------------------------------------------------------------
 
@@ -301,7 +372,11 @@ def test_old_template_with_only_req_title_still_renders(
     try:
         PromptTemplate.objects.create(
             tenant_id=auth_context.tenant_id,
-            sysreq_to_arch_assign="Legacy prompt for {req_title} only.",
+            name="sysreq_to_arch_assign",
+            content="Legacy prompt for {req_title} only.",
+            version=1,
+            is_active=True,
+            workspace_id=None,
         )
     finally:
         TenantContext.clear_tenant()
