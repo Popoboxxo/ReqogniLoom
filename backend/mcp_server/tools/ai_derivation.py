@@ -217,27 +217,39 @@ class AiDerivationToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         workspace_id = need.artifact.workspace_id
 
+        # Each draft is written in its own atomic transaction
+        # (AiDerivationService._write_derived_entity is wrapped in
+        # @atomic_transaction): a failure on one draft (e.g. an invalid
+        # trace-link semantics violation) only rolls back that one draft and
+        # must not discard the drafts already written in this loop. Failures
+        # are collected instead of raised so the caller can see exactly
+        # which drafts succeeded and which failed (REQ-L3-PL003-002).
         written: List[Dict[str, Any]] = []
+        failed: List[Dict[str, Any]] = []
         for draft in preview["drafts"]:
-            result = self._service._write_derived_entity(
-                ctx=auth_context,
-                workspace_id=workspace_id,
-                item_type="Requirement",
-                create_fn=lambda d=draft: self._requirement_service.create_requirement(
-                    workspace_id=workspace_id,
-                    title=d["title"],
+            try:
+                result = self._service._write_derived_entity(
                     ctx=auth_context,
-                    description=d["description"],
-                ),
-                # TraceLinkService._resolve_artifact_id only resolves
-                # Artifact/Requirement/ArchitectureElement/Adr ids — not
-                # StakeholderNeed ids — so the link must be sourced from the
-                # need's *artifact* id, not its own PK.
-                source_entity_id=need.artifact_id,
-                source_item_type="StakeholderNeed",
-                link_type=LinkType.DERIVES_FROM.value,
-                policy=policy,
-            )
+                    workspace_id=workspace_id,
+                    item_type="Requirement",
+                    create_fn=lambda d=draft: self._requirement_service.create_requirement(
+                        workspace_id=workspace_id,
+                        title=d["title"],
+                        ctx=auth_context,
+                        description=d["description"],
+                    ),
+                    # TraceLinkService._resolve_artifact_id only resolves
+                    # Artifact/Requirement/ArchitectureElement/Adr ids — not
+                    # StakeholderNeed ids — so the link must be sourced from
+                    # the need's *artifact* id, not its own PK.
+                    source_entity_id=need.artifact_id,
+                    source_item_type="StakeholderNeed",
+                    link_type=LinkType.DERIVES_FROM.value,
+                    policy=policy,
+                )
+            except (ValidationError, NotFoundError) as exc:
+                failed.append({"draft": draft, "error": str(exc)})
+                continue
             written.append(result)
             write_mcp_audit(
                 ctx=auth_context,
@@ -248,7 +260,10 @@ class AiDerivationToolGroup(BaseToolGroup):
                 api_key=api_key,
                 details={"source_need_id": str(need_id), "policy": policy},
             )
-        return ToolResult.ok({"written": written})
+        response: Dict[str, Any] = {"written": written}
+        if failed:
+            response["failed"] = failed
+        return ToolResult.ok(response)
 
     def _handle_suggest_architecture(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
@@ -340,23 +355,31 @@ class AiDerivationToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         workspace_id = parent_req.artifact.workspace_id
 
+        # See _handle_derive_requirements above: each draft is written in its
+        # own atomic transaction, so a failure on one draft must not discard
+        # the drafts already written in this loop.
         written: List[Dict[str, Any]] = []
+        failed: List[Dict[str, Any]] = []
         for draft in preview["drafts"]:
-            result = self._service._write_derived_entity(
-                ctx=auth_context,
-                workspace_id=workspace_id,
-                item_type="Requirement",
-                create_fn=lambda d=draft: self._requirement_service.create_requirement(
-                    workspace_id=workspace_id,
-                    title=d["title"],
+            try:
+                result = self._service._write_derived_entity(
                     ctx=auth_context,
-                    description=d["description"],
-                ),
-                source_entity_id=requirement_id,
-                source_item_type="Requirement",
-                link_type=LinkType.DERIVES_FROM.value,
-                policy=policy,
-            )
+                    workspace_id=workspace_id,
+                    item_type="Requirement",
+                    create_fn=lambda d=draft: self._requirement_service.create_requirement(
+                        workspace_id=workspace_id,
+                        title=d["title"],
+                        ctx=auth_context,
+                        description=d["description"],
+                    ),
+                    source_entity_id=requirement_id,
+                    source_item_type="Requirement",
+                    link_type=LinkType.DERIVES_FROM.value,
+                    policy=policy,
+                )
+            except (ValidationError, NotFoundError) as exc:
+                failed.append({"draft": draft, "error": str(exc)})
+                continue
             written.append(result)
             write_mcp_audit(
                 ctx=auth_context,
@@ -367,7 +390,10 @@ class AiDerivationToolGroup(BaseToolGroup):
                 api_key=api_key,
                 details={"parent_requirement_id": str(requirement_id), "policy": policy},
             )
-        return ToolResult.ok({"written": written})
+        response: Dict[str, Any] = {"written": written}
+        if failed:
+            response["failed"] = failed
+        return ToolResult.ok(response)
 
 
 __all__ = ["AiDerivationToolGroup"]

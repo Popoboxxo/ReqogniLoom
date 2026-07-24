@@ -507,6 +507,49 @@ def test_write_derived_entity_creates_entity_and_trace_link(
     assert TraceLink.objects.filter(id=result["trace_link_id"]).exists()
 
 
+def test_write_derived_entity_rolls_back_entity_on_trace_link_failure(
+    need_with_workflow, auth_context
+):
+    """REQ-L3-PL003-002: a failing trace-link creation must not leave an
+    orphaned, un-linked entity behind.
+
+    ``create_trace_link`` raises ``ValidationError`` for an invalid
+    ``link_type`` *before* touching the database (confirmed by reading
+    ``TraceLinkService.create_trace_link`` before writing this test — the
+    ``link_type not in VALID_LINK_TYPES`` check runs first). Since
+    ``_write_derived_entity`` is wrapped in ``@atomic_transaction``, the
+    ``Requirement`` created moments earlier by ``create_fn()`` must be rolled
+    back together with the failed trace link — no partially-written entity
+    may survive in the database.
+    """
+    need_id, workspace_id = need_with_workflow
+    svc = AiDerivationService()
+
+    from persistence.models import Requirement
+
+    before_count = Requirement.objects.count()
+
+    with pytest.raises(ValidationError):
+        svc._write_derived_entity(
+            ctx=auth_context,
+            workspace_id=workspace_id,
+            item_type="Requirement",
+            create_fn=lambda: RequirementService().create_requirement(
+                workspace_id=workspace_id,
+                title="Should Be Rolled Back",
+                ctx=auth_context,
+                description="orphan candidate",
+            ),
+            source_entity_id=need_id,
+            source_item_type="StakeholderNeed",
+            link_type="not-a-real-link-type",
+            policy="manual",
+        )
+
+    assert Requirement.objects.count() == before_count
+    assert not Requirement.objects.filter(title="Should Be Rolled Back").exists()
+
+
 def test_write_derived_entity_policy_auto_advances_state(
     need_with_workflow, auth_context
 ):

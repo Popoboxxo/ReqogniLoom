@@ -52,6 +52,7 @@ from traceability.types import LinkType
 
 from application.base import NotFoundError, ServiceBase, ValidationError
 from llm_adapter.providers import truncate_prompt_content
+from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -500,6 +501,7 @@ class AiDerivationService(ServiceBase):
     # returns; only the persistence step is new here.
     # ------------------------------------------------------------------
 
+    @atomic_transaction
     def _write_derived_entity(
         self,
         *,
@@ -524,6 +526,12 @@ class AiDerivationService(ServiceBase):
              new entity (REQ-L2-AS-010, via TraceLinkService).
           3. When ``policy == "auto"``, walks the new entity forward through
              its real workflow transitions via :meth:`_auto_approve`.
+
+        The whole body runs inside a single ``transaction.atomic()`` block
+        (via :func:`~persistence.transactions.atomic_transaction`): if trace
+        link creation fails (e.g. an invalid link type or an SE-mode
+        semantics violation), the just-created entity is rolled back too —
+        no orphaned, un-linked entity is left behind (REQ-L3-PL003-002).
 
         Args:
             ctx: Authenticated, tenant-scoped context (also the actor
