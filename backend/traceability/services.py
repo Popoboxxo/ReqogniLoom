@@ -177,10 +177,15 @@ def get_coverage_data(
     """Return per-requirement test-case data (used by VCRMReportGenerator).
 
     IF-TE-INT-004. REQ-L2-TE-013.
+
+    Note: explicitly passes ``include_outdated=True`` to preserve this
+    facade's pre-existing behavior (show all requirements, including
+    outdated ones) regardless of the underlying calculator's new default.
     """
     return _coverage_calc.get_coverage_data(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
+        include_outdated=True,
     )
 
 

@@ -81,9 +81,13 @@ class VCRMReportGenerator:
         Returns:
             VCRMMatrix with all rows.
         """
+        # Explicitly include outdated Requirements/TestCases: a compliance
+        # report (VCRM) must not silently hide entries just because the
+        # underlying CoverageCalculator changed its default behavior.
         coverage_data = self._coverage.get_coverage_data(
             workspace_id=workspace_id,
             baseline_id=baseline_id,
+            include_outdated=True,
         )
 
         if not coverage_data.entries:

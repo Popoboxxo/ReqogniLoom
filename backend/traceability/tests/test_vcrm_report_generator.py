@@ -82,6 +82,26 @@ class TestVCRMGeneration:
         )
         assert tc_row is not None
 
+    def test_vcrm_still_shows_outdated_requirement(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """Regression: VCRM must keep showing outdated Requirements.
+
+        CoverageCalculator.get_coverage_data() defaults to
+        include_outdated=False, but VCRMReportGenerator is an audit/
+        compliance report and must explicitly opt back into
+        include_outdated=True so outdated requirements don't silently
+        disappear from the matrix.
+        """
+        with active_tenant(tenant_a):
+            _, req = make_requirement(tenant_a, workspace_a, "Outdated-Req")
+            req.status = "outdated"
+            req.save(update_fields=["status"])
+
+            matrix = vcrm_gen.generate_vcrm(workspace_a.id)
+
+        assert any(r.requirement_id == str(req.id) for r in matrix.rows)
+
     def test_to_dict_returns_serializable_structure(
         self, vcrm_gen, tenant_a, workspace_a
     ):
