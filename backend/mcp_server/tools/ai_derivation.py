@@ -27,16 +27,34 @@ Tools:
       Requirement -> next-level requirement drafts (allocated reqs only;
       write: creates one child Requirement + "derives-from" TraceLink per
       draft).
+  ai_derivation.derive_risks_from_architecture(architecture_element_id, mode, policy)
+      ArchitectureElement -> proposed risk drafts (write: creates one Risk +
+      "traces" TraceLink per draft). See the naming-decision note below.
 
 The default LLM provider is ``mock`` (credential-free, deterministic), so the
 tools work without external configuration (REQ-L2-AI-002).
 
-REQ-L2-MC-007: because ``mode="write"`` makes all three tools capable of
-mutation, all three are registered in ``mcp_server.tool_registry``'s
+REQ-L2-MC-007: because ``mode="write"`` makes all four tools capable of
+mutation, all four are registered in ``mcp_server.tool_registry``'s
 ``_WRITE_TOOL_PREFIXES``. That RBAC gate is name-based (not mode-aware), so
 this is a deliberate, new restriction: as of Phase 3, a Viewer can no longer
-call any of these three tools at all — including ``mode="preview"``. Before
+call any of these four tools at all — including ``mode="preview"``. Before
 Phase 3 a Viewer could preview drafts; that capability is now Editor+ only.
+
+Naming decision (Phase 3, Task 3) — ``derive_risks_from_architecture`` lives
+under the ``ai_derivation`` prefix, NOT ``risk`` (the design spec's suggested
+name is ``risk.derive_from_architecture``): ``ToolGroupRouter`` routes a
+prefix to exactly ONE registered tool-group instance, and the ``"risk"``
+prefix is already owned by a single ``GenericCrudToolGroup("risk",
+RiskService)`` instance (generic CRUD shared verbatim by 5 entities: Risk,
+Issue, Adr, ChangeRequest, StakeholderNeed). Adding a "derive" concept to
+that shared class would be invasive (touches all 5 entities' tool surface
+for a capability only Risk needs), whereas ``test.derive_from_requirement``
+could live on the ``test`` prefix precisely because ``McpTestToolGroup`` is
+already a bespoke, non-generic class. Keeping the tool on ``ai_derivation``
+(deviating from the spec's suggested name) is the lower-risk choice; the
+CRUD-group-injection alternative can be revisited later if a second generic
+entity needs a derive tool.
 """
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -46,6 +64,7 @@ from auth_tenancy.context import AuthContext
 from application.ai_derivation_service import AiDerivationService, LlmResponseError
 from application.base import NotFoundError, ValidationError
 from application.requirement_service import RequirementService
+from application.risk_service import RiskService
 from mcp_server.tools.base import (
     BaseToolGroup,
     ParameterError,
@@ -106,6 +125,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         "ai_derivation.derive_requirements_from_need": "_handle_derive_requirements",
         "ai_derivation.suggest_architecture_for_requirement": "_handle_suggest_architecture",
         "ai_derivation.decompose_requirement_next_level": "_handle_decompose_next_level",
+        "ai_derivation.derive_risks_from_architecture": "_handle_derive_risks_from_architecture",
     }
 
     _TOOL_SCHEMAS = [
@@ -176,15 +196,37 @@ class AiDerivationToolGroup(BaseToolGroup):
                 "required": ["requirement_id"],
             },
         },
+        {
+            "name": "ai_derivation.derive_risks_from_architecture",
+            "description": (
+                "Propose risk drafts for an architecture element. "
+                "mode='preview' (default) returns drafts only; mode='write' "
+                "persists each draft as a Risk and links it back to the "
+                "architecture element via a 'traces' trace link."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "architecture_element_id": {
+                        "type": "string",
+                        "description": "UUID of the architecture element.",
+                    },
+                    **_MODE_POLICY_SCHEMA_PROPERTIES,
+                },
+                "required": ["architecture_element_id"],
+            },
+        },
     ]
 
     def __init__(
         self,
         service: Optional[AiDerivationService] = None,
         requirement_service: Optional[RequirementService] = None,
+        risk_service: Optional[RiskService] = None,
     ) -> None:
         self._service = service or AiDerivationService()
         self._requirement_service = requirement_service or RequirementService()
+        self._risk_service = risk_service or RiskService()
 
     def _handle_derive_requirements(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
@@ -389,6 +431,83 @@ class AiDerivationToolGroup(BaseToolGroup):
                 tool_name="ai_derivation.decompose_requirement_next_level",
                 api_key=api_key,
                 details={"parent_requirement_id": str(requirement_id), "policy": policy},
+            )
+        response: Dict[str, Any] = {"written": written}
+        if failed:
+            response["failed"] = failed
+        return ToolResult.ok(response)
+
+    def _handle_derive_risks_from_architecture(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        architecture_element_id = require_uuid(params, "architecture_element_id")
+        mode, policy = _parse_mode_policy(params)
+
+        try:
+            preview = self._service.derive_risks_from_architecture(
+                auth_context, architecture_element_id
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except LlmResponseError as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        if mode == "preview":
+            return ToolResult.ok(preview)
+
+        try:
+            ae = self._service._get_architecture_element(architecture_element_id)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        workspace_id = ae.artifact.workspace_id
+
+        # See _handle_derive_requirements above: each draft is written in its
+        # own atomic transaction, so a failure on one draft must not discard
+        # the drafts already written in this loop.
+        written: List[Dict[str, Any]] = []
+        failed: List[Dict[str, Any]] = []
+        for draft in preview["drafts"]:
+            try:
+                result = self._service._write_derived_entity(
+                    ctx=auth_context,
+                    workspace_id=workspace_id,
+                    item_type="Risk",
+                    create_fn=lambda d=draft: self._risk_service.create_risk(
+                        workspace_id=workspace_id,
+                        title=d["title"],
+                        probability=d["probability"],
+                        impact=d["impact"],
+                        ctx=auth_context,
+                        description=d["description"],
+                        category=d["category"],
+                    ),
+                    # _resolve_artifact_id resolves bare ArchitectureElement
+                    # ids directly, so the element's own id (not its artifact
+                    # id) is used as the link source — mirrors how
+                    # decompose_requirement_next_level sources its link from
+                    # requirement_id above.
+                    source_entity_id=architecture_element_id,
+                    source_item_type="ArchitectureElement",
+                    link_type=LinkType.TRACES.value,
+                    policy=policy,
+                )
+            except (ValidationError, NotFoundError) as exc:
+                failed.append({"draft": draft, "error": str(exc)})
+                continue
+            written.append(result)
+            write_mcp_audit(
+                ctx=auth_context,
+                operation="derive_risks_from_architecture",
+                entity_type="Risk",
+                entity_id=UUID(result["id"]),
+                tool_name="ai_derivation.derive_risks_from_architecture",
+                api_key=api_key,
+                details={
+                    "source_architecture_element_id": str(architecture_element_id),
+                    "policy": policy,
+                },
             )
         response: Dict[str, Any] = {"written": written}
         if failed:

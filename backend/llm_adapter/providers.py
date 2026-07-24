@@ -665,6 +665,30 @@ class MockLlmProvider(LlmCapabilityInterface):
                 ]
             )
 
+        if purpose == "derive_risks_from_architecture":
+            # Phase 3 (ai_derivation.derive_risks_from_architecture):
+            # deterministic risk drafts for the given architecture element.
+            # Mirrors the array-shaped purposes above (e.g.
+            # sysreq_decompose_next_level) — always emits valid enum values
+            # for probability/impact so the happy path never hits the
+            # service's defensive clamp, which is instead exercised by a
+            # capturing fake provider in tests.
+            ae_title = str(ctx.get("ae_title") or "Architecture element")
+            return json.dumps(
+                [
+                    {
+                        "title": f"Delivery risk for {ae_title}",
+                        "description": (
+                            f"Risk that '{ae_title}' is not delivered on time "
+                            "or does not meet its quality bar."
+                        ),
+                        "probability": "medium",
+                        "impact": "medium",
+                        "category": "technical",
+                    }
+                ]
+            )
+
         return json.dumps([])
 
 

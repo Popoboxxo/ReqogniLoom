@@ -438,6 +438,138 @@ def test_derive_testcase_truncates_long_requirement_description(
 
 
 # ---------------------------------------------------------------------------
+# Flow 5 (Phase 3) — derive risk drafts from an architecture element
+# ---------------------------------------------------------------------------
+
+
+def test_derive_risks_from_architecture_returns_drafts_with_valid_probability_impact(
+    auth_context, workspace
+):
+    """Mock provider yields a risk draft with valid enum probability/impact."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Payment Gateway", ctx=auth_context
+    )
+
+    result = AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+    assert result["architecture_element_id"] == str(ae.id)
+    assert len(result["drafts"]) >= 1
+    for draft in result["drafts"]:
+        assert set(draft.keys()) == {
+            "title",
+            "description",
+            "probability",
+            "impact",
+            "category",
+        }
+        assert draft["probability"] in ("low", "medium", "high")
+        assert draft["impact"] in ("low", "medium", "high")
+        assert draft["category"] in (
+            "technical",
+            "operational",
+            "organizational",
+            "business",
+        )
+
+
+def test_derive_risks_from_architecture_formats_prompt(auth_context, workspace, monkeypatch):
+    """The rendered prompt substitutes the architecture element title/description."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id,
+        title="Distinctive Element Title",
+        description="Distinctive Element Description",
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Distinctive Element Title" in prompt
+    assert "Distinctive Element Description" in prompt
+    assert "{ae_title}" not in prompt and "{ae_description}" not in prompt
+    assert provider.calls[0]["purpose"] == "derive_risks_from_architecture"
+
+
+def test_derive_risks_from_architecture_clamps_invalid_enum_values(
+    auth_context, workspace, monkeypatch
+):
+    """An invalid/missing probability, impact or category is clamped, not raised."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element", ctx=auth_context
+    )
+    provider = _CaptureProvider(
+        json.dumps(
+            [
+                {
+                    "title": "Hallucinated risk",
+                    "description": "d",
+                    "probability": "extreme",
+                    "impact": None,
+                    "category": "not-a-category",
+                },
+                {"title": "Sparse risk"},
+            ]
+        )
+    )
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    result = AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+    assert result["drafts"][0]["probability"] == "medium"
+    assert result["drafts"][0]["impact"] == "medium"
+    assert result["drafts"][0]["category"] == "technical"
+    assert result["drafts"][1]["probability"] == "medium"
+    assert result["drafts"][1]["impact"] == "medium"
+    assert result["drafts"][1]["category"] == "technical"
+
+
+def test_derive_risks_from_architecture_invalid_json_raises(
+    auth_context, workspace, monkeypatch
+):
+    """A non-JSON provider response surfaces as LlmResponseError."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element", ctx=auth_context
+    )
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _CaptureProvider("this is not json"),
+    )
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+
+def test_derive_risks_from_architecture_missing_element_raises(auth_context):
+    import uuid
+
+    with pytest.raises(NotFoundError):
+        AiDerivationService().derive_risks_from_architecture(auth_context, uuid.uuid4())
+
+
+def test_derive_risks_from_architecture_truncates_long_description(
+    auth_context, workspace, monkeypatch
+):
+    """An oversized element description is bounded before prompt embedding."""
+    long_description = "d" * (MAX_PROMPT_CONTENT_CHARS + 500)
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id,
+        title="Element",
+        description=long_description,
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_risks_from_architecture(auth_context, ae.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert long_description not in prompt
+    assert "[truncated]" in prompt
+
+
+# ---------------------------------------------------------------------------
 # Phase 3 — write-mode helpers (_write_derived_entity / _auto_approve)
 # ---------------------------------------------------------------------------
 

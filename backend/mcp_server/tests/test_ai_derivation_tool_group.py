@@ -1,7 +1,7 @@
 """
 REQ-L2-AI-002 — AiDerivationToolGroup MCP tool tests.
 
-Covers the three derivation tools against the credential-free mock provider,
+Covers the four derivation tools against the credential-free mock provider,
 plus schema advertisement and the invalid-input error paths. No network access.
 """
 from __future__ import annotations
@@ -179,13 +179,14 @@ def test_missing_uuid_is_validation_error(ai_ctx):
     assert result.error_code == "VALIDATION_ERROR"
 
 
-def test_schema_advertises_three_tools():
+def test_schema_advertises_four_tools():
     schemas = AiDerivationToolGroup().get_tool_schemas()
     names = {s["name"] for s in schemas}
     assert names == {
         "ai_derivation.derive_requirements_from_need",
         "ai_derivation.suggest_architecture_for_requirement",
         "ai_derivation.decompose_requirement_next_level",
+        "ai_derivation.derive_risks_from_architecture",
     }
 
 
@@ -265,6 +266,69 @@ def test_suggest_architecture_write_mode_allocates_top_choice(ai_ctx):
     assert TraceLink.objects.filter(id=written[0]["trace_link_id"]).exists()
 
 
+def test_derive_risks_from_architecture_tool(ai_ctx):
+    _tenant, ctx, workspace = ai_ctx
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Payment Gateway", ctx=ctx
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_risks_from_architecture",
+        {"architecture_element_id": str(arch.id)},
+        ctx,
+    )
+
+    assert result.success
+    assert result.data["architecture_element_id"] == str(arch.id)
+    assert len(result.data["drafts"]) >= 1
+    for draft in result.data["drafts"]:
+        assert draft["probability"] in ("low", "medium", "high")
+        assert draft["impact"] in ("low", "medium", "high")
+
+
+def test_derive_risks_from_architecture_missing_element_is_not_found(ai_ctx):
+    import uuid
+
+    _tenant, ctx, _workspace = ai_ctx
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_risks_from_architecture",
+        {"architecture_element_id": str(uuid.uuid4())},
+        ctx,
+    )
+
+    assert not result.success
+    assert result.error_code == "NOT_FOUND"
+
+
+def test_derive_risks_from_architecture_write_mode_persists_risks_and_traces(ai_ctx):
+    _tenant, ctx, workspace = ai_ctx
+    arch = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Payment Gateway", ctx=ctx
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_risks_from_architecture",
+        {"architecture_element_id": str(arch.id), "mode": "write"},
+        ctx,
+    )
+
+    assert result.success
+    written = result.data["written"]
+    assert len(written) >= 1
+    from application.models import Risk
+    from persistence.models import TraceLink
+
+    for entry in written:
+        assert entry["status"] == "draft"
+        assert Risk.objects.filter(id=entry["id"]).exists()
+        link = TraceLink.objects.get(id=entry["trace_link_id"])
+        assert link.link_type == "traces"
+
+
 def test_decompose_next_level_write_mode_persists_child_requirements(ai_ctx):
     _tenant, ctx, workspace = ai_ctx
     req = RequirementService().create_requirement(
@@ -310,7 +374,7 @@ def test_invalid_mode_is_validation_error(ai_ctx):
 
 
 def test_ai_derivation_tool_names_registered_as_write_tools():
-    """All three tools are name-gated as write tools (tool_registry._WRITE_TOOL_PREFIXES),
+    """All four tools are name-gated as write tools (tool_registry._WRITE_TOOL_PREFIXES),
     complementing the real-RBAC-dispatch proof below.
     """
     from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
@@ -322,6 +386,7 @@ def test_ai_derivation_tool_names_registered_as_write_tools():
     assert (
         "ai_derivation.decompose_requirement_next_level" in _WRITE_TOOL_PREFIXES
     )
+    assert "ai_derivation.derive_risks_from_architecture" in _WRITE_TOOL_PREFIXES
 
 
 @pytest.mark.django_db

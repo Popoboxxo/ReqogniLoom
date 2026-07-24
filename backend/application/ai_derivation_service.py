@@ -18,6 +18,9 @@ Flows (REQ-L2-AI-002):
      (SysEng 2.0 N5, ``test.derive_from_requirement``). Standard feature, no
      RuleEngine/preset gate — unlike the architecture-decompose copilot (N1)
      this flow has no rigor-preset dependency.
+  5. :meth:`derive_risks_from_architecture` — ArchitectureElement -> Risk
+     drafts (Phase 3, ``ai_derivation.derive_risks_from_architecture``).
+     Standard feature, no rigor-preset gate, same shape as flow 4.
 
 LLM access goes through the ``llm_adapter`` provider registry. The default
 provider is ``mock`` (credential-free, deterministic) so the flows and their
@@ -51,6 +54,7 @@ from persistence.models import (
 from traceability.types import LinkType
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.models import Risk
 from llm_adapter.providers import truncate_prompt_content
 from persistence.transactions import atomic_transaction
 
@@ -76,6 +80,26 @@ TESTCASE_DERIVE_PROMPT_TEMPLATE = (
     '"<short description>", "steps": [{"step": "<action>", '
     '"expected_result": "<expected outcome>"}, ...]}. '
     "Provide at least 2 and at most 6 steps."
+)
+
+# Phase 3 (Architecture -> Risk derive pair) prompt. Hardcoded rather than a
+# PromptTemplate slot for the same reason as TESTCASE_DERIVE_PROMPT_TEMPLATE
+# above: this is a new slot not among the 3 existing tenant-editable slots,
+# and adding per-tenant CRUD for it is Phase 4's job (PromptTemplate model +
+# migration), not this flow's.
+ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE = (
+    "You are a systems engineer performing risk identification. Given the "
+    "following architecture element, propose realistic risks that could "
+    "threaten its successful delivery or operation.\n\n"
+    "Architecture element title: {ae_title}\n"
+    "Architecture element description: {ae_description}\n\n"
+    "Respond with a JSON array (no prose, no markdown fences) of objects "
+    'with this exact shape: {"title": "<risk title>", "description": '
+    '"<short description>", "probability": "<low|medium|high>", '
+    '"impact": "<low|medium|high>", "category": '
+    '"<technical|operational|organizational|business>"}. '
+    "'probability' and 'impact' MUST be exactly one of 'low', 'medium' or "
+    "'high' — no other values are valid."
 )
 
 # ---------------------------------------------------------------------------
@@ -452,6 +476,77 @@ class AiDerivationService(ServiceBase):
         }
         return {"draft": draft, "requirement_id": str(req.id)}
 
+    def derive_risks_from_architecture(
+        self,
+        ctx: AuthContext,
+        architecture_element_id: UUID | str,
+    ) -> Dict[str, Any]:
+        """Flow 5 (Phase 3): propose risk drafts for an architecture element.
+
+        Standard feature — like :meth:`derive_testcase_from_requirement`, this
+        flow has no rigor-preset / RuleEngine gate and works on any
+        architecture element regardless of its position in the tree.
+
+        Follows the same Draft/Accept contract as the other flows: nothing is
+        persisted here. ``probability``/``impact`` are exactly the enum
+        fields :meth:`application.risk_service.RiskService.create_risk`
+        requires — the LLM is instructed to only emit valid enum values, but
+        the parsed response is still defensively clamped to a valid value
+        (falling back to ``"medium"``) rather than trusting the provider, so
+        a misbehaving/hallucinating provider can never crash this flow or
+        produce a draft ``create_risk`` would reject.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            architecture_element_id: Source architecture element to derive
+                risk drafts for.
+
+        Returns:
+            ``{"drafts": [{title, description, probability, impact,
+            category}], "architecture_element_id": <uuid-str>}``.
+
+        Raises:
+            NotFoundError: The architecture element does not exist for this
+                tenant.
+            LlmResponseError: The provider returned non-JSON content.
+        """
+        self._set_tenant_context(ctx)
+
+        ae = self._get_architecture_element(architecture_element_id)
+
+        prompt = self._render(
+            ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE,
+            ae_title=ae.title,
+            ae_description=truncate_prompt_content(ae.description or ""),
+        )
+
+        raw = self._complete(
+            prompt,
+            purpose="derive_risks_from_architecture",
+            artifact_id=ae.artifact_id,
+            context={"ae_title": ae.title},
+        )
+        items = self._parse_json_list(raw)
+
+        drafts = [
+            {
+                "title": str(item.get("title", "")),
+                "description": str(item.get("description", "")),
+                "probability": self._clamp_choice(
+                    item.get("probability"), Risk.Probability.values, "medium"
+                ),
+                "impact": self._clamp_choice(
+                    item.get("impact"), Risk.Impact.values, "medium"
+                ),
+                "category": self._clamp_choice(
+                    item.get("category"), Risk.Category.values, "technical"
+                ),
+            }
+            for item in items
+            if isinstance(item, dict)
+        ]
+        return {"drafts": drafts, "architecture_element_id": str(ae.id)}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -484,6 +579,37 @@ class AiDerivationService(ServiceBase):
         if need is None:
             raise NotFoundError(f"StakeholderNeed {stakeholder_need_id} not found")
         return need
+
+    def _get_architecture_element(
+        self, architecture_element_id: UUID | str
+    ) -> ArchitectureElement:
+        """Return a tenant-scoped ArchitectureElement or raise NotFoundError.
+
+        Mirrors :meth:`_get_requirement` / :meth:`_get_stakeholder_need`; used
+        by :meth:`derive_risks_from_architecture` (Phase 3).
+        """
+        ae = (
+            ArchitectureElement.objects.select_related("artifact")
+            .filter(id=architecture_element_id)
+            .first()
+        )
+        if ae is None:
+            raise NotFoundError(
+                f"ArchitectureElement {architecture_element_id} not found"
+            )
+        return ae
+
+    @staticmethod
+    def _clamp_choice(value: Any, valid_values: List[str], default: str) -> str:
+        """Return *value* if it is one of *valid_values*, else *default*.
+
+        Defensive guard against a hallucinating/misbehaving LLM response
+        (:meth:`derive_risks_from_architecture`): ``RiskService.create_risk``
+        requires ``probability``/``impact``/``category`` to be exact enum
+        values, so an invalid or missing value must never propagate as far
+        as that call.
+        """
+        return value if value in valid_values else default
 
     @staticmethod
     def _allocated_target_ids(req: Requirement) -> List[UUID]:
