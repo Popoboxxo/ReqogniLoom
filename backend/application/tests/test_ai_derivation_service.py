@@ -751,3 +751,147 @@ def test_auto_approve_never_raises_when_role_lacks_permission(
     status = svc._auto_approve("Requirement", created.id, workspace_id, viewer_ctx)
 
     assert status == "draft"
+
+
+# ---------------------------------------------------------------------------
+# Flow 6 (Phase 3, Task 4) — derive glossary term drafts from a workspace
+# ---------------------------------------------------------------------------
+
+
+def test_derive_glossary_from_workspace_returns_term_definition_drafts(
+    auth_context, workspace
+):
+    RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Some requirement", ctx=auth_context
+    )
+
+    result = AiDerivationService().derive_glossary_from_workspace(
+        auth_context, workspace.id
+    )
+
+    assert result["workspace_id"] == str(workspace.id)
+    assert "drafts" in result
+    assert len(result["drafts"]) >= 1
+    for draft in result["drafts"]:
+        assert set(draft.keys()) == {
+            "term",
+            "definition",
+            "synonyms",
+            "abbreviation",
+        }
+        assert isinstance(draft["synonyms"], list)
+
+
+def test_derive_glossary_from_workspace_works_with_no_content_yet(
+    auth_context, workspace
+):
+    """An empty workspace (no requirements/architecture yet) does not raise."""
+    result = AiDerivationService().derive_glossary_from_workspace(
+        auth_context, workspace.id
+    )
+
+    assert result["workspace_id"] == str(workspace.id)
+    assert "drafts" in result
+
+
+def test_derive_glossary_from_workspace_formats_prompt(
+    auth_context, workspace, monkeypatch
+):
+    RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Distinctive Requirement Title",
+        description="Distinctive Requirement Description",
+        ctx=auth_context,
+    )
+    ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id,
+        title="Distinctive Element Title",
+        description="Distinctive Element Description",
+        ctx=auth_context,
+    )
+    provider = _CaptureProvider(json.dumps([]))
+    monkeypatch.setattr("llm_adapter.providers.get_provider", lambda *a, **k: provider)
+
+    AiDerivationService().derive_glossary_from_workspace(auth_context, workspace.id)
+
+    prompt = provider.calls[0]["prompt"]
+    assert "Distinctive Requirement Title" in prompt
+    assert "Distinctive Requirement Description" in prompt
+    assert "Distinctive Element Title" in prompt
+    assert "Distinctive Element Description" in prompt
+    assert "{workspace_text}" not in prompt
+    assert provider.calls[0]["purpose"] == "derive_glossary_from_workspace"
+
+
+def test_derive_glossary_from_workspace_invalid_json_raises(
+    auth_context, workspace, monkeypatch
+):
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider",
+        lambda *a, **k: _CaptureProvider("this is not json"),
+    )
+
+    with pytest.raises(LlmResponseError):
+        AiDerivationService().derive_glossary_from_workspace(auth_context, workspace.id)
+
+
+def test_derive_glossary_from_workspace_missing_workspace_raises(auth_context):
+    import uuid
+
+    with pytest.raises(NotFoundError):
+        AiDerivationService().derive_glossary_from_workspace(auth_context, uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# _write_glossary_term_draft (Phase 3, Task 4)
+# ---------------------------------------------------------------------------
+
+
+def test_write_glossary_term_draft_persists_term_no_trace_link(
+    auth_context, workspace
+):
+    """The written entity carries no trace_link_id (no TraceLink is created)."""
+    from persistence.models import GlossaryTerm
+
+    svc = AiDerivationService()
+
+    result = svc._write_glossary_term_draft(
+        ctx=auth_context,
+        workspace_id=workspace.id,
+        term="Sprint",
+        definition="A fixed-length iteration.",
+        synonyms=["Iteration"],
+        abbreviation="",
+        policy="manual",
+    )
+
+    assert "trace_link_id" not in result
+    assert result["status"] == "draft"
+    assert GlossaryTerm.objects.filter(id=result["id"], term="Sprint").exists()
+
+
+def test_write_glossary_term_draft_duplicate_term_raises_validation_error(
+    auth_context, workspace
+):
+    """Colliding (workspace, term) surfaces as ValidationError, not an IntegrityError."""
+    svc = AiDerivationService()
+    svc._write_glossary_term_draft(
+        ctx=auth_context,
+        workspace_id=workspace.id,
+        term="Backlog",
+        definition="A prioritized list of work.",
+        synonyms=[],
+        abbreviation="",
+        policy="manual",
+    )
+
+    with pytest.raises(ValidationError):
+        svc._write_glossary_term_draft(
+            ctx=auth_context,
+            workspace_id=workspace.id,
+            term="Backlog",
+            definition="A different definition for the same term.",
+            synonyms=[],
+            abbreviation="",
+            policy="manual",
+        )

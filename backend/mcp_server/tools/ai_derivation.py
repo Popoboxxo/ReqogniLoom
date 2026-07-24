@@ -30,6 +30,12 @@ Tools:
   ai_derivation.derive_risks_from_architecture(architecture_element_id, mode, policy)
       ArchitectureElement -> proposed risk drafts (write: creates one Risk +
       "traces" TraceLink per draft). See the naming-decision note below.
+  ai_derivation.derive_glossary_from_workspace(workspace_id, mode, policy)
+      Workspace -> proposed glossary term drafts (write: creates one
+      GlossaryTerm per draft; creates NO TraceLink — a bare Workspace id is
+      not a resolvable TraceLinkService source and GlossaryTerm has no
+      backing Artifact either, see
+      ``AiDerivationService._write_glossary_term_draft``'s docstring).
 
 The default LLM provider is ``mock`` (credential-free, deterministic), so the
 tools work without external configuration (REQ-L2-AI-002).
@@ -126,6 +132,7 @@ class AiDerivationToolGroup(BaseToolGroup):
         "ai_derivation.suggest_architecture_for_requirement": "_handle_suggest_architecture",
         "ai_derivation.decompose_requirement_next_level": "_handle_decompose_next_level",
         "ai_derivation.derive_risks_from_architecture": "_handle_derive_risks_from_architecture",
+        "ai_derivation.derive_glossary_from_workspace": "_handle_derive_glossary_from_workspace",
     }
 
     _TOOL_SCHEMAS = [
@@ -214,6 +221,28 @@ class AiDerivationToolGroup(BaseToolGroup):
                     **_MODE_POLICY_SCHEMA_PROPERTIES,
                 },
                 "required": ["architecture_element_id"],
+            },
+        },
+        {
+            "name": "ai_derivation.derive_glossary_from_workspace",
+            "description": (
+                "Propose glossary term drafts extracted from a workspace's "
+                "requirements and architecture elements. mode='preview' "
+                "(default) returns drafts only; mode='write' persists each "
+                "draft as a GlossaryTerm. No trace link is created (a "
+                "Workspace id cannot be a trace-link source and GlossaryTerm "
+                "has no backing Artifact)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "UUID of the workspace to scan.",
+                    },
+                    **_MODE_POLICY_SCHEMA_PROPERTIES,
+                },
+                "required": ["workspace_id"],
             },
         },
     ]
@@ -508,6 +537,71 @@ class AiDerivationToolGroup(BaseToolGroup):
                     "source_architecture_element_id": str(architecture_element_id),
                     "policy": policy,
                 },
+            )
+        response: Dict[str, Any] = {"written": written}
+        if failed:
+            response["failed"] = failed
+        return ToolResult.ok(response)
+
+    def _handle_derive_glossary_from_workspace(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        workspace_id = require_uuid(params, "workspace_id")
+        mode, policy = _parse_mode_policy(params)
+
+        try:
+            preview = self._service.derive_glossary_from_workspace(
+                auth_context, workspace_id
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except LlmResponseError as exc:
+            return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+        if mode == "preview":
+            return ToolResult.ok(preview)
+
+        # Unlike the other three write paths, this one creates NO trace
+        # link (see AiDerivationService._write_glossary_term_draft's
+        # docstring: a bare Workspace id is not a resolvable
+        # TraceLinkService source, and GlossaryTerm has no backing Artifact
+        # to link from either).
+        #
+        # Each draft is written in its own atomic transaction
+        # (_write_glossary_term_draft is wrapped in @atomic_transaction), so
+        # a failure on one draft must not discard the drafts already written
+        # in this loop. GlossaryService.create() raises ValidationError for
+        # a colliding (workspace, term) pair (REQ-L1-044's unique_together
+        # constraint) — caught here exactly like every other draft-specific
+        # ValidationError, never left to crash the batch
+        # (REQ-L3-PL003-002).
+        written: List[Dict[str, Any]] = []
+        failed: List[Dict[str, Any]] = []
+        for draft in preview["drafts"]:
+            try:
+                result = self._service._write_glossary_term_draft(
+                    ctx=auth_context,
+                    workspace_id=workspace_id,
+                    term=draft["term"],
+                    definition=draft["definition"],
+                    synonyms=draft["synonyms"],
+                    abbreviation=draft["abbreviation"],
+                    policy=policy,
+                )
+            except (ValidationError, NotFoundError) as exc:
+                failed.append({"draft": draft, "error": str(exc)})
+                continue
+            written.append(result)
+            write_mcp_audit(
+                ctx=auth_context,
+                operation="derive_glossary_from_workspace",
+                entity_type="GlossaryTerm",
+                entity_id=UUID(result["id"]),
+                tool_name="ai_derivation.derive_glossary_from_workspace",
+                api_key=api_key,
+                details={"source_workspace_id": str(workspace_id), "policy": policy},
             )
         response: Dict[str, Any] = {"written": written}
         if failed:

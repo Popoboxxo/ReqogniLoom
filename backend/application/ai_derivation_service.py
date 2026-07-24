@@ -21,6 +21,12 @@ Flows (REQ-L2-AI-002):
   5. :meth:`derive_risks_from_architecture` — ArchitectureElement -> Risk
      drafts (Phase 3, ``ai_derivation.derive_risks_from_architecture``).
      Standard feature, no rigor-preset gate, same shape as flow 4.
+  6. :meth:`derive_glossary_from_workspace` — Workspace -> GlossaryTerm
+     drafts (Phase 3, ``ai_derivation.derive_glossary_from_workspace``).
+     Standard feature, no rigor-preset gate. Unlike flows 1-5, the write
+     path creates NO trace link back to the source (a bare Workspace id is
+     not a resolvable TraceLinkService source, see
+     :meth:`_write_glossary_term_draft`).
 
 LLM access goes through the ``llm_adapter`` provider registry. The default
 provider is ``mock`` (credential-free, deterministic) so the flows and their
@@ -50,10 +56,12 @@ from persistence.models import (
     Requirement,
     StakeholderNeed,
     TraceLink,
+    Workspace,
 )
 from traceability.types import LinkType
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.glossary_service import GlossaryService
 from application.models import Risk
 from llm_adapter.providers import truncate_prompt_content
 from persistence.transactions import atomic_transaction
@@ -100,6 +108,20 @@ ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE = (
     '"<technical|operational|organizational|business>"}. '
     "'probability' and 'impact' MUST be exactly one of 'low', 'medium' or "
     "'high' — no other values are valid."
+)
+
+# Phase 3 (Workspace -> Glossary derive pair, Task 4) prompt. Hardcoded for
+# the same reason as ARCHITECTURE_TO_RISK_PROMPT_TEMPLATE above.
+WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE = (
+    "You are a systems engineer extracting a project glossary. Given the "
+    "following requirement and architecture element titles/descriptions from "
+    "a workspace, extract domain-specific terms and their definitions.\n\n"
+    "Workspace content:\n{workspace_text}\n\n"
+    "Respond with a JSON array (no prose, no markdown fences) of objects "
+    'with this exact shape: {"term": "<term>", "definition": '
+    '"<short definition>", "synonyms": ["<synonym>", ...], "abbreviation": '
+    '"<abbreviation or empty string>"}. Only extract terms that are actually '
+    "domain-specific (not generic English words)."
 )
 
 # ---------------------------------------------------------------------------
@@ -547,6 +569,91 @@ class AiDerivationService(ServiceBase):
         ]
         return {"drafts": drafts, "architecture_element_id": str(ae.id)}
 
+    def derive_glossary_from_workspace(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+    ) -> Dict[str, Any]:
+        """Flow 6 (Phase 3, Task 4): propose glossary term drafts for a workspace.
+
+        Standard feature — like :meth:`derive_testcase_from_requirement` and
+        :meth:`derive_risks_from_architecture`, this flow has no rigor-preset
+        / RuleEngine gate. Unlike those two, the source is not a single
+        artifact but every Requirement and ArchitectureElement currently in
+        the workspace: their titles and descriptions are collected into one
+        block of text and handed to the LLM to extract domain terms from.
+        This intentionally reuses only a lightweight, direct query — not the
+        full context-assembly machinery of the N1 architecture-decompose
+        copilot, which this flow does not need.
+
+        Follows the same Draft/Accept contract as the other flows: nothing is
+        persisted here.
+
+        Args:
+            ctx: Authenticated, tenant-scoped context.
+            workspace_id: Workspace to scan for candidate terms.
+
+        Returns:
+            ``{"drafts": [{term, definition, synonyms, abbreviation}],
+            "workspace_id": <uuid-str>}``.
+
+        Raises:
+            NotFoundError: The workspace does not exist for this tenant.
+            LlmResponseError: The provider returned non-JSON content.
+        """
+        self._set_tenant_context(ctx)
+
+        workspace = self._get_workspace(workspace_id)
+
+        fragments: List[str] = []
+        requirements = Requirement.objects.filter(
+            artifact__workspace_id=workspace.id
+        )
+        for req in requirements:
+            fragments.append(
+                f"Requirement: {req.title}\n"
+                f"{truncate_prompt_content(req.description or '')}"
+            )
+        arch_elements = ArchitectureElement.objects.filter(
+            artifact__workspace_id=workspace.id
+        )
+        for ae in arch_elements:
+            fragments.append(
+                f"Architecture element: {ae.title}\n"
+                f"{truncate_prompt_content(ae.description or '')}"
+            )
+        workspace_text = "\n\n".join(fragments) or (
+            "(workspace has no requirements or architecture elements yet)"
+        )
+
+        prompt = self._render(
+            WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE, workspace_text=workspace_text
+        )
+
+        raw = self._complete(
+            prompt,
+            purpose="derive_glossary_from_workspace",
+            artifact_id=str(workspace.id),
+            context={"workspace_id": str(workspace.id)},
+        )
+        items = self._parse_json_list(raw)
+
+        drafts = [
+            {
+                "term": str(item.get("term", "")),
+                "definition": str(item.get("definition", "")),
+                "synonyms": (
+                    [str(s) for s in item["synonyms"]]
+                    if isinstance(item.get("synonyms"), list)
+                    else []
+                ),
+                "abbreviation": str(item.get("abbreviation", "")),
+            }
+            for item in items
+            if isinstance(item, dict)
+        ]
+        return {"drafts": drafts, "workspace_id": str(workspace.id)}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -598,6 +705,17 @@ class AiDerivationService(ServiceBase):
                 f"ArchitectureElement {architecture_element_id} not found"
             )
         return ae
+
+    def _get_workspace(self, workspace_id: UUID | str) -> Workspace:
+        """Return a tenant-scoped Workspace or raise NotFoundError.
+
+        Mirrors :meth:`_get_requirement` / :meth:`_get_architecture_element`;
+        used by :meth:`derive_glossary_from_workspace` (Phase 3, Task 4).
+        """
+        workspace = Workspace.objects.filter(id=workspace_id).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+        return workspace
 
     @staticmethod
     def _clamp_choice(value: Any, valid_values: List[str], default: str) -> str:
@@ -732,6 +850,75 @@ class AiDerivationService(ServiceBase):
             "status": status,
             "trace_link_id": str(link.id),
         }
+
+    @atomic_transaction
+    def _write_glossary_term_draft(
+        self,
+        *,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        term: str,
+        definition: str,
+        synonyms: List[str],
+        abbreviation: str,
+        policy: str = "manual",
+    ) -> Dict[str, Any]:
+        """Persist one derived GlossaryTerm draft (Phase 3, Task 4).
+
+        Deliberately NOT built on :meth:`_write_derived_entity`, unlike every
+        other write-mode helper in this class. Two things that helper relies
+        on do not hold for this pair:
+
+          1. ``_write_derived_entity`` links the new entity back to its
+             source via ``TraceLinkService.create_trace_link``, which resolves
+             its ``source_id``/``target_id`` through
+             ``_resolve_artifact_id`` — that only accepts a bare
+             Artifact/Requirement/ArchitectureElement/Adr id, never a
+             Workspace id (verified by reading the method directly). So no
+             trace link back to the source Workspace can ever be created for
+             this flow — this is a deliberate asymmetry, the same one already
+             documented for Decision -> ADR.
+          2. ``_write_derived_entity`` also assumes the created entity exposes
+             ``.artifact_id`` (used as the trace-link endpoint even when no
+             link involves it) — ``GlossaryTerm`` has no backing Artifact at
+             all (unlike Requirement/Risk/ArchitectureElement), so that
+             assumption does not hold either.
+
+        ``policy="auto"`` still reuses :meth:`_auto_approve`: unlike the
+        trace-link machinery this flow genuinely doesn't need,
+        ``GlossaryTerm`` *does* have its own real design/review/approve/retire
+        workflow (``glossary_term_default``, see
+        ``workflow/management/commands/provision_workflow_definitions.py``),
+        so best-effort auto-advancement is still meaningful here.
+
+        ``GlossaryService.create`` already raises :class:`ValidationError`
+        for a colliding ``(workspace, term)`` pair (REQ-L1-044's
+        ``unique_together`` constraint) via its own pre-check — the caller
+        (``AiDerivationToolGroup``) catches that the same way it already
+        catches ``ValidationError`` from every other write-mode helper, so no
+        extra handling is needed here.
+
+        Returns:
+            ``{"id": <uuid-str>, "term": str, "status": <final status string>}``.
+        """
+        self._set_tenant_context(ctx)
+
+        created = GlossaryService().create(
+            ctx=ctx,
+            workspace_id=workspace_id,
+            term=term,
+            definition=definition,
+            synonyms=synonyms,
+            abbreviation=abbreviation,
+        )
+
+        status = "draft"
+        if policy == "auto":
+            status = self._auto_approve(
+                "GlossaryTerm", created.id, workspace_id, ctx
+            )
+
+        return {"id": str(created.id), "term": created.term, "status": status}
 
     def _auto_approve(
         self,
@@ -960,5 +1147,6 @@ __all__ = [
     "MOCK_FALLBACK_MARKER",
     "DERIVATION_CACHE_TTL_SECONDS",
     "TESTCASE_DERIVE_PROMPT_TEMPLATE",
+    "WORKSPACE_TO_GLOSSARY_PROMPT_TEMPLATE",
     "invalidate_derivation_cache",
 ]

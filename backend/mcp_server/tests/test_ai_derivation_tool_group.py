@@ -179,7 +179,7 @@ def test_missing_uuid_is_validation_error(ai_ctx):
     assert result.error_code == "VALIDATION_ERROR"
 
 
-def test_schema_advertises_four_tools():
+def test_schema_advertises_five_tools():
     schemas = AiDerivationToolGroup().get_tool_schemas()
     names = {s["name"] for s in schemas}
     assert names == {
@@ -187,6 +187,7 @@ def test_schema_advertises_four_tools():
         "ai_derivation.suggest_architecture_for_requirement",
         "ai_derivation.decompose_requirement_next_level",
         "ai_derivation.derive_risks_from_architecture",
+        "ai_derivation.derive_glossary_from_workspace",
     }
 
 
@@ -374,7 +375,7 @@ def test_invalid_mode_is_validation_error(ai_ctx):
 
 
 def test_ai_derivation_tool_names_registered_as_write_tools():
-    """All four tools are name-gated as write tools (tool_registry._WRITE_TOOL_PREFIXES),
+    """All five tools are name-gated as write tools (tool_registry._WRITE_TOOL_PREFIXES),
     complementing the real-RBAC-dispatch proof below.
     """
     from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
@@ -387,6 +388,100 @@ def test_ai_derivation_tool_names_registered_as_write_tools():
         "ai_derivation.decompose_requirement_next_level" in _WRITE_TOOL_PREFIXES
     )
     assert "ai_derivation.derive_risks_from_architecture" in _WRITE_TOOL_PREFIXES
+    assert "ai_derivation.derive_glossary_from_workspace" in _WRITE_TOOL_PREFIXES
+
+
+def test_derive_glossary_from_workspace_tool(ai_ctx):
+    _tenant, ctx, workspace = ai_ctx
+    RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Some requirement", ctx=ctx
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_glossary_from_workspace",
+        {"workspace_id": str(workspace.id)},
+        ctx,
+    )
+
+    assert result.success
+    assert result.data["workspace_id"] == str(workspace.id)
+    assert len(result.data["drafts"]) >= 1
+    for draft in result.data["drafts"]:
+        assert set(draft.keys()) == {"term", "definition", "synonyms", "abbreviation"}
+
+
+def test_derive_glossary_from_workspace_missing_workspace_is_not_found(ai_ctx):
+    import uuid
+
+    _tenant, ctx, _workspace = ai_ctx
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_glossary_from_workspace",
+        {"workspace_id": str(uuid.uuid4())},
+        ctx,
+    )
+
+    assert not result.success
+    assert result.error_code == "NOT_FOUND"
+
+
+def test_derive_glossary_from_workspace_write_mode_persists_terms_no_trace_link(ai_ctx):
+    _tenant, ctx, workspace = ai_ctx
+    RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Some requirement", ctx=ctx
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_glossary_from_workspace",
+        {"workspace_id": str(workspace.id), "mode": "write"},
+        ctx,
+    )
+
+    assert result.success
+    written = result.data["written"]
+    assert len(written) >= 1
+    from persistence.models import GlossaryTerm
+
+    for entry in written:
+        assert entry["status"] == "draft"
+        assert "trace_link_id" not in entry
+        assert GlossaryTerm.objects.filter(id=entry["id"]).exists()
+
+
+def test_derive_glossary_from_workspace_write_mode_duplicate_term_is_reported_as_failed(
+    ai_ctx,
+):
+    """A colliding (workspace, term) surfaces per-draft in 'failed', not a 500."""
+    from application.glossary_service import GlossaryService
+
+    _tenant, ctx, workspace = ai_ctx
+    RequirementService().create_requirement(
+        workspace_id=workspace.id, title="Some requirement", ctx=ctx
+    )
+    # Pre-create a term with the exact name the mock provider will emit for
+    # this workspace (see llm_adapter.providers "derive_glossary_from_workspace"
+    # branch: f"Term for {workspace_id}").
+    GlossaryService().create(
+        ctx=ctx,
+        workspace_id=workspace.id,
+        term=f"Term for {workspace.id}",
+        definition="Pre-existing term.",
+    )
+
+    result = _exec(
+        AiDerivationToolGroup(),
+        "ai_derivation.derive_glossary_from_workspace",
+        {"workspace_id": str(workspace.id), "mode": "write"},
+        ctx,
+    )
+
+    assert result.success
+    assert result.data["written"] == []
+    assert len(result.data["failed"]) == 1
+    assert "already exists" in result.data["failed"][0]["error"]
 
 
 @pytest.mark.django_db

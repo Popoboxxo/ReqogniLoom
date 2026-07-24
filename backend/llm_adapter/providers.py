@@ -689,6 +689,28 @@ class MockLlmProvider(LlmCapabilityInterface):
                 ]
             )
 
+        if purpose == "derive_glossary_from_workspace":
+            # Phase 3, Task 4 (ai_derivation.derive_glossary_from_workspace):
+            # deterministic single-term draft. Never invents workspace
+            # content — it just confirms a term was requested for the given
+            # workspace, mirroring the shape the real prompt asks for.
+            workspace_id = str(ctx.get("workspace_id") or "workspace")
+            return json.dumps(
+                [
+                    {
+                        "term": f"Term for {workspace_id}",
+                        "definition": (
+                            "Placeholder definition extracted from the "
+                            "workspace's requirements and architecture "
+                            "(mock provider — no semantic extraction "
+                            "performed)."
+                        ),
+                        "synonyms": [],
+                        "abbreviation": "",
+                    }
+                ]
+            )
+
         return json.dumps([])
 
 
