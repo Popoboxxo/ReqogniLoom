@@ -126,6 +126,45 @@ def test_get_context_summary_depth_returns_entity_counts(workspace_with_data, au
 
 
 @pytest.mark.django_db
+def test_get_context_normal_depth_returns_item_lists(workspace_with_data, auth_ctx):
+    """REQ-L2-MC-004 (Phase 2, Task 2): depth=normal adds per-item lists."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    workspace_id, tenant_id = workspace_with_data
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.get_context",
+        params={"workspace_id": str(workspace_id), "depth": "normal"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is True
+    ctx = result.data["workspace_context"]
+    assert isinstance(ctx["requirements_list"], list)
+    assert ctx["requirements_list"][0].keys() >= {"id", "title", "status", "level"}
+    assert isinstance(ctx["architecture_list"], list)
+    assert isinstance(ctx["tests_list"], list)
+
+
+@pytest.mark.django_db
+def test_get_context_summary_depth_omits_item_lists(workspace_with_data, auth_ctx):
+    """REQ-L2-MC-004 (Phase 2, Task 2): depth=summary must not compute item lists."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    workspace_id, tenant_id = workspace_with_data
+    group = CrossCuttingToolGroup()
+    result = group.execute_tool(
+        "workspace.get_context",
+        params={"workspace_id": str(workspace_id), "depth": "summary"},
+        auth_context=auth_ctx, api_key="",
+    )
+    assert result.success is True
+    ctx = result.data["workspace_context"]
+    assert "requirements_list" not in ctx
+    assert "architecture_list" not in ctx
+    assert "tests_list" not in ctx
+
+
+@pytest.mark.django_db
 def test_get_context_excludes_outdated_by_default(workspace_with_outdated_requirement, auth_ctx):
     from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
 

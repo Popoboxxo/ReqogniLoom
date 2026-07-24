@@ -533,6 +533,20 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "Could not compute entity counts for workspace=%s", workspace_id
                 )
 
+            if depth in ("normal", "full"):
+                try:
+                    context_data.update(
+                        self._entity_lists(
+                            workspace_id=UUID(workspace_id),
+                            tenant_id=auth_context.tenant_id,
+                            include_outdated=include_outdated,
+                        )
+                    )
+                except Exception:
+                    logger.exception(
+                        "Could not compute entity lists for workspace=%s", workspace_id
+                    )
+
         context_data["workspace_id"] = workspace_id_str
 
         return ToolResult.ok({"workspace_context": context_data})
@@ -615,6 +629,76 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "mitigated": risk_mitigated,
                 "accepted": risk_accepted,
             },
+        }
+
+    def _entity_lists(
+        self, *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
+    ) -> Dict[str, Any]:
+        """Return lightweight per-item lists for ``depth in ("normal", "full")``.
+
+        REQ-L2-MC-004 (Phase 2, Task 2). Reuses the same outdated-exclusion
+        pattern as ``_entity_counts``: Requirement/TestCase via the
+        denormalized ``status`` mirror, ArchitectureElement via
+        ``outdated_item_ids()``.
+
+        Field-name notes (verified against persistence.models):
+        - ArchitectureElement has no ``name``/``type``/``status`` fields —
+          it uses ``title``, ``element_type``, ``lifecycle_status``. Those
+          are aliased below to the documented ``name``/``type``/``status``
+          keys via ``.values()`` expression kwargs.
+        - TestCase has no direct FK to Requirement. The link is expressed
+          via a TraceLink (source=TestCase artifact, target=Requirement
+          artifact, link_type="verifies" — traceability.types.LinkType.
+          VERIFIES). ``linked_req_id`` is resolved via a correlated
+          subquery through TraceLink.target__requirement__id (reverse
+          OneToOne from Artifact to Requirement).
+        """
+        from django.db.models import OuterRef as _OuterRef, Subquery as _Subquery
+
+        from persistence.models import ArchitectureElement, Requirement, TestCase, TraceLink
+        from traceability.types import LinkType
+        from workflow.services import outdated_item_ids
+
+        req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
+        if not include_outdated:
+            req_qs = req_qs.exclude(status="outdated")
+        requirements = list(req_qs.values("id", "title", "status", "level"))
+
+        arch_qs = ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
+        if not include_outdated:
+            arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
+            arch_qs = arch_qs.exclude(id__in=arch_outdated_ids)
+        architecture = list(
+            arch_qs.values(
+                "id",
+                name=F("title"),
+                type=F("element_type"),
+                status=F("lifecycle_status"),
+            )
+        )
+
+        linked_req_subquery = _Subquery(
+            TraceLink.objects.filter(
+                source_id=_OuterRef("artifact_id"),
+                link_type=LinkType.VERIFIES.value,
+                target__requirement__isnull=False,
+            )
+            .order_by("id")
+            .values("target__requirement__id")[:1]
+        )
+        test_qs = TestCase.objects.filter(artifact__workspace_id=workspace_id)
+        if not include_outdated:
+            test_qs = test_qs.exclude(status="outdated")
+        tests = list(
+            test_qs.annotate(linked_req_id=linked_req_subquery).values(
+                "id", "title", "status", "linked_req_id"
+            )
+        )
+
+        return {
+            "requirements_list": requirements,
+            "architecture_list": architecture,
+            "tests_list": tests,
         }
 
 
