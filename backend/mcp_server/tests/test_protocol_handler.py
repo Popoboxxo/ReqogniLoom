@@ -124,19 +124,19 @@ class TestHttpTransportAdapter:
 
     def test_extract_api_key_from_header(self):
         body = json.dumps({"jsonrpc": "2.0", "method": "x", "id": 1}).encode()
-        headers = {"HTTP_X_API_KEY": "rf_testkey"}
+        headers = {"HTTP_X_API_KEY": "reqlo_testkey"}
         adapter = HttpTransportAdapter(body=body, headers=headers)
         frame = adapter.read_request()
-        assert adapter.extract_api_key(frame, headers) == "rf_testkey"
+        assert adapter.extract_api_key(frame, headers) == "reqlo_testkey"
 
     def test_extract_api_key_from_params(self):
         body = json.dumps({
             "jsonrpc": "2.0", "method": "x", "id": 1,
-            "params": {"api_key": "rf_fromparams"}
+            "params": {"api_key": "reqlo_fromparams"}
         }).encode()
         adapter = HttpTransportAdapter(body=body)
         frame = adapter.read_request()
-        assert adapter.extract_api_key(frame, {}) == "rf_fromparams"
+        assert adapter.extract_api_key(frame, {}) == "reqlo_fromparams"
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ def _make_registry_mock(return_result: ToolResult) -> MagicMock:
 
 
 def _make_valid_body(method: str = "requirement.get", request_id: int = 1, extra_params: dict = None) -> bytes:
-    params = {"api_key": "rf_validkey"}
+    params = {"api_key": "reqlo_validkey"}
     if extra_params:
         params.update(extra_params)
     frame = {"jsonrpc": "2.0", "method": method, "id": request_id, "params": params}
@@ -236,7 +236,7 @@ def _make_tools_call_body(
         "method": "tools/call",
         "id": request_id,
         "params": {
-            "api_key": "rf_validkey",
+            "api_key": "reqlo_validkey",
             "name": tool_name,
             "arguments": arguments or {},
         },

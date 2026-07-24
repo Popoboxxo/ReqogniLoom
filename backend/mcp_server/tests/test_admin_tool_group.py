@@ -62,7 +62,7 @@ VIEWER_CTX = AuthContext(
     api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
 )
 
-VALID_API_KEY = "rf_admin_test_key"
+VALID_API_KEY = "reqlo_admin_test_key"
 WORKSPACE_UUID = UUID("00000000-0000-0000-0000-000000000010")
 WORKSPACE_NAME = "Production Workspace"
 

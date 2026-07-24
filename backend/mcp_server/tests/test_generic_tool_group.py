@@ -102,7 +102,7 @@ def test_entity_specific_service_create_dispatches_to_prefixed_method():
     result = group._handle_create(
         params={"workspace_id": str(WORKSPACE_ID), "title": "T"},
         auth_context=CTX,
-        api_key="rf_x",
+        api_key="reqlo_x",
     )
 
     assert result.success is True
@@ -116,7 +116,7 @@ def test_entity_specific_service_update_dispatches_to_prefixed_method():
     group = _group_for(service)
 
     result = group._handle_update(
-        params={"id": str(ENTITY_ID), "title": "New"}, auth_context=CTX, api_key="rf_x"
+        params={"id": str(ENTITY_ID), "title": "New"}, auth_context=CTX, api_key="reqlo_x"
     )
 
     assert result.success is True
@@ -129,7 +129,7 @@ def test_entity_specific_service_delete_dispatches_to_prefixed_method():
     service = _EntitySpecificService()
     group = _group_for(service)
 
-    result = group._handle_delete(params={"id": str(ENTITY_ID)}, auth_context=CTX, api_key="rf_x")
+    result = group._handle_delete(params={"id": str(ENTITY_ID)}, auth_context=CTX, api_key="reqlo_x")
 
     assert result.success is True
     service.delete_widget.assert_called_once_with(ctx=CTX, widget_id=ENTITY_ID)
@@ -139,7 +139,7 @@ def test_entity_specific_service_read_dispatches_to_prefixed_method():
     service = _EntitySpecificService()
     group = _group_for(service)
 
-    result = group._handle_read(params={"id": str(ENTITY_ID)}, auth_context=CTX, api_key="rf_x")
+    result = group._handle_read(params={"id": str(ENTITY_ID)}, auth_context=CTX, api_key="reqlo_x")
 
     assert result.success is True
     service.get_widget.assert_called_once_with(ctx=CTX, widget_id=ENTITY_ID)
@@ -152,7 +152,7 @@ def test_generic_named_service_update_uses_introspected_id_param():
     group = _group_for(service)
 
     result = group._handle_update(
-        params={"id": str(ENTITY_ID), "definition": "def"}, auth_context=CTX, api_key="rf_x"
+        params={"id": str(ENTITY_ID), "definition": "def"}, auth_context=CTX, api_key="reqlo_x"
     )
 
     assert result.success is True
@@ -163,7 +163,7 @@ def test_generic_named_service_delete_uses_introspected_id_param():
     service = _make_generic_named_service()
     group = _group_for(service)
 
-    result = group._handle_delete(params={"id": str(ENTITY_ID)}, auth_context=CTX, api_key="rf_x")
+    result = group._handle_delete(params={"id": str(ENTITY_ID)}, auth_context=CTX, api_key="reqlo_x")
 
     assert result.success is True
     service.delete.assert_called_once_with(ctx=CTX, term_id=ENTITY_ID)
@@ -176,7 +176,7 @@ def test_generic_named_service_create_uses_generic_method():
     result = group._handle_create(
         params={"workspace_id": str(WORKSPACE_ID), "term": "Foo", "definition": "Bar"},
         auth_context=CTX,
-        api_key="rf_x",
+        api_key="reqlo_x",
     )
 
     assert result.success is True

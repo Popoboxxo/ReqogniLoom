@@ -24,7 +24,7 @@ from persistence.tenancy import TenantContext
 
 from mcp_server.tools.ai_derivation import AiDerivationToolGroup
 
-_API_KEY = "rf_testkey_ai"
+_API_KEY = "reqlo_testkey_ai"
 
 
 def _make_need(tenant, workspace, title, description=""):

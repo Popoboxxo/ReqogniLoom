@@ -28,7 +28,7 @@ from traceability.types import LinkType
 
 from mcp_server.tools.architecture import ArchitectureToolGroup
 
-_API_KEY = "rf_testkey_n1"
+_API_KEY = "reqlo_testkey_n1"
 
 
 @pytest.fixture
