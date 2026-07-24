@@ -324,7 +324,7 @@ class TestToolRegistryDispatch:
         mock_group = MagicMock()
         registry.register_groups({"adr": mock_group})
 
-        for tool_name in ["adr.create", "adr.update", "adr.delete"]:
+        for tool_name in ["adr.create", "adr.update", "adr.delete", "adr.outdate", "adr.reactivate"]:
             result = registry.dispatch_request(
                 tool_name=tool_name,
                 params={"workspace_id": "00000000-0000-0000-0000-000000000010"},

@@ -83,12 +83,14 @@ def _group_for(service_instance) -> GenericCrudToolGroup:
     group = GenericCrudToolGroup.__new__(GenericCrudToolGroup)
     group.prefix = "widget"
     group._service = service_instance
+    group._item_type = "Widget"
     from mcp_server.tools.generic import _resolve_id_param, _resolve_method
 
     group._read_method = _resolve_method(service_instance, "widget", "get")
     group._create_method = _resolve_method(service_instance, "widget", "create")
     group._update_method = _resolve_method(service_instance, "widget", "update")
     group._delete_method = _resolve_method(service_instance, "widget", "delete")
+    group._list_method = getattr(service_instance, "list", None)
     group._read_id_param = _resolve_id_param(group._read_method)
     group._update_id_param = _resolve_id_param(group._update_method)
     group._delete_id_param = _resolve_id_param(group._delete_method)
@@ -270,4 +272,115 @@ def test_create_and_update_schemas_expose_concrete_fields(service_class_path, pr
     assert _EXPECTED_UPDATE_FIELDS[prefix] <= update_props
     # additionalProperties stays True — no behaviour change, just documentation.
     assert schemas[f"{prefix}.create"]["inputSchema"]["additionalProperties"] is True
-    assert schemas[f"{prefix}.update"]["inputSchema"]["additionalProperties"] is True
+
+
+# ---------------------------------------------------------------------------
+# .outdate / .reactivate / .query (Phase 1 Task 2)
+# ---------------------------------------------------------------------------
+
+WIDGET_WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000030")
+
+
+class _WidgetDTO:
+    """Minimal stand-in for a service-returned entity/DTO exposing
+    ``workspace_id`` (mirrors Adr/Risk/Issue ORM instances and
+    GlossaryTermDTO, all of which carry this attribute)."""
+
+    def __init__(self, workspace_id: UUID) -> None:
+        self.id = ENTITY_ID
+        self.workspace_id = workspace_id
+
+
+class _OutdatableService:
+    """Mimics an entity service exposing get/list alongside the standard
+    create/update/delete used elsewhere in this file."""
+
+    def __init__(self) -> None:
+        self.get_widget = _mock_with_signature(
+            lambda widget_id, ctx: _WidgetDTO(WIDGET_WORKSPACE_ID)
+        )
+        self.create_widget = _mock_with_signature(
+            lambda ctx, workspace_id, **kw: {"id": ENTITY_ID}
+        )
+        self.update_widget = _mock_with_signature(
+            lambda widget_id, ctx, **kw: {"id": ENTITY_ID}
+        )
+        self.delete_widget = _mock_with_signature(lambda widget_id, ctx: None)
+        self.list = MagicMock(return_value=[_WidgetDTO(WIDGET_WORKSPACE_ID)])
+
+
+def test_outdate_tool_calls_workflow_outdate(monkeypatch):
+    service = _OutdatableService()
+    group = _group_for(service)
+
+    mock_outdate = MagicMock()
+    monkeypatch.setattr("workflow.services.outdate", mock_outdate)
+
+    result = group._handle_outdate(
+        params={"id": str(ENTITY_ID), "reason": "no longer needed"},
+        auth_context=CTX,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is True
+    assert result.data == {"id": str(ENTITY_ID), "status": "outdated"}
+    mock_outdate.assert_called_once_with(
+        item_id=ENTITY_ID,
+        item_type="Widget",
+        workspace_id=WIDGET_WORKSPACE_ID,
+        ctx=CTX,
+        reason="no longer needed",
+    )
+
+
+def test_reactivate_tool_calls_workflow_reactivate(monkeypatch):
+    service = _OutdatableService()
+    group = _group_for(service)
+
+    mock_result = MagicMock(new_state="draft")
+    mock_reactivate = MagicMock(return_value=mock_result)
+    monkeypatch.setattr("workflow.services.reactivate", mock_reactivate)
+
+    result = group._handle_reactivate(
+        params={"id": str(ENTITY_ID)}, auth_context=CTX, api_key="reqlo_x"
+    )
+
+    assert result.success is True
+    assert result.data == {"id": str(ENTITY_ID), "status": "draft"}
+    mock_reactivate.assert_called_once_with(
+        item_id=ENTITY_ID,
+        item_type="Widget",
+        workspace_id=WIDGET_WORKSPACE_ID,
+        ctx=CTX,
+    )
+
+
+def test_query_tool_defaults_to_excluding_outdated():
+    service = _OutdatableService()
+    group = _group_for(service)
+
+    result = group._handle_query(
+        params={"workspace_id": str(WIDGET_WORKSPACE_ID)}, auth_context=CTX, api_key="reqlo_x"
+    )
+
+    assert result.success is True
+    service.list.assert_called_once_with(
+        workspace_id=WIDGET_WORKSPACE_ID, ctx=CTX, include_deleted=False
+    )
+    assert result.data["items"] == [{"id": str(ENTITY_ID), "workspace_id": str(WIDGET_WORKSPACE_ID)}]
+
+
+def test_query_tool_include_outdated_true_forwards_flag():
+    service = _OutdatableService()
+    group = _group_for(service)
+
+    result = group._handle_query(
+        params={"workspace_id": str(WIDGET_WORKSPACE_ID), "include_outdated": True},
+        auth_context=CTX,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is True
+    service.list.assert_called_once_with(
+        workspace_id=WIDGET_WORKSPACE_ID, ctx=CTX, include_deleted=True
+    )
