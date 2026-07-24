@@ -10,10 +10,14 @@ Exposes four tools:
   prompt_template.get(slot: str, workspace_id: str | None) -> str
     Return the effective content for a template name ("slot"), most-specific
     first: active workspace override -> active tenant-global row -> factory
-    default (``persistence.models.PROMPT_TEMPLATE_DEFAULTS``). Mirrors
-    ``AiDerivationService._get_template_content``'s fallback chain, but reads
-    the ``PromptTemplate`` model directly rather than going through that
-    service (this tool group has no dependency on the AI derivation flows).
+    default (``application.ai_derivation_service.PROMPT_TEMPLATE_DEFAULTS``,
+    the 7-entry canonical registry — see that module for why it, not
+    ``persistence.models.PROMPT_TEMPLATE_DEFAULTS``, is the source used here).
+    Mirrors ``AiDerivationService._get_template_content``'s fallback chain in
+    every dimension that matters (same factory-default table, same
+    workspace-then-tenant-global precedence), but reads the ``PromptTemplate``
+    model directly rather than going through that service (this tool group
+    has no dependency on the AI derivation flows).
 
   prompt_template.list(workspace_id: str | None) -> [templates]
     Return every currently-active ``PromptTemplate`` row for the tenant
@@ -72,9 +76,12 @@ from typing import Any, Dict
 
 from django.db import IntegrityError
 
+from application.ai_derivation_service import (
+    PROMPT_TEMPLATE_DEFAULTS,
+)
 from application.prompt_template_versioning import publish_new_version
 from auth_tenancy.context import AuthContext
-from persistence.models import PROMPT_TEMPLATE_DEFAULTS, PromptTemplate
+from persistence.models import PromptTemplate
 
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -112,9 +119,11 @@ class PromptTemplateToolGroup(BaseToolGroup):
                 "Return the effective LLM prompt content for a given template "
                 "name, for the active tenant (and, if workspace_id is given, "
                 "that workspace's override if one exists). Falls back to the "
-                "factory default for the well-known slots "
+                "factory default for any of the 7 known template names "
                 "(need_to_sysreq | sysreq_to_arch_assign | "
-                "sysreq_decompose_next_level) when no row has been created."
+                "sysreq_decompose_next_level | testcase_derive | "
+                "architecture_to_risk | workspace_to_glossary | "
+                "decision_to_adr) when no row has been created."
             ),
             "inputSchema": {
                 "type": "object",

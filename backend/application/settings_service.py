@@ -35,6 +35,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+from django.db import IntegrityError
+
 from auth_tenancy.context import AuthContext
 from persistence.models import (
     PROMPT_TEMPLATE_DEFAULTS,
@@ -43,7 +45,7 @@ from persistence.models import (
     PromptTemplate,
 )
 
-from application.base import ServiceBase
+from application.base import ServiceBase, ValidationError
 from application.prompt_template_versioning import publish_new_version
 
 # Fields a client may write onto the LlmSettings row.
@@ -149,12 +151,23 @@ class SettingsService(ServiceBase):
         self._set_tenant_context(ctx)
         for slot in _PROMPT_SLOT_FIELDS:
             if slot in validated_data:
-                publish_new_version(
-                    tenant_id=ctx.tenant_id,
-                    name=slot,
-                    content=validated_data[slot],
-                    workspace_id=None,
-                )
+                try:
+                    publish_new_version(
+                        tenant_id=ctx.tenant_id,
+                        name=slot,
+                        content=validated_data[slot],
+                        workspace_id=None,
+                    )
+                except IntegrityError as exc:
+                    # A concurrent writer for the same scope committed first;
+                    # PromptTemplate.save()'s own mutex rejected our attempt
+                    # to activate a second row for this scope (mirrors the
+                    # same IntegrityError -> ValidationError translation used
+                    # by mcp_server/tools/prompt_template.py and
+                    # custom_field_service.py).
+                    raise ValidationError(
+                        f"Could not publish a new version for '{slot}': {exc}"
+                    ) from exc
         return self._effective_prompt_template(ctx)
 
     def reset_prompt_template(
@@ -178,12 +191,18 @@ class SettingsService(ServiceBase):
                 is_active=True,
             ).exists()
             if has_active_override:
-                publish_new_version(
-                    tenant_id=ctx.tenant_id,
-                    name=name,
-                    content=PROMPT_TEMPLATE_DEFAULTS[name],
-                    workspace_id=None,
-                )
+                try:
+                    publish_new_version(
+                        tenant_id=ctx.tenant_id,
+                        name=name,
+                        content=PROMPT_TEMPLATE_DEFAULTS[name],
+                        workspace_id=None,
+                    )
+                except IntegrityError as exc:
+                    # See the same handling in update_prompt_template above.
+                    raise ValidationError(
+                        f"Could not reset '{name}' to its factory default: {exc}"
+                    ) from exc
         return self._effective_prompt_template(ctx)
 
 

@@ -205,6 +205,75 @@ def test_reset_unknown_slot_is_rejected(pt_tenant):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
+def test_patch_conflict_returns_400_not_500(pt_tenant, monkeypatch):
+    """Whole-branch review Finding 2: a concurrent-write IntegrityError from
+    ``publish_new_version`` must surface as a clean 400 VALIDATION_ERROR, not
+    an unhandled 500 -- mirroring the same IntegrityError handling
+    ``mcp_server/tools/prompt_template.py`` already had for its create/update
+    tools. Simulated here by monkeypatching ``publish_new_version`` to raise,
+    rather than a full concurrency test.
+    """
+    from django.db import IntegrityError
+
+    def _raise_integrity_error(**kwargs):
+        raise IntegrityError("simulated concurrent writer for this scope")
+
+    monkeypatch.setattr(
+        "application.settings_service.publish_new_version",
+        _raise_integrity_error,
+    )
+
+    client = APIClient()
+    _auth(client, _login(client, "ptadmin"))
+
+    resp = client.patch(
+        "/api/v1/prompt-templates/",
+        {"need_to_sysreq": "will hit the simulated conflict"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_reset_conflict_returns_400_not_500(pt_tenant, monkeypatch):
+    """Same as test_patch_conflict_returns_400_not_500, for the reset endpoint."""
+    from django.db import IntegrityError
+
+    client = APIClient()
+    _auth(client, _login(client, "ptadmin"))
+
+    # Give "need_to_sysreq" an active override so reset() actually calls
+    # publish_new_version (a slot already at its factory default is a no-op
+    # and would never reach the patched call).
+    client.patch(
+        "/api/v1/prompt-templates/",
+        {"need_to_sysreq": "customised so reset must publish a new version"},
+        format="json",
+    )
+
+    def _raise_integrity_error(**kwargs):
+        raise IntegrityError("simulated concurrent writer for this scope")
+
+    monkeypatch.setattr(
+        "application.settings_service.publish_new_version",
+        _raise_integrity_error,
+    )
+
+    resp = client.post(
+        "/api/v1/prompt-templates/reset/",
+        {"slot": "need_to_sysreq"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
 def test_non_admin_is_forbidden(pt_tenant):
     """A non-admin (editor) cannot read, write, or reset prompt templates."""
     client = APIClient()

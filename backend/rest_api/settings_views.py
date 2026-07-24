@@ -24,6 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from application.base import ValidationError
 from application.settings_service import SettingsService
 from auth_tenancy.models import ROLE_ADMIN
 from rest_api.auth_enforcer import get_auth_context
@@ -147,7 +148,8 @@ class LlmSettingsView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# PromptTemplate — tenant-scoped singleton LLM prompt templates (REQ-L2-PT-001)
+# PromptTemplate — tenant-global LLM prompt templates, REST compat facade
+# (REQ-L2-PT-001)
 # ---------------------------------------------------------------------------
 
 
@@ -178,9 +180,17 @@ class PromptTemplateSerializer(serializers.Serializer):
 class PromptTemplateView(APIView):
     """GET/PUT/PATCH /api/v1/prompt-templates/ (REQ-L2-PT-001).
 
-    Tenant-scoped singleton. Admin role required to read or write, mirroring
-    :class:`LlmSettingsView` — prompt templates steer AI derivation and are
-    tenant-wide configuration.
+    Backward-compat facade over the versioned, named ``PromptTemplate`` model
+    (see ``persistence.models.PromptTemplate``): the underlying persistence is
+    no longer a single tenant-singleton row but an append-only history of
+    versioned rows per ``(tenant, workspace_id, name)`` scope. This view keeps
+    the original REST contract's flat-object shape for exactly the 3
+    original slot names (``need_to_sysreq``/``sysreq_to_arch_assign``/
+    ``sysreq_decompose_next_level``), always reading/writing the
+    tenant-global (``workspace_id=None``) row for each — see
+    ``SettingsService``'s module docstring for the full rationale. Admin
+    role required to read or write, mirroring :class:`LlmSettingsView` —
+    prompt templates steer AI derivation and are tenant-wide configuration.
     """
 
     def _forbidden(self, lang: str) -> Response:
@@ -232,7 +242,19 @@ class PromptTemplateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        obj = svc.update_prompt_template(ctx, dict(ser.validated_data))
+        try:
+            obj = svc.update_prompt_template(ctx, dict(ser.validated_data))
+        except ValidationError as exc:
+            # A concurrent writer published a version for the same scope in
+            # between our read and our write (PromptTemplate.save()'s own
+            # mutex rejected the second attempt) -- report it as a clean 4xx
+            # instead of surfacing an unhandled 500 to the caller.
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message=str(exc)
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(PromptTemplateSerializer(obj).data)
 
 
@@ -268,7 +290,16 @@ class PromptTemplateResetView(APIView):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        obj = svc.reset_prompt_template(ctx, slot=slot)
+        try:
+            obj = svc.reset_prompt_template(ctx, slot=slot)
+        except ValidationError as exc:
+            # Same concurrent-write race as PromptTemplateView._update above.
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message=str(exc)
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(PromptTemplateSerializer(obj).data)
 
 

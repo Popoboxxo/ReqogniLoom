@@ -143,6 +143,34 @@ def test_get_prefers_workspace_override_over_tenant_global(pt_ctx):
     assert result.data["content"] == "workspace override content"
 
 
+def test_get_falls_back_to_default_for_phase3_derive_flow_names(pt_ctx):
+    """Regression guard (whole-branch review Finding 1): before the factory-
+    default registry was unified, ``.get()`` only consulted the 3-entry
+    ``persistence.models.PROMPT_TEMPLATE_DEFAULTS`` -- so a Phase-3 derive-flow
+    name (e.g. "testcase_derive") with no DB row wrongly returned NOT_FOUND
+    even though ``AiDerivationService`` was actively using a real factory
+    default for it. ``.get()`` must agree with the derivation engine's
+    fallback chain for all 7 names, not just the original 3.
+    """
+    _tenant, ctx = pt_ctx
+
+    group = PromptTemplateToolGroup()
+    result = group.execute_tool(
+        tool_name="prompt_template.get",
+        params={"slot": "testcase_derive"},
+        auth_context=ctx,
+        api_key=_API_KEY,
+    )
+
+    assert result.success
+    assert result.error_code != "NOT_FOUND"
+    from application.ai_derivation_service import (
+        PROMPT_TEMPLATE_DEFAULTS as DERIVATION_DEFAULTS,
+    )
+
+    assert result.data["content"] == DERIVATION_DEFAULTS["testcase_derive"]
+
+
 def test_get_unknown_slot_returns_not_found(pt_ctx):
     """A name with no DB row and no factory default -> NOT_FOUND.
 
@@ -395,10 +423,21 @@ def test_prompt_template_create_is_audited(pt_ctx, monkeypatch):
     assert calls[0]["entity_type"] == "PromptTemplate"
 
 
-def test_prompt_template_write_tools_require_editor_role():
+def test_prompt_template_write_tools_are_registered_in_write_prefixes():
     """prompt_template.create and .update are name-gated as write tools
-    (tool_registry._WRITE_TOOL_PREFIXES), so a Viewer-only caller is
-    rejected before the handler ever runs."""
+    (tool_registry._WRITE_TOOL_PREFIXES).
+
+    This only asserts *registration* -- it does not itself invoke a tool
+    with a non-editor AuthContext to prove rejection at dispatch time.
+    That generic, invocation-level RBAC-rejection proof already exists
+    centrally in ``test_mcp_rbac_role_matrix.py``, which drives
+    ``ToolRegistry.dispatch_request`` end-to-end against real role
+    resolution for an arbitrary tool name gated by this same
+    ``_WRITE_TOOL_PREFIXES`` set -- adding a second, tool-specific copy of
+    that invocation test here would duplicate infrastructure for no
+    additional coverage, since the gate is generic (keyed off tool-name
+    prefix), not specific to this tool group's handler code.
+    """
     from mcp_server.tool_registry import _WRITE_TOOL_PREFIXES
 
     assert "prompt_template.create" in _WRITE_TOOL_PREFIXES

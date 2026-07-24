@@ -147,17 +147,21 @@ DECISION_TO_ADR_PROMPT_TEMPLATE = (
     'result>"}.'
 )
 
-# Canonical slot registry for this module's 7 derive flows (Phase 4,
-# REQ-L2-PT-001). Deliberately NOT the same object as
+# Canonical slot registry covering all 7 names this module's derive flows use
+# (Phase 4, REQ-L2-PT-001). Deliberately NOT the same object as
 # ``persistence.models.PROMPT_TEMPLATE_DEFAULTS`` (imported above as
-# ``_CORE_PROMPT_TEMPLATE_DEFAULTS``): that dict only knows the original 3
-# tenant-editable slots and is still relied on as-is by other, not-yet-migrated
-# callers (``settings_service.py``, ``mcp_server/tools/prompt_template.py``,
-# the REST prompt-template views) — extending it in place would be an
-# out-of-scope change to Layer 0 persistence code. This module-local dict
-# merges that base with the 4 Phase-3 hardcoded prompt constants above, giving
-# :meth:`AiDerivationService._get_template_content` one factory-default
-# lookup table covering all 7 names this service derives with.
+# ``_CORE_PROMPT_TEMPLATE_DEFAULTS``): that dict is intentionally kept at its
+# original 3 entries because it is the REST-exposed subset consumed by
+# ``settings_service.py`` (``/api/v1/prompt-templates/`` only ever reads/
+# writes those 3 tenant-editable slots) — it is not "not yet migrated", Layer
+# 0 persistence code simply has no reason to know about the 4 Phase-3 flows
+# below. This module-local dict merges that base with the 4 Phase-3 hardcoded
+# prompt constants above, giving one factory-default lookup table covering
+# all 7 names. This is the SINGLE canonical registry for all 7 names:
+# ``mcp_server/tools/prompt_template.py`` imports it from here (rather than
+# building its own copy or reaching into the 3-entry persistence dict) so
+# both read paths — this service's :meth:`_get_template_content` and the MCP
+# ``prompt_template.get`` tool — agree on the same factory defaults.
 PROMPT_TEMPLATE_DEFAULTS: Dict[str, str] = {
     **_CORE_PROMPT_TEMPLATE_DEFAULTS,
     "testcase_derive": TESTCASE_DERIVE_PROMPT_TEMPLATE,
