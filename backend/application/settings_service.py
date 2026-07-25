@@ -81,6 +81,11 @@ class SettingsService(ServiceBase):
         """Return whether ``slot`` is a known resettable prompt slot."""
         return slot in PROMPT_TEMPLATE_DEFAULTS
 
+    @staticmethod
+    def review_policy_modes() -> list[str]:
+        """Return valid ReviewPolicy mode choice values (for serializer ChoiceField)."""
+        return list(REVIEW_POLICY_MODES)
+
     # ---- LlmSettings ------------------------------------------------------
 
     def get_or_create_llm_settings(self, ctx: AuthContext) -> LlmSettings:

@@ -65,6 +65,7 @@ from rest_api.settings_views import (
     LlmSettingsView,
     PromptTemplateResetView,
     PromptTemplateView,
+    ReviewPolicyView,
 )
 from rest_api.global_default_views import (
     EnforcementFlipView,
@@ -266,6 +267,13 @@ urlpatterns = [
         "prompt-templates/",
         PromptTemplateView.as_view(),
         name="prompt-templates",
+    ),
+    # Per-workspace AI-derivation review policy (Phase 5, REQ-L2-RV-001) —
+    # admin-only, mirrors the workspace-scoped permission-definition pattern.
+    path(
+        "workspaces/<uuid:workspace_id>/review-policy/",
+        ReviewPolicyView.as_view(),
+        name="workspace-review-policy",
     ),
     # -- Global workflow defaults (REQ-178) — tenant-wide, per item_type+preset.
     # More specific sub-paths precede the {item_type}/{preset}/ detail route.

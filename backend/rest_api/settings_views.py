@@ -303,10 +303,98 @@ class PromptTemplateResetView(APIView):
         return Response(PromptTemplateSerializer(obj).data)
 
 
+# ---------------------------------------------------------------------------
+# ReviewPolicy — per-workspace AI-derivation review policy (Phase 5,
+# REQ-L2-RV-001)
+# ---------------------------------------------------------------------------
+
+
+class ReviewPolicySerializer(serializers.Serializer):
+    """Read/write serializer for :class:`ReviewPolicy` (REQ-L2-RV-001).
+
+    ``mode`` is restricted to :data:`REVIEW_POLICY_MODES` and
+    ``min_confidence`` to ``[0.0, 1.0]`` at the field level, mirroring the
+    same validation ``SettingsService.update_review_policy`` also performs
+    (defense-in-depth: the service must not depend on the REST layer having
+    validated first, since it is also reachable from the MCP server).
+    """
+
+    mode = serializers.ChoiceField(choices=SettingsService.review_policy_modes())
+    min_confidence = serializers.FloatField(min_value=0.0, max_value=1.0)
+
+
+class ReviewPolicyView(APIView):
+    """GET/PUT /api/v1/workspaces/{workspace_id}/review-policy/ (REQ-L2-RV-001).
+
+    Admin-only, mirroring :class:`LlmSettingsView`'s permission gate,
+    response shape, and error-mapping idiom (``ValidationError`` -> 400,
+    ``PermissionDeniedError`` -> 403 is not reachable here since the admin
+    check happens before the service call, same as ``LlmSettingsView``).
+    """
+
+    def _forbidden(self, lang: str) -> Response:
+        return Response(
+            build_error_response(
+                "PERMISSION_DENIED",
+                lang,
+                message="Admin role required to access the review policy.",
+            ),
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    # ---- GET ------------------------------------------------------------
+
+    def get(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+        obj = SettingsService().get_effective_review_policy(ctx, workspace_id=workspace_id)
+        return Response(ReviewPolicySerializer(obj).data)
+
+    # ---- PUT --------------------------------------------------------------
+
+    def put(self, request: Request, workspace_id: str, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+
+        ser = ReviewPolicySerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": k, "errors": v} for k, v in ser.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        svc = SettingsService()
+        try:
+            obj = svc.update_review_policy(
+                ctx,
+                workspace_id=workspace_id,
+                mode=ser.validated_data["mode"],
+                min_confidence=ser.validated_data["min_confidence"],
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(ReviewPolicySerializer(obj).data)
+
+
 __all__ = [
     "LlmSettingsView",
     "LlmSettingsSerializer",
     "PromptTemplateView",
     "PromptTemplateResetView",
     "PromptTemplateSerializer",
+    "ReviewPolicyView",
+    "ReviewPolicySerializer",
 ]
