@@ -3,7 +3,7 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v0.82.0 — `2026-07-23`
+> Generiert von agent-meta v0.83.0 — `2026-07-25`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
 > `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
@@ -112,7 +112,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode -> AGENTS.md | Gemini -> .gemini/GEMINI.md
 
-Generiert von agent-meta v0.82.0 — `2026-07-23`
+Generiert von agent-meta v0.83.0 — `2026-07-25`
 DoD-Preset: **spec-driven** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 
 > **Einstiegspunkt:** Starte mit dem `orchestrator`-Agenten für alle Entwicklungsaufgaben — Ausnahmen siehe Abschnitt »Orchestrator — Universal Router«.
@@ -129,3 +129,13 @@ DoD-Preset: **spec-driven** | REQ-Traceability: false | Tests: false | Codebase-
 - Alle anderen Dokumente → **Deutsch**
 - Code-Kommentare, Commit-Messages → **Englisch**
 - Kommunikation mit dem Nutzer → **Deutsch**
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
