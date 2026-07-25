@@ -4,14 +4,13 @@ This directory contains configurations for deploying ReqogniLoom on Unraid via D
 
 ## Overview
 
-ReqogniLoom is an AI-native Requirements and Test Management tool with MBSE support. The full stack consists of 9 services:
+ReqogniLoom is an AI-native Requirements and Test Management tool with MBSE support. The full stack consists of 8 services:
 
 - **postgres** (PostgreSQL 16 with pgvector) — persistent database
 - **postgres-backup** — automated daily backups
 - **redis** (Redis 7) — Celery broker and cache
 - **backend** (Django 4.2+) — REST API + MCP server
-- **migrate** (ephemeral) — database migrations
-- **bootstrap** (ephemeral) — admin account provisioning
+- **migrate** (ephemeral) — database migrations, then self-init (admin account + default workflows, REQ-188)
 - **celery** — async task worker (LLM calls, webhooks)
 - **celery-beat** — periodic task scheduler
 - **frontend** (React 18 + Vite) — web UI (port 5554)
@@ -113,10 +112,8 @@ The docker-compose.yaml binds these volumes:
 2. Services will launch in dependency order:
    - postgres (waits for health check)
    - redis (waits for health check)
-   - migrate (runs once, waits for postgres healthy)
-   - bootstrap (runs once after migrate, provisions admin account)
-   - backend (waits for postgres, redis, bootstrap completed)
-   - celery, celery-beat (wait for postgres, redis)
+   - migrate (runs once, waits for postgres healthy; on completion self-init provisions the admin account and default workflows, REQ-188)
+   - backend, celery, celery-beat (wait for postgres, redis, migrate completed)
    - frontend (waits for backend healthy)
 
 3. Check logs in Compose Manager Plus for each service
@@ -126,7 +123,7 @@ The docker-compose.yaml binds these volumes:
 
 - Username: `admin` (or `SYSTEM_ADMIN_USERNAME` from `.env`)
 - Password: `SYSTEM_ADMIN_PASSWORD` from `.env`
-- The bootstrap service provisions this account on first start
+- The `migrate` service's self-init provisions this account on first start (REQ-188)
 
 ## Architecture: Why No Multi-Container CA Template
 
@@ -136,14 +133,14 @@ Unraid Community Applications (CA) use an XML template format that:
 - Cannot express dependency relationships like `depends_on` or `condition: service_completed_successfully`
 
 ReqFlow requires:
-- Ordered startup: postgres → redis → migrate → bootstrap → backend → frontend
-- Ephemeral init containers (migrate, bootstrap) with `restart: "no"`
+- Ordered startup: postgres → redis → migrate → backend → frontend
+- An ephemeral init container (migrate) with `restart: "no"`
 - Proper health checks and service-completion conditions
 
 **Solution:** Compose Manager Plus plugin bridges this gap. It:
 - Reads standard docker-compose.yaml files
 - Respects all compose directives (depends_on, volumes, networks, env_file)
-- Manages the full 9-container lifecycle as a single "stack"
+- Manages the full 8-container lifecycle as a single "stack"
 
 Therefore:
 - **reqflow.xml** exists only as an entry point / documentation template for the frontend UI
@@ -262,11 +259,11 @@ docker compose -f deployment/unraid/docker-compose.yaml exec backend python mana
 - Check volume permissions: `ls -la /mnt/user/appdata/reqogniloom/db/`
 - View postgres logs: `docker compose logs postgres`
 
-### Admin Bootstrap Didn't Provision
+### Admin Self-Init Didn't Provision
 
 - Check `SYSTEM_ADMIN_PASSWORD` is set in `.env` (required on first start)
-- View bootstrap logs: `docker compose logs bootstrap`
-- If bootstrap already ran successfully once, changing `SYSTEM_ADMIN_PASSWORD` has no effect (admin exists)
+- View migrate logs: `docker compose logs migrate`
+- If self-init already ran successfully once, changing `SYSTEM_ADMIN_PASSWORD` has no effect (admin exists, create-only)
 
 ## Security Notes
 
@@ -285,4 +282,4 @@ docker compose -f deployment/unraid/docker-compose.yaml exec backend python mana
 
 ---
 
-**Generated for ReqogniLoom v0.2.0** — Last updated: July 2026
+**Generated for ReqogniLoom** — Last updated: 2026-07-25

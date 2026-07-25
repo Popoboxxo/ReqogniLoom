@@ -2,7 +2,7 @@
 <Container version="2">
   <!-- ReqogniLoom — AI-native Requirements and Test Management Tool
        This template serves as the entry point for the full multi-container ReqogniLoom stack.
-       The stack (9 services: postgres, postgres-backup, redis, backend, migrate, bootstrap, celery, celery-beat, frontend)
+       The stack (8 services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend)
        is deployed via Unraid's Docker Compose Manager Plus plugin using deployment/unraid/docker-compose.yaml.
   -->
 
@@ -29,16 +29,16 @@
   <!-- Overview — Clear explanation of how this template works -->
   <Overview>
     ReqogniLoom is an AI-native Requirements and Test Management tool with MBSE support.
-    This template installs the frontend UI and triggers the full 9-container stack deployment via Compose Manager Plus.
+    This template installs the frontend UI and triggers the full 8-container stack deployment via Compose Manager Plus.
 
-    IMPORTANT: This template does NOT manage all 9 containers directly (postgres, redis, backend, migrate, bootstrap, celery, celery-beat, frontend).
+    IMPORTANT: This template does NOT manage all 8 containers directly (postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend).
     Instead, it serves as the entry point: Compose Manager Plus handles the full stack using deployment/unraid/docker-compose.yaml.
 
     Before first use:
     1. Install Unraid Compose Manager Plus plugin (or equivalent Docker Compose orchestrator)
     2. Import the stack from the git repo: https://github.com/Popoboxxo/ReqogniLoom/tree/main/deployment/unraid/
     3. Configure environment variables (.env) with your secrets (DB_PASSWORD, REDIS_PASSWORD, SYSTEM_ADMIN_PASSWORD, etc.)
-    4. Start the stack via Compose Manager Plus — all 9 services will launch in proper dependency order
+    4. Start the stack via Compose Manager Plus — all 8 services will launch in proper dependency order (migrate runs the REQ-188 self-init before backend/celery start)
 
     This template configures the frontend container specifically (port 5554, Vite build-time variables).
     Refer to README.md in deployment/unraid/ for full setup instructions.
