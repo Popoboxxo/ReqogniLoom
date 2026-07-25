@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import type { ArchitectureElement, StakeholderNeed } from '../../types';
+import type { ArchitectureElement, StakeholderNeed, MoscowPriority } from '../../types';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
@@ -363,7 +363,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
                   </label>
                   <select
                     value={formData.moscow_priority || ''}
-                    onChange={(e) => handleChange('moscow_priority', e.target.value || null)}
+                    onChange={(e) => handleChange('moscow_priority', (e.target.value || undefined) as MoscowPriority | undefined)}
                     style={inputStyle}
                   >
                     <option value="">{t('needs.priorityNone')}</option>

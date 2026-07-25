@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import type { Risk } from '../../types';
+import type { Risk, RiskSeverity, RiskProbability, RiskImpact, RiskCategory } from '../../types';
 import { risksApi } from '../../api/risks';
 import { VersionBadge } from '../shared/VersionBadge';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
@@ -233,19 +233,19 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t('risks.severity')}</label>
-              <select value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value)} style={inputStyle}>
+              <select value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value as RiskSeverity)} style={inputStyle}>
                 {SEVERITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t('risks.probability')}</label>
-              <select value={formData.probability || 'medium'} onChange={(e) => handleChange('probability', e.target.value)} style={inputStyle}>
+              <select value={formData.probability || 'medium'} onChange={(e) => handleChange('probability', e.target.value as RiskProbability)} style={inputStyle}>
                 {PROBABILITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t('risks.impact')}</label>
-              <select value={formData.impact || 'medium'} onChange={(e) => handleChange('impact', e.target.value)} style={inputStyle}>
+              <select value={formData.impact || 'medium'} onChange={(e) => handleChange('impact', e.target.value as RiskImpact)} style={inputStyle}>
                 {IMPACT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
@@ -265,7 +265,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t('risks.category')}</label>
-              <select value={formData.category || 'technical'} onChange={(e) => handleChange('category', e.target.value)} style={inputStyle}>
+              <select value={formData.category || 'technical'} onChange={(e) => handleChange('category', e.target.value as RiskCategory)} style={inputStyle}>
                 {CATEGORY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
