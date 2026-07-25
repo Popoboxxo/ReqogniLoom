@@ -198,16 +198,31 @@ mit Workspace-Override konfigurierbar, exakt nach dem bereits etablierten ADR-06
 
 ## 8. Phase 5 — Review-Endpunkte
 
+**STATUS: IMPLEMENTED** (Commits: fff4ede1, 2d4bbdc0, fc5fc117, 2ed96917)
+
 Dank Phase 0 ein dünner Wrapper über den bestehenden `WorkflowFacade`, kein neues System.
 
 - **8.1** Neue MCP-Tool-Group `review.*`: `approve`, `reject`, `request_changes`,
   `list_pending` — 1:1 pro Artefakt, kein Batch (fürs Erste; später bei Bedarf
-  nachrüstbar).
-- **8.2** Review-Policy pro Workspace: nur `mode`
-  (`auto`/`review_changes`/`review_all`/`review_high_risk`) + `min_confidence`
-  (Schwelle für `review_high_risk`) jetzt umgesetzt. `allowed_reviewers` (eigene
-  Reviewer-Rollen-Liste) und `require_pair_review` (Zwei-Personen-Freigabe) sind
-  YAGNI für ein Single-User-System — später nachrüstbar.
+  nachrüstbar). ✅ Umgesetzt in `backend/mcp_server/tools/review.py`, registriert in
+  `tool_registry.py` mit RBAC-Gating (approver+ Rollen).
+- **8.2** Review-Policy pro Workspace: `ReviewPolicy`-Modell (Felder: `mode`,
+  `min_confidence`) + `SettingsService.get_effective_review_policy()` /
+  `.update_review_policy()`. REST-Endpunkt `GET/PUT /api/v1/workspaces/{workspace_id}/review-policy/`
+  (admin-only). ✅ Umgesetzt.
+  
+**Explizit deferred (Phase 5, keine Breaking-Changes erforderlich):**
+
+1. **`review_changes` Mode-Semantik:** Aktuell verhält sich `review_changes` identisch zu `auto`,
+   weil keine der 6 aktuellen AI-Derive-Tools eine bereits genehmigte Artefakt modifiziert.
+   Der Modus wird weiter unterstützt; sein Verhalten wird spezifiziert, wenn Future-Derive-Tools
+   (z.B. Architecture-Element-Update, Requirement-Re-Decomposition) bestehende Inhalte ändern können.
+   
+2. **`review_high_risk` Confidence-Signal:** Der Schwellwert `min_confidence` ist aktuell ein Platzhalter,
+   da kein LLM-Adapter in dieser Codebasis einen echten Confidence-Score bereitstellt.
+   Mock-Provider liefert 1.0 (alle Änderungen als „high-risk"), Real-Provider (OpenAI, Anthropic, Ollama)
+   liefern `None` (kein Signal). Sobald ein Provider echte Confidence-Scores exponiert, kann die Heuristik
+   produktiv werden.
 
 ---
 
