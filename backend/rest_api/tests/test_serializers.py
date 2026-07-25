@@ -224,6 +224,21 @@ class TestRequirementSerializer:
         assert not ser.is_valid()
         assert "change_reason" in ser.errors
 
+    def test_script_tags_stripped_from_title_and_description(self) -> None:
+        """Regression (SEC-001/#57): free-text fields must not persist raw
+        HTML/script markup verbatim (stored-XSS risk for non-React API
+        consumers like MCP responses or the ReqIF export)."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "<script>alert(1)</script>Title",
+            "description": "<img src=x onerror=alert(1)>Body",
+        }
+        ser = RequirementSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+        assert "<script>" not in ser.validated_data["title"]
+        assert "alert(1)Title" == ser.validated_data["title"]
+        assert "<img" not in ser.validated_data["description"]
+
 
 # ---------------------------------------------------------------------------
 # #104 — free-text size limits across entity serializers
@@ -618,3 +633,58 @@ class TestArchitectureElementSerializerParentInvariants:
             ser = ArchitectureElementSerializer(data=self._payload(parent_id=None))
             assert ser.is_valid(), ser.errors
         mock_v.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# PresetAwareSerializerMixin — NUL (0x00) byte rejection (QIRK-003, #76)
+# ---------------------------------------------------------------------------
+
+
+class TestNullByteRejection:
+    """A NUL byte in any string field must be rejected with a 400 at the
+    serializer boundary, instead of reaching Postgres and raising a raw
+    ``ValueError: A string literal cannot contain NUL (0x00) characters``
+    (HTTP 500). Covered generically via ``PresetAwareSerializerMixin.validate()``
+    so every entity serializer that uses the mixin (Workspace, Requirement,
+    Adr, Risk, Issue, TestCase, ChangeRequest, ...) is protected.
+    """
+
+    def test_null_byte_in_requirement_title_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "test\x00null",
+            "description": "A description",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "title" in ser.errors
+        # DRF's built-in CharField validator (ProhibitNullCharactersValidator)
+        # rejects this before PresetAwareSerializerMixin.validate() even runs;
+        # either way it's a 400, not a raw Postgres 500.
+        assert "null charact" in str(ser.errors["title"][0]).lower()
+
+    def test_null_byte_in_requirement_description_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "description": "bad\x00value",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "description" in ser.errors
+        assert "null charact" in str(ser.errors["description"][0]).lower()
+
+    def test_without_null_byte_still_valid(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "description": "A clean description",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert ser.is_valid(), ser.errors

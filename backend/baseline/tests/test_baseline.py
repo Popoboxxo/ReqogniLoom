@@ -954,3 +954,142 @@ class TestBaselineBuiltinWithExtendedPreset:
             assert config.active_tier == "minimal"
         finally:
             TenantContext.clear_tenant()
+
+
+# ---------------------------------------------------------------------------
+# REQ-L2-BL-001: document-scope descendant resolution via TraceLinks
+# (issue #42 — Requirements/ADRs/StakeholderNeeds use 'derives-from'/'refines'
+# TraceLinks for hierarchy, not pl_artifact.parent_id).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestDocumentScopeTraceLinkDescendants:
+    """resolve_scope_item_ids(scope='document') must also follow
+    derives-from/refines TraceLinks, not only pl_artifact.parent_id."""
+
+    def _make_tenant_and_workspace(self):
+        from persistence.models import Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="BL-TL-Tenant", slug=f"bl-tl-{uuid.uuid4().hex[:8]}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        workspace = Workspace.unscoped.create(tenant=tenant, name="BL-TL-WS")
+        return tenant, workspace
+
+    def test_document_scope_includes_child_linked_via_derives_from(self):
+        """A root StakeholderNeed with a Requirement that 'derives-from' it
+        (no parent_id set) must be included in document scope."""
+        from persistence.models import Artifact, TraceLink
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            root = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="stakeholderneed",
+            )
+            child = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="requirement",
+                # parent_id intentionally left unset — hierarchy is expressed
+                # via the TraceLink below, mirroring RequirementService.
+            )
+            TraceLink.objects.create(
+                source=child,
+                target=root,
+                link_type="derives-from",
+                tenant=tenant,
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="document",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                artifact_id=root.id,
+            )
+
+            assert str(root.id) in item_ids
+            assert str(child.id) in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_document_scope_includes_child_linked_via_refines(self):
+        """'refines' TraceLinks are also followed for descendant resolution."""
+        from persistence.models import Artifact, TraceLink
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            root = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="adr",
+            )
+            child = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="adr",
+            )
+            TraceLink.objects.create(
+                source=child,
+                target=root,
+                link_type="refines",
+                tenant=tenant,
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="document",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                artifact_id=root.id,
+            )
+
+            assert str(root.id) in item_ids
+            assert str(child.id) in item_ids
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_document_scope_excludes_unrelated_link_types(self):
+        """Non-hierarchy link types (e.g. 'satisfies') must NOT pull in the
+        source artifact as a descendant."""
+        from persistence.models import Artifact, TraceLink
+        from persistence.tenancy import TenantContext
+        from baseline.services import resolve_scope_item_ids
+
+        tenant, workspace = self._make_tenant_and_workspace()
+        try:
+            root = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="requirement",
+            )
+            unrelated = Artifact.objects.create(
+                tenant=tenant,
+                workspace=workspace,
+                artifact_type="testcase",
+            )
+            TraceLink.objects.create(
+                source=unrelated,
+                target=root,
+                link_type="satisfies",
+                tenant=tenant,
+            )
+
+            item_ids = resolve_scope_item_ids(
+                scope="document",
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                artifact_id=root.id,
+            )
+
+            assert str(root.id) in item_ids
+            assert str(unrelated.id) not in item_ids
+        finally:
+            TenantContext.clear_tenant()

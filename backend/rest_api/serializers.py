@@ -240,6 +240,21 @@ class PresetAwareSerializerMixin:
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)  # type: ignore[misc]
+        # QIRK-003 (#76): Postgres text columns reject NUL (0x00) bytes with a
+        # raw DB exception (HTTP 500). Reject such input at the serializer
+        # boundary with a proper 400 instead of letting it reach the DB.
+        null_byte_fields = [
+            field
+            for field, value in attrs.items()
+            if isinstance(value, str) and "\x00" in value
+        ]
+        if null_byte_fields:
+            raise serializers.ValidationError(
+                {
+                    field: "This field may not contain NUL (0x00) characters."
+                    for field in null_byte_fields
+                }
+            )
         ff = self.field_filter
         if ff is not None and ff.required_fields:
             missing = [f for f in ff.required_fields if f not in attrs]
@@ -357,6 +372,8 @@ class RequirementSerializer(
     parent_id = serializers.UUIDField(required=False, allow_null=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    # #43: acceptance_criteria describes when the requirement is considered fulfilled.
+    acceptance_criteria = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")
     # REQ-143: `status` is a read-only mirror of the WorkflowEngine state. The
     # WorkflowEngine is the single source of truth; any `status` sent by a client
@@ -799,7 +816,9 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     """
 
     id = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(max_length=255)
+    # #71: free-text name field — sanitize consistent with other narrative
+    # fields (SEC-03/B006) so HTML/script markup is stripped, not stored verbatim.
+    name = SanitizedCharField(max_length=255)
     preset = serializers.JSONField(required=False, default=dict)
     ai_prompts = serializers.JSONField(required=False, default=dict)
     decomposition_link_type = serializers.CharField(

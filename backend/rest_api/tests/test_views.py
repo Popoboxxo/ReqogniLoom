@@ -1106,6 +1106,47 @@ class TestBaselinePresetGate:
                 view(req)
 
 
+class TestBaselineViewSetListWorkspaceScoping:
+    """GET /api/v1/baselines/ is workspace-scoped (#49).
+
+    ReqogniLoom's REST API scopes every entity list by a `?workspace_id=`
+    query param (not path-nesting, e.g. `workspaces/{id}/requirements/`) —
+    that's the project-wide convention (see requirements/, testcases/, etc.).
+    Baselines follow the same pattern: `list()` (rest_api/views.py) requires
+    `workspace_id` and returns 400 without it, then forwards it (plus
+    ctx.tenant_id) to `BaselineFacade.list_baselines()` ->
+    `baseline.services.list_baselines()`, so no unscoped listing is possible.
+    """
+
+    def test_list_without_workspace_id_returns_400(self) -> None:
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/baselines/")
+        req.auth_context = _make_auth_context()
+        req.query_params = {}
+        view = BaselineViewSet.as_view({"get": "list"})
+        with patch.object(BaselineViewSet, "_check_preset"):
+            response = view(req)
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_list_with_workspace_id_forwards_scope_to_service(self) -> None:
+        ws_id = uuid.uuid4()
+        factory = APIRequestFactory()
+        req = factory.get("/api/v1/baselines/", data={"workspace_id": str(ws_id)})
+        req.auth_context = _make_auth_context()
+        view = BaselineViewSet.as_view({"get": "list"})
+        svc_mock = MagicMock()
+        svc_mock.list_baselines.return_value = []
+        with (
+            patch.object(BaselineViewSet, "_check_preset"),
+            patch("rest_api.views.BaselineViewSet._svc", return_value=svc_mock),
+        ):
+            response = view(req)
+        assert response.status_code == 200
+        call_kwargs = svc_mock.list_baselines.call_args.kwargs
+        assert call_kwargs["workspace_id"] == str(ws_id)
+
+
 class TestBaselineViewSetCreate:
     """POST /api/v1/baselines/ creates baselines from the UI payload."""
 

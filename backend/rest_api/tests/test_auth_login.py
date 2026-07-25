@@ -124,6 +124,63 @@ def test_login_inactive_user_returns_401(db):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
+def test_me_patch_ignores_privileged_fields(admin_user):
+    """PATCH /auth/me/ must not let a caller escalate roles/tenant via mass assignment.
+
+    Regression test for SEC-002 (#69): the request body may contain
+    ``roles``/``tenant_id``/``is_staff``/``is_superuser`` alongside the
+    legitimately editable ``first_name``/``last_name`` fields, but only the
+    latter may ever be persisted.
+    """
+    other_tenant = Tenant.objects.create(name="Other T", slug="other-t", is_active=True)
+
+    login = APIClient().post(
+        "/api/v1/auth/login/",
+        {"username": "loginadmin", "password": "hunter2pass"},
+        format="json",
+    )
+    token = login.json()["token"]
+
+    authed = APIClient()
+    authed.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    resp = authed.patch(
+        "/api/v1/auth/me/",
+        {
+            "first_name": "Alice",
+            "last_name": "Admin",
+            "roles": ["superadmin"],
+            "tenant_id": str(other_tenant.id),
+            "is_staff": True,
+            "is_superuser": True,
+            "username": "hijacked",
+            "email": "hijacked@evil.test",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # Legitimate, whitelisted fields are applied.
+    assert body["user"]["first_name"] == "Alice"
+    assert body["user"]["last_name"] == "Admin"
+
+    # Privileged/identity fields are untouched — no mass assignment.
+    assert body["tenant_id"] == str(admin_user.tenant_id)
+    assert body["tenant_id"] != str(other_tenant.id)
+    assert ROLE_ADMIN in body["roles"]
+    assert "superadmin" not in body["roles"]
+    assert body["user"]["username"] == "loginadmin"
+
+    admin_user.refresh_from_db()
+    assert admin_user.tenant_id != other_tenant.id
+    assert admin_user.is_staff is False
+    assert admin_user.is_superuser is False
+    assert admin_user.username == "loginadmin"
+    assert admin_user.email == "loginadmin@t.test"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
 def test_login_missing_fields_returns_401(db):
     client = APIClient()
     resp = client.post("/api/v1/auth/login/", {}, format="json")

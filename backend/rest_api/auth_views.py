@@ -28,12 +28,25 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from auth_tenancy.errors import AuthError, build_error_body
 from auth_tenancy.rest import ACCESS_COOKIE_NAME, HasOperationPermission
 from auth_tenancy.services import PasswordAuthenticationService, UserProfileService
 from rest_api.serializers import UserProfileSerializer
+
+
+class LoginRateThrottle(AnonRateThrottle):
+    """#72: rate-limit the public login endpoint (REQ-L2-MC-018 pattern).
+
+    Scoped to the ``login`` throttle rate (see ``REST_FRAMEWORK.
+    DEFAULT_THROTTLE_RATES``) so brute-force / credential-stuffing attempts
+    against ``POST /api/v1/auth/login/`` are capped without affecting other
+    anonymous endpoints.
+    """
+
+    scope = "login"
 
 # The access cookie is scoped to the API mount so it is never sent to unrelated
 # paths (e.g. static assets). Login/logout must use the same path or the browser
@@ -103,6 +116,7 @@ class LoginView(APIView):
 
     authentication_classes: list = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Validate credentials and return a token on success, 401 otherwise."""
@@ -243,4 +257,4 @@ class MeView(APIView):
         )
 
 
-__all__ = ["LoginView", "LogoutView", "MeView"]
+__all__ = ["LoginView", "LogoutView", "MeView", "LoginRateThrottle"]

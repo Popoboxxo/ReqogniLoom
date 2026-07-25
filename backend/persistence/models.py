@@ -689,6 +689,11 @@ class Requirement(TenantScopedModel):
     )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
+    acceptance_criteria = models.TextField(
+        blank=True,
+        default="",
+        help_text="#43: Acceptance criteria describing when the requirement is fulfilled.",
+    )
     category = models.CharField(max_length=64, blank=True)
     status = models.CharField(max_length=64, default="draft")
     type = models.CharField(
@@ -763,6 +768,17 @@ class Requirement(TenantScopedModel):
             models.Index(
                 fields=["tenant", "lifecycle_status"], name="idx_req_tnt_lifecycle"
             ),
+            # #44: uid is looked up scoped to a workspace (via artifact__workspace)
+            # on every create/update to enforce uniqueness at the application layer
+            # (RequirementService); this index backs that lookup. A hard DB-level
+            # UniqueConstraint is intentionally NOT used here: uid is not unique
+            # across the whole tenant by design (ReqIF import legitimately copies
+            # the same identifiers into a different workspace of the same tenant,
+            # see application/tests/test_reqif_import_service.py::
+            # TestReqifImportUpsertCollisions), and Requirement has no denormalized
+            # workspace column to express a workspace-scoped DB constraint without
+            # a schema change.
+            models.Index(fields=["tenant", "uid"], name="idx_req_tnt_uid"),
         ]
 
     def __str__(self) -> str:
