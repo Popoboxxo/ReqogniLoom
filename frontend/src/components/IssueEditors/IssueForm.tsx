@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Issue } from '../../types';
+import type { Issue, IssueSeverity, IssueCategory } from '../../types';
 import { issuesApi } from '../../api/issues';
 import { VersionBadge } from '../shared/VersionBadge';
 import { TagInput } from '../shared/tag-input';
@@ -185,7 +185,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
           <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
             <div style={{ flex: 1 }}>
               <label htmlFor="issue-severity" style={labelStyle}>{t('issues.severity')}</label>
-              <select id="issue-severity" value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value)} style={inputStyle}>
+              <select id="issue-severity" value={formData.severity || 'medium'} onChange={(e) => handleChange('severity', e.target.value as IssueSeverity)} style={inputStyle}>
                 {SEVERITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
@@ -203,7 +203,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
             </div>
             <div style={{ flex: 1 }}>
               <label htmlFor="issue-category" style={labelStyle}>{t('issues.category')}</label>
-              <select id="issue-category" value={formData.category || 'defect'} onChange={(e) => handleChange('category', e.target.value)} style={inputStyle}>
+              <select id="issue-category" value={formData.category || 'defect'} onChange={(e) => handleChange('category', e.target.value as IssueCategory)} style={inputStyle}>
                 {CATEGORY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
