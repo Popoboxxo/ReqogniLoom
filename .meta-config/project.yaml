@@ -137,36 +137,37 @@ variables:
     Terminology-Profile (dev_mode/se_mode), Audit-Log, Multi-Tenancy via Row-Level-Security.
     LLM-Adapter: Anthropic, OpenAI, Ollama, mock (Default: mock).'
   ARCHITECTURE: "backend/\n  manage.py                              # Django Entry-Point\n\
-    \  reqogniloom/settings.py                    # Konfiguration (DRF, Auth, Apps, Celery)\n\
-    \  reqogniloom/urls.py                        # URL-Routing (/api/v1/, /mcp/, /admin/)\n\
-    \  persistence/                           # Layer 0 Foundation (TenantScopedModel,\
-    \ AuditableModel)\n  auth_tenancy/                          # Layer 0 (JWT-Auth,\
-    \ RBAC, TenantContext)\n  presets/                               # Layer 0 (PresetRegistry,\
-    \ Terminology-Profile)\n  audit/                                 # Layer 0 (Operation-Level\
-    \ Audit-Log)\n  llm_adapter/                           # Layer 1 (LLM-Provider:\
-    \ Anthropic, OpenAI, Ollama, mock)\n  traceability/                          #\
-    \ Layer 1 (Trace-Query, Link-Management, PDF-Report)\n  workflow/            \
-    \                  # Layer 1 (konfigurierbare State-Machines)\n  baseline/   \
-    \                           # Layer 1 (Snapshot-Baselines, Diff-Engine)\n  application/\
-    \                           # Layer 2 (19 Domain-Services, Single Entry Point)\n\
-    \  rest_api/                              # Layer 3 (DRF ViewSets + drf-spectacular\
-    \ OpenAPI)\n  mcp_server/                            # Layer 3 (MCP-Tool-Registry:\
-    \ 40+ Tools, 11 Gruppen)\n  diagram/                               # Ext (SVG/PNG/PlantUML\
-    \ Renderer)\n  icd/                                   # Ext (Interface Control\
-    \ Document Management)\n  se_metrics/                            # Ext (KPI-Aggregation,\
-    \ Read-Model)\n  resilience/                            # Ext (Retry, Circuit-Breaker,\
-    \ Timeout)\n  admin_ops/                             # Ext (Disaster Recovery,\
-    \ Backup/Restore)\n  test_runs/                             # Ext (Test-Run-Protokollierung,\
-    \ v1.1)\nfrontend/\n  src/index.tsx                          # React Entry-Point\n\
-    \  src/App.tsx                            # Root-Component\n  src/api/       \
-    \                        # API-Wrapper (artifacts, requirements, ...)\n  src/components/\
-    \                        # 17 Component-Bereiche (Dashboard, Editors, Diff)\n\
-    \  src/context/                           # React Context (Auth, Workspace)\n\
-    \  src/i18n/locales/{de,en}.json          # i18next Uebersetzungen\n  src/styles/{tokens,global}.css\
-    \         # Design-System (CSS Custom Properties)\n  src/test/               \
-    \               # Vitest Unit-Tests\n  package.json                          \
-    \ # React 18, Vite 5, react-i18next, vitest\nexternal /\n  e2e/              \
-    \                     # Playwright E2E-Tests (111 Tests, Chromium)\ndocker-compose.yml\
+    \  reqogniloom/settings.py                    # Konfiguration (DRF, Auth, Apps,\
+    \ Celery)\n  reqogniloom/urls.py                        # URL-Routing (/api/v1/,\
+    \ /mcp/, /admin/)\n  persistence/                           # Layer 0 Foundation\
+    \ (TenantScopedModel, AuditableModel)\n  auth_tenancy/                       \
+    \   # Layer 0 (JWT-Auth, RBAC, TenantContext)\n  presets/                    \
+    \           # Layer 0 (PresetRegistry, Terminology-Profile)\n  audit/        \
+    \                         # Layer 0 (Operation-Level Audit-Log)\n  llm_adapter/\
+    \                           # Layer 1 (LLM-Provider: Anthropic, OpenAI, Ollama,\
+    \ mock)\n  traceability/                          # Layer 1 (Trace-Query, Link-Management,\
+    \ PDF-Report)\n  workflow/                              # Layer 1 (konfigurierbare\
+    \ State-Machines)\n  baseline/                              # Layer 1 (Snapshot-Baselines,\
+    \ Diff-Engine)\n  application/                           # Layer 2 (19 Domain-Services,\
+    \ Single Entry Point)\n  rest_api/                              # Layer 3 (DRF\
+    \ ViewSets + drf-spectacular OpenAPI)\n  mcp_server/                         \
+    \   # Layer 3 (MCP-Tool-Registry: 40+ Tools, 11 Gruppen)\n  diagram/         \
+    \                      # Ext (SVG/PNG/PlantUML Renderer)\n  icd/             \
+    \                      # Ext (Interface Control Document Management)\n  se_metrics/\
+    \                            # Ext (KPI-Aggregation, Read-Model)\n  resilience/\
+    \                            # Ext (Retry, Circuit-Breaker, Timeout)\n  admin_ops/\
+    \                             # Ext (Disaster Recovery, Backup/Restore)\n  test_runs/\
+    \                             # Ext (Test-Run-Protokollierung, v1.1)\nfrontend/\n\
+    \  src/index.tsx                          # React Entry-Point\n  src/App.tsx \
+    \                           # Root-Component\n  src/api/                     \
+    \          # API-Wrapper (artifacts, requirements, ...)\n  src/components/   \
+    \                     # 17 Component-Bereiche (Dashboard, Editors, Diff)\n  src/context/\
+    \                           # React Context (Auth, Workspace)\n  src/i18n/locales/{de,en}.json\
+    \          # i18next Uebersetzungen\n  src/styles/{tokens,global}.css        \
+    \ # Design-System (CSS Custom Properties)\n  src/test/                       \
+    \       # Vitest Unit-Tests\n  package.json                           # React\
+    \ 18, Vite 5, react-i18next, vitest\nexternal /\n  e2e/                      \
+    \             # Playwright E2E-Tests (111 Tests, Chromium)\ndocker-compose.yml\
     \                      # Orchestrierung (postgres, redis, backend, celery, frontend)\n"
   PROJECT_STRUCTURE: 'backend/             # Django REST API (17 Apps) #   Layer 0:
     persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability,
@@ -443,8 +444,8 @@ variables:
   SE_MAX_DEPTH: 4
   SE_MAX_CRITIC_ITERATIONS: 1
   SE_MAX_PARALLEL_CELLS: 3
-  DOCKER_STACKS_OVERVIEW: 'ReqogniLoom verwendet eine einzige `docker-compose.yml` im
-    Projekt-Root mit 5 Services:
+  DOCKER_STACKS_OVERVIEW: 'ReqogniLoom verwendet eine einzige `docker-compose.yml`
+    im Projekt-Root mit 5 Services:
 
     - postgres (PostgreSQL 16-alpine, persistent via Volume `postgres_data`)
 
@@ -572,15 +573,11 @@ provider-options:
   Opencode: {}
 model-overrides:
   Claude:
-    senior-developer: claude-opus-4-8
     developer: claude-sonnet-5
-    principal-developer: claude-opus-4-8
-  Opencode:
-    principal-developer: opencode-go/kimi-k3
-    se-senior-developer: opencode-go/kimi-k2.6
 dod:
   req-traceability: false
   tests-required: false
 provider-tier-overrides:
   Claude:
-    balanced: claude-sonnet-5
+    powerful: claude-opus-5
+    max: claude-opus-5

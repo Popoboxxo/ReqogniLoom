@@ -37,7 +37,6 @@ graphify-out/
 .opencode/agents/
 .opencode/commands/
 .opencode/settings.local.json
-AGENTS.md
 AGENTS.personal.md
 CLAUDE.personal.md
 opencode.json
