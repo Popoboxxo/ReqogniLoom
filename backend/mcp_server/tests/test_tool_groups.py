@@ -443,6 +443,21 @@ class TestArchitectureToolGroup:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
 
+    def test_architecture_link_schema_documents_valid_link_types(self):
+        """#33: architecture.link's published schema must enumerate the
+        valid link_type values so callers (including LLM/MCP clients) can
+        discover them without a failed round-trip first."""
+        from traceability.types import VALID_LINK_TYPES
+
+        schema = next(
+            s
+            for s in ArchitectureToolGroup._TOOL_SCHEMAS
+            if s["name"] == "architecture.link"
+        )
+        link_type_prop = schema["inputSchema"]["properties"]["link_type"]
+        assert "enum" in link_type_prop
+        assert set(link_type_prop["enum"]) == set(VALID_LINK_TYPES)
+
     def test_architecture_get_not_found(self):
         group, svc, _ = self._group()
         svc.get_architecture_element.side_effect = NotFoundError("not found")

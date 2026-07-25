@@ -467,3 +467,117 @@ class TestTenantIsolation:
                 svc.create_artifact(workspace_id=WS_ID, artifact_type="x", ctx=ctx)
 
         mock_stc.assert_called_once_with(ctx)
+
+
+# ---------------------------------------------------------------------------
+# get_tree — root_id resolution (#38, real DB)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def gt_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="get-tree-tenant", slug="get-tree-tenant")
+
+
+@pytest.fixture
+def gt_user(gt_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="get-tree-user",
+        email="get-tree@example.com",
+        tenant=gt_tenant,
+    )
+
+
+@pytest.fixture
+def gt_workspace(gt_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(gt_tenant.id)
+    try:
+        return Workspace.objects.create(tenant=gt_tenant, name="get-tree-workspace")
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def gt_ctx(gt_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=gt_user.id,
+        tenant_id=gt_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="get-tree-tenant",
+    )
+
+
+class TestGetTreeRootIdResolution:
+    """Regression (#38): artifact.get_tree reported 'not found' for a real,
+    existing artifact because root_id was matched literally against
+    pl_artifact.id — but callers naturally pass the more user-facing
+    Requirement/ArchitectureElement/Adr ID (as returned by
+    requirement.create), which is a distinct UUID from its backing Artifact
+    row. get_tree must resolve root_id the same way
+    TraceLinkService._resolve_artifact_id does.
+    """
+
+    def test_get_tree_by_requirement_id_succeeds(self, gt_ctx, gt_workspace):
+        """Passing a Requirement's own id (not its backing Artifact id) must
+        find the tree, not raise NotFoundError."""
+        from application.requirement_service import RequirementService
+        from persistence.tenancy import TenantContext
+
+        TenantContext.set_tenant(gt_workspace.tenant_id)
+        try:
+            req = RequirementService().create_requirement(
+                workspace_id=gt_workspace.id,
+                title="Root requirement",
+                ctx=gt_ctx,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        svc = ArtifactService()
+        tree = svc.get_tree(
+            root_id=req.id, workspace_id=gt_workspace.id, ctx=gt_ctx
+        )
+
+        assert tree.id == req.artifact_id
+
+    def test_get_tree_by_artifact_id_still_works(self, gt_ctx, gt_workspace):
+        """Passing the backing Artifact's own id directly is unchanged."""
+        from application.requirement_service import RequirementService
+        from persistence.tenancy import TenantContext
+
+        TenantContext.set_tenant(gt_workspace.tenant_id)
+        try:
+            req = RequirementService().create_requirement(
+                workspace_id=gt_workspace.id,
+                title="Root requirement",
+                ctx=gt_ctx,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        svc = ArtifactService()
+        tree = svc.get_tree(
+            root_id=req.artifact_id, workspace_id=gt_workspace.id, ctx=gt_ctx
+        )
+
+        assert tree.id == req.artifact_id
+
+    def test_get_tree_unresolvable_id_raises_not_found(self, gt_ctx, gt_workspace):
+        """An id matching no Artifact/Requirement/ArchitectureElement/Adr
+        still raises NotFoundError (no silent success)."""
+        svc = ArtifactService()
+        with pytest.raises(NotFoundError):
+            svc.get_tree(
+                root_id=uuid.uuid4(), workspace_id=gt_workspace.id, ctx=gt_ctx
+            )

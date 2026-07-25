@@ -160,7 +160,11 @@ class ArchitectureToolGroup(BaseToolGroup):
                     "target_id": {"type": "string", "description": "UUID of the link target."},
                     "link_type": {
                         "type": "string",
-                        "description": "TraceLink type (must be a valid link type).",
+                        "enum": sorted(VALID_LINK_TYPES),
+                        "description": (
+                            "TraceLink type. Must be one of the enum values "
+                            "(#33: previously undocumented in this schema)."
+                        ),
                     },
                 },
                 "required": ["arch_id", "target_id", "link_type"],

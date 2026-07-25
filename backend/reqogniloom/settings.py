@@ -201,11 +201,33 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # SEC-008 (#75): adds Content-Security-Policy (no django-csp dependency
+    # needed, Django 4.2 has no built-in CSP support yet).
+    "reqogniloom.security_middleware.ContentSecurityPolicyMiddleware",
     # TODO(ARCH-L1-011): Add TenantMiddleware here once auth_tenancy is implemented.
     # The middleware must extract tenant_id from the Bearer Token / API Key
     # and inject it into the request context so PersistenceLayer.CustomManager
     # can apply Row-Level isolation automatically. See ADR-03.
 ]
+
+# ---------------------------------------------------------------------------
+# HSTS / Content-Security-Policy (SEC-008, #75)
+# ---------------------------------------------------------------------------
+# HSTS only makes sense once a deployment is actually reachable over HTTPS
+# (a TLS-terminating reverse proxy in front of this app). Gated the same way
+# AUTH_COOKIE_SECURE is: on by default in production, overridable per env.
+SECURE_HSTS_SECONDS: int = config("SECURE_HSTS_SECONDS", default=0 if DEBUG else 31536000, cast=int)
+SECURE_HSTS_INCLUDE_SUBDOMAINS: bool = config(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS", default=not DEBUG, cast=bool
+)
+SECURE_HSTS_PRELOAD: bool = config("SECURE_HSTS_PRELOAD", default=not DEBUG, cast=bool)
+# Restrictive default CSP for an API-only backend (no page rendering, no
+# inline scripts expected). Override via env if a frontend origin needs to
+# be added later.
+CSP_POLICY: str = config(
+    "CSP_POLICY",
+    default="default-src 'self'; frame-ancestors 'none'; base-uri 'self'",
+)
 
 # ---------------------------------------------------------------------------
 # URL Configuration

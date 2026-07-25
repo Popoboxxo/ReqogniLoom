@@ -240,6 +240,21 @@ class PresetAwareSerializerMixin:
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)  # type: ignore[misc]
+        # QIRK-003 (#76): Postgres text columns reject NUL (0x00) bytes with a
+        # raw DB exception (HTTP 500). Reject such input at the serializer
+        # boundary with a proper 400 instead of letting it reach the DB.
+        null_byte_fields = [
+            field
+            for field, value in attrs.items()
+            if isinstance(value, str) and "\x00" in value
+        ]
+        if null_byte_fields:
+            raise serializers.ValidationError(
+                {
+                    field: "This field may not contain NUL (0x00) characters."
+                    for field in null_byte_fields
+                }
+            )
         ff = self.field_filter
         if ff is not None and ff.required_fields:
             missing = [f for f in ff.required_fields if f not in attrs]

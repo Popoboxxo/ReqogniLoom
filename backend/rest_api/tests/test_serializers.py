@@ -633,3 +633,58 @@ class TestArchitectureElementSerializerParentInvariants:
             ser = ArchitectureElementSerializer(data=self._payload(parent_id=None))
             assert ser.is_valid(), ser.errors
         mock_v.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# PresetAwareSerializerMixin — NUL (0x00) byte rejection (QIRK-003, #76)
+# ---------------------------------------------------------------------------
+
+
+class TestNullByteRejection:
+    """A NUL byte in any string field must be rejected with a 400 at the
+    serializer boundary, instead of reaching Postgres and raising a raw
+    ``ValueError: A string literal cannot contain NUL (0x00) characters``
+    (HTTP 500). Covered generically via ``PresetAwareSerializerMixin.validate()``
+    so every entity serializer that uses the mixin (Workspace, Requirement,
+    Adr, Risk, Issue, TestCase, ChangeRequest, ...) is protected.
+    """
+
+    def test_null_byte_in_requirement_title_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "test\x00null",
+            "description": "A description",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "title" in ser.errors
+        # DRF's built-in CharField validator (ProhibitNullCharactersValidator)
+        # rejects this before PresetAwareSerializerMixin.validate() even runs;
+        # either way it's a 400, not a raw Postgres 500.
+        assert "null charact" in str(ser.errors["title"][0]).lower()
+
+    def test_null_byte_in_requirement_description_rejected(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "description": "bad\x00value",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "description" in ser.errors
+        assert "null charact" in str(ser.errors["description"][0]).lower()
+
+    def test_without_null_byte_still_valid(self) -> None:
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Test requirement",
+            "description": "A clean description",
+            "category": "functional",
+            "status": "draft",
+        }
+        ser = RequirementSerializer(data=data)
+        assert ser.is_valid(), ser.errors

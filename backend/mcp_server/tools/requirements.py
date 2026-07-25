@@ -145,17 +145,36 @@ class RequirementsToolGroup(BaseToolGroup):
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string"},
-                    "title": {"type": "string"},
-                    "description": {"type": "string"},
-                    "category": {"type": "string"},
-                    "status": {
-                        "type": "string",
+                    "id": {"type": "string", "description": "UUID of the requirement."},
+                    # #21: fields are read from the nested `data` object by
+                    # _handle_update (params["data"]), not from top-level
+                    # properties — the schema previously advertised flat
+                    # title/description/category/status properties that the
+                    # handler silently ignored, and omitted `change_reason`
+                    # entirely, making requirement.update unusable under an
+                    # `extended` preset workspace (change_reason: mandatory).
+                    "data": {
+                        "type": "object",
                         "description": (
-                            "READ-ONLY (REQ-143). Ignored on write — the "
-                            "WorkflowEngine owns the lifecycle state."
+                            "Fields to update. `status` is READ-ONLY (REQ-143) "
+                            "and ignored if present — the WorkflowEngine owns "
+                            "the lifecycle state; use the transitions endpoint "
+                            "instead."
                         ),
-                    }
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "category": {"type": "string"},
+                            "change_reason": {
+                                "type": "string",
+                                "description": (
+                                    "Reason for the change. Required when the "
+                                    "workspace's change_reason preset policy "
+                                    "is 'mandatory' (e.g. extended preset)."
+                                ),
+                            },
+                        },
+                    },
                 },
                 "required": ["id"]
             }

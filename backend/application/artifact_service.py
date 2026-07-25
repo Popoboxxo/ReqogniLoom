@@ -401,8 +401,20 @@ class ArtifactService(ServiceBase):
 
         REQ-L2-AS-002: < 200ms for 500 artifacts in 5 levels.
         ADR-L3-AS001-02: single SQL query, no N+1.
+
+        #38: *root_id* is resolved the same way TraceLinkService resolves
+        TraceLink endpoints — callers naturally pass the more user-facing
+        Requirement/ArchitectureElement/Adr ID (as returned by
+        requirement.create, etc.), which is a distinct UUID from its backing
+        Artifact row. Without this resolution step the CTE's anchor query
+        (``WHERE id = %s``) never matches and a real, existing artifact is
+        reported as "not found".
         """
         self._set_tenant_context(ctx)
+
+        from application.trace_link_service import TraceLinkService
+
+        root_id = TraceLinkService()._resolve_artifact_id(root_id)
 
         # Recursive CTE: fetch all descendants in one query
         sql = """
