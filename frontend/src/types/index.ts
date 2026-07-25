@@ -97,6 +97,8 @@ export interface Requirement {
   parent_id?: string;
   title: string;
   description: string;
+  // #43: acceptance criteria describing when the requirement is fulfilled.
+  acceptance_criteria?: string;
   category: string;
   status: string;
   version: number;

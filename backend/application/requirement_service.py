@@ -131,6 +131,32 @@ class RequirementService(ServiceBase):
 
     # ---------- CRUD (REQ-L2-AS-003) ----------
 
+    def _assert_uid_unique_in_workspace(
+        self,
+        workspace_id: UUID,
+        uid: Optional[str],
+        *,
+        exclude_id: Optional[UUID] = None,
+    ) -> None:
+        """#44: reject a client-supplied ``uid`` that collides within the
+        same workspace.
+
+        Scoped to workspace (not tenant): ReqIF import legitimately
+        duplicates identifiers into a different workspace of the same
+        tenant, so a tenant-wide constraint would be a behaviour change for
+        that path. This check only guards the API/service-level create and
+        update entry points.
+        """
+        if not uid:
+            return
+        qs = Requirement.objects.filter(artifact__workspace_id=workspace_id, uid=uid)
+        if exclude_id is not None:
+            qs = qs.exclude(id=exclude_id)
+        if qs.exists():
+            raise ValidationError(
+                f"uid '{uid}' already exists in this workspace"
+            )
+
     @atomic_transaction
     def create_requirement(
         self,
@@ -138,6 +164,7 @@ class RequirementService(ServiceBase):
         title: str,
         ctx: AuthContext,
         description: str = "",
+        acceptance_criteria: str = "",
         category: str = "",
         parent_id: Optional[UUID] = None,
         type: str = "SyReq",
@@ -166,6 +193,8 @@ class RequirementService(ServiceBase):
         if workspace is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
 
+        self._assert_uid_unique_in_workspace(workspace_id, uid)
+
         # Create the backing Artifact first
         artifact = Artifact.objects.create(
             tenant=tenant,
@@ -180,6 +209,7 @@ class RequirementService(ServiceBase):
             artifact=artifact,
             title=title,
             description=description,
+            acceptance_criteria=acceptance_criteria,
             category=category,
             status="draft",
             type=type,
@@ -250,6 +280,7 @@ class RequirementService(ServiceBase):
         ctx: AuthContext,
         title: Optional[str] = None,
         description: Optional[str] = None,
+        acceptance_criteria: Optional[str] = None,
         category: Optional[str] = None,
         status: Optional[str] = None,
         change_reason: Optional[str] = None,
@@ -294,6 +325,8 @@ class RequirementService(ServiceBase):
             requirement.title = title
         if description is not None:
             requirement.description = description
+        if acceptance_criteria is not None:
+            requirement.acceptance_criteria = acceptance_criteria
         if category is not None:
             requirement.category = category
         if status is not None:
@@ -305,6 +338,9 @@ class RequirementService(ServiceBase):
         if verification_method is not _UNSET:
             requirement.verification_method = verification_method
         if uid is not _UNSET:
+            self._assert_uid_unique_in_workspace(
+                workspace_id, uid, exclude_id=requirement.id
+            )
             requirement.uid = uid
 
         # REQ-L2-AS-037: custom_fields lives on the backing Artifact.
