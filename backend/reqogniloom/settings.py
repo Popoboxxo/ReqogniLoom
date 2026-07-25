@@ -316,6 +316,12 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
         "rest_framework.filters.SearchFilter",
     ],
+    # #72: throttle the public login endpoint against credential-stuffing /
+    # brute-force attempts. Scoped rate so other anonymous/public endpoints
+    # (e.g. schema) are unaffected.
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/min",
+    },
 }
 
 # ---------------------------------------------------------------------------
