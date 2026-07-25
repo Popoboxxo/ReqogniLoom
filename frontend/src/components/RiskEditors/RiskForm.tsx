@@ -66,7 +66,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
     loadOwners();
   }, [risk?.workspace_id]);
 
-  const handleChange = (field: keyof Risk, value: any) => {
+  const handleChange = <K extends keyof Risk>(field: K, value: Risk[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (saveError) setSaveError(null);
     if (deleteError) setDeleteError(null);
@@ -92,7 +92,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
 
   const saveFields = () => {
     if (!risk) return {};
-    const fields: Record<string, any> = {};
+    const fields: Partial<Record<keyof Risk, unknown>> = {};
     for (const key of ['title', 'description', 'severity', 'probability', 'impact', 'status', 'category', 'owner', 'mitigation_strategy'] as const) {
       if (key in formData) fields[key] = formData[key];
     }
@@ -112,7 +112,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
       await risksApi.update(risk.id, {
         ...saveFields(),
         ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
-      } as any);
+      } as Partial<Risk> & { change_reason?: string });
       onSaved();
     } catch (err) {
       console.error(err);

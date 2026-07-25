@@ -35,7 +35,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: reqflow_test
           POSTGRES_USER: reqflow

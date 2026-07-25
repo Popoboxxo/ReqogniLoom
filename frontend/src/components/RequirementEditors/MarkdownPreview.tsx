@@ -56,7 +56,7 @@ export function MarkdownPreview({
   }, [value, termsMap, t]);
 
   const components = {
-    a: ({ node, href, children, ...props }: any) => {
+    a: ({ node: _node, href, children, ...props }: JSX.IntrinsicElements["a"] & { node?: unknown }) => {
       if (href && href.startsWith("glossary:")) {
         const termId = href.split("glossary:")[1];
         const termData = terms.find((t) => t.id === termId);

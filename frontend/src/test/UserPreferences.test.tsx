@@ -143,7 +143,7 @@ function MasterToggle(): JSX.Element {
 }
 
 function ControlledWorkspace({
-  preset,
+  preset: _preset,
 }: {
   preset: Workspace["preset"];
 }): JSX.Element {

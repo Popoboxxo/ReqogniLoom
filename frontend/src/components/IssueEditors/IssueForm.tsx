@@ -40,7 +40,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
     setDeleteError(null);
   }, [issue]);
 
-  const handleChange = (field: keyof Issue, value: any) => {
+  const handleChange = <K extends keyof Issue>(field: K, value: Issue[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (saveError) setSaveError(null);
     if (deleteError) setDeleteError(null);

@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ModalDialogBase from "./ModalDialogBase";
 
@@ -151,7 +151,6 @@ describe("ModalDialogBase (REQ-L1-040)", () => {
       </ModalDialogBase>
     );
 
-    const form = screen.getByTestId("test-create-form");
     await user.click(screen.getByTestId("test-save-btn"));
 
     expect(mockOnSubmit).toHaveBeenCalled();
@@ -594,7 +593,7 @@ describe("ModalDialogBase (REQ-L1-040)", () => {
       onSubmit: vi.fn(),
       onCancel: vi.fn(),
       testIdPrefix: "min",
-      buttonTestIdPrefix: "min", itemCount: 0,
+      buttonTestIdPrefix: "min",
       itemCount: 0,
     };
 

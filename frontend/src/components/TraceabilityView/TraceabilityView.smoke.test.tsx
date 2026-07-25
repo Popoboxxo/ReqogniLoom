@@ -80,7 +80,7 @@ const MOCK_LINKS = [
     workspace_id: "ws-trace-001",
     source_id: "req-001",
     target_id: "tc-001",
-    link_type: "verified_by",
+    link_type: "verifies",
     created_at: "2026-01-16T08:00:00Z",
   },
 ];
@@ -175,8 +175,8 @@ describe("TraceabilityView (REQ-053 smoke tests)", () => {
     // Both link types should appear as section headings (data-testid="tracelink-type")
     const linkTypeBadges = screen.getAllByTestId("tracelink-type");
     const linkTypeTexts = linkTypeBadges.map((el) => el.textContent ?? "");
-    expect(linkTypeTexts.some((t) => /implements/i.test(t))).toBe(true);
-    expect(linkTypeTexts.some((t) => /verified_by/i.test(t))).toBe(true);
+    expect(linkTypeTexts.some((t) => /implementation/i.test(t))).toBe(true);
+    expect(linkTypeTexts.some((t) => /verification/i.test(t))).toBe(true);
   });
 
   it("[REQ-053] renders error alert when API fetch fails with a non-404 error", async () => {

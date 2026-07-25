@@ -124,7 +124,6 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
 import RequirementEditors from "../components/RequirementEditors/RequirementEditors";
 import { requirementsApi } from "../api/requirements";
 import { tracelinksApi } from "../api/tracelinks";
-import { workspacesApi } from "../api/workspaces";
 import { testcasesApi } from "../api/testcases";
 import { extractErrorMessage } from "../api/client";
 import { AuthProvider } from "../context/AuthContext";

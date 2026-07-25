@@ -100,8 +100,13 @@ describe("TraceLinkDisplay (REQ-002)", () => {
     });
 
     it("falls back to truncated UUID when title fields are absent", () => {
-      const { source_title, target_title, source_type, target_type, ...rest } =
-        makeLink();
+      const {
+        source_title: _source_title,
+        target_title: _target_title,
+        source_type: _source_type,
+        target_type: _target_type,
+        ...rest
+      } = makeLink();
       const link = rest as TraceLink;
       render(<TraceLinkDisplay link={link} currentArtifactId={SOURCE_ID} />);
 

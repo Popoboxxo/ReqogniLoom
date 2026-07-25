@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TestRunsList } from "./TestRunsList";
@@ -51,7 +51,7 @@ const mockTestRuns = [
     workspace_id: "ws-123",
     name: "Sprint 1 QA Run",
     description: "Full regression test",
-    status: "completed",
+    status: "closed",
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
   },
@@ -60,7 +60,7 @@ const mockTestRuns = [
     workspace_id: "ws-123",
     name: "Smoke test run",
     description: "",
-    status: "in-progress",
+    status: "in_progress",
     created_at: "2026-01-02T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
   },
@@ -98,8 +98,12 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("testrun-item-tr-1")).toBeInTheDocument();
     });
-    expect(screen.getByText(/completed/)).toBeInTheDocument();
-    expect(screen.getByText(/in-progress/)).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("testrun-item-tr-1")).getByText(/closed/i)
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("testrun-item-tr-2")).getByText(/in progress/i)
+    ).toBeInTheDocument();
   });
 
   it("shows empty state when no test runs exist", async () => {

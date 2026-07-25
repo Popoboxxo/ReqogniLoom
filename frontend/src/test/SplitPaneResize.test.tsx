@@ -7,7 +7,7 @@
 
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 
 // Mock minimal component for testing resize logic
 function MockSplitPane({ minWidth }: { minWidth: number }): JSX.Element {
@@ -88,7 +88,7 @@ describe("Split-Pane Resize", () => {
   });
 
   it("respects minimum width constraint", () => {
-    const { rerender } = render(<MockSplitPane minWidth={260} />);
+    render(<MockSplitPane minWidth={260} />);
     const divider = screen.getByTestId("divider");
     const leftPanel = screen.getByTestId("left-panel");
 

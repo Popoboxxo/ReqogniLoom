@@ -37,7 +37,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
     setDeleteError(null);
   }, [testCase]);
 
-  const handleChange = (field: keyof TestCase, value: any) => {
+  const handleChange = <K extends keyof TestCase>(field: K, value: TestCase[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (saveError) setSaveError(null);
     if (deleteError) setDeleteError(null);

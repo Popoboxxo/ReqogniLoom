@@ -14,7 +14,7 @@ import { APP_NAME } from "./config/app-name";
 
 // Force React to be globally available to prevent esbuild from stripping the import
 // and to satisfy any old JSX transforms or third-party libraries.
-(window as any).React = React;
+(window as unknown as { React: typeof React }).React = React;
 
 // Override the static fallback title (index.html) with the configured product name.
 document.title = APP_NAME;

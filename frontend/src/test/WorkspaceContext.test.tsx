@@ -11,7 +11,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "../context/WorkspaceContext";
 import type { Workspace } from "../types";

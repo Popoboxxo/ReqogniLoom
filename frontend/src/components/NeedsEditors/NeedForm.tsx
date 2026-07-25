@@ -137,7 +137,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
     setDeleteError(null);
   }, [need]);
 
-  const handleChange = (field: keyof StakeholderNeed, value: any) => {
+  const handleChange = <K extends keyof StakeholderNeed>(field: K, value: StakeholderNeed[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     // Clear any pending error once the user starts editing (UI standards §5.4).
     if (saveError) setSaveError(null);

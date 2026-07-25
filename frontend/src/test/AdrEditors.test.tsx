@@ -80,6 +80,7 @@ vi.mock("../api/adrs", () => ({
     delete: vi.fn(),
     versions: vi.fn().mockResolvedValue([]),
     diff: vi.fn().mockResolvedValue({ fields: [], unchanged: [] }),
+    listAll: vi.fn().mockResolvedValue([ADR]),
   },
 }));
 
@@ -200,8 +201,8 @@ describe("AdrEditors TraceLinkPanel (REQ-L2-TE-020)", () => {
       expect(screen.getByText("EventStore Component")).toBeInTheDocument();
     });
 
-    // The 'decides' link-type label is rendered.
-    expect(screen.getByText("Decides")).toBeInTheDocument();
+    // The 'decides' link-type label is rendered (neutral EN label: "Decision").
+    expect(screen.getByText("Decision")).toBeInTheDocument();
 
     // The panel queried links for the ADR's own id.
     expect(tracelinksApi.listForArtifact).toHaveBeenCalledWith("ws-001", ADR.id);

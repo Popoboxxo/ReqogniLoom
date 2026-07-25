@@ -76,7 +76,7 @@ export function LoginPage(): JSX.Element {
     try {
       await login({ username: username.trim(), password });
       navigate(from, { replace: true });
-    } catch (err) {
+    } catch {
       setError(t("login.invalidCredentials"));
     } finally {
       setIsLoading(false);

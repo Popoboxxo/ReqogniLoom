@@ -6,8 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { MermaidEditor } from "./MermaidEditor";
 
 // Mock the diagrams API
@@ -186,7 +185,6 @@ describe("MermaidEditor", () => {
 
     // Error should be shown after preview fetch
     await waitFor(() => {
-      const errorEl = screen.queryByTestId("mermaid-error");
       // May or may not appear depending on timing
       expect(screen.getByTestId("mermaid-editor")).toBeInTheDocument();
     });

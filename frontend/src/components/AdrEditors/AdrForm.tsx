@@ -38,7 +38,7 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
     setDeleteError(null);
   }, [adr]);
 
-  const handleChange = (field: keyof Adr, value: any) => {
+  const handleChange = <K extends keyof Adr>(field: K, value: Adr[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (saveError) setSaveError(null);
     if (deleteError) setDeleteError(null);

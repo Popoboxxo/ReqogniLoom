@@ -36,7 +36,7 @@ export default [
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
-        { argsIgnorePattern: '^_' },
+        { argsIgnorePattern: '^_', ignoreRestSiblings: true },
       ],
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
@@ -48,6 +48,14 @@ export default [
       'jsx-a11y/no-static-element-interactions': 'warn',
       'jsx-a11y/role-has-required-aria-props': 'warn',
       'jsx-a11y/label-has-associated-control': 'warn',
+    },
+  },
+  {
+    files: ['src/**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    rules: {
+      // Test doubles/mocks routinely need loose typing; keep signal for
+      // production code (still 'error' there) without blocking CI on tests.
+      '@typescript-eslint/no-explicit-any': 'warn',
     },
   },
   {
