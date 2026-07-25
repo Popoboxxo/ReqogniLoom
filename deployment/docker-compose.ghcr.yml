@@ -1,40 +1,39 @@
-# ReqogniLoom Production Compose — Unraid Deployment
-# Based on ai-native-reqogniloom-POC/docker-compose.yml (production target)
-# Unraid-specific: Bind mounts to /mnt/user/reqogniloom_prod/, custom network, icon labels
+# ReqogniLoom — Production Deployment via GHCR Pre-Built Images
+# ADR-08: Self-Hosted via Docker Compose
 #
-# REGISTRY AUTHENTICATION (only needed for private images)
-# ────────────────────────────────
-# Images are published to GitHub Container Registry (GHCR) and are public by
-# default for this project. If your fork publishes private images, authenticate
-# first:
-#   docker login ghcr.io -u <github-user>
-#   (Use a GitHub Personal Access Token with the `read:packages` scope)
+# Unlike the root docker-compose.yml (which builds backend/frontend from
+# source — the right choice for development), this file pulls the images
+# published by .github/workflows/docker-publish.yml on every `vX.Y.Z` tag:
+#   ghcr.io/<owner>/reqogniloom-backend:<tag>
+#   ghcr.io/<owner>/reqogniloom-frontend:<tag>
+# Celery/celery-beat reuse the backend image with a different `command:` —
+# there is no separate Celery image (see docker-publish.yml header).
 #
-# Images are automatically built and pushed by GitHub Actions
-# (.github/workflows/docker-publish.yml in ai-native-reqogniloom-POC) on every
-# `vX.Y.Z` tag push. Set IMAGE_TAG in your .env to pin a specific version, or
-# leave it at the default `latest` to track the newest release.
+# ┌─ QUICK START ─────────────────────────────────────────────────────┐
+# │ 1. cp deployment/.env.example deployment/.env                     │
+# │ 2. Fill in all CHANGE-ME values in deployment/.env                │
+# │ 3. Set GHCR_OWNER and IMAGE_TAG (see below)                       │
+# │ 4. docker compose -f deployment/docker-compose.ghcr.yml           │
+# │      --env-file deployment/.env pull                              │
+# │ 5. docker compose -f deployment/docker-compose.ghcr.yml           │
+# │      --env-file deployment/.env up -d                             │
+# └─────────────────────────────────────────────────────────────────┘
 #
-# LOCAL BUILD (no registry / no CI access needed)
-# ────────────────────────────────
-# Every custom service below also has a `build:` section. Compose builds
-# locally and tags with `image:` whenever both keys are present — so
-#   docker compose -f deployment/unraid/docker-compose.yaml build
-#   docker compose -f deployment/unraid/docker-compose.yaml up -d
-# works entirely offline against a full repo checkout, no registry login
-# needed. Once you want to switch to pure registry pulls, just delete
-# the `build:` blocks below.
+# IMAGE TAGGING:
+#   GHCR_OWNER   — GitHub org/user that owns the images (default: popoboxxo)
+#   IMAGE_TAG    — pin a version (e.g. 1.2.0) or track `latest` (default: latest)
+# Pin IMAGE_TAG in production; `latest` is convenient for homelab/test use
+# but moves underneath you on every release.
 #
-# REPO_ROOT: build contexts resolve to ${REPO_ROOT:-../..}/backend and
-# ${REPO_ROOT:-../..}/frontend. The default (../..) only works if this file
-# is run in place from deployment/unraid/ inside a full repo checkout.
-# Unraid's Docker Compose Manager plugin does NOT run the file in place —
-# it stores its own copy under /boot/config/plugins/compose.manager/projects/<name>/,
-# so the relative default resolves to the wrong place and the build fails
-# with "unable to prepare context: path ... not found". If you're deploying
-# via Compose Manager, set REPO_ROOT in your .env to the absolute path of
-# the actual repo checkout on this host, e.g.:
-#   REPO_ROOT=/mnt/user/appdata/ai-native-reqogniloom-POC
+# GHCR images are public by default for this project; if yours are private,
+# authenticate first: docker login ghcr.io -u <github-user>
+#
+# SECURITY NOTES:
+# • NEVER commit deployment/.env with real secrets (already in .gitignore)
+# • Always use HTTPS reverse proxy in production (nginx, Traefik, Caddy, ...)
+# • Keep DEBUG=False in production
+# • Use strong POSTGRES_PASSWORD / SECRET_KEY (32+ random chars)
+# • Do not publish ports 5432 (postgres) / 6379 (redis) beyond the docker network
 
 services:
   # ─────────────────────────────────────────────────────────
@@ -42,15 +41,13 @@ services:
   # ─────────────────────────────────────────────────────────
   postgres:
     image: pgvector/pgvector:pg16
-    labels:
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/postgresql.png"
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-reqogniloom}
       POSTGRES_USER: ${DB_USER:-reqogniloom}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - /mnt/user/reqogniloom_prod/db:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     logging:
       driver: "json-file"
       options:
@@ -62,17 +59,15 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    networks:
-      - reqogniloom-net-prod
 
   # ─────────────────────────────────────────────────────────
-  # PostgreSQL Backup — REQ-102 (INF-21)
-  # Runs backend/scripts/backup_postgres.sh on a fixed interval (default 24h)
+  # PostgreSQL Backup — REQ-102 (INF-21) backup strategy
   # ─────────────────────────────────────────────────────────
+  # Requires backend/scripts/backup_postgres.sh from a repo checkout mounted
+  # read-only. If you deploy without a repo checkout, drop this service and
+  # back up via an external tool instead.
   postgres-backup:
     image: postgres:16-alpine
-    labels:
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/postgresql.png"
     restart: unless-stopped
     environment:
       POSTGRES_HOST: postgres
@@ -83,12 +78,8 @@ services:
       BACKUP_RETENTION: ${BACKUP_RETENTION:-7}
       BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
     volumes:
-      - /mnt/user/reqogniloom_prod/backup:/backups
-      # NOTE: For Unraid, mount the backup script from the frontend container or copy it manually
-      # Option 1: Copy backend/scripts/backup_postgres.sh to /mnt/user/reqogniloom_prod/scripts/backup_postgres.sh
-      #           then mount: - /mnt/user/reqogniloom_prod/scripts/backup_postgres.sh:/usr/local/bin/backup_postgres.sh:ro
-      # Option 2: If running in the same compose with backend build context, uncomment below:
-      # - ./backend/scripts/backup_postgres.sh:/usr/local/bin/backup_postgres.sh:ro
+      - postgres_backup_data:/backups
+      - ${REPO_ROOT:-..}/backend/scripts/backup_postgres.sh:/usr/local/bin/backup_postgres.sh:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -104,16 +95,12 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    networks:
-      - reqogniloom-net-prod
 
   # ─────────────────────────────────────────────────────────
   # Redis — ARCH-L1-016 ResilienceOrchestrator (Celery broker)
   # ─────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    labels:
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/redis.png"
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -134,8 +121,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    networks:
-      - reqogniloom-net-prod
 
   # ─────────────────────────────────────────────────────────
   # Database Migration + Self-Init Service (REQ-188)
@@ -144,15 +129,10 @@ services:
   # deployment via a post_migrate receiver (application.self_init) — base
   # tenant, workspace, admin user/role, default workflow/permission
   # definitions. Idempotent; create-only on the admin password (an admin who
-  # changed their password via UI/API is never reset). Fails fast only when
-  # it must create the admin but SYSTEM_ADMIN_PASSWORD is unset. There is no
-  # separate "bootstrap" service — self-init runs inline in this container.
+  # changed their password via UI/API is never reset). No separate
+  # "bootstrap" service exists — self-init runs inline here.
   migrate:
     image: ghcr.io/${GHCR_OWNER:-popoboxxo}/reqogniloom-backend:${IMAGE_TAG:-latest}
-    build:
-      context: ${REPO_ROOT:-../..}/backend
-      dockerfile: Dockerfile
-    platform: linux/amd64
     restart: "no"
     env_file: .env
     environment:
@@ -165,9 +145,6 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      # Admin account provisioned on first start by the self-init receiver.
-      # Username/email have safe defaults; SYSTEM_ADMIN_PASSWORD is required
-      # only when the admin does not exist yet (mirrors createsuperuser --noinput).
       SYSTEM_ADMIN_USERNAME: ${SYSTEM_ADMIN_USERNAME:-admin}
       SYSTEM_ADMIN_EMAIL: ${SYSTEM_ADMIN_EMAIL:-admin@demo.local}
       SYSTEM_ADMIN_PASSWORD: ${SYSTEM_ADMIN_PASSWORD:-}
@@ -180,20 +157,12 @@ services:
       postgres:
         condition: service_healthy
     command: python manage.py migrate
-    networks:
-      - reqogniloom-net-prod
 
   # ─────────────────────────────────────────────────────────
   # Django Backend — All backend ARCH-L1 systems
   # ─────────────────────────────────────────────────────────
   backend:
     image: ghcr.io/${GHCR_OWNER:-popoboxxo}/reqogniloom-backend:${IMAGE_TAG:-latest}
-    build:
-      context: ${REPO_ROOT:-../..}/backend
-      dockerfile: Dockerfile
-    platform: linux/amd64
-    labels:
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/django.png"
     restart: unless-stopped
     env_file: .env
     environment:
@@ -210,18 +179,17 @@ services:
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
       # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02)
+      # Set LLM_PROVIDER=anthropic|openai|ollama to enable AI features.
+      # Graceful degradation if not set (REQ-L1-032).
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
-      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+    volumes:
+      - backend_dr_backups:/app/backups
     ports:
-      # NOTE: Backend publishes on 8010 for direct access. For production, use a reverse proxy
-      # (e.g., Nginx Proxy Manager, Swag, or Traefik) instead and remove this port mapping.
-      # The reverse proxy should connect to backend:8000 (internal Docker network).
-      - "8010:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     logging:
       driver: "json-file"
       options:
@@ -240,21 +208,12 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    networks:
-      - reqogniloom-net-prod
 
   # ─────────────────────────────────────────────────────────
   # Celery Worker — ARCH-L1-016 ResilienceOrchestrator
-  # Handles async tasks: LLM calls, Webhooks, GitHub integration
   # ─────────────────────────────────────────────────────────
   celery:
     image: ghcr.io/${GHCR_OWNER:-popoboxxo}/reqogniloom-backend:${IMAGE_TAG:-latest}
-    build:
-      context: ${REPO_ROOT:-../..}/backend
-      dockerfile: Dockerfile
-    platform: linux/amd64
-    labels:
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/celery.png"
     restart: unless-stopped
     env_file: .env
     environment:
@@ -291,22 +250,16 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    # REQ-077: single worker consumes all queues. Split into dedicated workers
+    # (e.g. a high-concurrency -Q llm worker) when workloads need to scale apart.
     command: >
       sh -c "celery -A reqogniloom worker --loglevel=info -Q default,llm,events"
-    networks:
-      - reqogniloom-net-prod
 
   # ─────────────────────────────────────────────────────────
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
   # ─────────────────────────────────────────────────────────
   celery-beat:
     image: ghcr.io/${GHCR_OWNER:-popoboxxo}/reqogniloom-backend:${IMAGE_TAG:-latest}
-    build:
-      context: ${REPO_ROOT:-../..}/backend
-      dockerfile: Dockerfile
-    platform: linux/amd64
-    labels:
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/celery.png"
     restart: unless-stopped
     env_file: .env
     environment:
@@ -339,30 +292,20 @@ services:
         condition: service_completed_successfully
     command: >
       sh -c "celery -A reqogniloom beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
-    networks:
-      - reqogniloom-net-prod
 
   # ─────────────────────────────────────────────────────────
   # React Frontend — ARCH-L1-001 ReactFrontend
   # ─────────────────────────────────────────────────────────
   frontend:
     image: ghcr.io/${GHCR_OWNER:-popoboxxo}/reqogniloom-frontend:${IMAGE_TAG:-latest}
-    build:
-      context: ${REPO_ROOT:-../..}/frontend
-      dockerfile: Dockerfile
-      target: production
-    platform: linux/amd64
-    labels:
-      net.unraid.docker.icon: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/react.png"
-      net.unraid.docker.webui: "http://172.20.4.255:5554"
     restart: unless-stopped
-    env_file: .env
-    environment:
-      # Environment variables used at build time for Vite
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
-      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+    # NOTE: VITE_API_BASE_URL / VITE_ALLOWED_HOSTS are baked into the image at
+    # build time (Vite). They cannot be changed at runtime for a pre-built
+    # image — if your deployment needs a different API URL, build your own
+    # frontend image from source (see the root docker-compose.yml) instead of
+    # pulling ghcr.io/.../reqogniloom-frontend.
     ports:
-      - "5554:80"
+      - "${FRONTEND_PORT:-80}:8080"
     logging:
       driver: "json-file"
       options:
@@ -371,9 +314,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    networks:
-      - reqogniloom-net-prod
 
-networks:
-  reqogniloom-net-prod:
-    driver: bridge
+volumes:
+  postgres_data:
+  postgres_backup_data:  # REQ-102: retained pg_dump backups
+  backend_dr_backups:    # REQ-L1-046: admin_ops DR backup JSON files (/app/backups)
