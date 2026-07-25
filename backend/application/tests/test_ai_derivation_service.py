@@ -975,6 +975,138 @@ def test_auto_approve_falls_back_to_gate_stop_when_no_explicit_target(
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 (REQ-L2-RV-001) — ReviewPolicy gates _auto_approve
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ai_derivation_service():
+    return AiDerivationService()
+
+
+@pytest.fixture
+def settings_service():
+    from application.settings_service import SettingsService
+
+    return SettingsService()
+
+
+@pytest.fixture
+def review_admin_ctx(auth_context):
+    """An approver/admin-held ctx in the same tenant as ``auth_context`` —
+    needed to reach a real approval gate (``auth_context`` itself only holds
+    "editor", which cannot cross one)."""
+    return AuthContext(
+        user_id=auth_context.user_id,
+        tenant_id=auth_context.tenant_id,
+        active_roles=("approver", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="ai-tenant",
+    )
+
+
+@pytest.fixture
+def adr_awaiting_approval(workspace, review_admin_ctx):
+    """A freshly created Adr, provisioned with ``adr_default``, one
+    self-service hop (Draft -> In Review, "editor"-allowed) plus one real
+    approval gate (In Review -> Approved, approver/admin-only) away from its
+    preset's explicit ``auto_approve_target`` ("Approved").
+    """
+    from application.adr_service import AdrService
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(review_admin_ctx.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="adr_default",
+            item_type="Adr",
+            tenant_id=review_admin_ctx.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    return AdrService().create_adr(
+        workspace_id=workspace.id,
+        title="Derived ADR (Phase 5 ReviewPolicy)",
+        description="from decision",
+        ctx=review_admin_ctx,
+        context="ctx",
+        consequences="consequences",
+    )
+
+
+def test_auto_approve_stops_immediately_under_review_all_policy(
+    ai_derivation_service,
+    workspace,
+    review_admin_ctx,
+    settings_service,
+    adr_awaiting_approval,
+):
+    """"review_all" never crosses an approval gate, even for an
+    approver/admin-held ctx and even though the preset marks "Approved" as
+    the explicit ``auto_approve_target`` beyond that gate. The walk still
+    takes the editor-open Draft -> In Review self-service hop (that hop is
+    not a gate at all), then stops.
+    """
+    settings_service.update_review_policy(
+        review_admin_ctx, workspace_id=workspace.id, mode="review_all", min_confidence=0.7
+    )
+
+    final_state = ai_derivation_service._auto_approve(
+        "Adr", adr_awaiting_approval.id, workspace.id, review_admin_ctx
+    )
+
+    assert final_state == "In Review"
+
+
+def test_auto_approve_review_high_risk_blocks_without_confidence_signal(
+    ai_derivation_service,
+    workspace,
+    review_admin_ctx,
+    settings_service,
+    adr_awaiting_approval,
+    monkeypatch,
+):
+    """"review_high_risk" never crosses an approval gate when
+    ``_estimate_confidence`` reports no signal (``None``) — treated as
+    always below ``min_confidence``.
+    """
+    settings_service.update_review_policy(
+        review_admin_ctx,
+        workspace_id=workspace.id,
+        mode="review_high_risk",
+        min_confidence=0.5,
+    )
+    monkeypatch.setattr(
+        ai_derivation_service, "_estimate_confidence", lambda *a, **kw: None
+    )
+
+    final_state = ai_derivation_service._auto_approve(
+        "Adr", adr_awaiting_approval.id, workspace.id, review_admin_ctx
+    )
+
+    assert final_state != "Approved"
+    assert final_state == "In Review"
+
+
+def test_auto_approve_unchanged_under_auto_policy_default(
+    ai_derivation_service, workspace, review_admin_ctx, adr_awaiting_approval
+):
+    """No ReviewPolicy row exists -> resolver default is "auto" -> identical
+    behaviour to pre-Phase-5 (regression guard alongside
+    ``test_auto_approve_stops_before_approval_gate_for_adr``): the explicit
+    ``auto_approve_target`` still lets the walk cross the approval gate.
+    """
+    final_state = ai_derivation_service._auto_approve(
+        "Adr", adr_awaiting_approval.id, workspace.id, review_admin_ctx
+    )
+
+    assert final_state == "Approved"
+
+
+# ---------------------------------------------------------------------------
 # Flow 6 (Phase 3, Task 4) — derive glossary term drafts from a workspace
 # ---------------------------------------------------------------------------
 

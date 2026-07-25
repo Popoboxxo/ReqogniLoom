@@ -430,6 +430,20 @@ def initialize_workflow_states(
     )
 
 
+def is_approval_gate(transition_dto: TransitionDefinitionDTO) -> bool:
+    """True if *transition_dto* is a genuine human approval decision.
+
+    A transition an ``editor`` can already take unsupervised (its
+    ``allowed_roles`` includes ``"editor"``) is a self-service submission step
+    (e.g. ``draft -> in_review``), not an approval. A transition restricted to
+    ``approver``/``admin`` (no ``editor``) is the real "someone signed off on
+    this" gate. Shared by ``AiDerivationService._auto_approve`` (Phase 3) and
+    the ``review.*`` MCP tool group (Phase 5) so neither layer imports from
+    the other for this concept.
+    """
+    return "editor" not in transition_dto.allowed_roles
+
+
 def get_definition(
     workspace_id: UUID | str, item_type: str
 ) -> WorkflowDefinitionDTO:
@@ -846,6 +860,7 @@ __all__ = [
     "initialize_workflow_states",
     "get_definition",
     "get_available_transitions",
+    "is_approval_gate",
     "get_history",
     "outdated_item_ids",
     "create_default_workflow",

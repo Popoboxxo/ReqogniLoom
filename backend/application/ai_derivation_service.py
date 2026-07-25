@@ -1153,8 +1153,8 @@ class AiDerivationService(ServiceBase):
 
         Fallback (no explicit target defined anywhere in this workflow):
         the walk stops *before* taking a transition that requires an approval
-        role (see :meth:`_is_approval_gate`), exactly as before this preset
-        gained explicit metadata. This fixes a bug where an actor holding
+        role (see :func:`workflow.services.is_approval_gate`), exactly as
+        before this preset gained explicit metadata. This fixes a bug where an actor holding
         ``approver``/``admin`` could otherwise walk a freshly-derived entity
         all the way to a business-terminal state such as ``Risk.Closed`` or
         ``Adr.Superseded`` — states that mean "this is done/superseded", not
@@ -1170,13 +1170,44 @@ class AiDerivationService(ServiceBase):
         met) simply stops the walk at whatever state was last reached — the
         entity stays a valid, persisted draft either way.
 
+        Phase 5 (REQ-L2-RV-001): the walk additionally consults the
+        workspace's effective ``ReviewPolicy``
+        (``SettingsService.get_effective_review_policy``) before crossing any
+        approval gate (``workflow.services.is_approval_gate``):
+
+          - ``mode="auto"``: unchanged pre-Phase-5 behaviour (see above).
+          - ``mode="review_all"``: never crosses an approval gate — stops at
+            the first self-service hop's boundary, same as if no explicit
+            ``auto_approve_target`` existed for this preset.
+          - ``mode="review_changes"``: identical to "auto" for now — none of
+            the current derive tools modifies a pre-existing approved
+            artifact, so there is nothing to distinguish yet. Stored for
+            forward compatibility (YAGNI-deferred, not silently dropped).
+          - ``mode="review_high_risk"``: crosses a gate only if
+            :meth:`_estimate_confidence` returns a value
+            ``>= policy.min_confidence``; ``None`` (no signal) never crosses.
+
         Returns:
             The final workflow state name reached (``"draft"`` if no
             transition could be taken at all).
         """
         from workflow.definition_store import get_state_meta
         from workflow.models import WorkflowEngineDefinition
-        from workflow.services import get_available_transitions, transition
+        from workflow.services import (
+            get_available_transitions,
+            is_approval_gate,
+            transition,
+        )
+        from application.settings_service import SettingsService
+
+        policy = SettingsService().get_effective_review_policy(
+            ctx, workspace_id=workspace_id
+        )
+        confidence = (
+            self._estimate_confidence(item_type, item_id)
+            if policy.mode == "review_high_risk"
+            else None
+        )
 
         current_state = "draft"
         try:
@@ -1219,11 +1250,24 @@ class AiDerivationService(ServiceBase):
                 if next_transition is None:
                     break
 
-                if self._is_approval_gate(next_transition) and not has_explicit_target:
-                    # No explicit destination defined for this preset — fall
-                    # back to the safe default: never cross an approval
-                    # decision unsupervised.
-                    break
+                if is_approval_gate(next_transition):
+                    if policy.mode == "review_all":
+                        # Never cross an approval gate unsupervised.
+                        break
+                    if policy.mode == "review_high_risk" and (
+                        confidence is None or confidence < policy.min_confidence
+                    ):
+                        # No (or insufficient) confidence signal — leave the
+                        # gate for a human.
+                        break
+                    if (
+                        policy.mode in ("auto", "review_changes")
+                        and not has_explicit_target
+                    ):
+                        # No explicit destination defined for this preset —
+                        # fall back to the safe default: never cross an
+                        # approval decision unsupervised.
+                        break
 
                 result = transition(
                     item_id=item_id,
@@ -1244,18 +1288,30 @@ class AiDerivationService(ServiceBase):
             )
         return current_state
 
-    @staticmethod
-    def _is_approval_gate(transition_dto: "TransitionDefinitionDTO") -> bool:
-        """True if *transition_dto* is a genuine approval decision.
+    def _estimate_confidence(
+        self, item_type: str, item_id: "UUID | str"
+    ) -> "float | None":
+        """Minimal v1 confidence heuristic (Phase 5, REQ-L2-RV-001).
 
-        A transition an ``editor`` can already take unsupervised (its
-        ``allowed_roles`` includes ``"editor"``) is a self-service submission
-        step (e.g. ``draft -> in_review``), not an approval — ``_auto_approve``
-        may cross it. A transition restricted to ``approver``/``admin`` (no
-        ``editor``) is the real "someone signed off on this" gate and must be
-        left to an explicit, human-initiated transition call instead.
+        No LLM adapter surfaces a real confidence score today (verified: zero
+        hits for ``confidence`` across ``application/ai_derivation_service.py``
+        and ``llm_adapter/``). The mock provider's output is fully
+        deterministic, so it is treated as maximum confidence (``1.0``);
+        every real provider currently returns ``None`` ("no signal"), which
+        ``_auto_approve``'s ``review_high_risk`` branch treats as always
+        below threshold — the conservative default until a provider actually
+        reports one.
+
+        Args:
+            item_type: Kept for a future richer heuristic (e.g. per-entity-type
+                risk weighting); unused by the current placeholder.
+            item_id: Kept for the same reason as ``item_type``.
         """
-        return "editor" not in transition_dto.allowed_roles
+        from django.conf import settings as django_settings
+
+        if getattr(django_settings, "LLM_PROVIDER", "mock") == "mock":
+            return 1.0
+        return None
 
     @staticmethod
     def _get_template_content(
