@@ -313,7 +313,8 @@ def resolve_scope_item_ids(
 
     Scope semantics (REQ-L2-BL-001):
       document — the root Artifact + all descendants reachable via
-                 ``pl_artifact.parent_id`` (``artifact_id`` is required)
+                 ``pl_artifact.parent_id`` OR via ``derives-from``/``refines``
+                 TraceLinks (``artifact_id`` is required)
       project  — all Artifacts in the Workspace
       global   — all Artifacts in the Tenant (``workspace_id`` is ignored for
                  the filter, but is still required for upstream permission
@@ -368,33 +369,48 @@ def resolve_scope_item_ids(
         """
         id_params = [str(tenant_id)]
     else:  # document
-        # TODO (hierarchy consolidation): this recursive CTE walks
-        # pl_artifact.parent_id, which is deprecated and left NULL by
-        # RequirementService/StakeholderNeedService/AdrService/... (they use
-        # 'derives-from' TraceLinks for hierarchy instead — see
-        # persistence/models.py Artifact.parent docstring). For artifacts
-        # created by those services, "document" scope effectively resolves
-        # to only the root artifact (no descendants found via parent_id).
-        # Revisit: resolve descendants via TraceLinkService instead.
+        # Descendant resolution walks two edge sources (issue #42):
+        # pl_artifact.parent_id (legacy pointer, still populated for some
+        # artifact types) AND 'derives-from'/'refines' TraceLinks
+        # (source=child -> target=parent), which is the hierarchy mechanism
+        # used by RequirementService/StakeholderNeedService/AdrService/...
+        # (see persistence/models.py Artifact.parent docstring). Without the
+        # TraceLink branch, "document" scope for artifacts created by those
+        # services effectively resolved to only the root artifact.
+        # Postgres allows at most one self-reference to the recursive table
+        # per recursive CTE, so the two edge sources (parent_id, TraceLinks)
+        # are first unioned into a plain (non-recursive) 'edges' CTE; the
+        # recursive 'descendants' term then joins that single relation once.
         sql_ids = """
-            WITH RECURSIVE descendants AS (
+            WITH RECURSIVE edges AS (
+                SELECT a.id AS child_id, a.parent_id AS parent_id
+                FROM pl_artifact a
+                WHERE a.parent_id IS NOT NULL
+                  AND a.tenant_id = %s
+                UNION ALL
+                SELECT tl.source_id AS child_id, tl.target_id AS parent_id
+                FROM pl_tracelink tl
+                WHERE tl.tenant_id = %s
+                  AND tl.link_type IN ('derives-from', 'refines')
+            ),
+            descendants AS (
                 SELECT a.id
                 FROM pl_artifact a
                 WHERE a.id = %s
                   AND a.workspace_id = %s
                   AND a.tenant_id = %s
-                UNION ALL
-                SELECT a.id
-                FROM pl_artifact a
-                INNER JOIN descendants d ON a.parent_id = d.id
-                WHERE a.tenant_id = %s
+                UNION
+                SELECT e.child_id
+                FROM edges e
+                INNER JOIN descendants d ON e.parent_id = d.id
             )
             SELECT id::text FROM descendants ORDER BY id
         """
         id_params = [
+            str(tenant_id),
+            str(tenant_id),
             str(artifact_id),
             str(workspace_id),
-            str(tenant_id),
             str(tenant_id),
         ]
 

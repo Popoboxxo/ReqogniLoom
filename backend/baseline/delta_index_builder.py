@@ -247,29 +247,48 @@ class ScopeResolver:
 
         REQ-L2-BL-001: document scope includes A + all children + TraceLinks.
 
-        TODO (hierarchy consolidation): descendant resolution below walks
-        pl_artifact.parent_id, which is deprecated and left NULL by
-        RequirementService/StakeholderNeedService/AdrService/... (they rely
-        on 'derives-from' TraceLinks instead — see persistence/models.py
-        Artifact.parent docstring). For document roots created by those
-        services this CTE will not find any descendants. Revisit: resolve
-        descendants via TraceLinkService for those artifact types.
+        Descendant resolution walks two edge sources (issue #42):
+          - ``pl_artifact.parent_id`` — populated for artifact types that
+            still use the legacy parent pointer.
+          - ``derives-from`` / ``refines`` TraceLinks (source=child ->
+            target=parent) — the hierarchy mechanism used by
+            RequirementService/StakeholderNeedService/AdrService/... (see
+            persistence/models.py Artifact.parent docstring). Without this
+            branch, document-scope baselines for those artifact types only
+            ever captured the root artifact.
         """
         from django.db import connection
 
-        # Recursive CTE to collect the root artifact and all descendants
+        # Recursive CTE: collect the root artifact and all descendants,
+        # expanding via parent_id AND via derives-from/refines TraceLinks
+        # (source is the child, target is the parent it derives from/refines).
+        # Postgres allows at most one self-reference to the recursive table
+        # per recursive CTE, so the two edge sources (parent_id, TraceLinks)
+        # are first unioned into a plain (non-recursive) 'edges' CTE; the
+        # recursive 'descendants' term then joins that single relation once.
         sql = """
-            WITH RECURSIVE descendants AS (
+            WITH RECURSIVE edges AS (
+                SELECT a.id AS child_id, a.parent_id AS parent_id
+                FROM pl_artifact a
+                WHERE a.parent_id IS NOT NULL
+                  AND a.tenant_id = %s
+                UNION ALL
+                SELECT tl.source_id AS child_id, tl.target_id AS parent_id
+                FROM pl_tracelink tl
+                WHERE tl.tenant_id = %s
+                  AND tl.link_type IN ('derives-from', 'refines')
+            ),
+            descendants AS (
                 SELECT a.id, a.version
                 FROM pl_artifact a
                 WHERE a.id = %s
                   AND a.workspace_id = %s
                   AND a.tenant_id = %s
-                UNION ALL
+                UNION
                 SELECT a.id, a.version
                 FROM pl_artifact a
-                INNER JOIN descendants d ON a.parent_id = d.id
-                WHERE a.tenant_id = %s
+                INNER JOIN edges e ON a.id = e.child_id
+                INNER JOIN descendants d ON e.parent_id = d.id
             )
             SELECT id::text, version FROM descendants
             ORDER BY id
@@ -278,9 +297,10 @@ class ScopeResolver:
             cur.execute(
                 sql,
                 [
+                    str(tenant_id),
+                    str(tenant_id),
                     str(document_id),
                     str(workspace_id),
-                    str(tenant_id),
                     str(tenant_id),
                 ],
             )
