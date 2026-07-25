@@ -1672,6 +1672,53 @@ class PromptTemplate(TenantScopedModel):
             super().save(*args, **kwargs)
 
 
+REVIEW_POLICY_MODES = ("auto", "review_changes", "review_all", "review_high_risk")
+
+
+class ReviewPolicy(TenantScopedModel):
+    """Per-workspace (or tenant-global) AI-derivation review policy (Phase 5).
+
+    Governs whether ``AiDerivationService``'s ``policy="auto"`` path
+    (``_auto_approve``) may cross an approval gate unsupervised, or must stop
+    and leave the item in its pre-gate state for a human to process via the
+    ``review.*`` MCP tool group. Unlike ``PromptTemplate`` this is a plain
+    upsert target, not append-only version history — there is no audit value
+    in keeping old policy values around, only the effective one matters.
+
+    ``workspace_id=None`` is the tenant-wide default; a non-null
+    ``workspace_id`` overrides it for that workspace only. At most one row
+    per ``(tenant, workspace_id)`` — enforced by the unique index below.
+    """
+
+    mode = models.CharField(
+        max_length=32,
+        choices=[(m, m) for m in REVIEW_POLICY_MODES],
+        default="auto",
+        help_text="auto | review_changes | review_all | review_high_risk.",
+    )
+    min_confidence = models.FloatField(
+        default=0.7,
+        help_text="Threshold used only by review_high_risk mode.",
+    )
+    workspace_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Workspace override scope. NULL means tenant-wide default.",
+    )
+
+    class Meta:
+        db_table = "pl_review_policy"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "workspace_id"], name="uq_review_policy_scope"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        scope = str(self.workspace_id) if self.workspace_id else "tenant-global"
+        return f"ReviewPolicy({scope}, {self.mode})"
+
+
 # ---------------------------------------------------------------------------
 # Token usage accounting (REQ-106) — tenant-scoped, append-only
 # ---------------------------------------------------------------------------
@@ -1774,4 +1821,6 @@ __all__ = [
     "DEFAULT_NEED_TO_SYSREQ",
     "DEFAULT_SYSREQ_TO_ARCH_ASSIGN",
     "DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL",
+    "ReviewPolicy",
+    "REVIEW_POLICY_MODES",
 ]

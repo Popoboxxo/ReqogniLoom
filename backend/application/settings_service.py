@@ -40,9 +40,11 @@ from django.db import IntegrityError
 from auth_tenancy.context import AuthContext
 from persistence.models import (
     PROMPT_TEMPLATE_DEFAULTS,
+    REVIEW_POLICY_MODES,
     LlmProvider,
     LlmSettings,
     PromptTemplate,
+    ReviewPolicy,
 )
 
 from application.base import ServiceBase, ValidationError
@@ -204,6 +206,69 @@ class SettingsService(ServiceBase):
                         f"Could not reset '{name}' to its factory default: {exc}"
                     ) from exc
         return self._effective_prompt_template(ctx)
+
+    # ---- ReviewPolicy (Phase 5, REQ-L2-RV-001) -----------------------------
+    #
+    # Unlike PromptTemplate this is a plain upsert target, not append-only
+    # version history -- there is no audit value in keeping old policy values
+    # around, only the effective one matters. See persistence.models.
+    # ReviewPolicy's class docstring for the full scoping rationale.
+
+    def get_effective_review_policy(
+        self, ctx: AuthContext, *, workspace_id: "str | None" = None
+    ) -> ReviewPolicy:
+        """Return the effective ReviewPolicy for ``workspace_id``.
+
+        Resolution order: active workspace-scoped row -> tenant-global row
+        (``workspace_id=None``) -> an unsaved default instance
+        (``mode="auto"``, ``min_confidence=0.7``). A read never creates a row.
+        """
+        self._set_tenant_context(ctx)
+        if workspace_id is not None:
+            row = ReviewPolicy.objects.filter(
+                tenant_id=ctx.tenant_id, workspace_id=workspace_id
+            ).first()
+            if row is not None:
+                return row
+        row = ReviewPolicy.objects.filter(
+            tenant_id=ctx.tenant_id, workspace_id=None
+        ).first()
+        if row is not None:
+            return row
+        return ReviewPolicy(
+            tenant_id=ctx.tenant_id,
+            workspace_id=workspace_id,
+            mode="auto",
+            min_confidence=0.7,
+        )
+
+    def update_review_policy(
+        self,
+        ctx: AuthContext,
+        *,
+        workspace_id: "str | None",
+        mode: str,
+        min_confidence: float,
+    ) -> ReviewPolicy:
+        """Upsert the single ``(tenant, workspace_id)`` ReviewPolicy row.
+
+        Validates ``mode`` against ``REVIEW_POLICY_MODES`` and that
+        ``min_confidence`` is within ``[0.0, 1.0]``; raises ``ValidationError``
+        otherwise.
+        """
+        self._set_tenant_context(ctx)
+        if mode not in REVIEW_POLICY_MODES:
+            raise ValidationError(
+                f"Unknown review policy mode '{mode}'. Valid: {', '.join(REVIEW_POLICY_MODES)}."
+            )
+        if not (0.0 <= min_confidence <= 1.0):
+            raise ValidationError("min_confidence must be between 0.0 and 1.0.")
+        row, _ = ReviewPolicy.objects.update_or_create(
+            tenant_id=ctx.tenant_id,
+            workspace_id=workspace_id,
+            defaults={"mode": mode, "min_confidence": min_confidence},
+        )
+        return row
 
 
 __all__ = ["SettingsService"]
