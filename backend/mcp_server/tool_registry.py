@@ -131,6 +131,10 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "ai_derivation.derive_risks_from_architecture",
     "ai_derivation.derive_glossary_from_workspace",
     "ai_derivation.derive_adr_from_decision",
+    # REQ-L2-RV-001 (Phase 5): review.list_pending is read-only.
+    "review.approve",
+    "review.reject",
+    "review.request_changes",
 )
 
 # ---------------------------------------------------------------------------
@@ -315,6 +319,7 @@ class ToolRegistry:
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from mcp_server.tools.diagram import DiagramToolGroup
         from mcp_server.tools.custom_field import CustomFieldToolGroup
+        from mcp_server.tools.review import ReviewToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -353,6 +358,7 @@ class ToolRegistry:
             "ai_derivation": AiDerivationToolGroup(),
             "diagram": DiagramToolGroup(),
             "custom_field": CustomFieldToolGroup(),
+            "review": ReviewToolGroup(),
         })
 
     def list_tools(
