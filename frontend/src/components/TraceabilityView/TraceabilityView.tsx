@@ -68,18 +68,27 @@ const INITIAL_STATE: TraceabilityState = {
 const LINK_TYPE_ORDER: string[] = ALL_LINK_TYPES;
 
 
+const MAX_TITLE_LENGTH = 60;
+
 function formatId(id: UUID): string {
   return `${id.slice(0, 8)}…`;
 }
 
+// Truncate long titles so the artifact selector stays scannable (issue #51).
+function truncateTitle(title: string): string {
+  return title.length > MAX_TITLE_LENGTH
+    ? `${title.slice(0, MAX_TITLE_LENGTH)}…`
+    : title;
+}
+
 function renderEndpoint(id: UUID, titles: Record<UUID, string>): string {
   const title = titles[id];
-  return title ? `${title} (${formatId(id)})` : formatId(id);
+  return title ? `${truncateTitle(title)} (${formatId(id)})` : formatId(id);
 }
 
 function artifactLabel(a: Artifact, titles: Record<UUID, string>): string {
   const title = titles[a.id];
-  if (title) return `${a.artifact_type}: ${title} (${formatId(a.id)})`;
+  if (title) return `${a.artifact_type}: ${truncateTitle(title)} (${formatId(a.id)})`;
   return `${a.artifact_type} (${formatId(a.id)})`;
 }
 

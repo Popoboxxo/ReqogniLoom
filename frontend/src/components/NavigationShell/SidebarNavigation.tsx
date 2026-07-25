@@ -268,7 +268,9 @@ export function SidebarNavigation(): JSX.Element {
       aria-label="Main navigation"
       style={{
         width: "220px",
-        minHeight: "100vh",
+        height: "100vh",
+        position: "sticky",
+        top: 0,
         background: SIDEBAR_BG,
         display: "flex",
         flexDirection: "column",
@@ -277,8 +279,22 @@ export function SidebarNavigation(): JSX.Element {
         boxSizing: "border-box",
         fontFamily: "var(--font-sans)",
         color: SIDEBAR_TEXT,
+        overflow: "hidden",
       }}
     >
+      {/* Scrollable nav content — keeps the footer (below) pinned to the
+          viewport bottom regardless of how many nav items are rendered
+          (issue #47: footer must not scroll away with a long sidebar). */}
+      <div
+        style={{
+          flex: "1 1 auto",
+          minHeight: 0,
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-2)",
+        }}
+      >
       {/* Logo */}
       <div
         style={{
@@ -776,10 +792,14 @@ export function SidebarNavigation(): JSX.Element {
           )}
         </div>
       )}
+      </div>
 
-      {/* Footer actions */}
+      {/* Footer actions — sibling of the scrollable content above, so it
+          always stays pinned to the bottom of the (viewport-height) nav
+          (issue #47). */}
       <div
         style={{
+          flex: "0 0 auto",
           borderTop: `1px solid ${SIDEBAR_BORDER}`,
           paddingTop: "var(--space-3)",
           display: "flex",
