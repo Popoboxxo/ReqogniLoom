@@ -224,6 +224,21 @@ class TestRequirementSerializer:
         assert not ser.is_valid()
         assert "change_reason" in ser.errors
 
+    def test_script_tags_stripped_from_title_and_description(self) -> None:
+        """Regression (SEC-001/#57): free-text fields must not persist raw
+        HTML/script markup verbatim (stored-XSS risk for non-React API
+        consumers like MCP responses or the ReqIF export)."""
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "<script>alert(1)</script>Title",
+            "description": "<img src=x onerror=alert(1)>Body",
+        }
+        ser = RequirementSerializer(data=data)
+        assert ser.is_valid(), ser.errors
+        assert "<script>" not in ser.validated_data["title"]
+        assert "alert(1)Title" == ser.validated_data["title"]
+        assert "<img" not in ser.validated_data["description"]
+
 
 # ---------------------------------------------------------------------------
 # #104 — free-text size limits across entity serializers
