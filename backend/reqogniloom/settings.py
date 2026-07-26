@@ -432,8 +432,13 @@ TENANT_TOKEN_LIMIT_PER_DAY: int | None = config(
 # it is consumed by both the Celery URLs below and the cache REDIS_URL.
 _REDIS_PASSWORD: str = config("REDIS_PASSWORD", default="")
 _CELERY_REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
-CELERY_BROKER_URL: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}redis:6379/0"
-CELERY_RESULT_BACKEND: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}redis:6379/0"
+# REDIS_HOST/REDIS_PORT default to the docker-compose service name so the
+# existing container setup keeps working unchanged; override for CI runners
+# and other environments where redis is reachable under a different host.
+_REDIS_HOST: str = config("REDIS_HOST", default="redis")
+_REDIS_PORT: str = config("REDIS_PORT", default="6379")
+CELERY_BROKER_URL: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}{_REDIS_HOST}:{_REDIS_PORT}/0"
+CELERY_RESULT_BACKEND: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}{_REDIS_HOST}:{_REDIS_PORT}/0"
 
 # Beat schedule — periodic outbox consumer (REQ-032, DEEP_SYSTEM_ANALYSIS.md BE-1).
 # Drains the domain-event outbox every 5 seconds. poll_and_dispatch claims each
@@ -474,7 +479,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # REQ-057: _REDIS_PASSWORD is defined above (Celery section) because the
 # Celery broker URLs are constructed first during module import.
 _REDIS_PASSWORD_PART = f":{_REDIS_PASSWORD}@" if _REDIS_PASSWORD else ""
-REDIS_URL: str = f"redis://{_REDIS_PASSWORD_PART}redis:6379/1"
+REDIS_URL: str = f"redis://{_REDIS_PASSWORD_PART}{_REDIS_HOST}:{_REDIS_PORT}/1"
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",

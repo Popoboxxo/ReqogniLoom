@@ -60,6 +60,8 @@ jobs:
           DB_PASSWORD: reqflow
           DB_HOST: localhost
           DB_PORT: '5432'
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
@@ -80,6 +82,8 @@ jobs:
           DB_PASSWORD: reqflow
           DB_HOST: localhost
           DB_PORT: '5432'
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
