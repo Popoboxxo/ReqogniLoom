@@ -53,6 +53,7 @@ jobs:
           SECRET_KEY: ci-test-secret-key
           AUTH_JWT_SECRET: ci-test-auth-jwt-secret
           FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
+          DJANGO_ENV: test
           DEBUG: 'True'
           DB_NAME: reqflow
           DB_USER: reqflow
@@ -72,6 +73,7 @@ jobs:
           SECRET_KEY: ci-test-secret-key
           AUTH_JWT_SECRET: ci-test-auth-jwt-secret
           FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
+          DJANGO_ENV: test
           DEBUG: 'True'
           DB_NAME: reqflow
           DB_USER: reqflow
