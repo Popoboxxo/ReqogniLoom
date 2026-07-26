@@ -71,7 +71,7 @@ from audit.services import query
 # AdminOps — BackupMetadata is system-level (not tenant-scoped).
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 
-# MCP e2e fixtures (auto-imported via conftest_e2e.py).
+# MCP e2e fixtures (auto-imported via conftest.py).
 
 # JSON-RPC helpers.
 from mcp_server.tests.helpers import (
@@ -185,7 +185,7 @@ def mock_backup_service(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """Mock ``BackupService`` and ``AdminRestoreService`` with MagicMocks
     shaped like their real return types.
 
-    The conftest_e2e :func:`mock_backup_filesystem` returns a bare dict;
+    The conftest :func:`mock_backup_filesystem` returns a bare dict;
     the production tool code accesses ``row.id``/``row.file_size_bytes``
     on the returned object, so we need a MagicMock with the right spec.
     """
@@ -229,7 +229,7 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
     """Deep-mock the LLM stack so requirement.decompose / requirement.validate
     can run end-to-end without an actual LLM provider.
     """
-    def _fake_decompose(requirement_id):
+    def _fake_decompose(requirement_id, title=None, content=None):
         return [
             {"title": "Child A", "description": "First child"},
             {"title": "Child B", "description": "Second child"},
@@ -240,7 +240,7 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
         staticmethod(_fake_decompose),
     )
 
-    def _fake_validate(artifact_id, ctx=None):
+    def _fake_validate(artifact_id, title=None, content=None, ctx=None):
         return {
             "result": "valid",
             "score": 0.95,
@@ -804,7 +804,7 @@ def test_failed_write_does_not_create_audit_entry(
         viewer_client, "workspace.close", {"workspace_id": str(e2e_workspace.id)}
     )
     assert response.status_code == 403, response.content
-    assert response.json().get("error", {}).get("error_code") == "PERMISSION_DENIED"
+    assert extract_error_code(response) == "PERMISSION_DENIED"
 
     set_request_tenant(e2e_workspace.tenant_id)
     try:

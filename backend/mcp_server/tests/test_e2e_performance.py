@@ -28,9 +28,9 @@ from auth_tenancy.models import (
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User
 
-# Fixtures below are auto-loaded from conftest_e2e.py; re-imported here
+# Fixtures below are auto-loaded from conftest.py; re-imported here
 # so type checkers and IDEs see them as fixture references.
-from mcp_server.tests.conftest_e2e import (  # noqa: F401
+from mcp_server.tests.conftest import (  # noqa: F401
     admin_client,
     e2e_api_key_admin,
     e2e_preset,

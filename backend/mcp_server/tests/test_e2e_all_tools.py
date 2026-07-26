@@ -7,7 +7,7 @@ Req IDs: REQ-L2-MC-001..013, REQ-L1-039, REQ-L1-042, REQ-L1-046.
 Exercises the full HTTP/JSON-RPC pipeline (``django.test.Client.post('/mcp/', ...)``)
 through to the real ToolGroup + ApplicationService implementations, using
 the production authentication, RBAC, tenant-isolation and preset-gate stack
-wired in :mod:`mcp_server.tests.conftest_e2e`.
+wired in :mod:`mcp_server.tests.conftest`.
 
 Tool coverage (40 tools):
     requirement.*      : 6 tools (get, query, create, update, decompose, validate)
@@ -77,7 +77,7 @@ from audit.models import AuditEntry
 # AdminOps — the BackupMetadata is a system-level entity (not tenant-scoped).
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 
-# MCP e2e fixtures (auto-imported via conftest_e2e.py).
+# MCP e2e fixtures (auto-imported via conftest.py).
 
 # JSON-RPC helpers — see mcp_server/tests/helpers.py.
 from mcp_server.tests.helpers import (
@@ -89,7 +89,7 @@ from mcp_server.tests.helpers import (
 
 
 # ---------------------------------------------------------------------------
-# Local fixtures — deep LLM + backup mocks not covered by conftest_e2e
+# Local fixtures — deep LLM + backup mocks not covered by conftest
 # ---------------------------------------------------------------------------
 
 
@@ -108,7 +108,7 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
     #    RequirementService.decompose() loop can run. The original is a
     #    @staticmethod, so we wrap the replacement in ``staticmethod`` to
     #    preserve the no-self-binding contract.
-    def _fake_decompose(requirement_id):
+    def _fake_decompose(requirement_id, title=None, content=None):
         return [
             {"title": "Child A", "description": "First child"},
             {"title": "Child B", "description": "Second child"},
@@ -121,7 +121,7 @@ def mock_llm_deep(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # 2. validate_artifact — return a valid LlmResult-like dict so
     #    requirement.validate can serialise it.
-    def _fake_validate(artifact_id, ctx=None):
+    def _fake_validate(artifact_id, title=None, content=None, ctx=None):
         return {
             "result": "valid",
             "score": 0.95,
@@ -996,9 +996,8 @@ def test_e2e_viewer_denied_for_write_tool(
         f"{case['tool']} viewer should get 403, got {response.status_code}: "
         f"{response.content!r}"
     )
-    body = response.json()
-    assert body.get("error", {}).get("error_code") == "PERMISSION_DENIED", (
-        f"{case['tool']} expected PERMISSION_DENIED, got body: {body}"
+    assert extract_error_code(response) == "PERMISSION_DENIED", (
+        f"{case['tool']} expected PERMISSION_DENIED, got body: {response.json()}"
     )
 
 
@@ -1038,8 +1037,7 @@ def test_e2e_invalid_api_key_returns_auth_failed(
         f"{case['tool']} expected 401, got {response.status_code}: "
         f"{response.content!r}"
     )
-    body = response.json()
-    assert body.get("error", {}).get("error_code") == "AUTH_FAILED", body
+    assert extract_error_code(response) == "AUTH_FAILED", response.json()
 
 
 def test_e2e_missing_api_key_returns_auth_failed(admin_client: Client):
@@ -1154,20 +1152,18 @@ def test_e2e_not_found_for_nonexistent_requirement(admin_client: Client):
 def test_e2e_not_found_for_nonexistent_workspace_member_admin_call(
     admin_client: Client, e2e_workspace: Workspace
 ):
-    """``workspace.close`` for an unknown workspace returns PERMISSION_DENIED.
+    """``workspace.close`` for an unknown workspace returns NOT_FOUND.
 
-    The role resolution step runs before the service call: an unknown
-    workspace id has no UserRole entries, so the active_roles tuple is
-    empty and the RBAC check denies the write with 403. The actual
-    NOT_FOUND branch is exercised via the e2e happy-path test
-    (``workspace.delete`` with a freshly created workspace).
+    Tool dispatch checks workspace existence before role resolution
+    (``ToolRegistry.execute_tool`` step 2), so an unknown workspace id
+    short-circuits with 404 NOT_FOUND rather than reaching the RBAC
+    check.
     """
     response = post_mcp(
         admin_client, "workspace.close", {"workspace_id": str(uuid4())}
     )
-    # Unknown workspace -> no role -> 403 PERMISSION_DENIED.
-    assert response.status_code == 403
-    assert extract_error_code(response) == "PERMISSION_DENIED"
+    assert response.status_code == 404, response.content
+    assert extract_error_code(response) == "NOT_FOUND"
 
 
 @pytest.mark.django_db(transaction=True)
