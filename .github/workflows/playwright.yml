@@ -51,6 +51,7 @@ jobs:
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
           FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
           DEBUG: 'True'
           DB_NAME: reqflow
@@ -69,6 +70,7 @@ jobs:
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
           FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
           DEBUG: 'True'
           DB_NAME: reqflow
