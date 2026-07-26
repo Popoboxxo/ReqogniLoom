@@ -340,9 +340,10 @@ REST_FRAMEWORK = {
     ],
     # #72: throttle the public login endpoint against credential-stuffing /
     # brute-force attempts. Scoped rate so other anonymous/public endpoints
-    # (e.g. schema) are unaffected.
+    # (e.g. schema) are unaffected. Non-prod envs (dev/test/CI) get a much
+    # higher rate since e2e suites legitimately log in many times per run.
     "DEFAULT_THROTTLE_RATES": {
-        "login": "10/min",
+        "login": "10/min" if DJANGO_ENV not in _NON_PROD_ENVS else "1000/min",
     },
 }
 
