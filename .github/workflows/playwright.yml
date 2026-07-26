@@ -51,6 +51,7 @@ jobs:
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
+          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
           DEBUG: 'True'
           DB_NAME: reqflow
           DB_USER: reqflow
@@ -68,6 +69,7 @@ jobs:
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
+          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
           DEBUG: 'True'
           DB_NAME: reqflow
           DB_USER: reqflow
