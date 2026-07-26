@@ -57,11 +57,9 @@ vi.mock("../../styles/components/CanvasEditor.module.css", () => ({
 
 vi.mock("fabric", () => {
   class FabricObject {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(props: AnyProps = {}) {
       Object.assign(this, props);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     set(p: AnyProps): this {
       Object.assign(this, p);
       return this;
