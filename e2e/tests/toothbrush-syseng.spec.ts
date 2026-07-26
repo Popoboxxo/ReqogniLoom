@@ -76,14 +76,13 @@ test.describe('Zahnbürste SysEng Demo', () => {
     // Instead, we will simulate opening an element and editing its status, then saving.
     await page.locator('text=Der C-Code für das OTA-Modul muss MISRA-C kompatibel sein.').first().click();
     
-    // Wait for form to open
-    const statusSelect = page.getByTestId('req-workflow');
-    await statusSelect.selectOption('approved');
-    
-    // Click save
-    await page.getByRole('button', { name: /save/i }).click();
-    
-    // Check if updated in the card
-    await expect(page.locator('text=approved').first()).toBeVisible({ timeout: 10000 });
+    // Wait for form to open, then drive the transition via the
+    // WorkflowStatusEditor's trigger + menu (REQ-161).
+    await page.getByTestId('workflow-transition-trigger').click();
+    const approveOption = page.getByTestId('workflow-transition-option-approved');
+    await approveOption.click();
+
+    // Check if updated in the status badge
+    await expect(page.getByTestId('workflow-current-status')).toContainText('approved', { timeout: 10000 });
   });
 });

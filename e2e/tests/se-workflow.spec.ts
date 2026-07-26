@@ -55,18 +55,19 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   test('[REQ-L0-002] workflow status is visible in requirement editor', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
-    // REQ-143: current state is always shown read-only; a transitions
-    // <select> ("req-workflow") only renders when transitions are available
-    // from the current state, otherwise "req-workflow-locked" is shown.
-    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 10000 });
+    // REQ-161: current state is always shown read-only via the
+    // WorkflowStatusEditor status badge; a "Change status" trigger only
+    // renders when transitions are available from the current state,
+    // otherwise "workflow-no-transitions" is shown.
+    await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible({ timeout: 10000 });
 
-    const workflow = page.locator('[data-testid="req-workflow"]');
-    const locked = page.locator('[data-testid="req-workflow-locked"]');
-    await expect(workflow.or(locked)).toBeVisible({ timeout: 6000 });
+    const trigger = page.locator('[data-testid="workflow-transition-trigger"]');
+    const noTransitions = page.locator('[data-testid="workflow-no-transitions"]');
+    await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 6000 });
 
-    if (await workflow.count()) {
-      const tagName = await workflow.evaluate((el) => el.tagName.toLowerCase());
-      expect(tagName).toBe('select');
+    if (await trigger.count()) {
+      const tagName = await trigger.evaluate((el) => el.tagName.toLowerCase());
+      expect(tagName).toBe('button');
     }
   });
 

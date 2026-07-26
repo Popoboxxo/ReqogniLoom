@@ -317,14 +317,15 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="req-title"]')).toHaveValue(/Wasser auf 100/);
 
-    // REQ-143: aktueller Status wird immer read-only angezeigt; das
-    // Transitions-Select ("req-workflow") rendert nur, wenn vom aktuellen
-    // Status Übergänge verfügbar sind — sonst "req-workflow-locked".
+    // REQ-161: aktueller Status wird immer read-only über das
+    // WorkflowStatusEditor-Badge angezeigt; ein "Change status"-Trigger
+    // rendert nur, wenn vom aktuellen Status Übergänge verfügbar sind —
+    // sonst "workflow-no-transitions".
     // States sind kein festes Enum mehr, sondern dynamische Backend-Transitionen.
-    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 5000 });
-    const workflow = page.locator('[data-testid="req-workflow"]');
-    const locked = page.locator('[data-testid="req-workflow-locked"]');
-    await expect(workflow.or(locked)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible({ timeout: 5000 });
+    const trigger = page.locator('[data-testid="workflow-transition-trigger"]');
+    const noTransitions = page.locator('[data-testid="workflow-no-transitions"]');
+    await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 5000 });
 
     // Category sichtbar
     const category = page.locator('[data-testid="req-category"]');

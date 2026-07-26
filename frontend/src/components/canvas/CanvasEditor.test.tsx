@@ -45,6 +45,8 @@ vi.mock("fabric", () => ({
     },
     on: vi.fn(),
     off: vi.fn(),
+    add: vi.fn(),
+    remove: vi.fn(),
     getObjects: vi.fn().mockReturnValue([]),
     toJSON: vi.fn().mockReturnValue({ objects: [] }),
     loadFromJSON: vi.fn().mockResolvedValue(undefined),

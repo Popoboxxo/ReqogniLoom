@@ -9,11 +9,15 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: reqflow
           POSTGRES_USER: reqflow
@@ -51,29 +55,39 @@ jobs:
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
+          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
+          DJANGO_ENV: test
           DEBUG: 'True'
           DB_NAME: reqflow
           DB_USER: reqflow
           DB_PASSWORD: reqflow
           DB_HOST: localhost
           DB_PORT: '5432'
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
         run: |
           python manage.py migrate --noinput
-          python manage.py loaddata initial_data
+          python manage.py seed_demo
 
       - name: Start Django backend
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
+          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
+          DJANGO_ENV: test
           DEBUG: 'True'
           DB_NAME: reqflow
           DB_USER: reqflow
           DB_PASSWORD: reqflow
           DB_HOST: localhost
           DB_PORT: '5432'
+          REDIS_HOST: localhost
+          REDIS_PORT: '6379'
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
@@ -97,13 +111,13 @@ jobs:
           VITE_API_BASE_URL: http://localhost:8000
         run: npm run dev &
 
-      - name: Install Playwright browsers
-        working-directory: e2e
-        run: npx playwright install --with-deps chromium
-
       - name: Install e2e dependencies
         working-directory: e2e
         run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
 
       - name: Wait for services
         run: |
@@ -114,19 +128,19 @@ jobs:
 
       - name: Verify prod Docker build (smoke test)
         # Build the frontend production Docker image to ensure no build-time regressions
-        run: docker build -f frontend/Dockerfile --target production . --no-cache -t reqflow-frontend:latest
+        run: docker build -f frontend/Dockerfile --target production frontend --no-cache -t reqflow-frontend:latest
 
       - name: Run Playwright E2E tests
         working-directory: e2e
         env:
           FRONTEND_URL: http://localhost:5173
           BACKEND_URL: http://localhost:8000
-        run: npm run test:e2e
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: e2e/playwright-report/
           retention-days: 7

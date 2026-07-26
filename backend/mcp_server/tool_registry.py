@@ -467,7 +467,7 @@ class ToolRegistry:
             workspace_id: Optional[str] = params.get("workspace_id")
             if workspace_id and not self._workspace_exists_fn(workspace_id):
                 return ToolResult.error(
-                    "WORKSPACE_NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
+                    "NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
                 )
             auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
 

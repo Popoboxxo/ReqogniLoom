@@ -61,6 +61,13 @@ roles:
 - principal-developer
 - sre-engineer
 - accessibility-specialist
+- knowledge-curator
+- knowledge-gardener
+- knowledge-indexer
+- knowledge-ingestor
+- knowledge-linter
+- knowledge-migrator
+- knowledge-querier
 systems-engineering:
   enabled: true
   focus: V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems
@@ -581,3 +588,42 @@ provider-tier-overrides:
   Claude:
     powerful: claude-opus-5
     max: claude-opus-5
+knowledge-engine:
+  okf:
+    enforce-frontmatter: true
+    allowed-types:
+    - Concept
+    - Architecture
+    - API Reference
+    - Guide
+    - Session Conclusion
+    auto-index: true
+    auto-log: true
+  operations:
+    ingest:
+      auto-cross-reference: true
+      auto-index-update: true
+      batch-mode: true
+    query:
+      file-back-results: true
+    lint:
+      schedule: post-ingest
+      checks:
+      - broken-links
+      - missing-frontmatter
+      - stale-index
+      - orphaned-pages
+      - duplicate-concepts
+  migration:
+    auto-detect-sources: true
+    clean-duplicates: false
+    preserve-originals: true
+  search:
+    engine: index-only
+    mcp-server: ''
+  domain: internal-docs
+  bundle-path: knowledge
+  sources-dir: sources
+  wiki-dir: wiki
+  schema-language: auto
+  enabled: true

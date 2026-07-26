@@ -138,7 +138,7 @@ class TestFacadeCoverage:
         with active_tenant(tenant_a):
             art_req, _ = make_requirement(tenant_a, workspace_a, "R-1")
             tc_art, _ = make_test_case(tenant_a, workspace_a, "TC-1")
-            make_trace_link(art_req, tc_art, tenant_a, "verifies")
+            make_trace_link(tc_art, art_req, tenant_a, "verifies")
 
             report = svc.coverage(workspace_a.id)
 

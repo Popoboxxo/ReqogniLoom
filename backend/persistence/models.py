@@ -58,6 +58,29 @@ class UserManager(models.Manager):
         """Look up a user by username (case-sensitive, matching AbstractUser)."""
         return self.get(**{self.model.USERNAME_FIELD: username})
 
+    def _create_user(self, username: str, email: str, password: str | None = None, **extra_fields):
+        """Create and save a user with the given username, email and password."""
+        user = self.model(username=username, email=email, **extra_fields)
+        user.set_password(password or "")
+        user.save(using=self._db)
+        return user
+
+    def create_user(self, username: str, email: str, password: str | None = None, **extra_fields):
+        """Create a regular (non-privileged) user.
+
+        Required by pytest-django's ``admin_user``/``admin_client`` fixtures
+        and Django's auth-manager contract.
+        """
+        extra_fields.setdefault("is_staff", False)
+        extra_fields.setdefault("is_superuser", False)
+        return self._create_user(username, email, password, **extra_fields)
+
+    def create_superuser(self, username: str, email: str, password: str | None = None, **extra_fields):
+        """Create a superuser with staff and superuser privileges."""
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        return self._create_user(username, email, password, **extra_fields)
+
 
 # ---------------------------------------------------------------------------
 # Domain enums (COMP-PL-001)
