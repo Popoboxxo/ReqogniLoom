@@ -36,10 +36,15 @@ from django.utils.decorators import method_decorator
 
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.services.authentication import AuthenticationService
-from mcp_server.protocol_handler import ProtocolHandler
+from mcp_server.protocol_handler import ERROR_CODE_MAP, ProtocolHandler
 from mcp_server.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+# ErrorFormatter.format_error emits a numeric JSON-RPC "code" field, not a
+# string "error_code" (REQ-090). Reverse the map to recover the string name
+# for HTTP-status mapping below.
+_NUMERIC_TO_ERROR_CODE: dict[int, str] = {v: k for k, v in ERROR_CODE_MAP.items()}
 
 # Module-level shared instances (singleton pattern for Django process lifetime)
 _tool_registry: ToolRegistry | None = None
@@ -173,7 +178,8 @@ class McpHttpTransportView(CorsMixin, View):
         # Determine HTTP status from JSON-RPC error code
         http_status = 200
         if "error" in response_frame:
-            error_code = response_frame["error"].get("error_code", "")
+            numeric_code = response_frame["error"].get("code")
+            error_code = _NUMERIC_TO_ERROR_CODE.get(numeric_code, "")
             if error_code in ("AUTH_FAILED", "PARSE_ERROR", "INVALID_REQUEST"):
                 http_status = 401
             elif error_code == "PERMISSION_DENIED":
