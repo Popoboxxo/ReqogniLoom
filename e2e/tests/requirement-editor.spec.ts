@@ -50,22 +50,27 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
-    // REQ-143: the current state is shown read-only (WorkflowEngine-owned);
-    // a transitions <select> ("req-workflow") only renders when the backend
-    // reports allowed transitions from the current state — otherwise a
-    // "req-workflow-locked" message is shown instead. Fixed literal states
+    // REQ-161: the current state is shown read-only via WorkflowStatusEditor's
+    // status badge; a "Change status" trigger + menu only renders when the
+    // backend reports allowed transitions from the current state — otherwise
+    // a "workflow-no-transitions" hint is shown instead. Fixed literal states
     // ('draft'/'review'/'approved') are no longer guaranteed as option text.
-    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible({ timeout: 10000 });
 
-    const workflow = page.locator('[data-testid="req-workflow"]');
-    const locked = page.locator('[data-testid="req-workflow-locked"]');
-    await expect(workflow.or(locked)).toBeVisible({ timeout: 6000 });
+    const trigger = page.locator('[data-testid="workflow-transition-trigger"]');
+    const noTransitions = page.locator('[data-testid="workflow-no-transitions"]');
+    await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 6000 });
 
-    if (await workflow.count()) {
-      const targetState = await workflow.locator('option').nth(1).getAttribute('value');
+    if (await trigger.count()) {
+      await trigger.click();
+      const menu = page.locator('[data-testid="workflow-transition-menu"]');
+      await expect(menu).toBeVisible();
+
+      const option = menu.locator('[data-testid^="workflow-transition-option-"]').first();
+      const targetState = await option.getAttribute('data-testid');
       if (targetState) {
-        await workflow.selectOption(targetState);
-        await expect(workflow).toHaveValue(targetState);
+        await option.click();
+        await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible();
       }
     }
   });

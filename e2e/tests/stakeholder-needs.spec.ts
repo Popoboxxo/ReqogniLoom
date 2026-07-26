@@ -154,22 +154,23 @@ test.describe('[REQ-L0-005] Configurable lifecycle — workflow states', () => {
     await loginAsAdmin(page);
   });
 
-  test('[REQ-L0-005] req-workflow selector exists with draft / review / approved options', async ({ page }) => {
+  test('[REQ-L0-005] workflow status editor exists with current-state badge and transitions', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     // "+ New" only opens an inline quick-create form; the full editor (with
-    // req-workflow) only renders after Save navigates to the detail route.
+    // the WorkflowStatusEditor) only renders after Save navigates to the
+    // detail route.
     await page.locator('[data-testid="create-req-btn"]').click();
     await page.locator('[data-testid="req-new-save-btn"]').click();
 
-    // REQ-143: current state is always shown read-only; a transitions
-    // <select> ("req-workflow") only renders when the backend reports
-    // allowed transitions from the current state, otherwise
-    // "req-workflow-locked" is shown. Literal states are no longer a fixed
-    // enum rendered as option text.
-    await expect(page.locator('[data-testid="req-workflow-current"]')).toBeVisible({ timeout: 10000 });
-    const workflow = page.locator('[data-testid="req-workflow"]');
-    const locked = page.locator('[data-testid="req-workflow-locked"]');
-    await expect(workflow.or(locked)).toBeVisible({ timeout: 6000 });
+    // REQ-161: current state is always shown read-only via the
+    // WorkflowStatusEditor status badge; a "Change status" trigger only
+    // renders when the backend reports allowed transitions from the current
+    // state, otherwise "workflow-no-transitions" is shown. Literal states
+    // are no longer a fixed enum rendered as option text.
+    await expect(page.locator('[data-testid="workflow-current-status"]')).toBeVisible({ timeout: 10000 });
+    const trigger = page.locator('[data-testid="workflow-transition-trigger"]');
+    const noTransitions = page.locator('[data-testid="workflow-no-transitions"]');
+    await expect(trigger.or(noTransitions)).toBeVisible({ timeout: 6000 });
   });
 });
 
