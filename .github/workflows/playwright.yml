@@ -107,13 +107,13 @@ jobs:
           VITE_API_BASE_URL: http://localhost:8000
         run: npm run dev &
 
-      - name: Install Playwright browsers
-        working-directory: e2e
-        run: npx playwright install --with-deps chromium
-
       - name: Install e2e dependencies
         working-directory: e2e
         run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
 
       - name: Wait for services
         run: |
