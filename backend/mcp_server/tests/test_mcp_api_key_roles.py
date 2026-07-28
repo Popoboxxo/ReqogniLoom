@@ -30,10 +30,17 @@ Or from the host (requires requests):
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 import urllib.error
 import urllib.parse
+
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
+    reason="MCP live-stack tests require a running Django server (skipped in CI)",
+)
 
 # ---------------------------------------------------------------------------
 # Stack base URLs — match docker-compose port mapping
