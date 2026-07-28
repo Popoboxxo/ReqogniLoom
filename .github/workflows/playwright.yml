@@ -103,7 +103,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm install
 
       - name: Start Vite frontend
         working-directory: frontend
@@ -113,7 +113,7 @@ jobs:
 
       - name: Install e2e dependencies
         working-directory: e2e
-        run: npm ci
+        run: npm install
 
       - name: Install Playwright browsers
         working-directory: e2e

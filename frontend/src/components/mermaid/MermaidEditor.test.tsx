@@ -63,18 +63,12 @@ vi.mock("@codemirror/state", () => ({
 }));
 
 vi.mock("@codemirror/view", () => ({
-  EditorView: Object.assign(
-    vi.fn().mockImplementation(() => ({
-      destroy: vi.fn(),
-      state: {
-        doc: { toString: () => "flowchart TD\n  A --> B" },
-      },
-    })),
-    {
-      updateListener: { of: vi.fn() },
-      lineWrapping: "lineWrapping",
-    }
-  ),
+  EditorView: class {
+    destroy = vi.fn();
+    state = { doc: { toString: () => "flowchart TD\n  A --> B" } };
+    static updateListener = { of: vi.fn() };
+    static lineWrapping = "lineWrapping";
+  },
   keymap: {
     of: vi.fn(),
   },
