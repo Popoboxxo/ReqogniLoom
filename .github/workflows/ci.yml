@@ -88,6 +88,10 @@ jobs:
           DB_NAME: reqflow_test
           DB_USER: reqflow
           DB_PASSWORD: reqflow
+          # Read by migration 0048_app_role.py to create the least-privilege
+          # app role (REQ-L2-PL-010) — required, no default, even though this
+          # job connects as the superuser above.
+          DB_APP_PASSWORD: ci-test-app-role-password
           DB_HOST: localhost
           DB_PORT: '5432'
           ALLOWED_HOSTS: localhost,127.0.0.1
