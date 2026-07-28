@@ -71,12 +71,7 @@ def test_rls_enabled_on_tenant_tables():
 @_pg_only
 def test_rls_blocks_raw_query_without_set_local(tenant_a, workspace_a):
     """REQ-L2-PL-010: Verify RLS physically blocks raw SQL SELECTs outside context."""
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT usesuper FROM pg_user WHERE usename = current_user")
-        is_superuser = cursor.fetchone()[0]
-    if is_superuser:
-        pytest.skip("RLS test requires a non-superuser database role")
-
+    from persistence.db_roles import APP_DB_ROLE
     from persistence.middleware import clear_request_tenant, set_request_tenant
 
     # ``active_tenant`` only sets the thread-local app-layer context — it never
@@ -92,10 +87,17 @@ def test_rls_blocks_raw_query_without_set_local(tenant_a, workspace_a):
     finally:
         clear_request_tenant()
 
-    # app.current_tenant is now RESET. A raw cursor query bypasses the
-    # TenantManager, so it must be blocked by Postgres RLS.
+    # app.current_tenant is now RESET. The test connection authenticates as the
+    # migration-runner (superuser), which always bypasses RLS regardless of
+    # FORCE ROW LEVEL SECURITY. SET ROLE to the dedicated non-superuser
+    # application role (migration 0048) so this assertion actually exercises
+    # what production traffic experiences.
     with connection.cursor() as cursor:
-        cursor.execute("SELECT * FROM pl_requirement WHERE title = 'rls-test'")
-        rows = cursor.fetchall()
+        cursor.execute(f'SET ROLE "{APP_DB_ROLE}"')
+        try:
+            cursor.execute("SELECT * FROM pl_requirement WHERE title = 'rls-test'")
+            rows = cursor.fetchall()
+        finally:
+            cursor.execute("RESET ROLE")
 
     assert len(rows) == 0, "RLS failed to block direct SQL access without SET LOCAL app.current_tenant"
