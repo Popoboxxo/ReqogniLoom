@@ -34,34 +34,37 @@ vi.mock("../../api/diagrams", () => ({
 
 // Mock Fabric.js
 vi.mock("fabric", () => ({
-  Canvas: vi.fn().mockImplementation(() => ({
-    width: 800,
-    height: 600,
-    isDrawingMode: true,
-    freeDrawingBrush: {
+  Canvas: class {
+    width = 800;
+    height = 600;
+    isDrawingMode = true;
+    freeDrawingBrush = {
       color: "#000000",
       width: 2,
       globalCompositeOperation: "source-over",
-    },
-    on: vi.fn(),
-    off: vi.fn(),
-    add: vi.fn(),
-    remove: vi.fn(),
-    getObjects: vi.fn().mockReturnValue([]),
-    toJSON: vi.fn().mockReturnValue({ objects: [] }),
-    loadFromJSON: vi.fn().mockResolvedValue(undefined),
-    renderAll: vi.fn(),
-    setDimensions: vi.fn(),
-    dispose: vi.fn(),
-  })),
-  PencilBrush: vi.fn().mockImplementation(() => ({
-    color: "#000000",
-    width: 2,
-    globalCompositeOperation: "source-over",
-  })),
-  Path: vi.fn().mockImplementation(() => ({
-    set: vi.fn(),
-  })),
+    };
+    constructor(_element: HTMLCanvasElement | string, _options?: object) {}
+    on = vi.fn().mockReturnThis();
+    off = vi.fn().mockReturnThis();
+    add = vi.fn().mockReturnThis();
+    remove = vi.fn().mockReturnThis();
+    getObjects = vi.fn().mockReturnValue([]);
+    toJSON = vi.fn().mockReturnValue({ objects: [] });
+    loadFromJSON = vi.fn().mockResolvedValue(undefined);
+    renderAll = vi.fn().mockReturnThis();
+    setDimensions = vi.fn().mockReturnThis();
+    dispose = vi.fn();
+  },
+  PencilBrush: class {
+    color = "#000000";
+    width = 2;
+    globalCompositeOperation = "source-over";
+    constructor(_canvas: unknown) {}
+  },
+  Path: class {
+    set = vi.fn();
+    constructor(_path: string, _options?: object) {}
+  },
 }));
 
 // Mock i18n
