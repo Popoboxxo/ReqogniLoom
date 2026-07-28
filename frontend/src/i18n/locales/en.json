@@ -420,7 +420,18 @@
     "deriveStarted": "Task started: {{taskId}}. Waiting for completion...",
     "deriveSuccess": "System requirements derived successfully!",
     "deriveFailed": "Derivation failed.",
+    "deriveEmpty": "The AI proposed no system requirements.",
+    "deriveCreated": "Created and linked {{count}} system requirement(s).",
     "deriveArchOptional": "Assign architecture element (optional)"
+  },
+  "deriveRequirements": {
+    "title": "Derived system requirements (draft)",
+    "selectedCount": "{{selected}} of {{total}} selected",
+    "selectDraft": "Accept draft {{index}}",
+    "rationale": "Rationale",
+    "accept": "Create selected",
+    "accepting": "Creating...",
+    "discard": "Discard"
   },
   "adrs": {
     "selectAdr": "Select an ADR from the list to view details.",

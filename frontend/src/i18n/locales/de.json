@@ -417,7 +417,18 @@
     "deriveStarted": "Task gestartet: {{taskId}}. Warte auf Abschluss...",
     "deriveSuccess": "Systemanforderungen erfolgreich abgeleitet!",
     "deriveFailed": "Ableitung fehlgeschlagen.",
+    "deriveEmpty": "Die KI hat keine Systemanforderungen vorgeschlagen.",
+    "deriveCreated": "{{count}} Systemanforderung(en) angelegt und verknüpft.",
     "deriveArchOptional": "Architekturelement zuweisen (optional)"
+  },
+  "deriveRequirements": {
+    "title": "Abgeleitete Systemanforderungen (Entwurf)",
+    "selectedCount": "{{selected}} von {{total}} ausgewählt",
+    "selectDraft": "Vorschlag {{index}} übernehmen",
+    "rationale": "Begründung",
+    "accept": "Ausgewählte anlegen",
+    "accepting": "Wird angelegt...",
+    "discard": "Verwerfen"
   },
   "adrs": {
     "selectAdr": "Wählen Sie eine ADR aus der Liste, um Details anzuzeigen.",
