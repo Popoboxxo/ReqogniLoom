@@ -1,6 +1,81 @@
-# ReqFlow
+# ReqogniLoom
 
-ReqFlow ist ein AI-natives Requirements- und Test-Management-Tool mit MBSE-Unterstützung. Tech-Stack: Django 4.2+ (Backend) + React 18 + TypeScript (Frontend) + PostgreSQL 16 + Redis 7 + Celery 5.3+ + Docker Compose. Schnittstellen: REST API unter /api/v1/ (DRF, 16 ViewSets + 2 APIViews, JWT-Auth, OpenAPI via drf-spectacular) und nativer MCP Server unter /mcp/ (JSON-RPC 2.0, Transports: HTTP, SSE, stdio; 11 Tool-Gruppen mit 40+ Tools; API-Key `rfk_*`). Fähigkeiten: Requirements Management, Architecture Elements (MBSE-kompatibel), Test-Management, 8 Trace-Link-Typen, Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level), History-Endpoint, PDF-Report-Export, Test-Run-Protokollierung, CSV-Bulk-Import, API-Key-Management, Visual Artifact Diff, 3 Rigor-Presets (Minimal/Standard/Extended), Terminology-Profile (dev_mode/se_mode), Audit-Log, Multi-Tenancy via Row-Level-Security. LLM-Adapter: Anthropic, OpenAI, Ollama, mock (Default: mock).
+## Projekt
+
+**Name:** ReqogniLoom
+**Präfix:** ReqLo
+**Plattform:** Django 4.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker Compose (5 Services: postgres, redis, backend, celery, frontend)
+**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (11 Tool-Gruppen, 40+ Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 8 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
+
+## Tech-Stack
+
+- **Runtime:** Python 3.x (im Container: Django 4.2+, DRF 3.15+, drf-spectacular, psycopg2-binary, celery, redis, reportlab) + Node.js >= 18 (nur für E2E mit Playwright; Vite-Dev-Server läuft im Container) + Vite 5.4+ Dev-Server
+- **Sprache:** Python 3.x + TypeScript 5.5+ (strict) + YAML + Bash
+- **Key-Dependencies:** - Docker >= 24
+- Docker Compose >= 2.x
+- Node.js >= 18 (nur für E2E-Tests mit Playwright)
+- Python 3.x (im Container)
+
+
+## Architektur
+
+```
+backend/             # Django REST API (17 Apps) #   Layer 0: persistence, auth_tenancy, presets, audit #   Layer 1: llm_adapter, traceability, workflow, baseline #   Layer 2: application (19 Services) #   Layer 3: rest_api, mcp_server #   Ext: diagram, icd, se_metrics, resilience, admin_ops, test_runs #   reqogniloom/  # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py)
+frontend/            # React 18 + TS SPA #   src/api/  src/components/  src/context/  src/i18n/ #   src/styles/  src/test/  src/types/
+e2e/                 # Playwright/Chromium E2E-Tests (111 Tests)
+docs/                # Anforderungen, Architektur, SE-Kaskade, Session-Reports
+docker-compose.yml   # 5 Services: postgres, redis, backend, celery, frontend
+.meta-config/        # agent-meta Konfiguration (project.yaml)
+.agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
+
+```
+
+**Entry-Point:**
+```
+backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check) backend/reqogniloom/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/api/v1/, /mcp/, /api/schema/, /admin/) frontend/src/index.tsx          — React Entry-Point (ReactDOM.render) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium) 
+```
+
+**Besondere Patterns:**
+- Django REST Framework (DRF) für REST-API-Endpoints (16 ViewSets + 2 APIViews) - MCP-Server (JSON-RPC 2.0) mit 11 Tool-Gruppen und 40+ Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 8 Trace-Link-Typen (TRACE_TO, DERIVED_FROM, IMPLEMENTS, TESTS, VERIFIES, RELATED_TO, CONFLICTS_WITH, SUPERCEDES) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
+
+## Code-Konventionen
+
+- Python (PEP 8, Typings, Docstrings für public API) - TypeScript (ESLint 9, Prettier, strict mode, functional Components + Hooks) - Django-Layer: Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/) - React-Layer: api/ (Wrapper) ↔ context/ (State) ↔ components/ (UI) ↔ i18n/ (Labels) - Imports-Reihenfolge: Standard Library → Third-Party → Local (PEP 8) - Keine wildcard imports (from x import *) - Keine direkten Model-Queries in DRF-Views (immer via Serializer + Service) - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht für Playwright) - CSS Custom Properties aus styles/tokens.css (keine hardcodierten Farben/Größen) - Commits: Conventional Commits Format (feat(REQ-xxx): ..., fix: ..., chore: ...) - Branch-Policy: feat/*, fix/*, refactor/* (NIE direkt auf main) - Requirements-IDs: REQ-L0-*, REQ-L1-*, REQ-L2-*, REQ-L3-* (siehe docs/se/traceability-matrix.md) 
+
+## Build & Development
+
+```bash
+# Build
+docker-compose build
+
+# Tests
+pytest (Backend) + npm test (Frontend)
+
+# Dev-Stack starten
+docker-compose up
+
+# Nach Änderungen neu laden
+docker-compose restart (oder Hot Reload je nach Service)
+```
+
+## Anforderungs-Kategorien
+
+Kategorien für `docs/REQUIREMENTS.md`:
+
+- **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
+- **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
+- **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/, JSON-RPC 2.0, 11 Tool-Gruppen)
+- **UI/UX** — Frontend (React 18 SPA), 17 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
+- **Data** — Generic Artifact Model, Multi-Tenancy via Row-Level-Security, Configurable Rigor
+- **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, LLM-Provider (Anthropic/OpenAI/Ollama/mock)
+- **Test** — Test-Management, Test-Run-Protokollierung (4-Phasen-Lifecycle), Coverage-Tracking
+- **Workflow** — Konfigurierbare State-Machines pro Workspace, Approval-Gates, Transition-Validierung
+- **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
+- **Traceability** — 8 Link-Typen, Coverage-Aggregation, V-Modell L0-L4-Traceability
+- **AI** — LLM-Provider-Abstraktion, Decomposition, Validation, Consistency-Check
+- **Resilience** — Retry, Circuit-Breaker, Timeout-Decorators, async via Celery
+
+
 
 <!-- agent-meta:managed-begin -->
 > **ROUTING:**
@@ -8,7 +83,7 @@ ReqFlow ist ein AI-natives Requirements- und Test-Management-Tool mit MBSE-Unter
 
  Gemini->AGENTS.md
 > **ENTRY:** `orchestrator`-Agent (für alle Dev-Tasks).
-`agent-meta v0.85.2` | DoD: `spec-driven` | REQ-Trace: `false`
+`agent-meta v0.90.2` | DoD: `spec-driven` | REQ-Trace: `false`
 
 ## Agent Directory
 > ⚠️ **ACHTUNG:** Agenten (Prompts) liegen in `.gemini/agents bzw. .opencode/agents`.
@@ -136,7 +211,27 @@ ReqFlow ist ein AI-natives Requirements- und Test-Management-Tool mit MBSE-Unter
 
 
 ## Knowledge Engine
-> Nutze `knowledge-engine`, um komplexe Analysen und Context-Queries durchzuführen.
+
+Die Knowledge Engine ist aktiviert. Domäne: **internal-docs**.
+
+**Bundle-Pfad:** `knowledge/`
+| Pfad | Zweck |
+|------|-------|
+| `knowledge/schema.md` | Steuerungsdokument — Konventionen, Concept Types, Workflows |
+| `knowledge/sources/` | Immutable Raw Sources — LLM liest, modifiziert NIEMALS |
+| `knowledge/wiki/` | OKF Knowledge Bundle — LLM-owned, strukturiertes Wiki |
+| `knowledge/wiki/index.md` | Content-Katalog aller Wiki-Seiten (OKF §6) |
+| `knowledge/wiki/log.md` | Chronologisches Event-Log (OKF §7) |
+
+### Knowledge-Agenten
+- **Schema-Owner:** `knowledge-curator` verwaltet `knowledge/schema.md` und Concept-Type-Konventionen
+
+### Knowledge-Workflows
+- **Ingest:** Source in `knowledge/sources/` ablegen → `knowledge-ingestor` verarbeitet → Wiki aktualisiert
+- **Query:** Frage stellen → `knowledge-querier` durchsucht Index → synthetisiert Antwort
+- **Lint:** `knowledge-linter` prüft Wiki-Gesundheit (Widersprüche, Orphans, OKF-Compliance)
+- **Migration:** `knowledge-migrator` räumt vorhandene Inhalte auf und migriert ins OKF-Format
+- **Gardening:** `knowledge-gardener` pflegt Links, Tags, Typos, Timestamps
 
 
 ## Regeln
@@ -204,6 +299,15 @@ Nach Erledigung: löschen. Datei nicht committen.
 
 
 
+# No Worktree Isolation
+
+**Anti-Pattern:** Niemals das Argument `isolation: "worktree"` beim Spawnen von Subagenten verwenden.
+**Grund:** Agenten schreiben dann ihren Output in den internen Ordner `.claude/worktrees/agent-<id>/` anstatt in das eigentliche Projektverzeichnis. Das führt zu fehlgeleiteten Dateien und Datenverlust in der eigentlichen Codebase.
+
+Alle Agenten müssen direkt im Projektverzeichnis arbeiten (Isolation deaktivieren oder weglassen). Der `.claude/` Ordner (sowie `.gemini/`, `.continue/`, `.mammouth/` etc.) ist strikt als Infrastruktur-Ordner zu betrachten und darf nicht für Arbeitskopien missbraucht werden.
+
+
+
 # Provider-Agnostic Policy
 
 Generische Templates in `1-generic/` müssen provider-agnostisch sein. Keine spezifischen Prompts für Claude, Gemini etc., außer als Fallback/Feature-Flag.
@@ -219,6 +323,17 @@ PEP8 einhalten. Type Hints (typing) verwenden. Docstrings für Klassen/Methoden 
 # Session-Abschluss
 
 Delegate Session-Zusammenfassung an `documenter` am Ende großer Features, um CODEBASE_OVERVIEW.md aktuell zu halten.
+
+
+
+# Submodule-Schutzkonzept
+
+Regeln für den Umgang mit dem `.agent-meta`-Submodul und `.gitmodules`:
+
+- **Keine direkten Änderungen in `.agent-meta/`:** Dateien in `.agent-meta/` dürfen in Konsumenten-Repositories niemals direkt editiert oder committet werden.
+- **Keine Mutation von `.gitmodules` / Git Staging:** `.gitmodules` darf nicht automatisch modifiziert werden und Submodule dürfen nicht automatisch via `git add` gestaged werden.
+- **Kein Source-Code-Scaffolding in Konsumenten-Projekten:** In Konsumenten-Projekten wird kein Anwendungscode generiert/gerüstet; verwaltet werden ausschließlich `.meta-config/project.yaml` und die Managed Blocks.
+- **Framework-Änderungen nur im agent-meta Repo:** Änderungen am agent-meta Framework müssen auf Feature-Branches im agent-meta Repository selbst durchgeführt werden.
 
 
 
@@ -243,6 +358,9 @@ Native Extensions (Skills/Hooks) erlaubt, ignorieren nicht Branch-Guard/DoD.
 Anti-Recursion: Worker dürfen nicht an `orchestrator` zurück delegieren.
 
 
+## Anti-Patterns
+- **Worktree Isolation:** Niemals `isolation: "worktree"` bei Subagenten verwenden (schreibt in interne Infrastruktur-Ordner, führt zu Datenverlust).
+
 
 
 
@@ -251,27 +369,9 @@ Anti-Recursion: Worker dürfen nicht an `orchestrator` zurück delegieren.
 
 
 
+## Eigene Notizen
 
-
-
-
-
-
-
-
-> **Hinweis:** Pfade im managed Block (z.B. `.claude/`) beschreiben die agent-meta-Framework-Architektur. Dieses Projekt verwendet `.opencode/` als Laufzeit-Plattform.
-
-## Agents
-
-Agent files are in `.opencode/agents/`. Invoke them by name in opencode.
-
-## Project Setup
-
-- **Build:** `docker-compose build`
-- **Test:** `pytest` (Backend) + `npm test` (Frontend)
-- **Platform:** Django + React + Docker Compose
-- **Runtime:** Python 3.x (Django) + Node.js (React)
-
+Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird von `agent-meta` nicht überschrieben!
 
 <!-- headroom:rtk-instructions -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
@@ -345,6 +445,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `feature.md` → registriere als `feature`
    - `feedback.md` → registriere als `feedback`
    - `git.md` → registriere als `git`
+   - `home-organization-specialist.md` → registriere als `home-organization-specialist`
    - `ideation.md` → registriere als `ideation`
    - `incident-responder.md` → registriere als `incident-responder`
    - `intern-developer.md` → registriere als `intern-developer`
@@ -358,6 +459,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `knowledge-querier.md` → registriere als `knowledge-querier`
    - `log-analyzer.md` → registriere als `log-analyzer`
    - `meta-feedback.md` → registriere als `meta-feedback`
+   - `opengrid-designer.md` → registriere als `opengrid-designer`
    - `orchestrator.md` → registriere als `orchestrator`
    - `performance-optimizer.md` → registriere als `performance-optimizer`
    - `principal-developer.md` → registriere als `principal-developer`
@@ -407,6 +509,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="feature", ...)
    define_subagent(name="feedback", ...)
    define_subagent(name="git", ...)
+   define_subagent(name="home-organization-specialist", ...)
    define_subagent(name="ideation", ...)
    define_subagent(name="incident-responder", ...)
    define_subagent(name="intern-developer", ...)
@@ -420,6 +523,7 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="knowledge-querier", ...)
    define_subagent(name="log-analyzer", ...)
    define_subagent(name="meta-feedback", ...)
+   define_subagent(name="opengrid-designer", ...)
    define_subagent(name="orchestrator", ...)
    define_subagent(name="performance-optimizer", ...)
    define_subagent(name="principal-developer", ...)

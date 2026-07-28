@@ -3,7 +3,7 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v0.85.2 — `2026-07-26`
+> Generiert von agent-meta v0.90.2 — `2026-07-28`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
 > `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
@@ -16,14 +16,18 @@
 
 ---
 
+## Eigene Notizen
+
+Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird von `agent-meta` nicht überschrieben!
+
+---
+
 ## Projekt
 
 **Name:** ReqogniLoom
 **Präfix:** ReqLo
 **Plattform:** Django 4.2+ (Backend) + React 18 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 (Django ORM) + Redis 7 (Cache/Celery-Broker) + Celery 5.3+ (Async) + Docker Compose (5 Services: postgres, redis, backend, celery, frontend)
 **Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (11 Tool-Gruppen, 40+ Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/mock), Multi-Tenancy mit Row-Level-Isolation, 8 Trace-Link-Typen, Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
-
----
 
 ## Tech-Stack
 
@@ -34,8 +38,6 @@
 - Node.js >= 18 (nur für E2E-Tests mit Playwright)
 - Python 3.x (im Container)
 
-
----
 
 ## Architektur
 
@@ -58,13 +60,9 @@ backend/manage.py            — Django Management (migrate, seed_demo, runserve
 **Besondere Patterns:**
 - Django REST Framework (DRF) für REST-API-Endpoints (16 ViewSets + 2 APIViews) - MCP-Server (JSON-RPC 2.0) mit 11 Tool-Gruppen und 40+ Tools für AI-Integration - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation - 8 Trace-Link-Typen (TRACE_TO, DERIVED_FROM, IMPLEMENTS, TESTS, VERIFIES, RELATED_TO, CONFLICTS_WITH, SUPERCEDES) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
 
----
-
 ## Code-Konventionen
 
 - Python (PEP 8, Typings, Docstrings für public API) - TypeScript (ESLint 9, Prettier, strict mode, functional Components + Hooks) - Django-Layer: Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/) - React-Layer: api/ (Wrapper) ↔ context/ (State) ↔ components/ (UI) ↔ i18n/ (Labels) - Imports-Reihenfolge: Standard Library → Third-Party → Local (PEP 8) - Keine wildcard imports (from x import *) - Keine direkten Model-Queries in DRF-Views (immer via Serializer + Service) - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht für Playwright) - CSS Custom Properties aus styles/tokens.css (keine hardcodierten Farben/Größen) - Commits: Conventional Commits Format (feat(REQ-xxx): ..., fix: ..., chore: ...) - Branch-Policy: feat/*, fix/*, refactor/* (NIE direkt auf main) - Requirements-IDs: REQ-L0-*, REQ-L1-*, REQ-L2-*, REQ-L3-* (siehe docs/se/traceability-matrix.md) 
-
----
 
 ## Build & Development
 
@@ -81,8 +79,6 @@ docker-compose up
 # Nach Änderungen neu laden
 docker-compose restart (oder Hot Reload je nach Service)
 ```
-
----
 
 ## Anforderungs-Kategorien
 
@@ -102,19 +98,17 @@ Kategorien für `docs/REQUIREMENTS.md`:
 - **Resilience** — Retry, Circuit-Breaker, Timeout-Decorators, async via Celery
 
 
----
 
 ## Agenten-Konfiguration
 
 <!-- agent-meta:managed-begin -->
-<!-- This block is automatically updated by sync.py on every sync. -->
-<!-- Manual changes here will be overwritten. -->
+<!-- Dieser Block wird von sync.py bei jedem sync automatisch aktualisiert. -->
+<!-- Manuelle Änderungen hier werden überschrieben. -->
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v0.85.2 — `2026-07-26`
+Generiert von agent-meta v0.90.2 — `2026-07-28`
 DoD-Preset: **spec-driven** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
-
 > **Einstiegspunkt:** Du bist im `main-chat` Modus. Du agierst direkt als Router und Worker (siehe `use-orchestrator.md`).
 
 ## Knowledge Engine
