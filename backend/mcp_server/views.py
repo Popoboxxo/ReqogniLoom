@@ -396,7 +396,11 @@ class McpSseTransportView(View):
         # The message endpoint carries ONLY the session id — never the
         # api_key, which would otherwise leak into access/proxy logs and
         # browser history (REQ-018 / SYSTEM_AUDIT P-02).
-        endpoint = f"/mcp/messages/?session_id={session_id}"
+        prefix = ""
+        path = request.path.strip("/")
+        if path.count("/") > 1:
+            prefix = "/" + "/".join(path.split("/")[:-2])
+        endpoint = f"{prefix}/mcp/messages/?session_id={session_id}"
 
         response = StreamingHttpResponse(
             async_sse_generator(session_id, endpoint, last_event_id=last_event_id),
