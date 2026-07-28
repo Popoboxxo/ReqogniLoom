@@ -428,7 +428,7 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "params": {
             "id": "__UUID__",
             "workspace_id": "__WORKSPACE__",
-            "data": {"title": "Updated"},
+            "data": {"title": "Updated", "change_reason": "E2E test update"},
         },
         "result_key": "architecture_element",
         "needs_seed": "arch",
@@ -468,7 +468,7 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "params": {
             "id": "__UUID__",
             "workspace_id": "__WORKSPACE__",
-            "data": {"title": "Updated Test"},
+            "data": {"title": "Updated Test", "change_reason": "E2E test update"},
         },
         "result_key": "test_case",
         "needs_seed": "testcase",

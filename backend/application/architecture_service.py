@@ -57,10 +57,12 @@ class ArchitectureService(ServiceBase):
     # restricts which values may be stored.
     VALID_ELEMENT_TYPES = frozenset(ElementType.values)
 
-    def __init__(self, trace_link_service=None) -> None:
+    def __init__(self, trace_link_service=None, preset_policy_service=None) -> None:
         from application.trace_link_service import TraceLinkService
+        from application.preset_policy_service import get_preset_policy_service
 
         self._trace_link_service = trace_link_service or TraceLinkService()
+        self._preset_policy = preset_policy_service or get_preset_policy_service()
 
     # ---------- helpers ----------
 
@@ -184,6 +186,7 @@ class ArchitectureService(ServiceBase):
         make_or_buy: Optional[str] = _UNSET,
         uid: Optional[str] = _UNSET,
         custom_fields: object = _UNSET,
+        change_reason: Optional[str] = None,
     ) -> ArchitectureElement:
         """Update an ArchitectureElement with optimistic locking.
 
@@ -214,6 +217,10 @@ class ArchitectureService(ServiceBase):
                 f"Stale version: expected {expected_version}, "
                 f"current is {arch_el.version}"
             )
+
+        if self._preset_policy.is_change_reason_required(str(arch_el.artifact.workspace_id)):
+            if not change_reason:
+                raise ValidationError("change_reason required by workspace preset policy")
 
         changed_fields: dict = {}
         if title is not None:
@@ -269,7 +276,13 @@ class ArchitectureService(ServiceBase):
         )
         arch_el.refresh_from_db(fields=["version"])
 
-        self._audit(ctx=ctx, operation="update", entity_type="ArchitectureElement", entity_id=arch_el_id)
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="ArchitectureElement",
+            entity_id=arch_el_id,
+            change_reason=change_reason,
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.ARCHITECTURE_ELEMENT_UPDATED,

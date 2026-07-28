@@ -53,10 +53,12 @@ class TestService(ServiceBase):
     """COMP-AS-004 — TestCase CRUD and coverage calculation."""
     __test__ = False
 
-    def __init__(self, trace_link_service=None) -> None:
+    def __init__(self, trace_link_service=None, preset_policy_service=None) -> None:
         from application.trace_link_service import TraceLinkService
+        from application.preset_policy_service import get_preset_policy_service
 
         self._trace_link_service = trace_link_service or TraceLinkService()
+        self._preset_policy = preset_policy_service or get_preset_policy_service()
 
     # ---------- CRUD (REQ-L2-AS-005) ----------
 
@@ -148,6 +150,7 @@ class TestService(ServiceBase):
         description: Optional[str] = None,
         steps: Optional[list] = None,
         custom_fields: object = _UNSET,
+        change_reason: Optional[str] = None,
     ) -> TestCase:
         """Update a TestCase."""
         self._set_tenant_context(ctx)
@@ -158,6 +161,12 @@ class TestService(ServiceBase):
         ).first()
         if test_case is None:
             raise NotFoundError(f"TestCase {test_case_id} not found")
+
+        if self._preset_policy.is_change_reason_required(
+            str(test_case.artifact.workspace_id)
+        ):
+            if not change_reason:
+                raise ValidationError("change_reason required by workspace preset policy")
 
         if title is not None:
             test_case.title = title
@@ -178,7 +187,13 @@ class TestService(ServiceBase):
         TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
         test_case.refresh_from_db(fields=["version"])
 
-        self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="TestCase",
+            entity_id=test_case_id,
+            change_reason=change_reason,
+        )
         self._emit_event(
             self._make_event(
                 event_type=DomainEventOutbox.EventType.TEST_CASE_UPDATED,

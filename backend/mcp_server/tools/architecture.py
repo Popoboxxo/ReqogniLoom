@@ -145,6 +145,20 @@ class ArchitectureToolGroup(BaseToolGroup):
                     "data": {
                         "type": "object",
                         "description": "Fields to update (title, description, element_type, expected_version).",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "element_type": {"type": "string"},
+                            "expected_version": {"type": "integer"},
+                            "change_reason": {
+                                "type": "string",
+                                "description": (
+                                    "Reason for the change. Required when the "
+                                    "workspace's change_reason preset policy "
+                                    "is 'mandatory' (e.g. extended preset)."
+                                ),
+                            },
+                        },
                     },
                 },
                 "required": ["id"],
@@ -358,6 +372,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                 title=data.get("title"),
                 description=data.get("description"),
                 element_type=data.get("element_type"),
+                change_reason=data.get("change_reason"),
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

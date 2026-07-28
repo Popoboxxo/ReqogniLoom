@@ -432,7 +432,7 @@ def _build_audit_params(
         return {
             "id": str(arch.id),
             "workspace_id": str(workspace.id),
-            "data": {"title": "Updated Arch"},
+            "data": {"title": "Updated Arch", "change_reason": "audit test"},
         }
     if tool_name == "architecture.link":
         a1 = _seed_architecture_element(workspace, "Source")
@@ -451,7 +451,7 @@ def _build_audit_params(
         return {
             "id": str(tc.id),
             "workspace_id": str(workspace.id),
-            "data": {"title": "Updated TC"},
+            "data": {"title": "Updated TC", "change_reason": "audit test"},
         }
     if tool_name == "test.link":
         tc = _seed_test_case(workspace)

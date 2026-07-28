@@ -46,6 +46,11 @@ class GlossaryTermDTO:
 class GlossaryService(ServiceBase):
     """Handles CRUD and versioning for GlossaryTerm."""
 
+    def __init__(self, preset_policy_service=None) -> None:
+        from application.preset_policy_service import get_preset_policy_service
+
+        self._preset_policy = preset_policy_service or get_preset_policy_service()
+
     def get(self, ctx: AuthContext, term_id: UUID) -> GlossaryTermDTO:
         term = GlossaryTerm.objects.filter(id=term_id).first()
         if not term:
@@ -145,10 +150,15 @@ class GlossaryService(ServiceBase):
         definition: Optional[str] = None,
         synonyms: Optional[list] = None,
         abbreviation: Optional[str] = None,
+        change_reason: Optional[str] = None,
     ) -> GlossaryTermDTO:
         gt = GlossaryTerm.objects.filter(id=term_id).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
+
+        if self._preset_policy.is_change_reason_required(str(gt.workspace_id)):
+            if not change_reason:
+                raise ValidationError("change_reason required by workspace preset policy")
 
         changed = False
         if definition is not None and definition != gt.definition:
@@ -178,6 +188,14 @@ class GlossaryService(ServiceBase):
             abbreviation=gt.abbreviation,
             # Changed from actor_id to user_id to fix bug
         created_by_id=ctx.user_id,
+        )
+
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="GlossaryTerm",
+            entity_id=term_id,
+            change_reason=change_reason,
         )
 
         return GlossaryTermDTO.from_orm(gt)

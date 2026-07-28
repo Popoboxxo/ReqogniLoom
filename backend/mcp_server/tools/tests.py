@@ -170,6 +170,20 @@ class McpTestToolGroup(BaseToolGroup):
                     "data": {
                         "type": "object",
                         "description": "Fields to update (title, description, steps, status).",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "steps": {"type": "array"},
+                            "status": {"type": "string"},
+                            "change_reason": {
+                                "type": "string",
+                                "description": (
+                                    "Reason for the change. Required when the "
+                                    "workspace's change_reason preset policy "
+                                    "is 'mandatory' (e.g. extended preset)."
+                                ),
+                            },
+                        },
                     },
                 },
                 "required": ["id"],
@@ -464,6 +478,7 @@ class McpTestToolGroup(BaseToolGroup):
                     title=data.get("title"),
                     description=data.get("description"),
                     steps=data.get("steps"),
+                    change_reason=data.get("change_reason"),
                 )
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
