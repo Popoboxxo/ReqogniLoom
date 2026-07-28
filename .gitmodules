@@ -1,3 +1,9 @@
 [submodule ".agent-meta"]
 	path = .agent-meta
 	url = https://github.com/Popoboxxo/agent-meta
+[submodule "external/awesome-claude-code"]
+	path = external/awesome-claude-code
+	url = https://github.com/hesreallyhim/awesome-claude-code
+[submodule "external/neat-little-package"]
+	path = external/neat-little-package
+	url = https://github.com/racurry/neat-little-package

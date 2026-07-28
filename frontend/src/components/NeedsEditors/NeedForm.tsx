@@ -5,6 +5,8 @@ import type { ArchitectureElement, StakeholderNeed, MoscowPriority } from '../..
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
+import type { DerivedRequirementDraft } from '../../api/stakeholder-need';
+import { DeriveRequirementsPanel } from './DeriveRequirementsPanel';
 import { requirementsApi } from '../../api/requirements';
 import { architectureApi } from '../../api/architecture';
 import { tracelinksApi } from '../../api/tracelinks';
@@ -39,6 +41,7 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
   const [isDeriving, setIsDeriving] = useState(false);
   const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
   const [derivationIsError, setDerivationIsError] = useState(false);
+  const [derivedDrafts, setDerivedDrafts] = useState<DerivedRequirementDraft[] | null>(null);
 
   // Manual "Ableiten": create a Requirement derived from this need, with an
   // optional architecture allocation (SE: Req --derives-from--> Need,
@@ -104,23 +107,31 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
     setIsDeriving(true);
     setDerivationIsError(false);
     setDerivationStatus(t('needs.deriveStarting'));
+    setDerivedDrafts(null);
     try {
       const res = await stakeholderNeedApi.deriveRequirements(need.id);
-      setDerivationStatus(t('needs.deriveStarted', { taskId: res.task_id }));
-
-      setTimeout(() => {
-        setDerivationIsError(false);
-        setDerivationStatus(t('needs.deriveSuccess'));
-        setIsDeriving(false);
-        if (onNeedsChanged) onNeedsChanged();
-      }, 3000);
+      const drafts = res.drafts ?? [];
+      if (drafts.length === 0) {
+        setDerivationStatus(t('needs.deriveEmpty'));
+        return;
+      }
+      setDerivedDrafts(drafts);
+      setDerivationStatus(null);
     } catch (err) {
       console.error(err);
       const apiErr = err as { error?: { message?: string } };
       setDerivationIsError(true);
       setDerivationStatus(apiErr?.error?.message ?? t('needs.deriveFailed'));
+    } finally {
       setIsDeriving(false);
     }
+  };
+
+  const handleDraftsAccepted = (count: number) => {
+    setDerivedDrafts(null);
+    setDerivationIsError(false);
+    setDerivationStatus(t('needs.deriveCreated', { count }));
+    if (onNeedsChanged) onNeedsChanged();
   };
 
   useEffect(() => {
@@ -433,6 +444,17 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             }}
           >
             {derivationStatus}
+          </div>
+        )}
+        {derivedDrafts && (
+          <div style={{ marginTop: 'var(--space-3)' }}>
+            <DeriveRequirementsPanel
+              workspaceId={need.workspace_id}
+              needArtifactId={need.artifact_id}
+              drafts={derivedDrafts}
+              onAccepted={handleDraftsAccepted}
+              onDiscard={() => setDerivedDrafts(null)}
+            />
           </div>
         )}
 

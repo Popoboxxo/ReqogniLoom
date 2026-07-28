@@ -6,6 +6,13 @@ import type {
   PaginatedResponse,
 } from "../types";
 
+export interface DerivedRequirementDraft {
+  title: string;
+  description: string;
+  rationale: string;
+  suggested_parent_id: string;
+}
+
 export const stakeholderNeedApi = {
   listByWorkspace: async (workspaceId: string, params?: Record<string, string>): Promise<PaginatedResponse<StakeholderNeed>> => {
     const qs = params ? `?${new URLSearchParams(params).toString()}` : '';
@@ -56,12 +63,20 @@ export const stakeholderNeedApi = {
     return apiClient.delete(`/needs/${id}/`, { data: { change_reason } });
   },
 
+  /** Async fire-and-forget Celery dispatch. Result not persisted/read by UI. */
   derive: async (id: string): Promise<{ task_id: string; message: string }> => {
     return apiClient.post<{ task_id: string; message: string }>(`/needs/${id}/derive/`, {});
   },
 
-  deriveRequirements: async (id: string): Promise<{ task_id: string }> => {
-    return apiClient.post<{ task_id: string }>(`/needs/${id}/derive/`, {});
+  /** Draft/Accept (REQ-L2-AI-001/002): returns proposed requirements without persisting. */
+  deriveRequirements: async (
+    id: string,
+    n = 3
+  ): Promise<{ drafts: DerivedRequirementDraft[] }> => {
+    return apiClient.post<{ drafts: DerivedRequirementDraft[] }>(
+      `/needs/${id}/derive-requirements/`,
+      { n }
+    );
   },
 
   // -----------------------------------------------------------------------
