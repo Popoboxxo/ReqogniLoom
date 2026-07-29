@@ -1,14 +1,19 @@
 // REQ-L1-004, REQ-L2-AS-004: Architecture elements CRUD
 import { test, expect } from '@playwright/test';
-import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { loginAsAdmin, getAuthToken, setWorkspaceId, createIsolatedWorkspace } from '../helpers/auth';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('Architecture Management', () => {
+  let workspaceId: string;
+
   test.beforeEach(async ({ page }) => {
-    // Inject real workspace ID so WorkspaceContext uses the seeded workspace
-    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
+    // Each test gets its own empty workspace so architecture-root creation
+    // (invariant [I5]: one root per workspace) never collides across specs.
+    const token = await getAuthToken();
+    workspaceId = await createIsolatedWorkspace(token);
+    await setWorkspaceId(page, workspaceId);
     await loginAsAdmin(page);
   });
 
@@ -33,7 +38,7 @@ test.describe('Architecture Management', () => {
     const response = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
-        workspace_id: SEEDED_WORKSPACE_ID,
+        workspace_id: workspaceId,
         title: 'E2E Test Architecture Element',
         element_type: 'component',
       },
