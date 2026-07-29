@@ -23,6 +23,7 @@ import { searchApi, type SearchHit } from "../../api/search";
 import { versionApi, type VersionInfo } from "../../api/version";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
 import type { Workspace } from "../../types";
+import styles from "./SidebarNavigation.module.css";
 
 // ---------------------------------------------------------------------------
 // Navigation items — preset-gated (REQ-L3-RF001-002)
@@ -68,13 +69,14 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 // Sidebar palette — dark professional theme.
-// All design-system colors are sourced from var(--color-*) tokens in tokens.css.
-const SIDEBAR_BG = "#1a1f2e";
-const SIDEBAR_TEXT = "#ffffff";
-const SIDEBAR_TEXT_MUTED = "rgba(255,255,255,0.65)";
-const SIDEBAR_BORDER = "rgba(255,255,255,0.08)";
-const ACTIVE_BG = "rgba(79,110,247,0.15)";
-const HOVER_BG = "rgba(255,255,255,0.05)";
+// All design-system colors are sourced from var(--color-nav-*) tokens in
+// tokens.css (issue #157 — was hardcoded here, bypassing the design system).
+const SIDEBAR_BG = "var(--color-nav-bg)";
+const SIDEBAR_TEXT = "var(--color-nav-text)";
+const SIDEBAR_TEXT_MUTED = "var(--color-nav-text-muted)";
+const SIDEBAR_BORDER = "var(--color-nav-border)";
+const ACTIVE_BG = "var(--color-nav-active-bg)";
+const HOVER_BG = "var(--color-nav-hover-bg)";
 
 export function SidebarNavigation(): JSX.Element {
   const { t } = useTranslation();
@@ -96,6 +98,9 @@ export function SidebarNavigation(): JSX.Element {
   const [hoveredPath, setHoveredPath] = React.useState<string | null>(null);
   const [hoveredButton, setHoveredButton] = React.useState<string | null>(null);
   const [isSwitcherOpen, setIsSwitcherOpen] = React.useState<boolean>(false);
+  // Off-canvas drawer state, only relevant below the --breakpoint-tablet
+  // (1024px) media query defined in SidebarNavigation.module.css (issue #160).
+  const [isMobileNavOpen, setIsMobileNavOpen] = React.useState<boolean>(false);
   const [hoveredOptionId, setHoveredOptionId] = React.useState<string | null>(
     null
   );
@@ -255,6 +260,12 @@ export function SidebarNavigation(): JSX.Element {
     void setHideAllOptional(!hideAllOptional);
   };
 
+  // Close the mobile drawer whenever the route changes (issue #160) so it
+  // never stays open covering the newly navigated page.
+  React.useEffect(() => {
+    setIsMobileNavOpen(false);
+  }, [location.pathname]);
+
   const isItemActive = (path: string): boolean => {
     if (path === "/") {
       return location.pathname === "/";
@@ -264,13 +275,45 @@ export function SidebarNavigation(): JSX.Element {
 
   return (
     <>
+    {/* Burger toggle — only rendered visibly below --breakpoint-tablet
+        (1024px, see SidebarNavigation.module.css). Opens the off-canvas
+        drawer (issue #160). */}
+    <button
+      type="button"
+      className={styles.burgerButton}
+      data-testid="sidebar-burger"
+      aria-label={isMobileNavOpen ? t("nav.closeMenu") : t("nav.openMenu")}
+      aria-expanded={isMobileNavOpen}
+      onClick={() => setIsMobileNavOpen((open) => !open)}
+      style={{
+        position: "fixed",
+        top: "var(--space-3)",
+        left: "var(--space-3)",
+        zIndex: 70,
+        width: "40px",
+        height: "40px",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "var(--radius-md)",
+        border: `1px solid ${SIDEBAR_BORDER}`,
+        background: SIDEBAR_BG,
+        color: SIDEBAR_TEXT,
+        fontSize: "var(--font-size-lg)",
+      }}
+    >
+      {isMobileNavOpen ? "✕" : "☰"}
+    </button>
+    {isMobileNavOpen && (
+      <div
+        className={styles.overlay}
+        data-testid="sidebar-overlay"
+        onClick={() => setIsMobileNavOpen(false)}
+      />
+    )}
     <nav
       aria-label="Main navigation"
+      className={`${styles.sidebarNav} ${isMobileNavOpen ? styles.open : ""}`}
       style={{
-        width: "220px",
-        height: "100vh",
-        position: "sticky",
-        top: 0,
         background: SIDEBAR_BG,
         display: "flex",
         flexDirection: "column",

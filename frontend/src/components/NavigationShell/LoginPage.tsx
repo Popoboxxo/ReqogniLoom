@@ -90,7 +90,8 @@ export function LoginPage(): JSX.Element {
         justifyContent: "center",
         alignItems: "center",
         minHeight: "100vh",
-        fontFamily: "sans-serif",
+        fontFamily: "var(--font-sans)",
+        background: "var(--color-surface)",
       }}
     >
       <form
@@ -98,16 +99,41 @@ export function LoginPage(): JSX.Element {
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: "1rem",
+          gap: "var(--space-4)",
           minWidth: "320px",
-          padding: "2rem",
-          border: "1px solid #ddd",
-          borderRadius: "8px",
+          padding: "var(--space-8)",
+          background: "var(--color-surface-raised)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-lg)",
+          boxShadow: "var(--shadow-card)",
         }}
       >
-        <div style={{ textAlign: "center", marginBottom: "var(--space-4)" }}>
-          <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, margin: 0 }}>{APP_NAME}</h1>
-          <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: "var(--space-1) 0 0 0" }}>
+        <div style={{ textAlign: "center", marginBottom: "var(--space-2)" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "var(--space-2)",
+              marginBottom: "var(--space-2)",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                display: "inline-block",
+                width: "10px",
+                height: "10px",
+                borderRadius: "var(--radius-full)",
+                background: "var(--color-primary)",
+                boxShadow: "0 0 0 3px rgba(99,102,241,0.20)",
+              }}
+            />
+            <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, margin: 0, color: "var(--color-text)" }}>
+              {APP_NAME}
+            </h1>
+          </div>
+          <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }}>
             AI-native Requirements Management
           </p>
           {versionLabel && (
@@ -120,38 +146,62 @@ export function LoginPage(): JSX.Element {
             </span>
           )}
         </div>
-        <h2>{t("login.title")}</h2>
+        <h2 style={{ fontSize: "var(--font-size-md)", fontWeight: 600, margin: 0, color: "var(--color-text)" }}>
+          {t("login.title")}
+        </h2>
         {error && (
-          <p role="alert" style={{ color: "var(--color-danger)" }}>
+          <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: 0 }}>
             {error}
           </p>
         )}
-        <label htmlFor="username-input">{t("login.usernameLabel")}</label>
+        <label htmlFor="username-input" style={{ fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--color-text)" }}>
+          {t("login.usernameLabel")}
+        </label>
         <input
           id="username-input"
+          data-testid="login-username-input"
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           placeholder={t("login.usernamePlaceholder")}
           autoComplete="username"
           disabled={isLoading}
-          style={{ padding: "0.5rem", fontSize: "1rem" }}
+          style={{
+            padding: "var(--space-2) var(--space-3)",
+            fontSize: "var(--font-size-sm)",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-border)",
+            background: "var(--color-surface)",
+            color: "var(--color-text)",
+          }}
         />
-        <label htmlFor="password-input">{t("login.passwordLabel")}</label>
+        <label htmlFor="password-input" style={{ fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--color-text)" }}>
+          {t("login.passwordLabel")}
+        </label>
         <input
           id="password-input"
+          data-testid="login-password-input"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={t("login.passwordPlaceholder")}
           autoComplete="current-password"
           disabled={isLoading}
-          style={{ padding: "0.5rem", fontSize: "1rem" }}
+          style={{
+            padding: "var(--space-2) var(--space-3)",
+            fontSize: "var(--font-size-sm)",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-border)",
+            background: "var(--color-surface)",
+            color: "var(--color-text)",
+          }}
         />
         <button
           type="submit"
+          data-testid="login-submit-button"
           disabled={isLoading}
-          style={{ padding: "0.75rem", fontSize: "1rem" }}
+          className="btn-primary"
+          style={{ justifyContent: "center", width: "100%", fontSize: "var(--font-size-sm)" }}
         >
           {isLoading ? t("loading") : t("login.submit")}
         </button>
