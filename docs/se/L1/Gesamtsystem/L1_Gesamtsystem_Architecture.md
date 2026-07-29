@@ -97,7 +97,7 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 - ARCH-L1-013 → ARCH-L1-001: IF-L1-061 (Mermaid Source + Render-Hinweise + PNG/SVG-Export)
 
 **Zugeordnete REQ-L1:** REQ-L1-016 (i18n), REQ-L1-017 (React-UI)
-**Mitwirkend bei:** REQ-L1-007 (Preset-Sichtbarkeit), REQ-L1-014 (Terminologie-Profile), REQ-L1-026 (UI-Performance), REQ-L1-056 (Free-Hand Canvas), REQ-L1-057 (Mermaid Live Preview)
+**Mitwirkend bei:** REQ-L1-007 (Preset-Sichtbarkeit), REQ-L1-014 (Terminologie-Profile), REQ-L1-026 (UI-Performance), REQ-L1-056 (Free-Hand Canvas), REQ-L1-057 (Mermaid Live Preview), REQ-161 (Unified Workflow Status Editor), REQ-176 (Visual Workflow Editor), REQ-184 (Settings IA Split)
 
 → Siehe `docs/se/L1/Gesamtsystem/L2/ReactFrontendSystem/L2_ReactFrontendSystem_Architecture.md`
 
@@ -168,18 +168,18 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 #### ARCH-L1-005 — WorkflowEngine (Item-Lifecycle)
 
 **Domain:** software
-**Responsibility:** Verwaltet `WorkflowDefinition`s pro Item-Typ und Workspace. Validiert State-Übergänge gegen erlaubte Rollen und `change_reason`-Pflicht. Schreibt jeden Übergang in `WorkflowState.history`. Stellt Default-Workflows für die drei Presets bereit (nicht konfigurierbar im Minimal, vollständig konfigurierbar im Extended).
+**Responsibility:** Universelle State-Machine für alle primären Entitätstypen (Requirement, StakeholderNeed, Adr, TestCase, Risk, Issue, TestRun, Baseline, ICD, Diagram, Glossary). Validiert State-Übergänge gegen erlaubte Rollen und per-Transition konfigurierbare `change_reason`-Pflicht (REQ-172). Schreibt jeden Übergang in `WorkflowState.history`. Implementiert das Symmetrische Global-Default/Override-Modell (REQ-178): Bezieht pro Rigor-Preset eine tenant-weite globale Workflow-Definition als Source-of-Truth, die auf Workspace-Ebene geerbt, überschrieben (Override) oder auf den Default zurückgesetzt werden kann (Reset-to-Default).
 
 **Interne Interfaces (eingehend):**
 - ARCH-L1-004 → ARCH-L1-005: `transition(item_id, target_state, change_reason, ctx)`
-- ARCH-L1-008 → ARCH-L1-005: Preset-Regeln (Workflow-Konfigurierbarkeit)
+- ARCH-L1-008 → ARCH-L1-005: Preset-Regeln (Workflow-Konfigurierbarkeit, Erben von Global Defaults)
 
 **Interne Interfaces (ausgehend):**
-- ARCH-L1-005 → ARCH-L1-010: Persistenz von WorkflowDefinition, WorkflowState
+- ARCH-L1-005 → ARCH-L1-010: Persistenz von WorkflowDefinition (Global & Workspace-Override), WorkflowState
 - ARCH-L1-005 → ARCH-L1-011: Rollen-Prüfung (Approver-Check)
 
-**Zugeordnete REQ-L1:** REQ-L1-009 (Item-Level-Workflow)
-**Mitwirkend bei:** REQ-L1-002 (Workflow-Teil), REQ-L1-004, REQ-L1-007, REQ-L1-010, REQ-L1-011, REQ-L1-012, REQ-L1-025
+**Zugeordnete REQ-L1:** REQ-L1-009 (Item-Level-Workflow), REQ-160..REQ-177 (Universal Workflow Engine)
+**Mitwirkend bei:** REQ-L1-002, REQ-L1-004, REQ-L1-007, REQ-L1-010, REQ-L1-011, REQ-L1-012, REQ-L1-025, REQ-178 (Global Default)
 
 → Siehe `docs/se/L1/Gesamtsystem/L2/WorkflowEngineSystem/L2_WorkflowEngineSystem_Architecture.md`
 
@@ -227,20 +227,21 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 #### ARCH-L1-008 — PresetConfigEngine (Configurable Rigor)
 
 **Domain:** software
-**Responsibility:** Verwaltet Workspace-Presets (Minimal / Standard / Extended) und Terminologie-Profile (Dev-Modus / SE-Modus). Liefert zur Laufzeit Entscheidungen über Pflichtfelder, sichtbare Tools, Baseline-Scope-Verfügbarkeit, Workflow-Konfigurierbarkeit und `change_reason`-Pflicht. Wird von WorkflowEngine, BaselineService, ApplicationService, RestApiAdapter und ReactFrontend konsultiert.
+**Responsibility:** Verwaltet System Settings und Workspace-Presets (Minimal / Standard / Extended). Beherbergt tenant-weite globale Configuration-Defaults für Workflows (pro Preset) und Berechtigungen (REQ-178, REQ-181). Liefert zur Laufzeit Entscheidungen über Pflichtfelder, sichtbare Tools, Baseline-Scope-Verfügbarkeit, Workflow-Konfigurierbarkeit und `change_reason`-Pflicht. Wird von WorkflowEngine (für Defaults), BaselineService, ApplicationService, RestApiAdapter und ReactFrontend konsultiert. Verwaltet Terminologie-Profile (Dev-Modus / SE-Modus).
 
 **Interne Interfaces (eingehend):**
-- ARCH-L1-002 → ARCH-L1-008: `is_feature_enabled(key, workspace_id)`
+- ARCH-L1-002 → ARCH-L1-008: `is_feature_enabled(key, workspace_id)`, System-Settings-Verwaltung
 - ARCH-L1-003 → ARCH-L1-008: `get_preset(workspace_id)`
 - ARCH-L1-004 → ARCH-L1-008: `get_preset(workspace_id)`
-- ARCH-L1-005 → ARCH-L1-008: Workflow-Konfigurierbarkeit
+- ARCH-L1-005 → ARCH-L1-008: Workflow-Konfigurierbarkeit und Global-Defaults
 - ARCH-L1-006 → ARCH-L1-008: Scope-Verfügbarkeit
+- ARCH-L1-011 → ARCH-L1-008: Permissions-Global-Defaults
 
 **Interne Interfaces (ausgehend):**
-- ARCH-L1-008 → ARCH-L1-010: Persistenz von Workspace-Settings, Preset-Konfiguration
+- ARCH-L1-008 → ARCH-L1-010: Persistenz von System-Settings, Workspace-Settings, Preset-Konfiguration
 
-**Zugeordnete REQ-L1:** REQ-L1-007 (Configurable-Rigor-Presets), REQ-L1-014 (Terminologie-Profile)
-**Mitwirkend bei:** REQ-L1-002, REQ-L1-008, REQ-L1-009, REQ-L1-017, REQ-L1-019
+**Zugeordnete REQ-L1:** REQ-L1-007 (Configurable-Rigor-Presets), REQ-L1-014 (Terminologie-Profile), REQ-178 (Global Workflow Defaults), REQ-181 (Global Permissions Defaults)
+**Mitwirkend bei:** REQ-L1-002, REQ-L1-008, REQ-L1-009, REQ-L1-017, REQ-L1-019, REQ-184
 
 → Siehe `docs/se/L1/Gesamtsystem/L2/PresetConfigEngineSystem/L2_PresetConfigEngineSystem_Architecture.md`
 
@@ -288,7 +289,7 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 #### ARCH-L1-011 — AuthAndTenancy (Auth-Middleware)
 
 **Domain:** software
-**Responsibility:** Token-basierte Authentifizierung (Bearer Token / API Keys). Vier Rollen (Admin, Editor, Viewer, Approver). Approver-Rolle nur im Extended-Preset aktiv. Extrahiert den aktiven Tenant aus dem Token und propagiert ihn in den Request-Context für `PersistenceLayer.CustomManager`. Erzwingt Berechtigungs-Checks pro Operation und Ressource. **Credential-Login (REQ-L1-033):** verifiziert Benutzername/Passwort (constant-time, enumeration-resistent) und stellt über einen öffentlichen Login-Endpunkt einen `BearerTokenAuthentication`-kompatiblen Token aus; ein geschützter Identitäts-Endpunkt (`/auth/me/`) liefert den Session-Bootstrap.
+**Responsibility:** Token-basierte Authentifizierung (Bearer Token / API Keys) und Tenant-Isolation. Setzt das **Globale Permission-Modell** um (REQ-181, REQ-186), das als alleinige autoritative Durchsetzungsinstanz für Zugriffsentscheidungen dient, inklusive Vererbung von Global-Defaults und Behandlung von Workspace-Overrides. Löst damit die alte hardkodierte `UserRole`/`ItemPermission`-Prüfung ab. Extrahiert den aktiven Tenant aus dem Token und propagiert ihn in den Request-Context für `PersistenceLayer.CustomManager`. Erzwingt Berechtigungs-Checks pro Operation und Ressource. **Credential-Login (REQ-L1-033):** verifiziert Benutzername/Passwort und stellt Token aus. Stellt Self-Initializing beim Anwendungsstart sicher (REQ-188).
 
 **Externe Interfaces (eingehend):**
 - API-Client / ReactFrontend → Bearer Token / API Key
@@ -296,13 +297,14 @@ Die L1-Whitebox zerlegt ReqFlow in sechzehn Subsysteme (Architektureinheiten, AR
 - RestApiAdapter (öffentlicher `POST /auth/login/`) → `{username, password}` (kein Auth-Header)
 
 **Interne Interfaces (ausgehend):**
-- ARCH-L1-011 → ARCH-L1-010: User, Role, Tenant Lookup (inkl. Passwort-Hash-Check)
-- ARCH-L1-011 → ARCH-L1-004: Auth-Kontext (User, Tenant, Rollen)
+- ARCH-L1-011 → ARCH-L1-010: User, Role, Tenant, Permissions Lookup (inkl. Passwort-Hash-Check)
+- ARCH-L1-011 → ARCH-L1-004: Auth-Kontext (User, Tenant, Autoritative Permissions)
 - ARCH-L1-011 → ARCH-L1-005: Rollen-Check (Approver-Transition)
+- ARCH-L1-011 → ARCH-L1-008: Konsultation der Global-Permission-Defaults
 - ARCH-L1-011 → ARCH-L1-002: Login-Token-Ausgabe `{token, user, tenant_id, roles}`
 
-**Zugeordnete REQ-L1:** REQ-L1-010 (RBAC), REQ-L1-015 (Tenant-Extraktion), REQ-L1-033 (Credential-Login + Token-Ausgabe)
-**Mitwirkend bei:** REQ-L1-002, REQ-L1-005, REQ-L1-006, REQ-L1-009, REQ-L1-011, REQ-L1-012
+**Zugeordnete REQ-L1:** REQ-L1-010 (RBAC), REQ-L1-015 (Tenant-Extraktion), REQ-L1-033 (Credential-Login + Token-Ausgabe), REQ-181 (Global Permissions Default), REQ-186 (Autoritative Durchsetzung)
+**Mitwirkend bei:** REQ-L1-002, REQ-L1-005, REQ-L1-006, REQ-L1-009, REQ-L1-011, REQ-L1-012, REQ-182, REQ-183, REQ-187, REQ-188
 
 → Siehe `docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/L2_AuthAndTenancySystem_Architecture.md`
 
