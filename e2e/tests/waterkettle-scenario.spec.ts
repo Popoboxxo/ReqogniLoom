@@ -36,6 +36,7 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  createIsolatedWorkspace,
 } from '../helpers/auth';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
@@ -116,16 +117,9 @@ async function seedWaterkettleScenario(): Promise<SeededFixture> {
   });
   const headers = { Authorization: `Bearer ${token}` };
 
-  // ---- Workspace dynamisch ermitteln (Demo-Workspace des Test-Tenants) ----
-  const wsResp = await apiCtx.get('/api/v1/workspaces/');
-  if (!wsResp.ok()) {
-    throw new Error(`workspaces list failed: ${wsResp.status()}`);
-  }
-  const wsBody = await wsResp.json();
-  const wsList = Array.isArray(wsBody) ? wsBody : wsBody.results ?? [];
-  const demo = wsList.find((w: { is_active?: boolean }) => w.is_active !== false) ?? wsList[0];
-  if (!demo) throw new Error('no workspace available for E2E scenario');
-  const workspaceId = demo.id as string;
+  // Eigene, leere Workspace — verhindert [I5]-Kollisionen (max. 1 Root-
+  // ArchitectureElement pro Workspace) mit der geteilten Demo-Workspace.
+  const workspaceId = await createIsolatedWorkspace(token);
 
   const requirementIds: Record<string, string> = {};
   const architectureIds: Record<string, string> = {};
@@ -152,6 +146,9 @@ async function seedWaterkettleScenario(): Promise<SeededFixture> {
   }
 
   // ---- Architecture elements (L1) ----
+  // [I5]: nur ein Root-ArchitectureElement pro Workspace erlaubt — das
+  // erste Element wird als Root angelegt, alle weiteren als seine Kinder.
+  let archRootId: string | undefined;
   for (const a of WK_ARCH) {
     const resp = await apiCtx.post('/api/v1/architecture/', {
       headers,
@@ -160,6 +157,7 @@ async function seedWaterkettleScenario(): Promise<SeededFixture> {
         title: a.title,
         description: a.description,
         element_type: a.element_type,
+        ...(archRootId ? { parent_id: archRootId } : {}),
       },
     });
     if (!resp.ok()) {
@@ -169,6 +167,7 @@ async function seedWaterkettleScenario(): Promise<SeededFixture> {
     }
     const body = await resp.json();
     architectureIds[a.id] = body.id;
+    if (!archRootId) archRootId = body.id;
   }
 
   // ---- TestCases (L2) ----
