@@ -21,6 +21,9 @@ from application.import_service import (
     ImportService,
     _MAX_ROWS,
 )
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Requirement, Tenant, Workspace
+from workflow.models import WorkflowEngineDefinition, WorkflowItemState
 
 pytestmark = pytest.mark.django_db
 
@@ -226,3 +229,104 @@ class TestAtomicity1000Rows:
 
         assert result.success is True
         assert result.imported_count == _MAX_ROWS
+
+
+# ---------- WorkflowItemState creation (issue #113) ----------
+
+
+class TestImportCsvWorkflowState:
+    """CSV import must never leave rows workflow-dead (issue #113).
+
+    Mirrors test_reqif_import_service.TestReqifImportStatusMapping: a
+    WorkflowEngineDefinition for the target workspace/item_type maps the raw
+    status onto one of its states and creates a matching WorkflowItemState;
+    without one, the row is normalised-only (no WorkflowItemState row, PROTECT
+    FK requires a definition).
+    """
+
+    def _make_workspace(self):
+        tenant = Tenant.objects.create(
+            name="Import-WF-T", slug=f"import-wf-t-{uuid.uuid4().hex[:8]}", is_active=True
+        )
+        set_request_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(
+                tenant=tenant, name="Import WF WS", preset={"name": "standard"}
+            )
+        finally:
+            clear_request_tenant()
+        return tenant, workspace
+
+    def _ctx(self, tenant_id):
+        ctx = MagicMock()
+        ctx.tenant_id = tenant_id
+        ctx.user_id = uuid.uuid4()
+        ctx.active_roles = ("editor",)
+        return ctx
+
+    def test_import_creates_workflow_item_state_when_definition_exists(self):
+        tenant, workspace = self._make_workspace()
+        set_request_tenant(tenant.id)
+        try:
+            definition = WorkflowEngineDefinition.objects.create(
+                tenant=tenant,
+                workspace_id=workspace.id,
+                item_type="Requirement",
+                preset=WorkflowEngineDefinition.PRESET_STANDARD,
+                workflow_json={
+                    "states": ["draft", "in_review", "approved", "deprecated"],
+                    "transitions": [],
+                },
+            )
+        finally:
+            clear_request_tenant()
+
+        svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = svc.import_csv(_CSV_VALID, "Requirement", workspace.id, ctx)
+
+        assert result.success is True
+        assert result.imported_count == 2
+
+        set_request_tenant(tenant.id)
+        try:
+            reqs = list(
+                Requirement.objects.filter(artifact__workspace=workspace).order_by(
+                    "title"
+                )
+            )
+            assert len(reqs) == 2
+            for req in reqs:
+                # _CSV_VALID's status column is "draft" — a known state.
+                assert req.status == "draft"
+                state = WorkflowItemState.objects.get(
+                    item_id=req.id, item_type="Requirement"
+                )
+                assert state.current_state == "draft"
+                assert state.workspace_id == workspace.id
+                assert state.definition_id == definition.id
+        finally:
+            clear_request_tenant()
+
+    def test_import_without_definition_normalises_status_but_creates_no_item_state(
+        self,
+    ):
+        tenant, workspace = self._make_workspace()
+
+        svc = ImportService()
+        ctx = self._ctx(tenant.id)
+        result = svc.import_csv(_CSV_VALID, "Requirement", workspace.id, ctx)
+
+        assert result.success is True
+
+        set_request_tenant(tenant.id)
+        try:
+            reqs = list(Requirement.objects.filter(artifact__workspace=workspace))
+            assert len(reqs) == 2
+            for req in reqs:
+                assert req.status == "draft"  # known global state -> kept as-is
+                assert not WorkflowItemState.objects.filter(
+                    item_id=req.id, item_type="Requirement"
+                ).exists()
+        finally:
+            clear_request_tenant()
