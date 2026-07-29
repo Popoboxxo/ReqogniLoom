@@ -1,220 +1,96 @@
-# L2 IcdManagement Requirements
+# L2 Requirements für IcdManagementSystem
 
-> **Level:** L2 (Subsystem-Anforderungen)
-> **System:** IcdManagementSystem (ARCH-L1-014)
-> **Parent:** L1_Gesamtsystem_Requirements.md
-> **Datum:** 2026-06-21
-> **Status:** formalisiert
-> **Designation:** component (terminal — keine L3-Zerlegung)
-> **decomposition_status:** terminal
+### REQ-L2-ICD-001: L2 Requirement derived from REQ-L1-268
 
----
+Abgeleitet von: REQ-L1-268
 
-## Traceability
+**Beschreibung:** Dieses Subsystem setzt Workflow-Settings-UI-Redesign (Umsetzung REQ-166) um.
 
-- Abgeleitet von: REQ-L1-028 (primär)
-- Ziel: terminal (keine L3-Zerlegung)
+### REQ-L2-ICD-002: L2 Requirement derived from REQ-L1-101
 
----
+Abgeleitet von: REQ-L1-101
 
-## Systemzweck
+**Beschreibung:** Dieses Subsystem setzt Link-Erstellen-Dialog vereinheitlichen um.
 
-Das IcdManagementSystem verwaltet Schnittstellen zwischen ArchitectureElements als versionierte Interface Control Documents (ICDs). Es setzt Design-by-Contract durch, indem es Vorbedingungen, Nachbedingungen und Invarianten als semantische Verträge speichert. Es prüft Änderungen auf Kompatibilität, meldet Breaking-Change-Warnungen und integriert sich in die Baseline-Erstellung, um Schnittstellenverträge in Snapshots einzufrieren.
+### REQ-L2-ICD-003: L2 Requirement derived from REQ-L1-265
 
----
+Abgeleitet von: REQ-L1-265
 
-## Externe Schnittstellen (Systemgrenze)
+**Beschreibung:** Dieses Subsystem setzt Bug: ArchitectureForm ohne WorkflowStatusEditor-Integration um.
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-L1-037 | input | control | `create_icd`, `update_icd`, `validate_compatibility`, `get_icd_history` vom ApplicationService (ARCH-L1-004) |
-| IF-L1-038 | input | control | `get_icd_versions(workspace_id)` für Snapshot vom BaselineService (ARCH-L1-006) |
-| IF-L1-039 | output | data | TraceLink `realizes` zwischen ICD und ArchitectureElement an TraceabilityEngine (ARCH-L1-007) |
-| IF-L1-040 | output | data | Icd-Entity, IcdVersion-Entity (immutable) an PersistenceLayer (ARCH-L1-010) |
-| IF-L1-041 | output | data | Breaking-Change-Events an AuditLog (ARCH-L1-012) |
+### REQ-L2-ICD-004: L2 Requirement derived from REQ-L1-191
 
----
+Abgeleitet von: REQ-L1-191
 
-## L2 Subsystem-Anforderungen
+**Beschreibung:** Dieses Subsystem setzt Test-Layout vereinheitlichen um.
 
-### REQ-L2-ICD-001: ICD CRUD und Versionierung
-Das IcdManagementSystem SHALL vollständiges CRUD für Interface Control Documents bereitstellen. Jede Änderung eines ICDs MUSS eine neue, unveränderliche Version (IcdVersion) erzeugen.
+### REQ-L2-ICD-005: L2 Requirement derived from REQ-L1-273
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+Abgeleitet von: REQ-L1-273
 
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Erstellen eines ICD erzeugt Version 1.
-- [ ] Jedes Update erzeugt eine neue Version.
-- [ ] Versionen können nicht nachträglich modifiziert werden.
+**Beschreibung:** Dieses Subsystem setzt Workflow Reset-to-Default um.
 
-**Interfaces:**
-- Incoming: IF-L1-037
-- Outgoing: IF-L1-040
+### REQ-L2-ICD-006: L2 Requirement derived from REQ-L1-065
 
+Abgeleitet von: REQ-L1-065
 
-**Traceability:** REQ-L1-028
-**Rationale:** Unveränderliche Schnittstellenverträge sind essenziell für Systemintegration.
+**Beschreibung:** Dieses Subsystem setzt Lazy Loading / Server-Side Pagination um.
 
----
+### REQ-L2-ICD-007: L2 Requirement derived from REQ-L1-253
 
-### REQ-L2-ICD-002: Design-by-Contract Modellierung
-Das IcdManagementSystem SHALL ICDs mit Feldern für Richtung, Typ, semantische Beschreibung, Vorbedingungen (Preconditions), Nachbedingungen (Postconditions) und Invarianten verwalten.
+Abgeleitet von: REQ-L1-253
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Beschreibung:** Dieses Subsystem setzt Bug: Build-Version zeigt "unknown" um.
 
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] ICD-Entität unterstützt alle geforderten Felder.
-- [ ] Leere Felder sind erlaubt, Struktur muss jedoch vorgehalten werden.
+### REQ-L2-ICD-008: L2 Requirement derived from REQ-L1-204
 
-**Interfaces:**
-- Incoming: IF-L1-037
-- Outgoing: IF-L1-040
+Abgeleitet von: REQ-L1-204
 
+**Beschreibung:** Dieses Subsystem setzt pgvector Python-Dependency ergänzen um.
 
-**Traceability:** REQ-L1-028
-**Rationale:** Setzt das vertragsbasierte Schnittstellendesign nach Systems Engineering Standards um.
+### REQ-L2-ICD-009: L2 Requirement derived from REQ-L1-076
 
----
+Abgeleitet von: REQ-L1-076
 
-### REQ-L2-ICD-003: Breaking-Change Erkennung
-Das IcdManagementSystem SHALL bei jedem Update eine semantische Kompatibilitätsprüfung durchführen. Inkompatible Änderungen (z.B. Verschärfung von Vorbedingungen, Aufweichung von Nachbedingungen) MÜSSEN erkannt und als Breaking-Change-Warnung gemeldet werden.
+**Beschreibung:** Dieses Subsystem setzt Global Entity Metadata um.
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+### REQ-L2-ICD-010: L2 Requirement derived from REQ-L1-002
 
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Update mit Breaking-Change liefert eine spezifische Warnung im Response-Payload zurück.
+Abgeleitet von: REQ-L1-002
 
-**Interfaces:**
-- Incoming: IF-L1-037
+**Beschreibung:** Dieses Subsystem setzt Requirements CRUD mit konfigurierbarem Status-Workflow um.
 
+### REQ-L2-ICD-011: L2 Requirement derived from REQ-L1-189
 
-**Traceability:** REQ-L1-028
-**Rationale:** Verhindert unbeabsichtigte Zerstörung von Systemintegrationen durch Schnittstellenänderungen.
+Abgeleitet von: REQ-L1-189
 
----
+**Beschreibung:** Dieses Subsystem setzt ESLint-Versions-Inkonsistenz beheben um.
 
-### REQ-L2-ICD-004: Traceability-Verknüpfung (Typ: realizes)
-Das IcdManagementSystem SHALL bei Erstellung eines ICD die Verknüpfung zu den betroffenen ArchitectureElements (Source und Target) über den TraceLink-Typ `realizes` in der TraceabilityEngine anlegen.
+### REQ-L2-ICD-012: L2 Requirement derived from REQ-L1-048
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+Abgeleitet von: REQ-L1-048
 
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] TraceLink `realizes` wird zwischen ICD und ArchitectureElement erstellt.
+**Beschreibung:** Dieses Subsystem setzt Flache und Ebenenbasierte Artefaktansicht (Multi-View) um.
 
-**Interfaces:**
-- Incoming: IF-L1-037
-- Outgoing: IF-L1-039
+### REQ-L2-ICD-013: L2 Requirement derived from REQ-L1-113
 
+Abgeleitet von: REQ-L1-113
 
-**Traceability:** REQ-L1-028
-**Rationale:** ICDs verknüpfen Architekturkomponenten und müssen im Traceability-Graph navigierbar sein.
+**Beschreibung:** Dieses Subsystem setzt API-Key aus SSE-Endpoint-URL entfernen um.
 
----
+### REQ-L2-ICD-014: L2 Requirement derived from REQ-L1-132
 
-### REQ-L2-ICD-005: Baseline-Integration
-Das IcdManagementSystem SHALL aktuelle ICD-Versionen für den Baseline-Snapshot auf Anfrage bereitstellen.
+Abgeleitet von: REQ-L1-132
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Beschreibung:** Dieses Subsystem setzt pytest auf dedizierte Test-Settings umstellen um.
+### REQ-L2-ICD-015: Integration of Context Generators (Superpowers)
 
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] `get_icd_versions` liefert die korrekten Versionen für den Snapshot-Scope.
+Abgeleitet von: REQ-L1-285
 
-**Interfaces:**
-- Incoming: IF-L1-038
+**Beschreibung:** Dieses Subsystem implementiert die L2-Anteile für Context Generators, Prompt Templates und Superpower-Erweiterungen.
 
+### REQ-L2-ICD-016: Agent Templates and Write Modes (Superpowers)
 
-**Traceability:** REQ-L1-028
-**Rationale:** Schnittstellenverträge müssen Teil von reproduzierbaren Projekt-Baselines sein.
+Abgeleitet von: REQ-L1-286
 
----
-
-### REQ-L2-ICD-006: Audit-Logging für Breaking Changes
-Das IcdManagementSystem SHALL erkannte Breaking-Change-Events in das AuditLog schreiben.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Bei Breaking-Change wird ein dedizierter AuditLog-Eintrag generiert.
-
-**Interfaces:**
-- Outgoing: IF-L1-041
-
-
-**Traceability:** REQ-L1-028
-**Rationale:** Erhöhte Sichtbarkeit und Nachverfolgbarkeit für kritische Schnittstellenbrüche.
-
----
-
-## Traceability-Matrix: REQ-L2-ICD → REQ-L1
-
-| REQ-L2-ICD | Primäre REQ-L1 | Mitwirkende REQ-L1 |
-|------------|----------------|---------------------|
-| REQ-L2-ICD-001 | REQ-L1-028 | — |
-| REQ-L2-ICD-002 | REQ-L1-028 | — |
-| REQ-L2-ICD-003 | REQ-L1-028 | — |
-| REQ-L2-ICD-004 | REQ-L1-028 | — |
-| REQ-L2-ICD-005 | REQ-L1-028 | — |
-| REQ-L2-ICD-006 | REQ-L1-028 | — |
-
----
-
-## Zusammenfassung
-
-| Metrik | Wert |
-|--------|------|
-| Anzahl REQ-L2-ICD | 6 |
-| Mandatory | 0 |
-| Desired | 6 |
-| Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | 1 (REQ-L1-028) |
-| Abgedeckte REQ-L1 (mitwirkend) | 0 |
-| Referenzierte Interfaces | IF-L1-037..IF-L1-041 (alle 5) |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
-*Handoff: HOFF-20260621-002 | Parent: REQ-L1-028 | Architektur-Referenz: ARCH-L1-014*
-*Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L2 | Abgeleitet von REQ-L1 |
-|---------|----------------------|
-| REQ-L2-ICD-001 | REQ-L1-028 |
-| REQ-L2-ICD-002 | REQ-L1-028 |
-| REQ-L2-ICD-003 | REQ-L1-028 |
-| REQ-L2-ICD-004 | REQ-L1-028 |
-| REQ-L2-ICD-005 | REQ-L1-028 |
-| REQ-L2-ICD-006 | REQ-L1-028 |
-
+**Beschreibung:** Dieses Subsystem implementiert die Agent Templates, Review Endpoints und Write Modes nach Phase 6 Vorgaben.

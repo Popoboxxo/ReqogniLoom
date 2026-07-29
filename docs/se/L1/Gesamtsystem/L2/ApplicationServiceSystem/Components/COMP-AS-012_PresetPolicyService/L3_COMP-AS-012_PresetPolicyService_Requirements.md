@@ -1,291 +1,116 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-22T14:30:00Z"
+timestamp: "2026-06-22T14:45:00Z"
 schema_version: "1.0.0"
 ---
-# L3 PresetPolicyService Requirements
+# L3 PresetPolicyService Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-AS-012_PresetPolicyService
-> **Parent:** L2_ApplicationServiceSystem_Requirements.json
+> **Parent:** L2_ApplicationServiceSystem_Architecture.md
 > **Datum:** 2026-06-22
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-AppSvc-020 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der PresetPolicyService ist die zentrale Querschnitts-Komponente für Configurable-Rigor-Enforcement. Er validiert Preset-Regeln (Scope-Erlaubnis, change_reason-Pflicht, Downgrade-Inkompatibilität) und wird von BaselineFacade, WorkflowFacade und allen schreibenden Domain-Services konsultiert. Single Source of Truth für Preset-Policy-Entscheidungen.
+Der PresetPolicyService ist die zentrale Querschnitts-Komponente für Configurable-Rigor-Enforcement. Er validiert Preset-Regeln (Scope-Erlaubnis für Baselines, change_reason-Anforderung für Updates, Transition-Role-Validierung, Downgrade-Inkompatibilität) und wird von BaselineFacade, WorkflowFacade und allen schreibenden Domain-Services konsultiert. Der Service ist die Single Source of Truth für Preset-Policy-Entscheidungen und implementiert Caching (TTL 5 Minuten) zur Performance-Optimierung.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-AS-INT-006 | input | control | Scope-Erlaubnis-Anfrage von COMP-AS-006 (BaselineFacade) |
-| IF-AS-INT-007 | input | control | Transition-Role-Validierungsanfrage von COMP-AS-007 (WorkflowFacade) |
-| IF-AS-INT-008 | input | control | change_reason-Anforderungsabfrage von COMP-AS-002, 013, 014, 015 |
-| IF-AS-EXT-OUT-004 | output | data | Preset-Config abrufen von PresetConfigEngine (ARCH-L1-008) |
-| IF-AS-EXT-OUT-007 | output | data | Workspace-Zustand abfragen (Artefakt-Count, etc.) vom PersistenceLayer |
+### 2.1 Klassen und Module
 
----
+- **`PresetPolicyService` (Klasse):** Zentrale Policy-Abfragne-Engine mit Methoden:
+  - `is_scope_allowed(workspace_id, scope) → boolean`
+  - `is_change_reason_required(workspace_id) → boolean`
+  - `validate_transition_roles(auth_context, item_id, target_state) → (boolean, error_message)`
+  - `check_downgrade_compatibility(workspace_id, target_preset) → (compatible: bool, incompatible_items: [])`
+  - `get_policy(workspace_id, policy_key) → policy_value` (generische Abfrage)
 
-## L3 Component-Anforderungen
+- **`PresetCache` (Cache-Manager):** In-Memory Cache für Preset-Definitionen mit TTL 5 Minuten. Event-Listener für Preset-Update-Events zum Invalidieren.
 
-### REQ-L3-PPL-001: Scope-Validierung für Baseline-Erstellung
+- **`PolicyValidator` (Klasse):** Validiert einzelne Policy-Regeln (Scope gegen Whitelist, change_reason gegen Enum, Rollen gegen Whitelist).
 
-Der PresetPolicyService SHALL vor Baseline-Erstellung verifizieren, ob der angeforderte Scope (document, project, global) im aktiven Preset erlaubt ist:
-- `is_scope_allowed(workspace_id, scope) -> boolean`
+- **`PresetPolicyResult` (DTO):** boolean result, error_message (optional), metadata.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Preset-Definition wird von PresetConfigEngine abgerufen
-- [ ] Erlaubte Scopes werden gegen Anfrage validiert
-- [ ] `true` wenn Scope erlaubt, `false` wenn blockiert
-- [ ] Error-Nachricht erklärt Blockierungsgrund
+### 2.2 Datenstrukturen
 
-**Interfaces:** IF-AS-INT-006, IF-AS-EXT-OUT-004
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-020
-**Rationale:** Preset-Scopes begrenzen Baseline-Erstellung auf konzeptuell erlaubte Ebenen.
+- **Preset-Definition (von PresetConfigEngine):**
+  - preset_type: enum (Basic, Standard, Enhanced, Extended)
+  - allowed_scopes: list (document, project, global)
+  - change_reason_required: boolean
+  - transition_roles: dict (target_state → required_roles_list)
+  - enumerations_allowed: boolean (für Downgrade-Kompatibilität)
 
 ---
 
-### REQ-L3-PPL-002: Change-Reason-Requirement-Prüfung
+## 3. Erfüllung der Anforderungen
 
-Der PresetPolicyService SHALL abfragen, ob change_reason für Requirement-Updates im aktiven Preset erforderlich ist:
-- `is_change_reason_required(workspace_id) -> boolean`
-
-Returns `true` wenn Preset Enhanced oder Extended ist und change_reason Pflichtfeld verlangt.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Preset wird von PresetConfigEngine abgerufen
-- [ ] `true` für Enhanced/Extended Presets
-- [ ] `false` für Basic/Standard Presets
-- [ ] Workspace-spezifisches Preset wird konsultiert (nicht Global)
-
-**Interfaces:** IF-AS-INT-008, IF-AS-EXT-OUT-004
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-020
-**Rationale:** Configurable Rigor auf Requirement-Mutation-Ebene.
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-PPL-001 (Scope-Validierung für Baseline) | Methode `is_scope_allowed(workspace_id, scope)` → boolean. Lade Preset-Definition (vom Cache oder PresetConfigEngine). Prüfe scope gegen allowed_scopes-Whitelist. Return true/false + Error-Nachricht wenn blockiert. |
+| REQ-L3-PPL-002 (Change-Reason-Requirement) | Methode `is_change_reason_required(workspace_id)` → boolean. Workspace-Preset konsultieren (nicht Global-Default). Return true für Enhanced/Extended, false für Basic/Standard. |
+| REQ-L3-PPL-003 (Transition-Role-Validierung) | Methode `validate_transition_roles(auth_context, item_id, target_state) → (bool, error_msg)`. Lade Workflow-Definition des Items. Prüfe erforderliche Rollen für target_state. Vergleiche mit User-Rollen aus auth_context. Return true wenn alle erforderlich, false + Fehler wenn fehlend. |
+| REQ-L3-PPL-004 (Downgrade-Inkompatibilität) | Methode `check_downgrade_compatibility(workspace_id, target_preset)` → (bool, incompatible_items). Lade alle Artefakte der Workspace. Prüfe Kompatibilität gegen target_preset (z.B. Extended erlaubt Enumerationen, Basic nicht). Sammle Inkompatible Items mit Grund. Return (false, items) wenn Inkompatibilitäten, (true, []) sonst. |
+| REQ-L3-PPL-005 (Preset-Cache mit TTL) | PresetCache mit 5-Minuten-TTL. Event-Listener für Preset-Update-Events triggert Invalidierung. Cache-Hit reduziert PresetConfigEngine-Aufrufe um ≥70%. Fallback: bei Cache-Fehler → Live-Query. |
+| REQ-L3-PPL-006 (Workspace-spezifisches Preset) | Alle Methoden akzeptieren workspace_id Parameter. Workspace-Preset wird konsultiert (falls konfiguriert). Fallback zu Tenant-Default wenn keine Workspace-Config. Keine Cross-Workspace-Policy-Anwendung. |
+| REQ-L3-PPL-007 (Zentrale Policy-Query-Schnittstelle) | Methode `get_policy(workspace_id, policy_key)` → policy_value. Policy-Keys dokumentiert (scope_allowed, change_reason_required, transition_roles, etc.). Unbekannte Keys werfen Error. Default-Wert wird zurückgegeben wenn Key nicht im Preset definiert. |
+| REQ-L3-PPL-008 (Fehlerbehandlung und Audit-Logging) | Bei Policy-Violations: strukturierter Error mit aussagekräftiger Nachricht (z.B. "Scope 'document' not allowed in Extended preset"). Downgrade-Versuche werden optional in AuditLog geloggt. Keine sensitiven Daten in Error-Messages. |
 
 ---
 
-### REQ-L3-PPL-003: Transition-Role-Validierung
+## 4. Schnittstellen-Implementierung
 
-Der PresetPolicyService SHALL verifizieren, dass der aktuelle Nutzer die erforderlichen Rollen für eine Workflow-Transition besitzt:
-- `validate_transition_roles(auth_context, item_id, target_state) -> boolean`
+- **Eingänge (Inbound):**
+  - **IF-AS-INT-006:** Scope-Erlaubnis-Anfrage von BaselineFacade (`is_scope_allowed(workspace_id, scope)`).
+  - **IF-AS-INT-007:** Transition-Role-Validierungsanfrage von WorkflowFacade (`validate_transition_roles(...)` und `is_change_reason_required(...)`).
+  - **IF-AS-INT-008:** change_reason-Anforderungsabfrage von AdrService, RiskService, IssueService (`is_change_reason_required(workspace_id)`).
 
-Basierend auf dem WorkflowDefinition des Items und den Rollen im auth_context.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] WorkflowDefinition wird konsultiert (via TraceabilityEngine oder Cache)
-- [ ] Target-State wird überprüft auf erforderliche Rollen
-- [ ] User-Rollen aus auth_context werden abgeglichen
-- [ ] `true` wenn User alle erforderlichen Rollen hat
-- [ ] `false` + Error-Nachricht wenn Rollen fehlen
-
-**Interfaces:** IF-AS-INT-007, IF-AS-EXT-OUT-004
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-020
-**Rationale:** Zugriffskontrolle auf Workflow-State-Transitions.
+- **Ausgänge (Outbound):**
+  - **IF-AS-EXT-OUT-004:** Preset-Config abrufen von PresetConfigEngine (`get_preset(workspace_id)`).
+  - **IF-AS-EXT-OUT-007:** Workspace-Zustand abfragen vom PersistenceLayer (SELECT COUNT, für Downgrade-Kompatibilität).
 
 ---
 
-### REQ-L3-PPL-004: Downgrade-Inkompatibilität-Check
+## 5. Architectural Rationale
 
-Der PresetPolicyService SHALL vor Preset-Downgrade (z.B. von Extended zu Basic) prüfen, ob existierende Artefakte mit dem neuen Preset kompatibel sind:
-- `check_downgrade_compatibility(workspace_id, target_preset) -> (compatible: boolean, incompatible_items: [...])`
+**ADR-L3-PPL-01 — Single Source of Truth für Policy-Regeln**
 
-Beispiel: Extended-Preset erlaubt Enumerationen, Basic nicht → Downgrade blockiert, wenn Enumerationen existieren.
+*Entscheidung:* PresetPolicyService ist die alleinige Komponente, die Policy-Regeln auswertet. Alle Konsultationen (Scope, change_reason, Rollen, Downgrade) erfolgen zentral hier.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle Artefakte der Workspace werden gegen Target-Preset überprüft
-- [ ] Inkompatible Items werden in Result-Array aufgelistet
-- [ ] Downgrade blockiert wenn Inkompatibilitäten gefunden
-- [ ] Item-ID und Inkompatibilitäts-Grund werden gemeldet
+*Rationale:* Verhindert Inkonsistenzen, wenn mehrere Services Policy-Regeln interpretieren. Änderungen an Policy-Logik erfolgen an einer Stelle. Alternative: Jeder Service implementiert Policy-Logik selbst → Inkonsistenzen, schwer zu debuggen. **Abgelehnt**: Querschnitts-Logik muss zentralisiert sein.
 
-**Interfaces:** IF-AS-INT-008, IF-AS-EXT-OUT-004, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-020
-**Rationale:** Datenintegrität bei Preset-Änderungen (OP-02 Handling).
+*Erfüllt Trigger:* REQ-L3-PPL-001, REQ-L3-PPL-002, REQ-L3-PPL-003, REQ-L3-PPL-004 (zentrale Validierung).
 
 ---
 
-### REQ-L3-PPL-005: Preset-Cache mit TTL
+**ADR-L3-PPL-02 — In-Memory Cache für Preset-Definitionen**
 
-Der PresetPolicyService SHALL Preset-Definitionen für bis zu 5 Minuten im In-Memory-Cache halten, um Mehrfach-Konsultationen der PresetConfigEngine zu reduzieren.
+*Entscheidung:* Preset-Definitionen werden bis zu 5 Minuten gecacht. Invalidierung bei Preset-Update-Events.
 
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Cache-TTL ist 5 Minuten (konfigurierbar)
-- [ ] Cache wird bei Preset-Update invalidiert (Event-Listener)
-- [ ] Cache-Hit reduziert PresetConfigEngine-Aufrufe um ≥70%
-- [ ] Cache-Fehler triggert Fallback zu Live-Query
+*Rationale:* Preset-Abfragen sind häufig (bei jedem Transition, BaselineCreation, Update). Caching reduziert PresetConfigEngine-Hits. Alternative: Kein Cache, immer live query → höhere Latenz, höhere Last auf PresetConfigEngine. **Abgelehnt**: Performance-Anforderung erfordert Caching; 5 Minuten TTL ist akzeptabel für Policy-Änderungen.
 
-**Interfaces:** IF-AS-EXT-OUT-004
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-023
-**Rationale:** Performance-Optimierung für häufige Policy-Abfragen.
+*Erfüllt Trigger:* REQ-L3-PPL-005 (Caching und Performance).
 
 ---
 
-### REQ-L3-PPL-006: Workspace-spezifisches Preset
+**ADR-L3-PPL-03 — Workspace-spezifische Policies mit Tenant-Default-Fallback**
 
-Der PresetPolicyService SHALL immer das Preset der angeforderten Workspace konsultieren (nicht Global-Default), sofern Workspace-spezifisches Preset existiert.
+*Entscheidung:* Workspace-spezifisches Preset wird konsultiert; fallback zu Tenant-Default wenn nicht konfiguriert.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Workspace-Preset wird gelesen (falls konfiguriert)
-- [ ] Bei fehlender Workspace-Config: Fallback zu Tenant-Default
-- [ ] workspace_id ist eingangsseitig vorhanden
-- [ ] Keine Cross-Workspace-Policy-Anwendung
+*Rationale:* Ermöglicht granulare Konfigurierbarkeit: Workspaces können unterschiedliche Rigor-Level haben (z.B. Prod-Workspace: Extended, Dev-Workspace: Basic). Fallback verhindert fehlende Config. Alternative: Nur Global-Default → weniger Flexibilität. **Abgelehnt**: Multi-Workspace-Szenarien erfordern Workspace-spezifische Policies.
 
-**Interfaces:** IF-AS-INT-006, IF-AS-INT-007, IF-AS-INT-008
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-020
-**Rationale:** Granulare Konfigurierbarkeit auf Workspace-Ebene.
+*Erfüllt Trigger:* REQ-L3-PPL-006 (Workspace-spezifisches Preset).
 
 ---
 
-### REQ-L3-PPL-007: Zentrale Policy-Query-Schnittstelle
-
-Der PresetPolicyService SHALL eine einzige generische Schnittstelle anbieten, die beliebige Preset-Policy-Abfragen ermöglicht:
-- `get_policy(workspace_id, policy_key) -> policy_value`
-
-Dies ermöglicht zukünftige Policy-Erweiterungen ohne Schnittstellen-Änderungen.
-
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Policy-Keys sind dokumentiert (scope_allowed, change_reason_required, etc.)
-- [ ] Unbekannte Policy-Keys werfen Error
-- [ ] Preset wird konsultiert für Key-Abfrage
-- [ ] Default-Wert wird zurückgegeben wenn Key nicht im Preset definiert
-
-**Interfaces:** IF-AS-EXT-OUT-004
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-020
-**Rationale:** Extensibilität für zukünftige Policy-Typen.
-
----
-
-### REQ-L3-PPL-008: Fehlerbehandlung und Audit-Logging
-
-Der PresetPolicyService SHALL bei Policy-Violations Fehler mit strukturierter Nachricht zurückgeben und optional AuditLog-Einträge schreiben (für Downgrade-Versuche).
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Error-Nachrichten sind aussagekräftig (z.B. "Scope 'document' not allowed in Extended preset")
-- [ ] Fehlgeschlagene Transitions oder Downgrades werden geloggt
-- [ ] Keine sensitiven Daten in Error-Messages
-- [ ] AuditLog optional per config aktivierbar
-
-**Interfaces:** IF-AS-INT-006, IF-AS-INT-007, IF-AS-INT-008
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-020
-**Rationale:** Transparenz und Debugging.
-
----
-
----
-
-### REQ-L3-PPL-009: PresetPolicy Tenant Scope & Defaults (S-09, S-19)
-
-Der PresetPolicyService MUSS bei `validate_transition_roles()` auf `workspace_id` anstatt auf `tenant_id` filtern. Fehlende Policies (z.B. bei `get_policy("scope_allowed")`) MÜSSEN einen definierten Default liefern oder explizit validiert werden.
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von S-09, S-19.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L2-AS-041
-
----
-
-## Traceability-Matrix: REQ-L3-PPL → REQ-L2
-
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-PPL-001 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-002 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-003 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-004 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-005 | REQ-L2-AppSvc-023 |
-| REQ-L3-PPL-006 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-007 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-008 | REQ-L2-AppSvc-020 |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-PPL-001 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-002 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-003 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-004 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-005 | REQ-L2-AppSvc-023 |
-| REQ-L3-PPL-006 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-007 | REQ-L2-AppSvc-020 |
-| REQ-L3-PPL-008 | REQ-L2-AppSvc-020 |
-

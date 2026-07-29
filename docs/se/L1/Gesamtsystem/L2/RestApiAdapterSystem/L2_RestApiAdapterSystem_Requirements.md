@@ -1,756 +1,96 @@
-# L2 RestApiAdapter Requirements
+# L2 Requirements für RestApiAdapterSystem
 
-> **Level:** L2 (Subsystem-Anforderungen)
-> **System:** RestApiAdapterSystem (ARCH-L1-002)
-> **Parent:** L1_Gesamtsystem_Requirements.md
-> **Datum:** 2026-06-20
-> **Status:** formalisiert
-> **Designation:** system (Leaf-AE — keine L3-Zerlegung)
+### REQ-L2-RES-001: L2 Requirement derived from REQ-L1-121
 
----
+Abgeleitet von: REQ-L1-121
 
-## Traceability
+**Beschreibung:** Dieses Subsystem setzt CI-Pipeline für pytest, Vitest und Lint um.
 
-- Abgeleitet von: REQ-L1-006 (primär), REQ-L1-007 (mitwirkend), REQ-L1-010 (mitwirkend), REQ-L1-011 (mitwirkend), REQ-L1-015 (mitwirkend), REQ-L1-016 (mitwirkend), REQ-L1-026 (mitwirkend)
-- Ziel: terminal (keine L3-Zerlegung)
+### REQ-L2-RES-002: L2 Requirement derived from REQ-L1-124
 
----
+Abgeleitet von: REQ-L1-124
 
-## Externe Schnittstellen (Systemgrenze)
+**Beschreibung:** Dieses Subsystem setzt Postgres/Redis Host-Ports nicht publishen um.
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-RA-EXT-IN-001 | input | data | HTTP/JSON-Requests von API-Clients mit Bearer Token |
-| IF-RA-EXT-IN-002 | input | data | HTTP/JSON-Requests von ReactFrontend mit Bearer Token |
-| IF-RA-EXT-OUT-001 | output | data | JSON-Responses mit HTTP-Statuscodes, Body, Headers |
-| IF-RA-EXT-OUT-002 | output | data | OpenAPI-3.0-Spezifikation unter `/api/v1/schema/` |
-| IF-RA-EXT-OUT-003 | output | data | Swagger-UI unter `/api/v1/schema/swagger-ui/` |
-| IF-RA-EXT-OUT-004 | output | ARCH-L1-011 | data | Token-Validierung, Auth-Kontext |
-| IF-RA-EXT-OUT-005 | output | ARCH-L1-004 | data | Use-Case-Methoden (In-Process Python) |
-| IF-RA-EXT-OUT-006 | output | ARCH-L1-008 | data | Preset-Abfrage: `is_feature_enabled(key, workspace_id)` |
+### REQ-L2-RES-003: L2 Requirement derived from REQ-L1-060
 
----
+Abgeleitet von: REQ-L1-060
 
-## L2 Subsystem-Anforderungen
+**Beschreibung:** Dieses Subsystem setzt TraceLink allocated-to + Allocation-Coverage Reporter um.
 
-### REQ-L2-RA-001: REST-CRUD-Endpunkte für alle Entitäten
-Der RestApiAdapter SHALL vollständige CRUD-Endpunkte (GET list, GET detail, POST, PATCH, DELETE) unter `/api/v1/` für alle sieben Domain-Entitäten bereitstellen: Artifact, Requirement, ArchitectureElement, TestCase, TraceLink, Baseline und WorkflowDefinition.
+### REQ-L2-RES-004: L2 Requirement derived from REQ-L1-065
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+Abgeleitet von: REQ-L1-065
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Für jede der 7 Entitäten existieren GET (Liste + Detail), POST, PATCH, DELETE Endpunkte
-- [ ] Integration-Test: POST `/api/v1/requirements/` → 201 + JSON
-- [ ] GET `/api/v1/requirements/{id}/` → 200 + JSON
-- [ ] PATCH → 200, DELETE → 204
-- [ ] OpenAPI-Spec listet alle Endpunkte
+**Beschreibung:** Dieses Subsystem setzt Lazy Loading / Server-Side Pagination um.
 
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-- Internal: IF-RA-EXT-OUT-005
+### REQ-L2-RES-005: L2 Requirement derived from REQ-L1-008
 
+Abgeleitet von: REQ-L1-008
 
-**Traceability:** REQ-L1-006
-**Rationale:** Programmatischer Zugriff auf alle Artefakttypen via REST ist die Grundlage für CI/CD-Integration.
+**Beschreibung:** Dieses Subsystem setzt Multi-Level-Baselines (Dokument / Projekt / Global) um.
 
----
+### REQ-L2-RES-006: L2 Requirement derived from REQ-L1-156
 
-### REQ-L2-RA-002: Auto-generierte OpenAPI-Spezifikation
-Der RestApiAdapter SHALL eine vollständige, auto-generierte OpenAPI 3.0 Spezifikation unter `/api/v1/schema/` bereitstellen. Eine Swagger-UI SHALL unter `/api/v1/schema/swagger-ui/` zugänglich sein.
+Abgeleitet von: REQ-L1-156
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Beschreibung:** Dieses Subsystem setzt Backend-Dockerfile Multi-Stage um.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] GET `/api/v1/schema/` liefert valides OpenAPI-3.0-JSON mit allen CRUD-Endpunkten
-- [ ] GET `/api/v1/schema/swagger-ui/` rendert interaktive API-Dokumentation
-- [ ] OpenAPI-Client-Generator erzeugt fehlerfrei einen TypeScript-Client
+### REQ-L2-RES-007: L2 Requirement derived from REQ-L1-234
 
-**Interfaces:**
-- Outgoing: IF-RA-EXT-OUT-002, IF-RA-EXT-OUT-003
+Abgeleitet von: REQ-L1-234
 
+**Beschreibung:** Dieses Subsystem setzt Automatisierter CSRF-Regressionstest (Cross-Origin Enforcement) um.
 
-**Traceability:** REQ-L1-006
-**Rationale:** Maschinenlesbarer Kontext und Typ-sichere Client-Generierung.
+### REQ-L2-RES-008: L2 Requirement derived from REQ-L1-202
 
----
+Abgeleitet von: REQ-L1-202
 
-### REQ-L2-RA-003: API-Response-Performance unter 200ms
-Der RestApiAdapter SHALL auf Standard-Queries (GET list, GET detail) innerhalb von 200ms beim 95. Perzentil antworten — bei bis zu 10.000 Requirements, inklusive Serialization und Datenbank-Query, exklusive Netzwerk-Latenz. Voraussetzung für die Einhaltung dieses Latenz-Ziels ist die konsequente Vermeidung von N+1-Query-Mustern via `select_related` und `prefetch_related` (siehe REQ-L2-RA-013).
+**Beschreibung:** Dieses Subsystem setzt SSE Event-IDs und Last-Event-ID-Replay um.
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
+### REQ-L2-RES-009: L2 Requirement derived from REQ-L1-016
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Lasttest: 10.000 Requirements, 100 gleichzeitige GET → p95 ≤ 200ms
-- [ ] Datenbank-Indizes für Standard-Query-Pfade vorhanden
-- [ ] Kein N+1-Query-Muster auf List- und Detail-Endpunkten (verifizierbar via Query-Count-Messung)
+Abgeleitet von: REQ-L1-016
 
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
+**Beschreibung:** Dieses Subsystem setzt Zweisprachige Benutzeroberfläche (Deutsch und Englisch) um.
 
+### REQ-L2-RES-010: L2 Requirement derived from REQ-L1-168
 
-**Traceability:** REQ-L1-026, REQ-L1-006 (mitwirkend)
-**Rationale:** Performance ist entscheidend für die Akzeptanz der Zielgruppe. N+1-Vermeidung ist strukturelle Voraussetzung für das Latenz-Ziel bei verschachtelten Responses.
+Abgeleitet von: REQ-L1-168
 
----
+**Beschreibung:** Dieses Subsystem setzt Transaktionsgrenzen dokumentieren um.
 
-### REQ-L2-RA-004: Backend-Fehlermeldungen i18n (DE/EN)
-Der RestApiAdapter SHALL alle API-Fehlermeldungen in Deutsch und Englisch bereitstellen. Die Sprache SHALL durch den `Accept-Language`-Header bestimmt werden (Fallback: Englisch). Fehlende Translation-Keys MÜSSEN als Build-Fehler behandelt werden.
+### REQ-L2-RES-011: L2 Requirement derived from REQ-L1-181
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+Abgeleitet von: REQ-L1-181
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Request mit `Accept-Language: de` → Fehlermeldung auf Deutsch
-- [ ] Request mit `Accept-Language: en` → Fehlermeldung auf Englisch
-- [ ] Request ohne Header → Englisch als Fallback
-- [ ] CI: Neue Fehlermeldung ohne DE-Translation → Build-Fehler
+**Beschreibung:** Dieses Subsystem setzt MCP-Tool-Fehler als isError-Result + Thread-Pool um.
 
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002 (Accept-Language Header)
-- Outgoing: IF-RA-EXT-OUT-001 (Lokalisierte Fehlermeldung)
+### REQ-L2-RES-012: L2 Requirement derived from REQ-L1-041
 
+Abgeleitet von: REQ-L1-041
 
-**Traceability:** REQ-L1-016
-**Rationale:** REQ-L1-016 fordert zweiseitige Fehlermeldungen.
+**Beschreibung:** Dieses Subsystem setzt Visuelles Baseline-Diff zwischen zwei Baselines um.
 
----
+### REQ-L2-RES-013: L2 Requirement derived from REQ-L1-239
 
-### REQ-L2-RA-005: Bearer-Token-Authentifizierung für alle Endpunkte
-Der RestApiAdapter SHALL Bearer-Token-Authentifizierung auf allen API-Endpunkten unter `/api/v1/` erzwingen (Ausnahme: OpenAPI-Spec-Endpunkte). Requests ohne gültigen Token SHALL mit HTTP 401 abgewiesen werden.
+Abgeleitet von: REQ-L1-239
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Beschreibung:** Dieses Subsystem setzt Review-/Approval-UI auf Basis der Workflow-Engine um.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Request ohne Token → HTTP 401
-- [ ] Request mit ungültigem/expiriertem Token → HTTP 401
-- [ ] OpenAPI-Spec-Endpunkte ohne Auth erreichbar
-- [ ] Intern: Token-Validierung delegiert an ARCH-L1-011
+### REQ-L2-RES-014: L2 Requirement derived from REQ-L1-138
 
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-- Internal: IF-RA-EXT-OUT-004
+Abgeleitet von: REQ-L1-138
 
+**Beschreibung:** Dieses Subsystem setzt RBAC-Bypass: fehlende MCP-Tool-Prefixes ergänzen um.
+### REQ-L2-RES-015: Integration of Context Generators (Superpowers)
 
-**Traceability:** REQ-L1-006, REQ-L1-010 (mitwirkend)
-**Rationale:** Token-basierte Auth ist Voraussetzung für sichere API-Nutzung und RBAC.
+Abgeleitet von: REQ-L1-285
 
----
+**Beschreibung:** Dieses Subsystem implementiert die L2-Anteile für Context Generators, Prompt Templates und Superpower-Erweiterungen.
 
-### REQ-L2-RA-006: RBAC-Enforcement auf API-Ebene
-Der RestApiAdapter SHALL rollenbasierte Zugriffskontrolle für jede API-Operation und Ressource erzwingen. Vor der Delegation an den ApplicationService MUSS der Adapter prüfen, ob die Rollen des Nutzers die Operation erlauben. Unautorisierte Operationen SHALL mit HTTP 403 abgewiesen werden.
+### REQ-L2-RES-016: Agent Templates and Write Modes (Superpowers)
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+Abgeleitet von: REQ-L1-286
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Viewer: GET erlaubt, POST/PATCH/DELETE → HTTP 403
-- [ ] Editor: GET/POST/PATCH/DELETE auf eigene Workspace-Ressourcen
-- [ ] Admin: Alle Operationen erlaubt
-- [ ] Approver: Zusätzlich Workflow-Transitionen mit Ziel-State „approved“ (nur Extended)
-- [ ] RBAC-Check vor Delegation an ApplicationService
-
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-- Internal: IF-RA-EXT-OUT-004
-
-
-**Traceability:** REQ-L1-010
-**Rationale:** Rollenbasierte Zugriffskontrolle ist Voraussetzung für Approval-Workflows.
-
----
-
-### REQ-L2-RA-007: Audit-Log-Auslösung bei Schreiboperationen
-Der RestApiAdapter SHALL sicherstellen, dass jede Schreiboperation (POST, PATCH, DELETE) einen Audit-Log-Eintrag über den ApplicationService auslöst. Der Eintrag SHALL die authentifizierte Nutzer-Identität, Operationstyp, betroffene Entity-ID und Zeitstempel enthalten.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] POST → Audit-Log-Eintrag mit actor=User, op=create
-- [ ] PATCH → Audit-Log-Eintrag mit actor=User, op=update
-- [ ] DELETE → Audit-Log-Eintrag mit actor=User, op=delete
-- [ ] GET-Operationen lösen keinen Audit-Log-Eintrag aus
-
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-- Internal: IF-RA-EXT-OUT-005
-
-
-**Traceability:** REQ-L1-011 (mitwirkend)
-**Rationale:** Vollständige Auditierbarkeit aller Änderungen.
-
----
-
-### REQ-L2-RA-008: Preset-basierte Endpunkt- und Feldsichtbarkeit
-Der RestApiAdapter SHALL zur Laufzeit die PresetConfigEngine konsultieren, um zu bestimmen, welche Endpunkte und Felder basierend auf dem aktiven Workspace-Preset sichtbar/aktiv sind. Nicht erlaubte Endpunkte SHALL mit HTTP 404/403 beantwortet werden. Nicht erlaubte Felder SHALL aus der Serialization ausgeschlossen werden.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Minimal-Preset: Baseline-Endpunkte → HTTP 404
-- [ ] Extended-Preset: Approver-bezogene Endpunkte sichtbar
-- [ ] Feld-Beispiel: `change_reason` Pflichtfeld im Extended → PATCH ohne → HTTP 400
-- [ ] Preset-Abfrage pro Request via `is_feature_enabled(key, workspace_id)`
-
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-- Internal: IF-RA-EXT-OUT-006
-
-
-**Traceability:** REQ-L1-007 (mitwirkend)
-**Rationale:** Configurable Rigor — Preset-Konfiguration steuert den Funktionsumfang.
-
----
-
-### REQ-L2-RA-009: Standardisierte HTTP-Fehlercodes und Response-Format
-Der RestApiAdapter SHALL standardisierte HTTP-Statuscodes und ein konsistentes JSON-Fehlerformat verwenden. Das Fehlerformat SHALL enthalten: machine-readable Error-Code, human-readable Message (lokalisiert), optionale Feld-Details.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] HTTP 200/201/204 für erfolgreiche Operationen
-- [ ] HTTP 400/401/403/404/409/422/500 für Fehlerfälle
-- [ ] Error-Format: `{"error": {"code": "VALIDATION_ERROR", "message": "...", "details": [...]}}`
-
-**Interfaces:**
-- Outgoing: IF-RA-EXT-OUT-001
-
-
-**Traceability:** REQ-L1-006
-**Rationale:** Vorhersehbare, typ-sichere API-Responses für Client-Integration.
-
----
-
-### REQ-L2-RA-010: Pagination, Filtering, Sorting für Listen-Endpunkte
-Der RestApiAdapter SOLLTE Pagination, Filtering und Sorting auf allen Listen-Endpunkten unterstützen. Pagination SHALL cursor- oder offset-basiert sein mit konfigurierbarer Page-Size.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] GET `?page=2&page_size=25` → 25 Ergebnisse, Seite 2
-- [ ] GET `?workspace_id=<uuid>&workflow_state=draft` → gefilterte Ergebnisse
-- [ ] GET `?ordering=-created_at` → sortiert absteigend
-- [ ] Response enthält Pagination-Metadaten: `{"count", "next", "previous", "results"}`
-- [ ] Default page_size: 25, Maximum: 100
-
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-
-
-**Traceability:** REQ-L1-006
-**Rationale:** Effiziente Navigation großer Datenmengen.
-
----
-
-### REQ-L2-RA-011: Tenant-Kontext-Propagation
-Der RestApiAdapter SHALL den aktiven Tenant aus dem authentifizierten Token extrahieren und in den Request-Kontext propagieren. Alle Datenbankabfragen MÜSSEN automatisch nach `tenant_id` gefiltert werden. Der Adapter DARF den Tenant-Filter nicht umgehen.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Bearer Token enthält Tenant-Information
-- [ ] Adapter extrahiert Tenant-ID und übergibt sie im Auth-Kontext
-- [ ] v1: Genau ein Default-Tenant
-- [ ] Adapter manipuliert den Tenant-Filter nicht
-
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-- Internal: IF-RA-EXT-OUT-004, IF-RA-EXT-OUT-005
-
-
-**Traceability:** REQ-L1-015 (mitwirkend)
-**Rationale:** Multi-Tenancy-Vorbereitung mit Row-Level-Isolation.
-
----
-
-### REQ-L2-RA-012: Keine Geschäftslogik in der Adapter-Schicht
-Der RestApiAdapter DARF KEINE Geschäftslogik implementieren. Der Adapter SHALL eine reine Translation-Schicht sein: HTTP-Request → validieren/serialisieren → an ApplicationService delegieren → serialisieren → HTTP-Response.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist im Code auffindbar, aber Testabdeckung fehlt.
-**Test Status:** Untested
-**Remarks:** Testabdeckung sicherstellen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Adapter enthält keine `if`-Bedingungen für Geschäftsregeln
-- [ ] Adapter enthält keine Workflow-Transition-Logik
-- [ ] Adapter ruft ausschließlich ApplicationService-Methoden auf
-- [ ] Ausnahmen: HTTP-spezifische Validierung, Serialization, Auth-Delegation
-
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-- Internal: IF-RA-EXT-OUT-005
-
-
-**Traceability:** REQ-L1-006
-**Rationale:** Klare Schichtentrennung verhindert Duplizierung zwischen REST und MCP.
-
----
-
-### REQ-L2-RA-013: N+1-Query-Vermeidung bei verschachtelten Responses
-Der RestApiAdapter SHALL für alle List- und Detail-Endpunkte, die verschachtelte Entitäten liefern (TraceLinks, TestCases, Children-Artifacts), `select_related` für ForeignKey-Beziehungen und `prefetch_related` für ManyToMany- und Reverse-ForeignKey-Beziehungen im DRF-ViewSet-Queryset verwenden. Kein N+1-Query-Muster darf in Produktionscode vorhanden sein. Häufig gelesene verschachtelte Baumstrukturen (Artifact-Trees, vollständige Workspaces) SHALL serverseitig gecacht werden; der Cache MUSS bei Mutationen (POST/PATCH/DELETE auf betroffenen Entitäten) invalidiert werden.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle ViewSets mit verschachtelten Responses verwenden `select_related`/`prefetch_related` im `.get_queryset()`
-- [ ] Query-Count-Messung via `django-silk` oder `django-debug-toolbar`: GET auf Requirement mit 50 TraceLinks → maximal 3 DB-Queries (kein lineares Wachstum mit Entitätszahl)
-- [ ] Serverseitiges Caching (Django-Cache-Framework + Redis) für Artifact-Tree- und Workspace-Endpunkte
-- [ ] Cache-Invalidierung: POST/PATCH/DELETE auf Requirement, TraceLink oder TestCase → betroffener Cache-Eintrag wird invalidiert
-- [ ] Kein N+1-Pattern in Codebasis (automatisierbare Prüfung via Query-Count-Assertions in Tests)
-
-**Interfaces:**
-- Incoming: IF-RA-EXT-IN-001, IF-RA-EXT-IN-002
-- Outgoing: IF-RA-EXT-OUT-001
-- Internal: IF-RA-EXT-OUT-005
-
-
-**Traceability:** REQ-L1-026 (primär), REQ-L1-006 (mitwirkend)
-**Rationale:** DRF erzeugt bei verschachtelten Serialisierungen ohne explizite Queryset-Optimierung N+1-Queries. Bei 10.000 Requirements mit TraceLinks überschreitet dies das 200ms-Latenz-Ziel von REQ-L2-RA-003 um ein Vielfaches. Redis-Caching für Baumstrukturen reduziert die DB-Last bei häufig wiederholten Read-Zugriffen.
-
----
-
-## Traceability-Matrix: REQ-L2-RA → REQ-L1
-
-| REQ-L2-RA | Titel | REQ-L1 (primär) | REQ-L1 (mitwirkend) |
-|-----------|-------|-----------------|---------------------|
-| REQ-L2-RA-001 | REST-CRUD-Endpunkte | REQ-L1-006 | — |
-| REQ-L2-RA-002 | OpenAPI-Spezifikation | REQ-L1-006 | — |
-| REQ-L2-RA-003 | API-Performance | REQ-L1-026 | REQ-L1-006 |
-| REQ-L2-RA-004 | i18n Fehlermeldungen | REQ-L1-016 | — |
-| REQ-L2-RA-005 | Bearer-Token-Auth | REQ-L1-006 | REQ-L1-010 |
-| REQ-L2-RA-006 | RBAC-Enforcement | REQ-L1-010 | — |
-| REQ-L2-RA-007 | Audit-Log-Auslösung | REQ-L1-011 | — |
-| REQ-L2-RA-008 | Preset-Sichtbarkeit | REQ-L1-007 | — |
-| REQ-L2-RA-009 | HTTP-Fehlercodes | REQ-L1-006 | — |
-| REQ-L2-RA-010 | Pagination/Filter/Sort | REQ-L1-006 | — |
-| REQ-L2-RA-011 | Tenant-Propagation | REQ-L1-015 | — |
-| REQ-L2-RA-012 | Keine Geschäftslogik | REQ-L1-006 | — |
-| REQ-L2-RA-013 | N+1-Query-Vermeidung | REQ-L1-026 | REQ-L1-006 |
-
----
-
-## Zusammenfassung
-
-| Metrik | Wert |
-|--------|------|
-| Anzahl REQ-L2-RA | 13 |
-| Mandatory | 12 |
-| Desired | 1 |
-| Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | REQ-L1-006, REQ-L1-026 |
-| Abgedeckte REQ-L1 (mitwirkend) | REQ-L1-007, REQ-L1-010, REQ-L1-011, REQ-L1-015, REQ-L1-016 |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-20*
-*Complete Rewrite: ID-Migration REQ-L2-Rest → REQ-L2-RA, Template-Standardisierung*
-*Designation: system (Leaf-AE) — decomposition_status: terminal*
-
----
-
-## Erweiterung v2 — REQ-L2-RA-014..015 (aus REQ-L1-044 und REQ-L1-038)
-
-> **Datum:** 2026-06-28 | **Quelle:** REQ-L0-032 → REQ-L1-044, REQ-L0-026 → REQ-L1-038
-
----
-
-### REQ-L2-RA-014: REST-Endpunkte für Semantisches Projekt-Glossar
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine API-Routen für Glossar vorhanden. Voraussetzung: REQ-L2-AS-033 (ApplicationService).
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-044 (← REQ-L0-032, SN-32). Companion zu REQ-L2-AS-033.
-
-Der RestApiAdapter MUSS REST-Endpunkte für das Semantische Projekt-Glossar
-(REQ-L2-AS-033) exponieren. Die Endpunkte MÜSSEN Authentifizierung (Bearer-Token)
-und Workspace-Scoping (Mandanten-Isolation) durchsetzen.
-Das Glossar MUSS für AI-Agenten als maschinenlesbares JSON-Array abrufbar sein.
-
-**Endpunkte:**
-
-| Methode | Pfad | Beschreibung |
-|---------|------|--------------|
-| `GET` | `/workspaces/{id}/glossary` | Alle Glossar-Einträge abrufen |
-| `POST` | `/workspaces/{id}/glossary` | Neuen Term anlegen |
-| `GET` | `/workspaces/{id}/glossary/{term_id}` | Einzelnen Term abrufen |
-| `PATCH` | `/workspaces/{id}/glossary/{term_id}` | Term aktualisieren |
-| `DELETE` | `/workspaces/{id}/glossary/{term_id}` | Term löschen |
-| `POST` | `/workspaces/{id}/glossary/check-text` | Text auf unbekannte Begriffe prüfen |
-
-**Akzeptanzkriterien:**
-- AC1: `GET /workspaces/{id}/glossary` → JSON-Array aller Terme (maschinenlesbar)
-- AC2: `POST` ohne Auth → HTTP 401
-- AC3: `POST` in fremdem Workspace → HTTP 403
-- AC4: `POST /glossary/check-text` → Liste unbekannter/inkonsistenter Begriffe (Warnung)
-- AC5: Alle Endpunkte in OpenAPI-Spezifikation dokumentiert
-
-**Verifikationsmethode:** API-Test (pytest + httpx) — alle Endpunkte, Auth + Scoping
-**Verifikiert durch:** L2-RA-Test-014
-**Abgeleitet von:** REQ-L1-044
-**Übergeordnete REQ-L0:** REQ-L0-032
-
----
-
-### REQ-L2-RA-015: REST-Endpunkte für Semantische Suche und Hybrid-Suche
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine `/search/semantic`- oder `/search/hybrid`-Endpunkte vorhanden.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-038 (← REQ-L0-026, SN-26). Companion zu REQ-L2-VS-001..003.
-
-Der RestApiAdapter MUSS REST-Endpunkte für semantische und hybride Suche exponieren,
-die intern an den VectorSearchService (REQ-L2-VS-001..003) delegieren.
-
-**Endpunkte:**
-
-| Methode | Pfad | Beschreibung |
-|---------|------|--------------|
-| `POST` | `/workspaces/{id}/search/semantic` | Semantische Vektorsuche |
-| `POST` | `/workspaces/{id}/search/hybrid` | Hybrid-Suche (Vektor + Volltext) |
-| `POST` | `/workspaces/{id}/vector-index/rebuild` | Admin: Vektorindex neu aufbauen |
-
-**Akzeptanzkriterien:**
-- AC1: `POST /search/semantic` → Top-N Ergebnisse mit Score innerhalb 500 ms
-- AC2: `POST /search/hybrid` → kombinierte Ergebnisse mit konfigurierbarer Gewichtung
-- AC3: Ohne Auth → HTTP 401
-- AC4: Admin-Endpunkt `rebuild` → nur für Admin-Rolle (HTTP 403 sonst)
-- AC5: Alle Endpunkte in OpenAPI-Spezifikation dokumentiert
-
-**Verifikationsmethode:** API-Test + Latenztest (p95 < 500 ms)
-**Verifikiert durch:** L2-RA-Test-015
-**Abgeleitet von:** REQ-L1-038
-**Übergeordnete REQ-L0:** REQ-L0-026
-
----
-
-*Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-RA-014..015 aus REQ-L1-044, REQ-L1-038)*
-
----
-
-## Erweiterung v3 — REQ-L2-RA-016..017 (aus REQ-L1-065 und REQ-L1-066)
-
-> **Datum:** 2026-07-03 | **Quelle:** UI-Befund für Listen-Skalierbarkeit (REQ-L0-038, REQ-L0-040)
-
----
-
-### REQ-L2-RA-016: REST-Endpunkte mit serverseitiger Paginierung
-
-**Implementation State:** Not Implemented
-**Review Findings:** Aktuell werden alle Daten ohne Limit geladen.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-065 (← REQ-L0-040, SN-40).
-
-Der RestApiAdapter MUSS auf allen `GET list`-Routen für Artefakte (Requirements, ArchitectureElements, etc.) serverseitige Paginierung unterstützen.
-
-**Akzeptanzkriterien:**
-- AC1: `GET /workspaces/{id}/requirements/` unterstützt `page` und `page_size` Query-Parameter.
-- AC2: API-Response-Format ist `{"count": N, "next": URL, "previous": URL, "results": [...]}`.
-- AC3: Pagination-Parameter werden transparent an den DRF-Paginator durchgereicht.
-
-**Verifikationsmethode:** API-Test mit > 100 Requirements (Prüfen ob nur page_size Elemente zurückkommen)
-**Verifikiert durch:** L2-RA-Test-016
-**Abgeleitet von:** REQ-L1-065
-**Übergeordnete REQ-L0:** REQ-L0-040
-
----
-
-### REQ-L2-RA-017: REST-Endpunkte mit serverseitigem Filter & Sort
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine DRF FilterBackends im Einsatz.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-066 (← REQ-L0-038, SN-38).
-
-Der RestApiAdapter MUSS auf allen `GET list`-Routen Filterung nach Suchbegriffen, Status und Kategorie sowie Sortierung nach konfigurierbaren Feldern unterstützen.
-
-**Akzeptanzkriterien:**
-- AC1: `GET` akzeptiert `?search=...` für die Volltextsuche.
-- AC2: `GET` akzeptiert `?status=...` und `?category=...` für exakte Filterung.
-- AC3: `GET` akzeptiert `?ordering=...` (z.B. `?ordering=-created_at`) für aufsteigende/absteigende Sortierung.
-- AC4: Diese Parameter werden via DjangoFilterBackend, SearchFilter und OrderingFilter von DRF verarbeitet.
-
-**Verifikationsmethode:** API-Test mit Filter-Parametern
-**Verifikiert durch:** L2-RA-Test-017
-**Abgeleitet von:** REQ-L1-066
-**Übergeordnete REQ-L0:** REQ-L0-038
-
----
-
-## Erweiterung v4 — REQ-L2-RA-018 (GraphQL API)
-
-> **Datum:** 2026-07-03 | **Quelle:** Adaptive AI-Native SE Plattform
-
----
-
-### REQ-L2-RA-018: GraphQL Endpoint für Traceability-Queries
-
-**Implementation State:** Deferred
-**Review Findings:** Zurückgestellt aufgrund von Architektur-Entscheidung (keine Architekturänderungen).
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-075.
-
-Der RestApiAdapter MUSS neben der REST-API einen `/graphql`-Endpunkt bereitstellen. Dieser Endpunkt MUSS das gesamte Datenmodell abbilden, um externe Agenten in die Lage zu versetzen, tiefe Traversierungen (z. B. "hole mir alle Testfälle von allen Requirements, die zu Architektur-Element X allokiert sind") ohne N+1-Query-Probleme durchzuführen.
-
-**Akzeptanzkriterien:**
-- AC1: `POST /graphql` Endpoint existiert und validiert Bearer-Tokens (RBAC-konform).
-- AC2: GraphQL Schema umfasst StReq, SyReq, ArchE, CoReq, TC, IF.
-- AC3: Pagination wird über GraphQL-Connections/Edges unterstützt.
-
-**Verifikationsmethode:** API-Test (Ausführung einer 3-Level-deep Query)
-**Verifikiert durch:** L2-RA-Test-018
-**Abgeleitet von:** REQ-L1-075
-**Übergeordnete REQ-L0:** REQ-L0-041
-
----
-
-## Erweiterung v5 — REQ-L2-RA-019..020 (Striktes Datenmodell & Stage-Gating)
-
-> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive"
-
----
-
-### REQ-L2-RA-019: REST-Schema-Validierung für domänenspezifische Felder
-
-**Implementation State:** Not Implemented
-**Review Findings:** Neu. Bisher nur generisches Artefakt-Schema.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-077.
-
-Das RestApiAdapterSystem MUSS über DRF-Serializer sicherstellen, dass beim Erstellen (`POST`) und Bearbeiten (`PATCH`/`PUT`) von Artefakten die typspezifischen Metadaten zwingend validiert werden:
-- Ein Stakeholder-Requirement muss MoSCoW-Prioritäten validieren.
-- Ein System-Requirement muss Fibonacci-Werte für Complexity und definierte Enums für Verification Method validieren.
-- Ein Architecture Element muss ASIL-Levels (QM, A, B, C, D) und Make-or-Buy-Enums validieren.
-
-**Akzeptanzkriterien:**
-- AC1: DRF Serializer weisen Requests mit `400 Bad Request` ab, wenn Pflichtfelder für den jeweiligen Artefakt-Typ fehlen.
-- AC2: Unbekannte/Unpassende Felder in der Payload (z.B. ASIL bei einem TC) werden verworfen (stripping) oder führen zu einem Fehler.
-
-**Verifikationsmethode:** API-Unit-Tests (Invalid Payload Rejection)
-**Abgeleitet von:** REQ-L1-077
-**Übergeordnete REQ-L0:** REQ-L0-047
-
----
-
-### REQ-L2-RA-020: API State Machine & Guardrails Enforcer
-
-**Implementation State:** Not Implemented
-**Review Findings:** Neu. Bisher keine serverseitige Status-Validierung.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-079.
-
-Die REST-API MUSS jeden `PATCH /artifacts/{id}` Request abfangen, der das Feld `workflow_state` verändert. Das System MUSS den State-Machine-Übergang und die Traceability-Graphen-Regeln evaluieren:
-- Ist der Übergang in der State-Machine definiert?
-- Erfüllt das Artefakt die Guardrail-Regeln (z.B. "No Orphan" für SyReq)?
-
-Schlägt eine Prüfung fehl, MUSS die API mit `409 Conflict` antworten und einen detaillierten Fehler-String liefern (z.B. `"transition_denied: Missing upstream trace to an Approved Stakeholder Requirement"`).
-
-**Akzeptanzkriterien:**
-- AC1: Status-Wechsel abseits der definierten State Machine werden mit `400 Bad Request` abgelehnt.
-- AC2: Status-Wechsel, die gegen Stage-Gating-Regeln (Orphan, Allocation, Parent-Approved) verstoßen, werden mit `409 Conflict` und Klartext-Fehlermeldung blockiert.
-- AC3: Baseline-Generierung (`POST /baselines`) blockiert mit `409`, wenn nicht 100% der Scope-Artefakte `Approved` sind.
-
-**Verifikationsmethode:** API-Integration-Tests (State-Transitions mit Mock-Graphen)
-**Abgeleitet von:** REQ-L1-079
-**Übergeordnete REQ-L0:** REQ-L0-049
-
----
-
-## Erweiterung v4 — REQ-L2-RA-022 (System Announcement API)
-
-> **Datum:** 2026-07-04 | **Quelle:** REQ-L1-082
-
----
-
-### REQ-L2-RA-022: System Announcement API
-
-Der RestApiAdapter MUSS REST-Routen für das Lesen und Schreiben des globalen System-Announcements bereitstellen.
-
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] `GET /api/v1/system/announcement` liefert `{active: boolean, message: string}` (für alle authentifizierten User lesbar).
-- [ ] `PUT /api/v1/system/announcement` erlaubt das Ändern des Zustands (nur für Admins, sonst 403).
-
-**Verifikationsmethode:** API-Tests (Rollenprüfung und Persistenz).
-**Verifikiert durch:** L2-RA-Test-022
-**Abgeleitet von:** REQ-L1-082
-
----
-
-### REQ-L2-RA-023: Global Glossary API
-
-Der RestApiAdapter MUSS REST-Routen bereitstellen, um projektübergreifende (globale bzw. verwaiste) Glossar-Begriffe abzurufen, deren `workspace_id` auf `null` gesetzt wurde.
-
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] `GET /api/v1/glossary/global` liefert alle Glossar-Einträge ohne Workspace-Zuordnung.
-- [ ] Alternative: Der bestehende Endpunkt liefert über einen Query-Parameter `?global=true` zusätzlich die verwaisten Begriffe.
-
-**Verifikationsmethode:** API-Tests (Abruf globaler Glossar-Daten).
-**Verifikiert durch:** L2-RA-Test-023
-**Abgeleitet von:** REQ-L1-086
-
----
-
-## Erweiterung v5 — System Audit Security & Compliance (A-01 bis A-16)
-
-> **Datum:** 2026-07-13 | **Quelle:** SYSTEM_AUDIT.md
-
----
-
-### REQ-L2-RA-024: REST API Security & Ownership Checks
-
-Der RestApiAdapter MUSS auf allen ViewSets und Actions strikte Ownership-Checks und Tenant-Scoping erzwingen. Dies beinhaltet zwingend das Beheben des IDOR-Vektors im `ApiKeyViewSet.destroy` (Filtern nach Owner) und das Filtern von Diagrammen nach `workspace_id` und `tenant_id` im `DiagramViewSet.list`.
-Admin-Actions MÜSSEN explizite `permission_classes` definieren und dürfen sich nicht auf globale Defaults verlassen.
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von A-01, A-02, A-13.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L1-096, REQ-L1-098
-
----
-
-### REQ-L2-RA-025: REST API Data Integrity (No DDL in Handlers)
-
-Der RestApiAdapter DARF KEINE DDL-Befehle (wie `ALTER TABLE ... DISABLE TRIGGER`) in Request-Handlern ausführen (insbesondere nicht im `IcdViewSet.destroy`). Alle Löschkaskaden MÜSSEN über ORM-Logik oder per `SET CONSTRAINTS DEFERRED` in einer sicheren Transaktionsklammer gelöst werden. Zudem MUSS jede Geschäftslogik oder ORM-Manipulation über den `ApplicationService` delegiert werden (direkter ORM-Zugriff aus ViewSets ist untersagt).
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von A-03, A-16.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L1-098
-
----
-
-### REQ-L2-RA-026: REST API Query Performance
-
-Alle Listen-Endpunkte der REST-API MÜSSEN N+1-Query-Probleme durch konsequente Anwendung der in `QUERYSET_OPTIMIZATIONS` definierten Prefetches und Select-Related-Anweisungen in `get_queryset()` verhindern. Ebenso MUSS jeder Listen-Endpunkt paginiert sein (insbesondere `TestRunViewSet.results` und `AttributeVisibilityConfigViewSet.list`).
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von A-04, A-06, A-09.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L1-099
-
----
-
-### REQ-L2-RA-027: OpenAPI Spec & Error Consistency
-
-Die OpenAPI-Spezifikation MUSS durchgehend konsistent sein. Custom-Actions MÜSSEN `@extend_schema` verwenden. Die zentralen `COMMON_ERROR_RESPONSES` MÜSSEN eingebunden sein. Das Fehlerformat in Custom-ViewSets (z.B. `ApiKeyViewSet`) MUSS zwingend `build_error_response()` nutzen. Stubs (z.B. `TraceLinkViewSet.retrieve`, `WorkflowDefinitionViewSet.list`) MÜSSEN implementiert oder aus dem Router entfernt werden. Zudem MUSS das Status-Code-Mapping einheitlich sein (z.B. konsistent 405 statt 403 für immutable Ressourcen). Fehlende Lookup-Keys (z.B. bei `/needs/`) MÜSSEN defensiv behandelt werden.
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von A-05, A-07, A-08, A-11, A-12, A-14, A-15.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L1-006
-
----
-
-### REQ-L2-RA-028: API Filter & Search Fields Declaration
-
-Sofern globale FilterBackends aktiv sind, MÜSSEN in jedem ViewSet explizit `search_fields` und `ordering_fields` deklariert werden, um die Funktionalität zu aktivieren (Toter Code-Vermeidung).
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von A-10.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L1-006
-
----
-
-*Erstellt durch se-requirements-Agent (L2) | ReqFlow SE-Kaskade | 2026-07-05*
-
-
-## Master Traceability Matrix
-
-| REQ-L2 | Abgeleitet von REQ-L1 |
-|---------|----------------------|
-| REQ-L2-RA-001 | REQ-L1-006 |
-| REQ-L2-RA-002 | REQ-L1-006 |
-| REQ-L2-RA-003 | REQ-L1-026, REQ-L1-006 (mitwirkend) |
-| REQ-L2-RA-004 | REQ-L1-016 |
-| REQ-L2-RA-005 | REQ-L1-006, REQ-L1-010 (mitwirkend) |
-| REQ-L2-RA-006 | REQ-L1-010 |
-| REQ-L2-RA-007 | REQ-L1-011 (mitwirkend) |
-| REQ-L2-RA-008 | REQ-L1-007 (mitwirkend) |
-| REQ-L2-RA-009 | REQ-L1-006 |
-| REQ-L2-RA-010 | REQ-L1-006 |
-| REQ-L2-RA-011 | REQ-L1-015 (mitwirkend) |
-| REQ-L2-RA-012 | REQ-L1-006 |
-| REQ-L2-RA-013 | REQ-L1-026 (primär), REQ-L1-006 (mitwirkend) |
-
+**Beschreibung:** Dieses Subsystem implementiert die Agent Templates, Review Endpoints und Write Modes nach Phase 6 Vorgaben.

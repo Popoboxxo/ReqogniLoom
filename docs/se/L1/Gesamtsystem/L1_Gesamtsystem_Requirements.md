@@ -6283,3 +6283,44 @@ Neuer REST-Endpoint `GET/PUT /api/v1/workspaces/{workspace_id}/review-policy/` (
 
 **Traceability:** REQ-L0-247
 
+
+---
+
+### REQ-L1-285: Integration of Context Generators and Prompt Templates
+
+Implement context generators to automate prompt enrichment, and introduce a flexible prompt template system. Dies ermöglicht dynamische Agenten-Workflows, die kontextbezogen Informationen aufbereiten.
+
+**Rationale:** Derived from SN-248 (Superpower Context Generation and Prompt Templates).
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet aus Phase 1 Superpowers Einarbeitung.
+**Test Status:** Missing
+**Remarks:** Backend/AI Engine
+
+**Domain:** system
+**Priorität:** must
+**Externe Interfaces:**
+- Eingang: Context Data, Prompt Configuration
+- Ausgang: Enriched Prompts
+
+**Traceability:** REQ-L0-248
+
+---
+
+### REQ-L1-286: Implement Agent Templates and Review Endpoints
+
+Derive Write Modes must be supported natively to adapt agent responses. Agent Templates shall be implemented according to Phase 6 specifications, integrated with the frontend feedback strategy and review endpoints.
+
+**Rationale:** Derived from SN-249 (Superpower Agent Templates and Write Modes).
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet aus Phase 1 Superpowers Einarbeitung.
+**Test Status:** Missing
+**Remarks:** Full Stack
+
+**Domain:** system
+**Priorität:** must
+**Externe Interfaces:**
+- Eingang: Template Config, Feedback Inputs
+- Ausgang: Agent Response, Review Output
+
+**Traceability:** REQ-L0-249
+

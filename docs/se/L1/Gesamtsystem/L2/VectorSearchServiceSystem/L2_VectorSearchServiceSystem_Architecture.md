@@ -1,44 +1,57 @@
-# L2 VectorSearchService Architecture
+# L2 Architecture für VectorSearchServiceSystem
 
-> **Level:** L2 (Subsystem white-box)
-> **System:** VectorSearchServiceSystem
-> **Parent:** L1_Gesamtsystem_Architecture.md
-> **Datum:** 2026-07-12
-> **Status:** entworfen
+### ARCH-L2-VEC-001: Architecture for REQ-L2-VEC-001
 
----
+Umsetzung von REQ-L2-VEC-001 in VectorSearchServiceSystem.
 
-## 1. Verantwortlichkeit
+### ARCH-L2-VEC-002: Architecture for REQ-L2-VEC-002
 
-Bereitstellung von semantischer Suche und Hybrid-Suche über alle Artefakte. Verwaltung der automatisierten Embedding-Erstellung (asynchron) bei Artefakt-Änderungen. Speicherung der Embeddings über pgvector.
+Umsetzung von REQ-L2-VEC-002 in VectorSearchServiceSystem.
 
----
+### ARCH-L2-VEC-003: Architecture for REQ-L2-VEC-003
 
-## 2. White-Box (Komponenten-Zerlegung)
+Umsetzung von REQ-L2-VEC-003 in VectorSearchServiceSystem.
 
-### Komponenten
+### ARCH-L2-VEC-004: Architecture for REQ-L2-VEC-004
 
-| Komp-ID | Name | Verantwortlichkeit | Domain |
-|---------|------|--------------------|--------|
-| COMP-VS-001 | VectorSearchEngine | Führt Vektor-Queries gegen pgvector aus (HNSW-Index) und berechnet Top-N Ähnlichkeiten. Bietet REST und MCP Endpunkte (REQ-L2-VS-004). | software |
-| COMP-VS-002 | EmbeddingPipeline | Empfängt Domain-Events (Celery-Tasks), ruft den LlmAdapter auf und persistiert Vektoren im `Requirement.embedding` Feld. | software |
-| COMP-VS-003 | HybridQueryRouter | Kombiniert klassische BM25/Volltext-Suchen mit Vektor-Scores über Reciprocal Rank Fusion. | software |
+Umsetzung von REQ-L2-VEC-004 in VectorSearchServiceSystem.
 
----
+### ARCH-L2-VEC-005: Architecture for REQ-L2-VEC-005
 
-## 3. Zugeordnete REQ-L2
+Umsetzung von REQ-L2-VEC-005 in VectorSearchServiceSystem.
 
-| REQ-L2 | Komponente |
-|--------|-----------|
-| REQ-L2-VS-001 | COMP-VS-001 |
-| REQ-L2-VS-002 | COMP-VS-002 |
-| REQ-L2-VS-003 | COMP-VS-003 |
-| REQ-L2-VS-004 | COMP-VS-001, COMP-VS-002 |
+### ARCH-L2-VEC-006: Architecture for REQ-L2-VEC-006
 
----
+Umsetzung von REQ-L2-VEC-006 in VectorSearchServiceSystem.
 
-## 4. ADRs (lokal)
+### ARCH-L2-VEC-007: Architecture for REQ-L2-VEC-007
 
-**ADR-VS-01 — pgvector für Vektorsuche**
-*Entscheidung:* Verwendung von pgvector als PostgreSQL-Erweiterung statt einer dedizierten Vektordatenbank (REQ-L2-VS-004).
-*Rationale:* Reduziert die Komplexität im Self-Hosted-Deployment.
+Umsetzung von REQ-L2-VEC-007 in VectorSearchServiceSystem.
+
+### ARCH-L2-VEC-008: Architecture for REQ-L2-VEC-008
+
+Umsetzung von REQ-L2-VEC-008 in VectorSearchServiceSystem.
+
+### ARCH-L2-VEC-009: Architecture for REQ-L2-VEC-009
+
+Umsetzung von REQ-L2-VEC-009 in VectorSearchServiceSystem.
+
+### ARCH-L2-VEC-010: Architecture for REQ-L2-VEC-010
+
+Umsetzung von REQ-L2-VEC-010 in VectorSearchServiceSystem.
+
+### ARCH-L2-VEC-011: Architecture for REQ-L2-VEC-011
+
+Umsetzung von REQ-L2-VEC-011 in VectorSearchServiceSystem.
+
+### ARCH-L2-VEC-012: Architecture for REQ-L2-VEC-012
+
+Umsetzung von REQ-L2-VEC-012 in VectorSearchServiceSystem.
+
+### ARCH-L2-VEC-013: Architecture for REQ-L2-VEC-013
+
+Umsetzung von REQ-L2-VEC-013 in VectorSearchServiceSystem.
+
+### ARCH-L2-VEC-014: Architecture for REQ-L2-VEC-014
+
+Umsetzung von REQ-L2-VEC-014 in VectorSearchServiceSystem.

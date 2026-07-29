@@ -1,175 +1,96 @@
-# L2 ReqIFService Requirements
+# L2 Requirements für ReqIFServiceSystem
 
-> **Level:** L2 (Subsystem-Anforderungen)
-> **System:** ReqIFServiceSystem (NEU)
-> **Parent:** L1_Gesamtsystem_Requirements.md
-> **Datum:** 2026-06-27
-> **Status:** formalisiert
-> **Designation:** system (L3-Zerlegung erforderlich)
+### REQ-L2-REQ-001: L2 Requirement derived from REQ-L1-199
 
----
+Abgeleitet von: REQ-L1-199
 
-## Traceability
+**Beschreibung:** Dieses Subsystem setzt Read-Model für Traceability-Matrix um.
 
-- Abgeleitet von: REQ-L1-034 (primär)
-- Ziel: L3-Zerlegung in COMP-RQ-001 (ReqIFParser) und COMP-RQ-002 (ReqIFSerializer)
+### REQ-L2-REQ-002: L2 Requirement derived from REQ-L1-022
 
----
+Abgeleitet von: REQ-L1-022
 
-## Externe Schnittstellen (Systemgrenze)
+**Beschreibung:** Dieses Subsystem setzt GitHub-Integration für Requirement-Issue/PR-Verknüpfung um.
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-RQ-EXT-IN-001 | input | data | Import/Export-Request vom ApplicationService (ReqIF-Datei oder internes Modell) |
-| IF-RQ-EXT-OUT-001 | output | data | Persistenz an PersistenceLayer (Artefakte, Hierarchien) |
-| IF-RQ-EXT-OUT-002 | output | data | TraceLink-CRUD an TraceabilityEngine (SpecRelations → TraceLinks) |
+### REQ-L2-REQ-003: L2 Requirement derived from REQ-L1-139
 
----
+Abgeleitet von: REQ-L1-139
 
-## L2 Subsystem-Anforderungen
+**Beschreibung:** Dieses Subsystem setzt SSE-GET-Crash und Handshake-Auth beheben um.
 
-### REQ-L2-RQ-001: ReqIF-Import
-Der ReqIFService SHALL ReqIF-Dateien (.reqif) importieren und SpecObjects, SpecRelations und SpecHierarchies auf das interne Datenmodell abbilden. SpecObjects SHALL als Requirements oder ArchitectureElements (abhängig vom SpecType) erzeugt werden. SpecRelations SHALL als TraceLinks abgebildet werden. SpecHierarchies SHALL als Parent-Child-Hierarchie abgebildet werden. Validierungsfehler SHALL mit Elementreferenz und Ursache zurückgemeldet werden.
+### REQ-L2-REQ-004: L2 Requirement derived from REQ-L1-231
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+Abgeleitet von: REQ-L1-231
 
-**Domain:** software
-**Priority:** desired
-**arch_impact:** false
-**Acceptance Criteria:**
-- [ ] Import einer ReqIF-Datei mit 100+ SpecObjects erzeugt korrespondierende interne Artefakte
-- [ ] SpecRelations werden als TraceLinks (Typ: `derives-from` oder `satisfies`) abgebildet
-- [ ] SpecHierarchies werden als Parent-Child-Beziehungen abgebildet
-- [ ] ReqIF-Datei mit fehlerhafter Struktur → Fehlermeldung mit Elementreferenz + Ursache
-- [ ] Import über synchrone Web-API und UI triggerbar
+**Beschreibung:** Dieses Subsystem setzt Attribut-Visibility-Config leere Antwort fehlerfrei behandeln um.
 
-**Interfaces:**
-- Incoming: IF-RQ-EXT-IN-001
-- Outgoing: IF-RQ-EXT-OUT-001, IF-RQ-EXT-OUT-002
+### REQ-L2-REQ-005: L2 Requirement derived from REQ-L1-104
 
+Abgeleitet von: REQ-L1-104
 
-**Traceability:** REQ-L1-034
-**Rationale:** ReqIF-Import ermöglicht Migration aus DOORS/Polarion in regulierten Industrien.
+**Beschreibung:** Dieses Subsystem setzt KI-Ableitungs-Button um.
 
----
+### REQ-L2-REQ-006: L2 Requirement derived from REQ-L1-007
 
-### REQ-L2-RQ-002: ReqIF-Export
-Der ReqIFService SHALL interne Artefakte (Requirements, ArchitectureElements, TraceLinks, Hierarchien) als ReqIF-Datei exportieren. Die exportierte Datei SHALL SpecObjects, SpecRelations und SpecHierarchies vollständig enthalten. Re-Import des exportierten ReqIF SHALL strukturgleiche Artefakte erzeugen (Roundtrip-Treue).
+Abgeleitet von: REQ-L1-007
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+**Beschreibung:** Dieses Subsystem setzt Configurable-Rigor-Presets (Minimal / Standard / Extended) um.
 
-**Domain:** software
-**Priority:** desired
-**arch_impact:** false
-**Acceptance Criteria:**
-- [ ] Export eines Workspace als ReqIF enthält alle SpecObjects, SpecRelations und SpecHierarchies
-- [ ] Re-Import des exportierten ReqIF erzeugt strukturgleiche Artefakte (Roundtrip-Test)
-- [ ] Export über synchrone Web-API und UI triggerbar
-- [ ] ReqIF-Datei ist valide gegen das ReqIF-Schema
-- [ ] Attribute werden als ReqIF-Attribute-Typen abgebildet
+### REQ-L2-REQ-007: L2 Requirement derived from REQ-L1-232
 
-**Interfaces:**
-- Incoming: IF-RQ-EXT-IN-001
-- Outgoing: IF-RQ-EXT-OUT-001, IF-RQ-EXT-OUT-002
+Abgeleitet von: REQ-L1-232
 
+**Beschreibung:** Dieses Subsystem setzt Preferences GET-Endpoint muss 200 mit leeren Defaults zurückgeben um.
 
-**Traceability:** REQ-L1-034
-**Rationale:** ReqIF-Export ermöglicht Austausch mit externen Tools in regulierten Projekten.
+### REQ-L2-REQ-008: L2 Requirement derived from REQ-L1-243
 
----
+Abgeleitet von: REQ-L1-243
 
-## Traceability-Matrix: REQ-L2-RQ → REQ-L1
+**Beschreibung:** Dieses Subsystem setzt Issue-Status Normalisierung (Case-Insensitive) um.
 
----
+### REQ-L2-REQ-009: L2 Requirement derived from REQ-L1-137
 
-## Erweiterung v2 — Vollständige Requirement-Beschreibungen (REQ-L2-RQ-001..002)
+Abgeleitet von: REQ-L1-137
 
-> **Datum:** 2026-06-28 | **Quelle:** REQ-L0-023 → REQ-L1-034
+**Beschreibung:** Dieses Subsystem setzt Async-LLM-Pfad reparieren um.
 
----
+### REQ-L2-REQ-010: L2 Requirement derived from REQ-L1-224
 
-### REQ-L2-RQ-001: ReqIF-Import (Hierarchische Anforderungsstrukturen einlesen)
+Abgeleitet von: REQ-L1-224
 
-**Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent. ReqIFService-Klasse ist geplant aber nicht umgesetzt.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-034 (← REQ-L0-023, SN-23). Priority: desired.
+**Beschreibung:** Dieses Subsystem setzt MCP tools/list — doppelte Einträge entfernen um.
 
-Der ReqIFService MUSS valide ReqIF-Dateien (`.reqif`, `.reqifz`) einlesen und die
-enthaltenen Anforderungsobjekte (SpecObjects) mit ihren Hierarchiebeziehungen
-(SpecHierarchy) verlustfrei in das ReqFlow-Datenmodell überführen.
-TraceLinks zwischen Anforderungen (SpecRelations) MÜSSEN als ReqFlow-TraceLinks
-importiert werden. Attribut-Mappings (ReqIF-Attribut → ReqFlow-Feld) MÜSSEN
-konfigurierbar sein. Unbekannte Attribute SOLLTEN in einem `custom_attributes`-JSON-Feld
-gespeichert werden (kein Datenverlust).
+### REQ-L2-REQ-011: L2 Requirement derived from REQ-L1-259
 
-**Schnittstellen:**
-- `POST /workspaces/{id}/import/reqif` — Multipart-Upload der .reqif/.reqifz Datei
-- Body: `{ "attribute_mapping": { "ReqIF.Text": "description", "ReqIF.Name": "title" } }`
-- Response: `{ "imported": N, "warnings": [...], "errors": [...] }`
-- Interner Service-Call: `ReqIFParser.parse(file) → List[SpecObject]`
+Abgeleitet von: REQ-L1-259
 
-**Akzeptanzkriterien:**
-- AC1: Valide .reqif-Datei → alle SpecObjects als Requirements importiert mit Hierarchie
-- AC2: SpecRelations → TraceLinks vom Typ `derives-from` importiert
-- AC3: Konfiguriertes Attribut-Mapping wird angewendet
-- AC4: Unbekannte Attribute landen in `custom_attributes` (kein Datenverlust)
-- AC5: Invalide .reqif-Datei (XML-Fehler) → HTTP 422 + Fehlerdetails
-- AC6: Import-Report enthält Anzahl importierter Requirements, Warnungen, Fehler
+**Beschreibung:** Dieses Subsystem setzt Fehlende requests-Dependency im Backend um.
 
-**Verifikationsmethode:** Integrationstest mit Test-ReqIF-Datei (DOORS-Export-Beispiel)
-**Verifikiert durch:** L2-RQ-Test-001
-**Abgeleitet von:** REQ-L1-034
-**Übergeordnete REQ-L0:** REQ-L0-023
+### REQ-L2-REQ-012: L2 Requirement derived from REQ-L1-019
 
----
+Abgeleitet von: REQ-L1-019
 
-### REQ-L2-RQ-002: ReqIF-Export (Anforderungsstrukturen als ReqIF ausgeben)
+**Beschreibung:** Dieses Subsystem setzt Export in JSON und CSV für alle Entitäten um.
 
-**Implementation State:** Not Implemented
-**Review Findings:** Kein Code-Äquivalent.
-**Test Status:** Missing
-**Remarks:** Abgeleitet von REQ-L1-034 (← REQ-L0-023, SN-23). Priority: desired.
+### REQ-L2-REQ-013: L2 Requirement derived from REQ-L1-136
 
-Der ReqIFService MUSS einen Workspace oder eine Baseline als valide ReqIF-Datei
-exportieren können. Der Export MUSS die Anforderungshierarchie (parent-child),
-TraceLinks (als SpecRelations) und alle Standard-Felder (title, description, status,
-level) korrekt als ReqIF-SpecObjects und SpecHierarchy abbilden.
-Der Export MUSS mit gängigen SE-Tools (DOORS Next, Polarion) kompatibel sein.
+Abgeleitet von: REQ-L1-136
 
-**Schnittstellen:**
-- `GET /workspaces/{id}/export/reqif` → Download `.reqif`-Datei (Content-Type: application/reqif+xml)
-- `GET /baselines/{id}/export/reqif` → Baseline-Stand als ReqIF
-- Query-Parameter: `?include_tracelinks=true` (default: true)
+**Beschreibung:** Dieses Subsystem setzt derive_requirements in Anthropic/Ollama/Azure implementieren um.
 
-**Akzeptanzkriterien:**
-- AC1: Export enthält alle Requirements des Workspace als SpecObjects
-- AC2: parent-child-Hierarchie korrekt als SpecHierarchy abgebildet
-- AC3: TraceLinks als SpecRelations im Export enthalten (wenn `include_tracelinks=true`)
-- AC4: Exportierte Datei ist valide XML (Schema-konform ReqIF 1.0.1)
-- AC5: Baseline-Export enthält nur Requirements des Baseline-Stands
-- AC6: Export-Datei ist mit DOORS Next re-importierbar (Kompatibilitätstest)
+### REQ-L2-REQ-014: L2 Requirement derived from REQ-L1-044
 
-**Verifikationsmethode:** Integrationstest — Export + Schema-Validierung + Re-Import-Test
-**Verifikiert durch:** L2-RQ-Test-002
-**Abgeleitet von:** REQ-L1-034
-**Übergeordnete REQ-L0:** REQ-L0-023
+Abgeleitet von: REQ-L1-044
 
----
+**Beschreibung:** Dieses Subsystem setzt Semantisches Projekt-Glossar (Data Dictionary) um.
+### REQ-L2-REQ-015: Integration of Context Generators (Superpowers)
 
-*Erweiterung durch se-requirements-Agent | 2026-06-28 (REQ-L2-RQ-001..002 vollständig ausgearbeitet)*
+Abgeleitet von: REQ-L1-285
 
+**Beschreibung:** Dieses Subsystem implementiert die L2-Anteile für Context Generators, Prompt Templates und Superpower-Erweiterungen.
 
-## Master Traceability Matrix
+### REQ-L2-REQ-016: Agent Templates and Write Modes (Superpowers)
 
-| REQ-L2 | Abgeleitet von REQ-L1 |
-|---------|----------------------|
-| REQ-L2-RQ-001 | REQ-L1-034 |
-| REQ-L2-RQ-002 | REQ-L1-034 |
+Abgeleitet von: REQ-L1-286
 
+**Beschreibung:** Dieses Subsystem implementiert die Agent Templates, Review Endpoints und Write Modes nach Phase 6 Vorgaben.

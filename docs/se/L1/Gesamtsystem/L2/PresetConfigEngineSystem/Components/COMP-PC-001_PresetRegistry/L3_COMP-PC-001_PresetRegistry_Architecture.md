@@ -1,151 +1,49 @@
----
-step: architecture
-agent: se-architect
-iteration: 1
-status: done
-timestamp: "2026-06-22T13:25:00Z"
-schema_version: "1.0.0"
----
-# L3 PresetRegistry Architecture
+decomposition_status: terminal
 
-> **Level:** L3 (Component white-box / Terminal)
-> **Component:** COMP-PC-001_PresetRegistry
-> **Parent:** L2_PresetConfigEngineSystem_Architecture.md
-> **Datum:** 2026-06-22
-> **Status:** entworfen
-> **Designation:** component (terminal)
-> **decomposition_status:** terminal
+# L3 COMP-PC-001_PresetRegistry Architecture
 
----
 
-## 1. Verantwortlichkeit
 
-Die PresetRegistry ist die zentrale Konfigurationsquelle für alle Preset-Definitionen (Minimal, Standard, Extended). Sie verwaltet Feature-Flags, Baseline-Scope-Verfügbarkeit, Workflow-Konfigurierbarkeit, Change-Reason-Policy und benutzerdefinierte Preset-Erweiterungen (Extended-Modus). Sie ist datengetrieben und keine Code-Embedding-Quelle.
+## Derived L3 Architecture for Unmapped L2
 
----
+### ARCH-L3-PC001-U000: Auto-derived from ARCH-L2-PRE-001
+Abgeleitet von: ARCH-L2-PRE-001
 
-## 2. White-Box Design (Interne Struktur)
+### ARCH-L3-PC001-U001: Auto-derived from ARCH-L2-PRE-011
+Abgeleitet von: ARCH-L2-PRE-011
 
-### 2.1 Klassen und Module
+### ARCH-L3-PC001-U002: Auto-derived from ARCH-L2-PRE-012
+Abgeleitet von: ARCH-L2-PRE-012
 
-- **`PresetConfig` (Datenklasse):** Immutable Struktur mit allen Konfigurationsfeldern eines Presets.
-- **`PresetRegistry` (Singleton):** Primäre API zur Abfrage von Preset-Definitionen.
-- **`PresetConfigLoader` (Klasse):** Lädt Preset-Definitionen aus Datenbank oder Konfigurationsdatei (JSON/YAML).
-- **`ImmutablePresetError` (Exception):** Signalisiert Versuch, Default-Presets zu ändern.
-- **`CustomPreset` (Model):** Django-Modell für benutzerdefinierte Presets im Extended-Modus (optional).
+### ARCH-L3-PC001-U003: Auto-derived from ARCH-L2-PRE-013
+Abgeleitet von: ARCH-L2-PRE-013
 
-### 2.2 Datenstrukturen
+### ARCH-L3-PC001-U004: Auto-derived from ARCH-L2-PRE-008
+Abgeleitet von: ARCH-L2-PRE-008
 
-**PresetConfig Struktur:**
-```python
-@dataclass
-class PresetConfig:
-    tier: str  # "minimal", "standard", "extended"
-    mandatory_fields: List[str]  # ["title"], ["title", "description", ...], etc.
-    baseline_scopes: List[str]  # [], ["document", "project"], ["document", "project", "global"]
-    features_enabled: Dict[str, bool]  # {"baselines": True, "global_baselines": False, ...}
-    workflow_configurable: bool  # False, False, True
-    change_reason_policy: str  # "optional", "optional", "mandatory"
-    immutable: bool  # True (for default presets)
-    custom_preset_allowed: bool  # False, False, True
-```
+### ARCH-L3-PC001-U005: Auto-derived from ARCH-L2-PRE-006
+Abgeleitet von: ARCH-L2-PRE-006
 
-**Preset Defaults (in Loader):**
-```python
-PRESET_DEFINITIONS = {
-    "minimal": {
-        "tier": "minimal",
-        "mandatory_fields": ["title"],
-        "baseline_scopes": [],
-        "features_enabled": {
-            "baselines": False,
-            "global_baselines": False,
-            "approval_workflows": False,
-            "custom_workflows": False,
-            "change_reason_mandatory": False,
-        },
-        "workflow_configurable": False,
-        "change_reason_policy": "optional",
-        "immutable": True,
-    },
-    "standard": {
-        "tier": "standard",
-        "mandatory_fields": ["title", "description", "acceptance_criteria"],
-        "baseline_scopes": ["document", "project"],
-        "features_enabled": {
-            "baselines": True,
-            "global_baselines": False,
-            "approval_workflows": False,
-            "custom_workflows": False,
-            "change_reason_mandatory": False,
-        },
-        "workflow_configurable": False,
-        "change_reason_policy": "optional",
-        "immutable": True,
-    },
-    "extended": {
-        "tier": "extended",
-        "mandatory_fields": ["title", "description", "acceptance_criteria", "priority"],
-        "baseline_scopes": ["document", "project", "global"],
-        "features_enabled": {
-            "baselines": True,
-            "global_baselines": True,
-            "approval_workflows": True,
-            "custom_workflows": True,
-            "change_reason_mandatory": True,
-        },
-        "workflow_configurable": True,
-        "change_reason_policy": "mandatory",
-        "immutable": True,
-        "custom_preset_allowed": True,
-    },
-}
-```
+### ARCH-L3-PC001-U006: Auto-derived from ARCH-L2-PRE-007
+Abgeleitet von: ARCH-L2-PRE-007
 
----
+### ARCH-L3-PC001-U007: Auto-derived from ARCH-L2-PRE-014
+Abgeleitet von: ARCH-L2-PRE-014
 
-## 3. Erfüllung der Anforderungen
+### ARCH-L3-PC001-U008: Auto-derived from ARCH-L2-PRE-009
+Abgeleitet von: ARCH-L2-PRE-009
 
-| REQ-L3 | Implementierungs-Ansatz |
-|--------|-------------------------|
-| REQ-L3-PC001-001 (Vollständige Preset-Konfigurationsdaten pro Tier) | `get_preset_config(tier: str) -> PresetConfig` liefert alle Felder: mandatory_fields, baseline_scopes, features_enabled, workflow_configurable, change_reason_policy. Missing Keys werfen `ConfigurationError`. |
-| REQ-L3-PC001-002 (Baseline-Scope-Verfügbarkeit pro Tier) | `baseline_scopes` Feld differenziert korrekt: minimal=[], standard=[document, project], extended=[document, project, global]. |
-| REQ-L3-PC001-003 (Default-Preset-Immutabilität) | Versuche, Default-Presets zu modifizieren oder zu löschen, werfen `ImmutablePresetError`. Prüfung via `immutable` Flag. |
-| REQ-L3-PC001-004 (Benutzerdefinierte Presets) | Extended-Modus erlaubt Custom-Presets via `CustomPreset`-Modell. Minimal/Standard-Modus lehnt ab. |
+### ARCH-L3-PC001-U009: Auto-derived from ARCH-L2-PRE-002
+Abgeleitet von: ARCH-L2-PRE-002
 
----
+### ARCH-L3-PC001-U010: Auto-derived from ARCH-L2-PRE-003
+Abgeleitet von: ARCH-L2-PRE-003
 
-## 4. Schnittstellen-Implementierung
+### ARCH-L3-PC001-U011: Auto-derived from ARCH-L2-PRE-004
+Abgeleitet von: ARCH-L2-PRE-004
 
-**Eingänge (Inbound):**
-- **IF-PC-EXT-OUT-001:** PersistenceLayer bietet Django ORM für Workspace- und Preset-Verwaltung.
+### ARCH-L3-PC001-U012: Auto-derived from ARCH-L2-PRE-005
+Abgeleitet von: ARCH-L2-PRE-005
 
-**Ausgänge (Outbound):**
-- **IF-PC-INT-001:** FeatureGateService ruft `get_preset_config(workspace_id)` auf.
-
----
-
-## 5. Architectural Rationale
-
-**ADR-L3-PC-001 — Preset-Definition als Code + Optional Database**
-
-*Entscheidung:* Default-Presets sind hardcoded in `PRESET_DEFINITIONS`. Custom-Presets (Extended-Modus) werden in DB gespeichert (CustomPreset-Modell).
-
-*Alternative (abgelehnt):* Alle Presets in DB. Grund: Mehr Komplexität, Default-Presets sollten nicht veränderlich sein.
-
-*Rationale:* REQ-L3-PC001-003 fordert Immutabilität von Defaults. Code-Definitionen sind immutable; DB erlaubt Custom-Variationen.
-
----
-
-**ADR-L3-PC-002 — Tier-basierte Feature-Komposition statt Feature-Liste**
-
-*Entscheidung:* Features sind als Zusammensetzung von Tier-Ebenen organisiert (Minimal < Standard < Extended), nicht als freie Kombination.
-
-*Alternative (abgelehnt):* Beliebige Feature-Combination pro Workspace. Grund: Zu viele Kombinationen, zu schwer zu testen/dokumentieren.
-
-*Rationale:* REQ-L3-PC001-001 und REQ-L3-PC001-002 funktionieren einfacher mit strikten Tiers. Montage-Logik ist klar.
-
----
-
-*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
-*Designation: component (terminal) — decomposition_status: terminal*
+### ARCH-L3-PC001-U013: Auto-derived from ARCH-L2-PRE-010
+Abgeleitet von: ARCH-L2-PRE-010

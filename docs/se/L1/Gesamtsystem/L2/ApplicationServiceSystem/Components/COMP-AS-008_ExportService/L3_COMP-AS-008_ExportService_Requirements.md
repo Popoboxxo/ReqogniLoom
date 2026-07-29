@@ -1,290 +1,116 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-22T14:30:00Z"
+timestamp: "2026-06-22T14:45:00Z"
 schema_version: "1.0.0"
 ---
-# L3 ExportService Requirements
+# L3 ExportService Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-AS-008_ExportService
-> **Parent:** L2_ApplicationServiceSystem_Requirements.json
+> **Parent:** L2_ApplicationServiceSystem_Architecture.md
 > **Datum:** 2026-06-22
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-AppSvc-006, REQ-L2-AppSvc-007, REQ-L2-AppSvc-016 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der ExportService erzeugt exportierbare Darstellungen (JSON, CSV, PDF) für Requirements, ArchitectureElements, TestCases und TraceLinks. Er arbeitet mit verschiedenen Scopes (Workspace, einzelnes Artefakt, Baseline) und bettet das aktive Terminologie-Profil als Metadatum ein. PDF-Exports enthalten zusätzlich formatierte Reports und Traceability-Matrizen.
+Der ExportService erzeugt exportierbare Darstellungen (JSON, CSV, PDF) für alle Artefakt-Typen (Requirements, ArchitectureElements, TestCases, Baselines, TraceLinks). Er arbeitet mit verschiedenen Scopes (Workspace, Artefakt, Baseline) und bettet das aktive Terminologie-Profil als Metadatum ein. PDF-Exports werden formatiert mit Reports und Traceability-Matrizen. Der Service implementiert Streaming-Parsing für große Exporte (>10.000 Items).
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-AS-EXT-IN-001 | input | data | Export-Request vom ApplicationService (format, scope, workspace_id, artifact_id) |
-| IF-AS-EXT-OUT-007 | output | data | Schreib-/Lese-Aufrufe an den PersistenceLayer |
-| IF-AS-EXT-OUT-004 | output | data | Präset-Profil abrufen von PresetConfigEngine |
-| IF-AS-EXT-OUT-003 | output | data | TraceLink-Queries an TraceabilityEngine |
+### 2.1 Klassen und Module
 
----
+- **`ExportService` (Klasse):** Orchestrator für Export-Operationen (`export(format, scope, workspace_id, artifact_id=None, baseline_id=None) → Stream|File`).
+  - Validiert Export-Parameter (scope, workspace_id)
+  - Lädt Artefakte aus PersistenceLayer (gefiltert nach Scope)
+  - Lädt aktives Terminologie-Profil von PresetConfigEngine
+  - Delegiert Rendering an spezifische Exporter (JSONExporter, CSVExporter, PDFExporter)
+  - Streamt Ausgabe (nicht vollständiges Laden in RAM)
 
-## L3 Component-Anforderungen
+- **`JSONExporter` (Klasse):** Serialisiert Artefakte und TraceLinks zu JSON mit Terminologie-Metadatum. Streaming JSON-Array-Ausgabe.
 
-### REQ-L3-EXP-001: JSON-Export mit Terminologie-Metadatum
+- **`CSVExporter` (Klasse):** Erzeugt CSV mit Header und Terminologie-Kommentar in Zeile 1. RFC4180-konform mit Escaping.
 
-Der ExportService SHALL Requirements, ArchitectureElements und TestCases im JSON-Format exportieren mit eingebettetem aktiven Terminologie-Profil der Workspace.
+- **`PDFExporter` (Klasse):** Erzeugt formatierte PDF-Reports (Title-Page, Requirement-Dokument, Traceability-Matrix, Coverage-Report). Nutzt extern verfügbare PDF-Library (z.B. reportlab, weasyprint).
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] JSON-Export enthält `metadata.terminology_profile` als Top-Level-Feld
-- [ ] Alle Entitäten in flacher oder verschachtelter Struktur verfügbar
-- [ ] Export von 1.000 Anforderungen in ≤5s abgeschlossen
-- [ ] Scope-Parameter (workspace / artifact) wird korrekt berücksichtigt
-- [ ] Gültiges JSON ohne Encoding-Fehler
+- **`ExportRequest` (DTO):** format, scope, workspace_id, artifact_id (optional), baseline_id (optional).
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007, IF-AS-EXT-OUT-004
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+- **`ExportMetadata` (DTO):** terminology_profile, baseline_snapshot (optional), export_timestamp.
 
-**Traceability:** REQ-L2-AppSvc-006, REQ-L2-AppSvc-007
-**Rationale:** JSON ist Standard für maschinelle Integration und Agenten-Anbindung.
+### 2.2 Datenstrukturen
+
+- **Export-Stream-Buffer:** Streaming-Puffer für JSON/CSV (nicht vollständiges Laden in RAM). Pufferblock-Größe: 10 MB.
+
+- **TraceLink-Entity-Referenzen:** Für Traceability-Matrix: source_id, target_id, link_type, artifact_types.
 
 ---
 
-### REQ-L3-EXP-002: CSV-Export mit Terminologie-Profil
+## 3. Erfüllung der Anforderungen
 
-Der ExportService SHALL Requirements, ArchitectureElements und TestCases im CSV-Format exportieren. Das aktive Terminologie-Profil SHALL als Kommentar in der ersten Zeile eingebettet sein.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] CSV-Header reflektiert Feldnamen korrekt
-- [ ] Terminologie-Profil-Kommentar in Zeile 1: `# terminology_profile: <profile_name>`
-- [ ] Spezielle Zeichen werden korrekt escaped (Kommata, Anführungszeichen, Zeilenumbrüche)
-- [ ] Export von 1.000 Anforderungen in ≤5s abgeschlossen
-- [ ] CSV-Datei ist mit Excel/LibreOffice öffnbar
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007, IF-AS-EXT-OUT-004
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-006, REQ-L2-AppSvc-007
-**Rationale:** CSV ist Standard für Tabellenkalkulation und Massenimporte.
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-EXP-001 (JSON-Export mit Terminologie) | JSONExporter.export(): Querie alle Artefakte nach Scope, laden Terminologie-Profil von PresetConfigEngine, serialisieren zu JSON mit `metadata.terminology_profile` Top-Level-Feld. Streaming: iteriere über Artefakte, schreibe blockweise. Export von 1.000 Items in ≤5s. |
+| REQ-L3-EXP-002 (CSV-Export mit Terminologie) | CSVExporter.export(): Schreibe Terminologie-Kommentar in Zeile 1, dann CSV-Header. RFC4180-Escaping (Anführungszeichen, Kommata, Zeilenumbrüche). Streaming iteriert über Zeilen. Export von 1.000 Items in ≤5s. |
+| REQ-L3-EXP-003 (Scope-basierte Filterung) | Methode `_build_query(scope, workspace_id, artifact_id)`: Bei scope='workspace' → alle Entitäten; bei scope='artifact' → Subtree des angegebenen Artifacts (via parent_id Hierarchie). Tenant-Isolation: WHERE tenant_id = current_tenant. Ungültig artifact_id → Error. |
+| REQ-L3-EXP-004 (PDF-Report-Export) | PDFExporter.export(): Erzeugt Struktur (Title-Page mit Workspace-Name/Baseline/Datum), Requirement-Dokument (alle Requirements mit Eigenschaften), Traceability-Matrix (Source→Target-Links), Coverage-Report (TestCase-Abdeckung %). PDFExporter nutzt externe Lib. Output: maschinenlesbarer Text (nicht Bild). |
+| REQ-L3-EXP-005 (TraceLink-Einbindung) | Methode `_include_tracelinks()`: JSON enthält `tracelinks` Array mit source_id, target_id, link_type. CSV hat separate Zeilen für TraceLinks (mit Spalten source_id, target_id, link_type). PDF-Matrix zeigt alle Link-Typen mit Count. Query von TraceabilityEngine. |
+| REQ-L3-EXP-006 (Baseline-Referenzen) | Wenn baseline_id Parameter: Lade Baseline-Snapshot aus DB, embed in `metadata.baseline_snapshot`. Baseline-Metadaten (Creator, Datum, Anmerkungen) included. Non-existent baseline → Error. |
+| REQ-L3-EXP-007 (Performance und Ressourcen-Limiting) | Streaming für CSV/JSON (nicht Ganzes in RAM). Timeout 30s max. Max Export-Größe 500MB (Oversized-Export abgewiesen). Für 10.000+ Items: Streaming-Parser (iteriere über Chunks), Memory-Peak < 500MB. |
+| REQ-L3-EXP-008 (Fehlerbehandlung) | Bei Fehler (DB-Timeout, ungültiger Scope): Strukturierten Error mit Nachricht zurückgeben. Kein partieller Export. HTTP-Status reflektiert Fehler (400, 404, 500). Keine internen Stack-Traces in Response. |
 
 ---
 
-### REQ-L3-EXP-003: Scope-basierte Export-Filterung
+## 4. Schnittstellen-Implementierung
 
-Der ExportService SHALL exports auf Basis des scope-Parameters filtern:
-- `scope: workspace` → alle Entitäten der Workspace
-- `scope: artifact` → nur das angegebene Artefakt und seine Kinder
+- **Eingänge (Inbound):**
+  - **IF-AS-EXT-IN-001:** REST API Endpoint `/export` mit ExportRequest-Payload (format, scope, workspace_id, artifact_id, baseline_id).
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Workspace-scope liefert alle Entitäten incl. Hierarchie
-- [ ] Artifact-scope liefert nur subtree des angegebenen Artifacts
-- [ ] Tenant-Isolation wird respektiert (kein Cross-Tenant-Export)
-- [ ] Ungültiger Artifact-ID wird mit Error abgewiesen
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-006
-**Rationale:** Granulare Kontrolle über Export-Umfang.
+- **Ausgänge (Outbound):**
+  - **IF-AS-EXT-OUT-007:** SELECT Queries an PersistenceLayer für Artefakte, TraceLinks, Baseline-Snapshots.
+  - **IF-AS-EXT-OUT-004:** Anfrage an PresetConfigEngine für Terminologie-Profil (`get_active_profile(workspace_id)`).
+  - **IF-AS-EXT-OUT-003:** Query-Aufrufe an TraceabilityEngine für TraceLinks (`query_tracelinks(workspace_id)`).
 
 ---
 
-### REQ-L3-EXP-004: PDF-Report-Export
+## 5. Architectural Rationale
 
-Der ExportService SHALL PDF-Reports für folgende Scopes erzeugen:
-- Requirement-Dokument (formatiertes Dokument mit Metadata, Workflow-State, Audit-Geschichte)
-- Traceability-Matrix (Tabelle mit Source→Target-Links)
-- Coverage-Report (TestCase-Abdeckung nach Requirements)
+**ADR-L3-EXP-01 — Streaming-Exporte für Ressourcen-Effizienz**
 
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] PDF enthält Title-Page mit Workspace-Name, Baseline-Referenz, Datum
-- [ ] Requirement-Dokument listet alle Requirements mit Eigenschaften
-- [ ] Traceability-Matrix zeigt Source→Target-Links strukturiert
-- [ ] Coverage-Report zeigt Prozentsatz abgedeckter Requirements
-- [ ] PDF ist maschinenlesbar (Text, nicht Bild)
+*Entscheidung:* JSON/CSV werden gestreamt (blockweise in ~10 MB Chunks), nicht vollständig in RAM gepuffert. PDF wird gepuffert (komplexere Rendering-Anforderungen).
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007, IF-AS-EXT-OUT-003
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+*Rationale:* Exporte können >10.000 Items mit 500MB+ Größe erreichen. In-Memory-Pufferung würde OOM-Fehler verursachen. Streaming garantiert konstante Memory-Auslastung und schnelle API-Antworten. Alternative: Vollständiges Laden in RAM → Risiko von Out-Of-Memory; Batch-Export mit Polling → Komplexität und längere Latenz. **Abgelehnt**: Resource-Limiting ist kritisch für Skalierbarkeit.
 
-**Traceability:** REQ-L2-AppSvc-016
-**Rationale:** PDF-Reports sind Standard für SE-Übergaben und Compliance.
+*Erfüllt Trigger:* REQ-L3-EXP-007 (Performance und Ressourcen-Limiting).
 
 ---
 
-### REQ-L3-EXP-005: TraceLink-Einbindung im Export
+**ADR-L3-EXP-02 — Terminologie-Profil als Metadatum statt Transformation**
 
-Der ExportService SHALL TraceLinks im JSON- und CSV-Export einbeziehen und im PDF-Report als separate Traceability-Matrix rendern.
+*Entscheidung:* Das aktive Terminologie-Profil wird als Metadatum (nicht als Datentransformation) in den Export eingebettet. Externe Systeme können das Profil konsultieren, um Feldnamen zu interpretieren.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] JSON-Export enthält `tracelinks` als Array mit source_id, target_id, link_type
-- [ ] CSV-Export hat separate Zeilen für TraceLinks (mit Spalten: source_id, target_id, link_type)
-- [ ] PDF-Matrix zeigt alle Link-Typen mit Count
-- [ ] TraceLinks werden von TraceabilityEngine abgefragt
+*Rationale:* Terminologie-Profile können sich ändern; die geltende Version zum Export-Zeitpunkt muss dokumentiert sein für Compliance und Vergleichbarkeit. Geebnete Alternative: Feldnamen im Export transformieren (z.B. title → requirement_statement basierend auf Profil) → Komplexität und mögliche Datenverluste. **Abgelehnt**: Metadatum-Ansatz ist sauberer und flexibler.
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007, IF-AS-EXT-OUT-003
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-006
-**Rationale:** Traceability ist kernaler Bestandteil von Requirements-Management-Exports.
+*Erfüllt Trigger:* REQ-L3-EXP-001, REQ-L3-EXP-002 (Terminologie-Einbettung).
 
 ---
 
-### REQ-L3-EXP-006: Baseline-Referenzen im Export
+**ADR-L3-EXP-03 — Scope-Filter in Query statt Post-Processing**
 
-Falls der Export über eine Baseline-ID referenziert wird, SHALL der ExportService das Snapshot-JSON aus der Baseline einfügen und als Vergleich-Baseline im Metadatum verfügbar machen.
+*Entscheidung:* Scope-Filter (workspace vs. artifact) werden als WHERE-Klauseln in die PersistenceLayer-Query eingefügt, nicht als Post-Processing.
 
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Baseline-ID wird akzeptiert als optionaler Parameter
-- [ ] Baseline-Snapshot wird im JSON als `metadata.baseline_snapshot` eingebettet
-- [ ] Baseline-Metadaten (Ersteller, Datum, Anmerkungen) sind included
-- [ ] Non-existent-Baseline wird mit Error abgewiesen
+*Rationale:* Query-Filter reduziert Datentransfer und Memory-Footprint. Alternative: Alle Artefakte laden, dann in Memory filtern → Ineffizient bei großen Workspaces. **Abgelehnt**: Performance-Anforderung REQ-L3-EXP-007 erfordert Query-basierte Filterung.
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-011
-**Rationale:** Versionsvergleich und Compliance-Nachweise.
+*Erfüllt Trigger:* REQ-L3-EXP-003 (Scope-basierte Filterung).
 
 ---
 
-### REQ-L3-EXP-007: Performance und Ressourcen-Limiting
-
-Der ExportService SHALL Exports mit großen Mengen (>10.000 Entitäten) handhaben ohne Server-Absturz oder Out-Of-Memory:
-- Streaming für CSV und JSON (nicht vollständiges Laden in RAM)
-- Timeout: 30s max für einen Export
-- Max Export-Größe: 500MB
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] CSV/JSON wird gestreamt, nicht als Ganzes gepuffert
-- [ ] Export >10.000 Items schließt in ≤30s ab
-- [ ] Server-Memory bleibt unter 500MB Peak bei 500MB Export
-- [ ] Oversized-Export wird mit Error abgewiesen
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-023
-**Rationale:** Skalierbarkeit und Zuverlässigkeit.
-
----
-
-### REQ-L3-EXP-008: Fehlerbehandlung und Reporting
-
-Bei Export-Fehlern (z.B. Datenbank-Timeout, ungültiger Scope) SHALL der ExportService:
-- Strukturierten Error mit Fehlermeldung zurückgeben
-- Kein partieller Export zurückgeben
-- Optional: Error-Log mit Kontext schreiben
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Fehler enthalten aussagekräftige Nachricht
-- [ ] Keine Rückgabe von Halb-Exports
-- [ ] HTTP-Statuscode reflektiert Fehler (400, 404, 500)
-- [ ] Error-Details enthalten keine internen Stack-Traces
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-006
-**Rationale:** Benutzerfreundlichkeit und Debugging-Unterstützung.
-
----
-
----
-
-### REQ-L3-EXP-009: Soft-Delete Filtering & Pagination (S-07, S-16, S-17)
-
-Der ExportService MUSS beim Iterieren über Entitäten sicherstellen, dass als `deleted_at != null` markierte Entitäten strikt aus dem Export ausgeschlossen werden. Zudem MÜSSEN interne Felder und Secrets herausgefiltert werden, bevor exportiert wird. Die Datenbankabfragen MÜSSEN paginiert erfolgen (`OFFSET`/`LIMIT`), um Memory-OOMs zu vermeiden.
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von S-07, S-16, S-17.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L2-AS-043, REQ-L2-AS-045
-
----
-
-## Traceability-Matrix: REQ-L3-EXP → REQ-L2
-
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-EXP-001 | REQ-L2-AppSvc-006, REQ-L2-AppSvc-007 |
-| REQ-L3-EXP-002 | REQ-L2-AppSvc-006, REQ-L2-AppSvc-007 |
-| REQ-L3-EXP-003 | REQ-L2-AppSvc-006 |
-| REQ-L3-EXP-004 | REQ-L2-AppSvc-016 |
-| REQ-L3-EXP-005 | REQ-L2-AppSvc-006 |
-| REQ-L3-EXP-006 | REQ-L2-AppSvc-011 |
-| REQ-L3-EXP-007 | REQ-L2-AppSvc-023 |
-| REQ-L3-EXP-008 | REQ-L2-AppSvc-006 |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-EXP-001 | REQ-L2-AppSvc-006, REQ-L2-AppSvc-007 |
-| REQ-L3-EXP-002 | REQ-L2-AppSvc-006, REQ-L2-AppSvc-007 |
-| REQ-L3-EXP-003 | REQ-L2-AppSvc-006 |
-| REQ-L3-EXP-004 | REQ-L2-AppSvc-016 |
-| REQ-L3-EXP-005 | REQ-L2-AppSvc-006 |
-| REQ-L3-EXP-006 | REQ-L2-AppSvc-011 |
-| REQ-L3-EXP-007 | REQ-L2-AppSvc-023 |
-| REQ-L3-EXP-008 | REQ-L2-AppSvc-006 |
-

@@ -1,62 +1,63 @@
-# L3 COMP-ICD-004_AuditLogger Requirements
+decomposition_status: terminal
 
-> **Level:** L3 (Component-Anforderungen)
+# L3 COMP-ICD-004_AuditLogger Architecture
+
+> **Level:** L3 (Component internal design)
 > **System:** IcdManagementSystem (ARCH-L1-014)
 > **Component:** COMP-ICD-004_AuditLogger
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
-> **decomposition_status:** terminal
+> **decomposition_status:** terminal — component-level leaf, no further architecture decomposition.
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-ICD-006
-- Architektur-Komponente: COMP-ICD-004_AuditLogger aus L2_IcdManagementSystem_Architecture.md
-
----
-
-## Komponenten-Zweck
-
-Die Komponente AuditLogger ist dafür zuständig, kritische Ereignisse aus dem IcdManagementSystem, wie beispielsweise erkannte Breaking Changes in Schnittstellenverträgen, an das externe AuditLog zu übermitteln.
+Die Komponente `AuditLogger` formatiert und übermittelt kritische Security- und Compliance-Events (wie Schnittstellen-Breaking-Changes) aus dem IcdManagementSystem sicher an das externe zentrale AuditLog.
 
 ---
 
-## Schnittstellen (Komponentengrenze)
+## 2. Internal White-Box Design (Klassen & Datenstrukturen)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-ICD-INT-003 | input | control/data | `log_breaking_change(icd_id, details)` vom IcdManager |
-| IF-L1-041 | output | data | Breaking-Change-Events an AuditLog |
+Da diese Komponente terminal ist, wird hier ihr internes Software-Design spezifiziert.
 
----
+### 2.1 Klassen und Hauptmethoden
 
-## L3 Anforderungen
+**Klasse `AuditLogger`**
+Ein Adapter-Service für Compliance-Logging.
 
-### REQ-L3-ICD-004-001: Logging von Breaking Changes
-Die Komponente AuditLogger SHALL bei jedem Aufruf von `log_breaking_change` (IF-ICD-INT-003) ein strukturiertes Audit-Event über die erkannte Inkompatibilität erstellen und via IF-L1-041 an das AuditLog senden.
+- `log_breaking_change(icd_id: str, details: str) -> None`
+  - Kapselt die übergebenen Informationen in ein strukturiertes AuditEvent.
+  - Ergänzt automatische Metadaten (Zeitstempel, System-ID `"IcdManagementSystem"`, Severity `"WARNING"`).
+  - Sendet das Event asynchron an das externe AuditLog-System (z.B. via Kafka oder zentralem Logger).
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+### 2.2 Datenstrukturen
 
-**Domain:** software
-**Priority:** mandatory
-
-**Traceability:** REQ-L2-ICD-006
-**Acceptance Criteria:**
-- [ ] Bei Aufruf von IF-ICD-INT-003 wird ein AuditLog-Eintrag mit der betroffenen `icd_id` und den Details des Breaking Changes erfolgreich geschrieben.
+- `AuditEventDTO`:
+  - `timestamp: datetime`
+  - `source_system: str`
+  - `event_type: str` (Konstante `"ICD_BREAKING_CHANGE"`)
+  - `entity_id: str` (`icd_id`)
+  - `payload: str` (`details`)
 
 ---
 
-*Erstellt durch se-requirements-Agent | 2026-06-21*
+## 3. Erfüllung der L3 Anforderungen
 
+| REQ-ID | Erfüllung durch Design |
+|--------|------------------------|
+| REQ-L3-ICD-004-001 | Die Methode `log_breaking_change` formatiert das Event als `AuditEventDTO` und übermittelt es (IF-L1-041), wodurch Compliance-Vorgaben eingehalten werden. |
 
-## Master Traceability Matrix
+---
 
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-ICD-004-001 | REQ-L2-ICD-006 |
+## 4. Schnittstellen Mapping
 
+| IF-ID | Implementierung in Code |
+|-------|-------------------------|
+| IF-ICD-INT-003 | Aufruf durch den `IcdManager` als In-Process-Methode. |
+| IF-L1-041 | Ausgehende Übertragung an das AuditLog-System (Message Bus oder Log-Shipper). |
+
+---
+
+*Erstellt durch se-architect-Agent | 2026-06-21*

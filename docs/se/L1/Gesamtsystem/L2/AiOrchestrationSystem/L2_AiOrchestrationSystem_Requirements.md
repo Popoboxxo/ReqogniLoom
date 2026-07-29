@@ -1,134 +1,96 @@
-# L2 AiOrchestration Requirements
+# L2 Requirements für AiOrchestrationSystem
 
-> **Level:** L2 (Subsystem-Anforderungen)
-> **System:** AiOrchestrationSystem
-> **Parent:** L1_Gesamtsystem_Requirements.md
-> **Datum:** 2026-07-03
-> **Status:** formalisiert
-> **Designation:** subsystem (Leaf-AE — keine L3-Zerlegung)
+### REQ-L2-AIO-001: L2 Requirement derived from REQ-L1-282
 
----
+Abgeleitet von: REQ-L1-282
 
-## Traceability
+**Beschreibung:** Dieses Subsystem setzt ReviewPolicy-Modell und Workspace-Konfiguration um.
 
-- Abgeleitet von: REQ-L1-069, REQ-L1-074
-- Ziel: terminal (keine L3-Zerlegung)
+### REQ-L2-AIO-002: L2 Requirement derived from REQ-L1-084
 
----
+Abgeleitet von: REQ-L1-084
 
-## Externe Schnittstellen (Systemgrenze)
+**Beschreibung:** Dieses Subsystem setzt Konsistente Split-View-Maskenarchitektur um.
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-AI-EXT-IN-001 | input | data | Interne Events (z.B. ArtifactUpdated) via Event Bus |
-| IF-AI-EXT-IN-002 | input | data | LLM-Inferenz-Antworten (Cloud / Local) |
-| IF-AI-EXT-OUT-001 | output | data | API-Aufrufe an Cloud-LLMs (OpenAI, Anthropic) |
-| IF-AI-EXT-OUT-002 | output | data | API-Aufrufe an lokale LLMs (Ollama) |
-| IF-AI-EXT-OUT-003 | output | data | REST/GraphQL-Aufrufe an das eigene Backend |
+### REQ-L2-AIO-003: L2 Requirement derived from REQ-L1-130
 
----
+Abgeleitet von: REQ-L1-130
 
-## L2 Subsystem-Anforderungen
+**Beschreibung:** Dieses Subsystem setzt SSE-PubSub Redis-Connection-Pool um.
 
-### REQ-L2-AI-001: Semantic Router (Hybrid AI)
-Das AiOrchestrationSystem MUSS einen Semantic Router bereitstellen, der eingehende KI-Tasks anhand von konfigurierbaren Regeln (Datenschutz-Level des Workspaces, Token-Größe, Task-Komplexität) dynamisch an den passenden Provider (Cloud LLM vs. Local LLM) weiterleitet.
+### REQ-L2-AIO-004: L2 Requirement derived from REQ-L1-190
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L1-069
+Abgeleitet von: REQ-L1-190
 
----
+**Beschreibung:** Dieses Subsystem setzt Prettier einführen um.
 
-### REQ-L2-AI-002: Semantic Trace Healing Agent
-Das System MUSS einen Hintergrund-Agenten bereitstellen, der auf Status-Änderungen an TraceLinks (insbesondere "Suspect"-Markierungen) lauscht. Der Agent MUSS das semantische Delta des Upstream-Artefakts analysieren und einen konkreten Patch-Vorschlag (Text/Code) für das Downstream-Artefakt generieren, den der Nutzer mit einem Klick übernehmen kann.
+### REQ-L2-AIO-005: L2 Requirement derived from REQ-L1-095
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L1-074
+Abgeleitet von: REQ-L1-095
 
----
+**Beschreibung:** Dieses Subsystem setzt Adoption of ArtifactInspector on all 10 artifact types um.
 
-### REQ-L2-AI-003: Interface Consistency Agent
-Das System MUSS einen Agenten betreiben, der bei Änderungen an `Interface`-Definitionen oder assoziierten Architektur-Komponenten proaktiv den Graphen traversiert, um Inkonsistenzen bei allen verbundenen Knoten zu identifizieren und entsprechende Issues/Tasks zu generieren.
+### REQ-L2-AIO-006: L2 Requirement derived from REQ-L1-265
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
-**Priority:** desired
-**Abgeleitet von:** REQ-L1-074
+Abgeleitet von: REQ-L1-265
 
----
+**Beschreibung:** Dieses Subsystem setzt Bug: ArchitectureForm ohne WorkflowStatusEditor-Integration um.
 
-## Erweiterung v2 — REQ-L2-AI-004..005 (Event-Driven AI Automation)
+### REQ-L2-AIO-007: L2 Requirement derived from REQ-L1-262
 
-> **Datum:** 2026-07-03 | **Quelle:** User-Request "Deep Dive"
+Abgeleitet von: REQ-L1-262
 
----
+**Beschreibung:** Dieses Subsystem setzt Workflow-Approval/Release-Dialog-Integration für alle Entitätstypen um.
 
-### REQ-L2-AI-004: AI Quality Gate bei Status-Übergang
+### REQ-L2-AIO-008: L2 Requirement derived from REQ-L1-104
 
-Das AiOrchestrationSystem MUSS auf das Event `ArtifactStateTransitionRequested` reagieren, speziell beim Übergang `Draft ➔ In Review`.
-Der Agent lädt die Beschreibung (`description`) des Artefakts und validiert diese gegen INCOSE-Regeln (Messbarkeit, Eindeutigkeit).
-- Fällt die Prüfung positiv aus, gibt der Agent den Statuswechsel per API (Callback) frei.
-- Fällt die Prüfung negativ aus, lehnt der Agent den Wechsel ab und hinterlegt einen Kommentar mit konkreten Verbesserungsvorschlägen am Artefakt.
+Abgeleitet von: REQ-L1-104
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L1-080
-**Übergeordnete REQ-L0:** REQ-L0-049
+**Beschreibung:** Dieses Subsystem setzt KI-Ableitungs-Button um.
 
----
+### REQ-L2-AIO-009: L2 Requirement derived from REQ-L1-093
 
-### REQ-L2-AI-005: AI Decomposition & AI Test-Generation
+Abgeleitet von: REQ-L1-093
 
-Das System MUSS zwei spezialisierte Agenten-Rollen für den Hardcore-SE-Modus bereitstellen:
-1. **Decomposition Agent:** Reagiert auf einen manuellen Nutzer-Trigger an einem StReq (im Status `Draft`). Der Agent erzeugt Entwürfe (Drafts) für abgeleitete SyReqs, berechnet Fibonacci-Complexity-Schätzungen und befüllt das `Req. Type` Feld.
-2. **Verification Agent:** Reagiert auf das Event `ArtifactStateTransitioned(SyReq, Approved)`. Der Agent analysiert die Requirement-Description und die `Verification Method`. Er generiert vollautomatisch einen Test Case (TC) im Status `Draft`, verknüpft ihn mit dem SyReq (`verifies`) und füllt `Pre-Conditions` sowie `Expected Result`.
+**Beschreibung:** Dieses Subsystem setzt Accessibility baseline for ArtifactInspector um.
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
-**Priority:** desired
-**Abgeleitet von:** REQ-L1-080
-**Übergeordnete REQ-L0:** REQ-L0-046
+### REQ-L2-AIO-010: L2 Requirement derived from REQ-L1-221
 
----
+Abgeleitet von: REQ-L1-221
 
-### REQ-L2-AI-006: Workspace-spezifische KI-Prompts anwenden
+**Beschreibung:** Dieses Subsystem setzt Unused/Overlapping Component (P3 Functional) um.
 
-Vor jeder Ausführung eines Prompts für AI Decomposition, AI Quality Gate oder AI Test-Generation MUSS der AI Orchestration Layer prüfen, ob für den aktuellen Workspace ein benutzerdefinierter Prompt konfiguriert ist. Ist dies der Fall, MUSS dieser anstelle des System-Defaults verwendet werden.
+### REQ-L2-AIO-011: L2 Requirement derived from REQ-L1-266
 
-**Implementation State:** Not Implemented
-**Review Findings:** Neu.
-**Test Status:** Missing
-**Priority:** desired
-**Abgeleitet von:** REQ-L1-088
-**Übergeordnete REQ-L0:** REQ-L0-056
+Abgeleitet von: REQ-L1-266
 
----
+**Beschreibung:** Dieses Subsystem setzt Konfigurierbare per-Transition-change_reason-Anforderung um.
 
-### REQ-L2-AI-007: AI Derivation Service — Draft/Accept-Infrastruktur
+### REQ-L2-AIO-012: L2 Requirement derived from REQ-L1-007
 
-Alle KI-gestützten Ableitungsflows MÜSSEN als ApplicationService-Methoden implementiert, über REST und MCP exponiert werden; Ergebnisse sind stets Entwürfe und werden nur nach expliziter User-Bestätigung persistiert — automatische Übernahme ist verboten.
+Abgeleitet von: REQ-L1-007
 
-**Implementation State:** Not Implemented
-**Domain:** software
-**Priority:** must
-**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3a — Infrastruktur und Draft/Accept-Pattern.
+**Beschreibung:** Dieses Subsystem setzt Configurable-Rigor-Presets (Minimal / Standard / Extended) um.
 
----
+### REQ-L2-AIO-013: L2 Requirement derived from REQ-L1-250
 
-### REQ-L2-AI-008: AI Derivation Flows — Konkrete Ableitungsschritte
+Abgeleitet von: REQ-L1-250
 
-Das System MUSS drei nutzerseitig auslösbare KI-Flows bereitstellen: (1) StakeholderNeed → n SystemRequirement-Entwürfe, (2) SystemRequirement → Vorschlag zur ArchitectureElement-Zuordnung, (3) SystemRequirement (mit Architektur) → Dekomposition auf Level n+1, wobei Ergebnisse mehrere ArchitectureElements umspannen können.
+**Beschreibung:** Dieses Subsystem setzt Functional/Physical Architecture Separation um.
 
-**Implementation State:** Not Implemented
-**Domain:** software
-**Priority:** must
-**Remarks:** Neu aufgenommen 2026-07-11. WP3 Aufgabe 3a — spezifische Flow-Implementierungen; setzt REQ-L2-AI-007 voraus.
+### REQ-L2-AIO-014: L2 Requirement derived from REQ-L1-131
+
+Abgeleitet von: REQ-L1-131
+
+**Beschreibung:** Dieses Subsystem setzt API-Key in Redis mit Django-Signing absichern um.
+### REQ-L2-AIO-015: Integration of Context Generators (Superpowers)
+
+Abgeleitet von: REQ-L1-285
+
+**Beschreibung:** Dieses Subsystem implementiert die L2-Anteile für Context Generators, Prompt Templates und Superpower-Erweiterungen.
+
+### REQ-L2-AIO-016: Agent Templates and Write Modes (Superpowers)
+
+Abgeleitet von: REQ-L1-286
+
+**Beschreibung:** Dieses Subsystem implementiert die Agent Templates, Review Endpoints und Write Modes nach Phase 6 Vorgaben.

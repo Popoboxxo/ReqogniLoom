@@ -1,87 +1,64 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-21T23:15:00Z"
+timestamp: "2026-06-21T23:20:00Z"
 schema_version: "1.0.0"
 ---
-# L3 TraceabilityConnector Requirements
+# L3 TraceabilityConnector Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-DS-004_TraceabilityConnector
-> **Parent:** L2_DiagramServiceSystem_Requirements.md
+> **Parent:** L2_DiagramServiceSystem_Architecture.md
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
-> **decomposition_status:** terminal
+> **decomposition_status:** terminal — component-level leaf, no further SE decomposition
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-DS-004 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der TraceabilityConnector verknüpft Diagramme (als System-Artefakte) mit Anforderungen oder Architekturelementen, indem er den Trace-Link-Prozess automatisiert an die TraceabilityEngine weitergibt.
+Der TraceabilityConnector verknüpft Diagramme systematisch mit anderen System-Artefakten, indem er TraceLinks in der TraceabilityEngine anlegt.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-DS-INT-003 | input | data | Aufruf durch den DiagramManager (`create_document_link(diagram_id, target_id)`) |
-| IF-L1-034 | output | data | HTTP/RPC-Aufruf an die TraceabilityEngine |
+Da dies eine terminale Komponente ist, beschreibt die White-Box die internen Software-Klassen und Datenstrukturen.
 
----
+### 2.1 Klassen und Module
 
-## L3 Component-Anforderungen
-
-### REQ-L3-TC-001: Erstellung von Document-Links
-
-Der TraceabilityConnector SHALL eine Anforderung zur Erstellung eines TraceLinks vom Typ `documents` an die TraceabilityEngine senden.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] TraceLink wird für die angegebene source (Diagramm) und target (Requirement/Architecture) generiert.
-- [ ] Link-Typ ist fest auf `documents` gesetzt.
-- [ ] Fehler bei der TraceEngine (z.B. Target nicht gefunden) werden transparent an den Caller zurückgegeben.
-
-**Interfaces:**
-- Incoming: IF-DS-INT-003
-- Outgoing: IF-L1-034
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-DS-004
-**Rationale:** Stellt den Traceability-Graphen für visuelle Modelle sicher.
+- **`TraceabilityConnector` (Klasse):** Methode `create_document_link(diagram_id, target_id)`.
+- **`TraceEngineClient` (Adapter):** Kapselt HTTP/RPC-Aufrufe an die externe TraceabilityEngine und standardisiert Fehler.
 
 ---
 
-## Traceability-Matrix: REQ-L3-TC → REQ-L2
+## 3. Erfüllung der Anforderungen
 
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-TC-001 | REQ-L2-DS-004 |
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-TC-001 (Erstellung von Document-Links) | Formatiert einen Payload `{ "source_id": diagram_id, "target_id": target_id, "link_type": "documents" }` und sendet diesen per `TraceEngineClient` an die TraceabilityEngine. Wirft eine domänenspezifische Exception bei Fehlern. |
 
 ---
 
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
+## 4. Schnittstellen-Implementierung
+
+- **Eingänge (Inbound):**
+  - **IF-DS-INT-003:** Synchroner In-Process Call durch `COMP-DS-001_DiagramManager`.
+- **Ausgänge (Outbound):**
+  - **IF-L1-034:** HTTP POST Request an die TraceabilityEngine.
+
+---
+
+## 5. Architectural Rationale
+
+**ADR-L3-TC-01 — Entkoppelte Adapter-Schicht**
+*Entscheidung:* Der TraceabilityConnector kommuniziert nicht direkt via HTTP Requests im Code, sondern über einen separaten `TraceEngineClient`.
+*Rationale:* Falls sich das Protokoll der TraceabilityEngine (z.B. von REST zu gRPC) ändert, muss nur der Client ausgetauscht werden, die Geschäftslogik in `create_document_link` bleibt unberührt.
+
+---
+
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-TC-001 | REQ-L2-DS-004 |
-

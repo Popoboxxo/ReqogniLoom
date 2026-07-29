@@ -3980,3 +3980,145 @@ The sidebar shell MUST support collapse (hide all panels) and pin (keep the side
 **Rationale:** Übernommen aus REQUIREMENTS.md
 **Abgeleitet von:** REQUIREMENTS.md (REQ-191)
 
+
+---
+
+### REQ-L0-248 — SN-248: Superpower Context Generation and Prompt Templates
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet aus Phase 1 Superpowers Einarbeitung.
+**Test Status:** Missing
+**Priority:** must
+**Acceptance Criteria:**
+- [ ] Implement context generators for automated prompt enrichment.
+- [ ] Introduce prompt templates as described in phase 4 design.
+
+**Rationale:** Needed for enhanced agentic workflows in the ReqogniLoom ecosystem.
+**Abgeleitet von:** Superpower Plans (Phase 2 & Phase 4)
+
+---
+
+### REQ-L0-249 — SN-249: Superpower Agent Templates and Write Modes
+
+**Implementation State:** Planned
+**Review Findings:** Abgeleitet aus Phase 1 Superpowers Einarbeitung.
+**Test Status:** Missing
+**Priority:** must
+**Acceptance Criteria:**
+- [ ] Derive write mode natively for dynamic agent responses.
+- [ ] Support agent templates based on Phase 6 designs.
+- [ ] Integrate feedback strategy from frontend design.
+
+**Rationale:** Needed to support configurable agent personas and reliable user feedback loops.
+**Abgeleitet von:** Superpower Plans (Phase 3, Phase 6 & Frontend Design)
+
+
+## Stakeholder-Needs (Erweiterung v10 — Codebase Extraction)
+
+> **Datum:** 2026-07-30 | **Quelle:** Codebase (Edge-case handlers and implicit mechanisms)
+
+### REQ-L0-250 — SN-250: CTE Manager & WITH RECURSIVE queries
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik aus der Traceability Engine.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] System verwendet Common Table Expressions (CTE) / WITH RECURSIVE für performante Graph-Traversierung bei Traceability-Queries.
+
+**Rationale:** Notwendig für tief verschachtelte Traceability-Graphen ohne übermäßige Datenbank-Roundtrips.
+
+---
+
+### REQ-L0-251 — SN-251: Outbox skip_locked Transaction Locks
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik aus dem Task-System/Event-Bus.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Nebenläufige Task-Worker verarbeiten Outbox-Events kollisionsfrei durch `SELECT ... FOR UPDATE SKIP LOCKED`.
+
+**Rationale:** Verhindert Race Conditions und doppelte Event-Auslieferung in verteilten oder multi-threaded Deployments.
+
+---
+
+### REQ-L0-252 — SN-252: Redis Django-Signing for API-Keys
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] API-Keys werden sicher signiert und über Redis validiert.
+
+**Rationale:** Essentiell für sichere Authentifizierung von MCP-Agenten und externen Integrationen.
+
+---
+
+### REQ-L0-253 — SN-253: Cookie+Bearer Dual Auth
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik aus Auth-System.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Das System unterstützt simultan Cookie-basierte Session-Auth (für Web-UI) und Bearer-Token Auth (für API/MCP-Aufrufe).
+
+**Rationale:** Erlaubt nahtlose Integration für menschliche Nutzer (Frontend) und programmatische Zugriffe (Agenten).
+
+---
+
+### REQ-L0-254 — SN-254: Soft-Delete Lifecycle Status
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik aus Lifecycle-Management.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Gelöschte Artefakte und Workspaces werden als Soft-Delete markiert anstatt hart aus der Datenbank entfernt zu werden.
+
+**Rationale:** Verhindert versehentlichen Datenverlust und bewahrt Audit-Historie (Compliance-Anforderung).
+
+---
+
+### REQ-L0-255 — SN-255: ReqIF Identifiers
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik aus ReqIF-Parser/Serializer.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] System erhält und verarbeitet korrekte Identifier-Mappings beim Import und Export von ReqIF-Dokumenten.
+
+**Rationale:** Industriestandard für den Austausch von Systemanforderungen ohne ID-Kollisionen.
+
+---
+
+### REQ-L0-256 — SN-256: VCRM PDF-Generator
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik aus Traceability/Reporting.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Automatische Generierung von Verification Cross Reference Matrix (VCRM) Reports im PDF-Format.
+
+**Rationale:** Audit-Vorgabe für regulierte SE-Projekte zum Nachweis der Testabdeckung.
+
+---
+
+### REQ-L0-257 — SN-257: Preset Policy Enforcement
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik aus ConfigEngine.
+**Test Status:** Missing
+**Priority:** mandatory
+**Acceptance Criteria:**
+- [ ] Workspace-spezifische Presets und Policys werden strikt auf API- und Applikationsebene enforced.
+
+**Rationale:** Stellt sicher, dass das konfigurierte "Rigor" Level (z.B. zwingende Reviews) nicht umgangen werden kann.
+
+---
+
+### REQ-L0-258 — SN-258: Webhook Dispatcher
+**Implementation State:** Implemented
+**Review Findings:** Extrahierte implizite Mechanik aus Application Services.
+**Test Status:** Missing
+**Priority:** desired
+**Acceptance Criteria:**
+- [ ] Ein Dispatcher feuert asynchrone Webhooks bei definierten Lifecycle-Events an externe Systeme.
+
+**Rationale:** Ermöglicht die Anbindung externer CI/CD-Pipelines und Ticketing-Systeme (GitHub, Jira).

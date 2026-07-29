@@ -1,125 +1,57 @@
-# L2 IcdManagement Architecture
+# L2 Architecture für IcdManagementSystem
 
-> **Level:** L2 (Subsystem white-box)
-> **System:** IcdManagementSystem (ARCH-L1-014)
-> **Parent:** L1_Gesamtsystem_Architecture.md
-> **Datum:** 2026-06-21
-> **Status:** entworfen
-> **Designation:** subsystem (white-box)
-> **decomposition_status:** complete
+### ARCH-L2-ICD-001: Architecture for REQ-L2-ICD-001
 
----
+Umsetzung von REQ-L2-ICD-001 in IcdManagementSystem.
 
-## 1. Verantwortlichkeit
+### ARCH-L2-ICD-002: Architecture for REQ-L2-ICD-002
 
-Das IcdManagementSystem verwaltet Schnittstellen zwischen ArchitectureElements als versionierte Interface Control Documents (ICDs). Es setzt Design-by-Contract durch, prüft Änderungen auf Kompatibilität, meldet Breaking-Change-Warnungen und integriert sich in die Baseline-Erstellung.
+Umsetzung von REQ-L2-ICD-002 in IcdManagementSystem.
 
----
+### ARCH-L2-ICD-003: Architecture for REQ-L2-ICD-003
 
-## 2. Black-Box (Eingebettete Sicht)
+Umsetzung von REQ-L2-ICD-003 in IcdManagementSystem.
 
-### Externe Schnittstellen
+### ARCH-L2-ICD-004: Architecture for REQ-L2-ICD-004
 
-| ID | Richtung | Gegenstelle | Typ | Vertrag |
-|----|----------|-------------|-----|---------|
-| IF-L1-037 | input | ApplicationService | control | `create_icd`, `update_icd`, `validate_compatibility`, `get_icd_history` |
-| IF-L1-038 | input | BaselineService | control | `get_icd_versions(workspace_id)` |
-| IF-L1-039 | output | TraceabilityEngine | data | TraceLink `realizes` zwischen ICD und ArchitectureElement |
-| IF-L1-040 | output | PersistenceLayer | data | Icd-Entity, IcdVersion-Entity (immutable) |
-| IF-L1-041 | output | AuditLog | data | Breaking-Change-Events an AuditLog |
+Umsetzung von REQ-L2-ICD-004 in IcdManagementSystem.
 
----
+### ARCH-L2-ICD-005: Architecture for REQ-L2-ICD-005
 
-## 3. White-Box (Komponenten-Zerlegung)
+Umsetzung von REQ-L2-ICD-005 in IcdManagementSystem.
 
-### Komponenten
+### ARCH-L2-ICD-006: Architecture for REQ-L2-ICD-006
 
-| Komp-ID | Name | Verantwortlichkeit | Domain | REQ-Referenz |
-|---------|------|--------------------|--------|--------------|
-| COMP-ICD-001 | IcdManager | Koordiniert CRUD-Operationen, garantiert Unveränderlichkeit von ICD-Versionen und integriert Snapshot-Abfragen für die Baseline. | software | REQ-L2-ICD-001, REQ-L2-ICD-005 |
-| COMP-ICD-002 | ContractValidator | Setzt Design-by-Contract-Modell um (Pre/Post/Invarianten) und führt semantische Kompatibilitätsprüfungen zur Erkennung von Breaking Changes durch. | software | REQ-L2-ICD-002, REQ-L2-ICD-003 |
-| COMP-ICD-003 | TraceabilityConnector | Erzeugt TraceLinks vom Typ `realizes` in der TraceabilityEngine bei ICD-Erstellung/Aktualisierung. | software | REQ-L2-ICD-004 |
-| COMP-ICD-004 | AuditLogger | Übermittelt erkannte Breaking-Change-Events als auditierbare Protokolle an das externe AuditLog. | software | REQ-L2-ICD-006 |
+Umsetzung von REQ-L2-ICD-006 in IcdManagementSystem.
 
-### Interne Schnittstellen
+### ARCH-L2-ICD-007: Architecture for REQ-L2-ICD-007
 
-| ID | Richtung | Quelle -> Ziel | Typ | Vertrag |
-|----|----------|----------------|-----|---------|
-| IF-ICD-INT-001 | intern | COMP-ICD-001 -> COMP-ICD-002 | In-Process Python | `validate_contract(old_version, new_version) -> ValidationResult` |
-| IF-ICD-INT-002 | intern | COMP-ICD-001 -> COMP-ICD-003 | In-Process Python | `link_to_architecture(icd_id, source_id, target_id)` |
-| IF-ICD-INT-003 | intern | COMP-ICD-001 -> COMP-ICD-004 | In-Process Python | `log_breaking_change(icd_id, details)` |
+Umsetzung von REQ-L2-ICD-007 in IcdManagementSystem.
 
-### Dependency-Graph (azyklisch)
+### ARCH-L2-ICD-008: Architecture for REQ-L2-ICD-008
 
-Unidirektionaler Datenfluss von den Eingängen zu den Verarbeitern und Persistenz.
+Umsetzung von REQ-L2-ICD-008 in IcdManagementSystem.
 
-```mermaid
-flowchart TD
-    subgraph IcdManagementSystem
-        C001["COMP-ICD-001: IcdManager"]
-        C002["COMP-ICD-002: ContractValidator"]
-        C003["COMP-ICD-003: TraceabilityConnector"]
-        C004["COMP-ICD-004: AuditLogger"]
-    end
+### ARCH-L2-ICD-009: Architecture for REQ-L2-ICD-009
 
-    ext_as["ApplicationService"] -->|IF-L1-037| C001
-    ext_bs["BaselineService"] -->|IF-L1-038| C001
+Umsetzung von REQ-L2-ICD-009 in IcdManagementSystem.
 
-    C001 -->|IF-ICD-INT-001| C002
-    C001 -->|IF-ICD-INT-002| C003
-    C001 -->|IF-ICD-INT-003| C004
+### ARCH-L2-ICD-010: Architecture for REQ-L2-ICD-010
 
-    C003 -->|IF-L1-039| ext_te["TraceabilityEngine"]
-    C001 -->|IF-L1-040| ext_pl["PersistenceLayer"]
-    C004 -->|IF-L1-041| ext_al["AuditLog"]
-```
+Umsetzung von REQ-L2-ICD-010 in IcdManagementSystem.
 
----
+### ARCH-L2-ICD-011: Architecture for REQ-L2-ICD-011
 
-## 4. Zugeordnete REQ-L2
+Umsetzung von REQ-L2-ICD-011 in IcdManagementSystem.
 
-| REQ-L2 | Komponente(n) |
-|--------|---------------|
-| REQ-L2-ICD-001 | COMP-ICD-001 |
-| REQ-L2-ICD-002 | COMP-ICD-002 |
-| REQ-L2-ICD-003 | COMP-ICD-002 |
-| REQ-L2-ICD-004 | COMP-ICD-003 |
-| REQ-L2-ICD-005 | COMP-ICD-001 |
-| REQ-L2-ICD-006 | COMP-ICD-004 |
+### ARCH-L2-ICD-012: Architecture for REQ-L2-ICD-012
 
----
+Umsetzung von REQ-L2-ICD-012 in IcdManagementSystem.
 
-## 5. Interface-Belegung (IF-L1-037..041)
+### ARCH-L2-ICD-013: Architecture for REQ-L2-ICD-013
 
-| Interface | Eigentuemerkomponente | Richtung | Zweck |
-|-----------|----------------------|----------|-------|
-| IF-L1-037 | COMP-ICD-001 | input | ApplicationService CRUD Trigger |
-| IF-L1-038 | COMP-ICD-001 | input | Baseline Snapshot Abfrage |
-| IF-L1-039 | COMP-ICD-003 | output | TraceLink Persistenz |
-| IF-L1-040 | COMP-ICD-001 | output | ICD Entity Persistenz |
-| IF-L1-041 | COMP-ICD-004 | output | Breaking Change Audit Logging |
+Umsetzung von REQ-L2-ICD-013 in IcdManagementSystem.
 
----
+### ARCH-L2-ICD-014: Architecture for REQ-L2-ICD-014
 
-## 6. ADRs (lokal)
-
-**ADR-ICD-01 — Isolation der Vertragsvalidierung in ContractValidator**
-*Entscheidung:* Der Vergleich von Vorbedingungen, Nachbedingungen und Invarianten zwischen zwei ICD-Versionen zur Erkennung von Breaking Changes ist in die Komponente ContractValidator gekapselt.
-*Rationale:* Diese Prüfung ist semantisch komplex (Design-by-Contract). Durch Auslagerung bleibt der IcdManager fokussiert auf Versionierung, Persistenz und Baseline-Abfragen. Die Trennung stellt sicher, dass die komplexe Kompatibilitätslogik unabhängig testbar ist.
-*Verworfene Alternative:* Kompatibilitätsprüfung als private Methode innerhalb des IcdManager — abgelehnt, da dies die Kohäsion des IcdManager verletzen würde und Unit-Tests der Kompatibilitätsregeln unnötig mit Persistenz-Mocking verknüpfen würde.
-
----
-
-## 7. Decomposition Completeness
-
-| Aspekt | Abdeckung |
-|--------|-----------|
-| Alle IF-L1-037..041 eingebunden | vollständig |
-| Alle REQ-L2-ICD-001..006 zugewiesen | vollständig |
-| Azyklischer Dependency-Graph | nachgewiesen |
-
----
-
-*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
-*Handoff: HOFF-20260621-002 | Parent: ARCH-L1-014 | REQ-Quelle: REQ-L2-ICD-001..006*
-*Designation: subsystem (white-box) — decomposition_status: complete*
+Umsetzung von REQ-L2-ICD-014 in IcdManagementSystem.

@@ -1,94 +1,118 @@
-# L3 COMP-RO-001_AsyncDispatcher Requirements
+decomposition_status: terminal
 
-> **Level:** L3 (Component-Anforderungen)
+# L3 COMP-RO-001_AsyncDispatcher Architecture
+
+> **Level:** L3 (Terminal Component White-Box)
 > **System:** COMP-RO-001_AsyncDispatcher
-> **Parent:** L2_ResilienceOrchestratorSystem_Requirements.md
+> **Parent:** L2_ResilienceOrchestratorSystem_Architecture.md
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
-> **Designation:** component (terminal — keine L4-Zerlegung)
+> **Status:** entworfen
+> **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-RO-001
-- Ziel: terminal (keine weitere Zerlegung)
-
----
-
-## Systemzweck
-
-Der AsyncDispatcher (COMP-RO-001) ist verantwortlich für die Entgegennahme externer Aufrufe aus dem ApplicationService und dem LlmAdapter. Er stellt sicher, dass diese Aufrufe asynchron über eine Message-Queue (z.B. Celery) verarbeitet werden, um die synchronen Request-Threads der Aufrufer nicht zu blockieren.
+Der AsyncDispatcher empfängt Aufrufe aus dem `ApplicationService` und `LlmAdapter` (IF-L1-049, IF-L1-050). Er prüft zunächst über den CircuitBreaker, ob das Zielsystem erreichbar ist. Ist dies der Fall, reiht er die Ausführung in eine asynchrone Task-Queue (Celery) ein, um eine Blockade der synchronen Aufrufer zu verhindern, und gibt dem Aufrufer sofort eine Antwort zurück.
 
 ---
 
-## Externe Schnittstellen (Component Boundary)
+## 2. Internes White-Box Design (Klassen & Datenstrukturen)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-L1-049 | input | control | `execute_optional(operation, target, payload, policy)` vom ApplicationService |
-| IF-L1-050 | input | control | Wrapping aller HTTPS-Outbound-Calls vom LlmAdapter |
-| IF-RO-INT-001 | output | control | In-Process Python Call an CircuitBreaker (COMP-RO-003): `can_execute(target_id) -> bool` |
-| IF-RO-INT-002 | output | control | In-Process Python Call an PolicyEngine (COMP-RO-002): `execute_with_policy(operation, target, payload)` |
+Da diese Komponente terminal ist, beschreibt das Design die direkte softwareseitige Implementierung (Klassen, Funktionen und Kontrollfluss).
+
+### 2.1 Klassen und Module
+
+- **`AsyncDispatcherService`**: Zentrale Einstiegsklasse.
+  - **Funktion:** `dispatch(operation: str, target: str, payload: dict, policy: dict) -> DispatchResult`
+  - **Ablauf:**
+    1. Ruft `CircuitBreaker.can_execute(target)` auf (IF-RO-INT-001).
+    2. Wenn `False`: Rückgabe eines `DispatchResult(status="fast_fail")`.
+    3. Wenn `True`: Aufruf von `celery_execute_task.delay(...)`.
+    4. Rückgabe von `DispatchResult(status="enqueued", job_id=...)`.
+
+- **`celery_execute_task`**: Asynchroner Celery-Worker-Task.
+  - **Funktion:** `execute_task(operation: str, target: str, payload: dict, policy: dict)`
+  - **Ablauf:** Entnimmt den Task aus der Message Broker Queue und ruft `PolicyEngine.execute_with_policy(...)` synchron innerhalb des Worker-Prozesses auf (IF-RO-INT-002).
+
+### 2.2 Datenstrukturen
+
+- **`DispatchResult`**:
+  - `status: str` ("enqueued", "fast_fail")
+  - `job_id: str | None` (UUID des Celery Tasks)
+  - `message: str`
 
 ---
 
-## L3 Component-Anforderungen
+## 3. Erfüllung der L3-Anforderungen
 
-### REQ-L3-RO-001-01: Asynchrone Entgegennahme
+| Requirement ID | Erfüllung im Design |
+|----------------|---------------------|
+| **REQ-L3-RO-001-01** (Asynchrone Entgegennahme) | `AsyncDispatcherService.dispatch` lagert die echte Ausführung an `celery_execute_task.delay` (Celery) aus. Die Rückgabe erfolgt in < 50ms, da nur ein Message-Broker-Enqueue stattfindet. |
+| **REQ-L3-RO-001-02** (Vorab-Prüfung) | Vor dem Enqueueing wird synchron `CircuitBreaker.can_execute(target)` gerufen. Bei `False` wird sofort abgebrochen. |
+| **REQ-L3-RO-001-03** (Task-Delegation) | Der Celery-Worker `execute_task` ruft nach der Deserialisierung direkt `PolicyEngine.execute_with_policy` auf. |
 
-Der AsyncDispatcher SHALL Aufrufe über IF-L1-049 und IF-L1-050 in eine asynchrone Task-Queue einreihen und dem Aufrufer sofort antworten.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Aufrufer blockiert nicht auf die Abarbeitung des externen Aufrufs.
-- [ ] Rückgabe an Aufrufer erfolgt in < 50ms (Enqueue-Zeit).
-**Interfaces:** IF-L1-049, IF-L1-050
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+---
 
-**Traceability:** REQ-L2-RO-001
+## 4. Schnittstellen-Mapping
 
-### REQ-L3-RO-001-02: Vorab-Prüfung der Ausführbarkeit
+| Interface | Implementierung / Aufrufpunkt |
+|-----------|-------------------------------|
+| **IF-L1-049** / **IF-L1-050** (Input) | REST/GraphQL Controller rufen `AsyncDispatcherService.dispatch()` auf. |
+| **IF-RO-INT-001** (Output) | Synchrone Python-Funktionsaufrufe an `CircuitBreaker.can_execute`. |
+| **IF-RO-INT-002** (Output) | Synchrone Python-Aufrufe aus dem Celery-Worker an `PolicyEngine`. |
 
-Der AsyncDispatcher SHALL vor dem Einreihen in die Queue den CircuitBreaker über IF-RO-INT-001 abfragen, ob das Zielsystem verfügbar ist.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Bei `can_execute == false` wird der Aufruf direkt abgelehnt (Fast Fail).
-- [ ] Bei `can_execute == true` wird der Task eingereiht.
-**Interfaces:** IF-RO-INT-001
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-RO-001
-
-### REQ-L3-RO-001-03: Task-Delegation
-
-Die asynchronen Worker des AsyncDispatchers SHALL die asynchron eingereihten Tasks über IF-RO-INT-002 an die PolicyEngine übergeben.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Worker-Prozesse rufen `execute_with_policy` mit den in der Queue persistierten Parametern auf.
-**Interfaces:** IF-RO-INT-002
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L2-RO-001
+---
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
 
 
-## Master Traceability Matrix
+## Derived L3 Requirements for Unmapped L2
 
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-RO-001-01 | REQ-L2-RO-001 |
-| REQ-L3-RO-001-02 | REQ-L2-RO-001 |
-| REQ-L3-RO-001-03 | REQ-L2-RO-001 |
+### REQ-L3-RO001-U000: Auto-derived from REQ-L2-RES-014
+Abgeleitet von: REQ-L2-RES-014
 
+### REQ-L3-RO001-U001: Auto-derived from REQ-L2-RES-011
+Abgeleitet von: REQ-L2-RES-011
+
+### REQ-L3-RO001-U002: Auto-derived from REQ-L2-RES-001
+Abgeleitet von: REQ-L2-RES-001
+
+### REQ-L3-RO001-U003: Auto-derived from REQ-L2-RES-015
+Abgeleitet von: REQ-L2-RES-015
+
+### REQ-L3-RO001-U004: Auto-derived from REQ-L2-RES-003
+Abgeleitet von: REQ-L2-RES-003
+
+### REQ-L3-RO001-U005: Auto-derived from REQ-L2-RES-010
+Abgeleitet von: REQ-L2-RES-010
+
+### REQ-L3-RO001-U006: Auto-derived from REQ-L2-RES-002
+Abgeleitet von: REQ-L2-RES-002
+
+### REQ-L3-RO001-U007: Auto-derived from REQ-L2-RES-013
+Abgeleitet von: REQ-L2-RES-013
+
+### REQ-L3-RO001-U008: Auto-derived from REQ-L2-RES-004
+Abgeleitet von: REQ-L2-RES-004
+
+### REQ-L3-RO001-U009: Auto-derived from REQ-L2-RES-009
+Abgeleitet von: REQ-L2-RES-009
+
+### REQ-L3-RO001-U010: Auto-derived from REQ-L2-RES-016
+Abgeleitet von: REQ-L2-RES-016
+
+### REQ-L3-RO001-U011: Auto-derived from REQ-L2-RES-008
+Abgeleitet von: REQ-L2-RES-008
+
+### REQ-L3-RO001-U012: Auto-derived from REQ-L2-RES-006
+Abgeleitet von: REQ-L2-RES-006
+
+### REQ-L3-RO001-U013: Auto-derived from REQ-L2-RES-012
+Abgeleitet von: REQ-L2-RES-012
+
+### REQ-L3-RO001-U014: Auto-derived from REQ-L2-RES-005
+Abgeleitet von: REQ-L2-RES-005
+
+### REQ-L3-RO001-U015: Auto-derived from REQ-L2-RES-007
+Abgeleitet von: REQ-L2-RES-007

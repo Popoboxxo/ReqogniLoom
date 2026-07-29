@@ -1,220 +1,96 @@
-# L2 ResilienceOrchestrator Requirements
+# L2 Requirements für ResilienceOrchestratorSystem
 
-> **Level:** L2 (Subsystem-Anforderungen)
-> **System:** ResilienceOrchestratorSystem (ARCH-L1-016)
-> **Parent:** L1_Gesamtsystem_Requirements.md
-> **Datum:** 2026-06-21
-> **Status:** formalisiert
-> **Designation:** component (terminal — keine L3-Zerlegung)
-> **decomposition_status:** terminal
+### REQ-L2-RES-001: L2 Requirement derived from REQ-L1-183
 
----
+Abgeleitet von: REQ-L1-183
 
-## Traceability
+**Beschreibung:** Dieses Subsystem setzt Service-Layer O(N) in list()-Aufrufen um.
 
-- Abgeleitet von: REQ-L1-032 (primär)
-- Ziel: terminal (keine L3-Zerlegung)
+### REQ-L2-RES-002: L2 Requirement derived from REQ-L1-148
 
----
+Abgeleitet von: REQ-L1-148
 
-## Systemzweck
+**Beschreibung:** Dieses Subsystem setzt Frontend-Testabdeckung große Views um.
 
-Das ResilienceOrchestratorSystem ist der zentrale Resilienz-Manager für alle externen Aufrufe (LLM-Adapter, Webhook-Dispatcher, GitHub-Integration). Es entkoppelt das System asynchron und implementiert Timeouts, Retry-Logik (Exponential Backoff) sowie Circuit-Breaker-Mechanismen, um zu garantieren, dass Ausfälle bei optionalen Subsystemen die Kernverfügbarkeit des ReqFlow-Systems (CRUD, Traceability, Baselines) nicht beeinträchtigen (Graceful Degradation).
+### REQ-L2-RES-003: L2 Requirement derived from REQ-L1-147
 
----
+Abgeleitet von: REQ-L1-147
 
-## Externe Schnittstellen (Systemgrenze)
+**Beschreibung:** Dieses Subsystem setzt Auth-Token aus sessionStorage entfernen um.
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-L1-049 | input | control | `execute_optional(operation, target, payload, policy)` vom ApplicationService (ARCH-L1-004) |
-| IF-L1-050 | input | control | Wrapping aller HTTPS-Outbound-Calls vom LlmAdapter (ARCH-L1-009) |
-| IF-L1-051 | output | control | Delegierter Aufruf nach Policy-Anwendung an LlmAdapter / Webhook / GitHub |
-| IF-L1-052 | output | data | Degradation-Events, Retry-Logs, Circuit-State-Changes an AuditLog (ARCH-L1-012) |
+### REQ-L2-RES-004: L2 Requirement derived from REQ-L1-166
 
----
+Abgeleitet von: REQ-L1-166
 
-## L2 Subsystem-Anforderungen
+**Beschreibung:** Dieses Subsystem setzt API-Fehlerformat-Konsistenz (REST vs. MCP) um.
 
-### REQ-L2-RO-001: Asynchrone Entkopplung
-Das ResilienceOrchestratorSystem SHALL externe Aufrufe asynchron über eine Queue (z.B. Celery) ausführen, sodass synchrone Request-Threads im ApplicationService nicht blockiert werden.
+### REQ-L2-RES-005: L2 Requirement derived from REQ-L1-004
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+Abgeleitet von: REQ-L1-004
 
-**Domain:** system
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Optionaler Subsystem-Call wird in eine Queue eingereiht.
-- [ ] Aufrufer erhält sofortige Rückmeldung über Entgegennahme.
+**Beschreibung:** Dieses Subsystem setzt ArchitectureElement als eigenständiger, schreibbarer Artefakttyp um.
 
-**Interfaces:**
-- Incoming: IF-L1-049
-- Outgoing: IF-L1-051
+### REQ-L2-RES-006: L2 Requirement derived from REQ-L1-038
 
+Abgeleitet von: REQ-L1-038
 
-**Traceability:** REQ-L1-032
-**Rationale:** Verhindert Thread-Erschöpfung bei hängenden externen Services.
+**Beschreibung:** Dieses Subsystem setzt Semantische Vektorsuche über alle Artefakttypen (RAG) um.
 
----
+### REQ-L2-RES-007: L2 Requirement derived from REQ-L1-105
 
-### REQ-L2-RO-002: Konfigurierbare Timeouts
-Das ResilienceOrchestratorSystem SHALL für jeden externen Aufruf eine konfigurierbare Timeout-Policy anwenden. Wird der Timeout überschritten, MUSS der Aufruf abgebrochen werden.
+Abgeleitet von: REQ-L1-105
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Beschreibung:** Dieses Subsystem setzt Validation-Fehlermeldungen um.
 
-**Domain:** system
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Timeout-Schwelle kann pro Service konfiguriert werden.
-- [ ] Aufruf wird bei Überschreitung abgebrochen.
+### REQ-L2-RES-008: L2 Requirement derived from REQ-L1-134
 
-**Interfaces:**
-- Outgoing: IF-L1-051
+Abgeleitet von: REQ-L1-134
 
+**Beschreibung:** Dieses Subsystem setzt Composite-Indexes für dominante Filterkombinationen um.
 
-**Traceability:** REQ-L1-032
-**Rationale:** Schützt das System vor unendlich hängenden Requests.
+### REQ-L2-RES-009: L2 Requirement derived from REQ-L1-269
 
----
+Abgeleitet von: REQ-L1-269
 
-### REQ-L2-RO-003: Retry-Logik mit Exponential Backoff
-Das ResilienceOrchestratorSystem SHALL bei transienten Fehlern mindestens einen Retry ausführen. Die Retry-Strategie MUSS ein Exponential Backoff verwenden.
+**Beschreibung:** Dieses Subsystem setzt Visueller Workflow-Editor (Phase 1, read-only) um.
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+### REQ-L2-RES-010: L2 Requirement derived from REQ-L1-075
 
-**Domain:** system
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Fehlgeschlagene Requests werden automatisch wiederholt (außer bei expliziten Non-Retryable Errors wie 400).
-- [ ] Wartezeit vergrößert sich exponentiell zwischen Retries.
+Abgeleitet von: REQ-L1-075
 
-**Interfaces:**
-- Outgoing: IF-L1-051
+**Beschreibung:** Dieses Subsystem setzt GraphQL & REST Parität um.
 
+### REQ-L2-RES-011: L2 Requirement derived from REQ-L1-099
 
-**Traceability:** REQ-L1-032
-**Rationale:** Erhöht die Erfolgsquote bei temporären Netzwerkproblemen.
+Abgeleitet von: REQ-L1-099
 
----
+**Beschreibung:** Dieses Subsystem setzt System Performance & Constraints um.
 
-### REQ-L2-RO-004: Circuit-Breaker-Logik
-Das ResilienceOrchestratorSystem SHALL einen Circuit-Breaker implementieren, der bei einer definierbaren Fehlerquote in den Zustand "Open" wechselt und nachfolgende Aufrufe direkt blockiert, bis eine "Half-Open" Recovery erfolgreich ist.
+### REQ-L2-RES-012: L2 Requirement derived from REQ-L1-026
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+Abgeleitet von: REQ-L1-026
 
-**Domain:** system
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Nach N konsekutiven Fehlern wird Circuit-Breaker "Open".
-- [ ] Aufrufe schlagen bei "Open" direkt fehl, ohne externes Subsystem zu belasten.
+**Beschreibung:** Dieses Subsystem setzt Übergreifende Performance-Anforderung um.
 
-**Interfaces:**
-- Outgoing: IF-L1-051
+### REQ-L2-RES-013: L2 Requirement derived from REQ-L1-126
 
+Abgeleitet von: REQ-L1-126
 
-**Traceability:** REQ-L1-032
-**Rationale:** Verhindert Kaskadeneffekte und gibt externen Systemen Zeit zur Erholung.
+**Beschreibung:** Dieses Subsystem setzt nginx SPA-Routing (History-API-Fallback) um.
 
----
+### REQ-L2-RES-014: L2 Requirement derived from REQ-L1-282
 
-### REQ-L2-RO-005: Graceful Degradation und Kernverfügbarkeit
-Das ResilienceOrchestratorSystem SHALL sicherstellen, dass Fehler in externen Subsystemen isoliert bleiben. Die Kernverfügbarkeit des restlichen Systems (CRUD, Baselines) MUSS bei Ausfall > 99,5 % bleiben.
+Abgeleitet von: REQ-L1-282
 
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+**Beschreibung:** Dieses Subsystem setzt ReviewPolicy-Modell und Workspace-Konfiguration um.
+### REQ-L2-RES-015: Integration of Context Generators (Superpowers)
 
-**Domain:** system
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Kompletter Ausfall von GitHub/LLM beeinträchtigt nicht das ReqFlow-Backend für Anforderungs-CRUD.
-- [ ] Graceful Degradation Responses geben dem Frontend an, dass ein optionales Subsystem temporär inaktiv ist.
+Abgeleitet von: REQ-L1-285
 
-**Interfaces:**
-- Incoming: IF-L1-049, IF-L1-050
+**Beschreibung:** Dieses Subsystem implementiert die L2-Anteile für Context Generators, Prompt Templates und Superpower-Erweiterungen.
 
+### REQ-L2-RES-016: Agent Templates and Write Modes (Superpowers)
 
-**Traceability:** REQ-L1-032
-**Rationale:** Produktionsstabilität darf nicht von optionalen Drittsystemen abhängen.
+Abgeleitet von: REQ-L1-286
 
----
-
-### REQ-L2-RO-006: Audit-Logging für Resilienz-Events
-Das ResilienceOrchestratorSystem SHALL Degradation-Events, Retry-Logs und Statuswechsel des Circuit-Breakers im AuditLog protokollieren.
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Domain:** system
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Circuit-Breaker-Öffnung wird im AuditLog protokolliert.
-- [ ] Degradation-Vorfälle sind nachvollziehbar.
-
-**Interfaces:**
-- Outgoing: IF-L1-052
-
-
-**Traceability:** REQ-L1-032
-**Rationale:** Sichtbarkeit für Administratoren zur Fehlerdiagnose bei externen Systemen.
-
----
-
-## Traceability-Matrix: REQ-L2-RO → REQ-L1
-
-| REQ-L2-RO | Primäre REQ-L1 | Mitwirkende REQ-L1 |
-|-----------|----------------|---------------------|
-| REQ-L2-RO-001 | REQ-L1-032 | — |
-| REQ-L2-RO-002 | REQ-L1-032 | — |
-| REQ-L2-RO-003 | REQ-L1-032 | — |
-| REQ-L2-RO-004 | REQ-L1-032 | — |
-| REQ-L2-RO-005 | REQ-L1-032 | — |
-| REQ-L2-RO-006 | REQ-L1-032 | — |
-
----
-
-## Zusammenfassung
-
-| Metrik | Wert |
-|--------|------|
-| Anzahl REQ-L2-RO | 6 |
-| Mandatory | 6 |
-| Desired | 0 |
-| Optional | 0 |
-| Abgedeckte REQ-L1 (primär) | 1 (REQ-L1-032) |
-| Abgedeckte REQ-L1 (mitwirkend) | 0 |
-| Referenzierte Interfaces | IF-L1-049..IF-L1-052 (alle 4) |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L1→L2 | 2026-06-21*
-*Handoff: HOFF-20260621-002 | Parent: REQ-L1-032 | Architektur-Referenz: ARCH-L1-016*
-*Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L2 | Abgeleitet von REQ-L1 |
-|---------|----------------------|
-| REQ-L2-RO-001 | REQ-L1-032 |
-| REQ-L2-RO-002 | REQ-L1-032 |
-| REQ-L2-RO-003 | REQ-L1-032 |
-| REQ-L2-RO-004 | REQ-L1-032 |
-| REQ-L2-RO-005 | REQ-L1-032 |
-| REQ-L2-RO-006 | REQ-L1-032 |
-
+**Beschreibung:** Dieses Subsystem implementiert die Agent Templates, Review Endpoints und Write Modes nach Phase 6 Vorgaben.

@@ -1,78 +1,64 @@
-# L3 COMP-ICD-002_ContractValidator Requirements
+decomposition_status: terminal
 
-> **Level:** L3 (Component-Anforderungen)
+# L3 COMP-ICD-002_ContractValidator Architecture
+
+> **Level:** L3 (Component internal design)
 > **System:** IcdManagementSystem (ARCH-L1-014)
 > **Component:** COMP-ICD-002_ContractValidator
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
-> **decomposition_status:** terminal
+> **decomposition_status:** terminal — component-level leaf, no further architecture decomposition.
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-ICD-002, REQ-L2-ICD-003
-- Architektur-Komponente: COMP-ICD-002_ContractValidator aus L2_IcdManagementSystem_Architecture.md
-
----
-
-## Komponenten-Zweck
-
-Die Komponente ContractValidator ist für die Überprüfung des semantischen Vertrags (Design-by-Contract) von ICDs verantwortlich. Sie prüft, ob die Vorbedingungen, Nachbedingungen und Invarianten korrekt modelliert sind und ermittelt beim Versionsvergleich Kompatibilitätsbrüche (Breaking Changes).
+Die Komponente `ContractValidator` ist ein statusloses Modul, das die semantischen Regeln des Design-by-Contract durchsetzt. Sie vergleicht Vorbedingungen (Preconditions), Nachbedingungen (Postconditions) und Invarianten zwischen ICD-Versionen, um Inkompatibilitäten (Breaking Changes) präzise zu erkennen.
 
 ---
 
-## Schnittstellen (Komponentengrenze)
+## 2. Internal White-Box Design (Klassen & Datenstrukturen)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-ICD-INT-001 | input | control/data | `validate_contract(old_version, new_version)` vom IcdManager |
+Da diese Komponente terminal ist, wird hier ihr internes Software-Design spezifiziert.
 
----
+### 2.1 Klassen und Hauptmethoden
 
-## L3 Anforderungen
+**Klasse `ContractValidator`**
+Eine statuslose Service-Klasse für semantische Vergleiche.
 
-### REQ-L3-ICD-002-001: Design-by-Contract Validierung
-Die Komponente ContractValidator SHALL bei der Vertragsprüfung die korrekte Struktur der Felder für Richtung, Typ, Beschreibung, Vorbedingungen, Nachbedingungen und Invarianten validieren.
+- `validate_syntax(payload: dict) -> bool`
+  - Prüft das eingehende DTO strukturell auf das Vorhandensein der Pflichtfelder (Richtung, Typ, Vor-/Nachbedingungen, Invarianten).
+- `validate_contract(old_version: IcdVersion, new_version: IcdVersion) -> ValidationResult`
+  - Analysiert die Änderungen im Vertrag zwischen alter und neuer Version.
+  - Prüft Regel 1 (Covariance/Contravariance): Vorbedingungen dürfen nur aufgeweicht, nicht verschärft werden.
+  - Prüft Regel 2: Nachbedingungen dürfen nur verschärft, nicht aufgeweicht werden.
+  - Prüft Regel 3: Invarianten müssen erhalten bleiben.
+  - Erkennt Breaking Changes in der Payload-Datenstruktur (z.B. gelöschte Pflichtfelder).
 
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+### 2.2 Datenstrukturen
 
-**Domain:** software
-**Priority:** mandatory
-
-**Traceability:** REQ-L2-ICD-002
-**Acceptance Criteria:**
-- [ ] Fehlerhafte Strukturen im Design-by-Contract Modell werden mit entsprechenden Validierungsfehlern abgelehnt.
-
-### REQ-L3-ICD-002-002: Breaking Change Erkennung
-Die Komponente ContractValidator SHALL beim Aufruf von `validate_contract` (IF-ICD-INT-001) einen semantischen Vergleich der Felder durchführen, um inkompatible Änderungen (Breaking Changes) wie z.B. Verschärfungen der Vorbedingungen oder Aufweichungen der Nachbedingungen zu identifizieren.
-
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Domain:** software
-**Priority:** mandatory
-
-**Traceability:** REQ-L2-ICD-003
-**Acceptance Criteria:**
-- [ ] Das Ergebnis der Validierung enthält ein Flag und eine Beschreibung, falls Breaking Changes erkannt wurden.
-- [ ] Kompatible Änderungen werden ohne Warnung zurückgeliefert.
+- `ValidationResult`:
+  - `is_breaking: bool` — Indikator, ob ein Kompatibilitätsbruch vorliegt.
+  - `breaking_changes: list[str]` — Eine Liste von Beschreibungen, welche vertraglichen Zusagen gebrochen wurden (z.B. "Vorbedingung 'requires_auth' wurde neu hinzugefügt").
 
 ---
 
-*Erstellt durch se-requirements-Agent | 2026-06-21*
+## 3. Erfüllung der L3 Anforderungen
 
+| REQ-ID | Erfüllung durch Design |
+|--------|------------------------|
+| REQ-L3-ICD-002-001 | Die Methode `validate_syntax` stellt die strukturelle Korrektheit des Design-by-Contract Modells sicher und weist fehlerhafte Inputs ab. |
+| REQ-L3-ICD-002-002 | Die Hauptmethode `validate_contract` setzt den semantischen Vergleich um und befüllt das `ValidationResult`-Objekt mit expliziten Fehlerbeschreibungen bei Breaking Changes. |
 
-## Master Traceability Matrix
+---
 
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-ICD-002-001 | REQ-L2-ICD-002 |
-| REQ-L3-ICD-002-002 | REQ-L2-ICD-003 |
+## 4. Schnittstellen Mapping
 
+| IF-ID | Implementierung in Code |
+|-------|-------------------------|
+| IF-ICD-INT-001 | Der `IcdManager` nutzt die Methode `validate_contract` synchron, um den Status vor der Aktualisierung zu prüfen. |
+
+---
+
+*Erstellt durch se-architect-Agent | 2026-06-21*

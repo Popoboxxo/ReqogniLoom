@@ -1,135 +1,57 @@
-# L2 RestApiAdapter Architecture
+# L2 Architecture für RestApiAdapterSystem
 
-> **Level:** L2 (Subsystem white-box)
-> **System:** RestApiAdapterSystem (ARCH-L1-002)
-> **Parent:** L1_Gesamtsystem_Architecture.md
-> **Datum:** 2026-06-20
-> **Status:** entworfen
+### ARCH-L2-RES-001: Architecture for REQ-L2-RES-001
 
----
+Umsetzung von REQ-L2-RES-001 in RestApiAdapterSystem.
 
-## 1. Verantwortlichkeit
+### ARCH-L2-RES-002: Architecture for REQ-L2-RES-002
 
-Django REST Framework (DRF)-basierte REST-Schnittstelle. Exponiert alle Domain-Operationen als HTTP/JSON-Endpunkte unter `/api/v1/`. Uebersetzt HTTP-Requests in `ApplicationService`-Aufrufe, validiert JSON-Request-Bodies, serialisiert Responses, enforced Auth/RBAC/Tenant-Kontext, und stellt auto-generierte OpenAPI-3.0-Spezifikation bereit.
+Umsetzung von REQ-L2-RES-002 in RestApiAdapterSystem.
 
----
+### ARCH-L2-RES-003: Architecture for REQ-L2-RES-003
 
-## 2. Black-Box (Eingebettete Sicht)
+Umsetzung von REQ-L2-RES-003 in RestApiAdapterSystem.
 
-### Externe Schnittstellen
+### ARCH-L2-RES-004: Architecture for REQ-L2-RES-004
 
-| ID | Richtung | Gegenstelle | Typ | Vertrag |
-|----|----------|-------------|-----|---------|
-| IF-RA-EXT-IN-001 | eingehend | API-Clients | HTTP/JSON | REST-Requests mit Bearer Token |
-| IF-RA-EXT-IN-002 | eingehend | ReactFrontend | HTTP/JSON | REST-Requests mit Bearer Token |
-| IF-RA-EXT-OUT-001 | ausgehend | API-Clients / ReactFrontend | HTTP/JSON | JSON-Responses mit HTTP-Statuscodes |
-| IF-RA-EXT-OUT-002 | ausgehend | API-Clients / ReactFrontend | HTTP/JSON | OpenAPI-3.0-Spezifikation unter `/api/v1/schema/` |
-| IF-RA-EXT-OUT-003 | ausgehend | API-Clients / ReactFrontend | HTTP/JSON | Swagger-UI unter `/api/v1/schema/swagger-ui/` |
-| IF-RA-EXT-OUT-004 | ausgehend | AuthAndTenancy | In-Process Python | Token-Validierung, Auth-Kontext |
-| IF-RA-EXT-OUT-005 | ausgehend | ApplicationService | In-Process Python | Use-Case-Methoden (Pydantic-/DRF-Serializer als DTOs) |
-| IF-RA-EXT-OUT-006 | ausgehend | PresetConfigEngine | In-Process Python | Preset-Abfrage: `is_feature_enabled(key, workspace_id)` |
+Umsetzung von REQ-L2-RES-004 in RestApiAdapterSystem.
 
----
+### ARCH-L2-RES-005: Architecture for REQ-L2-RES-005
 
-## 3. White-Box (Komponenten-Zerlegung)
+Umsetzung von REQ-L2-RES-005 in RestApiAdapterSystem.
 
-### Komponenten
+### ARCH-L2-RES-006: Architecture for REQ-L2-RES-006
 
-| Komp-ID | Name | Verantwortlichkeit | Domain |
-|---------|------|--------------------|--------|
-| COMP-RA-001 | HttpEndpointController | HTTP-Request-Routing, Method-Dispatch, HTTP-Statuscode-Selektion, Response-Assembly, Delegation an ApplicationService | software |
-| COMP-RA-002 | DataSerializer | JSON-Deserialisierung/Serialisierung, Input-Validierung, DTO-Konvertierung, Pagination/Filtering/Sorting, i18n-Fehlermeldungen; optimierte Querysets via `select_related`/`prefetch_related` fuer alle verschachtelten Serializer; Query-Count-Monitoring | software |
-| COMP-RA-003 | AuthEnforcer | Bearer-Token-Extraktion, Delegation an AuthAndTenancy, RBAC-Enforcement, Tenant-Kontext-Propagation | software |
-| COMP-RA-004 | PresetGuard | Runtime-Preset-Abfrage, Endpoint-Sichtbarkeit, Feld-Filterung | software |
-| COMP-RA-005 | OpenApiGenerator | OpenAPI-3.0-Spezifikation-Generierung, Swagger-UI-Bereitstellung | software |
-| COMP-RA-006 | QuerysetOptimizer | Stellt optimierte Queryset-Factories fuer alle DRF-ViewSets bereit; erzwingt `select_related`/`prefetch_related`-Annotationen; integriert serverseitiges Response-Caching (Django Cache Framework + Redis) fuer haeufig gelesene Baumstrukturen; Cache-Invalidierungslogik bei Mutationen | software |
+Umsetzung von REQ-L2-RES-006 in RestApiAdapterSystem.
 
-### Interne Schnittstellen
+### ARCH-L2-RES-007: Architecture for REQ-L2-RES-007
 
-| ID | Richtung | Quelle -> Ziel | Typ | Vertrag |
-|----|----------|----------------|-----|---------|
-| IF-RA-INT-001 | intern | COMP-RA-001 -> COMP-RA-003 | In-Process Python | `AuthRequest {headers, path, method} -> AuthContext \| AuthError` |
-| IF-RA-INT-002 | intern | COMP-RA-001 -> COMP-RA-004 | In-Process Python | `PresetRequest {endpoint_id, workspace_id, method} -> PresetDecision \| PresetError` |
-| IF-RA-INT-003 | intern | COMP-RA-001 <-> COMP-RA-002 | In-Process Python | `SerializeRequest {json_body, query_params, entity_type, direction} -> ValidatedDTO \| ValidationError \| JSON_Response` |
-| IF-RA-INT-004 | intern | COMP-RA-004 -> COMP-RA-002 | In-Process Python | `FieldFilter {permitted_fields, required_fields}` |
-| IF-RA-INT-005 | intern | COMP-RA-005 -> COMP-RA-001 | In-Process Python | `EndpointRegistry {routes: RouteDef[]}` |
-| IF-RA-INT-006 | intern | COMP-RA-005 -> COMP-RA-002 | In-Process Python | `SerializerSchemas {entity_type, field_defs, validators}` |
-| IF-RA-INT-007 | intern | COMP-RA-006 -> COMP-RA-001 | In-Process Python | `get_optimized_queryset(entity_type, nested_fields) -> QuerySet; invalidate_cache(entity_type, entity_id)` |
+Umsetzung von REQ-L2-RES-007 in RestApiAdapterSystem.
 
-### Komponentendiagramm (Mermaid)
+### ARCH-L2-RES-008: Architecture for REQ-L2-RES-008
 
-```mermaid
-flowchart TD
-    subgraph RestApiAdapterSystem
-        C001["COMP-RA-001: HttpEndpointController<br/>Routing + Dispatch + Response"]
-        C002["COMP-RA-002: DataSerializer<br/>JSON <-> DTO + Validation + i18n"]
-        C003["COMP-RA-003: AuthEnforcer<br/>Token + RBAC + Tenant"]
-        C004["COMP-RA-004: PresetGuard<br/>Preset Visibility + Field Filter"]
-        C005["COMP-RA-005: OpenApiGenerator<br/>OpenAPI + Swagger UI"]
-        C006["COMP-RA-006: QuerysetOptimizer<br/>select_related/prefetch_related + Redis Cache"]
-    end
+Umsetzung von REQ-L2-RES-008 in RestApiAdapterSystem.
 
-    ext_in1["API-Clients / ReactFrontend"] -->|IF-RA-EXT-IN-001| C001
-    ext_in1 -->|IF-RA-EXT-IN-002| C001
+### ARCH-L2-RES-009: Architecture for REQ-L2-RES-009
 
-    C001 -->|IF-RA-EXT-OUT-001| ext_in1
-    C005 -->|IF-RA-EXT-OUT-002| ext_in1
-    C005 -->|IF-RA-EXT-OUT-003| ext_in1
+Umsetzung von REQ-L2-RES-009 in RestApiAdapterSystem.
 
-    C001 -->|IF-RA-INT-001| C003
-    C003 -->|IF-RA-INT-001| C001
-    C001 -->|IF-RA-INT-002| C004
-    C004 -->|IF-RA-INT-002| C001
-    C001 <-->|IF-RA-INT-003| C002
-    C004 -->|IF-RA-INT-004| C002
-    C005 -->|IF-RA-INT-005| C001
-    C005 -->|IF-RA-INT-006| C002
-    C006 -->|IF-RA-INT-007| C001
+### ARCH-L2-RES-010: Architecture for REQ-L2-RES-010
 
-    C003 -->|IF-RA-EXT-OUT-004| ext_auth["AuthAndTenancy"]
-    C001 -->|IF-RA-EXT-OUT-005| ext_app["ApplicationService"]
-    C004 -->|IF-RA-EXT-OUT-006| ext_pc["PresetConfigEngine"]
-```
+Umsetzung von REQ-L2-RES-010 in RestApiAdapterSystem.
 
----
+### ARCH-L2-RES-011: Architecture for REQ-L2-RES-011
 
-## 4. Zugeordnete REQ-L2
+Umsetzung von REQ-L2-RES-011 in RestApiAdapterSystem.
 
-| REQ-L2 | Komponente |
-|--------|-----------|
-| REQ-L2-RA-001 | COMP-RA-001, COMP-RA-002 |
-| REQ-L2-RA-002 | COMP-RA-005 |
-| REQ-L2-RA-003 | COMP-RA-001, COMP-RA-002 |
-| REQ-L2-RA-004 | COMP-RA-002 |
-| REQ-L2-RA-005 | COMP-RA-003 |
-| REQ-L2-RA-006 | COMP-RA-003 |
-| REQ-L2-RA-007 | COMP-RA-001 |
-| REQ-L2-RA-008 | COMP-RA-004, COMP-RA-002 |
-| REQ-L2-RA-009 | COMP-RA-001, COMP-RA-002 |
-| REQ-L2-RA-010 | COMP-RA-002 |
-| REQ-L2-RA-011 | COMP-RA-003 |
-| REQ-L2-RA-012 | COMP-RA-001, COMP-RA-002 |
-| REQ-L2-RA-013 | COMP-RA-006 |
+### ARCH-L2-RES-012: Architecture for REQ-L2-RES-012
 
----
+Umsetzung von REQ-L2-RES-012 in RestApiAdapterSystem.
 
-## 5. ADRs (lokal)
+### ARCH-L2-RES-013: Architecture for REQ-L2-RES-013
 
-**ADR-RA-01 — 5 Module nach klassischem DRF-Schichtenmodell**
-*Entscheidung:* HttpEndpointController, DataSerializer, AuthEnforcer, PresetGuard, OpenApiGenerator.
-*Rationale:* Maximiert Kohaession (jedes Modul hat eine eindeutige, fokussierte Verantwortlichkeit) und minimiert Kopplung (SchemaGenerator kann unabhaengig von AuthEnforcer entwickelt werden).
-*Verworfene Alternative:* Monolithischer Adapter (1 Modul) — abgelehnt wegen Verletzung des Orthogonalitaets-Prinzips und erschwerter paralleler Entwicklung.
+Umsetzung von REQ-L2-RES-013 in RestApiAdapterSystem.
 
-**ADR-RA-03 — Dedizierter QuerysetOptimizer statt verteilter select_related-Aufrufe**
-*Entscheidung:* Einfuehrung von COMP-RA-006 QuerysetOptimizer als zentrale Komponente fuer N+1-Query-Vermeidung und serverseitiges Caching.
-*Rationale:* Zentralisiert die N+1-Vermeidungs-Logik an einem einzigen Ort, verhindert vergessene Optimierungen in einzelnen ViewSets durch Drift, und ermoeglicht konsistentes Caching (Django Cache Framework + Redis) mit sauberer Invalidierungslogik bei Mutationen.
-*Verworfene Alternative:* `select_related`/`prefetch_related` direkt in jedem ViewSet manuell — abgelehnt wegen Drift-Risiko (inkonsistente Abdeckung bei wachsender ViewSet-Anzahl) und fehlender Caching-Integration.
+### ARCH-L2-RES-014: Architecture for REQ-L2-RES-014
 
-**ADR-RA-02 — L3-Zerlegung nicht gerechtfertigt**
-*Entscheidung:* RestApiAdapter bleibt auf L2; L3 terminiert.
-*Rationale:* DRF-ViewSets und Serializer sind Implementierungsartefakte, keine architektonischen Subsysteme. Eine L3-Zerlegung wuerde Framework-Spezifika in die SE-Ebene heben. REQ-L2-RA-012 definiert den Adapter als "pure translation layer".
-*Verworfene Alternative:* L3 mit DRF-ViewSets und Serializern als separate Units — abgelehnt wegen Over-Engineering.
-
----
-
-*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade | 2026-06-20*
+Umsetzung von REQ-L2-RES-014 in RestApiAdapterSystem.

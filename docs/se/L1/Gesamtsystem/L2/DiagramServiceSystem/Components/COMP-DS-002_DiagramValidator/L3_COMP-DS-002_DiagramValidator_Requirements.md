@@ -1,109 +1,63 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-21T23:15:00Z"
+timestamp: "2026-06-21T23:20:00Z"
 schema_version: "1.0.0"
 ---
-# L3 DiagramValidator Requirements
+# L3 DiagramValidator Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-DS-002_DiagramValidator
-> **Parent:** L2_DiagramServiceSystem_Requirements.md
+> **Parent:** L2_DiagramServiceSystem_Architecture.md
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
-> **decomposition_status:** terminal
+> **decomposition_status:** terminal — component-level leaf, no further SE decomposition
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-DS-002 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der DiagramValidator prüft den rohen Payload von Diagrammen auf syntaktische Korrektheit gemäß ihrem Typ (z.B. Mermaid, PlantUML). Dadurch wird verhindert, dass ungültige oder fehlerhafte Modelle in das System gelangen.
+Der DiagramValidator ist zuständig für die syntaktische und typenspezifische Prüfung von Diagramm-Payloads, bevor diese vom DiagramManager gespeichert werden.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-DS-INT-001 | input | data | Validierungsaufruf durch den DiagramManager (`validate_payload(type, content)`) |
+Da dies eine terminale Komponente ist, beschreibt die White-Box die internen Software-Klassen und Datenstrukturen.
 
----
+### 2.1 Klassen und Module
 
-## L3 Component-Anforderungen
-
-### REQ-L3-DV-001: Payload-Validierung nach Typ
-
-Der DiagramValidator SHALL den Payload anhand typspezifischer Syntaxregeln überprüfen und bei Fehlern abweisen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Blockdiagramm, Flussdiagramm und Kontextdiagramm werden validiert.
-- [ ] Bei Fehler wird False/Exception mit konkretem Grund (Zeilennummer, Syntax-Fehler) zurückgegeben.
-- [ ] Bei Erfolg wird True zurückgegeben.
-
-**Interfaces:**
-- Incoming: IF-DS-INT-001
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-DS-002
-**Rationale:** Verhindert das Speichern und Rendern defekter Diagramme.
+- **`DiagramValidator` (Klasse/Modul):** Bietet die Haupt-Einstiegsmethode `validate_payload(type, content) -> bool`.
+- **`TypeParsers` (Strategien):** Für jeden unterstützten Diagramm-Typ (z.B. `MermaidParser`, `PlantUMLParser`) existiert ein eigener Parser, der die Syntax gegen bekannte Regeln oder Grammatiken prüft.
 
 ---
 
-### REQ-L3-DV-002: Typenprüfung
+## 3. Erfüllung der Anforderungen
 
-Der DiagramValidator SHALL Diagramme abweisen, deren Typ nicht durch das System unterstützt wird.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Unbekannte Typen werden mit Fehler abgelehnt.
-
-**Interfaces:**
-- Incoming: IF-DS-INT-001
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-DS-002
-**Rationale:** Das System darf keine Payloads annehmen, die später nicht gerendert werden können.
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-DV-001 (Payload-Validierung nach Typ) | Die Methode routet den Content an den spezifischen Parser. Ein syntaktischer Fehler wirft eine typspezifische Exception (mit Zeilennummer), die gefangen und in eine lesbare Ablehnung übersetzt wird. |
+| REQ-L3-DV-002 (Typenprüfung) | Ein Dictionary (Registry) mappt Typ-Strings auf Parser. Unbekannte Typ-Strings werfen sofort eine `UnsupportedDiagramTypeError`. |
 
 ---
 
-## Traceability-Matrix: REQ-L3-DV → REQ-L2
+## 4. Schnittstellen-Implementierung
 
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-DV-001 | REQ-L2-DS-002 |
-| REQ-L3-DV-002 | REQ-L2-DS-002 |
+- **Eingänge (Inbound):**
+  - **IF-DS-INT-001:** Synchroner In-Process Call durch `COMP-DS-001_DiagramManager`.
 
 ---
 
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
+## 5. Architectural Rationale
+
+**ADR-L3-DV-01 — Strategy Pattern für Validatoren**
+*Entscheidung:* Einsatz des Strategy Patterns zur Entkopplung verschiedener Diagrammtypen.
+*Rationale:* Da das System in Zukunft weitere Diagramm-Technologien (z.B. C4-PlantUML, D2) unterstützen soll, können neue Parser konfliktfrei als neue Strategien registriert werden (Open-Closed Principle).
+
+---
+
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-DV-001 | REQ-L2-DS-002 |
-| REQ-L3-DV-002 | REQ-L2-DS-002 |
-

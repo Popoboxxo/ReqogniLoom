@@ -1,400 +1,139 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-22T14:30:00Z"
+timestamp: "2026-06-22T14:45:00Z"
 schema_version: "1.0.0"
 ---
-# L3 DomainEventBus Requirements
+# L3 DomainEventBus Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-AS-016_DomainEventBus
-> **Parent:** L2_ApplicationServiceSystem_Requirements.json
+> **Parent:** L2_ApplicationServiceSystem_Architecture.md
 > **Datum:** 2026-06-22
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-AppSvc-026 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone Event-basierte Kommunikation im ApplicationServiceSystem. Er publiziert typisierte Domain-Events nach Datenbankänderungen (via post_commit-Hook), speichert diese in einem Transactional Outbox Store und stellt sie asynchron an registrierte Subscriber zu (AuditLogWriter, SeMetrics, WebhookDispatcher). Garantiert Exactly-Once-Delivery und Entkopplung von schreibenden Domain-Services.
+Der DomainEventBus ist die zentrale Entkopplungs-Infrastruktur für asynchrone Event-basierte Kommunikation im ApplicationServiceSystem. Er publiziert typisierte Domain-Events nach Datenbankänderungen (via post_commit-Hook), speichert diese in einem Transactional Outbox Store für Durability und stellt sie asynchron an registrierte Subscriber zu (AuditLog, WebhookDispatcher, Metrics). Der EventBus garantiert Exactly-Once-Delivery und FIFO-Ordering pro Workspace sowie Entkopplung von schreibenden Domain-Services.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-AS-INT-009 bis 017 | input | event | Domain-Event-Publikation von schreibenden Services (post_commit Hook, async enqueue) |
-| IF-AS-EXT-OUT-007 | output | data | Transactional Outbox Table im PersistenceLayer (INSERT Events) |
-| IF-AS-INT-013, 014 | output | async | Subscriber-Dispatch an WebhookDispatcher und AuditLog (async worker call) |
-| (internal) | input | control | Worker-Queue-Polling (Django-Q/Celery) für Event-Processing |
+### 2.1 Klassen und Module
 
----
+- **`DomainEventBus` (Singleton):** Zentrale Event-Bus-Engine:
+  - `publish(domain_event)`: Speichert Event in Outbox-Tabelle (post_commit Hook)
+  - `register_subscriber(event_type, subscriber_callable)`: Registriert Subscriber
+  - `unregister_subscriber(event_type, subscriber_id)`: Deregistriert Subscriber
+  - `get_subscriber_registry()`: Gibt aktuelles Subscriber-Registry zurück
 
-## L3 Component-Anforderungen
+- **`OutboxPoller` (Worker/Task):** Asynchroner Worker (Celery/Django-Q):
+  - Polliert Outbox-Tabelle regelmäßig (WHERE published=FALSE)
+  - Selektiert Events mit SELECT FOR UPDATE (Locking)
+  - Dispatcht Event an alle Subscriber
+  - Markiert published=TRUE, published_at=NOW
+  - Bei Fehler: Retry mit exponentieller Backoff, nach max_retries → DLQ
 
-### REQ-L3-DEB-001: Transactional Outbox Table
+- **`EventValidator` (Klasse):** Validiert Event-Payloads gegen Schemata (JSON-Schema oder Pydantic).
 
-Der DomainEventBus SHALL Events in einer persistenten Outbox-Tabelle speichern (statt direkt in Memory):
+- **`SubscriberRegistry` (Klasse):** Hashmap {event_type → [subscriber_callable]}.
 
-**Tabelle: domain_event_outbox**
-- `id` (PK)
-- `event_id` (UUID, unique)
-- `event_type` (enum: RequirementCreated, RequirementUpdated, RequirementDeleted, ArchitectureElementCreated/Updated/Deleted, TestCaseCreated/Updated/Deleted, BaselineCreated, WorkflowTransitioned, AdrCreated/Updated/Deleted, RiskCreated/Updated/Deleted, IssueCreated/Updated/Deleted)
-- `workspace_id` (UUID, FK auf Workspace)
-- `entity_id` (UUID, ID des betroffenen Artefakts)
-- `payload` (JSONB, vollständige Event-Daten)
-- `created_at` (Timestamp)
-- `published_at` (Timestamp, NULL bis publiziert)
-- `published` (Boolean, default FALSE)
+- **`DLQManager` (Klasse):** Verwaltet Dead-Letter-Queue (domain_event_dlq Tabelle).
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Tabelle wird als Django-Model definiert
-- [ ] Event-Type wird als Enum/Choices konfiguriert
-- [ ] Unique Constraint auf event_id (Idempotenz)
-- [ ] Index auf (published, created_at) für Worker-Queries
-- [ ] Payload wird als JSON gespeichert
+### 2.2 Datenstrukturen
 
-**Interfaces:** IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
+- **domain_event_outbox Tabelle:**
+  - `id` (PK)
+  - `event_id` (UUID, unique)
+  - `event_type` (enum: RequirementCreated, RequirementUpdated, ..., AdrCreated, RiskCreated, IssueCreated, WorkflowTransitioned, BaselineCreated)
+  - `workspace_id` (UUID, FK)
+  - `entity_id` (UUID, betroffenes Artefakt)
+  - `payload` (JSONB)
+  - `created_at` (Timestamp)
+  - `published_at` (Timestamp, NULL bis publiziert)
+  - `published` (Boolean, default FALSE)
 
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Durability und Exactly-Once-Delivery garantiert durch DB-Persistierung.
+- **domain_event_dlq Tabelle:**
+  - `event_id`, `event_type`, `workspace_id`, `payload`, `error_message`, `retry_count`, `moved_at`
 
 ---
 
-### REQ-L3-DEB-002: Event-Publikation im post_commit Hook
+## 3. Erfüllung der Anforderungen
 
-Die schreibenden Domain-Services publizieren Events nach erfolgreicher DB-Commit (nicht vor):
-- Nach `transaction.commit()` wird post_commit-Hook ausgelöst
-- Hook ruft `DomainEventBus.publish(event)` auf
-- Event wird in Outbox-Tabelle eingefügt
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] post_commit-Hook wird korrekt registriert (Django signal oder explicit hook)
-- [ ] Event wird erst nach erfolgreichem Commit publiziert
-- [ ] Rollback verhindert Event-Publikation
-- [ ] Multiple Events in einer Transaktion werden alle oder keine publiziert
-- [ ] Hook-Fehler werden geloggt (nicht propagiert)
-
-**Interfaces:** IF-AS-INT-009, 010, 011, 012, 015, 016, 017, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Garantierte Konsistenz: DB-Change ↔ Event-Publikation.
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-DEB-001 (Transactional Outbox Table) | Django-Model definiert domain_event_outbox mit Feldern: event_id (unique), event_type (enum), workspace_id, entity_id, payload (JSONB), created_at, published_at, published. Index auf (published, created_at) für Worker-Queries. |
+| REQ-L3-DEB-002 (Event-Publikation im post_commit Hook) | Schreibende Domain-Services (RequirementService, etc.) registrieren post_commit-Hook: `transaction.on_commit(lambda: DomainEventBus.publish(event))`. Hook läuft nach erfolgreichem DB-Commit. Rollback verhindert Event-Publikation. Multiple Events in einer Transaktion: alle oder keine publiziert. |
+| REQ-L3-DEB-003 (Event-Typ-Definition und Schema) | Event-Types dokumentiert mit Payload-Schema (JSON-Schema oder Pydantic): RequirementCreated/Updated/Deleted (entity_id, workspace_id, title, description, parent_id, workflow_state), ArchitectureElementCreated/Updated/Deleted, TestCaseCreated/Updated/Deleted, BaselineCreated, WorkflowTransitioned (old_state, new_state, change_reason), Adr/Risk/IssueCreated/Updated/Deleted (mit relevanten Feldern). Validation vor Outbox-INSERT. |
+| REQ-L3-DEB-004 (Asynchroner Worker-Dispatch) | OutboxPoller-Worker: Poll-Intervall (default 1s, konfigurierbar). Query: SELECT * FROM domain_event_outbox WHERE published=FALSE ORDER BY created_at LIMIT 100. SELECT FOR UPDATE für Locking. Dispatch Event an Subscriber. Bei Erfolg: UPDATE published=TRUE, published_at=NOW. Worker-Fehler geloggt. |
+| REQ-L3-DEB-005 (Subscriber-Registration) | SubscriberRegistry: dict {event_type → [callables]}. Methode `register_subscriber(event_type, callable)` fügt hinzu. Event-Type-basierte Filterung: Nur Subscriber der passenden Event-Type werden benachrichtigt. Dynamische Registrierung/Deregistrierung. Mehrere Subscriber pro Type. Vordefinierte Subscriber: AuditLogWriter, WebhookDispatcher, SeMetrics. |
+| REQ-L3-DEB-006 (Exactly-Once-Delivery) | (1) Durability: Events persistent in Outbox vor Dispatch. (2) Idempotenz: unique event_id, Duplicate-Events verworfen. (3) Ordering: FIFO pro Workspace (ORDER BY created_at). (4) Atomicity: published-Flag nur nach erfolgreicher Subscriber-Verarbeitung. Keine Event-Verluste auch bei Worker-Crash. |
+| REQ-L3-DEB-007 (Dead-Letter-Queue) | Events, die nach max_retries (default 5) fehlschlagen, werden zu domain_event_dlq verschoben. DLQ speichert: event_id, event_type, workspace_id, payload, error_message, retry_count, moved_at. DLQ querybar (Admin-Interface). Manual Replay aus DLQ möglich. Metriken für DLQ-Größe. |
+| REQ-L3-DEB-008 (Subscriber-Timeout und Graceful Degradation) | Subscriber-Timeout: 30s (konfigurierbar). Bei Timeout/Fehler eines Subscribers: Abbrechen, zu Retry-Queue hinzufügen. Andere Subscriber blockiert nicht. Fehlgeschlagene Subscriber geloggt. Exponential Backoff für Retries. Max 5 Retries pro Event. |
+| REQ-L3-DEB-009 (Workspace-spezifisches Event-Processing) | workspace_id mandatory in allen Events. Subscriber-Dispatch filtert nach workspace_id (falls konfiguriert). Keine Cross-Workspace-Event-Publikation. Worker verarbeitet Events pro Workspace isoliert. |
+| REQ-L3-DEB-010 (Monitoring und Metriken) | Metriken exponiert (Prometheus-Format, `/metrics` Endpoint): Events published per event_type (counter), Events pending (gauge: WHERE published=FALSE), Events in DLQ (gauge), Subscriber-Latenz p50/p95/p99 (histogram), Subscriber-Error-Rate (gauge). Event-Type-Aggregation. Subscriber-Performance trackbar. Alerts möglich. |
 
 ---
 
-### REQ-L3-DEB-003: Event-Typ-Definition und Schema
+## 4. Schnittstellen-Implementierung
 
-Der DomainEventBus SHALL folgende Event-Typen und deren Payload-Schema definieren:
+- **Eingänge (Inbound):**
+  - **IF-AS-INT-009 bis 017:** Domain-Event-Publikation von schreibenden Services (post_commit Hook, async enqueue): RequirementCreated/Updated/Deleted, ArchitectureElementCreated/Updated/Deleted, TestCaseCreated/Updated/Deleted, BaselineCreated, WorkflowTransitioned, AdrCreated/Updated/Deleted, RiskCreated/Updated/Deleted, IssueCreated/Updated/Deleted.
 
-**RequirementCreated/Updated/Deleted:**
-- entity_id, workspace_id, title, description, parent_id, workflow_state
-
-**ArchitectureElementCreated/Updated/Deleted:**
-- entity_id, workspace_id, element_type, title, description, version
-
-**TestCaseCreated/Updated/Deleted:**
-- entity_id, workspace_id, test_type, title, execution_status
-
-**BaselineCreated:**
-- entity_id, workspace_id, baseline_name, scope, snapshot_json
-
-**WorkflowTransitioned:**
-- entity_id, workspace_id, old_state, new_state, change_reason
-
-**AdrCreated/Updated/Deleted, RiskCreated/Updated/Deleted, IssueCreated/Updated/Deleted:**
-- entity_id, workspace_id, title, description, status/severity
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle Event-Typen sind dokumentiert
-- [ ] Payload-Schema ist definiert (JSON-Schema oder Pydantic)
-- [ ] Validation erfolgt vor Outbox-INSERT
-- [ ] Ungültige Events werden abgewiesen
-
-**Interfaces:** IF-AS-INT-009, 010, 011, 012, 015, 016, 017
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Konsistente und validierbare Event-Struktur.
+- **Ausgänge (Outbound):**
+  - **IF-AS-EXT-OUT-007:** INSERT Events in Outbox-Tabelle (PersistenceLayer).
+  - **IF-AS-INT-013, 014:** Async Worker-Dispatch an WebhookDispatcher, AuditLog (async task call).
 
 ---
 
-### REQ-L3-DEB-004: Asynchroner Worker-basierter Dispatch
+## 5. Architectural Rationale
 
-Der DomainEventBus SHALL Events asynchron an Subscriber dispatchen via Worker-Queue (Django-Q oder Celery):
-- Worker fragt regelmäßig Outbox-Tabelle ab (WHERE published = FALSE)
-- Worker sortiert Events nach created_at (FIFO-Ordering)
-- Worker lockt Event für Verarbeitung (SELECT FOR UPDATE)
-- Worker dispatcht Event an registrierte Subscriber
-- Bei Erfolg: Event wird als published = TRUE markiert, published_at aktualisiert
+**ADR-L3-DEB-01 — Transactional Outbox statt In-Memory Event-Queue**
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Worker wird als Celery/Django-Q task implementiert
-- [ ] Poll-Intervall ist konfigurierbar (default 1s)
-- [ ] SELECT FOR UPDATE verhindert Duplicate-Processing
-- [ ] Worker-Fehler werden geloggt
-- [ ] Dead-Letter-Queue für fehlgeschlagene Events (nach max retries)
+*Entscheidung:* Events werden persistent in Outbox-Tabelle gespeichert (nicht In-Memory Queue), bevor sie dispatched werden.
 
-**Interfaces:** IF-AS-INT-013, 014, IF-AS-EXT-OUT-007
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
+*Rationale:* Garantiert Durability auch bei Service-Crash. In-Memory Queue würde Events verlieren bei Restart. Transactional Outbox ist DB-native Lösung ohne externe Dependencies (Redis, Kafka). Alternative: Kafka/RabbitMQ → zusätzliche Infrastruktur, Komplexität. **Abgelehnt**: Outbox ist simpler und DB-native.
 
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Nicht-blockierende Delivery garantiert schnelle API-Antworten.
+*Erfüllt Trigger:* REQ-L3-DEB-001, REQ-L3-DEB-006 (Durability und Exactly-Once-Delivery).
 
 ---
 
-### REQ-L3-DEB-005: Subscriber-Registration und Dispatch
+**ADR-L3-DEB-02 — post_commit Hook für Event-Publikation**
 
-Der DomainEventBus SHALL ein Subscriber-Registry anbieten:
-- `register_subscriber(event_type, subscriber_callable)`
-- Subscriber wird nach Event-Type gefiltert
-- Event wird an alle registrierten Subscriber dieser Event-Type dispatched
+*Entscheidung:* Events werden nach erfolgreicher DB-Commit publiziert (via `transaction.on_commit()`), nicht vor oder während Commit.
 
-Vordefinierte Subscriber:
-- AuditLogWriter (all write events)
-- WebhookDispatcher (RequirementCreated/Updated, WorkflowTransitioned, BaselineCreated)
-- SeMetrics (all write events, für Metriken-Aggregation)
+*Rationale:* Garantiert Konsistenz: Entweder DB-Change+Event existieren oder beide nicht. Keine Events ohne DB-Change. Alternative: Publish vor Commit → Event könnte verloren gehen bei Rollback. **Abgelehnt**: Konsistenz erfordert post_commit Hook.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Subscriber-Registry ist implementiert
-- [ ] Event-Type-basierte Filterung funktioniert
-- [ ] Subscriber werden in Konfiguration definiert (nicht hard-coded)
-- [ ] Subscriber können dynamisch registriert/de-registriert werden
-- [ ] Mehrere Subscriber derselben Type möglich
-
-**Interfaces:** IF-AS-INT-013, 014
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Erweiterbarkeit und Entkopplung.
+*Erfüllt Trigger:* REQ-L3-DEB-002 (Event-Publikation im post_commit Hook).
 
 ---
 
-### REQ-L3-DEB-006: Exactly-Once-Delivery Semantik
+**ADR-L3-DEB-03 — SELECT FOR UPDATE Locking statt Optimistic Locking**
 
-Der DomainEventBus SHALL Exactly-Once-Delivery garantieren:
-1. Durability: Events werden persistent in Outbox gespeichert vor Dispatch-Versuch
-2. Idempotenz: Event-ID ist unique, Duplicate-Events werden ignoriert
-3. Ordering: Events werden pro Workspace in FIFO-Reihenfolge dispatched
-4. Atomicity: Event-Status wird nur nach erfolgreicher Subscriber-Verarbeitung aktualisiert
+*Entscheidung:* Worker verwendet `SELECT ... FOR UPDATE` um Events zu locken, während sie verarbeitet werden. Verhindert Duplicate-Processing.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Duplicate event_ids werden verworfen (unique constraint)
-- [ ] Workspace-spezifisches FIFO-Ordering
-- [ ] Event-Status wird nur nach SUCCESS aktualisiert
-- [ ] Keine Event-Verluste auch bei Worker-Crash (Durability)
+*Rationale:* Pessimistisches Locking (SELECT FOR UPDATE) verhindert sicher, dass zwei Worker dieselbe Event gleichzeitig verarbeiten. Optimistic Locking (version-Feld) würde Retries erfordern. Alternative: Kein Locking → Duplicate-Processing möglich (Event könnte zweimal dispatched werden). **Abgelehnt**: Exactly-Once-Delivery erfordert Locking.
 
-**Interfaces:** IF-AS-EXT-OUT-007, IF-AS-INT-013, 014
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Zuverlässigkeitszusage für Subscription-basierte Systeme.
+*Erfüllt Trigger:* REQ-L3-DEB-006 (Exactly-Once-Delivery).
 
 ---
 
-### REQ-L3-DEB-007: Dead-Letter-Queue und Fehlerbehandlung
+**ADR-L3-DEB-04 — Workspace-Isolierte Event-Verarbeitung**
 
-Events, die nach max_retries (default 5) fehlschlagen, werden in Dead-Letter-Queue verschoben:
+*Entscheidung:* Events werden pro Workspace isoliert verarbeitet. Subscriber erhalten nur Events ihrer Workspace.
 
-**DLQ-Tabelle: domain_event_dlq**
-- `event_id`, `event_type`, `workspace_id`, `payload`, `error_message`, `retry_count`, `moved_at`
+*Rationale:* Sicherheit und Datenisolation: Ein Tenant/Workspace soll nicht Events anderer sehen. FIFO-Ordering pro Workspace ist praktisch. Alternative: Global FIFO (alle Workspaces gemischt) → schwerer zu debuggen, Tenant-Isolation schwächer. **Abgelehnt**: Multi-Tenancy erfordert Workspace-Isolation.
 
-Operatoren können DLQ inspizieren und manuell erneut versuchen.
-
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Fehlgeschlagene Events werden nach max_retries in DLQ verschoben
-- [ ] DLQ ist querybar (Admin-Interface)
-- [ ] Error-Message wird mit Event gespeichert
-- [ ] Manual Replay aus DLQ möglich
-- [ ] Metriken für DLQ-Größe verfügbar
-
-**Interfaces:** IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Operational Visibility und Recovery-Optionen.
+*Erfüllt Trigger:* REQ-L3-DEB-009 (Workspace-spezifisches Event-Processing).
 
 ---
 
-### REQ-L3-DEB-008: Subscriber-Timeout und Graceful Degradation
-
-Wenn ein Subscriber fehlschlägt oder zu lange dauert (Timeout > 30s):
-- Event-Verarbeitung wird abgebrochen
-- Event wird zu Retry-Queue hinzugefügt
-- Andere Subscriber werden nicht blockiert
-- Worker versucht Event später erneut
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Subscriber-Timeout ist 30s (konfigurierbar)
-- [ ] Subscriber-Fehler blockiert nicht andere Subscriber
-- [ ] Fehlgeschlagene Subscriber werden geloggt
-- [ ] Retry-Logik verwendet Exponential Backoff
-- [ ] Max 5 Retries pro Event
-
-**Interfaces:** IF-AS-INT-013, 014
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Robustheit bei Subscriber-Fehlern.
-
----
-
-### REQ-L3-DEB-009: Workspace-spezifisches Event-Processing
-
-Der DomainEventBus SHALL Events pro Workspace isoliert verarbeiten:
-- Subscriber erhalten nur Events ihrer eigenen Workspace
-- Keine Cross-Workspace-Event-Publikation
-- workspace_id wird in Event-Payload und Outbox-Table erfasst
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] workspace_id ist mandatory in allen Events
-- [ ] Subscriber-Dispatch filtert nach workspace_id
-- [ ] Keine Cross-Tenant-Event-Leak
-- [ ] Workspace-spezifische Subscriber-Registrierung möglich
-
-**Interfaces:** IF-AS-EXT-OUT-007, IF-AS-INT-013, 014
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-022
-**Rationale:** Sicherheit und Datenisolation.
-
----
-
-### REQ-L3-DEB-010: Monitoring und Metriken
-
-Der DomainEventBus SHALL Metriken exponieren:
-- Events published per event_type (counter)
-- Events pending (gauge: WHERE published = FALSE)
-- Events in DLQ (gauge)
-- Subscriber-Latenz p50/p95/p99 (histogram)
-- Subscriber-Error-Rate (gauge)
-
-Diese Metriken sind Prometheus-kompatibel und über `/metrics`-Endpoint abrufbar.
-
-**Domain:** software
-**Priority:** desired
-**Acceptance Criteria:**
-- [ ] Metriken werden in Prometheus-Format exponiert
-- [ ] Event-Type-Aggregation ist vorhanden
-- [ ] Subscriber-Performance ist trackbar
-- [ ] Alerts sind möglich (z.B. >100 pending Events)
-
-**Interfaces:** (metrics export, keine inter-service IF)
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Operational Observability.
-
----
-
-## Traceability-Matrix: REQ-L3-DEB → REQ-L2
-
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-DEB-001 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-002 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-003 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-004 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-005 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-006 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-007 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-008 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-009 | REQ-L2-AppSvc-022, REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-010 | REQ-L2-AppSvc-026 |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
----
-
-### REQ-L3-DEB-011: Atomare Event-Bus Claims & DLQ-Moves (S-01, S-02, S-20)
-
-Der `DomainEventBus` MUSS beim Polling von Outbox-Events eine Race-Condition durch atomare Datenbank-Claims (z.B. `select_for_update(skip_locked=True)` in einer `transaction.atomic()`) verhindern. Das Verschieben in die DLQ und Löschen in der Outbox MÜSSEN in derselben Transaktion erfolgen (Split-Brain Vermeidung). Die Funktionalität MUSS dediziert getestet werden (`dlq_service`).
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von S-01, S-02, S-20.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L2-AS-040
-
----
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-DEB-001 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-002 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-003 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-004 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-005 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-006 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-007 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-008 | REQ-L2-AppSvc-026 |
-| REQ-L3-DEB-009 | REQ-L2-AppSvc-022 |
-| REQ-L3-DEB-010 | REQ-L2-AppSvc-026 |
-

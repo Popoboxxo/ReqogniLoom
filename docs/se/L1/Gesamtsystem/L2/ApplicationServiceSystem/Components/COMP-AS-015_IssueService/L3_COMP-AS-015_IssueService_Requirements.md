@@ -1,384 +1,133 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-22T14:30:00Z"
+timestamp: "2026-06-22T14:45:00Z"
 schema_version: "1.0.0"
 ---
-# L3 IssueService Requirements
+# L3 IssueService Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-AS-015_IssueService
-> **Parent:** L2_ApplicationServiceSystem_Requirements.json
+> **Parent:** L2_ApplicationServiceSystem_Architecture.md
 > **Datum:** 2026-06-22
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L1-029 (primär) — Issue-Management ist eine Cross-Cutting-Concern der L1
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der IssueService verwaltet den vollständigen Lifecycle von Issue-Entitäten im ReqFlow-System. Er orchestriert CRUD-Operationen, delegiert Workflow-Transitions an die WorkflowEngine, Traceability-Verwaltung an die TraceabilityEngine und publikziert Domain-Events via DomainEventBus. Issues sind zentrale Artefakte zur Dokumentation von identifizierten Problemen, deren Severity, zuständigen Personen und Resolution-Status.
+Der IssueService verwaltet den vollständigen Lifecycle von Issue-Entitäten im ReqFlow-System. Er orchestriert CRUD-Operationen, delegiert Workflow-Transitions an die WorkflowFacade, verwaltet TraceLinks via TraceLinkService und publikziert Domain-Events via DomainEventBus. Issues sind zentrale Artefakte zur Dokumentation von identifizierten Problemen (Defects, Improvements), deren Severity, zuständigen Personen und Resolution-Status. Der Service implementiert Priorisierung nach Severity und Assignee-Management.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-AS-EXT-IN-001 | input | data | Issue CRUD-Requests vom ApplicationService (create, update, get, list, delete) |
-| IF-AS-INT-002 | output | data | TraceLink-Erstellung an TraceLinkService (`create_trace_link(source_id, target_id, link_type)`) |
-| IF-AS-INT-003 | output | data | Workflow-State-Transition an WorkflowFacade (`transition(item_id, target_state, change_reason, ctx)`) |
-| IF-AS-INT-017 | output | event | Domain-Event-Publikation (IssueCreated/Updated/Deleted) via DomainEventBus |
-| IF-AS-EXT-OUT-007 | output | data | Schreib-/Lese-Aufrufe an den PersistenceLayer (Django ORM) |
+### 2.1 Klassen und Module
 
----
+- **`IssueService` (Klasse):** Orchestrator für Issue-Operationen:
+  - `create_issue(title, description, severity, category, assignee, due_date, tags, status, workspace_id, auth_context) → Issue`
+  - `update_issue(issue_id, updates) → Issue`
+  - `get_issue(issue_id) → Issue`
+  - `list_issue(workspace_id, page, limit) → [Issue]`
+  - `list_by_severity(workspace_id, severity) → [Issue]`
+  - `list_by_assignee(workspace_id, assignee_id) → [Issue]`
+  - `delete_issue(issue_id)`
+  - `transition_status(issue_id, target_status, change_reason, auth_context) → Issue`
+  - `create_tracelink(issue_id, target_id, link_type) → TraceLink`
 
-## L3 Component-Anforderungen
+- **`IssueValidator` (Klasse):** Validiert Issue-Payloads gegen Schema.
 
-### REQ-L3-ISSUE-001: Issue-Erstellung mit Workflow-Initialisierung
+- **`AssigneeManager` (Klasse):** Verwaltet Assignee-Zuordnungen und Change-Tracking.
 
-Der IssueService SHALL ein neues Issue-Artefakt erstellen und folgende Schritte durchführen:
-1. Validiere Payload (title, description, severity, status obligatorisch)
-2. Erstelle Issue-Entity mit eindeutiger UUID
-3. Initialisiere WorkflowState gemäß aktiver WorkflowDefinition der Workspace
-4. Persistiere Artefakt (Transactional)
+- **`IssueDTO` (DTO):** Data Transfer Object für Issue-Responses.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Issue wird mit valider UUID erstellt
-- [ ] Severity wird validiert (critical, high, medium, low)
-- [ ] WorkflowState wird automatisch initialisiert
-- [ ] Transaktionale Persistierung
-- [ ] Rückgabe der erstellten Issue-UUID
+### 2.2 Datenstrukturen
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-INT-003, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Issues sind Lifecycle-Artefakte mit State-Management und Priorisierung.
-
----
-
-### REQ-L3-ISSUE-002: Issue-Metadaten und Klassifikation
-
-Der IssueService SHALL Issues mit strukturierten Metadaten speichern:
-- `title`: string, Beschreibung des Issues
-- `description`: string, detaillierte Problem-Charakterisierung
-- `severity`: enum (critical, high, medium, low)
-- `category`: enum (defect, improvement, documentation, question)
-- `assignee`: optional User/Agent, zuständig für Resolution
-- `created_by`: automatisch erfasst (User oder Agent)
-- `due_date`: optional, Zieldatum für Resolution
-- `tags`: array, optional Klassifikation
-- `status`: enum (Open, In Progress, Resolved, Closed, Wontfix)
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle Felder werden validiert
-- [ ] Severity ist querybar und sortierbar
-- [ ] Assignee ist optional und kann geändert werden
-- [ ] Due-Date wird formatiert (ISO 8601)
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Strukturierte Issue-Erfassung ermöglicht Priorisierung und Verwaltung.
+- **Issue-Entity:**
+  - `id`: UUID (PK)
+  - `workspace_id`: UUID (FK)
+  - `tenant_id`: UUID (FK)
+  - `title`: String
+  - `description`: String
+  - `severity`: enum (critical, high, medium, low)
+  - `category`: enum (defect, improvement, documentation, question)
+  - `assignee_id`: UUID (optional, FK zu User)
+  - `created_by`: String (User/Agent-ID)
+  - `due_date`: DateTime (optional, ISO 8601)
+  - `tags`: Array (optional, String-Array)
+  - `status`: enum (Open, In Progress, Resolved, Closed, Wontfix)
+  - `version`: Integer (Append-Only)
+  - `created_at`, `updated_at`: DateTime
+  - `assignee_changed_date`: DateTime (tracking)
 
 ---
 
-### REQ-L3-ISSUE-003: Issue-Update mit Versionierung
+## 3. Erfüllung der Anforderungen
 
-Der IssueService SHALL Issue-Updates mit Versionshistorie verwalten. Bei Änderungen:
-1. Alte Version bleibt unverändert
-2. Neue Version mit version+1 wird erstellt
-3. Timestamp und Actor werden erfasst
-4. Ausgangszustand wird dokumentiert (für Audit-Trail)
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alte Issue-Versionen bleiben lesbar
-- [ ] Neue Version wird mit version+1 gekennzeichnet
-- [ ] Audit-Trail ist vollständig (wer, wann, was)
-- [ ] Versionsverlauf ist querybar
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Nachvollziehbarkeit von Problem-Änderungen.
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-ISSUE-001 (Issue-Erstellung) | Methode `create_issue(payload)`: (1) Validiere Payload (title, description, severity, status erforderlich), (2) Erstelle Issue-Entity mit UUID, (3) Initialisiere WorkflowState (delegiere an WorkflowFacade für status=Open), (4) Persistiere atomare Transaktion. Rückgabe: Issue-UUID. |
+| REQ-L3-ISSUE-002 (Issue-Metadaten) | Issue-Entity speichert: title, description, severity (critical/high/medium/low), category (defect/improvement/documentation/question), assignee (optional User/Agent), created_by (automatisch erfasst), due_date (optional, ISO 8601), tags (optional Array), status (enum). Alle Felder validiert. Severity ist querybar und sortierbar. |
+| REQ-L3-ISSUE-003 (Update mit Versionierung) | Methode `update_issue(issue_id, updates)`: Alte Version beibehalten, neue Version mit version+1 erstellen. Timestamp und Actor erfasst. Audit-Trail vollständig. Versionsverlauf querybar. |
+| REQ-L3-ISSUE-004 (Deletion mit Cascade-Cleanup) | Methode `delete_issue(issue_id)` in `transaction.atomic()`: (1) Lösche TraceLinks, (2) Lösche WorkflowState-History, (3) Lösche Issue. Bei Fehler: Rollback. |
+| REQ-L3-ISSUE-005 (Status-Transitions) | Methode `transition_status(issue_id, target_status, change_reason)`: Delegiere an WorkflowFacade. Gültige Status: Open (initial) → In Progress (nur von Open) → Resolved → Closed (oder Wontfix). change_reason erfasst (wenn erforderlich). Audit-Log-Eintrag geschrieben. |
+| REQ-L3-ISSUE-006 (TraceLink-Verwaltung) | Methode `create_tracelink(issue_id, target_id, link_type)`: Unterstützte Link-Typen: related-to, blocks (Issue blockiert andere), blocked-by (Issue blockiert von anderen), caused-by (Issue verursacht von Risk/ADR), resolves (Issue löst Test-Problem). Rufe TraceLinkService auf. Bidirektionale Querybarkeit. |
+| REQ-L3-ISSUE-007 (Priorisierung nach Severity) | Issue-Priorisierung: Critical (sofortige Behandlung), High (1 Woche), Medium (2 Wochen), Low (Standard-Zyklus). Severity ist querybar und sortierbar. Sorting aufsteigend/absteigend. Filtering nach Severity-Range möglich (z.B. High+Critical). Severity wird in Result-Payload geliefert. |
+| REQ-L3-ISSUE-008 (Assignee-Management) | Methode `assign_issue(issue_id, assignee_id)`: Validiere Assignee (existierender User). Assignee kann null sein (unassigned). Assignee-Wechsel wird in Audit-Log dokumentiert. assignee_changed_date aktualisiert. Query nach assignee_id möglich (list_by_assignee()). |
+| REQ-L3-ISSUE-009 (Tenant-Isolation) | Tenant wird aus Auth-Context extrahiert. Issue wird mit tenant_id gekennzeichnet. Keine Cross-Tenant-Queries. Keine Cross-Tenant-TraceLinks. |
+| REQ-L3-ISSUE-010 (Domain-Event-Publikation) | Nach erfolgreicher Mutation: Publiziere Event via DomainEventBus (post_commit Hook). Events: IssueCreated, IssueUpdated, IssueDeleted. Event-Payload strukturiert. Fire-and-Forget. |
+| REQ-L3-ISSUE-011 (Abfragen und Listing) | Methoden: get_by_id(), list_by_workspace(), list_by_status(), list_by_severity(), list_by_assignee(), search(query_text). Alle Queries tenant-isoliert. Pagination. Multi-Filter möglich (status AND severity). FTS. Queries performant (≤500ms). |
 
 ---
 
-### REQ-L3-ISSUE-004: Issue-Deletion mit Cascade-Cleanup
+## 4. Schnittstellen-Implementierung
 
-Bei Löschung eines Issues SHALL der IssueService:
-1. Alle TraceLinks zum Issue löschen
-2. WorkflowState-History löschen
-3. Issue-Entität selbst löschen
-4. Alles in einer Transaktion
+- **Eingänge (Inbound):**
+  - **IF-AS-EXT-IN-001:** REST API Endpoints für Issue CRUD.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] TraceLinks werden gelöscht
-- [ ] WorkflowState wird bereinigt
-- [ ] Issue wird gelöscht
-- [ ] Atomare Transaktion mit Rollback on Error
-
-**Interfaces:** IF-AS-INT-002, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Referenzielle Integrität und Datenhygiene.
+- **Ausgänge (Outbound):**
+  - **IF-AS-INT-002:** Aufruf TraceLinkService.
+  - **IF-AS-INT-003:** Aufruf WorkflowFacade.
+  - **IF-AS-INT-017 (Domain-Event):** Publikation IssueCreated/Updated/Deleted Events via DomainEventBus.
+  - **IF-AS-EXT-OUT-007:** ORM-Aufrufe an PersistenceLayer.
 
 ---
 
-### REQ-L3-ISSUE-005: Issue-Status-Transitions mit Workflow-Engine
+## 5. Architectural Rationale
 
-Der IssueService SHALL Workflow-State-Transitions für Issues delegieren an WorkflowFacade. Gültige Status sind:
-- Open (initial)
-- In Progress
-- Resolved
-- Closed
-- Wontfix
+**ADR-L3-ISSUE-01 — Enum-Severity statt Freier Numerischer Priorisierung**
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Transition wird an WorkflowFacade delegiert
-- [ ] Erlaubte Übergänge gemäß WorkflowDefinition
-- [ ] change_reason wird erfasst (wenn erforderlich)
-- [ ] Audit-Log-Eintrag wird geschrieben
-- [ ] Nur Open Issues können in In Progress wechseln
+*Entscheidung:* Severity ist enum (critical, high, medium, low), nicht freie numerische Eingabe.
 
-**Interfaces:** IF-AS-INT-003
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
+*Rationale:* Vereinfacht Klassifikation und Konsistenz. Benutzer wählt aus 4 Kategorien mit klaren SLA-Implikationen (Critical=sofort, High=1 Woche, etc.). Alternative: Numerische Priorisierung (1-10) → Inkonsistenzen zwischen Teams. **Abgelehnt**: Enum ist praktikabler und klarere Semantik.
 
-**Traceability:** REQ-L1-029
-**Rationale:** Controlled Issue-Lifecycle.
+*Erfüllt Trigger:* REQ-L3-ISSUE-002 (Issue-Metadaten), REQ-L3-ISSUE-007 (Priorisierung).
 
 ---
 
-### REQ-L3-ISSUE-006: TraceLink-Verwaltung für Issue-Relationen
+**ADR-L3-ISSUE-02 — Assignee-Tracking mit Change-History**
 
-Der IssueService SHALL TraceLinks zwischen Issues und anderen Artefakten verwalten. Unterstützte Link-Typen:
-- `related-to` (Issue ist verwandt mit Requirements, ArchitectureElements, Tests)
-- `blocks` (Issue blockiert andere Requirements oder Issues)
-- `blocked-by` (Issue wird blockiert von anderen Issues)
-- `caused-by` (Issue wird verursacht durch Risk oder ADR-Entscheidung)
-- `resolves` (Issue löst ein Test-Problem oder Anforderungs-Defekt)
+*Entscheidung:* Assignee-Zuordnungen werden tracked: assignee_changed_date aktualisiert bei Änderung, alte Werte im Audit-Log dokumentiert.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] TraceLinks werden via TraceLinkService erstellt
-- [ ] Link-Typ-Validierung
-- [ ] Bidirektionale Querybarkeit
-- [ ] Link-Erstellung ist optional
+*Rationale:* Ermöglicht Accountability-Tracking: "Wer war wann für dieses Issue verantwortlich?" Alternative: Keine Assignee-History → schwerer nachzuverfolgeb, wer was wann übernommen hat. **Abgelehnt**: Issue-Management erfordert Change-Tracking für Verantwortlichkeit.
 
-**Interfaces:** IF-AS-INT-002
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Impact-Analyse und Abhängigkeits-Management.
+*Erfüllt Trigger:* REQ-L3-ISSUE-008 (Assignee-Management).
 
 ---
 
-### REQ-L3-ISSUE-007: Issue-Priorisierung nach Severity
+**ADR-L3-ISSUE-03 — Multi-Filter-Support (Status AND Severity)**
 
-Der IssueService SHALL Issues nach Severity priorisieren können:
-- Critical: sofortige Behandlung erforderlich
-- High: behandeln innerhalb 1 Woche
-- Medium: behandeln innerhalb 2 Wochen
-- Low: behandeln im Standard-Zyklus
+*Entscheidung:* Listing unterstützt Multi-Filter: `list(status=['Open', 'In Progress'], severity=['Critical', 'High'])` → Issues die Open/In Progress UND Critical/High sind.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Severity ist querybar und sortierbar
-- [ ] Sorting nach Severity aufsteigend/absteigend
-- [ ] Filtering nach Severity-Range möglich
-- [ ] Severity wird in Result-Payload geliefert
+*Rationale:* Praktischer für Triage: "Zeige mir alle offenen Critical/High Issues". Alternative: Nur Single-Filter → Nutzer müsste mehrere Queries kombinieren. **Abgelehnt**: Multi-Filter ist User-freundlicher.
 
-**Interfaces:** IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Priorisierung für Triage und Reporting.
+*Erfüllt Trigger:* REQ-L3-ISSUE-011 (Abfragen und Listing).
 
 ---
 
-### REQ-L3-ISSUE-008: Assignee-Management und Change-Tracking
-
-Der IssueService SHALL Assignee-Zuordnungen verwalten:
-- Assignee kann bei Erstellung oder Update geändert werden
-- assignee_changed_date wird aktualisiert
-- Alte Assignee-Werte werden in Audit-Trail festgehalten
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Assignee wird validiert (existierender User)
-- [ ] Assignee kann null sein (unassigned)
-- [ ] Assignee-Wechsel wird in Audit-Log dokumentiert
-- [ ] Query nach assignee_id möglich
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Verantwortlichkeits-Management.
-
----
-
-### REQ-L3-ISSUE-009: Tenant-Isolation für Issues
-
-Der IssueService SHALL garantieren:
-1. Issues nur innerhalb gleicher Workspace
-2. TraceLinks nicht Workspace-übergreifend
-3. Alle Queries tenant-isoliert
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Tenant wird aus Auth-Context extrahiert
-- [ ] Issue wird mit tenant_id gekennzeichnet
-- [ ] Keine Cross-Tenant-Queries
-- [ ] Keine Cross-Tenant-TraceLinks
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Not Implemented
-**Review Findings:** Nur Tests gefunden, aber keine Implementierung.
-**Test Status:** Covered
-**Remarks:** Implementierung prüfen.
-
-**Traceability:** REQ-L2-AppSvc-022
-**Rationale:** Sicherheit und Datenisolation.
-
----
-
-### REQ-L3-ISSUE-010: Domain-Event-Publikation für Issue-Mutations
-
-Nach erfolgreicher Mutation SHALL der IssueService Domain-Events publikzieren:
-- `IssueCreated` (mit Issue-UUID und Snapshot)
-- `IssueUpdated` (mit Issue-UUID und Änderungen)
-- `IssueDeleted` (mit Issue-UUID)
-
-Diese Events werden via DomainEventBus publiziert.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Events werden nach Commit publiziert
-- [ ] Event-Payload ist strukturiert
-- [ ] Events via IF-AS-INT-017 gestellt
-- [ ] Fire-and-Forget (nicht-blockierend)
-
-**Interfaces:** IF-AS-INT-017
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-026
-**Rationale:** Asynchrone Publikation für Audit und externe Systeme.
-
----
-
-### REQ-L3-ISSUE-011: Issue-Abfragen und Listing
-
-Der IssueService SHALL folgende Query-Operationen unterstützen:
-- `get_by_id(issue_id)` → einzelnes Issue
-- `list_by_workspace(workspace_id)` → alle Issues (paginiert)
-- `list_by_status(workspace_id, status)` → gefiltert nach Status
-- `list_by_severity(workspace_id, severity)` → gefiltert nach Severity
-- `list_by_assignee(workspace_id, assignee_id)` → meine/assigned Issues
-- `search(workspace_id, query_text)` → Volltextsuche
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle Queries sind tenant-isoliert
-- [ ] Pagination für `list_*`
-- [ ] Multi-Filter möglich (status AND severity)
-- [ ] Suchabfragen nutzen FTS
-- [ ] Queries performant (≤500ms)
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Abfrageunterstützung für Triage und Reporting.
-
----
-
-## Traceability-Matrix: REQ-L3-ISSUE → REQ-L2/L1
-
-| REQ-L3 | Primäre REQ-L2/L1 |
-|--------|------------------|
-| REQ-L3-ISSUE-001 | REQ-L1-029 |
-| REQ-L3-ISSUE-002 | REQ-L1-029 |
-| REQ-L3-ISSUE-003 | REQ-L1-029 |
-| REQ-L3-ISSUE-004 | REQ-L1-029 |
-| REQ-L3-ISSUE-005 | REQ-L1-029 |
-| REQ-L3-ISSUE-006 | REQ-L1-029 |
-| REQ-L3-ISSUE-007 | REQ-L1-029 |
-| REQ-L3-ISSUE-008 | REQ-L1-029 |
-| REQ-L3-ISSUE-009 | REQ-L2-AppSvc-022 |
-| REQ-L3-ISSUE-010 | REQ-L2-AppSvc-026 |
-| REQ-L3-ISSUE-011 | REQ-L1-029 |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-ISSUE-009 | REQ-L2-AppSvc-022 |
-| REQ-L3-ISSUE-010 | REQ-L2-AppSvc-026 |
-

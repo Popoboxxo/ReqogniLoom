@@ -1,77 +1,63 @@
-# L3 COMP-RO-004_DegradationManager Requirements
+decomposition_status: terminal
 
-> **Level:** L3 (Component-Anforderungen)
+# L3 COMP-RO-004_DegradationManager Architecture
+
+> **Level:** L3 (Terminal Component White-Box)
 > **System:** COMP-RO-004_DegradationManager
-> **Parent:** L2_ResilienceOrchestratorSystem_Requirements.md
+> **Parent:** L2_ResilienceOrchestratorSystem_Architecture.md
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
-> **Designation:** component (terminal — keine L4-Zerlegung)
+> **Status:** entworfen
+> **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-RO-005
-- Ziel: terminal (keine weitere Zerlegung)
-
----
-
-## Systemzweck
-
-Der DegradationManager (COMP-RO-004) ist dafür verantwortlich, bei Ausfällen von Zielsystemen (z. B. durch Timeouts, ausgeschöpfte Retries oder offene Circuit-Breaker) dedizierte Fallback-Antworten (Graceful Degradation) zu erzeugen. Dies stellt sicher, dass die Kernverfügbarkeit des ReqFlow-Systems erhalten bleibt und Aufrufer eine sinnvolle Fehlerbehandlung anstelle eines kompletten Absturzes erfahren.
+Der DegradationManager erzeugt deterministische Fallback-Antworten (Graceful Degradation), wenn ein externes System dauerhaft nicht erreichbar ist (Retries ausgeschöpft) oder der CircuitBreaker blockiert. Er stellt sicher, dass das Frontend oder andere aufrufende Systeme kontrolliert über den Teilausfall informiert werden, ohne das gesamte ReqFlow-System zum Absturz zu bringen.
 
 ---
 
-## Externe Schnittstellen (Component Boundary)
+## 2. Internes White-Box Design (Klassen & Datenstrukturen)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-RO-INT-003 | input | control | In-Process Python von PolicyEngine: `handle_failure(exception, target) -> FallbackResponse` |
-| IF-RO-INT-006 | output | data | Interner Log-Aufruf an ResilienceAuditLogger: Übermittlung des Degradation-Events |
+### 2.1 Klassen und Module
 
-*(Hinweis: IF-RO-INT-006 referenziert die "Log" Kante im L2 Architektur-Diagramm)*
+- **`DegradationManager`**: Zentrale Klasse für Fallback-Logik.
+  - **Funktion:** `handle_failure(exception: Exception, target: str) -> FallbackResponse`
+  - **Ablauf:**
+    1. Analysiert `exception` und `target`, um den Fallback-Strategietyp auszuwählen (z.B. "Mock-Data", "Partial-Success", "Disabled-Feature").
+    2. Konstruiert eine `FallbackResponse` mit entsprechenden Metadaten.
+    3. Ruft asynchron `ResilienceAuditLogger.log_degradation_event` auf (IF-RO-INT-006).
+    4. Gibt die Fallback-Antwort an den Aufrufer (bzw. das Frontend-Data-Model) zurück.
+
+- **`FallbackStrategyRegistry`**: 
+  - Eine Mapping-Konfiguration (Strategy Pattern), die bestimmt, wie ein Ausfall eines spezifischen Systems beantwortet wird (z.B. LLM-Ausfall => Fallback auf Basis-Heuristiken; Webhook-Ausfall => Queue-for-later).
+
+### 2.2 Datenstrukturen
+
+- **`FallbackResponse`**:
+  - `is_degraded: bool = True`
+  - `fallback_data: dict` (z.B. leere Liste, Default-Werte, heuristische Ergebnisse)
+  - `system_status_message: str` (z.B. "AI-Features temporär nicht verfügbar. Standard-Suche aktiv.")
+  - `original_error_code: str`
 
 ---
 
-## L3 Component-Anforderungen
+## 3. Erfüllung der L3-Anforderungen
 
-### REQ-L3-RO-004-01: Fallback-Generierung
+| Requirement ID | Erfüllung im Design |
+|----------------|---------------------|
+| **REQ-L3-RO-004-01** (Fallback-Generierung) | `handle_failure` liefert immer ein valides `FallbackResponse` Objekt zurück, welches vom Frontend oder Backend als Teilerfolg verarbeitet werden kann. |
+| **REQ-L3-RO-004-02** (Logging von Degradation-Events) | Jeder Aufruf von `handle_failure` delegiert parallel ein Event an den AuditLogger via IF-RO-INT-006. |
 
-Der DegradationManager SHALL für fehlschlagende Aufrufe, die über IF-RO-INT-003 eingehen, eine deterministische Fallback-Antwort (`FallbackResponse`) generieren, die den Fehler isoliert.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Fallback-Antwort enthält Statusinformationen, dass das System temporär degradiert ist.
-- [ ] Das Frontend kann anhand der Fallback-Antwort erkennen, dass ein optionales Subsystem inaktiv ist.
-**Interfaces:** IF-RO-INT-003
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+---
 
-**Traceability:** REQ-L2-RO-005
+## 4. Schnittstellen-Mapping
 
-### REQ-L3-RO-004-02: Logging von Degradation-Events
+| Interface | Implementierung / Aufrufpunkt |
+|-----------|-------------------------------|
+| **IF-RO-INT-003** (Input) | Python-Aufruf von der `PolicyEngine` (nach finalem Fehlschlag). |
+| **IF-RO-INT-006** (Output) | Python-Call an `ResilienceAuditLogger.log_degradation_event`. |
 
-Der DegradationManager SHALL jedes ausgelöste Degradation-Event über IF-RO-INT-006 an den ResilienceAuditLogger melden.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Jedes `handle_failure` Event erzeugt ein asynchrones oder nicht-blockierendes Log-Ereignis für das Audit.
-**Interfaces:** IF-RO-INT-006
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-RO-005
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-RO-004-01 | REQ-L2-RO-005 |
-| REQ-L3-RO-004-02 | REQ-L2-RO-005 |
-
+---
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*

@@ -1,291 +1,114 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-22T14:30:00Z"
+timestamp: "2026-06-22T14:45:00Z"
 schema_version: "1.0.0"
 ---
-# L3 ImportService Requirements
+# L3 ImportService Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-AS-009_ImportService
-> **Parent:** L2_ApplicationServiceSystem_Requirements.json
+> **Parent:** L2_ApplicationServiceSystem_Architecture.md
 > **Datum:** 2026-06-22
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-AppSvc-014 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der ImportService führt Bulk-Importe von Requirements, ArchitectureElements und TestCases aus CSV-Dateien durch. Er validiert jede Zeile gegen das Datenmodell, meldet Fehler mit Zeilennummern und garantiert atomare Transaktionssemantik: Entweder alle validen Zeilen werden importiert, oder keine.
+Der ImportService führt Bulk-Importe von Artefakten (Requirements, ArchitectureElements, TestCases) aus CSV-Dateien durch. Er validiert jede Zeile gegen das Entity-Datenmodell und meldet Fehler mit Zeilennummern. Der Service garantiert atomare Transaktionssemantik: Entweder alle validen Zeilen werden importiert, oder keine. Benutzerdefinierte UUIDs werden akzeptiert; andernfalls werden neue UUIDs generiert. Batch-AuditLog-Events werden nach erfolgreichem Import publiziert.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-AS-EXT-IN-001 | input | data | Import-Request vom ApplicationService (CSV-Datei, Entity-Typ, Workspace-ID) |
-| IF-AS-EXT-OUT-007 | output | data | Schreib-/Lese-Aufrufe an den PersistenceLayer (Django ORM) |
-| IF-AS-EXT-OUT-006 | output | event | Domain-Event-Publikation für AuditLog (via DomainEventBus, batch) |
+### 2.1 Klassen und Module
 
----
+- **`ImportService` (Klasse):** Orchestrator für Bulk-Importe (`import_csv(csv_file, entity_type, workspace_id, auth_context) → ImportReport`).
+  - Parsed CSV nach RFC4180
+  - Validiert jede Zeile gegen Entity-Schema
+  - Sammelt Error-Report für fehlgeschlagene Zeilen
+  - Führt valide Zeilen in atomarer Transaktion aus
+  - Publiziert Batch-AuditLog-Event bei Erfolg
+  - Gibt ImportReport mit Summary und Fehlerliste zurück
 
-## L3 Component-Anforderungen
+- **`CSVParser` (Klasse):** RFC4180-konformer CSV-Parser mit Zeilennummer-Tracking.
 
-### REQ-L3-IMP-001: CSV-Datei-Parsing und Validierung
+- **`EntityValidator` (Klasse):** Validiert einzelne Zeilen gegen Entity-Typ-Schema (Requirements, ArchitectureElements, TestCases). Prüft: erforderliche Felder, Feldtypen, Längenbeschränkungen, UUID-Referenzen.
 
-Der ImportService SHALL CSV-Dateien zeilenweise parsen und folgende Validierungen für jede Zeile durchführen:
-1. Erforderliche Felder sind vorhanden (gemäß Entity-Typ-Schema)
-2. Feldwerte passen zu definierten Typen (string, integer, enum, UUID)
-3. Längenbeschränkungen werden eingehalten
-4. Referenzierte Parent-Artefakte existieren (falls parent_id angegeben)
+- **`ImportReport` (DTO):** summary (total_rows, successful, failed), errors (list of {row_number, field_name, error_message}), import_status (success/failure).
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] CSV wird nach RFC4180 geparst
-- [ ] Ungültige Zeilen werden identifiziert mit Zeilennummer
-- [ ] Error-Report enthält Feldname und Fehlerbeschreibung pro Zeile
-- [ ] Validierung blockiert nicht andere Zeilen (Full Report)
+- **`CSVRow` (DTO):** Repräsentation einer CSV-Zeile mit Feldwerten und Zeilennummer.
 
-**Interfaces:** IF-AS-EXT-IN-001
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+### 2.2 Datenstrukturen
 
-**Traceability:** REQ-L2-AppSvc-014
-**Rationale:** Benutzerfreundliche Fehlerberichte ermöglichen schnelle Korrekturen.
+- **Entity-Schema-Definition:** Dokumentiert erforderliche Felder, Typen (string, integer, enum, UUID), Längenbeschränkungen pro Entity-Typ (Requirements, ArchitectureElements, TestCases).
+
+- **Fehler-Sammler:** Liste von {row_number, field_name, error_message} für jeden Validierungsfehler.
 
 ---
 
-### REQ-L3-IMP-002: Atomare Transaktionssemantik
+## 3. Erfüllung der Anforderungen
 
-Der ImportService SHALL alle validen Zeilen in einer einzigen Datenbank-Transaktion importieren. Falls eine beliebige Zeile nach Validierung zu einem DB-Fehler führt, SHALL der gesamte Import zurückgerollt werden (Rollback). Entweder alle oder keine Zeilen werden persistent.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Einsatz von `transaction.atomic()` umhüllt alle INSERT-Operationen
-- [ ] DB-Fehler während Insert triggert Rollback der gesamten Transaktion
-- [ ] Nach Rollback ist Datenbank unverändert
-- [ ] Import-Report zeigt "All-or-Nothing" Status
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-014
-**Rationale:** Datenkonsistenz und Audit-Klarheit.
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-IMP-001 (CSV-Parsing und Validierung) | CSVParser.parse() zeilenweise gemäß RFC4180. Für jede Zeile: EntityValidator.validate(row, entity_type) prüft (1) erforderliche Felder vorhanden, (2) Feldwerte passen zu Typ/Enum, (3) Längenbeschränkungen, (4) Parent-Artefakte existieren. Error-Report mit Zeilennummer und Feldname für jeden Fehler. Validierung blockiert nicht andere Zeilen (Full Report). |
+| REQ-L3-IMP-002 (Atomare Transaktionssemantik) | `transaction.atomic()` umhüllt alle INSERT-Operationen. Nach Validierung aller Zeilen: Falls Fehler gefunden → kein INSERT, Rollback. Falls valide Zeilen → alle in einer Transaktion insertten. Bei DB-Fehler: Rollback der gesamten Transaktion. Status: All-or-Nothing. |
+| REQ-L3-IMP-003 (UUID-Zuordnung) | Falls CSV hat uuid-Spalte: nutze diese UUID (geprüft auf Duplikate). Andernfalls: generiere neue UUID (v4). Duplikat-UUID → Validierungsfehler, Zeile blockiert. UUID-Format validiert (36 Zeichen, RFC4122). |
+| REQ-L3-IMP-004 (Unterstützte Entity-Typen) | Dokumentierte CSV-Schemata für: Requirements (title, description, parent_id, artifact_type); ArchitectureElements (element_type, title, description, artifact_link); TestCases (test_type, title, description, expected_result). Unbekannte Spalten ignoriert (Forward-Kompatibilität). Enum-Werte gegen Whitelist validiert. |
+| REQ-L3-IMP-005 (Error-Report) | Nach Validierung: Report mit {row_number [1-basiert], field_name, error_description}. Format: strukturiertes JSON oder Tabelle. Summary: "0/100 rows imported, 100 errors" oder "100/100 rows imported, 0 errors". Zeilennummern sind präzise (Header nicht gezählt). |
+| REQ-L3-IMP-006 (Batch-AuditLog-Events) | Bei erfolgreichen Import: single AuditLog-Event via DomainEventBus mit (entity_type, count, workspace_id, actor, timestamp). Event wird nach Commit publiziert (post_commit Hook). Ein Event pro Import-Vorgang (nicht pro Zeile). AuditLog wird bei Rollback nicht geschrieben. |
+| REQ-L3-IMP-007 (Tenant-Isolation) | Tenant-ID wird aus Auth-Context extrahiert. Alle Artefakte erhalten diese Tenant-ID (unabhängig von CSV-Inhalt). CSV-Tenant-Spalten werden ignoriert/überschrieben. Keine Cross-Tenant-Imports möglich. |
+| REQ-L3-IMP-008 (Performance und Sizing) | Streaming-CSV-Parser für große Dateien (nicht vollständiges Laden in RAM). Max 10.000 Zeilen, Max 50MB Dateigröße. Timeout 60s pro Import. Memory-Peak < 200MB. 10.000-Zeilen-Import in ≤60s. Oversized-Import → Error. |
 
 ---
 
-### REQ-L3-IMP-003: UUID-Zuordnung für neue Entitäten
+## 4. Schnittstellen-Implementierung
 
-Der ImportService SHALL alle neu erstellten Entitäten mit regulären UUIDs versehen (nicht Batch-Placeholders). Falls die CSV bereits UUIDs enthält (uuid-Spalte), können diese übernommen werden; andernfalls generiert der Service neue UUIDs.
+- **Eingänge (Inbound):**
+  - **IF-AS-EXT-IN-001:** REST API Endpoint `/import` mit multipart form (csv_file, entity_type, workspace_id).
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Neue Entitäten erhalten valid UUIDs (v4 oder äquivalent)
-- [ ] Existierende UUIDs aus CSV werden geprüft (keine Duplikate)
-- [ ] Duplikat-UUID wird als Validierungsfehler zurückgewiesen
-- [ ] UUID-Länge und Format validiert
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-014
-**Rationale:** Eindeutige Identifikation und Traceability.
+- **Ausgänge (Outbound):**
+  - **IF-AS-EXT-OUT-007:** INSERT/SELECT Queries an PersistenceLayer (Django ORM) für Entitäten und Parent-ID-Validierung.
+  - **IF-AS-EXT-OUT-006:** Publikation Batch-AuditLog-Event via DomainEventBus nach erfolgreichem Import.
 
 ---
 
-### REQ-L3-IMP-004: Unterstützte Entity-Typen und Felder
+## 5. Architectural Rationale
 
-Der ImportService SHALL folgende Entity-Typen und Feldmappings unterstützen:
+**ADR-L3-IMP-01 — Zwei-Pass-Validierung (Full Report vor Insert)**
 
-**Requirements:** title, description, parent_id (optional), artifact_type
-**ArchitectureElements:** element_type, title, description, artifact_link (optional)
-**TestCases:** test_type, title, description, expected_result
+*Entscheidung:* Zuerst alle Zeilen validieren und Error-Report sammeln, dann (bei 0 Fehlern) alle validen Zeilen insertten.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Jeder Entity-Typ hat dokumentiertes CSV-Schema
-- [ ] Unbekannte Spalten werden ignoriert (Forward-Kompatibilität)
-- [ ] Erforderliche Felder sind definiert pro Typ
-- [ ] Enum-Werte werden gegen Whitelisten validiert
+*Rationale:* Benutzer erhält vollständigen Error-Report auf einmal, kann alle Fehler korrigieren und erneut importieren. Alternative: Zeile-für-Zeile-Validierung mit Insert → bei Fehler in Zeile 500 sind Zeilen 1-499 bereits inserted; Rollback notwendig, Benutzer sieht aber nur einen Fehler auf einmal (iteratives Debugging). **Abgelehnt**: User Experience ist schlecht und Rollback-Overhead ist hoch.
 
-**Interfaces:** IF-AS-EXT-IN-001
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-014
-**Rationale:** Klare Schnittstellen für Batch-Operationen.
+*Erfüllt Trigger:* REQ-L3-IMP-001, REQ-L3-IMP-005 (Full Error Report).
 
 ---
 
-### REQ-L3-IMP-005: Error-Report mit Zeilennummern
+**ADR-L3-IMP-02 — Atomare Transaktion mit All-or-Nothing-Semantik**
 
-Nach Validierung und Rollback-Szenarien SHALL der ImportService einen detaillierten Error-Report zurückgeben mit:
-- Zeilennummer (1-basiert) für jede fehlgeschlagene Zeile
-- Feldname der Validierung fehlschlug
-- Fehlerbeschreibung (z.B. "Invalid parent_id: UUID not found")
-- Count: erfolgreiche vs. fehlgeschlagene Zeilen
+*Entscheidung:* Alle validen Zeilen werden in einer einzigen Datenbank-Transaktion insertted. Fehler in einer Zeile (z.B. Unique-Constraint-Verletzung nach Validierung) triggert Rollback aller Inserts.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Report-Format ist strukturiert (JSON oder tabular)
-- [ ] Zeilennummern sind präzise (Header nicht gezählt)
-- [ ] Fehlerbeschreibungen sind aussagekräftig
-- [ ] Report enthält Summary (z.B. "0/100 rows imported, 100 errors")
+*Rationale:* Verhindert Partial-Import-Zustand. Wenn z.B. Zeilen 1-499 erfolgreich inserted sind, aber Zeile 500 fehlschlägt → Datenbank ist in inkonsistentem Zustand (Hierarchie unterbrochen, wenn parent_id-Constraints vorhanden). All-or-Nothing garantiert Datenintegrität. Alternative: Partial Import akzeptieren → Benutzer muss manuell Cleanup durchführen. **Abgelehnt**: Datenkonsistenz ist kritisch.
 
-**Interfaces:** IF-AS-EXT-IN-001
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-014
-**Rationale:** Benutzerfreundliche Fehleranalyse.
+*Erfüllt Trigger:* REQ-L3-IMP-002 (atomare Transaktionssemantik).
 
 ---
 
-### REQ-L3-IMP-006: Batch-AuditLog-Einträge
+**ADR-L3-IMP-03 — Batch-AuditLog statt Per-Row-Audit**
 
-Nach erfolgreichem Import SHALL der ImportService ein einziges batch-AuditLog-Event publikzieren (via DomainEventBus), das die Anzahl importierter Entitäten pro Typ und Workspace dokumentiert. Nicht einzelne Einträge pro Zeile (Aggregation zur Performance).
+*Entscheidung:* Ein einziges AuditLog-Event wird nach erfolgreichem Import publiziert, nicht ein Event pro Zeile.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Ein AuditLog-Event pro Import-Vorgang (nicht pro Zeile)
-- [ ] Event enthält: entity_type, count, workspace_id, actor, timestamp
-- [ ] AuditLog wird auch bei Rollback nicht geschrieben
-- [ ] Batch-Aggregation reduziert AuditLog-Einträge um ≥99%
+*Rationale:* 10.000-Zeilen-Import würde 10.000 AuditLog-Events erzeugen → Datenbank-Überlastung. Batch-AuditLog (ein Event mit count=10.000) ist effizienter. Detailanforderungen (welche exakten Zeilen?) können über Import-Report oder Transaktions-ID geprüft werden. Alternative: Pro-Row-Audit für maximale Granularität → 99%+ AuditLog-Einträge sind Imports, nicht operationale Probleme. **Abgelehnt**: Batch-Aggregation ist praktischer für Compliance ohne Overhead.
 
-**Interfaces:** IF-AS-EXT-OUT-006
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-019
-**Rationale:** Audit-Effizienz bei Bulk-Operationen.
+*Erfüllt Trigger:* REQ-L3-IMP-006 (Batch-AuditLog).
 
 ---
 
-### REQ-L3-IMP-007: Tenant-Isolation beim Import
-
-Der ImportService SHALL garantieren, dass alle importierten Entitäten dem aktuellen Tenant zugeordnet werden. Falls die CSV Tenant-IDs enthält, werden diese ignoriert (Tenant wird von Auth-Context bestimmt).
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Tenant-ID wird aus Auth-Context extrahiert
-- [ ] Alle importierten Entitäten erhalten diese Tenant-ID
-- [ ] CSV-Tenant-Spalten werden überschrieben (nicht importiert)
-- [ ] Keine Cross-Tenant-Imports möglich
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-022
-**Rationale:** Sicherheit und Multi-Tenancy.
-
----
-
-### REQ-L3-IMP-008: Performance und Sizing-Limits
-
-Der ImportService SHALL Importe mit bis zu 10.000 Zeilen handhaben:
-- Max Import-Größe: 10.000 Zeilen
-- Max Dateigrößse: 50MB
-- Timeout: 60s pro Import
-- Memory: ≤200MB Peak während Import
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] 10.000-Zeilen-Import in ≤60s abgeschlossen
-- [ ] Memory-Peak unter 200MB
-- [ ] Oversized-Import wird mit Error abgewiesen
-- [ ] Streaming-Parsing für große Dateien
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-023
-**Rationale:** Skalierbarkeit und Zuverlässigkeit.
-
----
-
----
-
-### REQ-L3-IMP-009: Workflow State Transitions (S-06)
-
-Der ImportService MUSS alle Workflow-Statusübergänge (wie z.B. bei Requirements) über eine zentrale State-Machine (ApplicationService) leiten. Er DARF den Status (`status`) NICHT durch direkte Feldzuweisung ändern, da dies Policies und Audit-Logs umgehen würde.
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von S-06.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L2-AS-043
-
----
-
-## Traceability-Matrix: REQ-L3-IMP → REQ-L2
-
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-IMP-001 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-002 | REQ-L2-AppSvc-014, REQ-L2-AppSvc-018 |
-| REQ-L3-IMP-003 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-004 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-005 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-006 | REQ-L2-AppSvc-019 |
-| REQ-L3-IMP-007 | REQ-L2-AppSvc-022 |
-| REQ-L3-IMP-008 | REQ-L2-AppSvc-023 |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-IMP-001 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-002 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-003 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-004 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-005 | REQ-L2-AppSvc-014 |
-| REQ-L3-IMP-006 | REQ-L2-AppSvc-019 |
-| REQ-L3-IMP-007 | REQ-L2-AppSvc-022 |
-| REQ-L3-IMP-008 | REQ-L2-AppSvc-023 |
-

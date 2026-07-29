@@ -1,113 +1,68 @@
-# L3 COMP-RO-002_PolicyEngine Requirements
+decomposition_status: terminal
 
-> **Level:** L3 (Component-Anforderungen)
+# L3 COMP-RO-002_PolicyEngine Architecture
+
+> **Level:** L3 (Terminal Component White-Box)
 > **System:** COMP-RO-002_PolicyEngine
-> **Parent:** L2_ResilienceOrchestratorSystem_Requirements.md
+> **Parent:** L2_ResilienceOrchestratorSystem_Architecture.md
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
-> **Designation:** component (terminal — keine L4-Zerlegung)
+> **Status:** entworfen
+> **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-RO-002, REQ-L2-RO-003
-- Ziel: terminal (keine weitere Zerlegung)
-
----
-
-## Systemzweck
-
-Die PolicyEngine (COMP-RO-002) ist verantwortlich für die Anwendung konfigurierbarer Timeout-Schwellen und Retry-Strategien mit Exponential Backoff auf transiente Fehler bei ausgehenden Aufrufen.
+Die PolicyEngine verarbeitet asynchrone Tasks aus dem AsyncDispatcher (IF-RO-INT-002). Sie kapselt ausgehende Aufrufe an Fremdsysteme (IF-L1-051) in eine robuste Ausführungs-Logik, welche Timeouts durchsetzt und Retries mit Exponential Backoff bei transienten Fehlern anwendet. Nach Abschluss (Erfolg oder Misserfolg) informiert sie CircuitBreaker und DegradationManager.
 
 ---
 
-## Externe Schnittstellen (Component Boundary)
+## 2. Internes White-Box Design (Klassen & Datenstrukturen)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-RO-INT-002 | input | control | In-Process Python von AsyncDispatcher: `execute_with_policy(operation, target, payload)` |
-| IF-L1-051 | output | control | Delegierter Aufruf an Externe Systeme (GitHub, Webhook) |
-| IF-RO-INT-003 | output | data | In-Process Python an DegradationManager: `handle_failure(exception, target) -> FallbackResponse` |
-| IF-RO-INT-004 | output | data | In-Process Python an CircuitBreaker: `report_success(target)` oder `report_failure(target)` |
+### 2.1 Klassen und Module
+
+- **`PolicyEngineService`**: Kapselt die Resilience-Pattern-Ausführung.
+  - **Funktion:** `execute_with_policy(operation: str, target: str, payload: dict, policy: TargetPolicy)`
+  - **Ablauf:** Nutzt eine Retry-Bibliothek (z.B. `tenacity` in Python) für das Decorating des tatsächlichen Netzwerkkontakts.
+  
+- **`ExecutionWrapper`**:
+  - Implementiert die Retry-Schleife.
+  - Wertet HTTP-Statuscodes aus, um transiente Fehler (z.B. 500, 502, 503, 504, Timeouts) von fatalen Fehlern (400, 401, 403, 404) zu unterscheiden.
+  - Löst bei Erfolg: `CircuitBreaker.report_success(target)` aus (IF-RO-INT-004).
+  - Löst bei finalem Fehler (Max-Retries erreicht oder fataler Fehler): 
+    1. `CircuitBreaker.report_failure(target)` aus (IF-RO-INT-004).
+    2. `DegradationManager.handle_failure(exception, target)` aus (IF-RO-INT-003).
+
+### 2.2 Datenstrukturen
+
+- **`TargetPolicy`**: 
+  - `timeout_ms: int`
+  - `max_retries: int`
+  - `backoff_factor: float`
+  - `retryable_exceptions: list[Type[Exception]]`
 
 ---
 
-## L3 Component-Anforderungen
+## 3. Erfüllung der L3-Anforderungen
 
-### REQ-L3-RO-002-01: Timeouts durchsetzen
+| Requirement ID | Erfüllung im Design |
+|----------------|---------------------|
+| **REQ-L3-RO-002-01** (Timeouts durchsetzen) | Die Ausführung im `ExecutionWrapper` unterliegt einem strikten `timeout`-Parameter beim HTTP-Client (z.B. `requests.post(..., timeout=X)`). |
+| **REQ-L3-RO-002-02** (Exponential Backoff Retries) | `tenacity.retry(wait=wait_exponential(...), stop=stop_after_attempt(...))` dekoriert den Call. Retries nur bei passenden HTTP-Statuscodes. |
+| **REQ-L3-RO-002-03** (Erfolg/Misserfolg melden) | Callback-Hooks am Ende der Retry-Kette (oder bei Erfolg des ersten Versuchs) rufen `report_success` bzw. `report_failure` am CircuitBreaker auf. |
+| **REQ-L3-RO-002-04** (Degradation auslösen) | In der Exception-Behandlung des letzten Fehlschlags wird `DegradationManager.handle_failure` aufgerufen. |
 
-Die PolicyEngine SHALL bei allen über IF-RO-INT-002 eingehenden Aufrufen ein Timeout gemäß Zielsystem-Konfiguration durchsetzen (Weiterleitung via IF-L1-051).
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Überschreitet ein Request via IF-L1-051 das Timeout, wird der Aufruf abgebrochen.
-- [ ] Timeout-Ausnahmen werden als Fehlschlag registriert.
-**Interfaces:** IF-RO-INT-002, IF-L1-051
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+---
 
-**Traceability:** REQ-L2-RO-002
+## 4. Schnittstellen-Mapping
 
-### REQ-L3-RO-002-02: Exponential Backoff Retries
+| Interface | Implementierung / Aufrufpunkt |
+|-----------|-------------------------------|
+| **IF-RO-INT-002** (Input) | Celery-Worker rufen `PolicyEngineService.execute_with_policy()` auf. |
+| **IF-L1-051** (Output) | HTTP-Clients (requests/httpx) führen den echten Call zu Fremdsystemen aus. |
+| **IF-RO-INT-003** (Output) | Python-Call an `DegradationManager.handle_failure`. |
+| **IF-RO-INT-004** (Output) | Python-Call an `CircuitBreaker.report_success/failure`. |
 
-Die PolicyEngine SHALL Aufrufe, die aufgrund von transienten Fehlern (Netzwerkfehler, 5xx Status, Timeouts) fehlschlagen, mit exponentiell wachsender Wartezeit wiederholen.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Maximal konfigurierte Retry-Anzahl wird nicht überschritten.
-- [ ] Bei non-retryable Errors (z. B. 400 Bad Request) findet kein Retry statt.
-- [ ] Die Wartezeit vergrößert sich exponentiell zwischen den Versuchen.
-**Interfaces:** IF-L1-051
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-RO-003
-
-### REQ-L3-RO-002-03: Erfolg und Misserfolg melden
-
-Die PolicyEngine SHALL den finalen Status (Erfolg oder Misserfolg nach Retries) an den CircuitBreaker über IF-RO-INT-004 melden.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Bei Erfolg wird `report_success(target)` aufgerufen.
-- [ ] Bei finalem Misserfolg wird `report_failure(target)` aufgerufen.
-**Interfaces:** IF-RO-INT-004
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-RO-002, REQ-L2-RO-003
-
-### REQ-L3-RO-002-04: Degradation bei finalem Fehlschlag auslösen
-
-Die PolicyEngine SHALL bei Ausschöpfung aller Retries oder bei fatalen Fehlern den DegradationManager über IF-RO-INT-003 aufrufen, um eine Graceful Degradation Response zu generieren.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] `handle_failure(exception, target)` wird bei finalem Misserfolg aufgerufen.
-- [ ] Rückgabe-Fallback wird verarbeitet.
-**Interfaces:** IF-RO-INT-003
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-RO-002, REQ-L2-RO-003
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-RO-002-01 | REQ-L2-RO-002 |
-| REQ-L3-RO-002-02 | REQ-L2-RO-003 |
-| REQ-L3-RO-002-03 | REQ-L2-RO-002, REQ-L2-RO-003 |
-| REQ-L3-RO-002-04 | REQ-L2-RO-002, REQ-L2-RO-003 |
-
+---
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*

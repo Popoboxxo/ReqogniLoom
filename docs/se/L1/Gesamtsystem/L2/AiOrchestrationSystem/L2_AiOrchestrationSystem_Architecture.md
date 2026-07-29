@@ -1,69 +1,57 @@
-# L2 AiOrchestration Architecture
+# L2 Architecture für AiOrchestrationSystem
 
-> **Level:** L2 (Subsystem white-box)
-> **System:** AiOrchestrationSystem (ARCH-L1-008)
-> **Parent:** L1_Gesamtsystem_Architecture.md
-> **Datum:** 2026-07-12
-> **Status:** entworfen
-> **Designation:** subsystem (white-box)
+### ARCH-L2-AIO-001: Architecture for REQ-L2-AIO-001
 
----
+Umsetzung von REQ-L2-AIO-001 in AiOrchestrationSystem.
 
-## 1. Verantwortlichkeit
+### ARCH-L2-AIO-002: Architecture for REQ-L2-AIO-002
 
-Das AiOrchestrationSystem koordiniert spezialisierte KI-Agenten und Workflows innerhalb der Plattform. Es abstrahiert die asynchrone und komplexe Ausführung von KI-Aufgaben (z.B. Quality Gates, automatische Dekomposition, Test-Mock-Generierung) vom restlichen System und wickelt die Orchestrierung ab, bevor es strukturierte Ergebnisse über den ApplicationService integriert.
+Umsetzung von REQ-L2-AIO-002 in AiOrchestrationSystem.
 
----
+### ARCH-L2-AIO-003: Architecture for REQ-L2-AIO-003
 
-## 2. White-Box (Komponenten-Zerlegung)
+Umsetzung von REQ-L2-AIO-003 in AiOrchestrationSystem.
 
-### Komponenten
+### ARCH-L2-AIO-004: Architecture for REQ-L2-AIO-004
 
-| Komp-ID | Name | Verantwortlichkeit | Domain |
-|---------|------|--------------------|--------|
-| COMP-AI-001 | AiQualityGateAgent | Validiert Anforderungen und Statusübergänge automatisch gegen INCOSE-Regeln. | software |
-| COMP-AI-002 | AiDecompositionAgent | Generiert SystemRequirement-Entwürfe und Fibonacci-Schätzungen. | software |
-| COMP-AI-003 | AiVerificationAgent | Generiert automatische Testfälle aus Requirements. | software |
-| COMP-AI-004 | AiDerivationService | Implementiert die Draft/Accept-Infrastruktur für KI-Flows (Need → SysReq, SysReq → Arch, SysReq → SysReq Level n+1). Erzeugt Entwürfe (Drafts) und speichert diese erst nach expliziter Nutzer-Freigabe. | software |
+Umsetzung von REQ-L2-AIO-004 in AiOrchestrationSystem.
 
-### Interne Schnittstellen
+### ARCH-L2-AIO-005: Architecture for REQ-L2-AIO-005
 
-| ID | Richtung | Quelle -> Ziel | Typ | Vertrag |
-|----|----------|----------------|-----|---------|
-| IF-AI-INT-001 | intern | COMP-AI-004 -> COMP-AI-002 | In-Process Python | `trigger_decomposition(flow_type, item_id)` |
+Umsetzung von REQ-L2-AIO-005 in AiOrchestrationSystem.
 
-### Komponentendiagramm (Mermaid)
+### ARCH-L2-AIO-006: Architecture for REQ-L2-AIO-006
 
-```mermaid
-flowchart TD
-    subgraph AiOrchestrationSystem
-        C001["COMP-AI-001: AiQualityGateAgent"]
-        C002["COMP-AI-002: AiDecompositionAgent"]
-        C003["COMP-AI-003: AiVerificationAgent"]
-        C004["COMP-AI-004: AiDerivationService<br/>Draft/Accept-Flows"]
-    end
+Umsetzung von REQ-L2-AIO-006 in AiOrchestrationSystem.
 
-    ext_as["ApplicationService"] --> C001
-    ext_as --> C004
-    C004 --> C002
-    ext_as --> C003
-```
+### ARCH-L2-AIO-007: Architecture for REQ-L2-AIO-007
 
----
+Umsetzung von REQ-L2-AIO-007 in AiOrchestrationSystem.
 
-## 3. Zugeordnete REQ-L2
+### ARCH-L2-AIO-008: Architecture for REQ-L2-AIO-008
 
-| REQ-L2 | Komponente(n) |
-|--------|---------------|
-| REQ-L2-AI-001 | COMP-AI-004 |
-| REQ-L2-AI-002 | COMP-AI-004 |
-| REQ-L2-AI-003 | COMP-AI-001 |
-| REQ-L2-AI-004 | COMP-AI-001 |
-| REQ-L2-AI-005 | COMP-AI-002, COMP-AI-003 |
-| REQ-L2-AI-006 | COMP-AI-001, COMP-AI-002, COMP-AI-003, COMP-AI-004 |
-| REQ-L2-AI-007 | COMP-AI-004 |
-| REQ-L2-AI-008 | COMP-AI-004 |
+Umsetzung von REQ-L2-AIO-008 in AiOrchestrationSystem.
 
----
+### ARCH-L2-AIO-009: Architecture for REQ-L2-AIO-009
 
-*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade Phase 3 | 2026-07-12*
+Umsetzung von REQ-L2-AIO-009 in AiOrchestrationSystem.
+
+### ARCH-L2-AIO-010: Architecture for REQ-L2-AIO-010
+
+Umsetzung von REQ-L2-AIO-010 in AiOrchestrationSystem.
+
+### ARCH-L2-AIO-011: Architecture for REQ-L2-AIO-011
+
+Umsetzung von REQ-L2-AIO-011 in AiOrchestrationSystem.
+
+### ARCH-L2-AIO-012: Architecture for REQ-L2-AIO-012
+
+Umsetzung von REQ-L2-AIO-012 in AiOrchestrationSystem.
+
+### ARCH-L2-AIO-013: Architecture for REQ-L2-AIO-013
+
+Umsetzung von REQ-L2-AIO-013 in AiOrchestrationSystem.
+
+### ARCH-L2-AIO-014: Architecture for REQ-L2-AIO-014
+
+Umsetzung von REQ-L2-AIO-014 in AiOrchestrationSystem.

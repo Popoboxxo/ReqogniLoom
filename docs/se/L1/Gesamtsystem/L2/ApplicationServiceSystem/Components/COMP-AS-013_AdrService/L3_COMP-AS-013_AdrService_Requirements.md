@@ -1,317 +1,128 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-22T14:30:00Z"
+timestamp: "2026-06-22T14:45:00Z"
 schema_version: "1.0.0"
 ---
-# L3 AdrService Requirements
+# L3 AdrService Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-AS-013_AdrService
-> **Parent:** L2_ApplicationServiceSystem_Requirements.json
+> **Parent:** L2_ApplicationServiceSystem_Architecture.md
 > **Datum:** 2026-06-22
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L1-029 (primär) — ADR-Management ist eine Cross-Cutting-Concern der L1
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der AdrService (Architectural Decision Record Service) verwaltet den vollständigen Lifecycle von ADR-Entitäten im ReqFlow-System. Er orchestriert CRUD-Operationen, delegiert Workflow-Transitions an die WorkflowEngine, Traceability-Verwaltung an die TraceabilityEngine und publikziert Domain-Events via DomainEventBus. ADRs sind zentrale Artefakte zur Dokumentation von Architektur-Entscheidungen und deren Rationale.
+Der AdrService (Architectural Decision Record Service) verwaltet den vollständigen Lifecycle von ADR-Entitäten im ReqFlow-System. Er orchestriert CRUD-Operationen, delegiert Workflow-Transitions an die WorkflowFacade, verwaltet TraceLinks via TraceLinkService und publikziert Domain-Events via DomainEventBus. ADRs sind zentrale Artefakte zur Dokumentation von Architektur-Entscheidungen und deren Rationale. Der Service implementiert Versionierung (Append-Only) und garantiert Tenant-Isolation.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-AS-EXT-IN-001 | input | data | ADR CRUD-Requests vom ApplicationService (create, update, get, list, delete) |
-| IF-AS-INT-002 | output | data | TraceLink-Erstellung an TraceLinkService (`create_trace_link(source_id, target_id, link_type)`) |
-| IF-AS-INT-003 | output | data | Workflow-State-Transition an WorkflowFacade (`transition(item_id, target_state, change_reason, ctx)`) |
-| IF-AS-INT-015 | output | event | Domain-Event-Publikation (AdrCreated/Updated/Deleted) via DomainEventBus |
-| IF-AS-EXT-OUT-007 | output | data | Schreib-/Lese-Aufrufe an den PersistenceLayer (Django ORM) |
+### 2.1 Klassen und Module
 
----
+- **`AdrService` (Klasse):** Orchestrator für ADR-Operationen:
+  - `create_adr(title, description, context, consequences, status, workspace_id, auth_context) → ADR`
+  - `update_adr(adr_id, updates) → ADR`
+  - `get_adr(adr_id) → ADR`
+  - `list_adr(workspace_id, page, limit) → [ADR]`
+  - `delete_adr(adr_id)`
+  - `transition_status(adr_id, target_status, change_reason, auth_context) → ADR`
+  - `create_tracelink(adr_id, target_id, link_type) → TraceLink`
 
-## L3 Component-Anforderungen
+- **`AdrEntity` (Model):** Datenbank-Modell für ADRs mit Versionierung.
 
-### REQ-L3-ADR-001: ADR-Erstellung mit Workflow-Initialisierung
+- **`AdrValidator` (Klasse):** Validiert ADR-Payloads gegen Schema (title 3-200 Zeichen, description max 10.000 Zeichen, status enum, etc.).
 
-Der AdrService SHALL ein neues ADR-Artefakt erstellen und folgende Schritte durchführen:
-1. Validiere Payload (title, description, status obligatorisch)
-2. Erstelle ADR-Entity mit eindeutiger UUID
-3. Initialisiere WorkflowState gemäß aktiver WorkflowDefinition der Workspace
-4. Persistiere Artefakt (Transactional)
+- **`AdrDTO` (DTO):** Data Transfer Object für ADR-Responses.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] ADR wird mit valider UUID erstellt
-- [ ] WorkflowState wird automatisch initialisiert
-- [ ] Transaktionale Persistierung (atomic insert)
-- [ ] Rückgabe der erstellten ADR-UUID
+### 2.2 Datenstrukturen
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-INT-003, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+- **ADR-Entity:**
+  - `id`: UUID (PK)
+  - `workspace_id`: UUID (FK)
+  - `tenant_id`: UUID (FK)
+  - `title`: String (3-200 Zeichen)
+  - `description`: String (max 10.000 Zeichen)
+  - `context`: String (optional, max 5.000 Zeichen)
+  - `consequences`: String (optional, max 5.000 Zeichen)
+  - `status`: enum (Draft, In Review, Approved, Rejected, Superseded)
+  - `version`: Integer (Append-Only-Versionierung)
+  - `created_at`: DateTime
+  - `updated_at`: DateTime
+  - `created_by`: String (User/Agent-ID)
 
-**Traceability:** REQ-L1-029
-**Rationale:** ADRs sind versionierte Entscheidungsaufzeichnungen mit State-Management.
+- **ADRVersion-Entity:** Historische Versionen mit copy of allen ADR-Feldern + version_number.
 
 ---
 
-### REQ-L3-ADR-002: ADR-Update mit Versionierung
+## 3. Erfüllung der Anforderungen
 
-Der AdrService SHALL ADR-Updates mit Versionshistorie verwalten. Bei Änderungen an title, description oder status:
-1. Alte Version wird unverändert beibehalten
-2. Neue Version wird mit inkrementiertem version-Feld erstellt
-3. Timestamp und Actor (User/Agent) werden erfasst
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alte ADR-Versionen bleiben lesbar
-- [ ] Neue Version wird mit version+1 gekennzeichnet
-- [ ] Audit-Trail ist vollständig (wer, wann, was geändert)
-- [ ] Optimistic Locking verhindert Race-Conditions
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Unveränderlichkeit und Nachvollziehbarkeit.
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-ADR-001 (ADR-Erstellung mit Workflow) | Methode `create_adr(payload)`: (1) Validiere payload (AdrValidator), (2) Erstelle ADR-Entity mit UUID, (3) Hole WorkflowDefinition der Workspace, (4) Initialisiere WorkflowState (status=Draft), (5) Persistiere atomare Transaktion. Rückgabe: ADR-UUID. |
+| REQ-L3-ADR-002 (Update mit Versionierung) | Methode `update_adr(adr_id, updates)`: (1) Lade aktuelle Version, (2) Erstelle neue Version mit version+1, (3) Kopiere alte Version zu AdrVersion-Table, (4) Aktualisiere aktuelle Version. Timestamp und Actor erfasst. Optimistic Locking verhindert Race-Conditions. |
+| REQ-L3-ADR-003 (Deletion mit Cascade-Cleanup) | Methode `delete_adr(adr_id)` in `transaction.atomic()`: (1) Lade TraceLinks (via TraceLinkService), (2) Lösche TraceLinks, (3) Lösche WorkflowState-History, (4) Lösche ADR. Bei Fehler: Rollback. |
+| REQ-L3-ADR-004 (Status-Transitions) | Methode `transition_status(adr_id, target_status, change_reason)`: Delegiere an WorkflowFacade.transition(). Erlaubte Status: Draft → In Review → Approved (oder Rejected). Rejected → Draft (optional). Approved → Superseded. change_reason wird erfasst (wenn erforderlich). |
+| REQ-L3-ADR-005 (TraceLink-Verwaltung) | Methode `create_tracelink(adr_id, target_id, link_type)`: Unterstützte Link-Typen: addresses, supersedes, related-to. Rufe TraceLinkService.create_trace_link() auf. Validiere link_type gegen Whitelist. Bidirektionale Querybarkeit. Link-Erstellung ist optional (keine Pflicht). |
+| REQ-L3-ADR-006 (Tenant-Isolation) | Alle CRUD-Operationen: Tenant wird aus Auth-Context extrahiert. ADR wird mit tenant_id gekennzeichnet. Queries filtern nach tenant_id (Custom Manager). Keine Cross-Tenant-ADRs. Keine Cross-Tenant-TraceLinks. |
+| REQ-L3-ADR-007 (Domain-Event-Publikation) | Nach erfolgreicher Mutation: Publiziere Event via DomainEventBus.publish() (post_commit Hook). Events: AdrCreated (mit UUID + Snapshot), AdrUpdated (mit Änderungen), AdrDeleted (mit UUID). Fire-and-Forget (nicht-blockierend). |
+| REQ-L3-ADR-008 (Abfragen und Listing) | Methoden: get_by_id(), list_by_workspace(workspace_id, page, limit), list_by_status(status), search(query_text). Alle Queries tenant-isoliert. FTS in title/description. Pagination unterstützt. Queries performant (≤500ms für 1000 ADRs). |
+| REQ-L3-ADR-009 (Schema-Validierung) | AdrValidator.validate(payload): Prüfe title (3-200 Zeichen), description (max 10.000 Zeichen), status (enum), context (optional, max 5.000), consequences (optional, max 5.000). Rückgabefehler mit Feldname und Grund. |
 
 ---
 
-### REQ-L3-ADR-003: ADR-Deletion mit Cascade-Cleanup
+## 4. Schnittstellen-Implementierung
 
-Bei Löschung eines ADRs SHALL der AdrService:
-1. Alle TraceLinks zum ADR löschen (via TraceLinkService)
-2. WorkflowState-History löschen
-3. ADR-Entität selbst löschen
-4. Alles in einer Transaktion (atomic)
+- **Eingänge (Inbound):**
+  - **IF-AS-EXT-IN-001:** REST API Endpoints für ADR CRUD (POST /adr, PUT /adr/:id, GET /adr/:id, GET /adr, DELETE /adr/:id).
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] TraceLinks werden gelöscht
-- [ ] WorkflowState wird bereinigt
-- [ ] ADR wird gelöscht
-- [ ] Rollback bei Fehler
-
-**Interfaces:** IF-AS-INT-002, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Referenzielle Integrität und Datenhygiene.
+- **Ausgänge (Outbound):**
+  - **IF-AS-INT-002:** Aufruf TraceLinkService (`create_trace_link()`, `delete_trace_links()`) — Python Function Call.
+  - **IF-AS-INT-003:** Aufruf WorkflowFacade (`transition()`) — Python Function Call.
+  - **IF-AS-INT-015 (Domain-Event):** Publikation AdrCreated/Updated/Deleted Events via DomainEventBus.
+  - **IF-AS-EXT-OUT-007:** ORM-Aufrufe an PersistenceLayer (INSERT/UPDATE/DELETE/SELECT).
 
 ---
 
-### REQ-L3-ADR-004: ADR-Status-Transitions mit Workflow-Engine
+## 5. Architectural Rationale
 
-Der AdrService SHALL Workflow-State-Transitions für ADRs delegieren an die WorkflowFacade. Gültige Status sind:
-- Draft (initial)
-- In Review
-- Approved
-- Rejected
-- Superseded
+**ADR-L3-ADR-01 — Append-Only Versionierung statt In-Place Updates**
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Transition wird an WorkflowFacade delegiert
-- [ ] Erlaubte Übergänge werden gemäß WorkflowDefinition validiert
-- [ ] change_reason wird erfasst (wenn erforderlich)
-- [ ] Audit-Log-Eintrag wird geschrieben
+*Entscheidung:* ADR-Updates erzeugen neue Versionen (AdrVersion-Tabelle), alte Versionen bleiben unverändert.
 
-**Interfaces:** IF-AS-INT-003, IF-AS-EXT-IN-001
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
+*Rationale:* Ermöglicht vollständiges Audit-Trail und Rollback-Möglichkeiten. Architektur-Entscheidungen sind kritisch; alle Änderungen müssen nachvollziehbar sein. Alternative: In-Place-Update (überschreibe alte Werte) → Verlust von Entscheidungs-Geschichte. **Abgelehnt**: Compliance und Nachvollziehbarkeit erfordern Versionierung.
 
-**Traceability:** REQ-L1-029
-**Rationale:** Konfigurierbare Workflow-Kontrolle.
+*Erfüllt Trigger:* REQ-L3-ADR-002 (Update mit Versionierung).
 
 ---
 
-### REQ-L3-ADR-005: TraceLink-Verwaltung für ADR-Relationen
+**ADR-L3-ADR-02 — TraceLinks für ADR-Relationen statt Embedded Arrays**
 
-Der AdrService SHALL TraceLinks zwischen ADRs und anderen Artefakten (Requirements, ArchitectureElements) verwalten. Unterstützte Link-Typen:
-- `addresses` (ADR beantwortet ein Problem/Requirement)
-- `supersedes` (ADR ersetzt frühere Entscheidung)
-- `related-to` (ADR ist verwandt mit anderer ADR oder Architekt-Element)
+*Entscheidung:* ADR-Relationen (addresses, supersedes, related-to) werden als separate TraceLink-Entities modelliert, nicht als embedded Arrays.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] TraceLinks werden via TraceLinkService erstellt
-- [ ] Link-Typ-Validierung gegen Whitelist
-- [ ] Bidirektionale Querybarkeit (upstream/downstream)
-- [ ] Link-Erstellung ist optional (keine Pflicht)
+*Rationale:* Ermöglicht flexibles Linking zwischen ADRs und anderen Artefakten (Requirements, ArchitectureElements). Separate TraceLinks sind querybar und können bidirektional durchsucht werden. Alternative: Embedded Arrays in ADR-Entity → weniger flexibel, schwerer zu querien, weniger normalisiert. **Abgelehnt**: TraceLink-Model ist universell und besser wartbar.
 
-**Interfaces:** IF-AS-INT-002, IF-AS-EXT-IN-001
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Relationsmanagement und Impact-Analyse.
+*Erfüllt Trigger:* REQ-L3-ADR-005 (TraceLink-Verwaltung).
 
 ---
 
-### REQ-L3-ADR-006: Tenant-Isolation für ADRs
+**ADR-L3-ADR-03 — Atomare Transaktionen für Konsistenz**
 
-Der AdrService SHALL garantieren, dass:
-1. ADRs nur innerhalb der gleichen Workspace erstellt/aktualisiert werden
-2. TraceLinks nicht Workspace-übergreifend erstellt werden können
-3. Alle Queries tenant-isoliert sind (per Custom Manager)
+*Entscheidung:* ADR-Erstellung, -Update und -Deletion erfolgen in `transaction.atomic()`. Bei Fehler: Rollback.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Tenant wird aus Auth-Context extrahiert
-- [ ] ADR wird mit tenant_id gekennzeichnet
-- [ ] Keine Cross-Tenant-Queries
-- [ ] Keine Cross-Tenant-TraceLinks
+*Rationale:* Verhindert Partial-States (z.B. ADR erstellt, aber WorkflowState nicht initialisiert). Alternative: Keine Transaktionen → Risiko von inkonsistenten States. **Abgelehnt**: Datenintegrität ist kritisch.
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-022
-**Rationale:** Sicherheit und Datenisolation.
+*Erfüllt Trigger:* REQ-L3-ADR-001, REQ-L3-ADR-003 (Konsistenz).
 
 ---
 
-### REQ-L3-ADR-007: Domain-Event-Publikation für ADR-Mutations
-
-Nach erfolgreicher Mutation (create, update, delete) SHALL der AdrService Domain-Events publikzieren:
-- `AdrCreated` (mit ADR-UUID und Snapshot)
-- `AdrUpdated` (mit ADR-UUID, alter/neuer Wert)
-- `AdrDeleted` (mit ADR-UUID)
-
-Diese Events werden via DomainEventBus publiziert und triggern Subscriber (AuditLog, Webhooks, Metriken).
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Events werden nach Commit publiziert (post_commit Hook)
-- [ ] Event-Payload ist strukturiert
-- [ ] Events werden via IF-AS-INT-015 gestellt
-- [ ] Event-Publishing ist Fire-and-Forget (nicht-blockierend)
-
-**Interfaces:** IF-AS-INT-015
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-026 (DomainEventBus)
-**Rationale:** Asynchrone Publikation für Audit und externe Systeme.
-
----
-
-### REQ-L3-ADR-008: ADR-Abfragen und Listing
-
-Der AdrService SHALL folgende Query-Operationen unterstützen:
-- `get_by_id(adr_id)` → einzelnes ADR
-- `list_by_workspace(workspace_id)` → alle ADRs der Workspace (paginiert)
-- `list_by_status(workspace_id, status)` → gefiltert nach Status
-- `search(workspace_id, query_text)` → Volltextsuche in title und description
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Alle Query-Operationen sind tenant-isoliert
-- [ ] Pagination wird für `list_*` unterstützt
-- [ ] Suchabfragen nutzen PostgreSQL Full-Text-Search
-- [ ] Queries sind performant (≤500ms für 1000 ADRs)
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Abfrageunterstützung für UI und Agenten.
-
----
-
-### REQ-L3-ADR-009: ADR-Validierung gegen Schema
-
-Der AdrService SHALL alle ADR-Payloads gegen ein formales Schema validieren:
-- `title`: string, 3-200 Zeichen, Pflicht
-- `description`: string, max 10.000 Zeichen, Pflicht
-- `status`: enum (Draft, In Review, Approved, Rejected, Superseded), Pflicht
-- `context` (optional): string, max 5.000 Zeichen
-- `consequences` (optional): string, max 5.000 Zeichen
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Ungültige Payloads werden mit Error-Detail abgewiesen
-- [ ] Längenbeschränkungen werden enforced
-- [ ] Enum-Validierung erfolgt
-- [ ] Rückgabefehler mit Feldname und Grund
-
-**Interfaces:** IF-AS-EXT-IN-001
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L1-029
-**Rationale:** Datenqualität und API-Konsistenz.
-
----
-
-## Traceability-Matrix: REQ-L3-ADR → REQ-L2/L1
-
-| REQ-L3 | Primäre REQ-L2/L1 |
-|--------|------------------|
-| REQ-L3-ADR-001 | REQ-L1-029 |
-| REQ-L3-ADR-002 | REQ-L1-029 |
-| REQ-L3-ADR-003 | REQ-L1-029 |
-| REQ-L3-ADR-004 | REQ-L1-029 |
-| REQ-L3-ADR-005 | REQ-L1-029 |
-| REQ-L3-ADR-006 | REQ-L2-AppSvc-022 |
-| REQ-L3-ADR-007 | REQ-L2-AppSvc-026 |
-| REQ-L3-ADR-008 | REQ-L1-029 |
-| REQ-L3-ADR-009 | REQ-L1-029 |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-ADR-006 | REQ-L2-AppSvc-022 |
-| REQ-L3-ADR-007 | REQ-L2-AppSvc-026 (DomainEventBus) |
-

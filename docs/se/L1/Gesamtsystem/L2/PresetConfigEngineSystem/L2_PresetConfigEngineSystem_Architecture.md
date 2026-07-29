@@ -1,106 +1,57 @@
-# L2 PresetConfigEngine Architecture
+# L2 Architecture für PresetConfigEngineSystem
 
-> **Level:** L2 (Subsystem white-box)
-> **System:** PresetConfigEngineSystem (ARCH-L1-008)
-> **Parent:** L1_Gesamtsystem_Architecture.md
-> **Datum:** 2026-06-20
-> **Status:** entworfen
+### ARCH-L2-PRE-001: Architecture for REQ-L2-PRE-001
 
----
+Umsetzung von REQ-L2-PRE-001 in PresetConfigEngineSystem.
 
-## 1. Verantwortlichkeit
+### ARCH-L2-PRE-002: Architecture for REQ-L2-PRE-002
 
-Zentrale Konfigurations-Engine fuer Configurable Rigor. Verwaltet SE-Tiefe-Presets (Minimal / Standard / Extended) und Terminologie-Profile (Dev-Modus / SE-Modus) auf Workspace-Ebene. Liefert zur Laufzeit Entscheidungen ueber Pflichtfelder, sichtbare Funktionen, Baseline-Scope-Verfuegbarkeit, Workflow-Konfigurierbarkeit und `change_reason`-Pflicht.
+Umsetzung von REQ-L2-PRE-002 in PresetConfigEngineSystem.
 
----
+### ARCH-L2-PRE-003: Architecture for REQ-L2-PRE-003
 
-## 2. Black-Box (Eingebettete Sicht)
+Umsetzung von REQ-L2-PRE-003 in PresetConfigEngineSystem.
 
-### Externe Schnittstellen
+### ARCH-L2-PRE-004: Architecture for REQ-L2-PRE-004
 
-| ID | Richtung | Gegenstelle | Typ | Vertrag |
-|----|----------|-------------|-----|---------|
-| IF-PC-EXT-IN-001 | eingehend | RestApiAdapter / McpServer / ApplicationService / WorkflowEngine / BaselineService | In-Process Python | `get_preset(workspace_id)`, `is_feature_enabled(feature_key, workspace_id)` |
-| IF-PC-EXT-IN-002 | eingehend | ApplicationService | In-Process Python | `get_terminology_profile(workspace_id)` |
-| IF-PC-EXT-IN-003 | eingehend | ApplicationService | In-Process Python | `switch_preset(workspace_id, target_preset)`, `validate_downgrade(workspace_id, target_preset)` |
-| IF-PC-EXT-OUT-001 | ausgehend | PersistenceLayer | Django ORM | Workspace, WorkspaceSettings, PresetConfig, TerminologyProfile |
+Umsetzung von REQ-L2-PRE-004 in PresetConfigEngineSystem.
 
----
+### ARCH-L2-PRE-005: Architecture for REQ-L2-PRE-005
 
-## 3. White-Box (Komponenten-Zerlegung)
+Umsetzung von REQ-L2-PRE-005 in PresetConfigEngineSystem.
 
-### Komponenten
+### ARCH-L2-PRE-006: Architecture for REQ-L2-PRE-006
 
-| Komp-ID | Name | Verantwortlichkeit | Domain |
-|---------|------|--------------------|--------|
-| COMP-PC-001 | PresetRegistry | Preset-Definitionen und -Defaults (Minimal / Standard / Extended), Feature-Flags, Baseline-Scope-Verfuegbarkeit, Workflow-Konfigurierbarkeit, `change_reason`-Policy | software |
-| COMP-PC-002 | TerminologyProfileService | Verwaltung von Terminologie-Profilen (Dev-Modus / SE-Modus), vollstaendiges Mapping von generischen Entity-Namen zu domaenenspezifischen Labels | software |
-| COMP-PC-003 | FeatureGateService | Laufzeit-Entscheidungen ueber sichtbare Endpunkte/Felder, Preset-Downgrade-Validierung, Cache-Verwaltung fuer <10ms-Queries | software |
+Umsetzung von REQ-L2-PRE-006 in PresetConfigEngineSystem.
 
-### Interne Schnittstellen
+### ARCH-L2-PRE-007: Architecture for REQ-L2-PRE-007
 
-| ID | Richtung | Quelle -> Ziel | Typ | Vertrag |
-|----|----------|----------------|-----|---------|
-| IF-PC-INT-001 | intern | COMP-PC-003 -> COMP-PC-001 | In-Process Python | `get_preset_config(workspace_id) -> PresetConfig` |
-| IF-PC-INT-002 | intern | COMP-PC-003 -> COMP-PC-002 | In-Process Python | `get_terminology_profile(workspace_id) -> TerminologyMapping` |
+Umsetzung von REQ-L2-PRE-007 in PresetConfigEngineSystem.
 
-### Komponentendiagramm (Mermaid)
+### ARCH-L2-PRE-008: Architecture for REQ-L2-PRE-008
 
-```mermaid
-flowchart TD
-    subgraph PresetConfigEngineSystem
-        C001["COMP-PC-001: PresetRegistry<br/>Presets + Defaults + Features"]
-        C002["COMP-PC-002: TerminologyProfileService<br/>Dev/SE-Modus Labels"]
-        C003["COMP-PC-003: FeatureGateService<br/>Runtime-Gating + Downgrade-Check"]
-    end
+Umsetzung von REQ-L2-PRE-008 in PresetConfigEngineSystem.
 
-    ext_in1["RestApiAdapter / McpServer / AppService / WorkflowEngine / BaselineService"] -->|IF-PC-EXT-IN-001| C003
-    ext_in2["ApplicationService"] -->|IF-PC-EXT-IN-002| C002
-    ext_in3["ApplicationService"] -->|IF-PC-EXT-IN-003| C003
+### ARCH-L2-PRE-009: Architecture for REQ-L2-PRE-009
 
-    C003 -->|IF-PC-INT-001| C001
-    C003 -->|IF-PC-INT-002| C002
+Umsetzung von REQ-L2-PRE-009 in PresetConfigEngineSystem.
 
-    C001 -->|IF-PC-EXT-OUT-001| ext_db["PersistenceLayer"]
-    C002 -->|IF-PC-EXT-OUT-001| ext_db
-    C003 -->|IF-PC-EXT-OUT-001| ext_db
-```
+### ARCH-L2-PRE-010: Architecture for REQ-L2-PRE-010
 
----
+Umsetzung von REQ-L2-PRE-010 in PresetConfigEngineSystem.
 
-## 4. Zugeordnete REQ-L2
+### ARCH-L2-PRE-011: Architecture for REQ-L2-PRE-011
 
-| REQ-L2 | Komponente |
-|--------|-----------|
-| REQ-L2-PC-001 | COMP-PC-001 |
-| REQ-L2-PC-002 | COMP-PC-003 |
-| REQ-L2-PC-003 | COMP-PC-001 |
-| REQ-L2-PC-004 | COMP-PC-001 |
-| REQ-L2-PC-005 | COMP-PC-001 |
-| REQ-L2-PC-006 | COMP-PC-001 |
-| REQ-L2-PC-007 | COMP-PC-001 |
-| REQ-L2-PC-008 | COMP-PC-003 |
-| REQ-L2-PC-009 | COMP-PC-002 |
-| REQ-L2-PC-010 | COMP-PC-002 |
-| REQ-L2-PC-011 | COMP-PC-003 |
-| REQ-L2-PC-012 | COMP-PC-001 |
-| REQ-L2-PC-013 | COMP-PC-003 |
-| REQ-L2-PC-014 | COMP-PC-001 |
+Umsetzung von REQ-L2-PRE-011 in PresetConfigEngineSystem.
 
----
+### ARCH-L2-PRE-012: Architecture for REQ-L2-PRE-012
 
-## 5. ADRs (lokal)
+Umsetzung von REQ-L2-PRE-012 in PresetConfigEngineSystem.
 
-**ADR-PC-01 — Configurable Rigor als Querschnitts-Service mit 3 Komponenten**
-*Entscheidung:* PresetRegistry, TerminologyProfileService, FeatureGateService.
-*Rationale:* Trennt statische Preset-Regeln (Registry) von dynamischen Labels (Terminology) und Laufzeit-Entscheidungen (FeatureGate). Ermoeglicht unabhaengige Evolution von Preset-Definitionen und Terminologie-Mappings.
-*Verworfene Alternative:* Einzelner PresetConfigEngine ohne interne Zerlegung — abgelehnt wegen Vermischung von Konfiguration, Terminologie und Laufzeit-Logik.
+### ARCH-L2-PRE-013: Architecture for REQ-L2-PRE-013
 
-**ADR-PC-02 — L3-Zerlegung nicht gerechtfertigt**
-*Entscheidung:* PresetConfigEngine bleibt auf L2; L3 ist terminal.
-*Rationale:* Die Logik ist datengetrieben (Preset-Regeln in JSON-Config, nicht in Code). Alle 14 REQ-L2-PC sind direkt auf Service-Methoden abbildbar. Eine Zerlegung in Sub-Units wuerde kuenstliche Komplexitaet erzeugen.
-*Verworfene Alternative:* L3-Zerlegung in PresetManager, TerminologyManager, DowngradeValidator — abgelehnt wegen Schnittstellen-Overhead ohne messbaren Mehrwert.
+Umsetzung von REQ-L2-PRE-013 in PresetConfigEngineSystem.
 
----
+### ARCH-L2-PRE-014: Architecture for REQ-L2-PRE-014
 
-*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade | 2026-06-20*
+Umsetzung von REQ-L2-PRE-014 in PresetConfigEngineSystem.

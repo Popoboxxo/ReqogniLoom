@@ -1,6 +1,6 @@
 # ReqFlow — L1 Architecture (Gesamtsystem)
 
-> Status: ERWEITERT 2026-06-21 (REQ-L1-027..032) | Vorheriger Stand KONSOLIDIERT 2026-06-20 | Erstellt: 2026-06-17 | Autor: se-architect-Agent (SE-Kaskade)
+> Status: ERWEITERT 2026-07-29 (Superpowers Phasen 0-6) | Vorheriger Stand ERWEITERT 2026-06-21 (REQ-L1-027..032) | Erstellt: 2026-06-17 | Autor: se-architect-Agent (SE-Kaskade)
 >
 > Quelle: `docs/KONZEPT.md` (FINAL, Runden 1–4) + `docs/se/L1/Gesamtsystem/L1_Gesamtsystem_Requirements.md` (REQ-L1-001 … REQ-L1-032, approved)
 >
@@ -34,7 +34,7 @@ ReqFlow ist als geschlossenes System modelliert, das mit folgenden Akteuren inte
 | Akteur | Typ | Schnittstelle | Zweck | Bezug REQ-L1 |
 |---|---|---|---|---|
 | Software-Engineer / Systems-Engineer | Mensch | Browser → React-UI | Manuelles Requirements-Management, Reviews, Approvals | REQ-L1-017 |
-| AI-Agent (Claude Code, Cursor, CI-Agent) | Maschine | MCP-Protokoll | Strukturierter Read/Write-Zugriff auf alle Artefakttypen | REQ-L1-005 |
+| AI-Agent (Claude Code, Cursor, CI-Agent) | Maschine | MCP-Protokoll | Strukturierter Read/Write-Zugriff via profilierte Agent-Templates (Phase 6) | REQ-L1-005 |
 | API-Client (Custom-Integration, Skript) | Maschine | REST API (HTTP/JSON) | Programmatischer Zugriff, CI/CD-Integration | REQ-L1-006 |
 | LLM-Provider (Anthropic, OpenAI, Ollama, …) | Externes System | HTTPS-Outbound | Optionale AI-Capabilities (Validierung, Decomposition) | REQ-L1-013 |
 | GitHub (v1 Should-Have) | Externes System | HTTPS-Outbound | Verknüpfung Requirements ↔ Issues/PRs | REQ-L1-022 |
@@ -469,6 +469,31 @@ Resilienz-Policies (Timeout, Retry, Circuit-Breaker, Async-Decoupling) sind ein 
 - **Neue Interfaces:** IF-L1-038 (A006 → A014).
 
 ---
+
+### 3.6 Erweiterungen durch "Superpowers" (Phasen 0–6)
+
+Diese Erweiterungen schärfen bestehende L1-Subsysteme primär im Bereich MCP-Fähigkeiten, AI-Integration und Status-Konsistenz. Sie erfordern keine neuen L1-Subsysteme, sondern vertiefen die Funktionalität:
+
+#### Erweiterung ARCH-L1-005 WorkflowEngine & ARCH-L1-010 PersistenceLayer — Phase 0 (Status Unification)
+- **Was neu:** Der Status aller Artefakte wird auf einen universellen Workflow-State (`WorkflowItemState.current_state`) vereinheitlicht. Einführung eines universellen Outdate/Reactivate-Mechanismus, der harte Löschungen und inkonsistente Soft-Deletes ablöst.
+- **Warum hier:** Löst Inkonsistenzen bei der Statusverwaltung. Die WorkflowEngine wird zur Single Source of Truth für den Business-Prozess (inklusive historischer Zustände).
+
+#### Erweiterung ARCH-L1-003 McpServer — Phase 1 & 2 (CRUD & Context Generators)
+- **Was neu:** Vollständige Abdeckung aller Entitäten durch MCP-Tools (Phase 1). Einführung von `workspace.get_context` mit Token-Budget-Management und dynamischer Tiefe (`depth`) zur Kontext-Aggregierung für Agenten (Phase 2).
+- **Warum hier:** Erweitert die Maschine-zu-Maschine-Schnittstelle. Der McpServer kapselt die Aufbereitung von Kontext, basierend auf Konfigurationen (PresetConfigEngine).
+
+#### Erweiterung ARCH-L1-005 WorkflowEngine & ARCH-L1-009 LlmAdapter — Phase 3 (Derive Write Mode)
+- **Was neu:** AI-Derivation-Operationen schreiben direkt in die Datenbank, gesteuert durch `is_approval_gate` und `auto_approve_target` Metadaten der WorkflowEngine.
+- **Warum hier:** Verbindet AI-Generierung mit dem regulären Status-Workflow, sodass Agenten-Outputs korrekt als Draft oder In-Review persistiert werden, ohne den Review-Prozess zu umgehen.
+
+#### Erweiterung ARCH-L1-010 PersistenceLayer — Phase 4 (Prompt Templates) & Phase 5 (ReviewPolicy)
+- **Was neu:** Ablösung von Tenant-Singletons für Prompts durch ein versioniertes `PromptTemplate`-Modell mit Fallback-Logik (Workspace -> Tenant -> Default). Einführung eines `ReviewPolicy`-Modells zur feingranularen Steuerung von Freigaben (z.B. `review_high_risk`).
+- **Warum hier:** Flexibilisierung der Konfigurationen auf Workspace-Ebene bei gleichzeitiger Wahrung von System-Defaults.
+
+#### Externes Interface-Artefakt — Phase 6 (Agent Templates)
+- **Was neu:** Bereitstellung von standardisierten Agenten-Profilen (`docs/agent-templates/` wie z.B. Quality Auditor, Change Manager), die Whitelists für MCP-Tools definieren.
+- **Warum extern:** Diese Templates sind keine internen Backend-Subsysteme, sondern Distributions-Artefakte für Downstream-Konsumenten (AI-Agenten), um Rollen-spezifisch mit ReqogniLoom zu interagieren.
+
 
 ### 3.5 L1-Komponentendiagramm (Mermaid)
 

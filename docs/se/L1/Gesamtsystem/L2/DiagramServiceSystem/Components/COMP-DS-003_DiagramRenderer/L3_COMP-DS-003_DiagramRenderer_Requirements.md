@@ -1,83 +1,65 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-21T23:15:00Z"
+timestamp: "2026-06-21T23:20:00Z"
 schema_version: "1.0.0"
 ---
-# L3 DiagramRenderer Requirements
+# L3 DiagramRenderer Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-DS-003_DiagramRenderer
-> **Parent:** L2_DiagramServiceSystem_Requirements.md
+> **Parent:** L2_DiagramServiceSystem_Architecture.md
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
-> **decomposition_status:** terminal
+> **decomposition_status:** terminal — component-level leaf, no further SE decomposition
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-DS-003 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der DiagramRenderer nimmt den persistierten Diagramm-Payload und transformiert diesen in eine Form, die direkt durch Frontend-Komponenten zur grafischen Anzeige genutzt werden kann. Er bereitet die Meta-Informationen so auf, dass die Client-Bibliotheken (z.B. mermaid.js) sie korrekt interpretieren.
+Der DiagramRenderer nimmt persistierte Diagramm-Inhalte und bereitet sie so auf, dass Client-Systeme (wie das React-Frontend) sie als `RenderableDiagram` sofort interpretieren und anzeigen können.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-DS-INT-002 | input | data | Aufruf durch den DiagramManager (`prepare_renderable(type, content)`) |
+Da dies eine terminale Komponente ist, beschreibt die White-Box die internen Software-Klassen und Datenstrukturen.
 
----
+### 2.1 Klassen und Module
 
-## L3 Component-Anforderungen
-
-### REQ-L3-DR-001: Aufbereitung der Render-Daten
-
-Der DiagramRenderer SHALL basierend auf dem Diagramm-Typ und dessen Payload eine Datenstruktur zurückgeben, die das Rendern im Frontend unterstützt.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Liefert ein RenderableDiagram-Objekt zurück, das Typ und unmaskierten String-Payload oder Metadaten für das Ziel-Framework enthält.
-
-**Interfaces:**
-- Incoming: IF-DS-INT-002
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-DS-003
-**Rationale:** Entkoppelt den rohen Speicher-Payload von spezifischen UI-Anforderungen.
+- **`DiagramRenderer` (Klasse/Modul):** Haupt-Methode `prepare_renderable(type, content) -> RenderableDiagram`.
+- **`RenderableDiagram` (DTO):**
+  - `type`: String (Client-Typ, z.B. "mermaid")
+  - `raw_content`: String (der ursprüngliche Payload)
+  - `render_config`: Dictionary (optionale Konfiguration wie Theme, Layout-Direktiven für die Frontend-Bibliothek)
 
 ---
 
-## Traceability-Matrix: REQ-L3-DR → REQ-L2
+## 3. Erfüllung der Anforderungen
 
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-DR-001 | REQ-L2-DS-003 |
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-DR-001 (Aufbereitung der Render-Daten) | Implementiert eine Mapping-Logik, die abhängig vom `type` zusätzliche Render-Konfigurationen (z.B. Mermaid-Setup-Tags) injiziert oder in ein strukturiertes DTO überführt. |
 
 ---
 
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
+## 4. Schnittstellen-Implementierung
+
+- **Eingänge (Inbound):**
+  - **IF-DS-INT-002:** Synchroner In-Process Call durch `COMP-DS-001_DiagramManager`.
+
+---
+
+## 5. Architectural Rationale
+
+**ADR-L3-DR-01 — Kein serverseitiges Image-Rendering**
+*Entscheidung:* Der DiagramRenderer erzeugt keine binären Bilder (PNG/SVG) auf dem Server, sondern gibt Metadaten und bereinigten Text an den Client zurück.
+*Rationale:* Skalierbarkeit. Das Rendern grafischer Netzwerke benötigt CPU-Ressourcen, die besser an die Client-Browser (React + mermaid.js) delegiert werden können. 
+
+---
+
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-DR-001 | REQ-L2-DS-003 |
-

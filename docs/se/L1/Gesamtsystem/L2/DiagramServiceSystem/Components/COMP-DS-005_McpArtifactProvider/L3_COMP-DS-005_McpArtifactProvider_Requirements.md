@@ -1,87 +1,64 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-21T23:15:00Z"
+timestamp: "2026-06-21T23:20:00Z"
 schema_version: "1.0.0"
 ---
-# L3 McpArtifactProvider Requirements
+# L3 McpArtifactProvider Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-DS-005_McpArtifactProvider
-> **Parent:** L2_DiagramServiceSystem_Requirements.md
+> **Parent:** L2_DiagramServiceSystem_Architecture.md
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
-> **decomposition_status:** terminal
+> **decomposition_status:** terminal — component-level leaf, no further SE decomposition
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-DS-005 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der McpArtifactProvider fungiert als Adapter zwischen dem generischen MCP Server und den spezifischen Diagramm-Daten im DiagramManager. Er stellt sicher, dass KI-Agenten Diagramme über das standardisierte `artifact.get` Tool abrufen können.
+Der McpArtifactProvider übersetzt das standardisierte MCP (Model Context Protocol) Format auf die domänenspezifische API des DiagramManagers, sodass KI-Agenten Diagramme lesen können.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-L1-033 | input | control | Aufruf vom McpServer (`artifact.get` mit Typ Diagramm) |
-| (internal) | output | data | Abfrage-Aufruf an den DiagramManager |
+Da dies eine terminale Komponente ist, beschreibt die White-Box die internen Software-Klassen und Datenstrukturen.
 
----
+### 2.1 Klassen und Module
 
-## L3 Component-Anforderungen
-
-### REQ-L3-MAP-001: MCP Tool 'artifact.get' Adapter
-
-Der McpArtifactProvider SHALL eingehende `artifact.get` Anfragen vom McpServer entgegennehmen, den DiagramManager zur Datenbeschaffung aufrufen und die Diagrammdaten in das vom MCP-Protokoll erwartete Text-Format transformieren.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Anfrage mit gültiger Diagramm-ID liefert den strukturierten Payload.
-- [ ] Anfrage für nicht-existierende Diagramm-ID liefert standardisierten MCP-Fehler.
-- [ ] Payload wird als Markdown- oder Plaintext-Repräsentation zurückgegeben.
-
-**Interfaces:**
-- Incoming: IF-L1-033
-- Outgoing: (internal an DiagramManager)
-
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-DS-005
-**Rationale:** Notwendig für Agenten-Integration in das DiagramServiceSystem.
+- **`McpArtifactProvider` (Klasse):** Implementiert das MCP-Tool-Interface.
+- **`McpFormatter` (Modul):** Helferfunktion, um `RenderableDiagram` DTOs in lesbares Markdown für LLMs umzuwandeln.
 
 ---
 
-## Traceability-Matrix: REQ-L3-MAP → REQ-L2
+## 3. Erfüllung der Anforderungen
 
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-MAP-001 | REQ-L2-DS-005 |
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-MAP-001 (MCP Tool 'artifact.get' Adapter) | Registriert einen Callback für `artifact.get` im McpServer. Nimmt Argumente (`diagram_id`) entgegen. Ruft `DiagramManager.get()` auf. Formatiert den Rückgabewert als Markdown (z.B. innerhalb von ```mermaid...``` Blöcken), damit Agenten es nativ lesen können. |
 
 ---
 
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
+## 4. Schnittstellen-Implementierung
+
+- **Eingänge (Inbound):**
+  - **IF-L1-033:** Callback-Aufruf aus dem `McpServer` Framework.
+- **Ausgänge (Outbound):**
+  - **Internal:** Aufruf der `get(id)` Methode am `COMP-DS-001_DiagramManager`.
+
+---
+
+## 5. Architectural Rationale
+
+**ADR-L3-MAP-01 — Spezifische Formatierung für LLMs**
+*Entscheidung:* Der Provider liefert nicht einfach JSON-Rohdaten, sondern hüllt Diagramme explizit in Markdown-Codeblöcke.
+*Rationale:* KI-Agenten (die Konsumenten von MCP) "verstehen" visuelle Syntax wie Mermaid besser, wenn sie syntaktisch korrekt ausgezeichnet ist. Das erleichtert der KI die Analyse von Diagrammen.
+
+---
+
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-MAP-001 | REQ-L2-DS-005 |
-

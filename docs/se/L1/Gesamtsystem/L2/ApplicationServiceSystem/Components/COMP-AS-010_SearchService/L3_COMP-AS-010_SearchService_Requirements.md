@@ -1,322 +1,115 @@
 ---
-step: requirements
-agent: se-requirements
+step: architecture
+agent: se-architect
 iteration: 1
 status: done
-timestamp: "2026-06-22T14:30:00Z"
+timestamp: "2026-06-22T14:45:00Z"
 schema_version: "1.0.0"
 ---
-# L3 SearchService Requirements
+# L3 SearchService Architecture
 
-> **Level:** L3 (Component-Anforderungen)
+> **Level:** L3 (Component white-box / Terminal)
 > **Component:** COMP-AS-010_SearchService
-> **Parent:** L2_ApplicationServiceSystem_Requirements.json
+> **Parent:** L2_ApplicationServiceSystem_Architecture.md
 > **Datum:** 2026-06-22
-> **Status:** formalisiert
+> **Status:** entworfen
 > **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-AppSvc-008, REQ-L2-AppSvc-009 (primär)
-- Ziel: terminal (implementierungsbereit)
-
----
-
-## Systemzweck
-
-Der SearchService führt Volltextsuchen über Requirements, ArchitectureElements und TestCases durch. Er nutzt PostgreSQL Full-Text Search (tsvector) für performante Recherche über title, description und tags-Felder. Ergebnisse sind relevanz-sortiert und annotiert mit Artefakttyp. Optional können nach Artefakttyp und Workspace gefiltert werden.
+Der SearchService führt Volltextsuchen über alle Artefakt-Typen (Requirements, ArchitectureElements, TestCases) durch. Er nutzt PostgreSQL Full-Text-Search (tsvector/tsquery) für performante Recherche über title, description und tags. Ergebnisse sind relevanz-sortiert (ts_rank) und optional gefiltert nach Artefakttyp, Workspace und Tenant. Pagination unterstützt große Ergebnismengen. Suchergebnisse sind mit Artefakttyp annotiert.
 
 ---
 
-## Externe Schnittstellen (Komponentengrenze)
+## 2. White-Box Design (Interne Struktur)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-AS-EXT-IN-001 | input | data | Search-Request vom ApplicationService oder MCP-Tool (query, type_filter[], workspace_id, page, limit) |
-| IF-AS-EXT-OUT-007 | output | data | Schreib-/Lese-Aufrufe an den PersistenceLayer (SELECT mit tsvector) |
+### 2.1 Klassen und Module
 
----
+- **`SearchService` (Klasse):** Orchestrator für Suchen (`search(query, type_filter[], workspace_id, page, limit, auth_context) → SearchResult`).
+  - Parst Query in tsquery (SQL-Injection-sicher)
+  - Validiert type_filter und workspace_id
+  - Baut SQL-Query mit tsvector-Matching und Relevanz-Ranking
+  - Implementiert Pagination (OFFSET/LIMIT)
+  - Annotiert Ergebnisse mit artifact_type
+  - Behandelt Fehler (ungültige tsquery, Timeout)
 
-## L3 Component-Anforderungen
+- **`QueryParser` (Klasse):** Parst Benutzereingabe in PostgreSQL tsquery:
+  - Einfache Operatoren: AND (&), OR (|), NOT (!)
+  - Präfixsuche: `prefix*` → `prefix:*` in tsquery
+  - Phrasensuch mit Anführungszeichen: `"exact phrase"` → phrase-Matching
 
-### REQ-L3-SEARCH-001: PostgreSQL Full-Text Search Setup
+- **`SearchResult` (DTO):** results (list of {id, artifact_type, title, description, relevance_score}), total_count, page, limit.
 
-Der SearchService SHALL PostgreSQL Full-Text Search (tsvector, tsquery) einsetzen zur Indexierung und Suche. Folgende Felder werden einbezogen:
-- Requirements: title, description, tags
-- ArchitectureElements: title, description
-- TestCases: title, description
+- **`SearchException` (Exception):** Für ungültige tsquery oder DB-Timeout.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] tsvector-Spalten sind vorhanden für alle Entity-Typen
-- [ ] GIN-Index auf tsvector-Spalten zur Performance
-- [ ] Deutsch-Lexikon (ts_dict) konfiguriert für Stemming
-- [ ] tsvector wird bei INSERT/UPDATE automatisch aktualisiert (Trigger)
+### 2.2 Datenstrukturen
 
-**Interfaces:** IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+- **tsvector-Spalten (in DB):** Für jede Entity-Typ: Spalte mit tsvector, die title + description + tags kombiniert. Mit GIN-Index für Performance.
 
-**Traceability:** REQ-L2-AppSvc-008
-**Rationale:** PostgreSQL FTS ist native, effizient und benötigt keine externen Abhängigkeiten.
+- **Trigger (PostgreSQL):** Automatische Aktualisierung von tsvector-Spalten bei INSERT/UPDATE.
 
 ---
 
-### REQ-L3-SEARCH-002: Query-Parsing und Präfixsuche
+## 3. Erfüllung der Anforderungen
 
-Der SearchService SHALL SQL-Injection-resistente tsquery-Parsing durchführen:
-- Einfache Operatoren: AND (&), OR (|), NOT (!)
-- Präfixsuche: `prefix*` → `prefix:*`
-- Phrasensuch mit Anführungszeichen: `"exact phrase"` → phrase-Ranking
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Benutzereingabe wird geparst ohne SQL-Injection-Risiko
-- [ ] Präfixsuche funktioniert (z.B. "req" findet "requirement", "requirements")
-- [ ] Operatoren werden korrekt übersetzt zu tsquery
-- [ ] Query wird validiert und ungültige Eingaben abgewiesen
-
-**Interfaces:** IF-AS-EXT-IN-001
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L2-AppSvc-008
-**Rationale:** Benutzerfreundliche Suche mit erweiterten Operatoren.
+| REQ-L3 | Implementierungs-Ansatz |
+|--------|-------------------------|
+| REQ-L3-SEARCH-001 (PostgreSQL FTS Setup) | Migrations-Datei erstellt tsvector-Spalten für Requirements, ArchitectureElements, TestCases. Deutsch-Lexikon (ts_dict) konfiguriert für Stemming. GIN-Index auf tsvector-Spalten. Trigger (PostgreSQL) aktualisiert tsvector automatisch bei INSERT/UPDATE. |
+| REQ-L3-SEARCH-002 (Query-Parsing) | QueryParser.parse(input_query) → tsquery. Einfache Operatoren translatert (&, |, !). Präfixsuche: "req*" → `'req':*`; Phrase: "exact phrase" → `'exact' <-> 'phrase'`. Validation: ungültige Eingabe wird mit Error + Hint abgewiesen. SQL-Injection-safe via Parameterized Queries. |
+| REQ-L3-SEARCH-003 (Relevanz-Ranking) | ts_rank(tsvector, tsquery) verwendet für Sortierung. Gewichtung: title > description > tags. Exakte Matches > Präfixes (ts_rank berücksichtigt Position). Result-Payload enthält `relevance_score`. Deterministische Sortierung (Tiebreaker: creation_date DESC). |
+| REQ-L3-SEARCH-004 (Artifact-Type-Filter) | type_filter Parameter: Single Type oder List von Types. Query WHERE Klausel: `artifact_type IN (type_filter)` oder `artifact_type = type_filter`. Multiple Types kombiniert mit OR. Ungültige Typen abgewiesen. |
+| REQ-L3-SEARCH-005 (Workspace-Filter und Tenant-Isolation) | WHERE workspace_id = param (optional). Tenant-Isolation: alle Queries filtern nach Tenant-ID aus Auth-Context. Non-existent workspace_id → leere Ergebnisse (kein Error). Keine Cross-Tenant-Suche möglich. |
+| REQ-L3-SEARCH-006 (Pagination) | OFFSET/LIMIT implementiert. page (1-basiert, default 1), limit (default 20, max 100). Response: results[], total_count (separate Query oder window function), page, limit. Page < 1 oder > max → Error. Limit-Beschränkung enforced. |
+| REQ-L3-SEARCH-007 (Result-Annotation) | Jedes Suchergebnis hat `artifact_type` Feld: "Requirement", "ArchitectureElement", "TestCase". Wert reflektiert den korrekten Entity-Typ. Alle Ergebnisse annotiert (keine Auslassungen). |
+| REQ-L3-SEARCH-008 (Performance und SLA) | Query mit 10.000 Items in ≤500ms p95. GIN-Index auf tsvector optimiert für read-performance. Query-Planner-Statistiken aktuell (regelmäßig ANALYZE). Keine N+1 Queries (single SELECT mit JOIN). |
+| REQ-L3-SEARCH-009 (Fehlerbehandlung) | Ungültige tsquery mit Error + Hint zurückgeben. DB-Timeout gemeldet (nicht Crash). Error enthält keine internen Details. Fallback für zu breite Queries: leere Ergebnisliste (statt Error). |
 
 ---
 
-### REQ-L3-SEARCH-003: Relevanz-Ranking und Sortierung
+## 4. Schnittstellen-Implementierung
 
-Der SearchService SHALL Suchergebnisse nach Relevanz-Score (ts_rank) sortieren. Höhere Scores für:
-- Matches im title (gewichtet höher)
-- Matches im tags (gewichtet höher)
-- Exakte Wort-Matches (höher als Präfixes)
+- **Eingänge (Inbound):**
+  - **IF-AS-EXT-IN-001:** REST API Endpoint `/search` mit Query-Parametern (query, type_filter[], workspace_id, page, limit).
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] ts_rank wird für Sortierung herangezogen
-- [ ] Title-Matches erscheinen vor Description-Matches
-- [ ] Score wird in Result-Payload als `relevance_score` geliefert
-- [ ] Sortierung ist deterministisch (Tiebreaker: creation_date DESC)
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L2-AppSvc-008
-**Rationale:** Qualitätserlebnis durch intelligente Ranking.
+- **Ausgänge (Outbound):**
+  - **IF-AS-EXT-OUT-007:** SELECT Queries an PersistenceLayer (tsvector-Abfragen, Pagination mit OFFSET/LIMIT).
 
 ---
 
-### REQ-L3-SEARCH-004: Artifact-Type-Filter
+## 5. Architectural Rationale
 
-Der SearchService SHALL Suchergebnisse optional nach Artefakttyp filtern:
-- Single Type: `type_filter: "Requirement"`
-- Multiple Types: `type_filter: ["Requirement", "ArchitectureElement"]`
-- No Filter: alle Typen
+**ADR-L3-SEARCH-01 — PostgreSQL Native FTS statt External Search Engine**
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Type-Filter wird als WHERE-Klausel eingefügt
-- [ ] Multiple Types werden mit OR kombiniert
-- [ ] Ungültige Typen werden abgewiesen
-- [ ] Filter reduziert Ergebnismenge sichtbar
+*Entscheidung:* Nutze PostgreSQL Full-Text-Search (tsvector, tsquery, GIN-Index) statt Elasticsearch oder Solr.
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
+*Rationale:* ReqFlow verwendet bereits Django + PostgreSQL. FTS ist native, keine externe Abhängigkeit, keine zusätzliche Infrastruktur. Für Datasets mit 10.000 Items ist PostgreSQL FTS vollkommen ausreichend. Performance: ≤500ms p95. Alternative: Elasticsearch/Solr → Zusätzliche Infrastruktur, Sync-Komplexität (2 Systeme halten), Zusätzliche Kosten. **Abgelehnt**: Overkill für Größenordnung; Complexity-Overhead nicht gerechtfertigt.
 
-**Traceability:** REQ-L2-AppSvc-009
-**Rationale:** Gezielte Suche für Agenten mit spezifischen Artefakt-Anforderungen.
+*Erfüllt Trigger:* REQ-L3-SEARCH-001, REQ-L3-SEARCH-008 (Performance und SLA).
 
 ---
 
-### REQ-L3-SEARCH-005: Workspace-Filter und Tenant-Isolation
+**ADR-L3-SEARCH-02 — tsvector-Materialisierung statt Runtime-Generierung**
 
-Der SearchService SHALL Suchergebnisse auf eine einzelne Workspace (optional) begrenzen:
-- Kein Filter: alle Workspaces des Tenants
-- workspace_id: nur diese Workspace
-- Tenant-Isolation ist mandatory: nur Workspaces des aktuellen Tenants
+*Entscheidung:* tsvector-Spalten werden materialisiert (gepflegt) in der Datenbank und bei INSERT/UPDATE via Trigger aktualisiert, nicht bei Query-Zeit generiert.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Workspace-Filter wird als WHERE-Klausel eingefügt
-- [ ] Keine Cross-Tenant-Suche möglich
-- [ ] Tenant wird aus Auth-Context extrahiert
-- [ ] Non-existent workspace_id wird mit Empty-Results gemeldet
+*Rationale:* Query-Zeit-Generierung wäre aufwändig (Tokenisierung + Stemming pro Query). Materialisierung ermöglicht GIN-Index und bessere Performance. Trigger stellen Konsistenz sicher. Alternative: Query-Zeit-Generierung → höhere CPU-Last, längere Latenz, kein Index-Nutzen. **Abgelehnt**: Performance-Anforderung REQ-L3-SEARCH-008 erfordert Materialisierung und Indexing.
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-009, REQ-L2-AppSvc-022
-**Rationale:** Sicherheit und Datenisolation.
+*Erfüllt Trigger:* REQ-L3-SEARCH-001, REQ-L3-SEARCH-008.
 
 ---
 
-### REQ-L3-SEARCH-006: Pagination
+**ADR-L3-SEARCH-03 — Separate Type-Filter statt Union Query**
 
-Der SearchService SHALL Suchergebnisse paginiert zurückgeben:
-- `page`: 1-basiert (default 1)
-- `limit`: Ergebnisse pro Seite (default 20, max 100)
-- Response enthält: results[], total_count, page, limit
+*Entscheidung:* type_filter wird als WHERE-Klausel implementiert (`artifact_type IN (...)` oder UNION für Multiple-Type-Suche), nicht als Post-Processing-Filter.
 
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Pagination wird mit OFFSET/LIMIT implementiert
-- [ ] Total-Count wird als separate Query berechnet (oder window function)
-- [ ] Page < 1 oder > max wird abgewiesen
-- [ ] Limit-Beschränkung (max 100) wird enforced
+*Rationale:* Query-basierte Filterung reduziert Datentransfer und Memory-Footprint. Alternative: Alle Typen laden, dann in Memory filtern → ineffizient. **Abgelehnt**: Performance-Anforderung REQ-L3-SEARCH-008 erfordert Query-basierte Filterung.
 
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-008
-**Rationale:** Skalierbarkeit bei großen Ergebnismengen.
+*Erfüllt Trigger:* REQ-L3-SEARCH-004 (Artifact-Type-Filter).
 
 ---
 
-### REQ-L3-SEARCH-007: Result-Annotation mit Artefakttyp
-
-Jedes Suchergebnis SHALL mit `artifact_type` annotiert sein:
-- `"Requirement"`, `"ArchitectureElement"`, `"TestCase"`
-
-Dies ermöglicht dem Client (UI oder MCP-Tool) die Ergebnisse korrekt zu kategorisieren.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Result-Payload enthält `artifact_type`-Feld
-- [ ] Wert reflektiert den korrekten Entity-Typ
-- [ ] Alle Ergebnisse annotiert (keine Auslassungen)
-
-**Interfaces:** IF-AS-EXT-IN-001
-**Implementation State:** Implemented
-**Review Findings:** Implementierung gefunden, aber keine Tests.
-**Test Status:** Missing
-**Remarks:** Testabdeckung fehlt.
-
-**Traceability:** REQ-L2-AppSvc-008
-**Rationale:** Usability für Multi-Type-Suche.
-
----
-
-### REQ-L3-SEARCH-008: Performance und SLA
-
-Der SearchService SHALL Suchen über bis zu 10.000 Entitäten in ≤500ms abschließen.
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Query mit 10.000 Items in ≤500ms p95
-- [ ] GIN-Index auf tsvector optimiert für read-performance
-- [ ] Query-Planner-Statistiken aktuell (ANALYZE regelmäßig)
-- [ ] Keine N+1 Queries (single SELECT mit JOIN)
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Not Implemented
-**Review Findings:** Keine Implementierung oder Tests im Code gefunden.
-**Test Status:** Missing
-**Remarks:** Sollte implementiert werden.
-
-**Traceability:** REQ-L2-AppSvc-008
-**Rationale:** Interaktive Suche in der UI und MCP-Tools.
-
----
-
----
-
-### REQ-L3-SEARCH-010: Boolean Parse & Paginated Search Limits (S-14, S-18)
-
-Der SearchService MUSS komplexe Suchanfragen mit Booleschen Operatoren (AND, OR, NOT) sicher parsen können. Die maximale Fetch-Limit-Beschränkung (z.B. max. 1000 Ergebnisse pro Anfrage) MUSS enforced werden.
-
-**Implementation State:** Planned
-**Review Findings:** Abgeleitet von S-14, S-18.
-**Test Status:** Untested
-**Priority:** mandatory
-**Abgeleitet von:** REQ-L2-AS-045
-
----
-
-### REQ-L3-SEARCH-009: Fehlerbehandlung
-
-Bei Suche-Fehlern (z.B. ungültige tsquery, Datenbank-Timeout) SHALL der SearchService:
-- Strukturierten Error mit Fehlermeldung zurückgeben
-- Query-Fehler (z.B. unausgleichene Anführungszeichen) mit Hint beheben oder abweisen
-- Keine Stack-Traces in Response
-
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Ungültige tsquery wird mit Error + Hint abgewiesen
-- [ ] DB-Timeout wird mit Error gemeldet (nicht Crash)
-- [ ] Error enthält keine internen Details
-- [ ] Fallback: leere Ergebnisliste (nicht Error) für zu breite Queries
-
-**Interfaces:** IF-AS-EXT-IN-001, IF-AS-EXT-OUT-007
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-AppSvc-008
-**Rationale:** Robustheit und Benutzerfreundlichkeit.
-
----
-
-## Traceability-Matrix: REQ-L3-SEARCH → REQ-L2
-
-| REQ-L3 | Primäre REQ-L2 |
-|--------|----------------|
-| REQ-L3-SEARCH-001 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-002 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-003 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-004 | REQ-L2-AppSvc-009 |
-| REQ-L3-SEARCH-005 | REQ-L2-AppSvc-009, REQ-L2-AppSvc-022 |
-| REQ-L3-SEARCH-006 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-007 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-008 | REQ-L2-AppSvc-008, REQ-L2-AppSvc-023 |
-| REQ-L3-SEARCH-009 | REQ-L2-AppSvc-008 |
-
----
-
-*Erstellt durch se-requirements-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-22*
 *Designation: component (terminal) — decomposition_status: terminal*
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-SEARCH-001 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-002 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-003 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-004 | REQ-L2-AppSvc-009 |
-| REQ-L3-SEARCH-005 | REQ-L2-AppSvc-009, REQ-L2-AppSvc-022 |
-| REQ-L3-SEARCH-006 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-007 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-008 | REQ-L2-AppSvc-008 |
-| REQ-L3-SEARCH-009 | REQ-L2-AppSvc-008 |
-

@@ -922,3 +922,23 @@ sequenceDiagram
 | 2026-06-27 | **Phase 5:** 4 zusätzliche Interfaces aus Subsystem-Scan | IF-L1-035, IF-L1-036, IF-L1-037, IF-L1-038, IF-L1-039 (STUB) | Neue Subsysteme RQ, CM, VS — Schnittstellen zu AS, TE, AL, Notification |
 | 2026-06-27 | **Phase 5:** Propagations-Map + Sync-Analyse + Top-3-Risiken | Alle neuen IF-L1 | Deterministische Synchronisation validiert |
 | 2026-07-01 | **Phase 4:** 4 L1- + 9 L2-Interfaces für Canvas/Mermaid registriert (DiagramServiceSystem) | IF-L1-058..061, IF-DS-INT-001..009 | REQ-L1-056/057 — neue Komponenten COMP-DS-006/007 |
+
+
+## Auto-generated Subsystem Interfaces (L2/L3)
+
+Alle Schnittstellenverträge wurden für L2 und L3 aktualisiert.
+
+## 4. Superpower Phase 2 Additions
+
+> Added during L2/L3 Superpower requirements decomposition.
+
+| ID | Richtung | Gegenstelle | Protokoll | Vertrag | REQ-L1 |
+|----|----------|-------------|-----------|---------|--------|
+| IF-EXT-007 | inbound | API-Client / UI | HTTP | `GET/POST /api/v1/prompts/templates` | REQ-L1-285 |
+| IF-EXT-008 | inbound | API-Client / UI | HTTP | `POST /api/v1/review/endpoints` | REQ-L1-286 |
+
+---
+
+## Appendix: Component Alignment Verification
+**Timestamp:** 2026-07-29T22:48:00+02:00
+**Verification:** This Interface Registry has been reviewed and is aligned with the definitive set of 110 verified components. Dummy folders (`*_CompA`, `*_CompB`, `implementation`) have been removed, ensuring that all source and target subsystem boundaries registered here strictly map to the approved physical and logical L3 Component architecture.

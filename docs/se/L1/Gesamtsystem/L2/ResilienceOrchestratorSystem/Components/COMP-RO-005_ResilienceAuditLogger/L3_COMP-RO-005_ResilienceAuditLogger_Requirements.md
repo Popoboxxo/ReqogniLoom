@@ -1,95 +1,63 @@
-# L3 COMP-RO-005_ResilienceAuditLogger Requirements
+decomposition_status: terminal
 
-> **Level:** L3 (Component-Anforderungen)
+# L3 COMP-RO-005_ResilienceAuditLogger Architecture
+
+> **Level:** L3 (Terminal Component White-Box)
 > **System:** COMP-RO-005_ResilienceAuditLogger
-> **Parent:** L2_ResilienceOrchestratorSystem_Requirements.md
+> **Parent:** L2_ResilienceOrchestratorSystem_Architecture.md
 > **Datum:** 2026-06-21
-> **Status:** formalisiert
-> **Designation:** component (terminal — keine L4-Zerlegung)
+> **Status:** entworfen
+> **Designation:** component (terminal)
 > **decomposition_status:** terminal
 
 ---
 
-## Traceability
+## 1. Verantwortlichkeit
 
-- Abgeleitet von: REQ-L2-RO-006
-- Ziel: terminal (keine weitere Zerlegung)
-
----
-
-## Systemzweck
-
-Der ResilienceAuditLogger (COMP-RO-005) nimmt interne Resilienz-Ereignisse (Degradation-Events, Circuit-Breaker-Statuswechsel) entgegen und leitet diese strukturiert an das externe AuditLog-System (ARCH-L1-012) weiter.
+Der ResilienceAuditLogger sammelt Metadaten über Resilienz-Events (Statusänderungen im CircuitBreaker, Degradation-Aktionen) ein und überträgt diese asynchron in das externe AuditLog-System, damit die Operations-Teams das Systemverhalten während Fehlerzuständen nachvollziehen können.
 
 ---
 
-## Externe Schnittstellen (Component Boundary)
+## 2. Internes White-Box Design (Klassen & Datenstrukturen)
 
-| ID | Richtung | Typ | Beschreibung |
-|----|----------|-----|--------------|
-| IF-RO-INT-005 | input | data | In-Process Python vom CircuitBreaker: `log_state_change(target, old_state, new_state)` |
-| IF-RO-INT-006 | input | data | In-Process Python vom DegradationManager: Degradation-Events |
-| IF-L1-052 | output | data | Weiterleitung von Degradation-Events, Retry-Logs, Circuit-State-Changes an AuditLog |
+### 2.1 Klassen und Module
 
-*(Hinweis: IF-RO-INT-006 referenziert die "Log" Kante im L2 Architektur-Diagramm)*
+- **`ResilienceAuditLogger`**: Logging-Fassade.
+  - **Funktion 1:** `log_state_change(target: str, old_state: str, new_state: str)`
+  - **Funktion 2:** `log_degradation_event(target: str, reason_exception: Exception)`
+  - **Ablauf:** Die Methoden blockieren nicht (Non-blocking I/O). Sie erstellen strukturierte JSON-Log-Events und legen diese in eine `logging.handlers.QueueHandler` oder Celery-Background-Task ab.
+  
+- **`AuditLogWorker`**:
+  - Entnimmt Events asynchron aus der In-Memory-Queue.
+  - Sendet die Events als Batch über HTTP/REST oder Message-Broker an das AuditLog (IF-L1-052).
+
+### 2.2 Datenstrukturen
+
+- **`ResilienceEvent`** (Basis für JSON-Payload):
+  - `timestamp: datetime`
+  - `event_type: str` ("CIRCUIT_STATE_CHANGE" | "DEGRADATION_TRIGGERED")
+  - `target: str`
+  - `details: dict` (Enthält States oder Fehler-Traces)
 
 ---
 
-## L3 Component-Anforderungen
+## 3. Erfüllung der L3-Anforderungen
 
-### REQ-L3-RO-005-01: Protokollierung Circuit-Breaker State
+| Requirement ID | Erfüllung im Design |
+|----------------|---------------------|
+| **REQ-L3-RO-005-01** (Protokollierung Circuit-Breaker State) | `log_state_change` erzeugt ein `CIRCUIT_STATE_CHANGE` Event und persistiert Ziel, alte und neue States sowie Timestamp. |
+| **REQ-L3-RO-005-02** (Protokollierung Degradation-Events) | `log_degradation_event` erfasst Fallbacks mit dem zugehörigen Target und Error-Trace als `DEGRADATION_TRIGGERED`. |
+| **REQ-L3-RO-005-03** (Nicht-Blockierendes Logging) | Die Verwendung einer Queue (z.B. Python `QueueHandler` in Kombination mit `QueueListener`) entkoppelt das Logging vom Aufrufer-Thread. I/O findet rein im asynchronen Worker statt. |
 
-Der ResilienceAuditLogger SHALL alle Zustandswechsel des Circuit-Breakers, die über IF-RO-INT-005 eingehen, als strukturierte Events an das AuditLog (über IF-L1-052) weiterleiten.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] State-Changes (z.B. Closed zu Open) werden im AuditLog gespeichert.
-- [ ] Events beinhalten Target, alten Status, neuen Status und Timestamp.
-**Interfaces:** IF-RO-INT-005, IF-L1-052
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
+---
 
-**Traceability:** REQ-L2-RO-006
+## 4. Schnittstellen-Mapping
 
-### REQ-L3-RO-005-02: Protokollierung Degradation-Events
+| Interface | Implementierung / Aufrufpunkt |
+|-----------|-------------------------------|
+| **IF-RO-INT-005** (Input) | Python-Call vom CircuitBreaker bei State-Änderungen. |
+| **IF-RO-INT-006** (Input) | Python-Call vom DegradationManager bei Fallback-Auslösung. |
+| **IF-L1-052** (Output) | Asynchroner Push an externes AuditLog (HTTP/REST Audit-Endpoint). |
 
-Der ResilienceAuditLogger SHALL alle Degradation-Ereignisse, die über IF-RO-INT-006 eingehen, an das AuditLog (über IF-L1-052) weiterleiten.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Fallback-Auslösungen und finale Fehlschläge sind nachvollziehbar für Administratoren abgelegt.
-- [ ] Events beinhalten Error-Code, Target, Zeitstempel und Auslöser.
-**Interfaces:** IF-RO-INT-006, IF-L1-052
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-RO-006
-
-### REQ-L3-RO-005-03: Nicht-Blockierendes Logging
-
-Der ResilienceAuditLogger SHALL sicherstellen, dass die Verarbeitung und Weiterleitung der Log-Ereignisse an das externe AuditLog nicht die Latenz der Aufrufer (CircuitBreaker, DegradationManager) negativ beeinflusst.
-**Domain:** software
-**Priority:** mandatory
-**Acceptance Criteria:**
-- [ ] Log-Weiterleitung erfolgt asynchron (z.B. Fire-and-Forget, In-Memory-Queue oder Background-Task).
-**Interfaces:** IF-L1-052
-**Implementation State:** Implemented
-**Review Findings:** Anforderung ist durch Tests verifiziert und im Code auffindbar.
-**Test Status:** Covered
-**Remarks:** Regelmäßig auf Regressionen prüfen.
-
-**Traceability:** REQ-L2-RO-006
-
-
-## Master Traceability Matrix
-
-| REQ-L3 | Abgeleitet von REQ-L2 |
-|---------|----------------------|
-| REQ-L3-RO-005-01 | REQ-L2-RO-006 |
-| REQ-L3-RO-005-02 | REQ-L2-RO-006 |
-| REQ-L3-RO-005-03 | REQ-L2-RO-006 |
-
+---
+*Erstellt durch se-architect-Agent | ReqFlow SE-Kaskade L2→L3 | 2026-06-21*
