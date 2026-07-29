@@ -29,8 +29,16 @@ def set_request_tenant(tenant_id: UUID | str) -> None:
     """Activate ``tenant_id`` for both isolation layers on the current connection.
 
     Sets the thread-local app-layer context (COMP-PL-002) and the PostgreSQL
-    session variable used by RLS policies (COMP-PL-006). Use inside a request or
-    a transaction; ``SET LOCAL`` is transaction-scoped.
+    session variable used by RLS policies (COMP-PL-006).
+
+    fix #110: this intentionally uses session-scoped ``SET``, not
+    ``SET LOCAL`` — ``ATOMIC_REQUESTS`` is not enabled, so most requests run
+    each statement as its own auto-committed transaction, and ``SET LOCAL``
+    would revert after the very first query, silently disabling RLS for
+    the rest of the request. ``SET`` at request-start / ``RESET`` at
+    request-end (paired unconditionally in ``clear_request_tenant``, always
+    called from a ``finally``) is what keeps the value scoped correctly on
+    a possibly-reused connection.
     """
     if not isinstance(tenant_id, UUID):
         tenant_id = UUID(str(tenant_id))
