@@ -67,6 +67,28 @@ export async function getWorkspaceId(token: string): Promise<string> {
 }
 
 /**
+ * Create a brand-new, empty workspace via the API and return its ID.
+ *
+ * Used by specs that need a workspace with no pre-existing architecture root
+ * (or other singleton state), so they don't collide with other specs sharing
+ * SEEDED_WORKSPACE_ID.
+ */
+export async function createIsolatedWorkspace(token: string, name?: string): Promise<string> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  const wsName = name || `e2e-isolated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const response = await ctx.post('/api/v1/workspaces/', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name: wsName },
+  });
+  if (!response.ok()) {
+    throw new Error(`Workspace creation failed: ${response.status()} ${await response.text()}`);
+  }
+  const body = await response.json();
+  await ctx.dispose();
+  return body.id as string;
+}
+
+/**
  * Inject JWT token and workspace ID into sessionStorage so tests skip the
  * login UI and the WorkspaceContext picks up the real workspace.
  */

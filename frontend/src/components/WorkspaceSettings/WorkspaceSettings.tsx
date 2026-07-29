@@ -23,6 +23,7 @@
  */
 
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
@@ -57,6 +58,7 @@ type SettingsTabId =
 
 export default function WorkspaceSettings(): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const {
     activeWorkspace,
     reloadWorkspaces,
@@ -407,6 +409,26 @@ export default function WorkspaceSettings(): JSX.Element {
 
             {/* Custom Fields (REQ-016) — workspace-wide field definitions, admin-managed */}
             {isAdmin && <CustomFieldsSection workspaceId={activeWorkspace.id} />}
+
+            {/* Data Management — link to the CSV import page (REQ-L0-013) */}
+            <section style={cardStyle}>
+              <h3 style={headingStyle}>{t("settings.dataManagement", "Datenmanagement")}</h3>
+              <button
+                type="button"
+                data-testid="settings-csv-import-btn"
+                onClick={() => navigate("/import")}
+                style={{
+                  appearance: "none",
+                  border: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-4)",
+                  cursor: "pointer",
+                }}
+              >
+                {t("settings.csvImport", "CSV-Import")}
+              </button>
+            </section>
           </>
         )}
 

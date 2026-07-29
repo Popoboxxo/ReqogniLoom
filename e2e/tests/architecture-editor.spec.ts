@@ -1,6 +1,6 @@
 // REQ-L2-RF-004, REQ-L3-RF004-001/002/003: Architecture editor (CRUD, markdown, linked reqs)
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { loginAsAdmin, getAuthToken, setWorkspaceId, createIsolatedWorkspace } from '../helpers/auth';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -16,7 +16,11 @@ async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Eleme
 
 test.describe('[COMP-RF-004] ArchitectureEditors', () => {
   test.beforeEach(async ({ page }) => {
-    await setWorkspaceId(page, SEEDED_WORKSPACE_ID);
+    // Each test gets its own empty workspace so architecture-root creation
+    // (invariant [I5]: one root per workspace) never collides across specs.
+    const token = await getAuthToken();
+    const workspaceId = await createIsolatedWorkspace(token);
+    await setWorkspaceId(page, workspaceId);
     await loginAsAdmin(page);
   });
 

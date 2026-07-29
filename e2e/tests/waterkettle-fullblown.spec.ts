@@ -25,6 +25,7 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  createIsolatedWorkspace,
 } from '../helpers/auth';
 import {
   createRequirementViaUI,
@@ -218,16 +219,9 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
   test.beforeAll(async () => {
     token = await getAuthToken();
-    // Aktive Workspace-ID dynamisch ermitteln
-    const apiCtx = await pwRequest.newContext({
-      baseURL: BACKEND_URL,
-      extraHTTPHeaders: { Authorization: `Bearer ${token}` },
-    });
-    const wsResp = await apiCtx.get('/api/v1/workspaces/');
-    const wsList = (await wsResp.json()).results;
-    const demo = wsList.find((w: { is_active?: boolean }) => w.is_active !== false) ?? wsList[0];
-    const workspaceId = demo.id as string;
-    await apiCtx.dispose();
+    // Eigene, leere Workspace — verhindert [I5]-Kollisionen (max. 1 Root-
+    // ArchitectureElement pro Workspace) mit der geteilten Demo-Workspace.
+    const workspaceId = await createIsolatedWorkspace(token);
 
     ids = {
       workspaceId,
@@ -358,11 +352,20 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   // PHASE 1f — 8 Architektur-Elemente über UI
   // ===========================================================================
   test('Phase 1f: 8 Architektur-Elemente über UI anlegen (alle 5 element_types)', async ({ page }) => {
-    for (const a of SCENARIO.ARCH) {
-      const id = await createArchitectureElementViaUI(page, {
-        title: a.title,
-        elementType: a.elementType,
-      });
+    // [I5]: nur ein Root-ArchitectureElement pro Workspace erlaubt — das
+    // erste Element wird als Root angelegt, alle weiteren als seine Kinder.
+    const [root, ...rest] = SCENARIO.ARCH;
+    const rootId = await createArchitectureElementViaUI(page, {
+      title: root.title,
+      elementType: root.elementType,
+    });
+    ids.architectureIds[root.id] = rootId;
+    for (const a of rest) {
+      const id = await createArchitectureElementViaUI(
+        page,
+        { title: a.title, elementType: a.elementType },
+        rootId
+      );
       ids.architectureIds[a.id] = id;
     }
     // 5 element_types abgedeckt: module, component, layer, interface, subsystem
