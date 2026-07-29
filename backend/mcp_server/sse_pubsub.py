@@ -4,18 +4,15 @@ import json
 import logging
 from typing import AsyncGenerator, Dict, Any, Optional
 from django.conf import settings
-from django.core import signing
+from cryptography.fernet import InvalidToken
+
+from persistence.encryption import ENCRYPTED_PREFIX, decrypt_secret, encrypt_secret
 
 logger = logging.getLogger(__name__)
 
 # TTL for the server-side session -> api-key binding (REQ-018 / audit P-02).
 # Long enough for a normal SSE session, short enough to bound stale bindings.
 SESSION_TTL_SECONDS = 8 * 3600
-
-# Salt namespacing the signed session api-key payloads (REQ-036 / audit BE-5).
-# Django signing derives its HMAC from SECRET_KEY, so a raw Redis dump cannot
-# be reversed without the server secret.
-_API_KEY_SIGNING_SALT = "sse-api-key"
 
 # Bounded per-session replay buffer for SSE Last-Event-ID recovery (REQ-107 /
 # audit F8.3). Every published event gets a monotonic id and is appended to a
@@ -83,15 +80,17 @@ def store_session_api_key(
     subsequent POSTs by ``session_id`` alone, so the secret never has to
     travel in the SSE message URL (REQ-018 / SYSTEM_AUDIT P-02).
 
-    The key is symmetrically encrypted with Django signing before it hits
-    Redis (REQ-036 / audit BE-5) so a Redis compromise does not directly
-    expose usable API keys. The auth flow still receives the plaintext key
-    on read.
+    The key is symmetrically *encrypted* (Fernet, via
+    :mod:`persistence.encryption`, keyed by ``FIELD_ENCRYPTION_KEY``) before
+    it hits Redis (REQ-036 / audit BE-5) so a Redis compromise does not
+    directly expose usable API keys — unlike a bare HMAC signature, the
+    ciphertext cannot be read without the encryption key. The auth flow
+    still receives the plaintext key on read.
     """
     try:
         r = _get_redis_client()
-        signed = signing.dumps(api_key, salt=_API_KEY_SIGNING_SALT)
-        r.set(_session_auth_key(session_id), signed, ex=ttl)
+        encrypted = encrypt_secret(api_key)
+        r.set(_session_auth_key(session_id), encrypted, ex=ttl)
     except Exception:
         logger.exception(f"Failed to store session api key for {session_id}")
 
@@ -102,11 +101,20 @@ def get_session_api_key(session_id: str) -> Optional[str]:
         value = r.get(_session_auth_key(session_id))
         if value is None:
             return None
-        signed = value.decode("utf-8") if isinstance(value, bytes) else str(value)
+        encrypted = value.decode("utf-8") if isinstance(value, bytes) else str(value)
+        # Every value stored here goes through encrypt_secret(), so unlike
+        # persistence.encryption's legacy-plaintext migration path, a value
+        # that does not even carry the Fernet token prefix is never a
+        # legitimate binding for this key — treat it as tampered/unknown
+        # rather than falling back to "use it as-is" (which decrypt_secret
+        # otherwise does for un-prefixed input).
+        if not encrypted.startswith(ENCRYPTED_PREFIX):
+            logger.warning(f"Invalid session api key ciphertext for {session_id}")
+            return None
         try:
-            return signing.loads(signed, salt=_API_KEY_SIGNING_SALT)
-        except signing.BadSignature:
-            logger.warning(f"Invalid session api key signature for {session_id}")
+            return decrypt_secret(encrypted)
+        except InvalidToken:
+            logger.warning(f"Invalid session api key ciphertext for {session_id}")
             return None
     except Exception:
         logger.exception(f"Failed to read session api key for {session_id}")

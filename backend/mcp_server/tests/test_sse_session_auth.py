@@ -187,6 +187,14 @@ def test_session_api_key_is_encrypted_at_rest_and_round_trips() -> None:
         # Reading back yields the original plaintext for the auth flow.
         assert sse_pubsub.get_session_api_key(session_id) == _API_KEY
 
+        # Encrypted (Fernet), not merely signed: the stored value must carry
+        # the Fernet token prefix and must be decryptable via the shared
+        # FIELD_ENCRYPTION_KEY-based helper, not just structurally opaque.
+        from persistence.encryption import ENCRYPTED_PREFIX, decrypt_secret
+
+        assert stored.startswith(ENCRYPTED_PREFIX)
+        assert decrypt_secret(stored) == _API_KEY
+
 
 def test_tampered_session_api_key_returns_none() -> None:
     """A value with a broken signature is treated as unknown (BadSignature -> None)."""
@@ -276,3 +284,42 @@ def test_sse_handshake_with_invalid_key_returns_401() -> None:
     assert response.status_code == 401
     assert response.json() == {"error": "Authentication required"}
     store.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# (f) API key is never accepted from the query string (audit #105)
+#
+# ``?api_key=`` leaks into proxy/access logs, browser history and Referer
+# headers. Only header-based auth (``X-API-Key`` / ``Authorization: Bearer``)
+# may be used, for both the plain HTTP transport and the SSE handshake.
+# ---------------------------------------------------------------------------
+
+
+def test_extract_django_headers_ignores_api_key_query_param() -> None:
+    """``_extract_django_headers`` must not fall back to ``?api_key=``."""
+    from mcp_server.views import _extract_django_headers
+
+    request = RequestFactory().post(f"/mcp/?api_key={_API_KEY}")
+    headers = _extract_django_headers(request)
+
+    assert headers["HTTP_X_API_KEY"] == ""
+    assert headers["X-API-Key"] == ""
+    assert headers["HTTP_AUTHORIZATION"] == ""
+
+
+def test_sse_resolve_api_key_ignores_query_param() -> None:
+    """``McpSseTransportView._resolve_api_key`` must not read ``?api_key=``."""
+    request = RequestFactory().get(f"/mcp/sse/?api_key={_API_KEY}")
+    resolved = McpSseTransportView._resolve_api_key(request)
+
+    assert resolved == ""
+
+
+def test_sse_handshake_with_only_query_api_key_returns_401() -> None:
+    """A handshake carrying the key only in the URL is rejected (no header)."""
+    from django.test import AsyncClient
+
+    response = async_to_sync(AsyncClient().get)(f"/mcp/sse/?api_key={_API_KEY}")
+
+    assert response.status_code == 401
+    assert response.json() == {"error": "Authentication required"}

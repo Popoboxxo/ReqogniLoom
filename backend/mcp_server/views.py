@@ -80,18 +80,20 @@ def _get_handler() -> ProtocolHandler:
 
 
 def _extract_django_headers(request: HttpRequest) -> dict:
-    """Extract relevant HTTP headers from Django META for API-key resolution."""
-    headers = {
+    """Extract relevant HTTP headers from Django META for API-key resolution.
+
+    Only header-based authentication (``X-API-Key`` or ``Authorization:
+    Bearer``) is accepted. A ``?api_key=`` query-parameter fallback is
+    deliberately NOT supported: query strings are routinely written to proxy
+    and web-server access logs, browser history and ``Referer`` headers,
+    which would leak long-lived ``reqlo_*`` API keys (REQ-018 / SYSTEM_AUDIT
+    P-05).
+    """
+    return {
         "HTTP_X_API_KEY": request.META.get("HTTP_X_API_KEY", ""),
         "X-API-Key": request.META.get("HTTP_X_API_KEY", ""),
         "HTTP_AUTHORIZATION": request.META.get("HTTP_AUTHORIZATION", ""),
     }
-    
-    api_key_query = request.GET.get("api_key")
-    if api_key_query and not headers["HTTP_AUTHORIZATION"] and not headers["HTTP_X_API_KEY"]:
-        headers["HTTP_X_API_KEY"] = api_key_query
-
-    return headers
 
 
 def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS"):
@@ -288,18 +290,17 @@ class McpSseTransportView(View):
     def _resolve_api_key(request: HttpRequest) -> str:
         """Resolve the API key from the SSE handshake request.
 
-        Prefers the ``Authorization`` / ``X-API-Key`` headers. The
-        query-parameter fallback is retained only for backward
-        compatibility with older clients; new clients MUST authenticate
-        via header so the secret is not exposed in the URL (REQ-018).
+        Only the ``Authorization`` / ``X-API-Key`` headers are accepted.
+        There is deliberately no ``?api_key=`` query-parameter fallback:
+        query strings end up in proxy/access logs, browser history and
+        ``Referer`` headers, which would leak the long-lived ``reqlo_*``
+        secret (REQ-018 / SYSTEM_AUDIT P-05). Clients MUST authenticate via
+        header.
         """
         auth = request.META.get("HTTP_AUTHORIZATION", "")
         if auth.startswith("Bearer "):
             return auth[7:]
-        header_key = request.META.get("HTTP_X_API_KEY", "")
-        if header_key:
-            return header_key
-        return request.GET.get("api_key", "")
+        return request.META.get("HTTP_X_API_KEY", "")
 
     @staticmethod
     def _parse_last_event_id(request: HttpRequest) -> int | None:
