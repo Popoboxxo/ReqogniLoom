@@ -86,7 +86,10 @@ class _CaptureProvider:
         self.response = response
         self.calls: list[dict] = []
 
-    def complete(self, prompt, *, purpose="", context=None):
+    def complete(self, prompt, *, purpose="", context=None, timeout=None):
+        # timeout: accepted for interface parity with LlmCapabilityInterface
+        # (REQ-084) — AiDerivationService._complete() always passes it
+        # (fix #115/#116); this fake ignores the value itself.
         self.calls.append({"prompt": prompt, "purpose": purpose, "context": context})
         return self.response
 

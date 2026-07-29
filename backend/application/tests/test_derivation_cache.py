@@ -49,13 +49,26 @@ _CACHE_OVERRIDE = override_settings(
 
 @pytest.fixture(autouse=True)
 def _isolated_cache():
-    """Activate the LocMemCache override and clear it around every test."""
+    """Activate the LocMemCache override and clear it around every test.
+
+    Also clears the ``TenantContext`` thread-local after every test. Several
+    ``AiDerivationService`` flows call the shared ``_set_tenant_context``
+    (application/base.py) without a matching clear (the same pattern used
+    across all Layer 2 services; in production a per-request middleware
+    resets it). Under pytest that leaves a stale tenant_id — from a Tenant
+    row that only existed inside the *previous* test's rolled-back
+    transaction — visible to the next test. This was invisible before
+    fix #115/#116 because ``_complete()`` never issued DB writes tied to the
+    active tenant; now that it does (audit log, token usage), the leak
+    surfaces as a spurious FK violation in unrelated tests.
+    """
     with _CACHE_OVERRIDE:
         cache.clear()
         try:
             yield
         finally:
             cache.clear()
+            TenantContext.clear_tenant()
 
 
 @pytest.fixture
@@ -88,13 +101,21 @@ def workspace(tenant):
 
 
 def _make_need(ctx, workspace, title="A need", description="") -> StakeholderNeed:
+    # NOTE: TenantContext is a thread-local — it must be cleared after use or
+    # it leaks into later tests in this module (which previously went
+    # unnoticed because AiDerivationService._complete() never touched the DB;
+    # fix #115/#116's audit/token-usage writes now do, surfacing stale
+    # tenant_ids from here as FK violations in unrelated tests).
     TenantContext.set_tenant(ctx.tenant_id)
-    artifact = Artifact.objects.create(
-        workspace=workspace, artifact_type="StakeholderNeed", tenant_id=ctx.tenant_id
-    )
-    return StakeholderNeed.objects.create(
-        artifact=artifact, tenant_id=ctx.tenant_id, title=title, description=description
-    )
+    try:
+        artifact = Artifact.objects.create(
+            workspace=workspace, artifact_type="StakeholderNeed", tenant_id=ctx.tenant_id
+        )
+        return StakeholderNeed.objects.create(
+            artifact=artifact, tenant_id=ctx.tenant_id, title=title, description=description
+        )
+    finally:
+        TenantContext.clear_tenant()
 
 
 class _CountingProvider:
@@ -104,7 +125,10 @@ class _CountingProvider:
         self.response = response
         self.calls = 0
 
-    def complete(self, prompt, *, purpose="", context=None):
+    def complete(self, prompt, *, purpose="", context=None, timeout=None):
+        # timeout: accepted for interface parity with LlmCapabilityInterface
+        # (REQ-084) — AiDerivationService._complete() always passes it
+        # (fix #115/#116); this fake ignores the value itself.
         self.calls += 1
         return self.response
 
@@ -225,7 +249,7 @@ def test_mock_fallback_result_is_not_cached(auth_context, workspace, monkeypatch
     calls = {"n": 0}
 
     class _CountingMock:
-        def complete(self, prompt, *, purpose="", context=None):
+        def complete(self, prompt, *, purpose="", context=None, timeout=None):
             calls["n"] += 1
             return json.dumps([{"title": "t", "description": "d", "rationale": "r"}])
 

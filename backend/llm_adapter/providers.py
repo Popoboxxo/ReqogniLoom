@@ -915,7 +915,7 @@ class AnthropicProvider(_BaseHttpProvider):
         try:
             import anthropic  # noqa: PLC0415 (lazy import intentional)
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -987,7 +987,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 token_usage=token_usage,
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -1041,7 +1041,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 children=data.get("children", []),
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -1094,7 +1094,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 issues=data.get("issues", []),
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -1152,7 +1152,7 @@ class OpenAiProvider(_BaseHttpProvider):
         try:
             from openai import OpenAI  # noqa: PLC0415
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "openai SDK not installed. Run: pip install openai"
             ) from exc
 
@@ -1313,7 +1313,11 @@ class OllamaProvider(_BaseHttpProvider):
                 "Set OLLAMA_BASE_URL environment variable."
             )
         self._base_url = config.api_base_url
-        self._model = os.environ.get("LLM_MODEL", self.MODEL_NAME)
+        # `.get("LLM_MODEL", default)` only falls back when the key is
+        # *absent*; some environments define LLM_MODEL="" (present but
+        # empty), which would silently send an empty model id to the
+        # provider. `or` treats "" the same as unset.
+        self._model = os.environ.get("LLM_MODEL") or self.MODEL_NAME
 
     def _chat(
         self, prompt: str, timeout: Optional[float] = None
@@ -1481,7 +1485,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         try:
             from openai import AzureOpenAI  # noqa: PLC0415
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "openai SDK not installed. Run: pip install openai"
             ) from exc
 
