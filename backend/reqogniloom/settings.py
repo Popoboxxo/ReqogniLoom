@@ -267,8 +267,15 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": config("DB_NAME", default="reqogniloom"),
-        "USER": config("DB_USER", default="reqogniloom"),
-        "PASSWORD": config("DB_PASSWORD", default="reqogniloom"),
+        # fix #109: default to the least-privilege app role (commit
+        # 0eb36ee2), not the Postgres superuser — RLS is bypassed for
+        # superusers (see .env.example), so a missing DB_USER must not
+        # silently grant a superuser connection.
+        "USER": config("DB_USER", default="reqogniloom_app"),
+        # fix #109: no default — a misconfigured deployment must fail fast
+        # rather than silently start with the password documented in
+        # .env.example (like SECRET_KEY/AUTH_JWT_SECRET already do).
+        "PASSWORD": _get_required_secret("DB_PASSWORD"),
         "HOST": config("DB_HOST", default="postgres"),
         "PORT": config("DB_PORT", default="5432"),
     }

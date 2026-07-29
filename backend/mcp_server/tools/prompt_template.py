@@ -281,9 +281,30 @@ class PromptTemplateToolGroup(BaseToolGroup):
     # see module docstring for the decision and its reasoning)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _check_admin(auth_context: AuthContext) -> ToolResult | None:
+        """Return a ``PERMISSION_DENIED`` ToolResult if the caller is not admin.
+
+        Mirrors ``rest_api.settings_views``'s ``ROLE_ADMIN`` gate on the
+        prompt-template REST endpoint (fix #101): without this, any valid
+        API key could overwrite tenant-wide LLM prompt templates via MCP,
+        a prompt-injection vector into every AI-derivation and review path.
+        """
+        if auth_context.has_role("admin"):
+            return None
+        return ToolResult.error(
+            "PERMISSION_DENIED",
+            f"Permission denied: role 'admin' required, "
+            f"user has {auth_context.active_roles}",
+        )
+
     def _handle_create_or_update(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
+        denied = self._check_admin(auth_context)
+        if denied is not None:
+            return denied
+
         name = require_param(params, "name")
         content = require_param(params, "content")
         workspace_id = optional_uuid(params, "workspace_id")

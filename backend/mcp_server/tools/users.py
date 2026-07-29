@@ -427,7 +427,7 @@ class UsersToolGroup(BaseToolGroup):
             tenant = Tenant.objects.filter(id=tenant_id).first()
         except Exception as exc:
             logger.exception("user.create: tenant lookup failed")
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         if tenant is None:
             return ToolResult.error(
                 "NOT_FOUND",
@@ -470,7 +470,7 @@ class UsersToolGroup(BaseToolGroup):
             )
         except Exception as exc:
             logger.exception("user.create: DB error")
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,
@@ -684,7 +684,7 @@ class UsersToolGroup(BaseToolGroup):
             rows = list(qs.order_by("username")[:limit])
         except Exception as exc:
             logger.exception("user.list: DB error")
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         return ToolResult.ok(
             {
@@ -722,7 +722,7 @@ class UsersToolGroup(BaseToolGroup):
             user = User.objects.filter(id=target_user_id).first()
         except Exception as exc:
             logger.exception("user.deactivate: DB error")
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         if user is None:
             return ToolResult.error(
                 "NOT_FOUND",
@@ -741,7 +741,7 @@ class UsersToolGroup(BaseToolGroup):
                 user.save(update_fields=["is_active", "modified_at", "version"])
             except Exception as exc:
                 logger.exception("user.deactivate: save failed")
-                return ToolResult.error("INTERNAL_ERROR", str(exc))
+                return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,
