@@ -7,6 +7,7 @@
  */
 
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useReactFlow } from "@xyflow/react";
 import {
   Code2,
