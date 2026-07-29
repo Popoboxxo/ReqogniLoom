@@ -204,10 +204,12 @@ MIDDLEWARE = [
     # SEC-008 (#75): adds Content-Security-Policy (no django-csp dependency
     # needed, Django 4.2 has no built-in CSP support yet).
     "reqogniloom.security_middleware.ContentSecurityPolicyMiddleware",
-    # TODO(ARCH-L1-011): Add TenantMiddleware here once auth_tenancy is implemented.
-    # The middleware must extract tenant_id from the Bearer Token / API Key
-    # and inject it into the request context so PersistenceLayer.CustomManager
-    # can apply Row-Level isolation automatically. See ADR-03.
+    # fix #104: teardown backstop for the tenant context set during DRF
+    # authentication (auth_tenancy.rest.AuthTenancyAuthentication). Without
+    # this, TenantContext.tenant_id and the PG session variable
+    # app.current_tenant stay active on the worker thread after the request,
+    # leaking into the next unauthenticated code path on the same thread.
+    "auth_tenancy.middleware.AuthTenancyMiddleware",
 ]
 
 # ---------------------------------------------------------------------------

@@ -88,6 +88,15 @@ class TenantContext:
         """
         cls._thread_local.tenant_id = None
 
+    @classmethod
+    def is_set(cls) -> bool:
+        """Return whether a tenant is currently active on this thread.
+
+        Non-raising check for teardown code that must not touch the DB
+        (``RESET app.current_tenant``) unless a tenant was actually activated.
+        """
+        return getattr(cls._thread_local, "tenant_id", None) is not None
+
 
 class TenantQuerySet(models.QuerySet):
     """QuerySet for tenant-scoped models.

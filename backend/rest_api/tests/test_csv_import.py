@@ -107,9 +107,13 @@ def test_post_csv_creates_requirements(import_admin_user):
     assert body["errors"] == []
 
     # Verify requirements were actually created
-    req_count = Requirement.objects.filter(
-        artifact__workspace=workspace
-    ).count()
+    set_request_tenant(tenant.id)
+    try:
+        req_count = Requirement.objects.filter(
+            artifact__workspace=workspace
+        ).count()
+    finally:
+        clear_request_tenant()
     assert req_count >= 2
 
 

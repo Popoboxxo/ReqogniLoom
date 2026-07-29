@@ -140,18 +140,22 @@ def test_reqif_import_creates_entities_in_target_workspace(reqif_import_admin_us
     assert body["needs"]["errors"] == []
     assert body["requirements"]["errors"] == []
 
-    assert (
-        StakeholderNeed.objects.filter(
-            artifact__workspace=workspace_b, uid="NEED-IMP-001"
-        ).count()
-        == 1
-    )
-    assert (
-        Requirement.objects.filter(
-            artifact__workspace=workspace_b, uid="REQ-IMP-001"
-        ).count()
-        == 1
-    )
+    set_request_tenant(tenant.id)
+    try:
+        assert (
+            StakeholderNeed.objects.filter(
+                artifact__workspace=workspace_b, uid="NEED-IMP-001"
+            ).count()
+            == 1
+        )
+        assert (
+            Requirement.objects.filter(
+                artifact__workspace=workspace_b, uid="REQ-IMP-001"
+            ).count()
+            == 1
+        )
+    finally:
+        clear_request_tenant()
 
 
 @override_settings(**_JWT_OVERRIDES)
@@ -179,10 +183,17 @@ def test_reqif_reimport_same_document_is_idempotent(reqif_import_admin_user):
     assert body["needs"]["updated"] == 1
     assert body["requirements"]["created"] == 0
     assert body["requirements"]["updated"] == 1
-    assert (
-        StakeholderNeed.objects.filter(artifact__workspace=workspace_b).count() == 1
-    )
-    assert Requirement.objects.filter(artifact__workspace=workspace_b).count() == 1
+    set_request_tenant(tenant.id)
+    try:
+        assert (
+            StakeholderNeed.objects.filter(artifact__workspace=workspace_b).count()
+            == 1
+        )
+        assert (
+            Requirement.objects.filter(artifact__workspace=workspace_b).count() == 1
+        )
+    finally:
+        clear_request_tenant()
 
 
 # ---------------------------------------------------------------------------
@@ -214,8 +225,17 @@ def test_reqif_import_dry_run_does_not_persist(reqif_import_admin_user):
     assert body["needs"]["created"] == 1
     assert body["requirements"]["created"] == 1
 
-    assert StakeholderNeed.objects.filter(artifact__workspace=workspace_b).count() == 0
-    assert Requirement.objects.filter(artifact__workspace=workspace_b).count() == 0
+    set_request_tenant(tenant.id)
+    try:
+        assert (
+            StakeholderNeed.objects.filter(artifact__workspace=workspace_b).count()
+            == 0
+        )
+        assert (
+            Requirement.objects.filter(artifact__workspace=workspace_b).count() == 0
+        )
+    finally:
+        clear_request_tenant()
 
 
 # ---------------------------------------------------------------------------
