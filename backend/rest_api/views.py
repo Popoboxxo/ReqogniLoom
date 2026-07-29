@@ -126,14 +126,26 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
     """Translate an ApplicationService exception into a standardised error Response.
 
     REQ-L3-RA001-002: No stack traces leaked; uses ErrorResponseFormatter pattern.
+
+    fix #108: for unmapped exception types (IntegrityError, ProgrammingError,
+    KeyError, etc.), ``str(exc)`` can contain SQL fragments, table/column
+    names, and constraint names — leaking internals regardless of DEBUG.
+    Only the three explicitly mapped, safe-to-surface exception types get
+    their message forwarded to the client; everything else gets a static
+    message, with the real detail going to the log only.
     """
     exc_type = type(exc)
     http_status = _EXC_TO_HTTP.get(exc_type, status.HTTP_500_INTERNAL_SERVER_ERROR)
     code = _EXC_TO_CODE.get(exc_type, "INTERNAL_SERVER_ERROR")
+    if exc_type in _EXC_TO_CODE:
+        message = str(exc) or None
+    else:
+        logger.exception("Unhandled exception in service layer", exc_info=exc)
+        message = "An internal error occurred."
     body = build_error_response(
         code=code,
         lang=lang,
-        message=str(exc) or None,
+        message=message,
     )
     return Response(body, status=http_status)
 

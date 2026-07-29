@@ -463,10 +463,14 @@ class ToolRegistry:
             # tools" and hides invalid/missing credentials from the caller.
             raise McpAuthenticationError(auth_error or "invalid_api_key")
 
-        from persistence.tenancy import TenantContext
+        # fix #110: use set_request_tenant, not the bare TenantContext
+        # thread-local, so the DB-level RLS session variable (COMP-PL-006)
+        # is armed as a backstop for the MCP path too — previously only the
+        # app-layer thread-local filter was active here.
+        from persistence.middleware import set_request_tenant, clear_request_tenant
         try:
             if auth_ctx.tenant_id is not None:
-                TenantContext.set_tenant(auth_ctx.tenant_id)
+                set_request_tenant(auth_ctx.tenant_id)
 
             roles = self._resolve_list_roles(auth_ctx, workspace_id)
             can_write = self._authz_service.decide_access(
@@ -496,7 +500,7 @@ class ToolRegistry:
             return tools
         finally:
             if auth_ctx.tenant_id is not None:
-                TenantContext.clear_tenant()
+                clear_request_tenant()
 
     def dispatch_request(
         self,
@@ -535,10 +539,10 @@ class ToolRegistry:
         # The try/finally guarantees the context is cleared on every
         # exit path (success, early-return error, or unhandled exception).
         try:
-            from persistence.tenancy import TenantContext
+            from persistence.middleware import set_request_tenant, clear_request_tenant
 
             if auth_ctx is not None and auth_ctx.tenant_id is not None:
-                TenantContext.set_tenant(auth_ctx.tenant_id)
+                set_request_tenant(auth_ctx.tenant_id)
 
             # --- Step 2: Resolve active roles ---
             workspace_id: Optional[str] = params.get("workspace_id")
@@ -591,12 +595,15 @@ class ToolRegistry:
                 )
                 return result
             except Exception as exc:
+                # fix #108: outer safety net — same masking as
+                # BaseToolGroup.execute_tool's inner catch-all, in case a
+                # tool group's execute_tool override raises before reaching it.
                 logger.exception("Unexpected error in tool group for tool=%s", tool_name)
-                return ToolResult.error("INTERNAL_ERROR", str(exc))
+                return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         finally:
-            from persistence.tenancy import TenantContext
+            from persistence.middleware import clear_request_tenant
 
-            TenantContext.clear_tenant()
+            clear_request_tenant()
 
     # ------------------------------------------------------------------
     # Internal helpers

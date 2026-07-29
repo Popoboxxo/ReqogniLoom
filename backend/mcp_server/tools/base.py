@@ -176,8 +176,12 @@ class BaseToolGroup(ABC):
         except ParameterError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except Exception as exc:
+            # fix #108: str(exc) on an unmapped exception (IntegrityError,
+            # ProgrammingError, KeyError, ...) can contain SQL fragments,
+            # table/column names, or constraint names. Log the real detail,
+            # return only a static message to the caller.
             logger.exception("Error in %s.%s for tool=%s", type(self).__name__, method_name, tool_name)
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
 
 __all__ = [
