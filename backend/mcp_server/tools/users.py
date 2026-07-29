@@ -90,6 +90,8 @@ import logging
 from typing import Any, Dict, Optional
 from uuid import UUID
 
+from django.db import IntegrityError
+
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied as AuthTenancyPermissionDenied
 from auth_tenancy.models import (
@@ -455,6 +457,17 @@ class UsersToolGroup(BaseToolGroup):
             user.save(update_fields=["password", "modified_at", "version"])
         except (ValueError, TypeError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except IntegrityError:
+            # #125: closes the TOCTOU race between the exists() pre-checks
+            # above and this create() - a concurrent request (or a
+            # case-differing username/email, see uq_user_username_ci) can
+            # still hit the DB-level uniqueness constraint here. Report it
+            # as the same VALIDATION_ERROR the pre-check would have given,
+            # rather than leaking it as an INTERNAL_ERROR.
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Username {username!r} or email {email!r} is already in use.",
+            )
         except Exception as exc:
             logger.exception("user.create: DB error")
             return ToolResult.error("INTERNAL_ERROR", str(exc))

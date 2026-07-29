@@ -30,6 +30,7 @@ from __future__ import annotations
 import uuid
 
 from django.db import IntegrityError, models, transaction
+from django.db.models.functions import Lower
 
 # REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
 # (see requirements.txt) and the ``vector`` Postgres extension (provisioned by
@@ -430,6 +431,19 @@ class User(AuditableModel):
 
     class Meta:
         db_table = "pl_user"
+        constraints = [
+            # Issue #125: user.create (mcp_server/tools/users.py) pre-checks
+            # uniqueness with `username__iexact`, but the DB-level constraint
+            # was case-sensitive (`unique=True` on `username`), so "Alice" and
+            # "alice" could coexist if created concurrently (TOCTOU race)
+            # despite the app intent of case-insensitive uniqueness. This
+            # functional unique index makes case-insensitive uniqueness a
+            # real DB invariant, closing the race regardless of caller.
+            models.UniqueConstraint(
+                Lower("username"),
+                name="uq_user_username_ci",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.username
@@ -803,6 +817,20 @@ class Requirement(TenantScopedModel):
             # a schema change.
             models.Index(fields=["tenant", "uid"], name="idx_req_tnt_uid"),
         ]
+        constraints = [
+            # Issue #123: migration 0020 removed 'StReq' from RequirementType
+            # choices without a data migration for legacy rows. Django's
+            # `choices` are validation-only and not enforced by the DB, so a
+            # leftover row with type='StReq' would silently keep an invalid
+            # value forever (and no longer be reachable by app code that only
+            # recognizes SyReq/UseCase/FeatureReq). This CHECK constraint
+            # makes the choice set a hard DB-level invariant so this class of
+            # bug cannot recur for future SE-mask splits either.
+            models.CheckConstraint(
+                check=models.Q(type__in=[c[0] for c in RequirementType.choices]),
+                name="ck_requirement_type_valid",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -1011,6 +1039,17 @@ class TraceLink(TenantScopedModel):
                 m=16,
                 ef_construction=64,
                 opclasses=["vector_cosine_ops"],
+            ),
+        ]
+        constraints = [
+            # Issue #126: the artifact tree is expressed exclusively via
+            # "derives-from" TraceLinks (see Artifact docstring), so a
+            # duplicate (source, target, link_type) edge corrupts tree
+            # traversal, coverage/SE metrics, and makes ReqIF import
+            # non-idempotent.
+            models.UniqueConstraint(
+                fields=["source", "target", "link_type"],
+                name="uq_tracelink_edge",
             ),
         ]
 
