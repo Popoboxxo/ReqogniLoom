@@ -136,7 +136,8 @@ jobs:
 
       - name: Verify prod Docker build (smoke test)
         # Build the frontend production Docker image to ensure no build-time regressions
-        run: docker build -f frontend/Dockerfile --target production frontend --no-cache -t reqflow-frontend:latest
+        # fix #149: tag with the commit SHA instead of mutable :latest for traceability/rollback
+        run: docker build -f frontend/Dockerfile --target production frontend --no-cache -t reqflow-frontend:${{ github.sha }}
 
       - name: Run Playwright E2E tests
         working-directory: e2e
