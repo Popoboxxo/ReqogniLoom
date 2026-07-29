@@ -70,15 +70,24 @@ export async function createRequirementViaUI(
  */
 export async function createArchitectureElementViaUI(
   page: Page,
-  data: { title: string; elementType: string; description?: string }
+  data: { title: string; elementType: string; description?: string },
+  parentId?: string
 ): Promise<string> {
   await page.goto(`${FRONTEND_URL}/architecture`);
-  await page.locator('[data-testid="create-arch-btn"]').click();
-  // "+ New" only opens an inline quick-create form (title input + Save);
-  // the full editor only renders after Save navigates to the detail route.
-  await page.locator('[data-testid="arch-new-title-input"]').waitFor({ timeout: 8000 });
-  await page.locator('[data-testid="arch-new-title-input"]').fill(data.title);
-  await page.locator('[data-testid="arch-new-save-btn"]').click();
+  if (parentId) {
+    // [I5]: a workspace may have at most one root ArchitectureElement — every
+    // element after the first must be attached under an existing one via the
+    // tree's per-node "Add child" button (arch-tree uses WorkspaceTree,
+    // testIdPrefix="arch-tree" — no context menu, plain button click).
+    await page.locator(`[data-testid="arch-tree-add-child-${parentId}"]`).click();
+  } else {
+    await page.locator('[data-testid="create-arch-btn"]').click();
+    // "+ New" only opens an inline quick-create form (title input + Save);
+    // the full editor only renders after Save navigates to the detail route.
+    await page.locator('[data-testid="arch-new-title-input"]').waitFor({ timeout: 8000 });
+    await page.locator('[data-testid="arch-new-title-input"]').fill(data.title);
+    await page.locator('[data-testid="arch-new-save-btn"]').click();
+  }
   await page.waitForURL(/\/architecture\/[0-9a-f-]+/, { timeout: 12000 });
 
   const url = page.url();
@@ -87,6 +96,10 @@ export async function createArchitectureElementViaUI(
   const id = match[1];
 
   await page.locator('[data-testid="arch-title"]').waitFor({ timeout: 8000 });
+  if (parentId) {
+    // "Add Child" creates the element with a default title — set the real one.
+    await page.locator('[data-testid="arch-title"]').fill(data.title);
+  }
   // REQ-006/D5: arch-element-type-select is a free-text autocomplete input,
   // not a <select>, since backend element types are workspace-defined.
   await page.locator('[data-testid="arch-element-type-select"]').fill(data.elementType);
