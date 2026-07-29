@@ -47,7 +47,9 @@
     "lightMode": "Light mode",
     "darkMode": "Dark mode",
     "buildVersion": "Build {{sha}}",
-    "appVersion": "v{{version}}"
+    "appVersion": "v{{version}}",
+    "openMenu": "Open navigation menu",
+    "closeMenu": "Close navigation menu"
   },
   "systemHealth": {
     "title": "System Health",
@@ -838,5 +840,138 @@
     "creating": "Creating...",
     "discard": "Discard",
     "created": "Test case \"{{title}}\" was created."
+  },
+  "workflow": {
+    "header": {
+      "titleDefault": "Workflow Editor",
+      "titleGlobal": "Global Workflow Defaults",
+      "editModeSwitchToReadOnly": "Switch to read-only",
+      "editModeEnable": "Enable edit mode",
+      "editModeRequiresAdmin": "Edit mode requires the admin role",
+      "editing": "Editing",
+      "readOnly": "Read-only",
+      "export": "Export",
+      "copyAsMermaid": "Copy as Mermaid",
+      "downloadPng": "Download PNG",
+      "downloadSvg": "Download SVG",
+      "comingSoon": "Coming soon"
+    },
+    "toolbar": {
+      "ariaLabel": "Canvas controls",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "fitToView": "Fit to view",
+      "fitToViewTitle": "Fit to view (Ctrl+Shift+F)",
+      "toggleGrid": "Toggle grid",
+      "copyMermaidDiagram": "Copy as Mermaid diagram",
+      "keyboardShortcuts": "Keyboard shortcuts"
+    },
+    "entitySelector": {
+      "ariaLabel": "Workflow entity types",
+      "title": "Entity Types",
+      "preset": "Preset",
+      "notInitialized": "not initialized",
+      "loadingCount": "…",
+      "stateCount_one": "{{count}} state",
+      "stateCount_other": "{{count}} states"
+    },
+    "entityTypes": {
+      "Requirement": "Requirement",
+      "StakeholderNeed": "Stakeholder Need",
+      "ArchitectureElement": "Architecture",
+      "Adr": "ADR",
+      "Risk": "Risk",
+      "TestCase": "Test Case",
+      "Issue": "Issue"
+    },
+    "inspector": {
+      "ariaLabelExpanded": "Inspector",
+      "ariaLabelCollapsed": "Inspector (collapsed)",
+      "expand": "Expand inspector",
+      "collapse": "Collapse inspector",
+      "resize": "Resize inspector",
+      "title": "Inspector",
+      "emptyPrompt": "Select a state or transition to inspect it.",
+      "outgoingTransitions": "Outgoing Transitions ({{count}})",
+      "incomingTransitions": "Incoming Transitions ({{count}})",
+      "terminalStateHint": "Terminal state — no outgoing transitions.",
+      "initialStateHint": "Initial state — no incoming transitions.",
+      "editState": "Edit State",
+      "deleteState": "Delete",
+      "editTransition": "Edit Transition",
+      "deleteTransition": "Delete",
+      "requiresChangeReason": "requires change reason",
+      "flow": "Flow",
+      "rules": "Rules",
+      "requiredRole": "Required Role",
+      "changeReason": "Change Reason",
+      "required": "Required",
+      "optional": "Optional",
+      "signatureGate": "Signature Gate"
+    },
+    "stateDialog": {
+      "addTitle": "Add State",
+      "editTitle": "Edit State",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. IN_PROGRESS",
+      "typeHint": "The state <strong>type</strong> (initial · active · terminal · error) is derived automatically from the state's transitions.",
+      "submitAdd": "Add State",
+      "submitSave": "Save"
+    },
+    "transitionDialog": {
+      "addTitle": "Add Transition",
+      "editTitle": "Edit Transition",
+      "from": "From",
+      "toState": "To State",
+      "toStatePlaceholder": "Select a state…",
+      "allowedRoles": "Allowed Roles",
+      "allowedRolesPlaceholder": "e.g. editor, approver",
+      "allowedRolesHint": "Comma-separated. <strong>admin</strong> always retains transition rights.",
+      "requireChangeReason": "Require change reason",
+      "requireSignature": "Require signature (gate)",
+      "submitAdd": "Add Transition",
+      "submitSave": "Save"
+    },
+    "confirmDialog": {
+      "deleteState": {
+        "title": "Delete State",
+        "message": "Delete state \"{{name}}\"? This cannot be undone. The state must have no transitions and no items in it."
+      },
+      "deleteTransition": {
+        "title": "Delete Transition",
+        "message": "Delete the transition {{from}} → {{to}}? This cannot be undone."
+      },
+      "defaultConfirmLabel": "Delete"
+    },
+    "canvas": {
+      "editHint": "Drag between handles to connect · double-click a state to rename · double-click canvas to add · Del to remove",
+      "helpTitle": "Keyboard shortcuts",
+      "helpText": "Tab — move focus · Enter/Space — select · Esc — deselect · Ctrl/Cmd+Shift+F — fit to view · Del — delete selection (edit mode) · scroll — zoom · drag — pan",
+      "loading": "Loading workflow…",
+      "loadErrorTitle": "Could not load workflow",
+      "selectEntityType": "Select an entity type.",
+      "noWorkflowTitle": "No workflow defined",
+      "noWorkflowText": "This entity type has no workflow states configured for the active preset.",
+      "initializing": "Initializing…",
+      "initializeWorkflow": "Initialize Workflow",
+      "stateAriaLabel": "State: {{name}}, type {{type}}, {{count}} outgoing transitions",
+      "transitionAriaLabel": "Transition: {{name}} from {{from}} to {{to}}"
+    },
+    "statusBar": {
+      "summary": "{{entityType}} Workflow · {{stateCount}} states · {{transitionCount}} transitions · Read-only",
+      "emptyPrompt": "Workflow Editor · Select an entity type"
+    },
+    "modal": {
+      "closeDialog": "Close dialog"
+    },
+    "preset": {
+      "ariaLabel": "Workflow preset"
+    },
+    "toast": {
+      "copiedMermaid": "Copied Mermaid diagram to clipboard",
+      "clipboardError": "Could not access clipboard",
+      "propagated_one": "Change propagated to {{count}} workspace currently on default.",
+      "propagated_other": "Change propagated to {{count}} workspaces currently on default."
+    }
   }
 }

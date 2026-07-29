@@ -2,8 +2,8 @@
  * REQ-176 — StatusBar: bottom strip summarising the current workflow.
  */
 
+import { useTranslation } from "react-i18next";
 import type { WorkflowGraph } from "../../api/workflows";
-import { entityTypeLabel } from "./constants";
 import styles from "./WorkflowEditor.module.css";
 
 interface StatusBarProps {
@@ -11,9 +11,14 @@ interface StatusBarProps {
 }
 
 export function StatusBar({ graph }: StatusBarProps): JSX.Element {
+  const { t } = useTranslation();
   const text = graph
-    ? `${entityTypeLabel(graph.entityType)} Workflow · ${graph.states.length} states · ${graph.transitions.length} transitions · Read-only`
-    : "Workflow Editor · Select an entity type";
+    ? t("workflow.statusBar.summary", {
+        entityType: t(`workflow.entityTypes.${graph.entityType}`),
+        stateCount: graph.states.length,
+        transitionCount: graph.transitions.length,
+      })
+    : t("workflow.statusBar.emptyPrompt");
 
   return (
     <div className={styles.statusBar} role="status" data-testid="workflow-status-bar">

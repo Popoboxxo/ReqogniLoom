@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { WorkflowModal } from "./WorkflowModal";
 import type { WorkflowState } from "../../api/workflows";
 import styles from "./WorkflowEditor.module.css";
@@ -51,6 +52,7 @@ export function TransitionDialog({
   busy = false,
   errorMessage,
 }: TransitionDialogProps): JSX.Element {
+  const { t } = useTranslation();
   const [to, setTo] = useState(toState);
   const [roles, setRoles] = useState(
     (initial?.allowed_roles ?? []).filter((r) => r !== "admin").join(", ")
@@ -81,7 +83,11 @@ export function TransitionDialog({
 
   return (
     <WorkflowModal
-      title={mode === "add" ? "Add Transition" : "Edit Transition"}
+      title={
+        mode === "add"
+          ? t("workflow.transitionDialog.addTitle")
+          : t("workflow.transitionDialog.editTitle")
+      }
       onClose={onClose}
       testId="workflow-transition-dialog"
       footer={
@@ -92,7 +98,7 @@ export function TransitionDialog({
             onClick={onClose}
             data-testid="workflow-transition-cancel"
           >
-            Cancel
+            {t("actions.cancel")}
           </button>
           <button
             type="button"
@@ -101,13 +107,15 @@ export function TransitionDialog({
             disabled={!canSubmit}
             data-testid="workflow-transition-submit"
           >
-            {mode === "add" ? "Add Transition" : "Save"}
+            {mode === "add"
+              ? t("workflow.transitionDialog.submitAdd")
+              : t("workflow.transitionDialog.submitSave")}
           </button>
         </>
       }
     >
       <div className={styles.field}>
-        <span className={styles.fieldLabel}>From</span>
+        <span className={styles.fieldLabel}>{t("workflow.transitionDialog.from")}</span>
         <input
           className={styles.fieldInput}
           value={fromState}
@@ -119,7 +127,7 @@ export function TransitionDialog({
 
       <div className={styles.field}>
         <label className={styles.fieldLabel} htmlFor="wf-transition-to">
-          To State
+          {t("workflow.transitionDialog.toState")}
         </label>
         {mode === "edit" ? (
           <input
@@ -138,7 +146,7 @@ export function TransitionDialog({
             onChange={(e) => setTo(e.target.value)}
             data-testid="workflow-transition-to"
           >
-            <option value="">Select a state…</option>
+            <option value="">{t("workflow.transitionDialog.toStatePlaceholder")}</option>
             {targets.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -150,20 +158,22 @@ export function TransitionDialog({
 
       <div className={styles.field}>
         <label className={styles.fieldLabel} htmlFor="wf-transition-roles">
-          Allowed Roles
+          {t("workflow.transitionDialog.allowedRoles")}
         </label>
         <input
           id="wf-transition-roles"
           className={styles.fieldInput}
           value={roles}
           onChange={(e) => setRoles(e.target.value)}
-          placeholder="e.g. editor, approver"
+          placeholder={t("workflow.transitionDialog.allowedRolesPlaceholder")}
           autoComplete="off"
           data-testid="workflow-transition-roles"
         />
         <p className={styles.modalText}>
-          Comma-separated. <strong>admin</strong> always retains transition
-          rights.
+          <Trans i18nKey="workflow.transitionDialog.allowedRolesHint">
+            Comma-separated. <strong>admin</strong> always retains transition
+            rights.
+          </Trans>
         </p>
       </div>
 
@@ -174,7 +184,7 @@ export function TransitionDialog({
           onChange={(e) => setRequireReason(e.target.checked)}
           data-testid="workflow-transition-reason"
         />
-        Require change reason
+        {t("workflow.transitionDialog.requireChangeReason")}
       </label>
 
       <label className={styles.checkboxRow}>
@@ -184,7 +194,7 @@ export function TransitionDialog({
           onChange={(e) => setSignatureGate(e.target.checked)}
           data-testid="workflow-transition-signature"
         />
-        Require signature (gate)
+        {t("workflow.transitionDialog.requireSignature")}
       </label>
 
       {errorMessage && (

@@ -13,6 +13,7 @@
 import "@xyflow/react/dist/style.css";
 
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -63,6 +64,7 @@ interface WorkflowEditorPageProps {
 export function WorkflowEditorPage({
   scope = "workspace",
 }: WorkflowEditorPageProps = {}): JSX.Element {
+  const { t } = useTranslation();
   const isGlobal = scope === "global";
   const { entityType: entitySlug } = useParams<{ entityType: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -96,11 +98,9 @@ export function WorkflowEditorPage({
 
   const handlePropagated = useCallback(
     (count: number): void => {
-      flashToast(
-        `Change propagated to ${count} workspace${count === 1 ? "" : "s"} currently on default.`
-      );
+      flashToast(t("workflow.toast.propagated", { count }));
     },
-    [flashToast]
+    [flashToast, t]
   );
 
   const { graph, isLoading, error } = useWorkflowData(entityType, workflowScope);
@@ -149,10 +149,10 @@ export function WorkflowEditorPage({
     const text = toMermaid(graph);
     void navigator.clipboard
       ?.writeText(text)
-      .then(() => setToast("Copied Mermaid diagram to clipboard"))
-      .catch(() => setToast("Could not access clipboard"));
+      .then(() => setToast(t("workflow.toast.copiedMermaid")))
+      .catch(() => setToast(t("workflow.toast.clipboardError")));
     window.setTimeout(() => setToast(null), 2000);
-  }, [graph]);
+  }, [graph, t]);
 
   const toggleEditMode = useCallback((): void => {
     setEditMode((v) => {
@@ -240,7 +240,11 @@ export function WorkflowEditorPage({
         editMode={editMode}
         onToggleEditMode={toggleEditMode}
         canEdit={isAdmin}
-        title={isGlobal ? "Global Workflow Defaults" : "Workflow Editor"}
+        title={
+          isGlobal
+            ? t("workflow.header.titleGlobal")
+            : t("workflow.header.titleDefault")
+        }
         presetControl={
           isGlobal ? (
             <PresetSegmentedControl value={globalPreset} onChange={handleSelectPreset} />
@@ -367,8 +371,10 @@ export function WorkflowEditorPage({
       )}
       {dialog.kind === "confirmDeleteState" && (
         <ConfirmDialog
-          title="Delete State"
-          message={`Delete state "${dialog.name}"? This cannot be undone. The state must have no transitions and no items in it.`}
+          title={t("workflow.confirmDialog.deleteState.title")}
+          message={t("workflow.confirmDialog.deleteState.message", {
+            name: dialog.name,
+          })}
           busy={mutations.busy}
           errorMessage={mutations.error}
           onClose={closeDialog}
@@ -379,8 +385,11 @@ export function WorkflowEditorPage({
       )}
       {dialog.kind === "confirmDeleteTransition" && (
         <ConfirmDialog
-          title="Delete Transition"
-          message={`Delete the transition ${dialog.from} → ${dialog.to}? This cannot be undone.`}
+          title={t("workflow.confirmDialog.deleteTransition.title")}
+          message={t("workflow.confirmDialog.deleteTransition.message", {
+            from: dialog.from,
+            to: dialog.to,
+          })}
           busy={mutations.busy}
           errorMessage={mutations.error}
           onClose={closeDialog}

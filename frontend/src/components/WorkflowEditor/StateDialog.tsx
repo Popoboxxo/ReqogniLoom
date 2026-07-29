@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { WorkflowModal } from "./WorkflowModal";
 import styles from "./WorkflowEditor.module.css";
 
@@ -31,6 +32,7 @@ export function StateDialog({
   busy = false,
   errorMessage,
 }: StateDialogProps): JSX.Element {
+  const { t } = useTranslation();
   const [name, setName] = useState(initialName);
   const trimmed = name.trim();
   const canSubmit = trimmed.length > 0 && !trimmed.includes("__") && !busy;
@@ -42,7 +44,11 @@ export function StateDialog({
 
   return (
     <WorkflowModal
-      title={mode === "add" ? "Add State" : "Edit State"}
+      title={
+        mode === "add"
+          ? t("workflow.stateDialog.addTitle")
+          : t("workflow.stateDialog.editTitle")
+      }
       onClose={onClose}
       testId="workflow-state-dialog"
       footer={
@@ -53,7 +59,7 @@ export function StateDialog({
             onClick={onClose}
             data-testid="workflow-state-cancel"
           >
-            Cancel
+            {t("actions.cancel")}
           </button>
           <button
             type="button"
@@ -62,14 +68,16 @@ export function StateDialog({
             disabled={!canSubmit}
             data-testid="workflow-state-submit"
           >
-            {mode === "add" ? "Add State" : "Save"}
+            {mode === "add"
+              ? t("workflow.stateDialog.submitAdd")
+              : t("workflow.stateDialog.submitSave")}
           </button>
         </>
       }
     >
       <div className={styles.field}>
         <label className={styles.fieldLabel} htmlFor="wf-state-name">
-          Name
+          {t("workflow.stateDialog.nameLabel")}
         </label>
         <input
           id="wf-state-name"
@@ -79,15 +87,17 @@ export function StateDialog({
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
-          placeholder="e.g. IN_PROGRESS"
+          placeholder={t("workflow.stateDialog.namePlaceholder")}
           autoComplete="off"
           spellCheck={false}
           data-testid="workflow-state-name-input"
         />
       </div>
       <p className={styles.modalText}>
-        The state <strong>type</strong> (initial · active · terminal · error) is
-        derived automatically from the state&apos;s transitions.
+        <Trans i18nKey="workflow.stateDialog.typeHint">
+          The state <strong>type</strong> (initial · active · terminal ·
+          error) is derived automatically from the state&apos;s transitions.
+        </Trans>
       </p>
       {errorMessage && (
         <p className={styles.modalError} role="alert" data-testid="workflow-state-error">

@@ -9,6 +9,7 @@
  */
 
 import { memo, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import type { StateFlowNode } from "./layout";
@@ -26,6 +27,7 @@ function StateNodeComponent({
   data,
   selected,
 }: NodeProps<StateFlowNode>): JSX.Element {
+  const { t } = useTranslation();
   const { state, editMode, onRename } = data;
   const typeClass = TYPE_CLASS[state.type];
   const handleClass = editMode ? styles.handleEdit : styles.handle;
@@ -60,7 +62,11 @@ function StateNodeComponent({
       }`}
       role="button"
       tabIndex={0}
-      aria-label={`State: ${state.name}, type ${state.type}, ${state.outgoingCount} outgoing transitions`}
+      aria-label={t("workflow.canvas.stateAriaLabel", {
+        name: state.name,
+        type: state.type,
+        count: state.outgoingCount,
+      })}
       data-testid={`workflow-state-node-${state.id}`}
       onDoubleClick={
         editMode

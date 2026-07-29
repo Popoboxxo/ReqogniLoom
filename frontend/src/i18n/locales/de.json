@@ -47,7 +47,9 @@
     "lightMode": "Heller Modus",
     "darkMode": "Dunkler Modus",
     "buildVersion": "Build {{sha}}",
-    "appVersion": "v{{version}}"
+    "appVersion": "v{{version}}",
+    "openMenu": "Navigationsmenü öffnen",
+    "closeMenu": "Navigationsmenü schließen"
   },
   "systemHealth": {
     "title": "Systemstatus",
@@ -835,5 +837,138 @@
     "creating": "Wird angelegt...",
     "discard": "Verwerfen",
     "created": "Testfall \"{{title}}\" wurde angelegt."
+  },
+  "workflow": {
+    "header": {
+      "titleDefault": "Workflow-Editor",
+      "titleGlobal": "Globale Workflow-Vorgaben",
+      "editModeSwitchToReadOnly": "Zu Nur-Lesen wechseln",
+      "editModeEnable": "Bearbeitungsmodus aktivieren",
+      "editModeRequiresAdmin": "Bearbeitungsmodus erfordert die Admin-Rolle",
+      "editing": "Bearbeitung",
+      "readOnly": "Nur-Lesen",
+      "export": "Export",
+      "copyAsMermaid": "Als Mermaid kopieren",
+      "downloadPng": "PNG herunterladen",
+      "downloadSvg": "SVG herunterladen",
+      "comingSoon": "Demnächst verfügbar"
+    },
+    "toolbar": {
+      "ariaLabel": "Canvas-Steuerung",
+      "zoomIn": "Vergrößern",
+      "zoomOut": "Verkleinern",
+      "fitToView": "An Ansicht anpassen",
+      "fitToViewTitle": "An Ansicht anpassen (Strg+Umschalt+F)",
+      "toggleGrid": "Raster umschalten",
+      "copyMermaidDiagram": "Als Mermaid-Diagramm kopieren",
+      "keyboardShortcuts": "Tastenkürzel"
+    },
+    "entitySelector": {
+      "ariaLabel": "Workflow-Entitätstypen",
+      "title": "Entitätstypen",
+      "preset": "Preset",
+      "notInitialized": "nicht initialisiert",
+      "loadingCount": "…",
+      "stateCount_one": "{{count}} Zustand",
+      "stateCount_other": "{{count}} Zustände"
+    },
+    "entityTypes": {
+      "Requirement": "Requirement",
+      "StakeholderNeed": "Stakeholder Need",
+      "ArchitectureElement": "Architektur",
+      "Adr": "ADR",
+      "Risk": "Risiko",
+      "TestCase": "Testfall",
+      "Issue": "Issue"
+    },
+    "inspector": {
+      "ariaLabelExpanded": "Inspektor",
+      "ariaLabelCollapsed": "Inspektor (eingeklappt)",
+      "expand": "Inspektor ausklappen",
+      "collapse": "Inspektor einklappen",
+      "resize": "Inspektor-Größe ändern",
+      "title": "Inspektor",
+      "emptyPrompt": "Zustand oder Übergang auswählen, um ihn zu prüfen.",
+      "outgoingTransitions": "Ausgehende Übergänge ({{count}})",
+      "incomingTransitions": "Eingehende Übergänge ({{count}})",
+      "terminalStateHint": "Endzustand — keine ausgehenden Übergänge.",
+      "initialStateHint": "Startzustand — keine eingehenden Übergänge.",
+      "editState": "Zustand bearbeiten",
+      "deleteState": "Löschen",
+      "editTransition": "Übergang bearbeiten",
+      "deleteTransition": "Löschen",
+      "requiresChangeReason": "Begründung erforderlich",
+      "flow": "Ablauf",
+      "rules": "Regeln",
+      "requiredRole": "Erforderliche Rolle",
+      "changeReason": "Begründung",
+      "required": "Erforderlich",
+      "optional": "Optional",
+      "signatureGate": "Unterschrifts-Gate"
+    },
+    "stateDialog": {
+      "addTitle": "Zustand hinzufügen",
+      "editTitle": "Zustand bearbeiten",
+      "nameLabel": "Name",
+      "namePlaceholder": "z. B. IN_PROGRESS",
+      "typeHint": "Der <strong>Typ</strong> des Zustands (initial · aktiv · terminal · Fehler) wird automatisch aus den Übergängen des Zustands abgeleitet.",
+      "submitAdd": "Zustand hinzufügen",
+      "submitSave": "Speichern"
+    },
+    "transitionDialog": {
+      "addTitle": "Übergang hinzufügen",
+      "editTitle": "Übergang bearbeiten",
+      "from": "Von",
+      "toState": "Zielzustand",
+      "toStatePlaceholder": "Zustand auswählen…",
+      "allowedRoles": "Erlaubte Rollen",
+      "allowedRolesPlaceholder": "z. B. editor, approver",
+      "allowedRolesHint": "Kommagetrennt. <strong>admin</strong> behält immer das Übergangsrecht.",
+      "requireChangeReason": "Begründung erforderlich",
+      "requireSignature": "Unterschrift erforderlich (Gate)",
+      "submitAdd": "Übergang hinzufügen",
+      "submitSave": "Speichern"
+    },
+    "confirmDialog": {
+      "deleteState": {
+        "title": "Zustand löschen",
+        "message": "Zustand \"{{name}}\" löschen? Dies kann nicht rückgängig gemacht werden. Der Zustand darf keine Übergänge und keine Elemente enthalten."
+      },
+      "deleteTransition": {
+        "title": "Übergang löschen",
+        "message": "Übergang {{from}} → {{to}} löschen? Dies kann nicht rückgängig gemacht werden."
+      },
+      "defaultConfirmLabel": "Löschen"
+    },
+    "canvas": {
+      "editHint": "Ziehen zwischen den Anschlusspunkten verbindet · Doppelklick auf Zustand benennt um · Doppelklick auf Canvas fügt hinzu · Entf entfernt",
+      "helpTitle": "Tastenkürzel",
+      "helpText": "Tab — Fokus bewegen · Enter/Leertaste — auswählen · Esc — Auswahl aufheben · Strg/Cmd+Umschalt+F — an Ansicht anpassen · Entf — Auswahl löschen (Bearbeitungsmodus) · Scrollen — zoomen · Ziehen — verschieben",
+      "loading": "Workflow wird geladen…",
+      "loadErrorTitle": "Workflow konnte nicht geladen werden",
+      "selectEntityType": "Entitätstyp auswählen.",
+      "noWorkflowTitle": "Kein Workflow definiert",
+      "noWorkflowText": "Für diesen Entitätstyp sind im aktiven Preset keine Workflow-Zustände konfiguriert.",
+      "initializing": "Wird initialisiert…",
+      "initializeWorkflow": "Workflow initialisieren",
+      "stateAriaLabel": "Zustand: {{name}}, Typ {{type}}, {{count}} ausgehende Übergänge",
+      "transitionAriaLabel": "Übergang: {{name}} von {{from}} nach {{to}}"
+    },
+    "statusBar": {
+      "summary": "{{entityType}} Workflow · {{stateCount}} Zustände · {{transitionCount}} Übergänge · Nur-Lesen",
+      "emptyPrompt": "Workflow-Editor · Entitätstyp auswählen"
+    },
+    "modal": {
+      "closeDialog": "Dialog schließen"
+    },
+    "preset": {
+      "ariaLabel": "Workflow-Preset"
+    },
+    "toast": {
+      "copiedMermaid": "Mermaid-Diagramm in die Zwischenablage kopiert",
+      "clipboardError": "Zugriff auf die Zwischenablage nicht möglich",
+      "propagated_one": "Änderung auf {{count}} Workspace übertragen, der aktuell den Standard verwendet.",
+      "propagated_other": "Änderung auf {{count}} Workspaces übertragen, die aktuell den Standard verwenden."
+    }
   }
 }

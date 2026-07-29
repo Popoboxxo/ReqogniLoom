@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Background,
   BackgroundVariant,
@@ -75,9 +76,24 @@ function CanvasInner({
   onDeleteSelection,
   onAddStateRequest,
 }: CanvasInnerProps): JSX.Element {
+  const { t } = useTranslation();
   const { fitView } = useReactFlow();
   const [gridVisible, setGridVisible] = useState(true);
   const [helpOpen, setHelpOpen] = useState(false);
+  const helpPanelRef = useRef<HTMLDivElement | null>(null);
+  const helpTriggerRef = useRef<HTMLElement | null>(null);
+
+  // WCAG 4.1.2 — move focus into the (non-modal) help panel when it opens and
+  // restore it to the toggle button on close, so keyboard/screen-reader users
+  // reach the disclosed content and Escape returns them where they started.
+  useEffect(() => {
+    if (helpOpen) {
+      helpTriggerRef.current = document.activeElement as HTMLElement | null;
+      helpPanelRef.current?.focus();
+    } else {
+      helpTriggerRef.current?.focus?.();
+    }
+  }, [helpOpen]);
 
   // Persisted, hand-arranged node positions (client-side; see layout-store).
   const [positions, setPositions] = useState<PositionMap>(() =>
@@ -251,23 +267,21 @@ function CanvasInner({
       {editMode && !isEmpty && (
         <div className={styles.editHint} data-testid="workflow-edit-hint">
           <Pencil size={12} aria-hidden="true" />
-          Drag between handles to connect · double-click a state to rename ·
-          double-click canvas to add · Del to remove
+          {t("workflow.canvas.editHint")}
         </div>
       )}
 
       {helpOpen && (
         <div
+          id="workflow-canvas-help-panel"
           className={`${styles.overlay} ${styles.overlayInteractive}`}
-          role="dialog"
-          aria-label="Keyboard shortcuts"
+          role="region"
+          aria-label={t("workflow.canvas.helpTitle")}
+          tabIndex={-1}
+          ref={helpPanelRef}
         >
-          <div className={styles.overlayTitle}>Keyboard shortcuts</div>
-          <div className={styles.overlayText}>
-            Tab — move focus · Enter/Space — select · Esc — deselect ·
-            Ctrl/Cmd+Shift+F — fit to view · Del — delete selection (edit mode) ·
-            scroll — zoom · drag — pan
-          </div>
+          <div className={styles.overlayTitle}>{t("workflow.canvas.helpTitle")}</div>
+          <div className={styles.overlayText}>{t("workflow.canvas.helpText")}</div>
         </div>
       )}
     </div>
@@ -275,6 +289,7 @@ function CanvasInner({
 }
 
 export function WorkflowCanvas(props: WorkflowCanvasProps): JSX.Element {
+  const { t } = useTranslation();
   const { graph, isLoading, error, editMode, onInitialize, initializing } = props;
 
   if (isLoading) {
@@ -282,7 +297,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps): JSX.Element {
       <div className={styles.canvasWrap} data-testid="workflow-canvas-loading">
         <div className={styles.overlay} role="status">
           <div className={styles.spinner} aria-hidden="true" />
-          <div className={styles.overlayText}>Loading workflow…</div>
+          <div className={styles.overlayText}>{t("workflow.canvas.loading")}</div>
         </div>
       </div>
     );
@@ -293,7 +308,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps): JSX.Element {
       <div className={styles.canvasWrap} data-testid="workflow-canvas-error">
         <div className={styles.overlay} role="alert">
           <AlertCircle size={40} className={styles.overlayIcon} aria-hidden="true" />
-          <div className={styles.overlayTitle}>Could not load workflow</div>
+          <div className={styles.overlayTitle}>{t("workflow.canvas.loadErrorTitle")}</div>
           <div className={styles.overlayText}>{error.message}</div>
         </div>
       </div>
@@ -305,7 +320,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps): JSX.Element {
       <div className={styles.canvasWrap} data-testid="workflow-canvas-empty">
         <div className={styles.overlay} role="status">
           <Workflow size={48} className={styles.overlayIcon} aria-hidden="true" />
-          <div className={styles.overlayText}>Select an entity type.</div>
+          <div className={styles.overlayText}>{t("workflow.canvas.selectEntityType")}</div>
         </div>
       </div>
     );
@@ -320,10 +335,9 @@ export function WorkflowCanvas(props: WorkflowCanvasProps): JSX.Element {
           role="status"
         >
           <Workflow size={48} className={styles.overlayIcon} aria-hidden="true" />
-          <div className={styles.overlayTitle}>No workflow defined</div>
+          <div className={styles.overlayTitle}>{t("workflow.canvas.noWorkflowTitle")}</div>
           <div className={styles.overlayText}>
-            This entity type has no workflow states configured for the active
-            preset.
+            {t("workflow.canvas.noWorkflowText")}
           </div>
           {editMode && (
             <button
@@ -334,7 +348,9 @@ export function WorkflowCanvas(props: WorkflowCanvasProps): JSX.Element {
               data-testid="workflow-initialize-button"
             >
               <Workflow size={16} aria-hidden="true" />
-              {initializing ? "Initializing…" : "Initialize Workflow"}
+              {initializing
+                ? t("workflow.canvas.initializing")
+                : t("workflow.canvas.initializeWorkflow")}
             </button>
           )}
         </div>
