@@ -104,6 +104,58 @@ def test_alg_none_is_rejected():
         _service().validate_bearer_token(forged)
 
 
+def test_jwt_without_exp_is_rejected():
+    """A token missing ``exp`` must never be accepted indefinitely (SYSTEM_AUDIT)."""
+    token = encode_hs256(
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "iss": "reqflow",
+            "aud": "reqflow-api",
+            # no "exp" claim
+        },
+        _SECRET,
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_bearer_token(token)
+    assert exc.value.code == "invalid_token"
+
+
+def test_jwt_with_future_nbf_is_rejected():
+    """A token whose ``nbf`` (not-before) is still in the future is rejected."""
+    token = encode_hs256(
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "exp": int(time.time()) + 3600,
+            "nbf": int(time.time()) + 1800,
+            "iss": "reqflow",
+            "aud": "reqflow-api",
+        },
+        _SECRET,
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_bearer_token(token)
+    assert exc.value.code == "invalid_token"
+
+
+def test_jwt_with_past_nbf_is_accepted():
+    """A token whose ``nbf`` has already passed is accepted (sanity check)."""
+    token = encode_hs256(
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "exp": int(time.time()) + 3600,
+            "nbf": int(time.time()) - 10,
+            "iss": "reqflow",
+            "aud": "reqflow-api",
+        },
+        _SECRET,
+    )
+    claims = _service().validate_bearer_token(token)
+    assert claims.auth_method is AuthMethod.BEARER_TOKEN
+
+
 # -- REQ-L3-AT001-002 API key ---------------------------------------------
 
 
