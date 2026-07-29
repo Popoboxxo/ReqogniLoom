@@ -19,11 +19,11 @@ steps:
     commands:
       - pip install -q flake8 black isort
       - echo "Checking Python formatting with black..."
-      - black --check backend/ --exclude=migrations,__pycache__ || echo "⚠️  Format issues found (non-fatal in CI)"
+      - black --check backend/ --exclude=migrations,__pycache__
       - echo "Checking import order with isort..."
-      - isort --check-only backend/ --skip=migrations || echo "⚠️  Import order issues found (non-fatal in CI)"
+      - isort --check-only backend/ --skip=migrations
       - echo "Running flake8 linting..."
-      - flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=migrations,__pycache__ || true
+      - flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=migrations,__pycache__
 
   # ─────────────────────────────────────────────────────────
   # Lint Phase — Frontend Code Quality
@@ -33,7 +33,7 @@ steps:
     commands:
       - cd frontend && npm ci --silent
       - echo "Running ESLint..."
-      - npm run lint || echo "⚠️  Linting issues found"
+      - npm run lint
 
   # ─────────────────────────────────────────────────────────
   # Test Phase — Backend Unit Tests
@@ -58,7 +58,7 @@ steps:
     commands:
       - cd backend && pip install -q -r requirements.txt
       - echo "Running Django system checks..."
-      - python manage.py check || echo "⚠️  Django check found issues"
+      - python manage.py check
 
   # ─────────────────────────────────────────────────────────
   # Test Phase — Frontend Type Check & Build Verification
@@ -68,7 +68,7 @@ steps:
     commands:
       - cd frontend && npm ci --silent
       - echo "Running TypeScript type check..."
-      - npm run build -- --emptyOutDir || echo "⚠️  Build check issues found"
+      - npm run build -- --emptyOutDir
 
   # ─────────────────────────────────────────────────────────
   # Security Scan Phase — Dependency Scanning
@@ -78,7 +78,7 @@ steps:
     commands:
       - pip install -q safety
       - echo "Scanning backend dependencies for known vulnerabilities..."
-      - cd backend && safety check --json || echo "⚠️  Vulnerabilities found (advisory only)"
+      - cd backend && safety check --json
 
   # ─────────────────────────────────────────────────────────
   # Build & Deploy Phase — Backend Container Image (Docker buildx)
@@ -101,7 +101,22 @@ steps:
     settings:
       registry: codeberg.org
       repo: codeberg.org/dduchrow/reqflow-backend
-      tags: latest
+      # #149: also push an immutable commit-SHA tag alongside "latest" so a bad
+      # deploy can be rolled back to a known-good image instead of being stuck
+      # on a mutable tag. CI_COMMIT_SHA is a documented Woodpecker built-in.
+      #
+      # ESCALATED (not applied here): the issue also asks to stamp
+      # APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME build-args (consumed by
+      # backend/Dockerfile:40-45, exposed via GET /api/v1/version/). Skipped
+      # in this pass because the exact `plugin-docker-buildx` settings syntax
+      # for `build_args` (map vs. "KEY=VALUE" list) and for reading the root
+      # VERSION file / an ISO build timestamp into a step (no verified
+      # CI_PIPELINE_CREATED-equivalent) couldn't be confirmed without a live
+      # pipeline run — a bad guess here silently breaks every image push.
+      # Needs a docs check against the pinned plugin version + one test run.
+      tags:
+        - latest
+        - ${CI_COMMIT_SHA}
       platforms: linux/amd64
       dockerfile: Dockerfile
       context: backend
@@ -130,7 +145,10 @@ steps:
     settings:
       registry: codeberg.org
       repo: codeberg.org/dduchrow/reqflow-frontend
-      tags: latest
+      # #149: immutable commit-SHA tag alongside "latest" for rollback capability.
+      tags:
+        - latest
+        - ${CI_COMMIT_SHA}
       platforms: linux/amd64
       dockerfile: Dockerfile
       context: frontend
