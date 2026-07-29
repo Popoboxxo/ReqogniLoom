@@ -248,3 +248,39 @@ def test_mock_provider_decompose_requirement_returns_children() -> None:
     assert "id" in child or "title" in child, (
         "Child must have at least 'id' or 'title' key"
     )
+
+
+@pytest.mark.parametrize(
+    "provider_cls",
+    [OpenAiProvider, AnthropicProvider],
+    ids=lambda c: c.__name__,
+)
+def test_http_provider_honours_configured_model_name(provider_cls: type) -> None:
+    """[Issue #118] A configured model_name must override the class default
+    MODEL_NAME - providers must not silently ignore LLM_MODEL_NAME / the
+    DB-configured LlmSettings.model_name."""
+    config = ProviderConfig(
+        provider_name="test-dummy",
+        api_key="sk-dummy-key-for-contract-tests-only",
+        model_name="a-custom-configured-model",
+    )
+    provider = provider_cls(config)
+    assert provider.model_name == "a-custom-configured-model"
+
+
+@pytest.mark.parametrize(
+    "provider_cls",
+    [OpenAiProvider, AnthropicProvider],
+    ids=lambda c: c.__name__,
+)
+def test_http_provider_falls_back_to_default_model_name(provider_cls: type) -> None:
+    """[Issue #118] With no configured model_name, the provider still falls
+    back to its own MODEL_NAME class default (no regression on unconfigured
+    deployments)."""
+    config = ProviderConfig(
+        provider_name="test-dummy",
+        api_key="sk-dummy-key-for-contract-tests-only",
+        model_name="",
+    )
+    provider = provider_cls(config)
+    assert provider.model_name == provider_cls.MODEL_NAME

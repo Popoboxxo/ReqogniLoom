@@ -757,6 +757,11 @@ class _BaseHttpProvider(LlmCapabilityInterface):
 
     def __init__(self, config: ProviderConfig) -> None:
         self._config = config
+        # Issue #118: a configured model_name (LLM_MODEL_NAME env or the
+        # DB-persisted LlmSettings row, see _apply_db_settings) must win over
+        # the class-level MODEL_NAME default - subclasses must call the real
+        # API with self.model_name, never self.MODEL_NAME directly.
+        self.model_name = config.model_name or self.MODEL_NAME
 
     def _request(self, payload: dict) -> dict:
         """Execute an HTTP request with timeout handling.
@@ -923,7 +928,7 @@ class AnthropicProvider(_BaseHttpProvider):
         client = anthropic.Anthropic(api_key=self._config.api_key)
         message = self._resilient(
             lambda: client.messages.create(
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 max_tokens=4096,
                 timeout=effective_timeout,
                 messages=[{"role": "user", "content": prompt}],
@@ -954,7 +959,7 @@ class AnthropicProvider(_BaseHttpProvider):
             client = anthropic.Anthropic(api_key=self._config.api_key)
             message = self._resilient(
                 lambda: client.messages.create(
-                    model=self.MODEL_NAME,
+                    model=self.model_name,
                     max_tokens=1024,
                     timeout=effective_timeout,
                     messages=[
@@ -983,7 +988,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 token_usage=token_usage,
             )
         except ImportError as exc:
@@ -1007,7 +1012,7 @@ class AnthropicProvider(_BaseHttpProvider):
             client = anthropic.Anthropic(api_key=self._config.api_key)
             message = self._resilient(
                 lambda: client.messages.create(
-                    model=self.MODEL_NAME,
+                    model=self.model_name,
                     max_tokens=4096,
                     timeout=effective_timeout,
                     messages=[
@@ -1036,7 +1041,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 token_usage=token_usage,
                 children=data.get("children", []),
             )
@@ -1060,7 +1065,7 @@ class AnthropicProvider(_BaseHttpProvider):
             client = anthropic.Anthropic(api_key=self._config.api_key)
             message = self._resilient(
                 lambda: client.messages.create(
-                    model=self.MODEL_NAME,
+                    model=self.model_name,
                     max_tokens=4096,
                     timeout=effective_timeout,
                     messages=[
@@ -1089,7 +1094,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 score=float(data.get("score", 0.0)),
                 suggestions=data.get("suggestions", []),
                 provider=self.PROVIDER_NAME,
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 token_usage=token_usage,
                 issues=data.get("issues", []),
             )
@@ -1124,7 +1129,7 @@ class AnthropicProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=None,
             children=data.get("children", []),
         )
@@ -1160,7 +1165,7 @@ class OpenAiProvider(_BaseHttpProvider):
         client = OpenAI(api_key=self._config.api_key, timeout=effective_timeout)
         response = self._resilient(
             lambda: client.chat.completions.create(
-                model=self.MODEL_NAME,
+                model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
             ),
             timeout_seconds=effective_timeout,
@@ -1192,7 +1197,7 @@ class OpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=token_usage,
         )
 
@@ -1217,7 +1222,7 @@ class OpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1257,7 +1262,7 @@ class OpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 1.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=token_usage,
             children=data.get("children", []),
         )
@@ -1282,7 +1287,7 @@ class OpenAiProvider(_BaseHttpProvider):
             score=float(data.get("score", 0.0)),
             suggestions=data.get("suggestions", []),
             provider=self.PROVIDER_NAME,
-            model=self.MODEL_NAME,
+            model=self.model_name,
             token_usage=token_usage,
             issues=data.get("issues", []),
         )
