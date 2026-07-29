@@ -15,6 +15,7 @@ graphify-out/
 .env
 .env.local
 .env.*.local
+.meta-config/secrets.local.yaml
 
 
 # --- agent-meta managed (do not edit) ---
@@ -47,6 +48,7 @@ sync.log
 
 # agent-meta upgrade backups
 *.bak.*
+.backup/
 
 # agent-meta runtime artifacts
 .meta-viz/
