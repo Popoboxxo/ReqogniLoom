@@ -372,11 +372,31 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     @action(detail=True, methods=["post"], url_path="derive")
     def derive(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """POST /api/v1/needs/{pk}/derive/ — trigger async AI derivation."""
+        """POST /api/v1/needs/{pk}/derive/ — AI-derive requirement drafts.
+
+        fix #112: delegates to the same working
+        ``AiDerivationService.derive_requirements_from_need`` path as
+        ``derive_requirements`` below (real need title/text embedded in the
+        prompt, synchronous response). Previously called
+        ``StakeholderNeedService.derive_requirements_async``, which sent the
+        LLM only the need's bare UUID, never persisted a result, and
+        returned a task_id with no reachable status endpoint.
+        """
         lang = detect_lang(request)
         try:
-            response_data = self.service.derive_requirements_async(get_auth_context(request), pk)
-            return Response(response_data, status=status.HTTP_202_ACCEPTED)
+            n = int(request.data.get("n", 3)) if isinstance(request.data, dict) else 3
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="'n' must be an integer"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            from application.ai_derivation_service import AiDerivationService
+
+            result = AiDerivationService().derive_requirements_from_need(
+                get_auth_context(request), pk, n=n
+            )
+            return Response(result, status=status.HTTP_200_OK)
         except ValidationError as e:
             return Response(build_error_response("VALIDATION_ERROR", lang, message=str(e)), status=status.HTTP_400_BAD_REQUEST)
         except NotFoundError:
