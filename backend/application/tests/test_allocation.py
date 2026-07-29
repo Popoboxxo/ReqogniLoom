@@ -51,11 +51,19 @@ def workspace(tenant):
 
 @pytest.fixture
 def auth_context(user):
-    """Create auth context."""
+    """Create auth context.
+
+    active_roles=("editor",): these tests exercise allocation/coverage logic,
+    not the RBAC gate, so the context needs a real write-permitting role.
+    An empty tuple used to slip past ``ServiceBase._assert_write_permission``
+    only because that check was fail-open for any non-("viewer",) value
+    (Systemaudit #100) — now fixed to be fail-closed, an empty role tuple is
+    correctly denied.
+    """
     return AuthContext(
         user_id=user.id,
         tenant_id=user.tenant.id,
-        active_roles=(),
+        active_roles=("editor",),
         auth_method="test",
         api_key_id=None,
         tenant_name="test-tenant",

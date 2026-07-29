@@ -102,6 +102,91 @@ class TestDiagramToolGroupRegistration:
 
 
 # ---------------------------------------------------------------------------
+# Tool-group-level RBAC (Systemaudit #102)
+# ---------------------------------------------------------------------------
+
+
+class TestDiagramToolGroupWritePermission:
+    """diagram/services.py takes no AuthContext and checks nothing itself, so
+    DiagramToolGroup must gate write handlers directly (defense-in-depth
+    alongside the registry-level fail-closed default from Systemaudit #99).
+    """
+
+    def test_create_denied_for_viewer(self):
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-viewer-c")
+        viewer_ctx = AuthContext(
+            user_id=ctx.user_id,
+            tenant_id=ctx.tenant_id,
+            active_roles=("viewer",),
+            auth_method="test",
+            api_key_id=None,
+            tenant_name=ctx.tenant_name,
+        )
+        group = DiagramToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "Block Diagram",
+                    "diagram_type": "block",
+                    "payload_format": "json",
+                    "content": VALID_JSON_BLOCK,
+                },
+                auth_context=viewer_ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+
+    def test_update_denied_for_viewer(self):
+        tenant, workspace, ctx = _make_tenant_workspace_ctx("diag-mcp-viewer-u")
+        group = DiagramToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            create_result = group._handle_create(
+                params={
+                    "workspace_id": str(workspace.id),
+                    "name": "Block Diagram",
+                    "diagram_type": "block",
+                    "payload_format": "json",
+                    "content": VALID_JSON_BLOCK,
+                },
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+            diagram_id = create_result.data["diagram"]["id"]
+
+            viewer_ctx = AuthContext(
+                user_id=ctx.user_id,
+                tenant_id=ctx.tenant_id,
+                active_roles=("viewer",),
+                auth_method="test",
+                api_key_id=None,
+                tenant_name=ctx.tenant_name,
+            )
+            result = group._handle_update(
+                params={
+                    "id": diagram_id,
+                    "payload_format": "json",
+                    "content": VALID_JSON_BLOCK_V2,
+                },
+                auth_context=viewer_ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+
+
+# ---------------------------------------------------------------------------
 # CRUD + lifecycle round-trip
 # ---------------------------------------------------------------------------
 
