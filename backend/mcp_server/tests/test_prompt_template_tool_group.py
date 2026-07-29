@@ -60,6 +60,27 @@ def pt_ctx(db):
         clear_request_tenant()
 
 
+@pytest.fixture
+def pt_admin_ctx(db):
+    """A tenant + admin AuthContext (fix #101: create/update require admin)."""
+    tenant = Tenant.objects.create(name="MCP PT Admin", slug="mcp-pt-admin", is_active=True)
+    user = User.objects.create(
+        username="mcpptadmin", email="mcpptadmin@t.test", tenant=tenant
+    )
+    set_request_tenant(tenant.id)
+    ctx = AuthContext(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=None,
+    )
+    try:
+        yield tenant, ctx
+    finally:
+        clear_request_tenant()
+
+
 # ---------------------------------------------------------------------------
 # prompt_template.get
 # ---------------------------------------------------------------------------
@@ -296,11 +317,11 @@ def test_prompt_template_list_filters_by_workspace_id(pt_ctx):
 # ---------------------------------------------------------------------------
 
 
-def test_prompt_template_create_new_version_deactivates_old(pt_ctx):
+def test_prompt_template_create_new_version_deactivates_old(pt_admin_ctx):
     """Calling .create() again for an existing (name, workspace_id) scope
     creates version N+1, is_active=True, and flips the previous active row
     for that scope to is_active=False."""
-    tenant, ctx = pt_ctx
+    tenant, ctx = pt_admin_ctx
     group = PromptTemplateToolGroup()
 
     first = group.execute_tool(
@@ -332,7 +353,7 @@ def test_prompt_template_create_new_version_deactivates_old(pt_ctx):
     assert rows[1].content == "version two"
 
 
-def test_prompt_template_update_is_an_alias_for_create_new_version(pt_ctx):
+def test_prompt_template_update_is_an_alias_for_create_new_version(pt_admin_ctx):
     """Decision: .update() is a convenience alias for .create(), not a
     semantically-gated distinct operation (see module docstring / handler
     docstring for reasoning). Both perform the same "deactivate whatever is
@@ -341,7 +362,7 @@ def test_prompt_template_update_is_an_alias_for_create_new_version(pt_ctx):
     calling .create() again on an existing name behaves exactly like
     .update() would.
     """
-    tenant, ctx = pt_ctx
+    tenant, ctx = pt_admin_ctx
     group = PromptTemplateToolGroup()
 
     # .update() on a name that has never existed -- works the same as .create().
@@ -375,9 +396,25 @@ def test_prompt_template_update_is_an_alias_for_create_new_version(pt_ctx):
     assert rows[1].content == "second content"
 
 
-def test_prompt_template_create_requires_name_and_content(pt_ctx):
-    """Missing name or content -> VALIDATION_ERROR, no row created."""
+def test_prompt_template_create_requires_admin_role(pt_ctx):
+    """fix #101: non-admin callers (e.g. editor) get PERMISSION_DENIED, matching
+    the REST endpoint's ROLE_ADMIN gate (rest_api.settings_views)."""
     _tenant, ctx = pt_ctx
+    group = PromptTemplateToolGroup()
+
+    result = group.execute_tool(
+        tool_name="prompt_template.create",
+        params={"name": "should_not_exist", "content": "no admin role"},
+        auth_context=ctx,
+        api_key=_API_KEY,
+    )
+    assert not result.success
+    assert result.error_code == "PERMISSION_DENIED"
+
+
+def test_prompt_template_create_requires_name_and_content(pt_admin_ctx):
+    """Missing name or content -> VALIDATION_ERROR, no row created."""
+    _tenant, ctx = pt_admin_ctx
     group = PromptTemplateToolGroup()
 
     result = group.execute_tool(
@@ -399,9 +436,9 @@ def test_prompt_template_create_requires_name_and_content(pt_ctx):
     assert result2.error_code == "VALIDATION_ERROR"
 
 
-def test_prompt_template_create_is_audited(pt_ctx, monkeypatch):
+def test_prompt_template_create_is_audited(pt_admin_ctx, monkeypatch):
     """.create() writes an MCP audit log entry (REQ-L2-MC-012)."""
-    _tenant, ctx = pt_ctx
+    _tenant, ctx = pt_admin_ctx
     calls = []
 
     def _fake_log_write(**kwargs):
