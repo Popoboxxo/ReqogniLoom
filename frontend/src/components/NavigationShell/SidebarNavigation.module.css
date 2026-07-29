@@ -1,0 +1,56 @@
+/*
+ * Responsive layout for the sidebar (issue #160).
+ *
+ * Below 1024px there is no room for a fixed 220px sidebar next to content,
+ * so it becomes an off-canvas drawer toggled by a burger button. Above
+ * 1024px it behaves exactly as before (static, sticky, always visible).
+ *
+ * Colors/spacing stay inline (token-driven) in SidebarNavigation.tsx —
+ * only the layout-critical properties that a media query needs to
+ * override live here, since inline styles cannot be overridden by
+ * `@media` rules.
+ */
+
+.sidebarNav {
+  width: 220px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  z-index: 60;
+  transition: transform var(--transition-normal);
+}
+
+.burgerButton {
+  display: none;
+}
+
+.overlay {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .sidebarNav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-card);
+  }
+
+  .sidebarNav.open {
+    transform: translateX(0);
+  }
+
+  .burgerButton {
+    display: inline-flex;
+  }
+
+  .overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 50;
+  }
+}

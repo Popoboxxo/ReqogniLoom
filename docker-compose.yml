@@ -319,6 +319,16 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      # celery-beat has no worker to `inspect ping`, so this checks the beat
+      # process itself is still running (#171 — makes a restart-loop like
+      # "module reqogniloom was not found" visible via `docker ps`/health status
+      # instead of failing silently).
+      test: ["CMD-SHELL", "pgrep -f 'celery.*beat' > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       postgres:
         condition: service_healthy

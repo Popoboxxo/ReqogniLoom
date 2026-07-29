@@ -34,6 +34,7 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import { EntityTypeProvider } from '../../context/EntityTypeContext';
 import { attributeVisibilityApi } from '../../api';
 import { SplitView } from '../SplitView/SplitView';
+import { PageHeader } from '../shared/PageHeader';
 import { RequirementList } from './RequirementList';
 import { RequirementForm } from './RequirementForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
@@ -234,65 +235,32 @@ export default function RequirementEditors(): JSX.Element {
    */
   const leftPanel = (
     <div>
-      {/* Toolbar: Export, Import, Create buttons */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          rowGap: 'var(--space-2)',
-          marginBottom: 'var(--space-3)',
+      {/* Page header — title, live count and primary/secondary actions
+          (issue #172: was a bare <h3> with the primary action buried under
+          the filters below; now matches the Architecture/Glossary pattern). */}
+      <PageHeader
+        title={t('nav.requirements')}
+        count={{ shown: requirements.length, total: requirements.length }}
+        primaryAction={{
+          label: `+ ${t('actions.new')}`,
+          onClick: () => setShowCreateForm(!showCreateForm),
+          testId: 'create-req-btn',
         }}
-      >
-        <h3
-          style={{
-            fontSize: 'var(--font-size-lg)',
-            fontWeight: 600,
-            margin: 0,
-            color: 'var(--color-text)',
-          }}
-        >
-          {t('nav.requirements')}
-        </h3>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-          <button
-            data-testid="export-pdf-btn"
-            onClick={() => void handleExportPdf()}
-            disabled={isExportingPdf || requirements.length === 0}
-            style={{
-              background: 'var(--color-surface)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-2) var(--space-4)',
-              fontSize: 'var(--font-size-sm)',
-              cursor: isExportingPdf ? 'not-allowed' : 'pointer',
-              opacity: isExportingPdf ? 0.6 : 1,
-            }}
-            title={t('editor.exportPdf', 'PDF')}
-          >
-            PDF
-          </button>
-          <button
-            data-testid="csv-import-toolbar-btn"
-            onClick={() => navigate('/import')}
-            disabled={!activeWorkspace}
-            style={{
-              background: 'var(--color-surface)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-2) var(--space-4)',
-              fontSize: 'var(--font-size-sm)',
-              cursor: 'pointer',
-              opacity: !activeWorkspace ? 0.5 : 1,
-            }}
-          >
-            {t('import.upload', 'CSV')}
-          </button>
-        </div>
-      </div>
+        secondaryActions={[
+          {
+            label: 'PDF',
+            onClick: () => void handleExportPdf(),
+            disabled: isExportingPdf || requirements.length === 0,
+            testId: 'export-pdf-btn',
+          },
+          {
+            label: t('import.upload', 'CSV'),
+            onClick: () => navigate('/import'),
+            disabled: !activeWorkspace,
+            testId: 'csv-import-toolbar-btn',
+          },
+        ]}
+      />
 
       {/* Create form */}
       {showCreateForm && (
@@ -393,8 +361,6 @@ export default function RequirementEditors(): JSX.Element {
         selectedId={selectedId}
         onSelect={(id) => navigate(`/requirements/${id}`)}
         onDelete={handleDelete}
-        onCreateNew={() => setShowCreateForm(!showCreateForm)}
-        isCreating={isCreating}
       />
     </div>
   );

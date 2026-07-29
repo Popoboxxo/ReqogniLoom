@@ -26,6 +26,7 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from django.db.models import QuerySet
 from django.utils import timezone
+from django.utils.html import strip_tags
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -54,6 +55,33 @@ _VALID_TERMINOLOGY_PROFILES = {key for key, _ in TERMINOLOGY_CHOICES}
 
 # Sentinel distinguishing "field omitted" from an explicit ``None`` in PATCH.
 _UNSET: object = object()
+
+# Mirrors persistence.models.Workspace column widths — create_workspace() and
+# update_metadata() write to these CharFields directly via .save(), bypassing
+# WorkspaceSerializer's max_length validation entirely (#56, #80): an
+# oversized string (e.g. 2000 emoji) previously reached the DB unchecked and
+# triggered an uncaught StringDataRightTruncation / DataError there (HTTP
+# 500). Enforcing the cap here, before the write, turns that into a clean
+# ValidationError -> 400.
+_NAME_MAX_LENGTH = 255
+_LINK_TYPE_MAX_LENGTH = 50
+_LANGUAGE_MAX_LENGTH = 8
+
+
+def _sanitize_and_cap(value: str, *, max_length: int, field_name: str) -> str:
+    """Strip HTML/script markup and enforce a max length (#56, #57, #80).
+
+    Same write-path gap as above: free-text fields set directly on the model
+    here are never routed through WorkspaceSerializer's ``SanitizedCharField``,
+    so a ``<script>`` payload was previously stored verbatim (stored XSS for
+    any non-React consumer, e.g. MCP responses / ReqIF export).
+    """
+    cleaned = strip_tags(value)
+    if len(cleaned) > max_length:
+        raise ValidationError(
+            f"{field_name} must not exceed {max_length} characters"
+        )
+    return cleaned
 
 
 class WorkspaceService(ServiceBase):
@@ -115,6 +143,9 @@ class WorkspaceService(ServiceBase):
         name_clean = (name or "").strip()
         if not name_clean:
             raise ValidationError("name is required")
+        name_clean = _sanitize_and_cap(
+            name_clean, max_length=_NAME_MAX_LENGTH, field_name="name"
+        )
 
         if preset not in _VALID_PRESETS:
             raise ValidationError(
@@ -508,22 +539,36 @@ class WorkspaceService(ServiceBase):
             new_name = str(name or "").strip()
             if not new_name:
                 raise ValidationError("name must not be empty")
+            new_name = _sanitize_and_cap(
+                new_name, max_length=_NAME_MAX_LENGTH, field_name="name"
+            )
             ws.name = new_name
             update_fields.append("name")
 
         if language is not _UNSET:
-            preset_blob["language"] = str(language)
+            clean_language = _sanitize_and_cap(
+                str(language), max_length=_LANGUAGE_MAX_LENGTH, field_name="language"
+            )
+            preset_blob["language"] = clean_language
             ws.preset = preset_blob
             if "preset" not in update_fields:
                 update_fields.append("preset")
 
         if decomposition_link_type is not _UNSET:
-            ws.decomposition_link_type = str(decomposition_link_type)
+            ws.decomposition_link_type = _sanitize_and_cap(
+                str(decomposition_link_type),
+                max_length=_LINK_TYPE_MAX_LENGTH,
+                field_name="decomposition_link_type",
+            )
             if "decomposition_link_type" not in update_fields:
                 update_fields.append("decomposition_link_type")
 
         if default_link_type is not _UNSET:
-            ws.default_link_type = str(default_link_type)
+            ws.default_link_type = _sanitize_and_cap(
+                str(default_link_type),
+                max_length=_LINK_TYPE_MAX_LENGTH,
+                field_name="default_link_type",
+            )
             if "default_link_type" not in update_fields:
                 update_fields.append("default_link_type")
 

@@ -60,9 +60,12 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTEST_ADDOPTS="-p no:cacheprovider"
 
 # Install runtime-only system dependencies
+# procps provides pgrep, used by the celery-beat healthcheck (#171) to detect
+# a crashed/restart-looping beat process (celery-beat has no worker to `inspect ping`).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages from builder stage

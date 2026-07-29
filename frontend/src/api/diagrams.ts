@@ -10,7 +10,7 @@
  * and Mermaid source/preview (IF-L1-059/061).
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages } from "./client";
 import { tracelinksApi } from "./tracelinks";
 import type {
   ArtifactDiffResult,
@@ -44,10 +44,18 @@ export interface UpdateDiagramPayload {
 }
 
 export const diagramsApi = {
-  list(workspaceId: UUID): Promise<PaginatedResponse<Diagram>> {
-    return getList<Diagram>("/diagrams/", {
+  /**
+   * Fetch all diagrams for a workspace, following pagination links until
+   * exhaustion (issue #177 — this only returned the first page, capped at
+   * PAGE_SIZE=25, silently hiding the rest of the diagram list). The
+   * PaginatedResponse shape is preserved so existing callers reading
+   * `.results` keep working unchanged.
+   */
+  async list(workspaceId: UUID): Promise<PaginatedResponse<Diagram>> {
+    const results = await getAllPages<Diagram>("/diagrams/", {
       workspace_id: workspaceId,
     });
+    return { count: results.length, next: null, previous: null, results };
   },
 
   get(id: UUID): Promise<DiagramDetail> {

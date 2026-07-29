@@ -1,0 +1,26 @@
+# Keep throwaway/debug scripts and test artifacts out of the production image
+# (#146 — backend/Dockerfile:72 does `COPY . .`, so anything not excluded here
+# ends up shipped to production).
+*_tmp.py
+fix_*.py
+seed_*.py
+tests/
+**/tests/
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.egg-info/
+
+# VCS / editor artifacts
+.git/
+.gitignore
+*.md.old
+
+# Local env files (never ship secrets into the image)
+.env
+.env.*
+!.env.example

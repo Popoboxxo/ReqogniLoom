@@ -4,6 +4,7 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import type { Risk, RiskSeverity, RiskProbability, RiskImpact, RiskCategory } from '../../types';
 import { risksApi } from '../../api/risks';
 import { VersionBadge } from '../shared/VersionBadge';
+import { StatusBadge } from '../shared/StatusBadge';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
 interface RiskFormProps {
@@ -168,9 +169,7 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: '99px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-              {risk.status}
-            </span>
+            <StatusBadge status={risk.status} />
             {risk.version && <VersionBadge version={risk.version} />}
             {risk.uid ? (
               <span

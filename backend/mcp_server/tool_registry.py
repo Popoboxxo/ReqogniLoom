@@ -48,7 +48,13 @@ from mcp_server.protocol_handler import ToolResult
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Write operations that require at least editor role (REQ-L2-MC-007)
+# Historical write-operation catalogue (REQ-L2-MC-007).
+#
+# No longer the runtime source of truth for _is_write_tool() (see
+# _READ_ONLY_TOOL_NAMES / _is_write_tool below for the fail-closed gate) —
+# kept as a documented catalogue of known write tools and for the structural
+# regression test (test_generic_crud_write_tools_all_covered_by_write_prefixes)
+# that checks every GenericCrudToolGroup write tool is accounted for here.
 # ---------------------------------------------------------------------------
 
 _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
@@ -121,6 +127,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "diagram.update",
     "diagram.outdate",
     "diagram.reactivate",
+    # Issue #114: BaselineToolGroup — baseline.create is the only mutating tool.
+    "baseline.create",
     # REQ-L2-AI-003 (Phase 3): mode="write" makes these previously
     # preview-only tools capable of mutation, so they now require Editor+
     # (the RBAC gate is name-based, not mode-aware — mode="preview" calls by
@@ -136,6 +144,72 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "review.reject",
     "review.request_changes",
 )
+
+# ---------------------------------------------------------------------------
+# Explicit read-only tool inventory (REQ-L2-MC-007, fail-closed default,
+# Systemaudit 2026-07-28 #99)
+# ---------------------------------------------------------------------------
+#
+# _is_write_tool() used to be allowlist-based: only names matching
+# _WRITE_TOOL_PREFIXES above were RBAC-checked, so any *new* write tool
+# silently bypassed the gate until someone remembered to extend the prefix
+# list (this already happened once for change_request.delete, see the
+# regression test below, and again for the whole diagram.* group, cf.
+# Systemaudit #102). That is fail-open.
+#
+# The gate is now inverted: every tool name is treated as WRITE (RBAC
+# checked) unless it is explicitly listed here as read-only, or ends in one
+# of the two suffixes dynamically-generated tool groups use for reads
+# (``GenericCrudToolGroup`` emits "{prefix}.read"/"{prefix}.query" for every
+# entity it wraps, so new entities registered there stay read-exempt without
+# a code change here). Any tool name this module has never seen — including
+# ones added later without touching this file — defaults to write-protected.
+_READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "requirement.get",
+        "requirement.query",
+        "requirement.check_consistency",
+        "needs.read",
+        "needs.query",
+        "needs.get_traces",
+        "architecture.get",
+        "architecture.query",
+        "test.get",
+        "test.query",
+        "test.run_get",
+        "traceability.query",
+        "traceability.suggest_links",
+        "artifact.search",
+        "artifact.get_tree",
+        "context.change_impact",
+        "context.test_coverage",
+        "workspace.get_context",
+        "workspace.get_preferences",
+        "workspace.llm_system_prompt",
+        "permissions.check",
+        "permissions.list",
+        "audit.query",
+        "audit.ai_review",
+        "events.dlq_list",
+        "user.list",
+        "prompt_template.get",
+        "prompt_template.list",
+        "custom_field.get",
+        "custom_field.query",
+        "diagram.get",
+        "diagram.query",
+        "admin.backup_list",
+        "review.list_pending",
+        # Issue #114: BaselineToolGroup read-only tools (baseline.create is
+        # the only mutating one — deliberately absent from this set so it
+        # stays fail-closed WRITE-gated).
+        "baseline.list",
+        "baseline.get",
+        "baseline.compare",
+    }
+)
+
+_READ_ONLY_TOOL_SUFFIXES: Tuple[str, ...] = (".read", ".query")
 
 # ---------------------------------------------------------------------------
 # Tool → feature-key mapping for preset filtering (REQ-L2-MC-008)
@@ -320,6 +394,7 @@ class ToolRegistry:
         from mcp_server.tools.diagram import DiagramToolGroup
         from mcp_server.tools.custom_field import CustomFieldToolGroup
         from mcp_server.tools.review import ReviewToolGroup
+        from mcp_server.tools.baseline import BaselineToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -359,6 +434,8 @@ class ToolRegistry:
             "diagram": DiagramToolGroup(),
             "custom_field": CustomFieldToolGroup(),
             "review": ReviewToolGroup(),
+            # Issue #114: BaselineFacade was REST/UI-only — wraps it for MCP.
+            "baseline": BaselineToolGroup(),
         })
 
     def list_tools(
@@ -471,6 +548,19 @@ class ToolRegistry:
                 )
             auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
 
+            # --- Step 2b: Existence check (ADR-L3-MC002-03) ---
+            # Resolved before the RBAC gate: an unrecognised tool name never
+            # reaches a handler regardless of the RBAC outcome, so gating it
+            # on WRITE first would (a) leak PERMISSION_DENIED for names that
+            # don't exist and (b) since #99's fail-closed default treats any
+            # unrecognised name as a write tool, would mask UNKNOWN_TOOL
+            # behind a 403 for callers without write roles. Route once here;
+            # the resolved group is reused by Step 5 (no double routing).
+            assert self._router is not None
+            group, route_error = self._router.route(tool_name)
+            if route_error:
+                return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
+
             # --- Step 3: RBAC for write operations (REQ-L2-MC-007) ---
             if self._is_write_tool(tool_name) and not self._is_bootstrap_candidate(
                 tool_name, params, auth_ctx  # type: ignore[arg-type]
@@ -489,10 +579,7 @@ class ToolRegistry:
                     )
 
             # --- Step 5: Route to tool group (ADR-L3-MC002-03) ---
-            assert self._router is not None
-            group, route_error = self._router.route(tool_name)
-            if route_error:
-                return ToolResult.error("UNKNOWN_TOOL", f"Unknown tool: '{tool_name}'")
+            # (already resolved in Step 2b above)
 
             # --- Step 6: Execute tool ---
             try:
@@ -637,8 +724,21 @@ class ToolRegistry:
         return self._resolve_global_roles(ctx)
 
     def _is_write_tool(self, tool_name: str) -> bool:
-        """Return True if tool_name is a write operation."""
-        return any(tool_name == wt or tool_name.startswith(wt) for wt in _WRITE_TOOL_PREFIXES)
+        """Return True if tool_name requires the WRITE RBAC gate.
+
+        Fail-closed default (#99): a tool is write-protected unless it is
+        explicitly known to be read-only, either by exact name
+        (:data:`_READ_ONLY_TOOL_NAMES`) or by one of the read-only suffixes
+        emitted by dynamically generated tool groups
+        (:data:`_READ_ONLY_TOOL_SUFFIXES`). Unrecognised/new tool names are
+        therefore RBAC-checked by default instead of silently passing
+        through, unlike the previous allowlist-of-write-prefixes approach.
+        """
+        if tool_name in _READ_ONLY_TOOL_NAMES:
+            return False
+        if tool_name.endswith(_READ_ONLY_TOOL_SUFFIXES):
+            return False
+        return True
 
     def _is_bootstrap_candidate(
         self, tool_name: str, params: Dict[str, Any], ctx: AuthContext

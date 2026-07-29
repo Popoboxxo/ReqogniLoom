@@ -38,7 +38,16 @@ button {
   font-family: var(--font-sans);
   transition: all var(--transition-fast);
   border: none;
-  outline: none;
+}
+
+/* Keyboard focus indicator (issue #158, WCAG 2.1 SC 2.4.7 Focus Visible).
+   Only shows for keyboard/programmatic focus (not mouse clicks), so it
+   never adds a visual ring on pointer interaction while still giving
+   keyboard users a clearly visible outline on every interactive element. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-focus, var(--color-primary));
+  outline-offset: 2px;
+  border-radius: inherit;
 }
 
 input, select, textarea {

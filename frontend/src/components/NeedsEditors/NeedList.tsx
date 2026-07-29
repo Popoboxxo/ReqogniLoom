@@ -20,7 +20,6 @@ import { WORKFLOW_STATES } from '../../types';
 interface NeedListProps {
   needs: StakeholderNeed[];
   selectedId?: string;
-  onCreateNew: () => void;
   showCreateForm?: boolean;
   setShowCreateForm?: (show: boolean) => void;
   newTitle?: string;
@@ -80,7 +79,6 @@ function needToNode(need: StakeholderNeed): WorkspaceTreeNode {
 export function NeedList({
   needs,
   selectedId,
-  onCreateNew,
   showCreateForm,
   setShowCreateForm,
   newTitle,
@@ -151,27 +149,6 @@ export function NeedList({
             : null
         }
       />
-
-      <button
-        data-testid="create-need-btn"
-        onClick={onCreateNew}
-        disabled={showCreateForm}
-        style={{
-          marginBottom: 'var(--space-3)',
-          background: 'var(--color-primary)',
-          color: 'white',
-          border: 'none',
-          borderRadius: 'var(--radius-md)',
-          padding: 'var(--space-2) var(--space-4)',
-          fontSize: 'var(--font-size-sm)',
-          cursor: showCreateForm ? 'not-allowed' : 'pointer',
-          opacity: showCreateForm ? 0.6 : 1,
-          transition: 'var(--transition-fast)',
-          fontWeight: 600,
-        }}
-      >
-        + {t('actions.new', 'New')}
-      </button>
 
       {showCreateForm && setShowCreateForm && setNewTitle && onSubmitCreate && (
         <form

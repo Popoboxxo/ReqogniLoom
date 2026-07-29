@@ -26,6 +26,7 @@ vi.mock("./client", () => ({
     delete: vi.fn(),
   },
   getList: vi.fn(),
+  getAllPages: vi.fn(),
 }));
 
 // Mock tracelinks

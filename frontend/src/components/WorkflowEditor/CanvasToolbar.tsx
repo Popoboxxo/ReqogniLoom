@@ -7,6 +7,7 @@
  */
 
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useReactFlow } from "@xyflow/react";
 import {
   Code2,
@@ -35,6 +36,7 @@ export function CanvasToolbar({
   helpOpen,
   disabled,
 }: CanvasToolbarProps): JSX.Element {
+  const { t } = useTranslation();
   const { zoomIn, zoomOut, fitView } = useReactFlow();
 
   const handleFit = useCallback(() => {
@@ -42,13 +44,17 @@ export function CanvasToolbar({
   }, [fitView]);
 
   return (
-    <div className={styles.toolbar} role="toolbar" aria-label="Canvas controls">
+    <div
+      className={styles.toolbar}
+      role="toolbar"
+      aria-label={t("workflow.toolbar.ariaLabel")}
+    >
       <button
         type="button"
         className={styles.toolbarButton}
         onClick={() => zoomIn({ duration: 200 })}
-        aria-label="Zoom in"
-        title="Zoom in"
+        aria-label={t("workflow.toolbar.zoomIn")}
+        title={t("workflow.toolbar.zoomIn")}
         data-testid="workflow-zoom-in"
       >
         <ZoomIn size={16} />
@@ -57,8 +63,8 @@ export function CanvasToolbar({
         type="button"
         className={styles.toolbarButton}
         onClick={() => zoomOut({ duration: 200 })}
-        aria-label="Zoom out"
-        title="Zoom out"
+        aria-label={t("workflow.toolbar.zoomOut")}
+        title={t("workflow.toolbar.zoomOut")}
         data-testid="workflow-zoom-out"
       >
         <ZoomOut size={16} />
@@ -67,8 +73,8 @@ export function CanvasToolbar({
         type="button"
         className={styles.toolbarButton}
         onClick={handleFit}
-        aria-label="Fit to view"
-        title="Fit to view (Ctrl+Shift+F)"
+        aria-label={t("workflow.toolbar.fitToView")}
+        title={t("workflow.toolbar.fitToViewTitle")}
         data-testid="workflow-fit-view"
       >
         <Maximize2 size={16} />
@@ -82,9 +88,9 @@ export function CanvasToolbar({
           gridVisible ? styles.toolbarButtonActive : ""
         }`}
         onClick={onToggleGrid}
-        aria-label="Toggle grid"
+        aria-label={t("workflow.toolbar.toggleGrid")}
         aria-pressed={gridVisible}
-        title="Toggle grid"
+        title={t("workflow.toolbar.toggleGrid")}
         data-testid="workflow-toggle-grid"
       >
         <Grid3x3 size={16} />
@@ -93,8 +99,8 @@ export function CanvasToolbar({
         type="button"
         className={styles.toolbarButton}
         onClick={onCopyMermaid}
-        aria-label="Copy as Mermaid diagram"
-        title="Copy as Mermaid"
+        aria-label={t("workflow.toolbar.copyMermaidDiagram")}
+        title={t("workflow.header.copyAsMermaid")}
         disabled={disabled}
         data-testid="workflow-copy-mermaid-toolbar"
       >
@@ -109,9 +115,11 @@ export function CanvasToolbar({
           helpOpen ? styles.toolbarButtonActive : ""
         }`}
         onClick={onToggleHelp}
-        aria-label="Keyboard shortcuts"
+        aria-label={t("workflow.toolbar.keyboardShortcuts")}
         aria-pressed={helpOpen}
-        title="Keyboard shortcuts"
+        aria-expanded={helpOpen}
+        aria-controls="workflow-canvas-help-panel"
+        title={t("workflow.toolbar.keyboardShortcuts")}
         data-testid="workflow-help"
       >
         <HelpCircle size={16} />

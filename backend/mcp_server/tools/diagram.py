@@ -49,6 +49,33 @@ from mcp_server.tools.base import (
 logger = logging.getLogger(__name__)
 
 
+def _assert_write_permission(auth_context: AuthContext) -> None:
+    """Raise if *auth_context* lacks a role that permits WRITE (Systemaudit #102).
+
+    ``diagram.services`` exposes plain module-level functions (no
+    ``AuthContext`` parameter, no internal check — unlike ``application/
+    *_service.py``, which all call ``ServiceBase._assert_write_permission``
+    as their last line of defence). Registry-level RBAC
+    (``ToolRegistry._is_write_tool``) already fail-closed gates
+    ``diagram.create``/``.update`` (Systemaudit #99), but this tool group had
+    no defense-in-depth of its own — a Viewer-scoped API key that reached this
+    handler through any future registry regression would otherwise write
+    unchecked. Mirrors the check ``AuthTenancyAuthentication``/
+    ``HasOperationPermission`` (auth_tenancy/rest.py) perform at the REST
+    boundary.
+    """
+    from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+    decision = AuthorizationService().decide_access(
+        auth_context.active_roles, Operation.WRITE
+    )
+    if not decision.allow:
+        raise PermissionError(
+            f"Permission denied: write operation requires at least 'editor' "
+            f"role, user has {auth_context.active_roles}"
+        )
+
+
 def _diagram_header_to_dict(diagram: Diagram) -> Dict[str, Any]:
     """Serialise a Diagram header (no version payload) for MCP responses."""
     return {
@@ -199,6 +226,11 @@ class DiagramToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.create — create a new diagram + initial version (write, audited)."""
+        try:
+            _assert_write_permission(auth_context)
+        except PermissionError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
         name = require_param(params, "name")
         diagram_type = require_param(params, "diagram_type")
         payload_format = require_param(params, "payload_format")
@@ -273,6 +305,11 @@ class DiagramToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.update — append a new immutable version (write, audited)."""
+        try:
+            _assert_write_permission(auth_context)
+        except PermissionError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
         diagram_id = require_uuid(params, "id")
         payload_format = require_param(params, "payload_format")
         content = require_param(params, "content")
@@ -348,6 +385,11 @@ class DiagramToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.outdate — soft-delete via the workflow engine (write, audited)."""
+        try:
+            _assert_write_permission(auth_context)
+        except PermissionError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
         diagram_id = require_uuid(params, "id")
         reason: str = params.get("reason", "")
 
@@ -393,6 +435,11 @@ class DiagramToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """diagram.reactivate — restore a previously outdated diagram (write, audited)."""
+        try:
+            _assert_write_permission(auth_context)
+        except PermissionError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
         diagram_id = require_uuid(params, "id")
 
         try:

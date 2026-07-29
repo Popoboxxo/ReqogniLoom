@@ -105,15 +105,28 @@ class ServiceBase:
 
     @staticmethod
     def _assert_write_permission(ctx: AuthContext) -> None:
-        """Raise PermissionDeniedError for viewer-only contexts.
+        """Raise PermissionDeniedError unless *ctx* holds a role that permits WRITE.
 
-        Any role other than 'viewer' is allowed to write.
+        Positive check against the RBAC matrix (AuthorizationService), not a
+        deny-list of known-bad role sets: an empty role tuple (no UserRole row
+        resolved) or any role unrecognised by the matrix is fail-closed, i.e.
+        denied, instead of silently allowed. This is the last line of defence
+        for all callers in application/*_service.py (REQ-L2-AS-021).
+
+        Imported lazily: auth_tenancy.services.__init__ imports
+        auth_tenancy.services.item_permission, which imports
+        application.base.ServiceBase — a module-level import here would
+        create a circular import at package-init time.
         """
-        if ctx.active_roles == ("viewer",) or (
-            len(ctx.active_roles) == 1 and ctx.active_roles[0].lower() == "viewer"
-        ):
+        from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+        decision = AuthorizationService().decide_access(
+            ctx.active_roles, Operation.WRITE
+        )
+        if not decision.allow:
             raise PermissionDeniedError(
-                "Permission denied: write operation requires at least 'editor' role"
+                f"Permission denied: write operation requires at least 'editor' "
+                f"role, user has {ctx.active_roles}"
             )
 
     # ---------- Tenant Context ----------

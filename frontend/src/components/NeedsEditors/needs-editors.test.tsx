@@ -61,15 +61,13 @@ vi.mock("../shared/ArtifactInspector", () => ({
 
 vi.mock("./NeedForm", () => ({ NeedForm: () => null }));
 
-// NeedList is mocked to expose the create trigger and the resulting form state.
+// NeedList is mocked to expose only the resulting create-form state; the
+// create trigger itself now lives in the (unmocked) shared PageHeader
+// component rendered by NeedsEditors (issue #172), identified by the same
+// "create-need-btn" testid it always used.
 vi.mock("./NeedList", () => ({
-  NeedList: (props: { onCreateNew: () => void; showCreateForm?: boolean }) => (
-    <div>
-      <button data-testid="create-need-btn" onClick={props.onCreateNew}>
-        New
-      </button>
-      {props.showCreateForm && <span data-testid="create-form-open" />}
-    </div>
+  NeedList: (props: { showCreateForm?: boolean }) => (
+    <div>{props.showCreateForm && <span data-testid="create-form-open" />}</div>
   ),
 }));
 

@@ -111,6 +111,99 @@ def _parse_mode_policy(params: Dict[str, Any]) -> tuple[str, str]:
     return mode, policy
 
 
+def derive_requirements_from_need(
+    *,
+    service: AiDerivationService,
+    requirement_service: RequirementService,
+    params: Dict[str, Any],
+    auth_context: AuthContext,
+    api_key: str,
+) -> ToolResult:
+    """Shared StakeholderNeed -> Requirement-drafts implementation.
+
+    Extracted as a module-level function (fix #112) so
+    ``mcp_server.tools.needs.StakeholderNeedsToolGroup`` can reuse the exact
+    same context-building, persistence and mode/policy semantics as
+    ``ai_derivation.derive_requirements_from_need`` instead of maintaining a
+    second, divergent implementation (the old ``needs.derive_requirements``
+    sent the LLM only the need's UUID, persisted nothing, and promised a
+    task-status polling endpoint that was never exposed).
+    """
+    need_id = require_uuid(params, "need_id")
+    n_raw = params.get("n", 3)
+    try:
+        n = int(n_raw)
+    except (TypeError, ValueError):
+        return ToolResult.error("VALIDATION_ERROR", "'n' must be an integer.")
+    mode, policy = _parse_mode_policy(params)
+
+    try:
+        preview = service.derive_requirements_from_need(auth_context, need_id, n=n)
+    except NotFoundError as exc:
+        return ToolResult.error("NOT_FOUND", str(exc))
+    except ValidationError as exc:
+        return ToolResult.error("VALIDATION_ERROR", str(exc))
+    except LlmResponseError as exc:
+        return ToolResult.error("INTERNAL_ERROR", str(exc))
+
+    if mode == "preview":
+        return ToolResult.ok(preview)
+
+    try:
+        need = service._get_stakeholder_need(need_id)
+    except NotFoundError as exc:
+        return ToolResult.error("NOT_FOUND", str(exc))
+    workspace_id = need.artifact.workspace_id
+
+    # Each draft is written in its own atomic transaction
+    # (AiDerivationService._write_derived_entity is wrapped in
+    # @atomic_transaction): a failure on one draft (e.g. an invalid
+    # trace-link semantics violation) only rolls back that one draft and
+    # must not discard the drafts already written in this loop. Failures
+    # are collected instead of raised so the caller can see exactly
+    # which drafts succeeded and which failed (REQ-L3-PL003-002).
+    written: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    for draft in preview["drafts"]:
+        try:
+            result = service._write_derived_entity(
+                ctx=auth_context,
+                workspace_id=workspace_id,
+                item_type="Requirement",
+                create_fn=lambda d=draft: requirement_service.create_requirement(
+                    workspace_id=workspace_id,
+                    title=d["title"],
+                    ctx=auth_context,
+                    description=d["description"],
+                ),
+                # TraceLinkService._resolve_artifact_id only resolves
+                # Artifact/Requirement/ArchitectureElement/Adr ids — not
+                # StakeholderNeed ids — so the link must be sourced from
+                # the need's *artifact* id, not its own PK.
+                source_entity_id=need.artifact_id,
+                source_item_type="StakeholderNeed",
+                link_type=LinkType.DERIVES_FROM.value,
+                policy=policy,
+            )
+        except (ValidationError, NotFoundError) as exc:
+            failed.append({"draft": draft, "error": str(exc)})
+            continue
+        written.append(result)
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="derive_requirements_from_need",
+            entity_type="Requirement",
+            entity_id=UUID(result["id"]),
+            tool_name="ai_derivation.derive_requirements_from_need",
+            api_key=api_key,
+            details={"source_need_id": str(need_id), "policy": policy},
+        )
+    response: Dict[str, Any] = {"written": written}
+    if failed:
+        response["failed"] = failed
+    return ToolResult.ok(response)
+
+
 _MODE_POLICY_SCHEMA_PROPERTIES: Dict[str, Any] = {
     "mode": {
         "type": "string",
@@ -298,81 +391,13 @@ class AiDerivationToolGroup(BaseToolGroup):
     def _handle_derive_requirements(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        need_id = require_uuid(params, "need_id")
-        n_raw = params.get("n", 3)
-        try:
-            n = int(n_raw)
-        except (TypeError, ValueError):
-            return ToolResult.error("VALIDATION_ERROR", "'n' must be an integer.")
-        mode, policy = _parse_mode_policy(params)
-
-        try:
-            preview = self._service.derive_requirements_from_need(
-                auth_context, need_id, n=n
-            )
-        except NotFoundError as exc:
-            return ToolResult.error("NOT_FOUND", str(exc))
-        except ValidationError as exc:
-            return ToolResult.error("VALIDATION_ERROR", str(exc))
-        except LlmResponseError as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
-
-        if mode == "preview":
-            return ToolResult.ok(preview)
-
-        try:
-            need = self._service._get_stakeholder_need(need_id)
-        except NotFoundError as exc:
-            return ToolResult.error("NOT_FOUND", str(exc))
-        workspace_id = need.artifact.workspace_id
-
-        # Each draft is written in its own atomic transaction
-        # (AiDerivationService._write_derived_entity is wrapped in
-        # @atomic_transaction): a failure on one draft (e.g. an invalid
-        # trace-link semantics violation) only rolls back that one draft and
-        # must not discard the drafts already written in this loop. Failures
-        # are collected instead of raised so the caller can see exactly
-        # which drafts succeeded and which failed (REQ-L3-PL003-002).
-        written: List[Dict[str, Any]] = []
-        failed: List[Dict[str, Any]] = []
-        for draft in preview["drafts"]:
-            try:
-                result = self._service._write_derived_entity(
-                    ctx=auth_context,
-                    workspace_id=workspace_id,
-                    item_type="Requirement",
-                    create_fn=lambda d=draft: self._requirement_service.create_requirement(
-                        workspace_id=workspace_id,
-                        title=d["title"],
-                        ctx=auth_context,
-                        description=d["description"],
-                    ),
-                    # TraceLinkService._resolve_artifact_id only resolves
-                    # Artifact/Requirement/ArchitectureElement/Adr ids — not
-                    # StakeholderNeed ids — so the link must be sourced from
-                    # the need's *artifact* id, not its own PK.
-                    source_entity_id=need.artifact_id,
-                    source_item_type="StakeholderNeed",
-                    link_type=LinkType.DERIVES_FROM.value,
-                    policy=policy,
-                )
-            except (ValidationError, NotFoundError) as exc:
-                failed.append({"draft": draft, "error": str(exc)})
-                continue
-            written.append(result)
-            write_mcp_audit(
-                ctx=auth_context,
-                operation="derive_requirements_from_need",
-                entity_type="Requirement",
-                entity_id=UUID(result["id"]),
-                tool_name="ai_derivation.derive_requirements_from_need",
-                api_key=api_key,
-                details={"source_need_id": str(need_id), "policy": policy},
-            )
-        response: Dict[str, Any] = {"written": written}
-        if failed:
-            response["failed"] = failed
-        return ToolResult.ok(response)
+        return derive_requirements_from_need(
+            service=self._service,
+            requirement_service=self._requirement_service,
+            params=params,
+            auth_context=auth_context,
+            api_key=api_key,
+        )
 
     def _handle_suggest_architecture(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str

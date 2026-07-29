@@ -41,11 +41,20 @@ def mock_event_bus():
 # ---------------------------------------------------------------------------
 
 
-def _make_ctx(*, tenant_id=None, user_id=None):
-    """Create a mock AuthContext."""
+def _make_ctx(*, tenant_id=None, user_id=None, active_roles=("editor",)):
+    """Create a mock AuthContext.
+
+    active_roles defaults to ("editor",) — a real write-permitting role —
+    since ServiceBase._assert_write_permission now does a positive RBAC-matrix
+    check (fail-closed) instead of a deny-list; leaving active_roles
+    unconfigured on the MagicMock would fail the check rather than pass it.
+    Call sites that specifically test RBAC boundaries override this
+    explicitly (see ctx.active_roles = ("viewer",) below).
+    """
     ctx = MagicMock()
     ctx.tenant_id = tenant_id or uuid.uuid4()
     ctx.user_id = user_id or uuid.uuid4()
+    ctx.active_roles = active_roles
     return ctx
 
 

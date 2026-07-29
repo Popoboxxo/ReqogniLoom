@@ -9,6 +9,7 @@
  * scale.
  */
 
+import { useTranslation } from "react-i18next";
 import type { WorkspacePreset } from "../../types";
 import { WORKFLOW_PRESETS } from "./constants";
 
@@ -21,10 +22,11 @@ export function PresetSegmentedControl({
   value,
   onChange,
 }: PresetSegmentedControlProps): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div
       role="tablist"
-      aria-label="Workflow preset"
+      aria-label={t("workflow.preset.ariaLabel")}
       data-testid="workflow-preset-selector"
       style={{
         display: "inline-flex",

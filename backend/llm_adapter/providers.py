@@ -915,7 +915,7 @@ class AnthropicProvider(_BaseHttpProvider):
         try:
             import anthropic  # noqa: PLC0415 (lazy import intentional)
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -987,7 +987,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 token_usage=token_usage,
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -1041,7 +1041,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 children=data.get("children", []),
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -1094,7 +1094,7 @@ class AnthropicProvider(_BaseHttpProvider):
                 issues=data.get("issues", []),
             )
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "anthropic SDK not installed. Run: pip install anthropic"
             ) from exc
 
@@ -1152,7 +1152,7 @@ class OpenAiProvider(_BaseHttpProvider):
         try:
             from openai import OpenAI  # noqa: PLC0415
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "openai SDK not installed. Run: pip install openai"
             ) from exc
 
@@ -1313,7 +1313,11 @@ class OllamaProvider(_BaseHttpProvider):
                 "Set OLLAMA_BASE_URL environment variable."
             )
         self._base_url = config.api_base_url
-        self._model = os.environ.get("LLM_MODEL", self.MODEL_NAME)
+        # `.get("LLM_MODEL", default)` only falls back when the key is
+        # *absent*; some environments define LLM_MODEL="" (present but
+        # empty), which would silently send an empty model id to the
+        # provider. `or` treats "" the same as unset.
+        self._model = os.environ.get("LLM_MODEL") or self.MODEL_NAME
 
     def _chat(
         self, prompt: str, timeout: Optional[float] = None
@@ -1481,7 +1485,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         try:
             from openai import AzureOpenAI  # noqa: PLC0415
         except ImportError as exc:
-            raise RuntimeError(
+            raise LlmNotConfiguredError(
                 "openai SDK not installed. Run: pip install openai"
             ) from exc
 
@@ -1611,6 +1615,176 @@ class AzureOpenAiProvider(_BaseHttpProvider):
 
 
 # ---------------------------------------------------------------------------
+# OpenCode Go provider (ad-hoc addition, project-owner request)
+# ---------------------------------------------------------------------------
+
+
+class OpencodeGoProvider(_BaseHttpProvider):
+    """LLM provider backed by OpenCode Go's OpenAI-compatible endpoint.
+
+    OpenCode Go (https://opencode.ai) exposes an OpenAI-compatible chat
+    completions API, so this provider reuses the ``openai`` SDK client with a
+    custom ``base_url`` instead of adding a new HTTP dependency — the same
+    "SDK client + custom endpoint" shape :class:`AzureOpenAiProvider` already
+    uses for Azure OpenAI (REQ-L3-LA002-001).
+
+    Env vars:
+        LLM_API_KEY=<your-opencode-go-key>
+        LLM_API_BASE_URL=https://opencode.ai/zen/go/v1  (default; override to
+            point at a self-hosted or alternate OpenCode Go endpoint)
+        LLM_MODEL=<model-id>  (overrides MODEL_NAME, optional — see
+            https://opencode.ai/docs/providers for available model ids)
+    """
+
+    PROVIDER_NAME = "opencode_go"
+    MODEL_NAME = "claude-sonnet-4-5"
+    DEFAULT_BASE_URL = "https://opencode.ai/zen/go/v1"
+
+    def __init__(self, config: ProviderConfig) -> None:
+        super().__init__(config)
+        self._base_url = (config.api_base_url or self.DEFAULT_BASE_URL).strip()
+        # See OllamaProvider.__init__ for why `or` (not `.get(..., default)`)
+        # is required here: LLM_MODEL="" (present but empty) must still fall
+        # back to MODEL_NAME.
+        self._model = os.environ.get("LLM_MODEL") or self.MODEL_NAME
+
+    def _chat(
+        self, prompt: str, timeout: Optional[float] = None
+    ) -> tuple[str, Optional[int]]:
+        """Send a chat completion request to the OpenCode Go endpoint."""
+        try:
+            from openai import OpenAI  # noqa: PLC0415
+        except ImportError as exc:
+            raise LlmNotConfiguredError(
+                "openai SDK not installed (required for the opencode_go "
+                "provider, which reuses the OpenAI-compatible client). "
+                "Run: pip install openai"
+            ) from exc
+
+        effective_timeout = self._effective_timeout(timeout)
+        client = OpenAI(
+            api_key=self._config.api_key,
+            base_url=self._base_url,
+            timeout=effective_timeout,
+        )
+        response = self._resilient(
+            lambda: client.chat.completions.create(
+                model=self._model,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            timeout_seconds=effective_timeout,
+        )
+        text = response.choices[0].message.content or ""
+        token_usage = response.usage.total_tokens if response.usage else None
+        return text, token_usage
+
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmResult:
+        import json
+
+        text, token_usage = self._invoke_chat(
+            f"Validate the following artifact (id: {artifact_id})."
+            f"{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions}",
+            timeout,
+        )
+        data = json.loads(text)
+        return LlmResult(
+            score=float(data.get("score", 0.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._model,
+            token_usage=token_usage,
+        )
+
+    def decompose_requirement(
+        self,
+        requirement_id: str,
+        *,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        import json
+
+        text, token_usage = self._invoke_chat(
+            f"Decompose the following requirement (id: {requirement_id}) "
+            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
+            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
+            timeout,
+        )
+        data = json.loads(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 0.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._model,
+            token_usage=token_usage,
+            children=data.get("children", []),
+        )
+
+    def check_consistency(
+        self,
+        workspace_id: str,
+        *,
+        artifacts: Optional[List[dict]] = None,
+        timeout: Optional[float] = None,
+    ) -> LlmConsistencyResult:
+        import json
+
+        text, token_usage = self._invoke_chat(
+            f"Check consistency across the artifacts in workspace "
+            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
+            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
+            timeout,
+        )
+        data = json.loads(text)
+        return LlmConsistencyResult(
+            score=float(data.get("score", 0.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._model,
+            token_usage=token_usage,
+            issues=data.get("issues", []),
+        )
+
+    def derive_requirements(
+        self,
+        need_id: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> LlmDecompositionResult:
+        """Derive System Requirements from a Stakeholder Need (REQ-041, REQ-048).
+
+        Fetching the StakeholderNeed and rendering configured prompt templates
+        is the responsibility of the application layer (AiDerivationService);
+        the full artifact content is injected by that layer in REQ-046.
+        """
+        text = self.complete(
+            f"Derive System Requirements from Stakeholder Need {need_id}. "
+            "Return JSON: {score, suggestions, "
+            "children: [{title, description, type}]}",
+            purpose="derive_requirements",
+            timeout=timeout,
+        )
+        data = _parse_derivation_response(text)
+        return LlmDecompositionResult(
+            score=float(data.get("score", 1.0)),
+            suggestions=data.get("suggestions", []),
+            provider=self.PROVIDER_NAME,
+            model=self._model,
+            token_usage=None,
+            children=data.get("children", []),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Plugin registry — REQ-L3-LA002-003
 # ---------------------------------------------------------------------------
 
@@ -1621,6 +1795,7 @@ _PROVIDER_REGISTRY: Dict[str, Type[LlmCapabilityInterface]] = {
     "openai": OpenAiProvider,
     "ollama": OllamaProvider,
     "azure": AzureOpenAiProvider,
+    "opencode_go": OpencodeGoProvider,
     "mock": MockLlmProvider,
 }
 

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Issue, IssueSeverity, IssueCategory } from '../../types';
 import { issuesApi } from '../../api/issues';
 import { VersionBadge } from '../shared/VersionBadge';
+import { StatusBadge } from '../shared/StatusBadge';
 import { TagInput } from '../shared/tag-input';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -120,9 +121,7 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: '99px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-              {issue.status}
-            </span>
+            <StatusBadge status={issue.status} />
             {issue.version && <VersionBadge version={issue.version} />}
             {issue.uid ? (
               <span

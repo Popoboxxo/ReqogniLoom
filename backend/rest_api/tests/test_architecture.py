@@ -21,6 +21,15 @@ serializer validators / choice fields is permitted by the Option-B decision.
 Baseline captured 2026-07-14 (pre-REQ-066):
     views.py 27, icd_views.py 7, diagram_views.py 4, settings_views.py 3,
     diagram_canvas_views.py 3, auth_views.py 2.
+
+Issue #124 (2026-07-28): the ratchet only scanned ``rest_api/*_views.py``,
+leaving ``mcp_server/tools/*.py`` — which also violates ADR-01's
+Single-Entry-Point rule — completely unguarded. The MCP-tools ceilings below
+are a *frozen baseline*, not an endorsement: they exist only to stop further
+regression while the actual migration into ``application/`` services (a
+separate, larger refactor — REQ-066 follow-up) is scoped and executed.
+Baseline captured 2026-07-29: cross_cutting.py 19, users.py 10,
+prompt_template.py 4, review.py 2, diagram.py 2, needs.py 1 (38 total).
 """
 from __future__ import annotations
 
@@ -31,6 +40,8 @@ import pytest
 
 # Directory holding the REST API view modules under guard.
 _REST_API_DIR = Path(__file__).resolve().parent.parent
+# Directory holding the MCP tool-group modules under guard (issue #124).
+_MCP_TOOLS_DIR = _REST_API_DIR.parent / "mcp_server" / "tools"
 
 # Matches ``X.objects.`` and ``X.unscoped.`` manager access.
 _ORM_RE = re.compile(r"\.(objects|unscoped)\.")
@@ -53,6 +64,18 @@ MODEL_IMPORT_ALLOWLIST: set[str] = {
     "diagram_canvas_views.py",
 }
 
+# Issue #124: frozen baseline for mcp_server/tools/*.py — ADR-01 violations
+# that pre-date this guard. NEVER raise a value here; only lower it as
+# call-sites are migrated into application/ services.
+MCP_TOOLS_MAX_ORM_LINES: dict[str, int] = {
+    "cross_cutting.py": 19,
+    "users.py": 10,
+    "prompt_template.py": 4,
+    "review.py": 2,
+    "diagram.py": 2,
+    "needs.py": 1,
+}
+
 
 def _view_files() -> list[Path]:
     """Return ``views.py`` and every ``*_views.py`` module in the REST API dir."""
@@ -61,6 +84,15 @@ def _view_files() -> list[Path]:
     if base.exists():
         files.append(base)
     return files
+
+
+def _mcp_tool_files() -> list[Path]:
+    """Return every ``*.py`` module in ``mcp_server/tools`` (issue #124)."""
+    if not _MCP_TOOLS_DIR.exists():
+        return []
+    return sorted(
+        p for p in _MCP_TOOLS_DIR.glob("*.py") if p.name != "__init__.py"
+    )
 
 
 def _count_orm_lines(path: Path) -> int:
@@ -118,4 +150,33 @@ def test_ratchet_is_monotonic() -> None:
         assert actual == cap, (
             f"{name}: ratchet ceiling is {cap} but file now has {actual} "
             f"direct-ORM line(s). Lower MAX_ORM_LINES['{name}'] to {actual}."
+        )
+
+
+@pytest.mark.parametrize("path", _mcp_tool_files(), ids=lambda p: p.name)
+def test_no_new_direct_orm_access_mcp_tools(path: Path) -> None:
+    """No mcp_server/tools module may exceed its frozen ADR-01 ceiling (#124)."""
+    allowed = MCP_TOOLS_MAX_ORM_LINES.get(path.name, 0)
+    actual = _count_orm_lines(path)
+    assert actual <= allowed, (
+        f"{path.name}: {actual} direct-ORM line(s) exceed the ratchet ceiling "
+        f"of {allowed}. Move ORM access into an Application service (ADR-01). "
+        f"If you legitimately removed violations, LOWER the ceiling in "
+        f"MCP_TOOLS_MAX_ORM_LINES — never raise it."
+    )
+
+
+def test_mcp_tools_ratchet_is_monotonic() -> None:
+    """Frozen mcp_server/tools baselines must still reflect the real count.
+
+    Guards against a stale ceiling: if a file's real count drops below its
+    cap, the cap should be lowered. This keeps the ratchet honest.
+    """
+    for name, cap in MCP_TOOLS_MAX_ORM_LINES.items():
+        path = _MCP_TOOLS_DIR / name
+        actual = _count_orm_lines(path)
+        assert actual == cap, (
+            f"{name}: ratchet ceiling is {cap} but file now has {actual} "
+            f"direct-ORM line(s). Lower MCP_TOOLS_MAX_ORM_LINES['{name}'] "
+            f"to {actual}."
         )

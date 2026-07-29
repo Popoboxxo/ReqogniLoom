@@ -4,7 +4,7 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import type { Adr } from '../../types';
 import { adrsApi } from '../../api/adrs';
 import { VersionBadge } from '../shared/VersionBadge';
-import { getStatusBadgeStyle } from '../../utils/statusBadge';
+import { StatusBadge } from '../shared/StatusBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
@@ -117,9 +117,7 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <span style={getStatusBadgeStyle(adr.status)}>
-              {adr.status}
-            </span>
+            <StatusBadge status={adr.status} />
             {adr.version && <VersionBadge version={adr.version} />}
             {adr.uid ? (
               <span

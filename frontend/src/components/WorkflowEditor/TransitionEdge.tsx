@@ -7,6 +7,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -34,6 +35,7 @@ export function TransitionEdge({
   data,
   selected,
 }: EdgeProps<TransitionFlowEdge>): JSX.Element {
+  const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -79,7 +81,11 @@ export function TransitionEdge({
             }}
             role="button"
             tabIndex={-1}
-            aria-label={`Transition: ${transition.name} from ${transition.from_state} to ${transition.to_state}`}
+            aria-label={t("workflow.canvas.transitionAriaLabel", {
+              name: transition.name,
+              from: transition.from_state,
+              to: transition.to_state,
+            })}
             data-testid={`workflow-transition-edge-${transition.id}`}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}

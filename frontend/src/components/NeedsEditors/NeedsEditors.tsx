@@ -14,6 +14,7 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
+import { PageHeader } from '../shared/PageHeader';
 import { NeedList } from './NeedList';
 import { NeedForm } from './NeedForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
@@ -75,6 +76,15 @@ export default function NeedsEditors(): JSX.Element {
     }
   };
 
+  // Shared by the PageHeader primary action and (formerly) the NeedList
+  // "+ New" button — do not open the create form until real workspaces are
+  // loaded, preventing a POST against the null-UUID placeholder workspace.
+  const handleCreateNewClick = () => {
+    if (workspaces.length === 0) return;
+    setCreateError(null);
+    setShowCreate(true);
+  };
+
   const handleSaved = () => {
     refresh();
   };
@@ -109,18 +119,25 @@ export default function NeedsEditors(): JSX.Element {
   }
 
   return (
-    <SplitView
+    <>
+      {/* Page header — issue #172: this page previously had no heading at
+          all and buried "+ New" under the filter row; now matches the
+          Architecture/Glossary pattern (title + count + primary action). */}
+      <PageHeader
+        title={t('nav.needs')}
+        count={{ shown: needs.length, total: needs.length }}
+        primaryAction={{
+          label: `+ ${t('actions.new', 'New')}`,
+          onClick: handleCreateNewClick,
+          disabled: showCreate,
+          testId: 'create-need-btn',
+        }}
+      />
+      <SplitView
       leftPanel={
         <NeedList
           needs={needs}
           selectedId={selectedId}
-          onCreateNew={() => {
-            // Do not open the create form until real workspaces are loaded —
-            // prevents a POST against the null-UUID placeholder workspace.
-            if (workspaces.length === 0) return;
-            setCreateError(null);
-            setShowCreate(true);
-          }}
           showCreateForm={showCreate}
           setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
           newTitle={newTitle}
@@ -165,6 +182,7 @@ export default function NeedsEditors(): JSX.Element {
         </div>
       }
       initialLeftWidth={350}
-    />
+      />
+    </>
   );
 }

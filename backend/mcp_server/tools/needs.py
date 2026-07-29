@@ -3,9 +3,15 @@ MCP Tool Group for Stakeholder Needs.
 """
 from typing import Any, Dict, Optional
 
+from application.ai_derivation_service import AiDerivationService
 from application.base import NotFoundError, ValidationError
+from application.requirement_service import RequirementService
 from application.stakeholder_need_service import StakeholderNeedService
 from auth_tenancy.context import AuthContext
+from mcp_server.tools.ai_derivation import (
+    _MODE_POLICY_SCHEMA_PROPERTIES,
+    derive_requirements_from_need,
+)
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
@@ -125,11 +131,25 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         },
         {
             "name": "needs.derive_requirements",
-            "description": "Derive system requirements from a StakeholderNeed asynchronously (LLM).",
+            "description": (
+                "Propose system requirement drafts for a StakeholderNeed (LLM). "
+                "Synchronous — mode='preview' (default) returns drafts only; "
+                "mode='write' persists each draft as a Requirement and links "
+                "it back to the need via a 'derives-from' trace link. "
+                "Equivalent to ai_derivation.derive_requirements_from_need "
+                "(fix #112 — this tool used to dispatch an async task that "
+                "sent the LLM only the need's UUID, persisted nothing, and "
+                "had no reachable task-status endpoint)."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the stakeholder need."},
+                    "n": {
+                        "type": "integer",
+                        "description": "Number of requirement drafts (default 3).",
+                    },
+                    **_MODE_POLICY_SCHEMA_PROPERTIES,
                 },
                 "required": ["id"],
             },
@@ -159,8 +179,20 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         },
     ]
 
-    def __init__(self, service: Optional[StakeholderNeedService] = None) -> None:
+    def __init__(
+        self,
+        service: Optional[StakeholderNeedService] = None,
+        ai_derivation_service: Optional[AiDerivationService] = None,
+        requirement_service: Optional[RequirementService] = None,
+    ) -> None:
         self._service = service or StakeholderNeedService()
+        # fix #112: needs.derive_requirements delegates to the same
+        # AiDerivationService/RequirementService pair the working
+        # ai_derivation.derive_requirements_from_need tool uses, instead of
+        # the broken StakeholderNeedService.derive_requirements_async path
+        # (UUID-only prompt, no persistence, unreachable task status).
+        self._ai_derivation_service = ai_derivation_service or AiDerivationService()
+        self._requirement_service = requirement_service or RequirementService()
 
     def _handle_read(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
@@ -282,23 +314,29 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
     def _handle_derive(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """Derive system requirements from this stakeholder need asynchronously."""
+        """Derive system requirement drafts from this stakeholder need (LLM).
+
+        fix #112: delegates to the shared
+        :func:`mcp_server.tools.ai_derivation.derive_requirements_from_need`
+        implementation — the same context-building (real need title/text,
+        not just the UUID), persistence and mode/policy semantics as
+        ``ai_derivation.derive_requirements_from_need`` — instead of the
+        previous ``StakeholderNeedService.derive_requirements_async`` path,
+        which sent the LLM only the need's UUID, never persisted a result,
+        and returned a task_id with no reachable status endpoint. The tool's
+        public parameter stays ``id`` (unchanged, backward compatible); it is
+        forwarded internally as ``need_id`` for the shared implementation.
+        """
         need_id = require_uuid(params, "id")
-        
-        try:
-            response = self._service.derive_requirements_async(auth_context, need_id)
-            return ToolResult.ok({
-                "status": "async_dispatched",
-                "task_id": response.get("task_id", ""),
-                "message": "AI derivation task started. Use LLM task status polling to retrieve results.",
-                "source_need": str(need_id)
-            })
-        except NotFoundError as exc:
-            return ToolResult.error("NOT_FOUND", str(exc))
-        except ValueError as exc:
-            return ToolResult.error("VALIDATION_ERROR", str(exc))
-        except Exception as exc:
-            return ToolResult.error("INTERNAL_ERROR", str(exc))
+        shared_params = dict(params)
+        shared_params["need_id"] = str(need_id)
+        return derive_requirements_from_need(
+            service=self._ai_derivation_service,
+            requirement_service=self._requirement_service,
+            params=shared_params,
+            auth_context=auth_context,
+            api_key=api_key,
+        )
 
     def _handle_outdate(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str

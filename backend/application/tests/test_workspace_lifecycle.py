@@ -504,3 +504,62 @@ class TestWorkspaceProvisionsWorkflowDefinition:
         # source has no WorkspacePresetConfig -> clone_workspace defaults
         # active_tier to "standard".
         assert definition.preset == "standard"
+
+
+# ---------------------------------------------------------------------------
+# name/free-text hardening (Codeberg #56, #57, #80 part 2/4 dedup with #69)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceNameHardening:
+    """create_workspace/update_metadata write ``name`` etc. straight to the
+    ORM, bypassing WorkspaceSerializer's SanitizedCharField/max_length
+    entirely. Regression coverage for the resulting DoS (#56: oversized input
+    reaching the DB unchecked) and stored-XSS (#57: unescaped script markup
+    persisted verbatim) gaps."""
+
+    def test_create_workspace_rejects_oversized_name(self):
+        """A name longer than the DB column (255) must raise ValidationError,
+        not reach Workspace.objects.create() and crash with a DB-level error."""
+        tenant, _ = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id)
+        svc = WorkspaceService()
+
+        oversized = "\U0001F525" * 2000  # matches #56 repro (2000 emoji)
+        with pytest.raises(ValidationError):
+            svc.create_workspace(ctx, name=oversized)
+
+    def test_create_workspace_strips_script_tags_from_name(self):
+        """A <script> payload in name must be stored as inert text (#57)."""
+        tenant, _ = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id)
+        svc = WorkspaceService()
+
+        with patch("application.workspace_service.ServiceBase._audit"):
+            ws = svc.create_workspace(ctx, name="<script>alert(1)</script>")
+
+        assert "<script>" not in ws.name
+        assert "alert(1)" in ws.name
+
+    def test_update_metadata_rejects_oversized_name(self):
+        tenant, user = _create_tenant_and_user()
+        workspace = _create_workspace(tenant)
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+
+        oversized = "\U0001F525" * 2000
+        with pytest.raises(ValidationError):
+            svc.update_metadata(ctx, workspace.id, name=oversized)
+
+    def test_update_metadata_strips_script_tags_from_name(self):
+        tenant, user = _create_tenant_and_user()
+        workspace = _create_workspace(tenant)
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+
+        updated = svc.update_metadata(
+            ctx, workspace.id, name="<script>alert(1)</script>"
+        )
+
+        assert "<script>" not in updated.name
+        assert "alert(1)" in updated.name

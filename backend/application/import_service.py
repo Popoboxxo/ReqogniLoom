@@ -50,6 +50,7 @@ from application.export_service import (
     _APP_ENTITY_TYPES,
     _PERSISTENCE_ENTITY_TYPES,
 )
+from application.reqif_import_service import _map_status
 
 logger = logging.getLogger(__name__)
 
@@ -370,8 +371,17 @@ class ImportService(ServiceBase):
         Supported entity types: StakeholderNeed, Requirement, ArchitectureElement,
         TestCase (persistence app) and Adr, Risk, Issue (application app).
 
+        Status / WorkflowItemState (REQ-143, issue #113): ``status`` is never
+        written as a plain content column — mirrors
+        ``reqif_import_service._apply_status`` so imported rows land in the
+        same state-mirror as ReqIF imports (and are therefore workflow-alive
+        and baseline-capable): the raw ``status`` cell is mapped onto the
+        workspace's ``WorkflowEngineDefinition`` states (if one exists) via
+        ``_map_status``, and a matching ``WorkflowItemState`` row is created.
+
         Returns count of inserted rows.
         """
+        from workflow.models import WorkflowEngineDefinition, WorkflowItemState
         from persistence.models import (
             ArchitectureElement,
             Artifact,
@@ -394,6 +404,35 @@ class ImportService(ServiceBase):
         tenant = workspace.tenant
         spec = ENTITY_FIELD_SPECS[entity_type]
 
+        # REQ-143 / #113: status is never a plain content column — resolved
+        # once per import call against the workspace's WorkflowEngineDefinition
+        # (if any), mirroring reqif_import_service._apply_status. This mirror
+        # only applies to the persistence-app entity types ReqIF import also
+        # covers (StakeholderNeed, Requirement, TestCase — ArchitectureElement
+        # has no status column at all, only the unrelated "lifecycle_status"
+        # soft-delete flag). Adr/Risk/Issue (application app) use their own
+        # free-text status vocabularies (e.g. "Open", "Approved", "Identified")
+        # that are NOT workflow states and must round-trip verbatim; those
+        # entities already get a separate initial WorkflowItemState via
+        # ``workflow.services.initialize_workflow_states`` when created through
+        # their own services (e.g. RiskService.create_risk) — mapping their
+        # status through _map_status here would corrupt it.
+        has_status_column = entity_type in _PERSISTENCE_ENTITY_TYPES and any(
+            col == "status" for col, _kind in spec
+        )
+        definition = (
+            WorkflowEngineDefinition.objects.filter(
+                workspace_id=str(workspace_id), item_type=entity_type
+            ).first()
+            if has_status_column
+            else None
+        )
+        valid_states = (
+            list((definition.workflow_json or {}).get("states", []))
+            if definition is not None
+            else None
+        )
+
         inserted = 0
         for _row_num, row in rows:
             # ---- Parse row per field spec, splitting identity from content ----
@@ -410,6 +449,16 @@ class ImportService(ServiceBase):
                     continue
                 else:
                     content[col] = value
+
+            # ---- Status is a workflow mirror, not a plain field (REQ-143) ----
+            # Only entity types whose field spec declares "status" go through
+            # the mirror; e.g. ArchitectureElement has no status column at all
+            # (it only has the unrelated "lifecycle_status" soft-delete flag).
+            mapped_status = None
+            if has_status_column:
+                status_raw = content.pop("status", None)
+                mapped_status = _map_status(status_raw or "", valid_states)
+                content["status"] = mapped_status
 
             preserved_id = identity.get("id")
             preserved_artifact_id = identity.get("artifact_id")
@@ -464,6 +513,23 @@ class ImportService(ServiceBase):
                 ts_updates[mod_field] = modified_at
             if ts_updates:
                 model.objects.filter(pk=obj.pk).update(**ts_updates)
+
+            # ---- WorkflowItemState (REQ-143, issue #113) ----
+            # Mirrors reqif_import_service._apply_status: only created when a
+            # WorkflowEngineDefinition exists for this workspace/item_type (its
+            # FK to the definition is PROTECT and requires one). Without a
+            # definition, imported rows keep the normalised status field only
+            # — same degraded-but-consistent behaviour ReqIF import falls back
+            # to.
+            if definition is not None:
+                WorkflowItemState.objects.create(
+                    item_id=obj.id,
+                    item_type=entity_type,
+                    workspace_id=workspace_id,
+                    definition=definition,
+                    current_state=mapped_status,
+                    tenant=tenant,
+                )
 
             inserted += 1
 

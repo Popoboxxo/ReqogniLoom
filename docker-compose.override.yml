@@ -55,6 +55,18 @@ services:
     command: >
       sh -c "celery -A reqogniloom worker --loglevel=debug"
 
+  celery-beat:
+    # Development: same hot-reload mount as backend/celery (#171 — without this
+    # mount the built image cannot resolve the `reqogniloom` module and the
+    # container restart-loops with "Unable to load celery application").
+    environment:
+      DJANGO_ENV: ${DJANGO_ENV:-development}
+      DEBUG: ${DEBUG:-True}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+    volumes:
+      - ./backend:/app
+
   frontend:
     # Development: Use dev server with Vite hot module replacement
     build:

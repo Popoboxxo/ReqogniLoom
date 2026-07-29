@@ -1379,15 +1379,32 @@ class AiDerivationService(ServiceBase):
         provider, *purpose* (capability), *artifact_id* and a prompt hash
         (REQ-105). Mock-fallback results are never cached — they are degraded
         placeholders that must be recomputed once a real provider is available.
+
+        Unlike the three capability-shaped flows (``validate_artifact``,
+        ``decompose_requirement``, ``check_consistency``), the seven
+        Draft/Accept flows in this service call ``provider.complete()``
+        directly instead of going through ``CapabilityRouter`` (that router's
+        capability set does not model these free-form prompts). To still get
+        the same cost/audit/timeout guarantees as the router-routed
+        capabilities, this method independently applies the per-tenant daily
+        token limit (REQ-106), the hard sync timeout (REQ-084) and an audit
+        log entry (REQ-L3-LA004-001) around the provider call (fix #115).
+        Provider/transport failures are mapped to :class:`LlmResponseError`
+        instead of escaping raw (fix #116) so every MCP tool in
+        ``mcp_server.tools.ai_derivation`` — which already catches
+        ``LlmResponseError`` — reports a clean ``INTERNAL_ERROR`` instead of a
+        500 / transport fault.
         """
         from django.conf import settings
 
+        from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
             LlmNotConfiguredError,
             LlmProviderUnknownError,
             MockLlmProvider,
             get_provider,
         )
+        from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
 
         provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
         cache_key = _derivation_cache_key(
@@ -1420,7 +1437,98 @@ class AiDerivationService(ServiceBase):
             # Fallback output is intentionally not cached (REQ-105).
             return f"{MOCK_FALLBACK_MARKER}{result}"
 
-        result = provider.complete(prompt, purpose=purpose, context=context)
+        audit_logger = LlmAuditLogger()
+
+        # REQ-106: per-tenant daily token budget, enforced here because these
+        # free-form flows bypass CapabilityRouter (fix #115). Fail-open by
+        # design (is_over_daily_limit never raises) — only a real limit hit
+        # blocks the call.
+        if is_over_daily_limit():
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=purpose,
+                artifact_id=str(artifact_id),
+                token_usage=None,
+                success=False,
+                error="LLM_TOKEN_LIMIT_EXCEEDED",
+            )
+            raise LlmResponseError(
+                "Daily LLM token limit exceeded for this tenant. "
+                "Try again later or raise TENANT_TOKEN_LIMIT_PER_DAY."
+            )
+
+        try:
+            # REQ-084: hard sync timeout, same setting CapabilityRouter uses
+            # for its own sync calls, so this free-form path never blocks the
+            # request thread longer than a router-routed call could.
+            timeout = float(getattr(settings, "LLM_SYNC_TIMEOUT_SECONDS", 25))
+            result = provider.complete(
+                prompt, purpose=purpose, context=context, timeout=timeout
+            )
+        except (LlmNotConfiguredError, LlmProviderUnknownError) as error:
+            # Provider became unavailable for this specific call (e.g. the SDK
+            # import failed lazily inside _chat) — degrade the same way as a
+            # missing provider at construction time.
+            logger.warning(
+                "LLM provider %s failed mid-call, falling back to mock. Error: %s",
+                provider_name,
+                error,
+            )
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=purpose,
+                artifact_id=str(artifact_id),
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
+            result = MockLlmProvider().complete(
+                prompt, purpose=purpose, context=context
+            )
+            return f"{MOCK_FALLBACK_MARKER}{result}"
+        except Exception as error:  # noqa: BLE001 — see fix #116 docstring note above
+            # fix #116: circuit-breaker/timeout failures (LlmTransportError),
+            # missing-SDK / SDK errors (RuntimeError) and any other provider
+            # exception (rate limits, malformed SDK responses, ...) must not
+            # escape this method uncaught — map them onto the one exception
+            # type every ai_derivation MCP tool already handles.
+            logger.warning(
+                "LLM provider %s call failed (purpose=%s, artifact=%s): %s",
+                provider_name,
+                purpose,
+                artifact_id,
+                error,
+            )
+            audit_logger.log_llm_call(
+                provider=provider_name,
+                capability=purpose,
+                artifact_id=str(artifact_id),
+                token_usage=None,
+                success=False,
+                error=str(error),
+            )
+            raise LlmResponseError(
+                f"LLM provider '{provider_name}' call failed: {error}"
+            ) from error
+
+        # REQ-106: best-effort usage record; provider.complete() only returns
+        # text (no token counts), so this call is logged with a real audit
+        # entry but without a token count — still closing the "zero audit
+        # trail" gap called out by fix #115.
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability=purpose,
+            artifact_id=str(artifact_id),
+            token_usage=None,
+            success=True,
+            error=None,
+        )
+        record_token_usage(
+            provider=provider_name,
+            capability=purpose,
+            input_tokens=0,
+        )
+
         # Never cache a fallback-marked (degraded) response (REQ-105).
         if not result.startswith(MOCK_FALLBACK_MARKER):
             cache.set(cache_key, result, DERIVATION_CACHE_TTL_SECONDS)
