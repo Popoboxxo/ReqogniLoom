@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { testcasesApi, type TestCase } from '../../api/testcases';
 import { VersionBadge } from '../shared/VersionBadge';
+import { StatusBadge } from '../shared/StatusBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
@@ -115,9 +116,7 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: '99px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-              {testCase.status}
-            </span>
+            <StatusBadge status={testCase.status} />
             {testCase.version && <VersionBadge version={testCase.version} />}
             {testCase.uid ? (
               <span

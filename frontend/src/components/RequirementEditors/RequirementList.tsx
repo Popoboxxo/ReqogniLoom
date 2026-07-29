@@ -91,8 +91,6 @@ interface RequirementListProps {
   selectedId?: string;
   onSelect: (id: UUID) => void;
   onDelete: (id: UUID) => void;
-  onCreateNew: () => void;
-  isCreating?: boolean;
 }
 
 /**
@@ -104,8 +102,6 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   selectedId,
   onSelect,
   onDelete,
-  onCreateNew,
-  isCreating = false,
 }) => {
   const { t } = useTranslation();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -175,26 +171,6 @@ export const RequirementList: React.FC<RequirementListProps> = ({
             : null
         }
       />
-
-      {/* Create button */}
-      <button
-        data-testid="create-req-btn"
-        onClick={onCreateNew}
-        style={{
-          marginBottom: 'var(--space-3)',
-          background: 'var(--color-primary)',
-          color: 'white',
-          border: 'none',
-          borderRadius: 'var(--radius-md)',
-          padding: 'var(--space-2) var(--space-4)',
-          fontSize: 'var(--font-size-sm)',
-          cursor: 'pointer',
-          transition: 'var(--transition-fast)',
-          fontWeight: 600,
-        }}
-      >
-        {isCreating ? t('actions.creating') : `+ ${t('actions.new')}`}
-      </button>
 
       {/* Delete confirmation overlay (two-step) */}
       {confirmDeleteId && (
