@@ -32,6 +32,7 @@
     "adrs": "ADRs",
     "risks": "Risks",
     "issues": "Issues",
+    "goals": "Goals",
     "testRuns": "Test Runs",
     "testCases": "Test Cases",
     "settings": "Workspace Settings",
@@ -487,6 +488,9 @@
       "optionsHint": "Options, comma-separated",
       "empty": "No fields defined yet. Add your first field below — it will then automatically appear on every requirement's edit form, where it can be filled in."
     },
+    "goals": "Goals",
+    "goalsEnabled": "Enable Goals feature",
+    "goalsAiEnabled": "Enable AI generation for Main Goal",
     "dataManagement": "Data Management",
     "dataManagementHint": "Import existing requirements from a CSV file.",
     "lifecycleSection": "Workspace Administration",

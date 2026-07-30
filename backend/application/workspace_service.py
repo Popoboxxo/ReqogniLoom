@@ -515,6 +515,8 @@ class WorkspaceService(ServiceBase):
         decomposition_link_type: object = _UNSET,
         default_link_type: object = _UNSET,
         terminology_profile: object = _UNSET,
+        goals_enabled: object = _UNSET,
+        goals_ai_enabled: object = _UNSET,
     ) -> Workspace:
         """Update workspace metadata + optional terminology-profile switch (REQ-066).
 
@@ -586,6 +588,14 @@ class WorkspaceService(ServiceBase):
             ws.preset = preset_blob
             if "preset" not in update_fields:
                 update_fields.append("preset")
+
+        if goals_enabled is not _UNSET:
+            ws.goals_enabled = bool(goals_enabled)
+            update_fields.append("goals_enabled")
+
+        if goals_ai_enabled is not _UNSET:
+            ws.goals_ai_enabled = bool(goals_ai_enabled)
+            update_fields.append("goals_ai_enabled")
 
         if update_fields:
             ws.save(update_fields=update_fields)

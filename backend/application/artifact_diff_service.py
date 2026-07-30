@@ -536,6 +536,20 @@ class ArtifactDiffService(ServiceBase):
             for v in versions
         ]
 
+    def list_versions_for_goal(self, lineage_id: UUID, ctx: AuthContext) -> List[Dict[str, Any]]:
+        """List all versions of a Goal lineage, chronologically (REQ-L2-TE-020, Task 6)."""
+        from application.goal_service import GoalService
+
+        return GoalService().list_versions(lineage_id, ctx)
+
+    def list_versions_for_main_goal(
+        self, workspace_id: UUID, ctx: AuthContext
+    ) -> List[Dict[str, Any]]:
+        """List all MainGoal versions for a workspace, chronologically (Task 6)."""
+        from application.main_goal_service import MainGoalService
+
+        return MainGoalService().list_versions(workspace_id, ctx)
+
     def diff_for_diagram(
         self,
         diagram_id: UUID,

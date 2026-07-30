@@ -558,6 +558,8 @@ class Workspace(TenantScopedModel):
         default=True,
         help_text="Soft-delete flag. False = workspace is closed (REQ-L1-042).",
     )
+    goals_enabled = models.BooleanField(default=False)
+    goals_ai_enabled = models.BooleanField(default=False)
     parent_workspace = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
@@ -1632,6 +1634,14 @@ PROMPT_TEMPLATE_DEFAULTS: dict[str, str] = {
     "need_to_sysreq": DEFAULT_NEED_TO_SYSREQ,
     "sysreq_to_arch_assign": DEFAULT_SYSREQ_TO_ARCH_ASSIGN,
     "sysreq_decompose_next_level": DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL,
+    "goal_aggregate": (
+        "You are aggregating individual workspace Goals into a single "
+        "MainGoal statement.\n\n"
+        "Goals:\n{goals}\n\n"
+        "Write one concise MainGoal (2-4 sentences) that captures the "
+        "shared intent of all listed Goals. Respond with the MainGoal "
+        "text only, no preamble."
+    ),
 }
 
 

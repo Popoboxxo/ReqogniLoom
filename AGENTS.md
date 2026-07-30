@@ -83,7 +83,129 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
  Gemini->AGENTS.md
 > **ENTRY:** `orchestrator`-Agent (für alle Dev-Tasks).
-`agent-meta v0.90.2` | DoD: `spec-driven` | REQ-Trace: `false`
+`agent-meta v0.90.10` | DoD: `rapid-prototyping` | REQ-Trace: `false`
+
+
+## Regeln
+
+# A2A Anti-Re-Delegation Gates
+
+1. Limit depth to 10, no self-handoff.
+2. Short payload: `payload.t` max 300 Zeichen.
+3. No Re-Delegation (payload starts with "Du bist...").
+4. Singleton Orchestrator: NUR der `main_chat` darf den `orchestrator` spawnen.
+5. Execution-Trace-Isolation: Worker-Output muss strukturiert sein (STATUS, RESULT, ARTIFACTS). Keine rohen Logs propagieren.
+
+
+
+# Branch-Guard
+
+Verwende Feature-Branches (`feat/`, `fix/`, `chore/`). Keine Code-Änderungen direkt auf `main` oder `master`.
+
+
+
+# Commit-Konventionen
+
+Verwende Conventional Commits (feat, fix, chore).
+Beschreibungssprache: `Englisch`
+Max 72 Zeichen in erster Zeile. Imperativ.
+
+Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
+
+
+
+
+# GitHub Issue Lifecycle
+
+Issues referenzieren und am Ende mit passendem Keyword (`Fixes #123`, `Closes #123`) im PR oder Commit schließen. Kommentiere das Issue nach Fertigstellung.
+
+
+
+# Sprachregeln
+
+| Kontext | Sprache |
+|---|---|
+| User-Kommunikation | **Deutsch** |
+| User-Input | **Deutsch** |
+| Externe Doku | **Englisch** |
+| Interne Doku | **Deutsch** |
+| Code/Commits | **Englisch** |
+
+
+
+# Lifecycle-Tasks
+
+Beim Start prüfen: existiert `.gemini/pending-tasks.md`?
+Falls ja und enthält `- [ ]`: User fragen ob delegiert werden soll.
+Nach Erledigung: löschen. Datei nicht committen.
+
+
+
+# No Worktree Isolation
+
+**Anti-Pattern:** Niemals das Argument `isolation: "worktree"` beim Spawnen von Subagenten verwenden.
+**Grund:** Agenten schreiben dann ihren Output in den internen Ordner `.claude/worktrees/agent-<id>/` anstatt in das eigentliche Projektverzeichnis. Das führt zu fehlgeleiteten Dateien und Datenverlust in der eigentlichen Codebase.
+
+Alle Agenten müssen direkt im Projektverzeichnis arbeiten (Isolation deaktivieren oder weglassen). Der `.claude/` Ordner (sowie `.gemini/`, `.continue/`, `.mammouth/` etc.) ist strikt als Infrastruktur-Ordner zu betrachten und darf nicht für Arbeitskopien missbraucht werden.
+
+
+
+# Provider-Agnostic Policy
+
+Generische Templates in `1-generic/` müssen provider-agnostisch sein. Keine spezifischen Prompts für Claude, Gemini etc., außer als Fallback/Feature-Flag.
+
+
+
+# Python Conventions
+
+PEP8 einhalten. Type Hints (typing) verwenden. Docstrings für Klassen/Methoden schreiben.
+
+
+
+# Session-Abschluss
+
+Delegate Session-Zusammenfassung an `documenter` am Ende großer Features, um CODEBASE_OVERVIEW.md aktuell zu halten.
+
+
+
+# Submodule-Schutzkonzept
+
+Regeln für den Umgang mit allen Git-Submodulen (`.agent-meta/`, `external/*/`, und alle weiteren in `.gitmodules`):
+
+- **Keine direkten Änderungen in Submodul-Verzeichnissen:** Dateien in `.agent-meta/`, `external/*/` und allen anderen Submodul-Pfaden dürfen in Konsumenten-Repositories niemals direkt editiert oder committet werden. Submodule sind separate Repositories mit eigenem Lifecycle (Build, Push, Deploy, Version-Tags). Änderungen MÜSSEN im Submodul-Repo selbst durchgeführt, committet und gepusht werden — danach aktualisiert das Parent-Repo die Pinned-Commit-Referenz.
+- **Keine Mutation von `.gitmodules` / Git Staging:** `.gitmodules` darf nicht automatisch modifiziert werden und Submodule dürfen nicht automatisch via `git add` gestaged werden.
+- **Kein Source-Code-Scaffolding in Konsumenten-Projekten:** In Konsumenten-Projekten wird kein Anwendungscode generiert/gerüstet; verwaltet werden ausschließlich `.meta-config/project.yaml` und die Managed Blocks.
+- **Framework-Änderungen nur im agent-meta Repo:** Änderungen am agent-meta Framework müssen auf Feature-Branches im agent-meta Repository selbst durchgeführt werden.
+
+
+
+
+# CRITICAL GATE
+MAIN CHAT darf nicht selbst editieren. ALLES -> `orchestrator`. Keine Ausnahmen.
+
+
+
+
+## Git Delegation
+Git Mutationen (commit, push, add etc) -> `git` Agent. Read-only (status, log) im Main Chat ok.
+
+
+
+Native Extensions (Skills/Hooks) erlaubt, ignorieren nicht Branch-Guard/DoD.
+
+
+
+
+
+Anti-Recursion: Worker dürfen nicht an `orchestrator` zurück delegieren.
+
+
+## Anti-Patterns
+- **Worktree Isolation:** Niemals `isolation: "worktree"` bei Subagenten verwenden (schreibt in interne Infrastruktur-Ordner, führt zu Datenverlust).
+
+
+
+
 
 ## Agent Directory
 > ⚠️ **ACHTUNG:** Agenten (Prompts) liegen in `.gemini/agents bzw. .opencode/agents`.
@@ -233,139 +355,11 @@ Die Knowledge Engine ist aktiviert. Domäne: **internal-docs**.
 - **Migration:** `knowledge-migrator` räumt vorhandene Inhalte auf und migriert ins OKF-Format
 - **Gardening:** `knowledge-gardener` pflegt Links, Tags, Typos, Timestamps
 
-
-## Regeln
-
-# A2A Anti-Re-Delegation Gates
-
-1. Limit depth to 10, no self-handoff.
-2. Short payload: `payload.t` max 300 Zeichen.
-3. No Re-Delegation (payload starts with "Du bist...").
-4. Singleton Orchestrator: NUR der `main_chat` darf den `orchestrator` spawnen.
-5. Execution-Trace-Isolation: Worker-Output muss strukturiert sein (STATUS, RESULT, ARTIFACTS). Keine rohen Logs propagieren.
-
-
-
-# Branch-Guard
-
-Verwende Feature-Branches (`feat/`, `fix/`, `chore/`). Keine Code-Änderungen direkt auf `main` oder `master`.
-
-
-
-# Commit-Konventionen
-
-Verwende Conventional Commits (feat, fix, chore).
-Beschreibungssprache: `Englisch`
-Max 72 Zeichen in erster Zeile. Imperativ.
-
-Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
-
-
-
-
-# Definition of Done (DoD)
-
-Pflicht: Code komplett, Konventionen & Conv. Commits eingehalten, keine Regressions.
-
-
-
-
-
-
-
-# GitHub Issue Lifecycle
-
-Issues referenzieren und am Ende mit passendem Keyword (`Fixes #123`, `Closes #123`) im PR oder Commit schließen. Kommentiere das Issue nach Fertigstellung.
-
-
-
-# Sprachregeln
-
-| Kontext | Sprache |
-|---|---|
-| User-Kommunikation | **Deutsch** |
-| User-Input | **Deutsch** |
-| Externe Doku | **Englisch** |
-| Interne Doku | **Deutsch** |
-| Code/Commits | **Englisch** |
-
-
-
-# Lifecycle-Tasks
-
-Beim Start prüfen: existiert `.gemini/pending-tasks.md`?
-Falls ja und enthält `- [ ]`: User fragen ob delegiert werden soll.
-Nach Erledigung: löschen. Datei nicht committen.
-
-
-
-# No Worktree Isolation
-
-**Anti-Pattern:** Niemals das Argument `isolation: "worktree"` beim Spawnen von Subagenten verwenden.
-**Grund:** Agenten schreiben dann ihren Output in den internen Ordner `.claude/worktrees/agent-<id>/` anstatt in das eigentliche Projektverzeichnis. Das führt zu fehlgeleiteten Dateien und Datenverlust in der eigentlichen Codebase.
-
-Alle Agenten müssen direkt im Projektverzeichnis arbeiten (Isolation deaktivieren oder weglassen). Der `.claude/` Ordner (sowie `.gemini/`, `.continue/`, `.mammouth/` etc.) ist strikt als Infrastruktur-Ordner zu betrachten und darf nicht für Arbeitskopien missbraucht werden.
-
-
-
-# Provider-Agnostic Policy
-
-Generische Templates in `1-generic/` müssen provider-agnostisch sein. Keine spezifischen Prompts für Claude, Gemini etc., außer als Fallback/Feature-Flag.
-
-
-
-# Python Conventions
-
-PEP8 einhalten. Type Hints (typing) verwenden. Docstrings für Klassen/Methoden schreiben.
-
-
-
-# Session-Abschluss
-
-Delegate Session-Zusammenfassung an `documenter` am Ende großer Features, um CODEBASE_OVERVIEW.md aktuell zu halten.
-
-
-
-# Submodule-Schutzkonzept
-
-Regeln für den Umgang mit dem `.agent-meta`-Submodul und `.gitmodules`:
-
-- **Keine direkten Änderungen in `.agent-meta/`:** Dateien in `.agent-meta/` dürfen in Konsumenten-Repositories niemals direkt editiert oder committet werden.
-- **Keine Mutation von `.gitmodules` / Git Staging:** `.gitmodules` darf nicht automatisch modifiziert werden und Submodule dürfen nicht automatisch via `git add` gestaged werden.
-- **Kein Source-Code-Scaffolding in Konsumenten-Projekten:** In Konsumenten-Projekten wird kein Anwendungscode generiert/gerüstet; verwaltet werden ausschließlich `.meta-config/project.yaml` und die Managed Blocks.
-- **Framework-Änderungen nur im agent-meta Repo:** Änderungen am agent-meta Framework müssen auf Feature-Branches im agent-meta Repository selbst durchgeführt werden.
-
-
-
-
-# CRITICAL GATE
-MAIN CHAT darf nicht selbst editieren. ALLES -> `orchestrator`. Keine Ausnahmen.
-
-
-
-
-## Git Delegation
-Git Mutationen (commit, push, add etc) -> `git` Agent. Read-only (status, log) im Main Chat ok.
-
-
-
-Native Extensions (Skills/Hooks) erlaubt, ignorieren nicht Branch-Guard/DoD.
-
-
-
-
-
-Anti-Recursion: Worker dürfen nicht an `orchestrator` zurück delegieren.
-
-
-## Anti-Patterns
-- **Worktree Isolation:** Niemals `isolation: "worktree"` bei Subagenten verwenden (schreibt in interne Infrastruktur-Ordner, führt zu Datenverlust).
-
-
-
-
-
 <!-- agent-meta:managed-end -->
+
+
+
+
 
 
 
@@ -445,7 +439,6 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `feature.md` → registriere als `feature`
    - `feedback.md` → registriere als `feedback`
    - `git.md` → registriere als `git`
-   - `home-organization-specialist.md` → registriere als `home-organization-specialist`
    - `ideation.md` → registriere als `ideation`
    - `incident-responder.md` → registriere als `incident-responder`
    - `intern-developer.md` → registriere als `intern-developer`
@@ -459,7 +452,6 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    - `knowledge-querier.md` → registriere als `knowledge-querier`
    - `log-analyzer.md` → registriere als `log-analyzer`
    - `meta-feedback.md` → registriere als `meta-feedback`
-   - `opengrid-designer.md` → registriere als `opengrid-designer`
    - `orchestrator.md` → registriere als `orchestrator`
    - `performance-optimizer.md` → registriere als `performance-optimizer`
    - `principal-developer.md` → registriere als `principal-developer`
@@ -509,7 +501,6 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="feature", ...)
    define_subagent(name="feedback", ...)
    define_subagent(name="git", ...)
-   define_subagent(name="home-organization-specialist", ...)
    define_subagent(name="ideation", ...)
    define_subagent(name="incident-responder", ...)
    define_subagent(name="intern-developer", ...)
@@ -523,7 +514,6 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
    define_subagent(name="knowledge-querier", ...)
    define_subagent(name="log-analyzer", ...)
    define_subagent(name="meta-feedback", ...)
-   define_subagent(name="opengrid-designer", ...)
    define_subagent(name="orchestrator", ...)
    define_subagent(name="performance-optimizer", ...)
    define_subagent(name="principal-developer", ...)
@@ -556,3 +546,16 @@ Gemini/Antigravity benötigt eine einmalige Agent-Registrierung pro Session.
 > **Ohne diese Registrierung existieren die Agenten NICHT in der Runtime**
 > und der Orchestrator kann nicht delegieren.
 <!-- agent-meta:bootstrap-end -->
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

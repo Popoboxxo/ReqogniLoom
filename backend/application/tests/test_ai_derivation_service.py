@@ -150,8 +150,8 @@ def test_get_template_content_falls_back_workspace_then_global_then_factory(
         TenantContext.clear_tenant()
 
 
-def test_get_template_content_covers_all_seven_names():
-    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 7 template names."""
+def test_get_template_content_covers_all_eight_names():
+    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 8 template names."""
     from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
 
     assert set(PROMPT_TEMPLATE_DEFAULTS.keys()) == {
@@ -162,6 +162,7 @@ def test_get_template_content_covers_all_seven_names():
         "architecture_to_risk",
         "workspace_to_glossary",
         "decision_to_adr",
+        "goal_aggregate",
     }
 
 

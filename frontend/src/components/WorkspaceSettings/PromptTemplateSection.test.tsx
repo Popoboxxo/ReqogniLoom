@@ -2,8 +2,9 @@
  * Tests for PromptTemplateSection (REQ-L2-PT-001).
  *
  * Verifies:
- * - the three slot textareas render after the templates load
- * - Save PATCHes all three slots
+ * - the four slot textareas render after the templates load (including the
+ *   `goal_aggregate` slot, REQ-L2-TE-020)
+ * - Save PATCHes all four slots
  * - a per-slot Reset button calls the reset endpoint with that slot
  */
 
@@ -23,12 +24,14 @@ const DEFAULTS = {
   need_to_sysreq: "default need prompt",
   sysreq_to_arch_assign: "default assign prompt",
   sysreq_decompose_next_level: "default decompose prompt",
+  goal_aggregate: "default goal aggregate prompt",
 };
 
 const TEMPLATE = {
   need_to_sysreq: "current need prompt",
   sysreq_to_arch_assign: "current assign prompt",
   sysreq_decompose_next_level: "current decompose prompt",
+  goal_aggregate: "current goal aggregate prompt",
   defaults_dict: DEFAULTS,
 };
 
@@ -51,10 +54,11 @@ describe("PromptTemplateSection (REQ-L2-PT-001)", () => {
       "need_to_sysreq",
       "sysreq_to_arch_assign",
       "sysreq_decompose_next_level",
+      "goal_aggregate",
     ];
   });
 
-  it("renders the three slot textareas once loaded", async () => {
+  it("renders the four slot textareas once loaded", async () => {
     render(<PromptTemplateSection />);
     await waitFor(() =>
       expect(screen.getByTestId("prompt-template-save")).toBeInTheDocument()
@@ -66,9 +70,20 @@ describe("PromptTemplateSection (REQ-L2-PT-001)", () => {
     expect(
       screen.getByTestId("prompt-sysreq_decompose_next_level-input")
     ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("prompt-goal_aggregate-input")
+    ).toBeInTheDocument();
   });
 
-  it("calls PATCH (update) with all slots on Save", async () => {
+  it("renders the goal_aggregate slot with its human-readable label", async () => {
+    render(<PromptTemplateSection />);
+    await waitFor(() =>
+      expect(screen.getByTestId("prompt-template-save")).toBeInTheDocument()
+    );
+    expect(screen.getByLabelText(/Ziel-Aggregation/i)).toBeInTheDocument();
+  });
+
+  it("calls PATCH (update) with all four slots on Save", async () => {
     render(<PromptTemplateSection />);
     const saveBtn = await screen.findByTestId("prompt-template-save");
     await userEvent.click(saveBtn);
@@ -84,6 +99,7 @@ describe("PromptTemplateSection (REQ-L2-PT-001)", () => {
       need_to_sysreq: "current need prompt",
       sysreq_to_arch_assign: "current assign prompt",
       sysreq_decompose_next_level: "current decompose prompt",
+      goal_aggregate: "current goal aggregate prompt",
     });
   });
 

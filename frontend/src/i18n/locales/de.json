@@ -32,6 +32,7 @@
     "adrs": "ADRs",
     "risks": "Risiken",
     "issues": "Probleme",
+    "goals": "Ziele",
     "testRuns": "Testläufe",
     "testCases": "Testfälle",
     "settings": "Workspace-Einstellungen",
@@ -484,6 +485,9 @@
       "optionsHint": "Optionen, Komma-getrennt",
       "empty": "Noch keine Felder definiert. Lege unten dein erstes Feld an — es erscheint danach automatisch im Bearbeitungsformular jeder Anforderung, wo es ausgefüllt werden kann."
     },
+    "goals": "Ziele",
+    "goalsEnabled": "Ziele-Feature aktivieren",
+    "goalsAiEnabled": "KI-Generierung für Haupt-Ziel aktivieren",
     "dataManagement": "Datenverwaltung",
     "dataManagementHint": "Bestehende Anforderungen aus einer CSV-Datei importieren.",
     "lifecycleSection": "Workspace-Verwaltung",

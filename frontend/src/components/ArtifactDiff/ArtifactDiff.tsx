@@ -71,6 +71,8 @@ const ENTITY_LABELS: Record<ArtifactKind, string> = {
   glossary: "Glossary",
   stakeholderNeed: "Stakeholder Need",
   testCase: "Test Case",
+  goal: "Goal",
+  mainGoal: "Main Goal",
 };
 
 interface ArtifactDiffProps {

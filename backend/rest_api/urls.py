@@ -16,6 +16,8 @@ Registers:
   /api/v1/workspaces/         WorkspaceViewSet (list + retrieve, REQ-L1-017)
   /api/v1/adrs/               AdrViewSet (REQ-L1-029)
   /api/v1/risks/              RiskViewSet (REQ-L1-029)
+  /api/v1/goals/               GoalViewSet (REQ-L2-TE-020)
+  /api/v1/main-goals/          MainGoalViewSet (REQ-L2-TE-020)
   /api/v1/issues/             IssueViewSet (REQ-L1-029)
   /api/v1/admin/backups/      BackupListCreateView (REQ-L1-046)
   /api/v1/admin/restore/      AdminRestoreView   (REQ-L1-046)
@@ -94,7 +96,9 @@ from rest_api.views import (
     CsvExportView,
     CsvImportView,
     GlossaryTermViewSet,
+    GoalViewSet,
     IssueViewSet,
+    MainGoalViewSet,
     ReqifExportView,
     ReqifImportView,
     RequirementHistoryView,
@@ -127,6 +131,8 @@ router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
 router.register(r"adrs", AdrViewSet, basename="adr")
 router.register(r"risks", RiskViewSet, basename="risk")
+router.register(r"goals", GoalViewSet, basename="goal")
+router.register(r"main-goals", MainGoalViewSet, basename="main-goal")
 router.register(r"issues", IssueViewSet, basename="issue")
 router.register(r"change-requests", ChangeRequestViewSet, basename="change-request")
 router.register(r"test-runs", TestRunViewSet, basename="test-run")

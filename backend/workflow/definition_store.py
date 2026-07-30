@@ -368,6 +368,44 @@ def _adr_transitions() -> list[dict[str, Any]]:
     ]
 
 
+def _goal_transitions() -> list[dict[str, Any]]:
+    # State values match application.models.Goal.status / MainGoal.status
+    # (denormalized mirror columns, both default "Entwurf"). "Entwurf" is the
+    # initial_state (states[0], REQ-165/REQ-166 convention). Mirrors the
+    # adr_default shape: an approver/admin-gated approval, a reversible
+    # rework-path back to "Entwurf", an archive step and a reactivation path.
+    return [
+        {
+            "from_state": "Entwurf",
+            "to_state": "Freigegeben",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Freigegeben",
+            "to_state": "Archiviert",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Freigegeben",
+            "to_state": "Entwurf",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Archiviert",
+            "to_state": "Entwurf",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+    ]
+
+
 def _risk_transitions() -> list[dict[str, Any]]:
     # State values match application.models.Risk.RiskStatus.
     return [
@@ -645,6 +683,21 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         "states": ["draft", "in_review", "approved", "deprecated"],
         "transitions": _design_lifecycle_transitions(),
         "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
+    },
+    # REQ-L2-TE-020: Goal/MainGoal share one draft/approve/archive lifecycle.
+    # Both models mirror workflow state into a denormalized "status" column
+    # (application.models.Goal.status / MainGoal.status, default "Entwurf"),
+    # so they are wired into lifecycle_manager._STATUS_MIRROR_MODELS. "Entwurf"
+    # is the initial_state (states[0]).
+    "goal_default": {
+        "states": ["Entwurf", "Freigegeben", "Archiviert"],
+        "transitions": _goal_transitions(),
+        "state_meta": {"Archiviert": {"is_outdated_equivalent": True}},
+    },
+    "main_goal_default": {
+        "states": ["Entwurf", "Freigegeben", "Archiviert"],
+        "transitions": _goal_transitions(),
+        "state_meta": {"Archiviert": {"is_outdated_equivalent": True}},
     },
 }
 

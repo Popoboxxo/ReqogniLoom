@@ -206,6 +206,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "baseline.list",
         "baseline.get",
         "baseline.compare",
+        # Task 7 of feat/ziele-hauptziel-design: goal.read/main_goal.read are
+        # already exempt via the ".read" suffix below and deliberately not
+        # duplicated here.
+        "goal.list_versions",
+        "main_goal.list_versions",
     }
 )
 
@@ -395,6 +400,7 @@ class ToolRegistry:
         from mcp_server.tools.custom_field import CustomFieldToolGroup
         from mcp_server.tools.review import ReviewToolGroup
         from mcp_server.tools.baseline import BaselineToolGroup
+        from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
         from application.adr_service import AdrService
         from application.risk_service import RiskService
         from application.issue_service import IssueService
@@ -436,6 +442,9 @@ class ToolRegistry:
             "review": ReviewToolGroup(),
             # Issue #114: BaselineFacade was REST/UI-only — wraps it for MCP.
             "baseline": BaselineToolGroup(),
+            # Task 7 of feat/ziele-hauptziel-design: Goal/MainGoal MCP tools.
+            "goal": GoalToolGroup(),
+            "main_goal": MainGoalToolGroup(),
         })
 
     def list_tools(

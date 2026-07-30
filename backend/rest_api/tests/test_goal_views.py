@@ -1,0 +1,227 @@
+"""
+Tests for GoalViewSet REST endpoints (REQ-L2-TE-020, Task 6).
+
+Covers:
+  GET  /api/v1/goals/?workspace_id=<id>
+  POST /api/v1/goals/
+  GET  /api/v1/goals/{pk}/versions/
+
+Uses DRF APIRequestFactory with a real AuthContext attached to the request
+and real DB fixtures (django_db) — no service mocking — so the full
+ViewSet -> GoalService -> DB round trip is exercised, mirroring the pattern
+used by rest_api/tests/test_needs_routing.py and
+rest_api/tests/test_glossary_versioning_views.py. There is no
+``auth_client_factory`` fixture in this codebase (verified: no such fixture
+exists in rest_api/tests/conftest.py or elsewhere), so the request-factory +
+``req.auth_context`` pattern used by every other ViewSet test is mirrored
+instead.
+"""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from rest_framework.test import APIRequestFactory
+
+from persistence.models import Tenant, Workspace
+from persistence.tenancy import TenantContext
+from rest_api.views import GoalViewSet
+
+pytestmark = pytest.mark.django_db
+
+
+def _make_auth_context(*, tenant_id, roles=("admin",)):
+    from auth_tenancy.context import AuthContext, AuthMethod
+
+    return AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        active_roles=roles,
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+
+
+def _new_tenant_and_workspace(tenant_name: str, **workspace_kwargs):
+    """Create a Tenant + Workspace under an active TenantContext.
+
+    persistence.tenancy.TenantScopedModel.objects.create() requires
+    TenantContext.set_tenant() before any tenant-scoped query (ARCH-L1-011);
+    mirrors application/tests/test_main_goal_service.py's setUp pattern.
+    """
+    tenant = Tenant.objects.create(name=tenant_name)
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(tenant=tenant, **workspace_kwargs)
+    finally:
+        TenantContext.clear_tenant()
+    return tenant, workspace
+
+
+def test_create_and_list_goal():
+    tenant, workspace = _new_tenant_and_workspace("T1", name="W1", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+
+    factory = APIRequestFactory()
+    create_req = factory.post(
+        "/api/v1/goals/",
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Reduce onboarding time",
+            "description": "Cut onboarding from 5 days to 2 days.",
+        },
+        format="json",
+    )
+    create_req.auth_context = ctx
+    create_resp = GoalViewSet.as_view({"post": "create"})(create_req)
+
+    assert create_resp.status_code == 201
+    assert create_resp.data["title"] == "Reduce onboarding time"
+    assert create_resp.data["sequence_number"] == 1
+
+    list_req = factory.get(f"/api/v1/goals/?workspace_id={workspace.id}")
+    list_req.auth_context = ctx
+    list_resp = GoalViewSet.as_view({"get": "list"})(list_req)
+
+    assert list_resp.status_code == 200
+    assert len(list_resp.data["results"]) == 1
+    assert list_resp.data["results"][0]["title"] == "Reduce onboarding time"
+
+
+def test_create_goal_requires_goals_enabled():
+    tenant, workspace = _new_tenant_and_workspace("T2", name="W2", goals_enabled=False)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+
+    factory = APIRequestFactory()
+    req = factory.post(
+        "/api/v1/goals/",
+        {"workspace_id": str(workspace.id), "title": "Some goal"},
+        format="json",
+    )
+    req.auth_context = ctx
+    resp = GoalViewSet.as_view({"post": "create"})(req)
+
+    assert resp.status_code == 400
+
+
+def test_list_goal_requires_workspace_id():
+    tenant = Tenant.objects.create(name="T3")
+    ctx = _make_auth_context(tenant_id=tenant.id)
+
+    factory = APIRequestFactory()
+    req = factory.get("/api/v1/goals/")
+    req.auth_context = ctx
+    resp = GoalViewSet.as_view({"get": "list"})(req)
+
+    assert resp.status_code == 400
+
+
+def test_goal_versions_endpoint_lists_lineage():
+    tenant, workspace = _new_tenant_and_workspace("T4", name="W4", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/goals/",
+        {"workspace_id": str(workspace.id), "title": "Goal v1"},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    first = GoalViewSet.as_view({"post": "create"})(create_req)
+    assert first.status_code == 201
+
+    second_req = factory.post(
+        "/api/v1/goals/",
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Goal v2",
+            "lineage_id": first.data["lineage_id"],
+        },
+        format="json",
+    )
+    second_req.auth_context = ctx
+    second = GoalViewSet.as_view({"post": "create"})(second_req)
+    assert second.status_code == 201
+
+    versions_req = factory.get(f"/api/v1/goals/{first.data['id']}/versions/")
+    versions_req.auth_context = ctx
+    versions_resp = GoalViewSet.as_view({"get": "versions"})(versions_req, pk=first.data["id"])
+
+    assert versions_resp.status_code == 200
+    assert len(versions_resp.data) == 2
+    assert versions_resp.data[0]["sequence_number"] == 1
+    assert versions_resp.data[1]["sequence_number"] == 2
+
+
+def _provision_goal_workflow(workspace):
+    """Create a real WorkflowEngineDefinition for Goal on *workspace*.
+
+    Mirrors rest_api/tests/test_main_goal_views.py's
+    ``_provision_main_goal_workflow``: ad-hoc test workspaces bypass
+    ``workspace_provisioning.provision_workspace_defaults``, so the
+    transitions endpoint would otherwise have no WorkflowItemState to move.
+    """
+    from persistence.tenancy import TenantContext
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="goal_default",
+            item_type="Goal",
+            tenant_id=workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def test_goal_transitions_endpoint_approves_goal():
+    """End-to-end Goal workflow transition over REST (WorkflowTransitionsMixin).
+
+    Entwurf -> Freigegeben is gated to approver/admin with a mandatory
+    change_reason (workflow/definition_store.py ``_goal_transitions``).
+    """
+    tenant, workspace = _new_tenant_and_workspace(
+        "T5", name="W5", goals_enabled=True
+    )
+    _provision_goal_workflow(workspace)
+    ctx = _make_auth_context(tenant_id=tenant.id, roles=("admin",))
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/goals/",
+        {"workspace_id": str(workspace.id), "title": "Goal to approve"},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = GoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+    goal_id = created.data["id"]
+    assert created.data["status"] == "Entwurf"
+
+    available_req = factory.get(f"/api/v1/goals/{goal_id}/transitions/")
+    available_req.auth_context = ctx
+    available_resp = GoalViewSet.as_view({"get": "transitions"})(
+        available_req, pk=goal_id
+    )
+    assert available_resp.status_code == 200
+    assert "Freigegeben" in [
+        t["target_state"] for t in available_resp.data["allowed_transitions"]
+    ]
+
+    transition_req = factory.post(
+        f"/api/v1/goals/{goal_id}/transitions/",
+        {"target_state": "Freigegeben", "change_reason": "Reviewed and approved."},
+        format="json",
+    )
+    transition_req.auth_context = ctx
+    transition_resp = GoalViewSet.as_view({"post": "transitions"})(
+        transition_req, pk=goal_id
+    )
+    assert transition_resp.status_code == 200
+    assert transition_resp.data["new_state"] == "Freigegeben"
+
+    retrieve_req = factory.get(f"/api/v1/goals/{goal_id}/")
+    retrieve_req.auth_context = ctx
+    retrieve_resp = GoalViewSet.as_view({"get": "retrieve"})(retrieve_req, pk=goal_id)
+    assert retrieve_resp.data["status"] == "Freigegeben"

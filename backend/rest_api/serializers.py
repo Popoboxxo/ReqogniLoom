@@ -827,6 +827,8 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     default_link_type = serializers.CharField(
         required=False, default="derives-from", max_length=50
     )
+    goals_enabled = serializers.BooleanField(required=False, default=False)
+    goals_ai_enabled = serializers.BooleanField(required=False, default=False)
     terminology_profile = serializers.CharField(
         required=False, default="se_mode", max_length=32
     )
@@ -902,6 +904,38 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
         default="Identified",
     )
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class GoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for Goal entity (REQ-L2-TE-020, Task 6)."""
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    lineage_id = serializers.UUIDField(required=False, allow_null=True)
+    sequence_number = serializers.IntegerField(read_only=True)
+    title = SanitizedCharField(max_length=255)
+    description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    status = serializers.CharField(read_only=True)
+    version = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class MainGoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
+    """Serializer for MainGoal entity (REQ-L2-TE-020, Task 6)."""
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    sequence_number = serializers.IntegerField(read_only=True)
+    content = SanitizedCharField(max_length=20000)
+    source = serializers.ChoiceField(choices=["ai", "manual"], read_only=True)
+    generated_from_goal_ids = serializers.ListField(
+        child=serializers.CharField(), read_only=True, required=False
+    )
+    status = serializers.CharField(read_only=True)
     version = serializers.IntegerField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)

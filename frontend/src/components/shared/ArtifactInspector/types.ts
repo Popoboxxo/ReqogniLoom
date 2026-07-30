@@ -28,7 +28,9 @@ export type ArtifactKind =
   | "stakeholderNeed"
   | "requirement"
   | "architecture"
-  | "testCase";
+  | "testCase"
+  | "goal"
+  | "mainGoal";
 
 /**
  * The 8 link types that the TracePanel surfaces as filter chips

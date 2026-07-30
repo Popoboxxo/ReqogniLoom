@@ -47,6 +47,10 @@ export interface Workspace {
   closed_by: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+  /** Ziele-Feature (Goal/MainGoal) für diesen Workspace aktiviert. */
+  goals_enabled?: boolean;
+  /** KI-gestützte MainGoal-Generierung aktiviert (erfordert goals_enabled). */
+  goals_ai_enabled?: boolean;
 }
 
 export interface WorkspaceWithMetrics extends Workspace {
@@ -288,6 +292,45 @@ export interface Adr {
   status: AdrStatus;
   version: number;
   uid?: string;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+// ---------------------------------------------------------------------------
+// Goal / MainGoal (mirror GoalSerializer/MainGoalSerializer, REQ-L2-TE-020)
+// ---------------------------------------------------------------------------
+
+/**
+ * Goal — lineage-versioned workspace artifact (Variante A: every edit creates
+ * a new row sharing the same `lineage_id`).
+ */
+export interface Goal {
+  id: UUID;
+  workspace_id: UUID;
+  lineage_id: UUID;
+  sequence_number: number;
+  title: string;
+  description: string;
+  status: string;
+  version: number;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+/**
+ * MainGoal — single workspace-scoped version chain (not lineage-based like
+ * Goal). `source` distinguishes an LLM-aggregated draft from a manually
+ * authored one; `approve` transitions a draft to `Freigegeben`.
+ */
+export interface MainGoal {
+  id: UUID;
+  workspace_id: UUID;
+  sequence_number: number;
+  content: string;
+  source: "ai" | "manual";
+  generated_from_goal_ids?: string[];
+  status: string;
+  version: number;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

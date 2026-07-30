@@ -62,6 +62,7 @@ const SLOT_LABELS: Record<PromptSlot, string> = {
   need_to_sysreq: "Stakeholder Need → System Requirements",
   sysreq_to_arch_assign: "System Requirement → Architecture Assignment",
   sysreq_decompose_next_level: "Decompose to Next Architecture Level",
+  goal_aggregate: "Ziel-Aggregation",
 };
 
 type SlotValues = Record<PromptSlot, string>;
@@ -70,6 +71,7 @@ const EMPTY_VALUES: SlotValues = {
   need_to_sysreq: "",
   sysreq_to_arch_assign: "",
   sysreq_decompose_next_level: "",
+  goal_aggregate: "",
 };
 
 function extractValues(tpl: PromptTemplate): SlotValues {
@@ -77,6 +79,7 @@ function extractValues(tpl: PromptTemplate): SlotValues {
     need_to_sysreq: tpl.need_to_sysreq,
     sysreq_to_arch_assign: tpl.sysreq_to_arch_assign,
     sysreq_decompose_next_level: tpl.sysreq_decompose_next_level,
+    goal_aggregate: tpl.goal_aggregate,
   };
 }
 

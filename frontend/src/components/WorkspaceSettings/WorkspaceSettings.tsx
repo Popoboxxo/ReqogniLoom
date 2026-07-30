@@ -407,6 +407,46 @@ export default function WorkspaceSettings(): JSX.Element {
               ))}
             </section>
 
+            {/* Ziele (Goal/MainGoal, REQ-L2-TE-020) — feature + AI-generation toggle */}
+            <section style={cardStyle}>
+              <h3 style={headingStyle}>{t("settings.goals", "Ziele")}</h3>
+              <label style={labelStyle}>
+                <input
+                  type="checkbox"
+                  data-testid="goals-enabled-checkbox"
+                  checked={!!activeWorkspace.goals_enabled}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setSaveError(null);
+                    setSavedOk(false);
+                    workspacesApi.update(activeWorkspace.id, { goals_enabled: val })
+                      .then(() => reloadWorkspaces(activeWorkspace.id))
+                      .then(() => setSavedOk(true))
+                      .catch((err) => setSaveError(err?.error?.message ?? String(err)));
+                  }}
+                />
+                {t("settings.goalsEnabled", "Ziele-Feature aktivieren")}
+              </label>
+              <label style={labelStyle}>
+                <input
+                  type="checkbox"
+                  data-testid="goals-ai-enabled-checkbox"
+                  checked={!!activeWorkspace.goals_ai_enabled}
+                  disabled={!activeWorkspace.goals_enabled}
+                  onChange={(e) => {
+                    const val = e.target.checked;
+                    setSaveError(null);
+                    setSavedOk(false);
+                    workspacesApi.update(activeWorkspace.id, { goals_ai_enabled: val })
+                      .then(() => reloadWorkspaces(activeWorkspace.id))
+                      .then(() => setSavedOk(true))
+                      .catch((err) => setSaveError(err?.error?.message ?? String(err)));
+                  }}
+                />
+                {t("settings.goalsAiEnabled", "KI-Generierung für Haupt-Ziel aktivieren")}
+              </label>
+            </section>
+
             {/* Custom Fields (REQ-016) — workspace-wide field definitions, admin-managed */}
             {isAdmin && <CustomFieldsSection workspaceId={activeWorkspace.id} />}
 
