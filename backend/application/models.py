@@ -452,6 +452,11 @@ class Goal(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # REQ-165/REQ-166: ``unscoped`` alias required by
+    # StateLifecycleManager._sync_status_mirror (see Adr for rationale).
+    objects = models.Manager()
+    unscoped = models.Manager()
+
     class Meta:
         db_table = "as_goal"
         indexes = [
@@ -491,6 +496,11 @@ class MainGoal(models.Model):
     created_by = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # REQ-165/REQ-166: ``unscoped`` alias required by
+    # StateLifecycleManager._sync_status_mirror (see Adr for rationale).
+    objects = models.Manager()
+    unscoped = models.Manager()
 
     class Meta:
         db_table = "as_main_goal"

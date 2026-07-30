@@ -690,6 +690,8 @@ _ENTITY_DEFAULT_PRESET: dict[str, str] = {
     "Icd": "icd_default",
     "Diagram": "diagram_default",
     "GlossaryTerm": "glossary_term_default",
+    "Goal": "goal_default",
+    "MainGoal": "main_goal_default",
 }
 
 

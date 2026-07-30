@@ -89,6 +89,8 @@ _STATUS_MIRROR_MODELS: dict[str, tuple[str, str]] = {
     "Issue": ("application.models", "Issue"),
     "ChangeRequest": ("application.models", "ChangeRequest"),
     "TestCase": ("persistence.models", "TestCase"),
+    "Goal": ("application.models", "Goal"),
+    "MainGoal": ("application.models", "MainGoal"),
 }
 
 
