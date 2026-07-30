@@ -40,7 +40,16 @@ export const workspacesApi = {
 
   update(
     id: UUID,
-    data: Partial<{ name: string; language: string; terminology_profile: TerminologyProfile; decomposition_link_type: string; default_link_type: string; ai_prompts: Record<string, string> }>
+    data: Partial<{
+      name: string;
+      language: string;
+      terminology_profile: TerminologyProfile;
+      decomposition_link_type: string;
+      default_link_type: string;
+      ai_prompts: Record<string, string>;
+      goals_enabled: boolean;
+      goals_ai_enabled: boolean;
+    }>
   ): Promise<Workspace> {
     return apiClient.patch<Workspace>(`/workspaces/${id}/`, data);
   },
