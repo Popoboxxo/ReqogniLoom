@@ -28,6 +28,8 @@ import { testcasesApi } from "../../../api/testcases";
 import { icdsApi } from "../../../api/icds";
 import { diagramsApi } from "../../../api/diagrams";
 import { glossaryApi } from "../../../api/glossary";
+import { goalsApi } from "../../../api/goals";
+import { mainGoalApi } from "../../../api/main-goal";
 import type { ArtifactVersion } from "../../../types";
 import {
   DIFF_SUPPORTED_KINDS,
@@ -39,10 +41,16 @@ import styles from "./VersionPanel.module.css";
 
 // ---------------------------------------------------------------------------
 // API dispatch — every kind the backend exposes a `/versions/` endpoint for.
-// The supported set mirrors DIFF_SUPPORTED_KINDS (same backend coverage).
+// The base set mirrors DIFF_SUPPORTED_KINDS (same backend coverage), plus a
+// few kinds that only expose `/versions/` without a matching `/diff/`
+// endpoint yet (goal, mainGoal — REQ-L2-TE-020).
 // ---------------------------------------------------------------------------
 
-const VERSION_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = DIFF_SUPPORTED_KINDS;
+const VERSION_SUPPORTED_KINDS: ReadonlySet<ArtifactKind> = new Set([
+  ...DIFF_SUPPORTED_KINDS,
+  "goal",
+  "mainGoal",
+]);
 
 /** Maps an ArtifactKind to its `versions(id)` fetcher. */
 const VERSIONS_FETCHERS: Partial<
@@ -58,6 +66,8 @@ const VERSIONS_FETCHERS: Partial<
   icd: (id) => icdsApi.versions(id),
   diagram: (id) => diagramsApi.versions(id),
   glossary: (id) => glossaryApi.versions(id),
+  goal: (id) => goalsApi.versions(id),
+  mainGoal: (id) => mainGoalApi.versions(id),
 };
 
 function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise<VersionRef[]> {

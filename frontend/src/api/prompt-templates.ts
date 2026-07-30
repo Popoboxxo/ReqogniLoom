@@ -20,12 +20,14 @@ import { apiClient } from "./client";
 export type PromptSlot =
   | "need_to_sysreq"
   | "sysreq_to_arch_assign"
-  | "sysreq_decompose_next_level";
+  | "sysreq_decompose_next_level"
+  | "goal_aggregate";
 
 export const PROMPT_SLOTS: readonly PromptSlot[] = [
   "need_to_sysreq",
   "sysreq_to_arch_assign",
   "sysreq_decompose_next_level",
+  "goal_aggregate",
 ] as const;
 
 /** Read shape returned by GET /prompt-templates/. */
@@ -33,6 +35,7 @@ export interface PromptTemplate {
   need_to_sysreq: string;
   sysreq_to_arch_assign: string;
   sysreq_decompose_next_level: string;
+  goal_aggregate: string;
   defaults_dict: Record<PromptSlot, string>;
 }
 
@@ -41,6 +44,7 @@ export interface PromptTemplateUpdate {
   need_to_sysreq?: string;
   sysreq_to_arch_assign?: string;
   sysreq_decompose_next_level?: string;
+  goal_aggregate?: string;
 }
 
 // ---------------------------------------------------------------------------
