@@ -170,6 +170,9 @@ class PromptTemplateSerializer(serializers.Serializer):
     sysreq_decompose_next_level = serializers.CharField(
         required=False, allow_blank=True, trim_whitespace=False
     )
+    goal_aggregate = serializers.CharField(
+        required=False, allow_blank=True, trim_whitespace=False
+    )
     defaults_dict = serializers.SerializerMethodField()
 
     def get_defaults_dict(self, obj: Any) -> dict:

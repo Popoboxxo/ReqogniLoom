@@ -58,6 +58,7 @@ _PROMPT_SLOT_FIELDS = (
     "need_to_sysreq",
     "sysreq_to_arch_assign",
     "sysreq_decompose_next_level",
+    "goal_aggregate",
 )
 
 
