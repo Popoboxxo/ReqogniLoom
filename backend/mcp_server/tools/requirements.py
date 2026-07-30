@@ -429,7 +429,7 @@ class RequirementsToolGroup(BaseToolGroup):
         req_id = require_uuid(params, "id")
 
         try:
-            req = self._service.get_requirement(req_id, auth_context)
+            req = self._service.get_requirement(req_id, auth_context, include_deleted=True)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
