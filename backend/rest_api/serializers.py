@@ -827,6 +827,8 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     default_link_type = serializers.CharField(
         required=False, default="derives-from", max_length=50
     )
+    goals_enabled = serializers.BooleanField(required=False, default=False)
+    goals_ai_enabled = serializers.BooleanField(required=False, default=False)
     terminology_profile = serializers.CharField(
         required=False, default="se_mode", max_length=32
     )

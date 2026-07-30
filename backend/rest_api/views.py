@@ -3157,6 +3157,8 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         "ai_prompts": getattr(ws, "ai_prompts", {}),
         "decomposition_link_type": getattr(ws, "decomposition_link_type", "parent-child"),
         "default_link_type": getattr(ws, "default_link_type", "derives-from"),
+        "goals_enabled": getattr(ws, "goals_enabled", False),
+        "goals_ai_enabled": getattr(ws, "goals_ai_enabled", False),
         "terminology_profile": terminology_profile,
         "language": (ws.preset or {}).get("language", "de"),  # REQ-013: language stored in preset blob
         "is_active": getattr(ws, "is_active", True),
@@ -3410,6 +3412,8 @@ class WorkspaceViewSet(BaseEntityViewSet):
                     "decomposition_link_type",
                     "default_link_type",
                     "terminology_profile",
+                    "goals_enabled",
+                    "goals_ai_enabled",
                 )
                 if key in request.data
             }
