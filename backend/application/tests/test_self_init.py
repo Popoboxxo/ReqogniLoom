@@ -92,7 +92,7 @@ def test_run_self_init_on_empty_database_provisions_admin_and_workflows(monkeypa
     workspace = Workspace.unscoped.get(name="Demo Workspace")
     item_types = _workflow_item_types_for(workspace.id)
     assert item_types == _EXPECTED_WORKFLOW_ITEM_TYPES
-    assert len(item_types) == 11
+    assert len(item_types) == 13
 
 
 def test_run_self_init_is_idempotent_on_repeated_runs(monkeypatch):
