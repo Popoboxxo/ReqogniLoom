@@ -340,6 +340,32 @@ class MainGoalService(ServiceBase):
 
     # ---------- Read ----------
 
+    def get(self, main_goal_id: uuid.UUID, ctx: Any) -> MainGoal:
+        """Fetch a single MainGoal version (tenant-scoped).
+
+        Added for the REST layer (Task 6, REQ-066): keeps ORM access for
+        MainGoal out of ``rest_api/views.py`` (the ratchet in
+        ``rest_api/tests/test_architecture.py`` caps ``views.py`` at 0
+        tolerated direct-ORM lines), mirroring ``GoalService.get``.
+
+        Args:
+            main_goal_id: UUID of the MainGoal row to retrieve.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            MainGoal ORM instance.
+
+        Raises:
+            NotFoundError: No such MainGoal in the active tenant.
+        """
+        self._set_tenant_context(ctx)
+        main_goal = MainGoal.objects.filter(
+            id=main_goal_id, tenant_id=ctx.tenant_id
+        ).first()
+        if main_goal is None:
+            raise NotFoundError(f"MainGoal {main_goal_id} not found")
+        return main_goal
+
     def get_current(self, workspace_id: uuid.UUID, ctx: Any) -> Optional[MainGoal]:
         """Return the newest ``Freigegeben`` MainGoal row for the workspace.
 

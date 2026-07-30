@@ -68,6 +68,8 @@ from application.services import (
     PgVectorUnavailableError,
     ChangeRequestService,
 )
+from application.goal_service import GoalService
+from application.main_goal_service import MainGoalService
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins import WorkflowTransitionsMixin
@@ -83,8 +85,10 @@ from rest_api.serializers import (
     CustomFieldValueSerializer,
     BaselineDiffSerializer,
     BaselineSerializer,
+    GoalSerializer,
     ImpactNodeSerializer,
     IssueSerializer,
+    MainGoalSerializer,
     RequirementSerializer,
     RiskSerializer,
     SimilarRequirementSerializer,
@@ -3208,6 +3212,38 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
     }
 
 
+def _goal_to_dict(goal: Any) -> dict[str, Any]:
+    """Convert Goal ORM object to serializer-compatible dict (Task 6)."""
+    return {
+        "id": str(goal.id),
+        "workspace_id": str(goal.workspace_id),
+        "lineage_id": str(goal.lineage_id),
+        "sequence_number": goal.sequence_number,
+        "title": goal.title,
+        "description": getattr(goal, "description", ""),
+        "status": getattr(goal, "status", "Entwurf"),
+        "version": goal.version,
+        "created_at": goal.created_at,
+        "updated_at": goal.updated_at,
+    }
+
+
+def _main_goal_to_dict(main_goal: Any) -> dict[str, Any]:
+    """Convert MainGoal ORM object to serializer-compatible dict (Task 6)."""
+    return {
+        "id": str(main_goal.id),
+        "workspace_id": str(main_goal.workspace_id),
+        "sequence_number": main_goal.sequence_number,
+        "content": main_goal.content,
+        "source": getattr(main_goal, "source", "manual"),
+        "generated_from_goal_ids": list(getattr(main_goal, "generated_from_goal_ids", []) or []),
+        "status": getattr(main_goal, "status", "Entwurf"),
+        "version": main_goal.version,
+        "created_at": main_goal.created_at,
+        "updated_at": main_goal.updated_at,
+    }
+
+
 def _issue_to_dict(issue: Any) -> dict[str, Any]:
     """Convert Issue ORM object to serializer-compatible dict."""
     return {
@@ -3989,6 +4025,235 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 entity_id=UUID(pk),
                 ctx=ctx,
             )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+
+# ---------------------------------------------------------------------------
+# GoalViewSet / MainGoalViewSet — REQ-L2-TE-020 (Task 6 of feat/ziele-hauptziel-design)
+# ---------------------------------------------------------------------------
+
+
+class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
+    """ViewSet for Goal CRUD operations (REQ-L2-TE-020).
+
+    Delegates to GoalService (ADR-01). No business logic in this class
+    (REQ-L3-RA001-004). Goal versioning is lineage-based (Variante A): every
+    edit creates a brand-new row sharing the same ``lineage_id``.
+    """
+
+    serializer_class = GoalSerializer
+    preset_endpoint_key = ""
+    workflow_item_type = "Goal"
+
+    def _svc(self) -> GoalService:
+        return GoalService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        goal = self._svc().get(UUID(pk), ctx)
+        return goal.id, goal.workspace_id
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/goals/ — list the latest version of every Goal lineage."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.query_params.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            workspace_id = UUID(workspace_id_str)
+            items = self._svc().list_current(workspace_id, ctx)
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return self._paginate(
+            request, items, lambda item: GoalSerializer(_goal_to_dict(item)).data
+        )
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/goals/{pk}/ — retrieve a single Goal version."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(GoalSerializer(_goal_to_dict(item)).data)
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/goals/ — create a new Goal version. Returns 201.
+
+        Body may include ``lineage_id`` to append a new version to an
+        existing lineage; when omitted, a brand-new lineage is started
+        (GoalService.create_version).
+        """
+        lang = detect_lang(request)
+        ser = GoalSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            result = self._svc().create_version(
+                workspace_id=data["workspace_id"],
+                title=data["title"],
+                description=data.get("description", ""),
+                lineage_id=data.get("lineage_id"),
+                ctx=ctx,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/goals/{pk}/versions/ — all versions of this Goal's lineage."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            goal = self._svc().get(UUID(pk), ctx)
+            result = ArtifactDiffService().list_versions_for_goal(goal.lineage_id, ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+
+class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
+    """ViewSet for MainGoal operations (REQ-L2-TE-020).
+
+    Delegates to MainGoalService (ADR-01). No business logic in this class
+    (REQ-L3-RA001-004). MainGoal is a single workspace-scoped version chain
+    (not lineage-based like Goal); ``approve`` transitions a draft to
+    ``Freigegeben`` through the generic WorkflowEngine.
+    """
+
+    serializer_class = MainGoalSerializer
+    preset_endpoint_key = ""
+    workflow_item_type = "MainGoal"
+
+    def _svc(self) -> MainGoalService:
+        return MainGoalService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        main_goal = self._svc().get(UUID(pk), ctx)
+        return main_goal.id, main_goal.workspace_id
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/main-goals/ — manually author a new MainGoal draft. Returns 201."""
+        lang = detect_lang(request)
+        ser = MainGoalSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            result = self._svc().create_manual(
+                workspace_id=data["workspace_id"],
+                content=data["content"],
+                ctx=ctx,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="generate")
+    def generate(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/main-goals/generate/ — aggregate current Goals via LLM. Returns 201."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.data.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            result = self._svc().generate_ai(workspace_id=UUID(str(workspace_id_str)), ctx=ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/main-goals/{pk}/approve/ — transition to Freigegeben via WorkflowEngine."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            change_reason = request.data.get("change_reason") if hasattr(request, "data") else None
+            result = self._svc().approve(UUID(pk), ctx, change_reason=change_reason)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=False, methods=["get"], url_path="current")
+    def current(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/main-goals/current/ — newest Freigegeben MainGoal for a workspace."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.query_params.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            main_goal = self._svc().get_current(UUID(workspace_id_str), ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        if main_goal is None:
+            return Response(None, status=status.HTTP_200_OK)
+        return Response(MainGoalSerializer(_main_goal_to_dict(main_goal)).data)
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/main-goals/{pk}/versions/ — all versions for this MainGoal's workspace."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            main_goal = self._svc().get(UUID(pk), ctx)
+            result = ArtifactDiffService().list_versions_for_main_goal(main_goal.workspace_id, ctx)
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
