@@ -11,6 +11,10 @@
 
 import { apiClient, getList } from "./client";
 import type { ArtifactVersion, Goal, UUID } from "../types";
+import type {
+  WorkflowTransitionResult,
+  WorkflowTransitionsResponse,
+} from "./workflow-transitions";
 
 export const goalsApi = {
   /** GET /goals/?workspace_id= — the latest version of every Goal lineage. */
@@ -38,5 +42,35 @@ export const goalsApi = {
   /** GET /goals/{id}/versions/ — all versions of this Goal's lineage. */
   versions(goalId: UUID): Promise<ArtifactVersion[]> {
     return apiClient.get<ArtifactVersion[]>(`/goals/${goalId}/versions/`);
+  },
+
+  /**
+   * GET /goals/{id}/transitions/ — current workflow state and allowed moves
+   * (WorkflowTransitionsMixin). Shares the response contract of every other
+   * workflow-backed artifact type (see api/workflow-transitions.ts); `goal`
+   * is not part of that module's `WorkflowArtifactType` union because the
+   * generic editor UI does not (yet) render Goals.
+   */
+  getTransitions(goalId: UUID): Promise<WorkflowTransitionsResponse> {
+    return apiClient.get<WorkflowTransitionsResponse>(
+      `/goals/${goalId}/transitions/`
+    );
+  },
+
+  /**
+   * POST /goals/{id}/transitions/ — perform a workflow transition. Role,
+   * change_reason and signature gates are enforced server-side by the
+   * WorkflowEngine; `Entwurf -> Freigegeben` requires approver/admin plus a
+   * non-empty change reason (`goal_default` preset).
+   */
+  transition(
+    goalId: UUID,
+    targetState: string,
+    changeReason?: string
+  ): Promise<WorkflowTransitionResult> {
+    return apiClient.post<WorkflowTransitionResult>(
+      `/goals/${goalId}/transitions/`,
+      { target_state: targetState, change_reason: changeReason ?? "" }
+    );
   },
 };
