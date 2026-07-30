@@ -76,7 +76,9 @@ jobs:
           # REQ-188: without this, self-init's post_migrate hook has no admin
           # password to provision with and silently skips — leaving the base
           # workspace without its default workflow definitions (E2E-blocking).
-          SYSTEM_ADMIN_PASSWORD: ci-test-admin-password
+          # Must match e2e/helpers/auth.ts TEST_USER.password — seed_demo
+          # reads this same var, so a mismatch breaks every E2E login.
+          SYSTEM_ADMIN_PASSWORD: admin12345
         run: |
           python manage.py migrate --noinput
           python manage.py seed_demo
