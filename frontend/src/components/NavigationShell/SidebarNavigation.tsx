@@ -55,6 +55,12 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/icds", labelKey: "nav.icds", feature: "icds" },
   { path: "/diagrams", labelKey: "nav.diagrams", feature: "diagrams" },
   { path: "/glossary", labelKey: "nav.glossary", feature: "dashboard" },
+  // REQ-L2-TE-020: Goals/MainGoal — the preset-visibility system does not
+  // gate this item; visibility instead depends on the workspace's own
+  // `goals_enabled` toggle (see WorkspaceSettings). "dashboard" here just
+  // means "not filtered by preset" — the actual gate is applied below in
+  // `visibleItems` against `activeWorkspace.goals_enabled`.
+  { path: "/goals", labelKey: "nav.goals", feature: "dashboard" },
   // REQ-176: Visual Workflow Editor — always visible (like glossary/settings).
   { path: "/workflows", labelKey: "nav.workflows", feature: "dashboard" },
   { path: "/metrics", labelKey: "nav.metrics", feature: "metrics" },
@@ -253,6 +259,8 @@ export function SidebarNavigation(): JSX.Element {
 
   const visibleItems = NAV_ITEMS.filter((item) =>
     isFeatureVisible(item.feature)
+  ).filter(
+    (item) => item.path !== "/goals" || !!activeWorkspace?.goals_enabled
   );
 
   // ---- Optional-artifacts master toggle (REQ-L1-027) -------------------

@@ -32,6 +32,7 @@
     "adrs": "ADRs",
     "risks": "Risks",
     "issues": "Issues",
+    "goals": "Goals",
     "testRuns": "Test Runs",
     "testCases": "Test Cases",
     "settings": "Workspace Settings",
