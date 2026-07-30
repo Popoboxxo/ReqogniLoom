@@ -9,13 +9,15 @@ Bespoke (not ``GenericCrudToolGroup``) because Goal/MainGoal versioning uses
 from. Mirrors that module's not-found-handling (``NotFoundError`` ->
 ``ToolResult.error("NOT_FOUND", ...)``) and validation-error handling
 (``ValidationError`` -> ``ToolResult.error("VALIDATION_ERROR", ...)``)
-conventions.
+conventions, plus ``baseline.py``'s ``PermissionDeniedError`` ->
+``ToolResult.error("PERMISSION_DENIED", ...)`` convention on all write
+handlers.
 """
 from __future__ import annotations
 
 from typing import Any, Dict
 
-from application.base import NotFoundError, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
 from auth_tenancy.context import AuthContext
@@ -111,6 +113,8 @@ class GoalToolGroup(BaseToolGroup):
                 lineage_id=None,
                 ctx=auth_context,
             )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except NotFoundError as exc:
@@ -130,6 +134,8 @@ class GoalToolGroup(BaseToolGroup):
                 lineage_id=lineage_id,
                 ctx=auth_context,
             )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except NotFoundError as exc:
@@ -233,6 +239,8 @@ class MainGoalToolGroup(BaseToolGroup):
             result = MainGoalService().generate_ai(
                 workspace_id=workspace_id, ctx=auth_context
             )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except NotFoundError as exc:
@@ -249,6 +257,8 @@ class MainGoalToolGroup(BaseToolGroup):
                 content=params.get("content", ""),
                 ctx=auth_context,
             )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except NotFoundError as exc:
@@ -266,6 +276,8 @@ class MainGoalToolGroup(BaseToolGroup):
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         return ToolResult.ok(result)

@@ -12,9 +12,15 @@ inventing new public API surface that doesn't exist on ``ToolRegistry``.
 """
 from __future__ import annotations
 
+from unittest.mock import patch
+from uuid import UUID
+
 import pytest
 
+from application.base import PermissionDeniedError
+from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.tool_registry import ToolRegistry
+from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
 
 
 def _registered_tool_names(registry: ToolRegistry) -> set[str]:
@@ -129,3 +135,115 @@ def test_no_duplicate_tool_names_with_goal_groups_registered():
     assert len(names) == len(set(names)), (
         f"duplicate tool names: {[n for n in names if names.count(n) > 1]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# PermissionDeniedError handling (round-1 fix for reviewer Finding 1)
+#
+# GoalService/MainGoalService are instantiated inline inside each handler
+# (no constructor injection point), so the service classes are patched at
+# their `mcp_server.tools.goals` import location, matching the approach used
+# for other tool groups without service injection.
+# ---------------------------------------------------------------------------
+
+VIEWER_CTX = AuthContext(
+    user_id=UUID("00000000-0000-0000-0000-000000000001"),
+    tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+    active_roles=("viewer",),
+    auth_method=AuthMethod.API_KEY,
+    api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+)
+
+WORKSPACE_UUID = UUID("00000000-0000-0000-0000-000000000010")
+LINEAGE_UUID = UUID("00000000-0000-0000-0000-000000000011")
+MAIN_GOAL_UUID = UUID("00000000-0000-0000-0000-000000000012")
+VALID_API_KEY = "reqlo_testkey1234"
+
+
+@patch("mcp_server.tools.goals.GoalService")
+def test_goal_create_permission_denied(mock_service_cls):
+    mock_service_cls.return_value.create_version.side_effect = PermissionDeniedError(
+        "no write"
+    )
+    group = GoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="goal.create",
+        params={"workspace_id": str(WORKSPACE_UUID), "title": "X"},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+
+
+@patch("mcp_server.tools.goals.GoalService")
+def test_goal_create_version_permission_denied(mock_service_cls):
+    mock_service_cls.return_value.create_version.side_effect = PermissionDeniedError(
+        "no write"
+    )
+    group = GoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="goal.create_version",
+        params={
+            "workspace_id": str(WORKSPACE_UUID),
+            "lineage_id": str(LINEAGE_UUID),
+            "title": "X",
+        },
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+
+
+@patch("mcp_server.tools.goals.MainGoalService")
+def test_main_goal_generate_permission_denied(mock_service_cls):
+    mock_service_cls.return_value.generate_ai.side_effect = PermissionDeniedError(
+        "no write"
+    )
+    group = MainGoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="main_goal.generate",
+        params={"workspace_id": str(WORKSPACE_UUID)},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+
+
+@patch("mcp_server.tools.goals.MainGoalService")
+def test_main_goal_create_manual_permission_denied(mock_service_cls):
+    mock_service_cls.return_value.create_manual.side_effect = PermissionDeniedError(
+        "no write"
+    )
+    group = MainGoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="main_goal.create_manual",
+        params={"workspace_id": str(WORKSPACE_UUID), "content": "X"},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+
+
+@patch("mcp_server.tools.goals.MainGoalService")
+def test_main_goal_approve_permission_denied(mock_service_cls):
+    mock_service_cls.return_value.approve.side_effect = PermissionDeniedError(
+        "no write"
+    )
+    group = MainGoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="main_goal.approve",
+        params={"main_goal_id": str(MAIN_GOAL_UUID)},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
