@@ -1,4 +1,4 @@
-agent-meta-version: 0.90.3
+agent-meta-version: 0.90.10
 test-repo:
   enabled: false
   path: ''
@@ -543,9 +543,9 @@ admin-ui:
   port: 7420
   auto-sync-on-save: true
   watch-config: false
-rules-preset: ''
+rules-preset: silent
 speech-mode: caveman
-dod-preset: spec-driven
+dod-preset: rapid-prototyping
 tier-preset: Normal
 se-focus: false
 memory:
