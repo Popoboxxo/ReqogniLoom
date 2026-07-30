@@ -108,8 +108,9 @@ class MainGoalService(ServiceBase):
 
         Loads the ``goal_aggregate`` prompt template (workspace override, else
         tenant-global, else factory default), renders it with the workspace's
-        current Goals (``GoalService.list_current`` — latest, non-archived
-        version of every lineage), and runs it through the configured LLM
+        *approved* Goals (``GoalService.list_effective`` — the newest
+        ``Freigegeben`` version of every lineage; drafts are excluded per
+        design spec 3/4.2), and runs it through the configured LLM
         provider (``AiDerivationService._complete``, with caching, daily
         token-limit enforcement and mock-provider degradation baked in).
 
@@ -123,7 +124,8 @@ class MainGoalService(ServiceBase):
 
         Raises:
             ValidationError: ``Workspace.goals_enabled`` or
-                ``Workspace.goals_ai_enabled`` is False, or no Goals exist yet.
+                ``Workspace.goals_ai_enabled`` is False, or no approved Goal
+                exists yet.
             NotFoundError: Tenant or Workspace not found.
         """
         self._set_tenant_context(ctx)
@@ -143,9 +145,16 @@ class MainGoalService(ServiceBase):
 
         from application.goal_service import GoalService
 
-        goals = GoalService().list_current(workspace_id, ctx)
+        # Design spec 3/4.2: ONLY Goal versions in the ``Freigegeben`` state
+        # are valid aggregation input. ``list_current`` (latest non-archived
+        # row per lineage, drafts included) powers the UI list and must NOT be
+        # used here — an unapproved draft would otherwise silently steer the
+        # MainGoal.
+        goals = GoalService().list_effective(workspace_id, ctx)
         if not goals:
-            raise ValidationError("No Goals exist for this workspace to aggregate")
+            raise ValidationError(
+                "No approved (Freigegeben) Goals exist for this workspace to aggregate"
+            )
 
         from application.ai_derivation_service import AiDerivationService
 

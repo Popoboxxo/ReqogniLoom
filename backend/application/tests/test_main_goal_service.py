@@ -50,6 +50,27 @@ def _provision_main_goal_workflow(workspace):
         TenantContext.clear_tenant()
 
 
+def _provision_goal_workflow(workspace):
+    """Create a real WorkflowEngineDefinition for Goal on *workspace*.
+
+    Counterpart of ``_provision_main_goal_workflow`` for the ``goal_default``
+    preset — needed by the aggregation tests, which must approve a Goal
+    through the real WorkflowEngine before it counts as aggregation input.
+    """
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="goal_default",
+            item_type="Goal",
+            tenant_id=workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
 class MainGoalModelTests(TestCase):
     """Test MainGoal model (sanity, mirrors test_goal_service.py)."""
 
@@ -200,24 +221,40 @@ class MainGoalServiceGenerateAiTests(TestCase):
         with self.assertRaises(ValidationError):
             MainGoalService().generate_ai(workspace_id=workspace.id, ctx=ctx)
 
-    def test_generate_ai_aggregates_current_goals_into_main_goal(self):
+    def test_generate_ai_aggregates_approved_goals_into_main_goal(self):
+        """Only ``Freigegeben`` Goals aggregate (design spec 3/4.2).
+
+        The Goal is therefore approved through the real WorkflowEngine before
+        generation; a bare ``create_version`` leaves it in ``Entwurf``, which
+        must not reach the LLM (see the exclusion test below).
+        """
         workspace = Workspace.objects.create(
             tenant=self.tenant,
             name="W-ai-enabled",
             goals_enabled=True,
             goals_ai_enabled=True,
         )
-        ctx = _make_ctx(tenant_id=self.tenant.id)
+        _provision_goal_workflow(workspace)
+        editor_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("editor",))
+        approver_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("approver",))
 
         goal = GoalService().create_version(
             workspace_id=workspace.id,
             title="Reduce onboarding time",
             description="Cut onboarding from 5 days to 2 days.",
             lineage_id=None,
-            ctx=ctx,
+            ctx=editor_ctx,
+        )
+        GoalService().transition_status(
+            uuid.UUID(goal["id"]),
+            "Freigegeben",
+            approver_ctx,
+            change_reason="Goal approved.",
         )
 
-        result = MainGoalService().generate_ai(workspace_id=workspace.id, ctx=ctx)
+        result = MainGoalService().generate_ai(
+            workspace_id=workspace.id, ctx=approver_ctx
+        )
 
         self.assertEqual(result["source"], "ai")
         self.assertEqual(result["status"], "Entwurf")
@@ -227,6 +264,71 @@ class MainGoalServiceGenerateAiTests(TestCase):
         main_goal = MainGoal.objects.get(id=result["id"])
         self.assertEqual(main_goal.source, "ai")
         self.assertEqual(main_goal.generated_from_goal_ids, [goal["id"]])
+
+    def test_generate_ai_ignores_unapproved_goals(self):
+        """An ``Entwurf`` Goal is not aggregation input — generation must fail.
+
+        Regression guard for the review finding that ``generate_ai`` fed
+        ``GoalService.list_current`` (drafts included) into the LLM.
+        """
+        workspace = Workspace.objects.create(
+            tenant=self.tenant,
+            name="W-draft-only",
+            goals_enabled=True,
+            goals_ai_enabled=True,
+        )
+        ctx = _make_ctx(tenant_id=self.tenant.id)
+
+        GoalService().create_version(
+            workspace_id=workspace.id,
+            title="Unapproved draft goal",
+            description="",
+            lineage_id=None,
+            ctx=ctx,
+        )
+
+        with self.assertRaisesMessage(ValidationError, "No approved"):
+            MainGoalService().generate_ai(workspace_id=workspace.id, ctx=ctx)
+
+    def test_generate_ai_uses_approved_version_not_newer_draft(self):
+        """A newer draft revision must not displace its approved predecessor."""
+        workspace = Workspace.objects.create(
+            tenant=self.tenant,
+            name="W-approved-then-draft",
+            goals_enabled=True,
+            goals_ai_enabled=True,
+        )
+        _provision_goal_workflow(workspace)
+        editor_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("editor",))
+        approver_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("approver",))
+        svc = GoalService()
+
+        first = svc.create_version(
+            workspace_id=workspace.id,
+            title="Approved v1",
+            description="",
+            lineage_id=None,
+            ctx=editor_ctx,
+        )
+        svc.transition_status(
+            uuid.UUID(first["id"]),
+            "Freigegeben",
+            approver_ctx,
+            change_reason="v1 approved.",
+        )
+        svc.create_version(
+            workspace_id=workspace.id,
+            title="Draft v2",
+            description="",
+            lineage_id=uuid.UUID(first["lineage_id"]),
+            ctx=editor_ctx,
+        )
+
+        result = MainGoalService().generate_ai(
+            workspace_id=workspace.id, ctx=approver_ctx
+        )
+
+        self.assertEqual(result["generated_from_goal_ids"], [first["id"]])
 
 
 class MainGoalServiceApproveTests(TestCase):
@@ -373,6 +475,46 @@ class MainGoalServiceReadTests(TestCase):
 
         current = svc.get_current(workspace.id, approver_ctx)
         self.assertEqual(str(current.id), second["id"])
+
+    def test_get_current_ignores_newer_unapproved_draft(self):
+        """A newer ``Entwurf`` row must NOT displace the approved version.
+
+        Defining behavior of the immutable-row-per-version model (design spec
+        4.5): until the new draft is itself approved, the previously approved
+        version stays the valid one. ``test_get_current_returns_newest_
+        freigegeben_row`` approves both versions and therefore never covers
+        this path.
+        """
+        workspace = Workspace.objects.create(
+            tenant=self.tenant, name="W-draft-not-current", goals_enabled=True
+        )
+        _provision_main_goal_workflow(workspace)
+        editor_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("editor",))
+        approver_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("approver",))
+        svc = MainGoalService()
+
+        approved = svc.create_manual(
+            workspace_id=workspace.id, content="Approved v1.", ctx=editor_ctx
+        )
+        svc.approve(
+            uuid.UUID(approved["id"]), approver_ctx, change_reason="v1 approved."
+        )
+
+        draft = svc.create_manual(
+            workspace_id=workspace.id, content="Unapproved v2.", ctx=editor_ctx
+        )
+        self.assertEqual(draft["status"], "Entwurf")
+
+        current = svc.get_current(workspace.id, approver_ctx)
+        self.assertIsNotNone(current)
+        self.assertEqual(str(current.id), approved["id"])
+        self.assertEqual(current.content, "Approved v1.")
+
+        # ... and only becomes current once it is itself approved.
+        svc.approve(uuid.UUID(draft["id"]), approver_ctx, change_reason="v2 approved.")
+        self.assertEqual(
+            str(svc.get_current(workspace.id, approver_ctx).id), draft["id"]
+        )
 
     def test_list_versions_returns_all_versions_ordered(self):
         workspace = Workspace.objects.create(

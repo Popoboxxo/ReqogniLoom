@@ -236,5 +236,102 @@ class GoalService(ServiceBase):
         )
         return list(Goal.objects.filter(id__in=list(latest_ids)))
 
+    def list_effective(self, workspace_id: uuid.UUID, ctx: Any) -> list[Goal]:
+        """Return the *effective* (approved) version of every lineage.
+
+        Design spec sections 2.3/3/4.2: only Goal versions in the
+        ``Freigegeben`` workflow state count as the "gültige Version" of their
+        lineage and are therefore the only ones allowed to flow into MainGoal
+        aggregation. A newer ``Entwurf`` row supersedes nothing until it is
+        itself approved, so per lineage the highest-``sequence_number``
+        ``Freigegeben`` row wins. Lineages that have never been approved
+        contribute nothing (not "the previous version", but "no effective
+        version" — same rule ``MainGoalService.get_current`` applies).
+
+        Deliberately kept separate from ``list_current`` rather than filtering
+        that method: ``list_current`` powers the UI/REST list, which must keep
+        showing drafts. ``status`` is the denormalized mirror the
+        WorkflowEngine writes (StateLifecycleManager._sync_status_mirror), so
+        it is authoritative for reads.
+
+        Args:
+            workspace_id: Target workspace UUID.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            List of Goal ORM instances, at most one per lineage.
+        """
+        self._set_tenant_context(ctx)
+        approved_ids = (
+            Goal.objects.filter(
+                workspace_id=workspace_id,
+                tenant_id=ctx.tenant_id,
+                status="Freigegeben",
+            )
+            .order_by("lineage_id", "-sequence_number")
+            .distinct("lineage_id")
+            .values_list("id", flat=True)
+        )
+        return list(Goal.objects.filter(id__in=list(approved_ids)))
+
+    def transition_status(
+        self,
+        goal_id: uuid.UUID,
+        target_status: str,
+        ctx: Any,
+        change_reason: Optional[str] = None,
+        credential: Optional[str] = None,
+    ) -> Goal:
+        """Transition a Goal version's workflow state via the WorkflowEngine.
+
+        Mirrors ``RiskService.transition_status``: the WorkflowEngine (through
+        ``WorkflowFacade``, COMP-AS-007) is the sole authority — role,
+        change_reason and signature gates are enforced there and their errors
+        propagate. The engine also writes the denormalized ``status`` mirror,
+        so no direct field assignment happens here. Target-state validation is
+        left to the engine as well, because a workspace may override the
+        ``goal_default`` preset's state set.
+
+        Args:
+            goal_id: UUID of the Goal version to transition.
+            target_status: Target workflow state (e.g. ``"Freigegeben"``).
+            ctx: Resolved AuthContext.
+            change_reason: Reason recorded on the transition. The
+                ``goal_default`` preset requires a non-empty reason for
+                ``Entwurf`` -> ``Freigegeben``.
+            credential: Password/TOTP token for signature-gated transitions.
+
+        Returns:
+            The refreshed Goal ORM instance.
+
+        Raises:
+            NotFoundError: No such Goal in the active tenant.
+            ValidationError: Transition rejected by the WorkflowEngine.
+            PermissionDeniedError: Preset-level role gate blocked the move.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        goal = Goal.objects.filter(id=goal_id, tenant_id=ctx.tenant_id).first()
+        if goal is None:
+            raise NotFoundError(f"Goal {goal_id} not found")
+
+        from application.workflow_facade import WorkflowFacade
+
+        WorkflowFacade().transition(
+            item_id=goal.id,
+            item_type="Goal",
+            target_state=target_status,
+            workspace_id=goal.workspace_id,
+            ctx=ctx,
+            change_reason=change_reason or "",
+            credential=credential or "",
+        )
+        # The transition audit entry is written authoritatively by the
+        # WorkflowEngine inside the same atomic transaction (mirrors
+        # RiskService.transition_status) — no second service-level audit here.
+        goal.refresh_from_db(fields=["status", "version"])
+        return goal
+
 
 __all__ = ["GoalService"]

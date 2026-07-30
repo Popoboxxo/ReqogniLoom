@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from django.test import TestCase
 
-from application.base import ValidationError
+from application.base import NotFoundError, ValidationError
 from application.goal_service import GoalService
 from application.models import Goal, MainGoal
 from persistence.models import Artifact, Tenant, Workspace
@@ -245,3 +245,117 @@ class GoalServiceTests(TestCase):
         goal = svc.get(uuid.UUID(created["id"]), ctx=ctx)
         self.assertEqual(str(goal.id), created["id"])
         self.assertEqual(goal.title, "Goal A")
+
+
+def _provision_goal_workflow(workspace):
+    """Create a real WorkflowEngineDefinition for Goal on *workspace*.
+
+    Mirrors ``application/tests/test_main_goal_service.py``'s
+    ``_provision_main_goal_workflow``: ad-hoc test workspaces bypass
+    ``workspace_provisioning.provision_workspace_defaults``, so a transition
+    would otherwise have no WorkflowItemState to move.
+    """
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="goal_default",
+            item_type="Goal",
+            tenant_id=workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+class GoalServiceTransitionTests(TestCase):
+    """Test GoalService.transition_status — end-to-end through the WorkflowEngine."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="T1")
+        TenantContext.set_tenant(self.tenant.id)
+        self.workspace = Workspace.objects.create(
+            tenant=self.tenant, name="W-transition", goals_enabled=True
+        )
+        _provision_goal_workflow(self.workspace)
+        self.editor_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("editor",))
+        self.approver_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("approver",))
+
+    def tearDown(self):
+        TenantContext.clear_tenant()
+
+    def _create_goal(self, title="Goal A"):
+        return GoalService().create_version(
+            workspace_id=self.workspace.id,
+            title=title,
+            description="",
+            lineage_id=None,
+            ctx=self.editor_ctx,
+        )
+
+    def test_transition_status_approves_goal(self):
+        created = self._create_goal()
+        self.assertEqual(created["status"], "Entwurf")
+
+        goal = GoalService().transition_status(
+            uuid.UUID(created["id"]),
+            "Freigegeben",
+            self.approver_ctx,
+            change_reason="Reviewed and approved.",
+        )
+
+        self.assertEqual(goal.status, "Freigegeben")
+        self.assertEqual(
+            Goal.objects.get(id=created["id"]).status, "Freigegeben"
+        )
+
+    def test_transition_status_rejects_role_without_approver_permission(self):
+        """goal_default gates Entwurf -> Freigegeben to approver/admin."""
+        created = self._create_goal()
+
+        with self.assertRaises(ValidationError):
+            GoalService().transition_status(
+                uuid.UUID(created["id"]),
+                "Freigegeben",
+                self.editor_ctx,
+                change_reason="Trying without approver role.",
+            )
+
+        self.assertEqual(Goal.objects.get(id=created["id"]).status, "Entwurf")
+
+    def test_transition_status_raises_not_found_for_unknown_id(self):
+        with self.assertRaises(NotFoundError):
+            GoalService().transition_status(
+                uuid.uuid4(), "Freigegeben", self.approver_ctx, change_reason="n/a"
+            )
+
+    def test_list_effective_returns_only_approved_versions(self):
+        """list_effective: newest Freigegeben row per lineage, drafts excluded."""
+        svc = GoalService()
+        approved = self._create_goal("Approved goal")
+        svc.transition_status(
+            uuid.UUID(approved["id"]),
+            "Freigegeben",
+            self.approver_ctx,
+            change_reason="Approved.",
+        )
+        # A second lineage that never gets approved.
+        self._create_goal("Draft-only goal")
+        # A newer draft revision of the approved lineage.
+        svc.create_version(
+            workspace_id=self.workspace.id,
+            title="Approved goal, revised",
+            description="",
+            lineage_id=uuid.UUID(approved["lineage_id"]),
+            ctx=self.editor_ctx,
+        )
+
+        effective = svc.list_effective(self.workspace.id, self.approver_ctx)
+
+        self.assertEqual([g.title for g in effective], ["Approved goal"])
+        # list_current still shows drafts (UI listing is unaffected).
+        self.assertEqual(
+            sorted(g.title for g in svc.list_current(self.workspace.id, self.approver_ctx)),
+            ["Approved goal, revised", "Draft-only goal"],
+        )

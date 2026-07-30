@@ -117,6 +117,14 @@ def test_create_manual_and_approve_main_goal():
 
     assert approve_resp.status_code == 200
     assert approve_resp.data["status"] == "Freigegeben"
+    # The approve response must be a FULLY serialized MainGoal, not the
+    # service's bare {id, sequence_number, status} dict: MainGoalPanel replaces
+    # its panel state with it and rendered an empty panel when `content` was
+    # missing (fix round, finding C2).
+    assert approve_resp.data["id"] == main_goal_id
+    assert approve_resp.data["content"] == "Manually authored."
+    assert approve_resp.data["source"] == "manual"
+    assert approve_resp.data["workspace_id"] == str(workspace.id)
 
     current_req = factory.get(f"/api/v1/main-goals/current/?workspace_id={workspace.id}")
     current_req.auth_context = ctx

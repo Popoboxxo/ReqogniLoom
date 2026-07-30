@@ -12,6 +12,7 @@ inventing new public API surface that doesn't exist on ``ToolRegistry``.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
@@ -43,6 +44,7 @@ def test_goal_tools_registered():
     assert "goal.create" in names
     assert "goal.create_version" in names
     assert "goal.list_versions" in names
+    assert "goal.transition" in names
 
 
 @pytest.mark.django_db
@@ -75,6 +77,13 @@ def test_goal_create_version_tool_is_write_protected():
     registry = ToolRegistry()
     registry._ensure_groups()
     assert registry._is_write_tool("goal.create_version") is True
+
+
+@pytest.mark.django_db
+def test_goal_transition_tool_is_write_protected():
+    registry = ToolRegistry()
+    registry._ensure_groups()
+    assert registry._is_write_tool("goal.transition") is True
 
 
 @pytest.mark.django_db
@@ -157,6 +166,7 @@ VIEWER_CTX = AuthContext(
 WORKSPACE_UUID = UUID("00000000-0000-0000-0000-000000000010")
 LINEAGE_UUID = UUID("00000000-0000-0000-0000-000000000011")
 MAIN_GOAL_UUID = UUID("00000000-0000-0000-0000-000000000012")
+GOAL_UUID = UUID("00000000-0000-0000-0000-000000000013")
 VALID_API_KEY = "reqlo_testkey1234"
 
 
@@ -196,6 +206,64 @@ def test_goal_create_version_permission_denied(mock_service_cls):
     )
     assert result.success is False
     assert result.error_code == "PERMISSION_DENIED"
+
+
+@patch("mcp_server.tools.goals.GoalService")
+def test_goal_transition_permission_denied(mock_service_cls):
+    mock_service_cls.return_value.transition_status.side_effect = (
+        PermissionDeniedError("no write")
+    )
+    group = GoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="goal.transition",
+        params={"goal_id": str(GOAL_UUID), "target_state": "Freigegeben"},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+
+
+@patch("mcp_server.tools.goals.GoalService")
+def test_goal_transition_requires_target_state(mock_service_cls):
+    group = GoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="goal.transition",
+        params={"goal_id": str(GOAL_UUID)},
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    mock_service_cls.return_value.transition_status.assert_not_called()
+
+
+@patch("mcp_server.tools.goals.GoalService")
+def test_goal_transition_returns_new_status(mock_service_cls):
+    goal = SimpleNamespace(
+        id=GOAL_UUID,
+        lineage_id=LINEAGE_UUID,
+        sequence_number=2,
+        status="Freigegeben",
+    )
+    mock_service_cls.return_value.transition_status.return_value = goal
+    group = GoalToolGroup()
+
+    result = group.execute_tool(
+        tool_name="goal.transition",
+        params={
+            "goal_id": str(GOAL_UUID),
+            "target_state": "Freigegeben",
+            "change_reason": "Approved.",
+        },
+        auth_context=VIEWER_CTX,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is True
+    assert result.data["status"] == "Freigegeben"
+    assert result.data["id"] == str(GOAL_UUID)
 
 
 @patch("mcp_server.tools.goals.MainGoalService")

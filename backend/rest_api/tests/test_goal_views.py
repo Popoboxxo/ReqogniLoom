@@ -150,3 +150,78 @@ def test_goal_versions_endpoint_lists_lineage():
     assert len(versions_resp.data) == 2
     assert versions_resp.data[0]["sequence_number"] == 1
     assert versions_resp.data[1]["sequence_number"] == 2
+
+
+def _provision_goal_workflow(workspace):
+    """Create a real WorkflowEngineDefinition for Goal on *workspace*.
+
+    Mirrors rest_api/tests/test_main_goal_views.py's
+    ``_provision_main_goal_workflow``: ad-hoc test workspaces bypass
+    ``workspace_provisioning.provision_workspace_defaults``, so the
+    transitions endpoint would otherwise have no WorkflowItemState to move.
+    """
+    from persistence.tenancy import TenantContext
+    from workflow.services import create_default_workflow
+
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="goal_default",
+            item_type="Goal",
+            tenant_id=workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def test_goal_transitions_endpoint_approves_goal():
+    """End-to-end Goal workflow transition over REST (WorkflowTransitionsMixin).
+
+    Entwurf -> Freigegeben is gated to approver/admin with a mandatory
+    change_reason (workflow/definition_store.py ``_goal_transitions``).
+    """
+    tenant, workspace = _new_tenant_and_workspace(
+        "T5", name="W5", goals_enabled=True
+    )
+    _provision_goal_workflow(workspace)
+    ctx = _make_auth_context(tenant_id=tenant.id, roles=("admin",))
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/goals/",
+        {"workspace_id": str(workspace.id), "title": "Goal to approve"},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = GoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+    goal_id = created.data["id"]
+    assert created.data["status"] == "Entwurf"
+
+    available_req = factory.get(f"/api/v1/goals/{goal_id}/transitions/")
+    available_req.auth_context = ctx
+    available_resp = GoalViewSet.as_view({"get": "transitions"})(
+        available_req, pk=goal_id
+    )
+    assert available_resp.status_code == 200
+    assert "Freigegeben" in [
+        t["target_state"] for t in available_resp.data["allowed_transitions"]
+    ]
+
+    transition_req = factory.post(
+        f"/api/v1/goals/{goal_id}/transitions/",
+        {"target_state": "Freigegeben", "change_reason": "Reviewed and approved."},
+        format="json",
+    )
+    transition_req.auth_context = ctx
+    transition_resp = GoalViewSet.as_view({"post": "transitions"})(
+        transition_req, pk=goal_id
+    )
+    assert transition_resp.status_code == 200
+    assert transition_resp.data["new_state"] == "Freigegeben"
+
+    retrieve_req = factory.get(f"/api/v1/goals/{goal_id}/")
+    retrieve_req.auth_context = ctx
+    retrieve_resp = GoalViewSet.as_view({"get": "retrieve"})(retrieve_req, pk=goal_id)
+    assert retrieve_resp.data["status"] == "Freigegeben"

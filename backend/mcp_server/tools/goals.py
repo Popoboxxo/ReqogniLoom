@@ -33,6 +33,7 @@ class GoalToolGroup(BaseToolGroup):
         "goal.create": "_handle_create",
         "goal.create_version": "_handle_create_version",
         "goal.list_versions": "_handle_list_versions",
+        "goal.transition": "_handle_transition",
     }
     _TOOL_SCHEMAS = [
         {
@@ -78,6 +79,24 @@ class GoalToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {"lineage_id": {"type": "string"}},
                 "required": ["lineage_id"],
+            },
+        },
+        {
+            "name": "goal.transition",
+            "description": (
+                "Transition a Goal version's workflow state (e.g. Entwurf -> "
+                "Freigegeben). Only Freigegeben versions feed MainGoal "
+                "aggregation."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "string"},
+                    "target_state": {"type": "string"},
+                    "change_reason": {"type": "string"},
+                    "credential": {"type": "string"},
+                },
+                "required": ["goal_id", "target_state"],
             },
         },
     ]
@@ -148,6 +167,45 @@ class GoalToolGroup(BaseToolGroup):
         lineage_id = require_uuid(params, "lineage_id")
         versions = GoalService().list_versions(lineage_id, auth_context)
         return ToolResult.ok({"versions": versions})
+
+    def _handle_transition(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Transition a Goal version through the generic WorkflowEngine.
+
+        Delegates to ``GoalService.transition_status``, i.e. the exact same
+        ``WorkflowFacade`` path ``POST /api/v1/goals/{id}/transitions/`` uses,
+        so role / change_reason / signature gates behave identically across
+        REST and MCP.
+        """
+        goal_id = require_uuid(params, "goal_id")
+        target_state = params.get("target_state") or params.get("to_status")
+        if not target_state:
+            return ToolResult.error(
+                "VALIDATION_ERROR", "Required parameter 'target_state' is missing."
+            )
+        try:
+            goal = GoalService().transition_status(
+                goal_id,
+                str(target_state),
+                auth_context,
+                change_reason=params.get("change_reason"),
+                credential=params.get("credential"),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        return ToolResult.ok(
+            {
+                "id": str(goal.id),
+                "lineage_id": str(goal.lineage_id),
+                "sequence_number": goal.sequence_number,
+                "status": goal.status,
+            }
+        )
 
 
 class MainGoalToolGroup(BaseToolGroup):

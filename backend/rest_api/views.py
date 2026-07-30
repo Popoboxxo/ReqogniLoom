@@ -4256,12 +4256,17 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         try:
             ctx = get_auth_context(request)
             change_reason = request.data.get("change_reason") if hasattr(request, "data") else None
-            result = self._svc().approve(UUID(pk), ctx, change_reason=change_reason)
+            self._svc().approve(UUID(pk), ctx, change_reason=change_reason)
+            # Return the FULL serialized MainGoal (not the service's bare
+            # {id, sequence_number, status} dict), matching create/generate/
+            # current — the frontend replaces its panel state with this
+            # response and would otherwise blank out `content`.
+            item = self._svc().get(UUID(pk), ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(result)
+        return Response(MainGoalSerializer(_main_goal_to_dict(item)).data)
 
     @action(detail=False, methods=["get"], url_path="current")
     def current(self, request: Request, **kwargs: Any) -> Response:
