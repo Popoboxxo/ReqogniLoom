@@ -4124,11 +4124,14 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 lineage_id=data.get("lineage_id"),
                 ctx=ctx,
             )
+            item = self._svc().get(UUID(result["id"]), ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(result, status=status.HTTP_201_CREATED)
+        return Response(
+            GoalSerializer(_goal_to_dict(item)).data, status=status.HTTP_201_CREATED
+        )
 
     @action(detail=True, methods=["get"], url_path="versions")
     def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -4165,6 +4168,29 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         main_goal = self._svc().get(UUID(pk), ctx)
         return main_goal.id, main_goal.workspace_id
 
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/main-goals/ — list all MainGoal versions in a workspace."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id_str = request.query_params.get("workspace_id")
+            if not workspace_id_str:
+                return Response(
+                    build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            workspace_id = UUID(workspace_id_str)
+            items = self._svc().list_all(workspace_id, ctx)
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+        return self._paginate(
+            request, items, lambda item: MainGoalSerializer(_main_goal_to_dict(item)).data
+        )
+
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/main-goals/ — manually author a new MainGoal draft. Returns 201."""
         lang = detect_lang(request)
@@ -4186,11 +4212,15 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 content=data["content"],
                 ctx=ctx,
             )
+            item = self._svc().get(UUID(result["id"]), ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(result, status=status.HTTP_201_CREATED)
+        return Response(
+            MainGoalSerializer(_main_goal_to_dict(item)).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=False, methods=["post"], url_path="generate")
     def generate(self, request: Request, **kwargs: Any) -> Response:
@@ -4205,11 +4235,15 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             result = self._svc().generate_ai(workspace_id=UUID(str(workspace_id_str)), ctx=ctx)
+            item = self._svc().get(UUID(result["id"]), ctx)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
-        return Response(result, status=status.HTTP_201_CREATED)
+        return Response(
+            MainGoalSerializer(_main_goal_to_dict(item)).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["post"], url_path="approve")
     def approve(self, request: Request, pk: str, **kwargs: Any) -> Response:

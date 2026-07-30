@@ -2,6 +2,7 @@
 Tests for MainGoalViewSet REST endpoints (REQ-L2-TE-020, Task 6).
 
 Covers:
+  GET  /api/v1/main-goals/?workspace_id=<id>
   POST /api/v1/main-goals/
   POST /api/v1/main-goals/{pk}/approve/
   GET  /api/v1/main-goals/current/?workspace_id=<id>
@@ -166,6 +167,12 @@ def test_approve_rejects_editor_role():
     approve_req.auth_context = editor_ctx
     approve_resp = MainGoalViewSet.as_view({"post": "approve"})(approve_req, pk=main_goal_id)
 
+    # Accepts both codes until GitHub Issue #214 (WorkflowFacade._remap_workflow_exc
+    # compares exc.error_code against the literal "EC_ROLE_NOT_ALLOWED", but the
+    # real transition_validator constant's value is "ROLE_NOT_ALLOWED", so the
+    # branch never matches and role rejections surface as 400 instead of 403) is
+    # fixed. Reviewed and confirmed a legitimate accommodation, not test-design
+    # laxness (Task 6 fix round 1, finding I2).
     assert approve_resp.status_code in (400, 403)
 
 
@@ -205,3 +212,46 @@ def test_main_goal_versions_endpoint():
     assert versions_resp.status_code == 200
     assert len(versions_resp.data) == 1
     assert versions_resp.data[0]["sequence_number"] == 1
+
+
+def test_list_main_goals_returns_all_versions_for_workspace():
+    """GET /api/v1/main-goals/?workspace_id=<id> — regression test for reviewer
+    finding C1: MainGoalViewSet previously had no ``list()`` override and
+    inherited BaseEntityViewSet's ``raise NotImplementedError`` stub, causing
+    an unhandled 500 for this route (Task 6 fix round 1).
+    """
+    tenant, workspace = _new_tenant_and_workspace("T6", name="W6", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/main-goals/",
+        {"workspace_id": str(workspace.id), "content": "Draft v1."},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = MainGoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+
+    list_req = factory.get(f"/api/v1/main-goals/?workspace_id={workspace.id}")
+    list_req.auth_context = ctx
+    list_resp = MainGoalViewSet.as_view({"get": "list"})(list_req)
+
+    assert list_resp.status_code == 200
+    results = list_resp.data["results"]
+    assert len(results) == 1
+    assert results[0]["id"] == created.data["id"]
+    assert results[0]["content"] == "Draft v1."
+    assert results[0]["workspace_id"] == str(workspace.id)
+
+
+def test_list_main_goals_requires_workspace_id():
+    tenant, _workspace = _new_tenant_and_workspace("T7", name="W7", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    req = factory.get("/api/v1/main-goals/")
+    req.auth_context = ctx
+    resp = MainGoalViewSet.as_view({"get": "list"})(req)
+
+    assert resp.status_code == 400

@@ -418,5 +418,29 @@ class MainGoalService(ServiceBase):
             for mg in qs
         ]
 
+    def list_all(self, workspace_id: uuid.UUID, ctx: Any) -> list[MainGoal]:
+        """Return all MainGoal versions for a workspace, newest first.
+
+        Added for the REST layer (Task 6 fix round 1, reviewer finding C1):
+        powers ``GET /api/v1/main-goals/``, mirroring ``GoalService.list_current``
+        in shape (keeps direct ORM access for MainGoal out of
+        ``rest_api/views.py``, REQ-066 ratchet in
+        ``rest_api/tests/test_architecture.py``).
+
+        Args:
+            workspace_id: Target workspace UUID.
+            ctx: Resolved AuthContext.
+
+        Returns:
+            List of MainGoal ORM instances ordered by descending
+            sequence_number (newest version first).
+        """
+        self._set_tenant_context(ctx)
+        return list(
+            MainGoal.objects.filter(
+                workspace_id=workspace_id, tenant_id=ctx.tenant_id
+            ).order_by("-sequence_number")
+        )
+
 
 __all__ = ["MainGoalService"]
