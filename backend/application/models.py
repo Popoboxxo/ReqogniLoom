@@ -426,6 +426,85 @@ class Risk(models.Model):
         return f"Risk:{self.id}:{self.title[:40]}"
 
 
+class Goal(models.Model):
+    """REQ-L2-TE-020 — individual workspace Goal, immutable per version row.
+
+    Each edit creates a brand-new Goal row with its own dedicated Artifact
+    (Variante A). ``lineage_id`` groups all versions of the same logical
+    goal; ``sequence_number`` is a per-lineage monotonic counter.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="goal",
+    )
+    tenant_id = models.UUIDField(db_index=True)
+    workspace_id = models.UUIDField(db_index=True)
+    lineage_id = models.UUIDField(db_index=True)
+    sequence_number = models.PositiveIntegerField()
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=50, default="Entwurf")
+    version = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_goal"
+        indexes = [
+            models.Index(fields=["workspace_id", "lineage_id"]),
+            models.Index(fields=["workspace_id", "status"]),
+        ]
+        ordering = ["lineage_id", "sequence_number"]
+
+    def __str__(self) -> str:
+        return f"{self.title} (v{self.sequence_number})"
+
+
+class MainGoal(models.Model):
+    """REQ-L2-TE-020 — LLM-aggregated Haupt-Ziel, immutable per version row.
+
+    The valid MainGoal for a workspace is always the newest row in
+    ``Freigegeben`` state — never mutated in place (Variante A).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="main_goal",
+    )
+    tenant_id = models.UUIDField(db_index=True)
+    workspace_id = models.UUIDField(db_index=True)
+    sequence_number = models.PositiveIntegerField()
+    content = models.TextField()
+    source = models.CharField(
+        max_length=20,
+        choices=[("ai", "AI"), ("manual", "Manual")],
+    )
+    generated_from_goal_ids = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=50, default="Entwurf")
+    version = models.IntegerField(default=1)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "as_main_goal"
+        indexes = [
+            models.Index(fields=["workspace_id", "status"]),
+            models.Index(fields=["workspace_id", "sequence_number"]),
+        ]
+        ordering = ["sequence_number"]
+
+    def __str__(self) -> str:
+        return f"MainGoal v{self.sequence_number} ({self.source})"
+
+
+
 class Issue(models.Model):
     """Issue entity — COMP-AS-015 IssueService.
 
@@ -604,4 +683,6 @@ __all__ = [
     "Risk",
     "Issue",
     "ChangeRequest",
+    "Goal",
+    "MainGoal",
 ]
