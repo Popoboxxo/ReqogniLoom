@@ -8,7 +8,7 @@ test.describe('Zahnbürste SysEng Demo', () => {
   test.beforeAll(async () => {
     // Run the Python seeding script
     console.log('Running seed_toothbrush.py...');
-    const output = execSync('docker-compose exec -T backend python seed_toothbrush.py', { encoding: 'utf-8' });
+    const output = execSync('docker compose exec -T backend python seed_toothbrush.py', { encoding: 'utf-8' });
     
     // Extract workspace ID
     const match = output.match(/Workspace created with ID: ([a-f0-9-]+)/);

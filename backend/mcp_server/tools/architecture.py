@@ -492,7 +492,7 @@ class ArchitectureToolGroup(BaseToolGroup):
         arch_id = require_uuid(params, "id")
 
         try:
-            el = self._service.get_architecture_element(arch_id, auth_context)
+            el = self._service.get_architecture_element(arch_id, auth_context, include_deleted=True)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:

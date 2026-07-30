@@ -81,8 +81,13 @@ export function useArchitectureData(selectedId?: string): ArchitectureData {
     elements: listQuery.data ?? [],
     element: selectedId ? detailQuery.data?.element ?? null : null,
     linkedTraceLinks: detailQuery.data?.linkedTraceLinks ?? [],
-    // Loading until the workspace is known and the list has resolved.
-    isLoading: !workspaceId || listQuery.isLoading,
+    // Loading until the workspace is known, the list has resolved, and — when
+    // an element is selected — its detail fetch has resolved too (matches
+    // useAdrData/useIssueData/useRiskData/useNeedData).
+    isLoading:
+      !workspaceId ||
+      listQuery.isLoading ||
+      (!!selectedId && detailQuery.isLoading),
     // List errors are non-fatal; only detail failures surface.
     error: detailQuery.error ? extractErrorMessage(detailQuery.error) : null,
     refresh,
