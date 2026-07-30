@@ -498,6 +498,7 @@ class TestGetArchitectureElement:
                     )
                 ),
             ),
+            patch("workflow.services.outdated_item_ids", return_value=[]),
         ):
             result = svc.get_architecture_element(ARCH_EL_ID, ctx)
 
@@ -518,6 +519,29 @@ class TestGetArchitectureElement:
                     )
                 ),
             ),
+        ):
+            with pytest.raises(NotFoundError):
+                svc.get_architecture_element(ARCH_EL_ID, ctx)
+
+    def test_get_raises_not_found_when_outdated(self):
+        """REQ-006: get_architecture_element treats soft-deleted (outdated) elements as not found."""
+        svc = ArchitectureService()
+        ctx = _make_ctx()
+        mock_el = _make_arch_el()
+
+        with (
+            patch("application.architecture_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.architecture_service.ArchitectureElement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_el)
+                        )
+                    )
+                ),
+            ),
+            patch("workflow.services.outdated_item_ids", return_value=[mock_el.id]),
         ):
             with pytest.raises(NotFoundError):
                 svc.get_architecture_element(ARCH_EL_ID, ctx)
@@ -602,6 +626,7 @@ class TestTenantIsolation:
                     )
                 ),
             ),
+            patch("workflow.services.outdated_item_ids", return_value=[]),
         ):
             svc.get_architecture_element(ARCH_EL_ID, ctx)
 

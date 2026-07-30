@@ -643,6 +643,28 @@ class TestGetRequirement:
             with pytest.raises(NotFoundError):
                 svc.get_requirement(REQ_ID, ctx)
 
+    def test_get_raises_not_found_when_outdated(self):
+        """REQ-006: get_requirement treats soft-deleted (status="outdated") requirements as not found."""
+        svc = RequirementService()
+        ctx = _make_ctx()
+        mock_req = _make_requirement(status="outdated")
+
+        with (
+            patch("application.requirement_service.ServiceBase._set_tenant_context"),
+            patch(
+                "application.requirement_service.Requirement.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(
+                            first=MagicMock(return_value=mock_req)
+                        )
+                    )
+                ),
+            ),
+        ):
+            with pytest.raises(NotFoundError):
+                svc.get_requirement(REQ_ID, ctx)
+
     def test_list_requirements_returns_list(self):
         """list_requirements returns a list of ORM instances, excluding soft-deleted (REQ-006)."""
         svc = RequirementService()

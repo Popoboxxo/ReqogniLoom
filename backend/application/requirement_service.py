@@ -434,12 +434,17 @@ class RequirementService(ServiceBase):
         )
 
     def get_requirement(self, requirement_id: UUID, ctx: AuthContext) -> Requirement:
-        """Fetch a single Requirement (tenant-scoped)."""
+        """Fetch a single Requirement (tenant-scoped).
+
+        REQ-006: soft-deleted requirements (status="outdated", written by
+        delete_requirement() via workflow.services.outdate()) are treated as
+        not found, matching list_requirements()'s default exclusion.
+        """
         self._set_tenant_context(ctx)
         req = Requirement.objects.select_related("artifact").filter(
             id=requirement_id
         ).first()
-        if req is None:
+        if req is None or req.status == "outdated":
             raise NotFoundError(f"Requirement {requirement_id} not found")
         return req
 

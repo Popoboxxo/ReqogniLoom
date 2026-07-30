@@ -320,12 +320,20 @@ class ArchitectureService(ServiceBase):
         )
 
     def get_architecture_element(self, arch_el_id: UUID, ctx: AuthContext) -> ArchitectureElement:
-        """Fetch a single ArchitectureElement."""
+        """Fetch a single ArchitectureElement.
+
+        REQ-006: soft-deleted elements (outdate()'d, tracked only via
+        WorkflowItemState since ArchitectureElement has no mirrored status
+        column) are treated as not found, matching list_architecture_elements().
+        """
         self._set_tenant_context(ctx)
         arch_el = ArchitectureElement.objects.select_related("artifact").filter(
             id=arch_el_id
         ).first()
         if arch_el is None:
+            raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
+        from workflow.services import outdated_item_ids
+        if arch_el.id in outdated_item_ids("ArchitectureElement"):
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
         return arch_el
 
