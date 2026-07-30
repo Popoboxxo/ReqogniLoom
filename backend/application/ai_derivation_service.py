@@ -1381,7 +1381,7 @@ class AiDerivationService(ServiceBase):
         placeholders that must be recomputed once a real provider is available.
 
         Unlike the three capability-shaped flows (``validate_artifact``,
-        ``decompose_requirement``, ``check_consistency``), the seven
+        ``decompose_requirement``, ``check_consistency``), the eight
         Draft/Accept flows in this service call ``provider.complete()``
         directly instead of going through ``CapabilityRouter`` (that router's
         capability set does not model these free-form prompts). To still get
