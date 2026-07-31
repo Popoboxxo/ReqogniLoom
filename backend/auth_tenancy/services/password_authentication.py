@@ -91,6 +91,9 @@ class PasswordAuthenticationService:
         self._refresh_ttl_seconds = int(
             getattr(settings, "AUTH_JWT_REFRESH_TTL_SECONDS", 2592000)
         )
+        self._refresh_ttl_seconds = int(
+            getattr(settings, "AUTH_JWT_REFRESH_TTL_SECONDS", 2592000)
+        )
 
     # -- Credential verification ------------------------------------------
 
