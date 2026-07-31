@@ -13,6 +13,7 @@ Befund — kein Präzedenzfall.
 ## Inhalt
 
 1. [Ausgangslage](#1-ausgangslage)
+   1.1 [Geltungsbereich: Presets, Terminologie, Artefakttypen](#11-geltungsbereich-presets-terminologie-artefakttypen)
 2. [Leitgedanke](#2-leitgedanke)
 3. [Gestaltungsprinzipien](#3-gestaltungsprinzipien)
 4. [Was bleibt, was sich ändert](#4-was-bleibt-was-sich-ändert)
@@ -61,6 +62,59 @@ Kapitel 16 behandelt das gesondert, weil ohne diesen Teil alles andere in zwei J
 wieder auseinanderläuft.
 
 Vollständige Messwerte in [Anhang B](#anhang-b-messwerte).
+
+---
+
+## 1.1 Geltungsbereich: Presets, Terminologie, Artefakttypen
+
+Dieses Konzept gilt für alle Workspaces, unabhängig von deren Konfiguration. Allerdings
+ist nicht jedes Feature sichtbar — das wird durch die **Rigor-Presets** gesteuert.
+
+### Rigor-Presets
+
+ReqogniLoom kennt drei Presets (`backend/presets/registry.py`), die den Funktionsumfang
+und die UI-Komplexität skalieren:
+
+| Preset | Feature-Flags | `baseline_scopes` | `workflow_configurability` | `change_reason` | `mandatory_fields` |
+|---|---|---|---|---|---|
+| **minimal** | alle `False` | `[]` | `"fixed"` | `"optional"` | `("title",)` |
+| **standard** | `baselines`, `approval_workflows` = `True` | `["document", "project"]` | `"workspace"` | `"optional"` | `("title",)` |
+| **extended** | alle `True` | `["document", "project", "global"]` | `"workspace"` | `"mandatory"` | `("title", "epic", "level")` |
+
+Features, die im aktuellen Preset deaktiviert sind, werden in der UI **ausgeblendet**, nicht deaktiviert.
+Das ist konsistent mit dem Empty-State-Prinzip aus Kapitel 13. Beispiel: Im `minimal`-Preset gibt es
+keine Baselines — die entsprechenden UI-Aktionen tauchen gar nicht auf. Die Spine zeigt in `minimal`-Workspaces
+gegebenenfalls weniger oder keine Verifikations-Badges, wenn SE-Traceability dort nicht aktiv ist — das ist
+ein reduzierter, nicht ein fehlender Zustand.
+
+### Terminologie-Profile: `dev_mode` und `se_mode`
+
+Jeder Workspace hat eines von zwei **Terminologie-Profilen** (`backend/presets/models.py`, `frontend/src/types/index.ts`),
+die die Fachsprache definieren:
+
+| Schlüssel | `dev_mode` | `se_mode` |
+|---|---|---|
+| `requirement` / `requirements` | Story / Stories | Requirement / Requirements |
+| `epic` | Epic | System |
+| `story` | Story | Subsystem |
+| `task` | Task | Component |
+
+Das Frontend lädt diese Mappings über `TERMINOLOGY_LABELS` und wendet sie auf alle Text-Ausgaben an.
+Dieses Konzept-Dokument folgt der `se_mode`-Wortwahl; Details zur Schlüssel-Auflösung in Kapitel 14.
+
+### Entscheidung: Hidden statt Disabled
+
+**Bereits entschieden:** Features, die im aktuellen Preset nicht aktiv sind (z. B. Baselines im `minimal`-Preset),
+werden ausgeblendet, nicht deaktiviert. Das UI wird nicht mit inaktiven Buttons gefüllt — das erleichtert die
+Benutzbarkeit und macht das Preset greifbar.
+
+### Offen: Globale Wort- und Konzept-Auflösung
+
+> **Offen:** Werden alle festen Begriffe in diesem Dokument (z. B. "Requirement", "Baseline") künftig über die
+> Terminologie-Auflösung geführt, oder bleibt das Dokument bei `se_mode`-Wortwahl mit einem Hinweis, dass
+> `dev_mode`-Workspaces andere Labels zeigen?
+> 
+> Diese Detailfrage braucht noch eine Antwort, bevor Kapitel 14 (Sprache) daran angepasst wird.
 
 ---
 
@@ -183,6 +237,22 @@ Konzept ändert Darstellung, Struktur und Durchsetzung — es ist kein Anlass, i
 eine Filter-, Export- oder Bearbeitungsfunktion zu verlieren, die heute existiert. Wo eine
 Umstellung eine bestehende Fähigkeit vorübergehend nicht abbildet, ist das ein offener
 Punkt im PR, kein akzeptierter Verlust.
+
+**Prüfkatalog vor jedem Umbau:**
+
+- Filter (Feld + Operator)
+- Sortierkriterien
+- Suchfelder
+- Bulk-Aktionen
+- Export / Import
+- bearbeitbare Felder inkl. Custom Fields
+- Statusübergänge
+- Verknüpfungsaktionen
+- Tastaturkürzel
+
+Diese Liste wird vor jedem Umbau als Checkliste für die jeweilige Seite ausgefüllt und liegt
+dem PR bei; jede nicht abgebildete Zeile ist ein offener Punkt mit Issue-Referenz, kein stiller
+Verlust.
 
 ---
 
@@ -359,7 +429,8 @@ Zwei Haltepunkte. Sie gelten nicht nur für Mobilgeräte — ein halbiertes Brow
 auf einem Laptop trifft denselben Zustand.
 
 **< 1024 px (`--bp-lg`)**
-- Navigation wird zum Off-Canvas-Panel mit Umschalter im Seitenkopf
+- Navigation wird zum Off-Canvas-Panel mit Umschalter im Seitenkopf — das ist dieselbe
+  Scroll-Fläche wie „Navigation" in Kapitel 7.1, nur anders positioniert
 - Liste und Detail behalten die Nebeneinander-Anordnung, Verhältnis 45 : 55
 - Spine wandert waagerecht unter den Artefaktkopf
 
@@ -378,13 +449,14 @@ betreffen ausschließlich `prefers-reduced-motion`.
 
 Der Bereich mit der größten spürbaren Wirkung — und der klarsten Regel.
 
-### 7.1 Genau drei Flächen
+### 7.1 Höchstens drei vertikale Flächen
 
 | Fläche | scrollt | `overscroll-behavior` |
 |---|:---:|---|
 | Navigation | ja | `contain` |
 | Liste / Baum | ja | `contain` |
 | Detail-Inhalt | ja | `contain` |
+| Spine (nur < --bp-lg, horizontal) | ja | `contain` (zählt nicht als vierte vertikale Scroll-Fläche) |
 | **alles andere** | **nein** | — |
 
 Karten, Panels, Formularabschnitte, Toolbars und Trace-Listen bekommen **keinen** eigenen
@@ -506,13 +578,12 @@ admin-pflegbare Stelle im Datenmodell.
 |---|---|---|
 | Seitengrund | `--color-surface` | Hintergrund der Anwendung |
 | Erhöhte Fläche | `--color-surface-raised` | Karten, Panels, Dialoge |
-| Navigation | `--color-nav-bg` | **neu** — heute `#1a1f2e` hartkodiert |
+| Navigation | `--color-nav-bg` | Token existiert, aber Light-Theme-Wert ist nicht gespiegelt — beide Themes zeigen `#1a1f2e` |
 | Rand | `--color-border` | Trennungen, Umrisse |
-| Fokus | `--color-focus` | **neu** — heute existiert kein Fokusring |
+| Fokus | `--color-focus` | Fokusring ist inzwischen vorhanden (`global.css`, `:focus-visible`) |
 
-Zwei Tokens fehlen und sind der Grund für zwei Befunde: Die Navigation ignoriert das
-Theme (in Light **und** Dark `rgb(26,31,46)`), und Schaltflächen haben überhaupt keinen
-sichtbaren Fokus, weil `global.css:41` global `outline: none` setzt.
+Ein Token war früher fehlerhaft: Die Navigation ignoriert das Theme (in Light **und** Dark
+`rgb(26,31,46)`). Fokusring ist inzwischen vorhanden (`global.css:41` mit `:focus-visible`).
 
 ### 8.5 Kontrast
 
@@ -625,26 +696,16 @@ Selbst-Hosten, das ohnehin ansteht.
 --font-size-xs    0.75rem    12px    Badges, Zähler, Fußnoten
 --font-size-sm    0.875rem   14px    Labels, Sekundärtext, Metadaten
 --font-size-base  1rem       16px    Fließtext, Formularfelder
---font-size-md    1.0625rem  17px    Abschnittsüberschriften        ← fehlt heute
+--font-size-md    1.0625rem  17px    Abschnittsüberschriften
 --font-size-lg    1.125rem   18px    Artefakttitel in Listen
 --font-size-xl    1.25rem    20px    Detail-Artefakttitel
 --font-size-2xl   1.5rem     24px    Panel-Überschriften
 --font-size-3xl   1.875rem   30px    Seitenüberschrift <h1>         ← fehlt heute
 ```
 
-**Zwei Stufen fehlen heute, und eine davon ist ein aktiver Fehler:**
+**Eine Stufe fehlte früher:**
 
-`--font-size-md` wird an **zehn Stellen** für Abschnittsüberschriften verwendet und ist
-**nirgends definiert**. Live gemessen:
-
-```
-xs=0.75rem  sm=0.875rem  base=1rem  md=UNDEFINED  lg=1.125rem  xl=1.25rem  2xl=1.5rem
-```
-
-Eine undefinierte Custom Property macht die Deklaration *invalid at computed-value time*
-— `font-size` fällt auf den geerbten Wert zurück. Jede dieser Überschriften rendert seit
-jeher in Fließtextgröße. Erkennbar bleibt sie nur an Schriftschnitt und Unterlinie. Im
-Quelltext sieht die Zeile korrekt aus; deshalb ist es niemandem aufgefallen.
+`--font-size-md` wurde zwischenzeitlich behoben und ist in `tokens.css` definiert (`1.0625rem`).
 
 `--font-size-3xl` fehlt schlicht — die Seitenüberschrift hat heute keine eigene Stufe und
 steht mit 18 px nur anderthalb Schritte über dem Listeneintrag.
@@ -663,7 +724,7 @@ Fehlen heute vollständig als Tokens.
 ```
 
 Lange Requirement-Beschreibungen laufen mit `--leading-relaxed` und einer maximalen
-Zeilenlänge von **72 Zeichen** (`max-width: 72ch`). Über die volle Breite eines
+Zeilenlänge von **72 Zeichen** (`var(--measure)`). Über die volle Breite eines
 1440-px-Fensters gesetzter Fließtext ist nicht lesbar, nur vorhanden.
 
 ### 9.6 Zahlen und Bezeichner
@@ -782,6 +843,9 @@ nicht nach.
 />
 ```
 
+`createBaseline` erscheint nur, wenn `features.baselines === true` — im `minimal`-Preset ist das `false`.
+Überlaufaktionen sind preset-abhängig, nicht fix (Kapitel 1.1).
+
 **Regeln**
 - Überschrift immer `<h1>`, `--font-size-3xl`, `--leading-tight`, `--tracking-tight`.
   Nie `h2`, nie `h3`, nie weggelassen.
@@ -814,7 +878,7 @@ Primäraktion unterhalb der Filter, uneinheitliche Aktionsbeschriftungen.
 - Aktive Filter erscheinen als entfernbare Chips darunter.
 
 **Gilt auch für** Glossar, ICDs, Baselines, Test Runs und Trace Links, die ihre Leiste
-heute selbst bauen.
+heute selbst bauen. (Baselines erscheinen nur, wenn `features.baselines === true` — Kapitel 1.1.)
 
 ### 12.3 `<ArtifactRow>`
 
@@ -974,20 +1038,30 @@ Requirement-/Architektur-Stationen (5.1), nicht als eigene Station.
 ### 12.11 Dynamische Artefakt-Attribute
 
 **Anforderung (2026-07-31):** Die Menge und der Typ der Attribute pro Artefakttyp ist nicht
-fix — `CustomFieldDefinition`/`CustomFieldValue` (tenant-scoped) existieren im Datenmodell
-bereits für genau diesen Zweck, werden aber laut Audit nirgends angezeigt (#29).
+fix — `CustomFieldDefinition`/`CustomFieldValue` (workspace-scoped, `UniqueConstraint(workspace, name)`)
+existieren im Datenmodell bereits für genau diesen Zweck.
 
 Detail-Formulare (`<ArtifactInspector>` und seine Editoren) rendern deshalb zwei Blöcke:
 
 1. **Feste Felder** — die eingebauten Attribute des Artefakttyps (Titel, Beschreibung, …),
    wie heute.
-2. **Dynamischer Block** — eine Schleife über `CustomFieldDefinition` für den aktuellen
-   Artefakttyp/Workspace, ein Eingabe-Widget pro `CustomFieldType` (Text, Zahl, Auswahl, …).
-   Neue Felder erscheinen ohne Codeänderung, sobald sie im Workspace definiert werden.
+2. **Dynamischer Block** — eine Schleife über `CustomFieldDefinition` des aktuellen Workspaces.
+   `CustomFieldDefinition` hat kein Artefakttyp-Feld — eine Definition gilt für **alle** Artefakttypen
+   im Workspace gleichermaßen. Ein Eingabe-Widget pro `CustomFieldType`: `text`, `number`, `dropdown`.
+   Bei `dropdown` sind `options` (nicht-leere Liste) Pflicht; `is_required` und `order` (aufsteigende
+   Sortierung) sind weitere Formularregeln. Neue Felder erscheinen ohne Codeänderung, sobald sie im
+   Workspace definiert werden.
 
-Das ist keine neue Fähigkeit, sondern das Nachholen einer bereits vorhandenen: Backend und
-Datenmodell unterstützen variable Attribute seit längerem, die Oberfläche zeigt sie nur
-nicht an.
+Das ist keine neue Fähigkeit, sondern das Nachholen einer bereits vorhandenen: Der dynamische Block
+ist bereits an einem Formular eingebunden (`RequirementForm` über `shared/ArtifactCustomFields.tsx`),
+aber nicht an den übrigen Artefakt-Editoren. Die Aufgabe ist **Rollout auf alle Artefakt-Editoren**,
+nicht Neubau.
+
+**Zweite, unabhängige Mechanik: `Artifact.custom_fields` als JSON.**
+Neben `CustomFieldDefinition`/`CustomFieldValue` gibt es eine zweite Mechanik: `Artifact.custom_fields`
+ist ein flaches JSON-Key-Value-Feld (GIN-indiziert), das projektspezifische Metadaten speichert.
+Dieses Konzept-Dokument bezieht sich auf `CustomFieldDefinition`/`CustomFieldValue`, nicht auf das
+JSON-Feld — beide dürfen nicht verwechselt werden.
 
 ### 12.12 `<Alert>` und Rückmeldungen
 
@@ -1091,6 +1165,9 @@ Wörter sind Gestaltungsmaterial. Sie bekommen dieselbe Sorgfalt wie Abstände.
 | `Outdate` | `Als veraltet markieren` | beschreibt die Wirkung |
 | `Unique Identifier` | `Bezeichner — zum Kopieren klicken` | sagt, was man tun kann |
 
+Begriffe folgen `TERMINOLOGY_LABELS` — in `dev_mode`-Workspaces heißt "Requirement" z. B. "Story",
+und "System" heißt "Epic" (Kapitel 1.1).
+
 ### 14.3 Eine Sprache pro Oberfläche
 
 Heute stehen nebeneinander:
@@ -1114,7 +1191,7 @@ zwar als Eingangsbedingung.
 
 | Anforderung | Stand heute |
 |---|---|
-| Sichtbarer Fokus auf **allen** bedienbaren Elementen | **fehlt** — `global.css:41` setzt `outline: none` ohne Ersatz; gemessen an einem echten Knopf: `outlineStyle: none, boxShadow: none` |
+| Sichtbarer Fokus auf **allen** bedienbaren Elementen | **vorhanden** — `:focus-visible` in `global.css:41` |
 | Genau ein `<h1>` je Seite, lückenlose Überschriftenkette | **2 von 10 Routen** haben ein `h1` |
 | Dialoge mit `role="dialog"`, Fokus-Falle, `Escape` | `aria-modal` in 9 Dateien, `role="dialog"` in **0** |
 | Fehler als `role="alert"` angekündigt | **0** Vorkommen bei 46 `console.error` |
@@ -1130,8 +1207,7 @@ wird über Tastatur bedient, sobald jemand schnell darin arbeitet: Suchen, Pfeil
 Enter, Tab, tippen, speichern. Wer den Fokus nicht sieht, kann das nicht — mit oder ohne
 Einschränkung.
 
-Der fehlende Fokusring ist deshalb der teuerste Einzelbefund dieses Konzepts, gemessen an
-Behebungsaufwand gegen Wirkung.
+Der Fokusring ist inzwischen implementiert und trägt wesentlich zur Navigierbarkeit bei.
 
 ---
 
@@ -1151,7 +1227,7 @@ nicht benutzt. Ohne diesen Teil läuft alles oben in zwei Jahren wieder auseinan
 | `aria-modal` nur zusammen mit `role="dialog"` | ESLint | wirkungslose Dialoge |
 | Kein `waitForTimeout` in E2E | ESLint | instabile Tests |
 | Anzahl `style={{}}` sinkt monoton | Ratchet-Test | Rückfall |
-| Anzahl Scroll-Container je Route ≤ 3 | E2E | Scroll-Wildwuchs |
+| Anzahl Scroll-Container je Route ≤ 3 (Dialoge und die horizontale Spine ausgenommen) | E2E | Scroll-Wildwuchs |
 
 ### 16.2 Ratchet statt Verbot
 
@@ -1162,7 +1238,8 @@ großen Umbau vorab.
 Das Muster existiert im Projekt bereits — `rest_api/tests/test_architecture.py` macht
 genau das für direkte ORM-Zugriffe. Es fehlt nur im Frontend.
 
-Startwerte in [Anhang B](#anhang-b-messwerte).
+Startwerte in [Anhang B](#anhang-b-messwerte) — vor Einführung jedes Ratchet-Tests aber neu zu messen,
+nicht ungeprüft aus dieser Tabelle zu übernehmen.
 
 ### 16.3 Durch Menschen
 
@@ -1192,6 +1269,10 @@ unterschiedlichem Belastungsprofil geprüft:
 - **Needs** — prüft `<PageHeader>`, `<ListToolbar>` und dynamische Attribute
   (Kapitel 12.11) an einem etablierten, gut genutzten Artefakttyp.
 
+Der Pilot läuft in einem `standard`- oder `extended`-Preset-Workspace (Kapitel 1.1), wo Baselines
+und weitere Features aktiv sind und mehr des Konzepts sichtbar wird — das reduziert die Gefahr,
+Features in `minimal` zu übersehen.
+
 **Abnahmekriterium:** Für jeden der drei Piloten gilt die funktionale Untergrenze aus
 Kapitel 4 — mindestens derselbe Funktionsumfang wie die heutige Seite, geprüft anhand einer
 Liste der heute vorhandenen Fähigkeiten (Filter, Sortierung, Export, Bearbeitungsfelder,
@@ -1202,9 +1283,7 @@ beginnt der flächendeckende Rollout ab Schritt 1.
 
 *klein · wirkt auf jeder Seite*
 
-- Fehlende Tokens ergänzen: `--font-size-md`, `--font-size-3xl`, `--font-mono`,
-  `--color-focus`, `--color-nav-bg`, Zeilenhöhen, Haltepunkte
-- `outline: none` in `global.css:41` durch globales `:focus-visible` ersetzen
+- Fehlende Tokens ergänzen: `--font-size-3xl`, `--font-mono`, `--color-nav-bg`, Zeilenhöhen, Haltepunkte
 - Navigationsfarbe auf ein Token ziehen
 - `prefers-reduced-motion` global setzen
 - Test: jede `var(--token)`-Referenz existiert
@@ -1215,8 +1294,9 @@ beginnt der flächendeckende Rollout ab Schritt 1.
 
 *klein · überall sichtbar*
 
-- `<StatusBadge>`, `<ArtifactId>`, `<LevelBadge>` bauen
-- In allen sieben Detail-Köpfen und allen Listen einsetzen
+- `<StatusBadge>` auf alle Detail-Köpfe und Listen ausrollen (Komponente existiert bereits),
+  inkl. Umstellung auf `badge_variant` aus 8.2.1
+- `<ArtifactId>` und `<LevelBadge>` in alle sieben Detail-Köpfe und Listen einsetzen
 - Die drei Inline-Kopien und vier ID-Duplikate entfernen
 - Farbe ausschließlich für Status
 
@@ -1226,7 +1306,7 @@ beginnt der flächendeckende Rollout ab Schritt 1.
 
 *mittel*
 
-- `<PageHeader>` bauen, alle zehn Routen umstellen
+- `<PageHeader>` auf alle zehn Routen ausrollen (Komponente existiert bereits)
 - Zusammenfassung immer sichtbar
 - Sekundäraktionen ins Überlaufmenü
 - E2E: genau ein `h1` je Route
@@ -1288,7 +1368,7 @@ Vollständige Sollmenge. **Fett** = fehlt heute.
   /* ── Farbe: Flächen ───────────────────────────────────── */
   --color-surface:          #0f172a;
   --color-surface-raised:   #1e293b;
-  --color-nav-bg:           #1a1f2e;    /* NEU — heute hartkodiert */
+  --color-nav-bg:           #1a1f2e;    /* nicht in Light-Theme gespiegelt */
   --color-border:           #334155;
   --color-border-hover:     #475569;
 
@@ -1299,7 +1379,7 @@ Vollständige Sollmenge. **Fett** = fehlt heute.
   /* ── Farbe: Aktion und Zustand ────────────────────────── */
   --color-primary:          #6366f1;
   --color-primary-dark:     #4f46e5;
-  --color-focus:            #818cf8;    /* NEU — heute kein Fokusring */
+  --color-focus:            #818cf8;
   --color-success:          #10b981;
   --color-warning:          #f59e0b;
   --color-danger:           #ef4444;
@@ -1374,6 +1454,10 @@ vorhandene Spiegel in `tokens.css:86-129` ist vollständig und bleibt es.
 Erhoben am 2026-07-28 an der laufenden Anwendung über zehn Routen. Startwerte für die
 Sperrklinken-Tests aus 16.2.
 
+> **Hinweis:** Mehrere Werte sind seither überholt (siehe Paket 4 dieser Korrekturrunde: Fokusring,
+> `--color-focus`, `--font-size-md` existieren inzwischen). Diese Tabelle ist Historie für die
+> Ratchet-Tests, kein aktueller Stand.
+
 | Kennzahl | Stand | Ziel |
 |---|---:|---:|
 | Seitenkopf-Muster über 10 Routen | 5 | 1 |
@@ -1389,7 +1473,7 @@ Sperrklinken-Tests aus 16.2.
 | Hartkodierte Hex-Farben | 128 in 33 Dateien | 0 |
 | Undefinierte, aber verwendete Tokens | 1 (`--font-size-md`, 10×) | 0 |
 | `role="dialog"` | 0 bei 9× `aria-modal` | 9 |
-| `role="alert"` | 0 bei 46× `console.error` | ≥ 46 |
+| `role="alert"` | 0 bei 46× `console.error` | jede fehlgeschlagene Nutzeraktion erzeugt genau eine `role="alert"`-Meldung |
 | Fehlende i18n-Schlüssel in `de.json` | 3 | 0 |
 | Dateien ohne `useTranslation` im Workflow-Editor | 23 / 23 | 0 |
 | `waitForTimeout` in E2E | 35 | 0 |
@@ -1416,3 +1500,4 @@ dauerhafter Test aus 16.1.
 |---|---|
 | 2026-07-28 | Erstfassung aus dem Konsistenz-Audit (#157–#186) |
 | 2026-07-31 | Fachliche Korrektur nach Review: Trace-Spine von fünf festen V-Modell-Stationen auf dynamische Ebenenzahl umgestellt (Kapitel 5, gegen `ArchitectureElement.get_level()` geprüft — Baumtiefe, kein Enum); Verifikation von eigener Endstufe zu Badge pro Station (Tests verlinken laut Datenmodell auf jede Ebene, nicht nur auf eine Verifikationsstufe); neues Kapitel 8.6 Theming-System (benannte Paletten über Primitiv-/Semantik-Token-Trennung, best practice nach Material Design 3 / Adobe Spectrum / IBM Carbon); Kapitel 12.11 Dynamische Artefakt-Attribute ergänzt (`CustomFieldDefinition` existiert im Datenmodell, wird nicht angezeigt — Audit #29); funktionale Untergrenze in Kapitel 4 ergänzt; Schritt 0 (Pilot an Goals, Architecture, Needs) vor die Umsetzungsreihenfolge gesetzt. |
+| 2026-08-01 | Zweite fachliche Korrekturrunde (Opus-Review): neues Geltungsbereich-Kapitel (1.1) zu Rigor-Presets, Terminologie-Profilen (dev_mode/se_mode) und Hidden-statt-Disabled-Strategie; veraltete Befunde korrigiert (Fokusring existiert in `global.css:focus-visible`, `--color-focus` und `--font-size-md` definiert, `--color-nav-bg` existiert); Custom-Fields-Abschnitt (12.11) auf Ist-Stand angepasst (workspace-scoped, keine Artefakttyp-Bindung, explizite Typen: text/number/dropdown); Anhang B als Messstand gekennzeichnet; Scroll-Modell-Widersprüche aufgelöst (Spine als horizontale Fläche dokumentiert, höchstens drei vertikale Scroll-Container); Komponenten-Rollen korrigiert (`<StatusBadge>` und `<PageHeader>` existieren, Rollout statt Neubau); funktionale Untergrenze mit Prüfkatalog versehen. |
