@@ -10,7 +10,8 @@ Registers:
   /api/v1/requirements/       RequirementViewSet
   /api/v1/architecture/       ArchitectureElementViewSet
   /api/v1/testcases/          TestCaseViewSet
-  /api/v1/tracelinks/         TraceLinkViewSet
+  /api/v1/tracelinks/         TraceLinkViewSet (legacy path, kept for compat)
+  /api/v1/trace-links/        TraceLinkViewSet (kebab-case alias, fix #233)
   /api/v1/baselines/          BaselineViewSet  (preset-gated)
   /api/v1/workflows/          WorkflowDefinitionViewSet
   /api/v1/workspaces/         WorkspaceViewSet (list + retrieve, REQ-L1-017)
@@ -125,6 +126,13 @@ router.register(r"needs", StakeholderNeedViewSet, basename="need")
 router.register(r"architecture", ArchitectureElementViewSet, basename="architecture")
 router.register(r"testcases", TestCaseViewSet, basename="testcase")
 router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
+# fix #233: "tracelinks" predates the kebab-case convention used by every
+# other multi-word route (main-goals, change-requests, test-runs, ...) and
+# POST /api/v1/trace-links/ 404ed with an HTML page instead of a JSON error.
+# Register the same ViewSet under the conventional path too; "tracelinks" is
+# kept for backward compatibility (frontend/src/api/tracelinks.ts and docs
+# reference it extensively).
+router.register(r"trace-links", TraceLinkViewSet, basename="trace-link")
 router.register(r"traceability", TraceabilityViewSet, basename="traceability")
 router.register(r"baselines", BaselineViewSet, basename="baseline")
 router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")

@@ -1289,6 +1289,21 @@ class TestUrlRouting:
             found = any(entity in _pattern_str(url) for url in router.get_urls())
             assert found, f"Route not registered for: {entity!r}"
 
+    def test_trace_links_kebab_case_route_registered(self) -> None:
+        """Regression test for #233: POST /api/v1/trace-links/ 404ed with an
+        HTML page because only the legacy "tracelinks" (no dash) route was
+        registered, inconsistent with every other multi-word route
+        (main-goals, change-requests, test-runs, ...).
+        """
+        from rest_api.urls import router
+
+        def _pattern_str(url) -> str:
+            p = url.pattern
+            return getattr(p, "_route", None) or getattr(p, "_regex", "") or str(p)
+
+        found = any("trace-links" in _pattern_str(url) for url in router.get_urls())
+        assert found, "Route not registered for: 'trace-links'"
+
 
 # ---------------------------------------------------------------------------
 # OpenAPI schema endpoint (REQ-L2-RA-002, REQ-L3-RA005-001)

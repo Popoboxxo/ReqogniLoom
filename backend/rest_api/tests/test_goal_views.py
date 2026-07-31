@@ -282,3 +282,111 @@ def test_goal_delete_returns_405_not_500():
 
     assert delete_resp.status_code == 405
     assert "error" in delete_resp.data
+
+
+def _create_goal(factory, ctx, workspace_id, title, description=""):
+    req = factory.post(
+        "/api/v1/goals/",
+        {"workspace_id": str(workspace_id), "title": title, "description": description},
+        format="json",
+    )
+    req.auth_context = ctx
+    resp = GoalViewSet.as_view({"post": "create"})(req)
+    assert resp.status_code == 201
+    return resp.data
+
+
+def test_goal_list_search_filters_by_title_and_description():
+    """Regression test for #236: ?search= was silently ignored."""
+    tenant, workspace = _new_tenant_and_workspace("T8", name="W8", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    _create_goal(factory, ctx, workspace.id, "Reduce onboarding time")
+    _create_goal(factory, ctx, workspace.id, "Improve support quality")
+
+    list_req = factory.get(f"/api/v1/goals/?workspace_id={workspace.id}&search=onboarding")
+    list_req.auth_context = ctx
+    resp = GoalViewSet.as_view({"get": "list"})(list_req)
+
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 1
+    assert resp.data["results"][0]["title"] == "Reduce onboarding time"
+
+
+def test_goal_list_ordering_by_title():
+    """Regression test for #236: ?ordering= was silently ignored."""
+    tenant, workspace = _new_tenant_and_workspace("T9", name="W9", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    _create_goal(factory, ctx, workspace.id, "Zebra goal")
+    _create_goal(factory, ctx, workspace.id, "Apple goal")
+
+    list_req = factory.get(f"/api/v1/goals/?workspace_id={workspace.id}&ordering=title")
+    list_req.auth_context = ctx
+    resp = GoalViewSet.as_view({"get": "list"})(list_req)
+
+    assert resp.status_code == 200
+    titles = [item["title"] for item in resp.data["results"]]
+    assert titles == ["Apple goal", "Zebra goal"]
+
+
+def test_goal_list_limit_caps_results():
+    """Regression test for #236: ?limit= was silently ignored."""
+    tenant, workspace = _new_tenant_and_workspace("T10", name="W10", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    _create_goal(factory, ctx, workspace.id, "Goal A")
+    _create_goal(factory, ctx, workspace.id, "Goal B")
+
+    list_req = factory.get(f"/api/v1/goals/?workspace_id={workspace.id}&limit=1")
+    list_req.auth_context = ctx
+    resp = GoalViewSet.as_view({"get": "list"})(list_req)
+
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 1
+
+
+def test_goal_list_negative_limit_returns_400():
+    """Regression test for #236: ?limit=-1 must be rejected, not accepted."""
+    tenant, workspace = _new_tenant_and_workspace("T11", name="W11", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    _create_goal(factory, ctx, workspace.id, "Goal A")
+
+    list_req = factory.get(f"/api/v1/goals/?workspace_id={workspace.id}&limit=-1")
+    list_req.auth_context = ctx
+    resp = GoalViewSet.as_view({"get": "list"})(list_req)
+
+    assert resp.status_code == 400
+
+
+def test_goal_list_status_filter():
+    """Regression test for #236: ?status= was silently ignored.
+
+    Every newly created Goal starts in "Entwurf", so filtering by an unused
+    status value must return no results while filtering by "Entwurf" returns
+    every goal.
+    """
+    tenant, workspace = _new_tenant_and_workspace("T12", name="W12", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    _create_goal(factory, ctx, workspace.id, "Goal A")
+
+    matching_req = factory.get(f"/api/v1/goals/?workspace_id={workspace.id}&status=Entwurf")
+    matching_req.auth_context = ctx
+    matching_resp = GoalViewSet.as_view({"get": "list"})(matching_req)
+    assert matching_resp.status_code == 200
+    assert len(matching_resp.data["results"]) == 1
+
+    non_matching_req = factory.get(
+        f"/api/v1/goals/?workspace_id={workspace.id}&status=Freigegeben"
+    )
+    non_matching_req.auth_context = ctx
+    non_matching_resp = GoalViewSet.as_view({"get": "list"})(non_matching_req)
+    assert non_matching_resp.status_code == 200
+    assert len(non_matching_resp.data["results"]) == 0

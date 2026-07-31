@@ -75,18 +75,25 @@ class TraceLinkService(ServiceBase):
     # ---------- IF-AS-INT-002 ----------
 
     def _resolve_artifact_id(self, entity_id: UUID) -> UUID:
-        """Resolve a Requirement/ArchitectureElement/Artifact ID to an Artifact ID.
+        """Resolve a business-entity ID to its backing Artifact ID.
 
         The TraceabilityEngine stores links between Artifact IDs.  Callers may
-        pass the more user-facing Requirement or ArchitectureElement IDs; this
-        helper transparently maps those to their backing Artifact.
+        pass the more user-facing Requirement, ArchitectureElement, ADR, Goal
+        or MainGoal IDs; this helper transparently maps those to their
+        backing Artifact.
 
         Resolution order:
           1. If *entity_id* is already an Artifact ID, return it unchanged.
           2. If it matches a Requirement, return Requirement.artifact_id.
           3. If it matches an ArchitectureElement, return its artifact_id.
           4. If it matches an ADR, return Adr.artifact_id (REQ-L2-TE-020).
-          5. Otherwise raise NotFoundError.
+          5. If it matches a Goal, return Goal.artifact_id (fix #237: Goal is
+             a first-class artifact type with its own dedicated Artifact row,
+             see GoalService.create_version, but was missing here so any
+             Goal<->Requirement trace link raised "Entity not found").
+          6. If it matches a MainGoal, return MainGoal.artifact_id (same gap
+             as Goal — fix #237).
+          7. Otherwise raise NotFoundError.
         """
         from persistence.models import (
             ArchitectureElement,
@@ -111,11 +118,21 @@ class TraceLinkService(ServiceBase):
         # 4. ADR -> Artifact (REQ-L2-TE-020). Adr lives in the application app
         # and is not tenant-scoped, so it is imported locally to avoid a
         # circular import (adr_service imports TraceLinkService).
-        from application.models import Adr
+        from application.models import Adr, Goal, MainGoal
 
         adr = Adr.objects.filter(id=entity_id).first()
         if adr is not None and adr.artifact_id is not None:
             return UUID(str(adr.artifact_id))
+
+        # 5. Goal -> Artifact (fix #237).
+        goal = Goal.objects.filter(id=entity_id).first()
+        if goal is not None:
+            return UUID(str(goal.artifact_id))
+
+        # 6. MainGoal -> Artifact (fix #237).
+        main_goal = MainGoal.objects.filter(id=entity_id).first()
+        if main_goal is not None:
+            return UUID(str(main_goal.artifact_id))
 
         raise NotFoundError(f"Entity {entity_id} not found")
 
