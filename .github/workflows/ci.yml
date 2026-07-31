@@ -106,6 +106,14 @@ jobs:
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
         run: pytest
 
+      - name: Security scan - pip-audit (fixes #153)
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          echo "Scanning backend dependencies for known vulnerabilities..."
+          pip-audit --desc
+        continue-on-error: false
+
   frontend-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -127,3 +135,10 @@ jobs:
       - name: Run Vitest
         working-directory: frontend
         run: npm run test
+
+      - name: Security scan - npm audit (fixes #153)
+        working-directory: frontend
+        run: |
+          echo "Scanning frontend dependencies for known vulnerabilities..."
+          npm audit --audit-level=high
+        continue-on-error: false
