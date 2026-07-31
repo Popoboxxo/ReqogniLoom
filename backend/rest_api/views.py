@@ -5676,11 +5676,22 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return status_rejection
         try:
             term_id = UUID(pk)
+            # #82: `term` was previously dropped here — PATCH silently
+            # ignored the label field that POST accepts, so a term's name
+            # could never be corrected after creation.
+            term_label = request.data.get("term")
             definition = request.data.get("definition")
             synonyms = request.data.get("synonyms")
             abbreviation = request.data.get("abbreviation")
 
-            term = self._svc().update(ctx, term_id, definition=definition, synonyms=synonyms, abbreviation=abbreviation)
+            term = self._svc().update(
+                ctx,
+                term_id,
+                term=term_label,
+                definition=definition,
+                synonyms=synonyms,
+                abbreviation=abbreviation,
+            )
             return Response(term.__dict__)
         except Exception as e:
             return _service_error_response(e, lang)
