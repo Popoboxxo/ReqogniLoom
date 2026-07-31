@@ -652,7 +652,9 @@ class ReqifImportService(ServiceBase):
                     custom_fields={},
                 )
             entity = (
-                Requirement(tenant=tenant, artifact=artifact)
+                # #133: workspace is denormalized onto Requirement to back the
+                # (workspace, uid) DB-level UniqueConstraint.
+                Requirement(tenant=tenant, artifact=artifact, workspace=workspace)
                 if kind == "Requirement"
                 else StakeholderNeed(tenant=tenant, artifact=artifact)
             )

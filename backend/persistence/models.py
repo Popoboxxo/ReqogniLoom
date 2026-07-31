@@ -726,6 +726,22 @@ class Requirement(TenantScopedModel):
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="requirement"
     )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "#133: denormalized copy of artifact.workspace_id, kept in sync by "
+            "RequirementService/reqif_import_service/ImportService on create. "
+            "Exists solely to back a DB-level UniqueConstraint on "
+            "(workspace, uid) — Requirement otherwise has no direct workspace "
+            "column and uid uniqueness was only enforced at the application "
+            "layer (check-then-insert), which is race-prone under concurrent "
+            "creates."
+        ),
+    )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     acceptance_criteria = models.TextField(
@@ -809,14 +825,7 @@ class Requirement(TenantScopedModel):
             ),
             # #44: uid is looked up scoped to a workspace (via artifact__workspace)
             # on every create/update to enforce uniqueness at the application layer
-            # (RequirementService); this index backs that lookup. A hard DB-level
-            # UniqueConstraint is intentionally NOT used here: uid is not unique
-            # across the whole tenant by design (ReqIF import legitimately copies
-            # the same identifiers into a different workspace of the same tenant,
-            # see application/tests/test_reqif_import_service.py::
-            # TestReqifImportUpsertCollisions), and Requirement has no denormalized
-            # workspace column to express a workspace-scoped DB constraint without
-            # a schema change.
+            # (RequirementService); this index backs that lookup.
             models.Index(fields=["tenant", "uid"], name="idx_req_tnt_uid"),
         ]
         constraints = [
@@ -831,6 +840,23 @@ class Requirement(TenantScopedModel):
             models.CheckConstraint(
                 check=models.Q(type__in=[c[0] for c in RequirementType.choices]),
                 name="ck_requirement_type_valid",
+            ),
+            # #133: uid was only enforced application-side (check-then-insert in
+            # RequirementService._assert_uid_unique_in_workspace), which is
+            # race-prone under concurrent creates. Scoped to workspace, not
+            # tenant: ReqIF import legitimately copies the same identifier into a
+            # different workspace of the same tenant (see
+            # application/tests/test_reqif_import_service.py::
+            # TestReqifImportUpsertCollisions). Partial (uid non-null/non-blank)
+            # because most requirements never get an explicit uid assigned.
+            # The application-level pre-check still exists to surface a clean
+            # ValidationError (400) for the common case; this constraint is the
+            # race-free authority of last resort (mirrors the precedent set for
+            # Workspace.name uniqueness / issue #127).
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_requirement_workspace_uid",
             ),
         ]
 
