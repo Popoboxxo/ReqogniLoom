@@ -1,0 +1,1 @@
+import{t as e}from"./client-EWjGZe-7.js";var t={list:async()=>e.get(`/attribute-visibility-configs/`),upsert:async t=>e.post(`/attribute-visibility-configs/bulk_update/`,t)};export{t};
