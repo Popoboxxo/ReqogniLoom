@@ -403,7 +403,11 @@
     "addTerm": "Add term",
     "editTerm": "Edit term",
     "newTerm": "New term",
-    "deleteConfirm": "Really delete this term?"
+    "deleteConfirm": "Really delete this term?",
+    "loadFailed": "Failed to load terms.",
+    "saveFailed": "Failed to save term.",
+    "deleteFailed": "Failed to delete term.",
+    "linkSynonymFailed": "Failed to save link."
   },
   "adr": {
     "titlePlaceholder": "ADR title",
@@ -618,6 +622,7 @@
     "edit": "Edit Source",
     "delete": "Delete",
     "deleteConfirm": "Really delete this diagram?",
+    "deleteFailed": "Failed to delete diagram.",
     "type": "Type",
     "source": "Source",
     "description": "Description",
