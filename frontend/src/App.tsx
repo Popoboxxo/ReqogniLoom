@@ -31,7 +31,14 @@ function AppInner(): JSX.Element {
   const navigate = useNavigate();
 
   return (
-    <AuthProvider onUnauthorized={() => navigate("/login", { replace: true })}>
+    <AuthProvider
+      onUnauthorized={() =>
+        // GitHub #135: flag the redirect as a session expiry (not a manual
+        // logout) so LoginPage can show a clear message instead of silently
+        // dropping the user back on the login form.
+        navigate("/login", { replace: true, state: { sessionExpired: true } })
+      }
+    >
       <WorkspaceProvider>
         <NavigationShell />
       </WorkspaceProvider>

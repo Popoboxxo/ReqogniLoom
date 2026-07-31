@@ -21,7 +21,11 @@ import { createContext,
   useCallback,
   type ReactNode,
 } from "react";
-import { apiClient, setUnauthorizedHandler } from "../api/client";
+import {
+  apiClient,
+  resetUnauthorizedGuard,
+  setUnauthorizedHandler,
+} from "../api/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,6 +118,10 @@ export function AuthProvider({
     setTenantId(data.tenant_id ?? null);
     setRoles(data.roles ?? []);
     setStatus("authenticated");
+    // Re-arm the 401 notification guard (GitHub #135): a fresh/restored
+    // session must be able to trigger the unauthorized handler again the
+    // next time its access token actually expires and the refresh fails.
+    resetUnauthorizedGuard();
   }, []);
 
   // Restore the session from the httpOnly cookie via GET /auth/me/ (REQ-052).

@@ -353,6 +353,9 @@ REST_FRAMEWORK = {
     # higher rate since e2e suites legitimately log in many times per run.
     "DEFAULT_THROTTLE_RATES": {
         "login": "10/min" if DJANGO_ENV not in _NON_PROD_ENVS else "1000/min",
+        # #135: throttle the refresh endpoint like login — it is unauthenticated
+        # (validated only via the refresh cookie) and public.
+        "refresh": "30/min" if DJANGO_ENV not in _NON_PROD_ENVS else "1000/min",
     },
 }
 
@@ -408,6 +411,12 @@ AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqogniloom")
 AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqogniloom-api")
 # Access-token lifetime in seconds (default 12h).
 AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=43200, cast=int)
+# Refresh-token lifetime in seconds (default 30d, GitHub #135). The refresh
+# token lets the SPA silently mint a new access token when the short-lived
+# access cookie expires mid-session, instead of hard-logging the user out.
+AUTH_JWT_REFRESH_TTL_SECONDS: int = config(
+    "AUTH_JWT_REFRESH_TTL_SECONDS", default=2592000, cast=int
+)
 
 # ---------------------------------------------------------------------------
 # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02 Provider Abstraction)

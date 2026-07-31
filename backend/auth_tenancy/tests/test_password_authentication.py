@@ -159,6 +159,78 @@ def test_issue_token_without_tenant_raises():
 
 
 @pytest.mark.django_db
+def test_issue_token_has_access_typ_claim(tenant_a):
+    """Access tokens carry typ="access" (GitHub #135 type isolation)."""
+    from auth_tenancy.jwt_tokens import decode_jwt
+
+    user = User.objects.create(username="typed", email="typed@a.test", tenant=tenant_a)
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+
+    token = _service().issue_token(user, ())
+    claims = decode_jwt(token, secret=_SECRET, issuer=_ISSUER, audience=_AUDIENCE)
+    assert claims["typ"] == "access"
+
+
+# -- issue_refresh_token (GitHub #135) -----------------------------------
+
+
+@pytest.mark.django_db
+def test_issue_refresh_token_claim_set(tenant_a):
+    user = User.objects.create(username="refresh1", email="refresh1@a.test", tenant=tenant_a)
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+
+    token = _service().issue_refresh_token(user)
+    user_id, tenant_id = AuthenticationService(
+        jwt_secret=_SECRET, jwt_issuer=_ISSUER, jwt_audience=_AUDIENCE
+    ).validate_refresh_token(token)
+    assert str(user_id) == str(user.id)
+    assert str(tenant_id) == str(user.tenant_id)
+
+
+@pytest.mark.django_db
+def test_issue_refresh_token_without_tenant_raises():
+    user = User.objects.create(username="refresh-orphan", email="rorphan@a.test")
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+    with pytest.raises(AuthenticationFailed):
+        _service().issue_refresh_token(user)
+
+
+@pytest.mark.django_db
+def test_issue_refresh_token_cannot_authenticate_as_bearer(tenant_a):
+    """A minted refresh token is rejected by the bearer-token validator."""
+    user = User.objects.create(username="refresh2", email="refresh2@a.test", tenant=tenant_a)
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+
+    refresh_token = _service().issue_refresh_token(user)
+    validator = AuthenticationService(
+        jwt_secret=_SECRET, jwt_issuer=_ISSUER, jwt_audience=_AUDIENCE
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        validator.validate_bearer_token(refresh_token)
+    assert exc.value.code == "invalid_token"
+
+
+@pytest.mark.django_db
+def test_access_token_cannot_validate_as_refresh_token(tenant_a):
+    """A minted access token is rejected by the refresh-token validator."""
+    user = User.objects.create(username="refresh3", email="refresh3@a.test", tenant=tenant_a)
+    user.set_password("pw")
+    user.save(update_fields=["password"])
+
+    access_token = _service().issue_token(user, ())
+    validator = AuthenticationService(
+        jwt_secret=_SECRET, jwt_issuer=_ISSUER, jwt_audience=_AUDIENCE
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        validator.validate_refresh_token(access_token)
+    assert exc.value.code == "invalid_token"
+
+
+@pytest.mark.django_db
 def test_resolve_roles_reads_user_roles(tenant_a, workspace_a):
     user = User.objects.create(username="roled", email="roled@a.test", tenant=tenant_a)
     set_request_tenant(tenant_a.id)
