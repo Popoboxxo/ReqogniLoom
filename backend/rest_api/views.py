@@ -4151,6 +4151,37 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(result)
 
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        # fix #235: BaseEntityViewSet.partial_update() raises NotImplementedError
+        # by default, uncaught by the exception handlers below — DRF's router
+        # still wires PATCH to this method for any registered ViewSet, so the
+        # request reached the base stub and crashed with an HTML 500 page.
+        # Goals are lineage-versioned (Variante A): editing creates a new
+        # version via POST /api/v1/goals/ (GoalService.create_version) rather
+        # than mutating a row in place, so this now fails cleanly instead of
+        # crashing.
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                detect_lang(request),
+                message="Goals cannot be updated in place. POST a new version instead.",
+            ),
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        # fix #235: see partial_update() above — no delete semantics exist
+        # for Goal (GoalService has no delete method); return a clean 405
+        # instead of the base class's NotImplementedError crash.
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                detect_lang(request),
+                message="Goals cannot be deleted.",
+            ),
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
 
 class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for MainGoal operations (REQ-L2-TE-020).
@@ -4194,6 +4225,29 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return self._paginate(
             request, items, lambda item: MainGoalSerializer(_main_goal_to_dict(item)).data
         )
+
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/main-goals/{pk}/ — retrieve a single MainGoal version.
+
+        fix #235: this override was missing entirely, so DRF's router still
+        wired GET .../{pk}/ to BaseEntityViewSet.retrieve(), which raises
+        NotImplementedError uncaught by the except-blocks below and crashed
+        with an HTML 500 page instead of a JSON response.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get(UUID(pk), ctx)
+        except NotFoundError as exc:
+            return _service_error_response(exc, lang)
+        except PermissionDeniedError as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(MainGoalSerializer(_main_goal_to_dict(item)).data)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/main-goals/ — manually author a new MainGoal draft. Returns 201."""
@@ -4302,6 +4356,31 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             return _service_error_response(exc, lang)
         return Response(result)
+
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        # fix #235: see GoalViewSet.partial_update() above — MainGoal is an
+        # immutable-row-per-version chain (module docstring: "never mutated
+        # in place"); editing means POST-ing a new manual/generated version.
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                detect_lang(request),
+                message="MainGoals cannot be updated in place. POST a new version instead.",
+            ),
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        # fix #235: see GoalViewSet.destroy() above — no delete semantics
+        # exist for MainGoal (MainGoalService has no delete method).
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                detect_lang(request),
+                message="MainGoals cannot be deleted.",
+            ),
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
 
 # ---------------------------------------------------------------------------
