@@ -207,6 +207,9 @@ class RequirementService(ServiceBase):
         requirement = Requirement.objects.create(
             tenant=tenant,
             artifact=artifact,
+            # #133: denormalized workspace back-reference for the DB-level
+            # (workspace, uid) UniqueConstraint.
+            workspace=workspace,
             title=title,
             description=description,
             acceptance_criteria=acceptance_criteria,

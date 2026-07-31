@@ -426,8 +426,12 @@ SPECTACULAR_SETTINGS = {
 AUTH_JWT_SECRET: str = _get_required_secret("AUTH_JWT_SECRET")
 AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqogniloom")
 AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqogniloom-api")
-# Access-token lifetime in seconds (default 12h).
-AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=43200, cast=int)
+# Access-token lifetime in seconds (#77: reduced from 12h to 60min — a stolen/
+# leaked access token now only has a 1h window instead of 12h. Safe to ship
+# because PR #247 (silent JWT refresh via POST /api/v1/auth/refresh/, retried
+# transparently by the SPA on a 401) is merged — users are not force-logged-out
+# hourly.
+AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=3600, cast=int)
 # Refresh-token lifetime in seconds (default 30d, GitHub #135). The refresh
 # token lets the SPA silently mint a new access token when the short-lived
 # access cookie expires mid-session, instead of hard-logging the user out.

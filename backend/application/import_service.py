@@ -532,6 +532,10 @@ class ImportService(ServiceBase):
                 create_kwargs: Dict[str, Any] = dict(
                     tenant=tenant, artifact=artifact, **content
                 )
+                if entity_type == "Requirement":
+                    # #133: workspace is denormalized onto Requirement to back
+                    # the (workspace, uid) DB-level UniqueConstraint.
+                    create_kwargs["workspace"] = workspace
                 mod_field = "modified_at"
             else:  # Adr / Risk / Issue
                 model = app_models[entity_type]

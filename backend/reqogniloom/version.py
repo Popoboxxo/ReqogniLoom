@@ -106,25 +106,32 @@ def _resolve_app_version() -> str:
 class VersionView(APIView):
     """``GET /api/v1/version/`` — deployed build metadata.
 
-    PUBLIC endpoint (``AllowAny``, no ``BearerTokenAuthentication``): commit
-    SHA and build time are non-sensitive build metadata, useful to
-    unauthenticated monitoring/operators as well.
+    PUBLIC endpoint (``AllowAny``, no ``BearerTokenAuthentication``): used
+    unauthenticated by the SPA's login page build indicator
+    (``frontend/src/components/NavigationShell/LoginPage.tsx``), so it must
+    stay reachable without a Bearer token/tenant context.
+
+    #74: the full 40-char commit SHA and the exact build timestamp are
+    deliberately NOT exposed here — they let an attacker pinpoint the exact
+    vulnerable code revision (useful once a CVE is disclosed for this
+    project) and correlate build/deploy timing. Only the truncated 7-char
+    ``commit_short`` (matches the informal "Build <short-sha>" convention
+    already used in the UI) and the human release version are public. The
+    full commit SHA and build timestamp remain available to operators via
+    server logs / the deployment pipeline, not this endpoint.
     """
 
     authentication_classes: list = []
     permission_classes = [AllowAny]
 
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Return the app version, deployed commit SHA (full + short) and build time."""
+        """Return the app version and a truncated (7-char) commit SHA only."""
         commit = _resolve_commit_sha()
         commit_short = commit[:7] if commit != "unknown" else "unknown"
-        build_time = os.environ.get("BUILD_TIME") or None
         return Response(
             {
                 "app_version": _resolve_app_version(),
-                "commit": commit,
                 "commit_short": commit_short,
-                "build_time": build_time,
             }
         )
 
