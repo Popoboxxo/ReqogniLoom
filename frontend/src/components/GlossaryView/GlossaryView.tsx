@@ -7,12 +7,16 @@ import { PlusCircle, Search, Edit2, Trash2, Link2 } from "lucide-react";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
+import { extractErrorMessage } from "../../api/client";
 
 export default function GlossaryView(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
   const [terms, setTerms] = useState<GlossaryTerm[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState<"workspace" | "global">("workspace");
   
@@ -38,10 +42,12 @@ export default function GlossaryView(): JSX.Element {
     if (!activeWorkspace) return;
     try {
       setLoading(true);
+      setLoadError(null);
       const data = await glossaryApi.list(activeWorkspace.id);
       setTerms(data);
     } catch (err) {
       console.error(err);
+      setLoadError(extractErrorMessage(err) || t("glossary.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -75,12 +81,14 @@ export default function GlossaryView(): JSX.Element {
   const handleLinkSynonym = async (term: GlossaryTerm, index: number, target: GlossaryTerm) => {
     const newSynonyms = term.synonyms.map((s, i) => (i === index ? target.term : s));
     try {
+      setRowError(null);
       await glossaryApi.update(term.id, { synonyms: newSynonyms });
       setLinkingSynonym(null);
       setSynonymLinkQuery("");
       loadTerms();
     } catch (err) {
       console.error("Failed to link synonym", err);
+      setRowError(extractErrorMessage(err) || t("glossary.linkSynonymFailed"));
     }
   };
 
@@ -88,6 +96,7 @@ export default function GlossaryView(): JSX.Element {
     e.preventDefault();
     if (!activeWorkspace) return;
 
+    setFormError(null);
     try {
       const payload = {
         workspace_id: activeWorkspace.id,
@@ -108,16 +117,21 @@ export default function GlossaryView(): JSX.Element {
       loadTerms();
     } catch (err) {
       console.error("Failed to save term", err);
+      // Keep the form open on failure (UI standards §12.11) — the user's
+      // input must not be lost and the form must not silently close.
+      setFormError(extractErrorMessage(err) || t("glossary.saveFailed"));
     }
   };
 
   const handleDelete = async (id: string) => {
     if (confirm(t("glossary.deleteConfirm"))) {
       try {
+        setRowError(null);
         await glossaryApi.delete(id);
         loadTerms();
       } catch (err) {
         console.error("Failed to delete term", err);
+        setRowError(extractErrorMessage(err) || t("glossary.deleteFailed"));
       }
     }
   };
@@ -213,6 +227,17 @@ export default function GlossaryView(): JSX.Element {
         </button>
       </div>
 
+      {loadError && (
+        <p role="alert" data-testid="glossary-load-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}>
+          {loadError}
+        </p>
+      )}
+      {rowError && (
+        <p role="alert" data-testid="glossary-row-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}>
+          {rowError}
+        </p>
+      )}
+
       {isFormOpen && (
         <form onSubmit={handleSubmit} style={{
           background: "var(--color-surface)",
@@ -297,8 +322,14 @@ export default function GlossaryView(): JSX.Element {
             </div>
           )}
 
+          {formError && (
+            <p role="alert" data-testid="glossary-form-error" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}>
+              {formError}
+            </p>
+          )}
+
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-3)", flexWrap: "wrap" }}>
-            <button type="button" onClick={() => setIsFormOpen(false)} style={{ ...btnStyle, backgroundColor: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text)" }}>
+            <button type="button" onClick={() => { setIsFormOpen(false); setFormError(null); }} style={{ ...btnStyle, backgroundColor: "transparent", border: "1px solid var(--color-border)", color: "var(--color-text)" }}>
               {t("actions.cancel", "Cancel")}
             </button>
             <button type="submit" style={btnStyle}>

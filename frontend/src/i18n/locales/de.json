@@ -400,7 +400,11 @@
     "addTerm": "Begriff hinzufügen",
     "editTerm": "Begriff bearbeiten",
     "newTerm": "Neuer Begriff",
-    "deleteConfirm": "Diesen Begriff wirklich löschen?"
+    "deleteConfirm": "Diesen Begriff wirklich löschen?",
+    "loadFailed": "Begriffe konnten nicht geladen werden.",
+    "saveFailed": "Begriff konnte nicht gespeichert werden.",
+    "deleteFailed": "Begriff konnte nicht gelöscht werden.",
+    "linkSynonymFailed": "Verknüpfung konnte nicht gespeichert werden."
   },
   "adr": {
     "titlePlaceholder": "ADR-Titel",
@@ -615,6 +619,7 @@
     "edit": "Quelle bearbeiten",
     "delete": "Löschen",
     "deleteConfirm": "Dieses Diagramm wirklich löschen?",
+    "deleteFailed": "Diagramm konnte nicht gelöscht werden.",
     "type": "Typ",
     "source": "Quelle",
     "description": "Beschreibung",
