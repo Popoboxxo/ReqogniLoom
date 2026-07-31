@@ -10,6 +10,16 @@ markdown into the CSV shape ``ImportService`` expects
 (:data:`application.export_service.ENTITY_FIELD_SPECS`) and calls
 ``import_csv``.
 
+``--format=table`` mode (issue #117): the legacy ``docs/REQUIREMENTS.md``
+register predates the SE-Kaskade and uses a flat markdown **table** per
+section (``| REQ-ID | Kategorie | Titel | Beschreibung | Status |``) instead
+of ``### REQ-Lx-...`` headings, so none of the parsing above applies to it.
+``--format=table --file docs/REQUIREMENTS.md`` reads that pipe-table format
+and imports every row as a ``Requirement`` through the exact same
+``ImportService.import_csv`` entry point (see :meth:`Command._handle_table_import`),
+so it gets the same workflow-state wiring (REQ-143 / issue #113) instead of
+landing as a workflow-dead artifact.
+
 Document-to-entity mapping (see module-level ``_classify_file``):
 
 * ``docs/se/L0/*.md``            -> StakeholderNeed  (one row per ``### REQ-L0-...`` heading)
@@ -488,6 +498,112 @@ def _parse_adr_file(
     return uid, row
 
 
+# ---------------------------------------------------------------------------
+# --format=table parser (issue #117): docs/REQUIREMENTS.md-style pipe tables
+# ---------------------------------------------------------------------------
+
+# A data row's REQ-ID cell, e.g. "REQ-001". Deliberately distinct from
+# _REQ_HEADING_RE's "REQ-L[0-3]..." scheme: docs/REQUIREMENTS.md predates the
+# SE-Kaskade V-model numbering and uses flat "REQ-NNN" ids.
+_REQ_TABLE_ID_RE = re.compile(r"^REQ-\d+$")
+
+# A markdown table separator row, e.g. "|---|:---:|---|".
+_TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
+
+# Unescaped-pipe splitter: splits on '|' not preceded by a backslash, so a
+# literal '|' inside a cell (escaped as '\|', the standard markdown
+# convention docs/REQUIREMENTS.md itself uses) is not mistaken for a column
+# boundary.
+_UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+
+
+def _split_table_row(line: str) -> List[str]:
+    """Split a ``| a | b | c |`` markdown table row into stripped cells.
+
+    Honours ``\\|`` as an escaped, non-splitting pipe and drops the empty
+    leading/trailing cells produced by the row's bounding ``|`` characters.
+    """
+    parts = _UNESCAPED_PIPE_RE.split(line)
+    if parts and parts[0].strip() == "":
+        parts = parts[1:]
+    if parts and parts[-1].strip() == "":
+        parts = parts[:-1]
+    return [p.strip().replace("\\|", "|") for p in parts]
+
+
+def _is_table_separator_row(cells: List[str]) -> bool:
+    return bool(cells) and all(_TABLE_SEPARATOR_CELL_RE.match(c) for c in cells)
+
+
+def _requirement_table_row(
+    uid: str, category: str, title: str, description: str, status: str
+) -> Dict[str, str]:
+    """Build an ImportService CSV row for one docs/REQUIREMENTS.md table row.
+
+    ``status`` is passed through verbatim (not defaulted to "draft" like the
+    docs/se headings parser): unlike docs/se, this register DOES track a
+    per-requirement status. ImportService itself maps the raw text onto the
+    workspace's WorkflowEngineDefinition states (or a safe fallback) — see
+    ``application.import_service._insert_rows`` / ``reqif_import_service._map_status``
+    — so this command does not need to know about workflow states at all.
+    ``level`` (V-model L0-L4) is deliberately left unset: docs/REQUIREMENTS.md
+    predates that numbering and none of its rows can be mapped to it without
+    guessing (persistence.models.RequirementLevel: NULL = "not yet assigned").
+    """
+    return {
+        "title": title[:500],
+        "description": _csv_safe(description),
+        "category": category,
+        "status": status,
+        "uid": uid,
+    }
+
+
+def _parse_requirements_table_file(
+    path: Path,
+) -> Tuple[List[Tuple[str, Dict[str, str]]], List[str]]:
+    """Parse a docs/REQUIREMENTS.md-style file into ``(uid, row)`` tuples.
+
+    Recognises every markdown table row whose first cell matches
+    ``REQ-<number>`` (see :data:`_REQ_TABLE_ID_RE`), regardless of which of
+    the file's (possibly many) ``| REQ-ID | Kategorie | Titel | Beschreibung |
+    Status |`` tables it belongs to — header and separator rows are skipped
+    by content, not by table-boundary tracking, so multiple same-shaped
+    tables in one file all contribute rows.
+
+    A small number of source rows contain an unescaped ``|`` inside the
+    Beschreibung cell (e.g. an inline URL or markdown table), which produces
+    more than 5 cells; those extra cells are folded back into the
+    description column (cells[2] is Titel, the last cell is always Status)
+    rather than being dropped or misaligning the columns.
+    """
+    text = path.read_text(encoding="utf-8")
+    rows: List[Tuple[str, Dict[str, str]]] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = _split_table_row(stripped)
+        if len(cells) < 5:
+            continue
+        req_id = cells[0]
+        if req_id.upper() == "REQ-ID":
+            continue  # header row
+        if _is_table_separator_row(cells):
+            continue
+        if not _REQ_TABLE_ID_RE.match(req_id):
+            continue  # not a requirement data row (prose, other table, etc.)
+        category, title = cells[1], cells[2]
+        status = cells[-1]
+        description = " | ".join(cells[3:-1])
+        rows.append((req_id, _requirement_table_row(req_id, category, title, description, status)))
+
+    warnings: List[str] = []
+    if not rows:
+        warnings.append(f"{path}: no 'REQ-<number>' requirement table rows found (0 entries).")
+    return rows, warnings
+
+
 def _write_csv(rows: List[Dict[str, str]], entity_type: str) -> str:
     """Serialise *rows* to CSV using the exact column order ImportService
     expects (application.export_service.ENTITY_FIELD_SPECS[entity_type])."""
@@ -698,8 +814,32 @@ class Command(BaseCommand):
             action="store_true",
             help="Parse and classify only; report counts without writing anything.",
         )
+        parser.add_argument(
+            "--format",
+            dest="format",
+            choices=["docs", "table"],
+            default="docs",
+            help=(
+                "'docs' (default): walk --docs-root's '### REQ-Lx-...' heading "
+                "documents. 'table' (issue #117): parse a single markdown-table "
+                "file (e.g. docs/REQUIREMENTS.md) into Requirement rows instead."
+            ),
+        )
+        parser.add_argument(
+            "--file",
+            dest="file",
+            default=None,
+            help=(
+                "--format=table only: path to the markdown-table file "
+                "(default: <BASE_DIR>/docs/REQUIREMENTS.md)."
+            ),
+        )
 
     def handle(self, *args, **options) -> None:
+        if options["format"] == "table":
+            self._handle_table_import(options)
+            return
+
         docs_root = (
             Path(options["docs_root"])
             if options.get("docs_root")
@@ -710,25 +850,7 @@ class Command(BaseCommand):
         if not docs_root.is_dir():
             raise CommandError(f"docs-root not found or not a directory: {docs_root}")
 
-        try:
-            workspace = Workspace.unscoped.get(id=options["workspace_id"])
-        except Workspace.DoesNotExist as exc:
-            raise CommandError(f"Workspace {options['workspace_id']} does not exist.") from exc
-
-        try:
-            user = User.objects.get(username=options["username"])
-        except User.DoesNotExist as exc:
-            raise CommandError(
-                f"User '{options['username']}' does not exist (run seed_demo first?)."
-            ) from exc
-
-        ctx = AuthContext(
-            user_id=user.id,
-            tenant_id=workspace.tenant_id,
-            active_roles=(ROLE_ADMIN,),
-            auth_method=AuthMethod.BEARER_TOKEN,
-            tenant_name=getattr(workspace.tenant, "name", ""),
-        )
+        workspace, ctx = self._resolve_workspace_and_ctx(options)
 
         all_files = sorted(docs_root.rglob("*.md"))
         self.stdout.write(f"Scanning {len(all_files)} markdown files under {docs_root} ...")
@@ -858,6 +980,120 @@ class Command(BaseCommand):
             trace_stats,
             trace_warnings,
         )
+
+    def _resolve_workspace_and_ctx(self, options) -> Tuple[Workspace, AuthContext]:
+        """Resolve the target ``Workspace`` and build a synthetic admin ``AuthContext``.
+
+        Shared by both ``--format=docs`` and ``--format=table``.
+        """
+        try:
+            workspace = Workspace.unscoped.get(id=options["workspace_id"])
+        except Workspace.DoesNotExist as exc:
+            raise CommandError(f"Workspace {options['workspace_id']} does not exist.") from exc
+
+        try:
+            user = User.objects.get(username=options["username"])
+        except User.DoesNotExist as exc:
+            raise CommandError(
+                f"User '{options['username']}' does not exist (run seed_demo first?)."
+            ) from exc
+
+        ctx = AuthContext(
+            user_id=user.id,
+            tenant_id=workspace.tenant_id,
+            active_roles=(ROLE_ADMIN,),
+            auth_method=AuthMethod.BEARER_TOKEN,
+            tenant_name=getattr(workspace.tenant, "name", ""),
+        )
+        return workspace, ctx
+
+    def _handle_table_import(self, options) -> None:
+        """``--format=table`` entry point (issue #117).
+
+        Parses a single markdown-table file (default: docs/REQUIREMENTS.md)
+        into Requirement rows and imports them via the same
+        ``ImportService.import_csv`` path as ``--format=docs``, so imported
+        rows get the same workflow-state wiring (REQ-143 / issue #113)
+        instead of landing as workflow-dead artifacts. Idempotent: rows whose
+        ``uid`` (the REQ-ID) already exists in the target workspace are
+        skipped, mirroring the docs/se ``--format=docs`` behaviour.
+        """
+        file_path = (
+            Path(options["file"])
+            if options.get("file")
+            else Path(settings.BASE_DIR) / "docs" / "REQUIREMENTS.md"
+        )
+        dry_run: bool = options["dry_run"]
+
+        if not file_path.is_file():
+            raise CommandError(f"--file not found or not a file: {file_path}")
+
+        workspace, ctx = self._resolve_workspace_and_ctx(options)
+
+        self.stdout.write(f"Parsing requirement table rows from {file_path} ...")
+        entries, parse_warnings = _parse_requirements_table_file(file_path)
+
+        # First-occurrence-wins uid dedup, mirroring --format=docs.
+        dedup_warnings: List[str] = []
+        seen: Dict[str, bool] = {}
+        deduped: List[Tuple[str, Dict[str, str]]] = []
+        for uid, row in entries:
+            if uid in seen:
+                dedup_warnings.append(
+                    f"Requirement uid '{uid}' found more than once in {file_path}; "
+                    f"first occurrence wins, duplicate skipped."
+                )
+                continue
+            seen[uid] = True
+            deduped.append((uid, row))
+
+        set_request_tenant(workspace.tenant_id)
+        try:
+            existing = _existing_uids("Requirement", workspace.id)
+            new_rows = [row for uid, row in deduped if uid not in existing]
+            stats = {
+                "Requirement": {
+                    "parsed": len(deduped),
+                    "already_imported": len(deduped) - len(new_rows),
+                    "new": len(new_rows),
+                    "imported": 0,
+                    "failed": 0,
+                }
+            }
+
+            if not dry_run and new_rows:
+                imported, failed = self._import_entity_rows(
+                    ImportService(), "Requirement", new_rows, workspace.id, ctx
+                )
+                stats["Requirement"]["imported"] = imported
+                stats["Requirement"]["failed"] = failed
+        finally:
+            clear_request_tenant()
+
+        self.stdout.write("")
+        self.stdout.write(self.style.SUCCESS("=== Import summary (--format=table) ==="))
+        s = stats["Requirement"]
+        line = (
+            f"  Requirement: parsed={s['parsed']} "
+            f"already_imported={s['already_imported']} new={s['new']}"
+        )
+        if not dry_run:
+            line += f" imported={s['imported']} failed={s['failed']}"
+        self.stdout.write(line)
+
+        all_warnings = parse_warnings + dedup_warnings
+        if all_warnings:
+            self.stdout.write("")
+            self.stdout.write(self.style.WARNING(f"WARNINGS ({len(all_warnings)}):"))
+            for w in all_warnings:
+                self.stdout.write(self.style.WARNING(f"  - {w}"))
+                logger.warning("migrate_se_docs --format=table: %s", w)
+
+        self.stdout.write("")
+        if dry_run:
+            self.stdout.write(self.style.NOTICE("Dry-run: no data was written."))
+        else:
+            self.stdout.write(self.style.SUCCESS("Done."))
 
     def _import_entity_rows(
         self,
