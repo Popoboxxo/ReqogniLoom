@@ -236,13 +236,6 @@ export function SystemHealthDialog({
             {(versionInfo || versionFailed) && (
               <span
                 data-testid="system-health-version"
-                title={
-                  versionInfo
-                    ? versionInfo.build_time
-                      ? `${versionInfo.commit} (${versionInfo.build_time})`
-                      : versionInfo.commit
-                    : undefined
-                }
                 style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}
               >
                 {versionInfo
@@ -252,16 +245,10 @@ export function SystemHealthDialog({
                           defaultValue: `v${versionInfo.app_version}`,
                         })} · `
                       : "") +
-                    (versionInfo.build_time
-                      ? t("systemHealth.versionBuiltAt", {
-                          sha: versionInfo.commit_short,
-                          buildTime: formatDate(versionInfo.build_time),
-                          defaultValue: `Version: ${versionInfo.commit_short} · built ${formatDate(versionInfo.build_time)}`,
-                        })
-                      : t("systemHealth.version", {
-                          sha: versionInfo.commit_short,
-                          defaultValue: `Version: ${versionInfo.commit_short}`,
-                        }))
+                    t("systemHealth.version", {
+                      sha: versionInfo.commit_short,
+                      defaultValue: `Version: ${versionInfo.commit_short}`,
+                    })
                   : t("systemHealth.versionUnavailable", "Version: unavailable")}
               </span>
             )}

@@ -139,7 +139,6 @@ export function LoginPage(): JSX.Element {
           {versionLabel && (
             <span
               data-testid="login-version-indicator"
-              title={versionInfo?.commit ?? undefined}
               style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", opacity: 0.7 }}
             >
               {versionLabel}
