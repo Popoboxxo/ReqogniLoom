@@ -28,6 +28,7 @@ Foundation note (ADR-03, ADR-PL-03):
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from django.db import IntegrityError, models, transaction
 from django.db.models.functions import Lower
@@ -38,7 +39,9 @@ from django.db.models.functions import Lower
 # Requirement.embedding field references VectorField/HnswIndex directly.
 from pgvector.django import HnswIndex, VectorField
 
+from persistence.custom_fields import validate_custom_fields
 from persistence.encryption import decrypt_secret, encrypt_secret
+from persistence.role_permissions import validate_role_permissions
 from persistence.tenancy import TenantManager, UnscopedManager
 
 
@@ -537,10 +540,24 @@ class User(AuditableModel):
 
 
 class Role(TenantScopedModel):
-    """RBAC role with a JSON permission set (REQ-L1-010)."""
+    """RBAC role with a JSON permission set (REQ-L1-010).
+
+    ``permissions`` is schema-validated (issue #128) — see
+    :func:`persistence.role_permissions.validate_role_permissions` for the
+    accepted structure.
+    """
 
     name = models.CharField(max_length=150)
-    permissions = models.JSONField(default=dict, blank=True)
+    permissions = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_role_permissions],
+        help_text=(
+            "Issue #128: RBAC permission map, "
+            '{"<key>": true | false | ["<scope>", ...]}. Validated on save() '
+            "— arbitrary/nested JSON is rejected."
+        ),
+    )
 
     class Meta:
         db_table = "pl_role"
@@ -549,6 +566,17 @@ class Role(TenantScopedModel):
                 fields=["tenant", "name"], name="uq_role_tenant_name"
             ),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Validate ``permissions`` before every write (issue #128).
+
+        Field ``validators`` only run via ``full_clean()``, which nothing in
+        this codebase calls for Role — so the check is enforced here to make it
+        effective on the real write path. Authorization data must never reach
+        the database in a shape the RBAC layer cannot interpret.
+        """
+        self.permissions = validate_role_permissions(self.permissions)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.name
@@ -665,6 +693,12 @@ class Artifact(TenantScopedModel):
         null=True,
         default=dict,
         blank=True,
+        # Issue #128: the prose schema below is enforced by
+        # persistence.custom_fields.validate_custom_fields (single source of
+        # truth). The REST serializer already applies it on the write path;
+        # declaring it here as well keeps forms/admin and full_clean() callers
+        # consistent with the documented contract.
+        validators=[validate_custom_fields],
         help_text=(
             "REQ-L2-AS-037: User-defined custom attributes as a flat key-value "
             "map. Keys: strings. Values: str, int, float, bool, or null. "
