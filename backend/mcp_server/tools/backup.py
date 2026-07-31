@@ -46,7 +46,7 @@ from admin_ops.services import (
     BackupService,
 )
 from admin_ops.services.admin_restore_service import RESTORE_CAPTCHA
-from admin_ops.services.exceptions import BackupNotFoundError
+from admin_ops.services.exceptions import BackupNotFoundError, BackupStorageError
 
 from application.base import (
     NotFoundError,
@@ -249,6 +249,10 @@ class BackupToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except (ValidationError, ValueError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except BackupStorageError as exc:
+            # GitHub #37: clean, actionable error instead of a raw OSError
+            # ("Permission denied: /app/backups/") or a generic INTERNAL_ERROR.
+            return ToolResult.error("BACKUP_STORAGE_ERROR", str(exc))
 
         write_mcp_audit(
             ctx=auth_context,

@@ -85,8 +85,9 @@ def _auth(client: APIClient, token: str) -> None:
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-def test_get_creates_default_row_with_mock_provider(llm_tenant):
+def test_get_creates_default_row_with_mock_provider(llm_tenant, monkeypatch):
     """GET lazily creates the singleton row with provider=mock."""
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
     client = APIClient()
     _auth(client, _login(client, "llmadmin"))
 
@@ -97,6 +98,44 @@ def test_get_creates_default_row_with_mock_provider(llm_tenant):
     assert body["api_key_is_set"] is False
     # api_key must NEVER be serialized on read.
     assert "api_key" not in body
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_get_creates_default_row_from_env_llm_provider(llm_tenant, monkeypatch):
+    """GitHub #32: a fresh tenant's default row must reflect a configured
+    ``LLM_PROVIDER`` env var, not silently stay 'mock'.
+
+    Before the fix, ``get_or_create_llm_settings`` hard-coded
+    ``provider=mock`` for the row created on first access, so
+    ``GET /api/v1/llm-settings/`` reported 'mock' even when the deployment
+    had a real provider configured via the environment (as documented in
+    docker-compose.yml's ``LLM_PROVIDER`` passthrough).
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    resp = client.get("/api/v1/llm-settings/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "anthropic"
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_get_creates_default_row_ignores_invalid_env_provider(llm_tenant, monkeypatch):
+    """An unrecognised ``LLM_PROVIDER`` value must not break the default;
+    it falls back to the safe 'mock' default (GitHub #32)."""
+    monkeypatch.setenv("LLM_PROVIDER", "not-a-real-provider")
+
+    client = APIClient()
+    _auth(client, _login(client, "llmadmin"))
+
+    resp = client.get("/api/v1/llm-settings/")
+    assert resp.status_code == 200
+    assert resp.json()["provider"] == "mock"
 
 
 @override_settings(**_JWT_OVERRIDES)

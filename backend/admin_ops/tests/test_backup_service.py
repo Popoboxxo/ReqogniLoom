@@ -25,8 +25,8 @@ from auth_tenancy.context import AuthContext, AuthMethod
 from application.base import PermissionDeniedError
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
 from admin_ops.services import BackupService
-from admin_ops.services.exceptions import BackupNotFoundError
-from admin_ops.services.paths import absolute_backup_path
+from admin_ops.services.exceptions import BackupNotFoundError, BackupStorageError
+from admin_ops.services.paths import absolute_backup_path, backup_root
 
 from .conftest import active_tenant
 
@@ -304,3 +304,38 @@ def test_create_backup_records_failure_row_when_dumpdata_raises(
     failed = BackupMetadata.objects.filter(status=BackupStatus.FAILED)
     assert failed.count() == 1
     assert "simulated dumpdata failure" in failed.first().error_message
+
+
+@pytest.mark.django_db
+def test_create_backup_maps_permission_error_to_backup_storage_error(
+    svc, admin_ctx, admin_user, tenant_a, tmp_backups_dir, monkeypatch
+):
+    """GitHub #37: an unwritable backup directory must raise a clean,
+    actionable :class:`BackupStorageError` instead of leaking the raw
+    ``PermissionError`` ("Permission denied: /app/backups/") to callers.
+    """
+
+    def boom(*args, **kwargs):
+        raise PermissionError("Permission denied: '/app/backups/'")
+
+    monkeypatch.setattr("admin_ops.services.backup_service.os.makedirs", boom)
+
+    with active_tenant(tenant_a):
+        with pytest.raises(BackupStorageError) as exc_info:
+            svc.create_backup(admin_ctx)
+
+    # The clean message never repeats the raw OS error text.
+    assert "Permission denied" not in str(exc_info.value)
+    assert "BACKUP_DIR" in str(exc_info.value)
+
+    # Best-effort failure accounting still ran.
+    failed = BackupMetadata.objects.filter(status=BackupStatus.FAILED)
+    assert failed.count() == 1
+
+
+def test_backup_root_honours_backup_dir_env_var(monkeypatch, tmp_path):
+    """GitHub #37: ``BACKUP_DIR`` overrides MEDIA_ROOT/BASE_DIR so an
+    operator can point backups at a writable mount."""
+    override = str(tmp_path / "custom-backups")
+    monkeypatch.setenv("BACKUP_DIR", override)
+    assert backup_root() == override
