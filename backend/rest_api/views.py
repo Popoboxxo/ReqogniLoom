@@ -5346,6 +5346,7 @@ class CsvImportView(APIView):
                 }
                 for e in result.errors
             ],
+            "warnings": result.warnings,
         }
 
         http_status = status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST

@@ -69,6 +69,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "architecture.update",
     "architecture.link",
     "architecture.decompose_commit",
+    # Fix #121: generic TraceLink creation (CrossCuttingToolGroup).
+    "traceability.create_link",
     "architecture.outdate",
     "architecture.reactivate",
     "test.create",
