@@ -509,6 +509,86 @@ class TestResolveArtifactId:
         adr_filter.assert_called_once_with(id=adr_id)
         assert result == artifact_id
 
+    def test_goal_id_resolves_to_artifact_id(self):
+        """fix #237: A Goal ID resolves to its backing Artifact ID.
+
+        Previously Goal was missing from ``_resolve_artifact_id``'s
+        resolution chain, so any Goal<->Requirement TraceLink raised
+        NotFoundError("Entity ... not found") even though every Goal has
+        its own dedicated Artifact row (GoalService.create_version).
+        """
+        svc = TraceLinkService()
+        goal_id = uuid.uuid4()
+        artifact_id = uuid.uuid4()
+        mock_goal = MagicMock()
+        mock_goal.artifact_id = artifact_id
+
+        with (
+            patch(
+                "persistence.models.Artifact.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.Requirement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.Adr.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.Goal.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_goal)),
+            ) as goal_filter,
+        ):
+            result = svc._resolve_artifact_id(goal_id)
+
+        goal_filter.assert_called_once_with(id=goal_id)
+        assert result == artifact_id
+
+    def test_main_goal_id_resolves_to_artifact_id(self):
+        """fix #237: A MainGoal ID resolves to its backing Artifact ID."""
+        svc = TraceLinkService()
+        main_goal_id = uuid.uuid4()
+        artifact_id = uuid.uuid4()
+        mock_main_goal = MagicMock()
+        mock_main_goal.artifact_id = artifact_id
+
+        with (
+            patch(
+                "persistence.models.Artifact.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.Requirement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.ArchitectureElement.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.Adr.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.Goal.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.MainGoal.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=mock_main_goal)),
+            ) as main_goal_filter,
+        ):
+            result = svc._resolve_artifact_id(main_goal_id)
+
+        main_goal_filter.assert_called_once_with(id=main_goal_id)
+        assert result == artifact_id
+
     def test_unknown_id_raises_not_found_error(self):
         """An ID matching none of the tables raises NotFoundError."""
         svc = TraceLinkService()
@@ -529,6 +609,14 @@ class TestResolveArtifactId:
             ),
             patch(
                 "application.models.Adr.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.Goal.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "application.models.MainGoal.objects.filter",
                 return_value=MagicMock(first=MagicMock(return_value=None)),
             ),
         ):

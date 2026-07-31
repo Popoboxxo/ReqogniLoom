@@ -352,3 +352,82 @@ def test_main_goal_delete_returns_405_not_500():
 
     assert delete_resp.status_code == 405
     assert "error" in delete_resp.data
+
+
+def test_main_goal_list_source_filter():
+    """Regression test for #236: ?source= was silently ignored.
+
+    Seeds one "manual" MainGoal (via the real create_manual write path) and
+    one "ai" MainGoal (via MainGoalService._create_row, mirroring what
+    generate_ai persists) and asserts ?source=ai/?source=manual each return
+    only the matching row.
+    """
+    from application.main_goal_service import MainGoalService
+
+    tenant, workspace = _new_tenant_and_workspace("T11", name="W11", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/main-goals/",
+        {"workspace_id": str(workspace.id), "content": "Manually authored."},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = MainGoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+
+    svc = MainGoalService()
+    tenant_obj, workspace_obj = svc._resolve_tenant_and_workspace(workspace.id, ctx)
+    svc._create_row(
+        workspace=workspace_obj,
+        tenant=tenant_obj,
+        content="AI-aggregated content.",
+        source="ai",
+        generated_from_goal_ids=[],
+        ctx=ctx,
+    )
+
+    ai_req = factory.get(f"/api/v1/main-goals/?workspace_id={workspace.id}&source=ai")
+    ai_req.auth_context = ctx
+    ai_resp = MainGoalViewSet.as_view({"get": "list"})(ai_req)
+    assert ai_resp.status_code == 200
+    assert len(ai_resp.data["results"]) == 1
+    assert ai_resp.data["results"][0]["source"] == "ai"
+
+    manual_req = factory.get(
+        f"/api/v1/main-goals/?workspace_id={workspace.id}&source=manual"
+    )
+    manual_req.auth_context = ctx
+    manual_resp = MainGoalViewSet.as_view({"get": "list"})(manual_req)
+    assert manual_resp.status_code == 200
+    assert len(manual_resp.data["results"]) == 1
+    assert manual_resp.data["results"][0]["source"] == "manual"
+
+
+def test_main_goal_list_limit_and_negative_limit():
+    """Regression test for #236: ?limit= must cap results; negative rejected."""
+    tenant, workspace = _new_tenant_and_workspace("T12", name="W12", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    for content in ("Draft one.", "Draft two."):
+        req = factory.post(
+            "/api/v1/main-goals/",
+            {"workspace_id": str(workspace.id), "content": content},
+            format="json",
+        )
+        req.auth_context = ctx
+        resp = MainGoalViewSet.as_view({"post": "create"})(req)
+        assert resp.status_code == 201
+
+    limited_req = factory.get(f"/api/v1/main-goals/?workspace_id={workspace.id}&limit=1")
+    limited_req.auth_context = ctx
+    limited_resp = MainGoalViewSet.as_view({"get": "list"})(limited_req)
+    assert limited_resp.status_code == 200
+    assert len(limited_resp.data["results"]) == 1
+
+    negative_req = factory.get(f"/api/v1/main-goals/?workspace_id={workspace.id}&limit=-1")
+    negative_req.auth_context = ctx
+    negative_resp = MainGoalViewSet.as_view({"get": "list"})(negative_req)
+    assert negative_resp.status_code == 400

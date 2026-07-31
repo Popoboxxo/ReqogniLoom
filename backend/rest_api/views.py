@@ -4041,6 +4041,89 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 # ---------------------------------------------------------------------------
 
 
+def _apply_list_query_params(
+    items: list,
+    request: Request,
+    lang: str,
+    *,
+    search_fields: tuple[str, ...] = (),
+    ordering_fields: tuple[str, ...] = (),
+    status_field: str = "status",
+    source_field: str | None = None,
+) -> tuple[list | None, Response | None]:
+    """Apply ``?status=``/``?source=``/``?search=``/``?ordering=``/``?limit=``.
+
+    fix #236: GoalViewSet.list()/MainGoalViewSet.list() fetch every current
+    version via the service layer and hand the plain in-memory list straight
+    to ``_paginate`` — no query parameter besides ``workspace_id`` was ever
+    read, so status/source/search/ordering/limit were silently ignored.
+    ``_paginate`` (via ``StandardPagination``) only understands ``page``/
+    ``page_size``, not the ad-hoc filtering/sorting/limit contract the API
+    consumers expect, so this centralises it for both ViewSets rather than
+    duplicating the same filter loop twice.
+
+    Returns ``(filtered_items, None)`` on success or ``(None, error_response)``
+    when a parameter fails validation (HTTP 400) — callers should return the
+    error response unchanged.
+    """
+    params = request.query_params
+
+    status_value = params.get("status")
+    if status_value:
+        items = [i for i in items if getattr(i, status_field, None) == status_value]
+
+    if source_field:
+        source_value = params.get("source")
+        if source_value:
+            items = [i for i in items if getattr(i, source_field, None) == source_value]
+
+    search_value = params.get("search")
+    if search_value and search_fields:
+        needle = search_value.lower()
+        items = [
+            i
+            for i in items
+            if any(needle in (getattr(i, f, "") or "").lower() for f in search_fields)
+        ]
+
+    ordering_value = params.get("ordering")
+    if ordering_value:
+        descending = ordering_value.startswith("-")
+        field = ordering_value[1:] if descending else ordering_value
+        if field not in ordering_fields:
+            return None, Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=f"Invalid ordering field '{field}'. "
+                    f"Allowed: {sorted(ordering_fields)}",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        items = sorted(
+            items, key=lambda i: getattr(i, field, None) or "", reverse=descending
+        )
+
+    limit_value = params.get("limit")
+    if limit_value is not None:
+        try:
+            limit = int(limit_value)
+        except (TypeError, ValueError):
+            limit = -1
+        if limit < 0:
+            return None, Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'limit' must be a non-negative integer",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        items = items[:limit]
+
+    return items, None
+
+
 class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """ViewSet for Goal CRUD operations (REQ-L2-TE-020).
 
@@ -4079,6 +4162,22 @@ class GoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        # fix #236: apply status/search/ordering/limit query parameters.
+        items, err = _apply_list_query_params(
+            items,
+            request,
+            lang,
+            search_fields=("title", "description"),
+            ordering_fields=(
+                "title",
+                "status",
+                "sequence_number",
+                "created_at",
+                "updated_at",
+            ),
+        )
+        if err is not None:
+            return err
         return self._paginate(
             request, items, lambda item: GoalSerializer(_goal_to_dict(item)).data
         )
@@ -4222,6 +4321,23 @@ class MainGoalViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:
             return _service_error_response(exc, lang)
+        # fix #236: apply status/source/search/ordering/limit query parameters.
+        items, err = _apply_list_query_params(
+            items,
+            request,
+            lang,
+            search_fields=("content",),
+            ordering_fields=(
+                "status",
+                "source",
+                "sequence_number",
+                "created_at",
+                "updated_at",
+            ),
+            source_field="source",
+        )
+        if err is not None:
+            return err
         return self._paginate(
             request, items, lambda item: MainGoalSerializer(_main_goal_to_dict(item)).data
         )
