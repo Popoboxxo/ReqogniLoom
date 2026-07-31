@@ -59,6 +59,14 @@ export interface VersionRef {
   label: string;
   createdAt: string | null;
   baselineIds: string[];
+  /**
+   * Whether the backend can actually return this version's content. Rows
+   * without a stored snapshot (creation baseline, historical lock-counter
+   * values of single-row types) cannot be switched to or compared — see
+   * issue #213. Optional so that call sites building the *current* version
+   * ref (always retrievable) can omit it; `undefined` means `true`.
+   */
+  contentAvailable?: boolean;
 }
 
 /**

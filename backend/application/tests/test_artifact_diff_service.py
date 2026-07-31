@@ -346,7 +346,9 @@ class TestDiffTenantIsolation:
                     svc.diff(
                         artifact_id=ARTIFACT_ID,
                         from_version=0,
-                        to_version=1,
+                        # Must match the mock's lock version — only the current
+                        # version resolves to a snapshot (issue #213).
+                        to_version=2,
                         ctx=ctx,
                     )
 
@@ -437,7 +439,12 @@ class TestDiffNoteField:
     """REQ-L2-AS-032: Response includes note when historical version unavailable."""
 
     def test_diff_note_when_from_version_unavailable(self):
-        """from_version > 0 resolves to current state → no note (same snapshot)."""
+        """from_version > 0 with no stored snapshot → response carries a note.
+
+        Issue #213: historical lock-counter values no longer fall back to the
+        current row, so the caller is told the snapshot is unavailable instead
+        of being handed a diff of the current state against itself.
+        """
         svc = ArtifactDiffService()
         ctx = _make_ctx(tenant_id=TENANT_ID)
 
@@ -463,8 +470,9 @@ class TestDiffNoteField:
                         ctx=ctx,
                     )
 
-        # Both versions resolve to current state → same snapshot → no note
-        assert "note" not in result
+        # from_version=1 has no stored snapshot → limitation documented
+        assert "note" in result
+        assert "not available" in result["note"]
 
 
 # ---------------------------------------------------------------------------

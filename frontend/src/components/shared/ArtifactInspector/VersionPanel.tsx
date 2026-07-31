@@ -15,6 +15,13 @@
  * All 10 artifact kinds now expose a `/versions/` endpoint. diagram and
  * glossary were the last two, wired in REQ-142 against their immutable
  * DiagramVersion / GlossaryTermVersion history tables.
+ *
+ * Issue #213 — not every listed version has content behind it. Types with a
+ * real version table (diagram, glossary, goal, mainGoal, icd) return one row
+ * per stored snapshot; single-row types return only the creation baseline and
+ * the current state, numbered by an optimistic-lock counter. Rows report this
+ * via `content_available`, and the panel disables actions that would need a
+ * snapshot that was never stored.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -76,6 +83,8 @@ function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise
     label: v.label,
     createdAt: v.modified_at ?? null,
     baselineIds: [],
+    // Backends that predate issue #213 omit the flag — assume retrievable.
+    contentAvailable: v.content_available ?? true,
   });
 
   const fetcher = VERSIONS_FETCHERS[kind];
@@ -237,6 +246,17 @@ export function VersionPanel({
 
   function renderRow(entry: VersionRef): JSX.Element {
     const isCurrent = currentVersion?.version === entry.version;
+    // Issue #213: for single-row artifact types the version number is an
+    // optimistic-lock counter, so only the current state (and the empty
+    // creation baseline) has content behind it. Rows without a snapshot must
+    // not offer "switch"/"compare" — the backend would 404 or, worse, answer
+    // with the current state pretending it is history.
+    const hasContent = entry.contentAvailable !== false;
+    // Version 0 is the empty creation baseline: nothing to switch to, but it
+    // is still a valid left-hand side for a diff ("everything was added").
+    const canSwitch = hasContent && !isCurrent;
+    const canCompare =
+      (hasContent || entry.version === 0) && !isCurrent && currentVersion !== undefined;
     const chips = baselinesForVersion(entry.version);
     const chipLabel =
       chips.length === 1
@@ -294,7 +314,15 @@ export function VersionPanel({
                   type="button"
                   role="menuitem"
                   className={styles.menuItem}
-                  disabled={isCurrent}
+                  disabled={!canSwitch}
+                  title={
+                    !hasContent
+                      ? t(
+                          "sidebar.version.noSnapshot",
+                          "No stored snapshot for this version.",
+                        )
+                      : undefined
+                  }
                   onClick={(): void => {
                     setOpenMenuFor(null);
                     onSwitch(entry.version);
@@ -309,7 +337,7 @@ export function VersionPanel({
                   type="button"
                   role="menuitem"
                   className={styles.menuItem}
-                  disabled={isCurrent || currentVersion === undefined}
+                  disabled={!canCompare}
                   onClick={(): void => {
                     setOpenMenuFor(null);
                     if (currentVersion) onCompare(entry.version, currentVersion.version);

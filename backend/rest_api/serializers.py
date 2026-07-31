@@ -39,6 +39,23 @@ from rest_api.preset_guard import FieldFilter
 from persistence.models import ElementType
 
 # ---------------------------------------------------------------------------
+# Lock-counter semantics (issue #213)
+# ---------------------------------------------------------------------------
+
+# ``AuditableModel.version`` is an optimistic-concurrency counter, not a
+# content revision number. It is exposed so clients can send it back as
+# ``expected_version``; it must not be rendered as "this artifact has N
+# revisions". Historical values have no retrievable snapshot — real history
+# comes from the ``/versions/`` and ``/history/`` endpoints and from Baselines.
+LOCK_VERSION_HELP_TEXT = (
+    "Optimistic-lock counter for concurrency control (send back as "
+    "expected_version). NOT a content revision number: it also increments on "
+    "writes that change nothing user-visible, and historical values have no "
+    "retrievable snapshot. Use /versions/, /history/ or Baselines for real "
+    "history."
+)
+
+# ---------------------------------------------------------------------------
 # i18n error translation (REQ-L2-RA-004, REQ-L3-RA002-002)
 # ---------------------------------------------------------------------------
 
@@ -348,7 +365,9 @@ class ArtifactSerializer(
     workspace_id = serializers.UUIDField(required=True)
     artifact_type = serializers.CharField(max_length=64)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
 
@@ -412,7 +431,9 @@ class RequirementSerializer(
         allow_null=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     # B006/#104: bounded like other short justification fields — unbounded
     # TextField-backed CharFields allow unbounded-size payloads (DoS risk).
     change_reason = SanitizedCharField(required=False, allow_blank=True, max_length=2000)
@@ -462,7 +483,9 @@ class StakeholderNeedSerializer(
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
     suspect = serializers.BooleanField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     # #104: bounded — see RequirementSerializer.change_reason.
     change_reason = SanitizedCharField(
         write_only=True, required=False, allow_blank=True, max_length=2000
@@ -526,7 +549,9 @@ class ArchitectureElementSerializer(
         required=False, write_only=True
     )
     suspect = serializers.BooleanField(required=False, default=False)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -603,7 +628,9 @@ class TestCaseSerializer(
     verifies_link_id = serializers.UUIDField(
         read_only=True, allow_null=True, required=False, default=None
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -652,7 +679,9 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="",
         help_text="Artifact type of the target (e.g. Requirement, ArchitectureElement).",
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
@@ -715,7 +744,9 @@ class BaselineDeltaEntrySerializer(serializers.Serializer):
     """
 
     item_id = serializers.CharField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     entity_type = serializers.CharField(read_only=True)
     state = serializers.JSONField(read_only=True, allow_null=True)
 
@@ -739,7 +770,9 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     scope = serializers.CharField(max_length=32)
     description = serializers.CharField(allow_blank=True, required=False, default="", max_length=20000)
     artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     entries = BaselineDeltaEntrySerializer(
         many=True, read_only=True, required=False
@@ -800,7 +833,9 @@ class WorkflowDefinitionSerializer(
     workspace_id = serializers.UUIDField(required=True)
     artifact_id = serializers.UUIDField()
     name = serializers.CharField(max_length=255)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
@@ -836,7 +871,9 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     is_active = serializers.BooleanField(read_only=True, default=True)
     closed_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
     closed_by = serializers.UUIDField(read_only=True, allow_null=True, default=None)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -860,7 +897,9 @@ class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["Draft", "In Review", "Approved", "Rejected", "Superseded"],
         default="Draft",
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -904,7 +943,9 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
         default="Identified",
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -919,7 +960,9 @@ class GoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     title = SanitizedCharField(max_length=255)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     status = serializers.CharField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -936,7 +979,9 @@ class MainGoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         child=serializers.CharField(), read_only=True, required=False
     )
     status = serializers.CharField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -960,7 +1005,9 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     started_at = serializers.DateTimeField(read_only=True)
     finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
     result_summary = serializers.JSONField(read_only=True, required=False)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -981,7 +1028,9 @@ class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer
     # #104: test log/failure message, unbounded before — cap at 10000 chars
     # (DoS risk; long enough for typical stack traces/assertion output).
     message = serializers.CharField(allow_blank=True, default="", max_length=10000)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
@@ -1039,7 +1088,9 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         },
     )
     tags = serializers.JSONField(required=False, default=list)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -1066,7 +1117,9 @@ class ChangeRequestSerializer(PresetAwareSerializerMixin, serializers.Serializer
     assigned_reviewer_id = serializers.UUIDField(
         allow_null=True, required=False, default=None
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -1154,7 +1207,7 @@ class AttributeVisibilityConfigSerializer(serializers.Serializer):
     modified_at = serializers.DateTimeField(read_only=True)
     version = serializers.IntegerField(
         read_only=True,
-        help_text="Audit: version counter",
+        help_text=LOCK_VERSION_HELP_TEXT,
     )
 
 
@@ -1324,7 +1377,9 @@ class GlossaryTermSerializer(serializers.Serializer):
     definition = SanitizedCharField(max_length=20000)
     synonyms = serializers.JSONField(required=False, default=list)
     abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)

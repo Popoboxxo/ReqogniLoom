@@ -27,6 +27,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
+from application.artifact_diff_service import creation_baseline_entry
 from application.base import NotFoundError
 from icd.models import Icd, IcdDirection, IcdParameter, IcdVersion
 from icd.services import (
@@ -363,12 +364,15 @@ class IcdViewSet(WorkflowTransitionsMixin, ViewSet):
             ctx = get_auth_context(request)
             icd = get_icd(UUID(pk), ctx.tenant_id)
             version_list = get_icd_history(icd_id=icd.id)
-            result = [{"version": 0, "label": "Creation baseline"}]
+            result = [creation_baseline_entry()]
             for v in version_list:
                 result.append({
                     "version": v.version_number,
                     "label": f"v{v.version_number}",
                     "modified_at": v.created_at.isoformat() if v.created_at else None,
+                    # ICDs keep real immutable version rows (IcdVersion), so
+                    # every listed version has retrievable content (#213).
+                    "content_available": True,
                 })
             return Response(result)
         except Icd.DoesNotExist:
