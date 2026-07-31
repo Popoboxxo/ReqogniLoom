@@ -3,7 +3,14 @@
  *
  * req_id: REQ-L2-RF-010
  */
-export { apiClient, getList, setAuthToken, getAuthToken, setUnauthorizedHandler } from "./client";
+export {
+  apiClient,
+  getList,
+  setAuthToken,
+  getAuthToken,
+  setUnauthorizedHandler,
+  resetUnauthorizedGuard,
+} from "./client";
 export { requirementsApi } from "./requirements";
 export { stakeholderNeedApi } from "./stakeholder-need";
 export { architectureApi } from "./architecture";

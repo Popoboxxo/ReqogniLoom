@@ -54,7 +54,7 @@ from rest_api.architecture_decompose_views import (
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
 from baseline.urls import urlpatterns as baseline_urlpatterns
 from rest_api.api_key_views import ApiKeyViewSet
-from rest_api.auth_views import LoginView, LogoutView, MeView
+from rest_api.auth_views import LoginView, LogoutView, MeView, RefreshView
 from rest_api.diagram_canvas_views import (
     CanvasStrokeView,
     MermaidPreviewView,
@@ -164,6 +164,10 @@ urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="api-v1-auth-login"),
     # Logout (REQ-052) — clears the httpOnly access cookie; requires auth + CSRF.
     path("auth/logout/", LogoutView.as_view(), name="api-v1-auth-logout"),
+    # Silent token refresh (GitHub #135) — public, identity via the refresh
+    # cookie only; mints a new access cookie so a mid-session expiry does not
+    # hard-log the user out.
+    path("auth/refresh/", RefreshView.as_view(), name="api-v1-auth-refresh"),
     path("auth/me/", MeView.as_view(), name="api-v1-auth-me"),
     # Baseline scope-preview + other custom baseline views (REQ-011) — must precede
     # router.urls to avoid being swallowed by the router's baselines/<pk>/ pattern.

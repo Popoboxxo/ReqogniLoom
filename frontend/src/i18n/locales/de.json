@@ -129,7 +129,8 @@
     "passwordPlaceholder": "Passwort eingeben...",
     "passwordRequired": "Bitte geben Sie ein Passwort ein.",
     "submit": "Anmelden",
-    "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut."
+    "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.",
+    "sessionExpired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an, um fortzufahren."
   },
   "loading": "Laden...",
   "actions": {

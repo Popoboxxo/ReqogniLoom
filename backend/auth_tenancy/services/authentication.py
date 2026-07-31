@@ -22,6 +22,7 @@ import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.conf import settings
@@ -30,6 +31,9 @@ from ..context import AuthMethod, IdentityClaims
 from ..errors import AuthenticationFailed
 from ..jwt_tokens import decode_jwt
 from ..models import MAX_ACTIVE_API_KEYS_PER_USER, ApiKey
+
+if TYPE_CHECKING:  # pragma: no cover - import-time only, avoids a hard app dep
+    from persistence.models import User
 
 # API-key plaintext format: "reqlo_" + 40 url-safe-ish chars (REQ-L3-AT001-003).
 _API_KEY_PREFIX = "reqlo_"
@@ -105,7 +109,9 @@ class AuthenticationService:
         Raises:
             AuthenticationFailed: ``invalid_token`` / ``invalid_signature`` /
                 ``token_expired`` per the decode result, or ``invalid_token`` if
-                mandatory claims are missing.
+                mandatory claims are missing or the token is a refresh token
+                (GitHub #135 — refresh tokens must never authenticate a request,
+                only ``POST /auth/refresh/`` accepts them).
         """
         if not self._jwt_secret:
             # Misconfiguration must not silently authenticate anyone.
@@ -117,6 +123,11 @@ class AuthenticationService:
             issuer=self._jwt_issuer,
             audience=self._jwt_audience,
         )
+
+        # Refresh tokens carry typ="refresh" and must be rejected here — they
+        # are only valid at the dedicated refresh endpoint (GitHub #135).
+        if claims.get("typ") == "refresh":
+            raise AuthenticationFailed("invalid_token")
 
         try:
             user_id = UUID(str(claims["user_id"]))
@@ -132,6 +143,74 @@ class AuthenticationService:
             auth_method=AuthMethod.BEARER_TOKEN,
             api_key_id=None,
         )
+
+    # -- Refresh token (GitHub #135) ---------------------------------------
+
+    def validate_refresh_token(self, token: str) -> tuple[UUID, UUID]:
+        """Validate a refresh JWT and return ``(user_id, tenant_id)``.
+
+        Distinct from :meth:`validate_bearer_token`: it *requires* the
+        ``typ="refresh"`` claim (an access token must not be usable as a
+        refresh token) and deliberately returns no roles/claims payload — the
+        caller (``RefreshView``) re-resolves fresh roles from the database
+        before minting a new access token, avoiding a stale role snapshot on
+        a long-lived refresh token (mirrors the workspace-scoped role
+        resolution rationale in ``AuthTenancyAuthentication``, GitHub #103).
+
+        Args:
+            token: The raw refresh JWT (without the ``Bearer `` prefix).
+
+        Returns:
+            ``(user_id, tenant_id)`` asserted by the token.
+
+        Raises:
+            AuthenticationFailed: ``invalid_token`` / ``invalid_signature`` /
+                ``token_expired`` per the decode result, or ``invalid_token``
+                if mandatory claims are missing or ``typ`` is not ``"refresh"``.
+        """
+        if not self._jwt_secret:
+            raise AuthenticationFailed("invalid_token")
+
+        claims = decode_jwt(
+            token,
+            secret=self._jwt_secret,
+            issuer=self._jwt_issuer,
+            audience=self._jwt_audience,
+        )
+
+        if claims.get("typ") != "refresh":
+            raise AuthenticationFailed("invalid_token")
+
+        try:
+            user_id = UUID(str(claims["user_id"]))
+            tenant_id = UUID(str(claims["tenant_id"]))
+        except (KeyError, ValueError) as exc:
+            raise AuthenticationFailed("invalid_token") from exc
+
+        return user_id, tenant_id
+
+    def resolve_active_user(self, user_id: UUID, tenant_id: UUID) -> "User | None":
+        """Return the active user identified by ``(user_id, tenant_id)``.
+
+        Used by ``RefreshView`` (GitHub #135) after a refresh token validates,
+        to re-check that the account still exists/is active/still belongs to
+        that tenant before minting a new access token — keeps the direct
+        ``persistence.models`` query out of the view layer (architecture
+        convention: no direct ORM access in DRF views).
+
+        Args:
+            user_id: The ``user_id`` claim from a validated refresh token.
+            tenant_id: The ``tenant_id`` claim from a validated refresh token.
+
+        Returns:
+            The matching active :class:`~persistence.models.User`, or ``None``
+            if no such active user exists in that tenant.
+        """
+        from persistence.models import User  # local import avoids circular dep
+
+        return User.objects.filter(
+            id=user_id, tenant_id=tenant_id, is_active=True
+        ).first()
 
     # -- API key (IF-AT-EXT-IN-002) ---------------------------------------
 
