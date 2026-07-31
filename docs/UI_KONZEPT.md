@@ -154,7 +154,7 @@ Beschäftigung, kein Fortschritt.
 |---|---|
 | **Indigo als Primärfarbe** (`#6366f1` / `#4f46e5`) | funktioniert, in beiden Themes kontrastgeprüft, etabliert |
 | **Slate als Flächenfamilie** | ruhig, für lange Lesestrecken geeignet |
-| **Die Status-Badge-Palette** | vollständig, für beide Themes gespiegelt, semantisch korrekt |
+| **Die fünf Farb-Varianten** (neutral/info/success/warning/danger) | Palette vollständig, für beide Themes gespiegelt — die *Zuordnung* einzelner Status dazu ist nicht mehr Frontend-Code, sondern Workflow-Konfiguration (8.2.1) |
 | **Radius-Stufen 6 / 12 / 16 px** | konsistent, nicht auffällig, kein Grund zur Änderung |
 | **Split-View als Grundfigur** | die Liste-Detail-Beziehung ist der Kern dieses Werkzeugs |
 | **`ListToolbar`, `WorkspaceTree`, `ArtifactInspector`** | gut gebaut, nur zu selten genutzt |
@@ -197,55 +197,84 @@ Sie zeigt die Ableitungskette rund um das aktuelle Artefakt und markiert, wo es 
 (L0–L4). Das ist am echten Datenmodell falsch und wurde nach Rückmeldung korrigiert — siehe
 5.1 und 5.2.
 
-### 5.1 Warum keine feste Stufenzahl
+### 5.1 Zwei verschiedene Ebenenbegriffe — nicht einer
 
-Zwei Annahmen der Erstfassung halten der Prüfung gegen `backend/persistence/models.py`
-nicht stand:
+**Zweites Review (2026-07-31, Opus):** Die erste Korrektur war zu pauschal. "Keine feste
+Stufenzahl" gilt nur für die Architekturseite — für Requirements ist die Ebene sehr wohl ein
+festes Enum. Beides steht so im Datenmodell:
 
-**Erstens:** Die Zahl der Subsystem-Ebenen ist nicht fix. `ArchitectureElement.get_level()`
-liefert die **Baumtiefe per CTE-Annotation** (0 = Wurzel, 1 = Kind der Wurzel, …), kein
-Enum mit festen Stufen. `element_type` ist seit REQ-006 (D5) bewusst freies Text-Feld, keine
-geschlossene Liste — "Subsystem" und "Komponente" sind Namenskonventionen, keine
-Ebenennummern. Ein Projekt kann eine Ebene Subsysteme haben, ein anderes sechs, bevor die
-erste Komponente auftaucht. Eine Spine mit fest fünf Stationen zeigt in einem Fall vier
-leere Stufen, im anderen schneidet sie den echten Baum ab.
+**Requirement-Ebene = festes Enum.** `Requirement.level` ist
+`PositiveSmallIntegerField(choices=RequirementLevel.choices, null=True)` mit genau fünf
+Werten: `L0 System`, `L1 Subsystem`, `L2 Component`, `L3 Part`, `L4 Material`. `NULL`
+bedeutet „Ebene nicht zugewiesen, kein Backfill" — ein realer Zustand, den die Spine zeigen
+muss, nicht verschweigen darf.
 
-**Zweitens:** Verifikation ist keine Ebene, sondern eine Verknüpfungsart. `TestCase` ist
-selbst ein `Artifact`; `TraceLink.source`/`target` sind generische Fremdschlüssel auf
-`Artifact`. Ein Testfall kann per `VERIFIES`/`TESTS`-Link an **jedes** Artefakt binden — an
-einen Stakeholder-Bedarf, ein Requirement, ein Subsystem auf beliebiger Tiefe oder eine
-Komponente. Das ist die rechte Seite des V-Modells: Tests laufen parallel zu jeder Ebene der
-linken Seite, nicht als eigene, nachgeschaltete Stufe darunter.
+> **Namenskonflikt, absichtlich offen dokumentiert:** Dieses Enum nennt `L0` **System**,
+> nicht „Stakeholder Need" — anders als das V-Modell-Bild in der Projektbeschreibung
+> (Need → System Requirement → Subsystem → Komponente → Verifikation). Beide Quellen
+> existieren nebeneinander im Projekt; welche für die Spine-Beschriftung gilt, klärt sich
+> erst mit AP10 (Geltungsbereich, Kapitel 1.1).
+
+**Architektur-Ebene = Baumtiefe, unbegrenzt.** `ArchitectureElement.get_level()` liefert die
+Tiefe per rekursiver CTE (0 = Wurzel), `annotate_levels()` denselben Wert für ganze Mengen.
+`element_type` ist freies Textfeld (Default `component`) — "Subsystem" und "Komponente" sind
+Namenskonventionen, keine Ebenennummern. Ein Projekt kann eine Zwischenebene haben, ein
+anderes sechs, bevor die erste Komponente auftaucht. Eine Spine mit fest fünf Stationen zeigt
+im einen Fall leere Stufen, im anderen schneidet sie den echten Baum ab.
+
+**Verifikation ist keine Ebene, sondern eine Kante — mit einer echten Einschränkung.**
+`TestCase` ist selbst ein `Artifact`; `TraceLink` verlinkt generisch über den Linktyp
+`verifies` (nicht `TESTS` — die gültigen Linktypen stehen in `traceability/types.py`, u. a.
+`derives-from`, `satisfies`, `verifies`, `implements`, `refines`, `allocated-to`,
+`decomposes`; eine `VERIFIES`/`TESTS`-Schreibweise in Großbuchstaben existiert nicht).
+Wichtig: `verifies` ist in SE-Workspaces **nur** für `(TestCase → Requirement)` und
+`(TestCase → ArchitectureElement)` zulässig — **nicht** für Stakeholder-Bedarfe. Das
+Verifikations-Badge erscheint deshalb nur an Requirement- und Architektur-Stationen, nie an
+der Bedarfs-Station.
 
 ### 5.2 Aufbau
 
-Die Spine rendert deshalb **N Stationen aus der tatsächlichen Ableitungskette** des
-geöffneten Artefakts — Bedarf, Requirement, dann so viele Architektur-Ebenen, wie der
-Baum an dieser Stelle tatsächlich hat — und hängt Verifikation als **Badge an jede
-Station**, nicht als eigene Station ans Ende.
+Die Spine rendert **N Stationen entlang einer definierten Projektion** der Ableitungskette
+— nicht entlang eines beliebigen Graph-Pfads. Das ist nötig, weil `TraceLink` ein
+Vorgänger/Nachfolger-**Graph** ist, kein linearer Pfad: ein Artefakt kann mehrere
+Vorgänger und mehrere Nachfolger gleichzeitig haben.
+
+**Entscheidung (2026-08-01):** Bei Verzweigung zeigt eine Station ein reines
+**Anzahl-Badge ohne Pfadauswahl** (z. B. „3 ↑"). Ein Klick öffnet alle drei im Panel
+daneben — die Spine bildet die Kette an, ohne sich für einen Weg zu entscheiden.
 
 ```
    ╭──────────────────────────────────────────────────────────╮
    │                                                          │
    │        ○────  Stakeholder-Bedarf                   2 ↑   │
    │        │                                                 │
-   │        ●════  System Requirement         ◀ hier     🧪2  │
+   │        ●════  Requirement                ◀ hier     V·2  │
    │        │                                                 │
    │        ○────  Subsystem                             4 ↓  │
    │        │                                                 │
    │        ○────  Sub-Subsystem                         3 ↓  │
    │        │                                                 │
-   │        ◍────  Komponente                       — ⚠  🧪5  │
+   │        ◍────  Komponente                       — ⚠  V·5  │
    │                                                          │
    ╰──────────────────────────────────────────────────────────╯
 ```
 
-Zwei Architektur-Ebenen im Beispiel sind kein Zufallswert — die Spine fragt bei jedem
-Öffnen die reale Tiefe des Baums ab (`get_level()` je Vorfahre/Nachfahre in der Kette) und
-rendert genau so viele Zwischenstationen wie vorhanden sind, ohne Ober- oder Untergrenze.
-Ein Bedarf mit direkt darunterliegender Komponente (keine Subsystem-Zwischenebene) zeigt
-entsprechend keine leere Station — es gibt keine Pflichtebenen zwischen den Ankerpunkten
-Bedarf, Requirement und Komponentenblatt.
+Zwei Architektur-Zwischenstationen im Beispiel sind kein Zufallswert — die Zahl kommt aus
+der realen Baumtiefe an dieser Stelle, nicht aus einer festen Vorgabe. Ein Bedarf mit direkt
+darunterliegender Komponente (keine Subsystem-Zwischenebene) zeigt entsprechend keine leere
+Station.
+
+**Backend-Voraussetzung, noch offen (kein Bestandteil dieses Dokuments — separat zu
+klären):** Es gibt heute **keinen** Endpunkt, der eine solche Kette in einem Request
+liefert. Vorhanden ist die generische Impact-Analyse
+(`GET /api/v1/traceability/impact/?artifact_id=&direction=&max_depth=&link_types=&limit=`),
+die eine Nachbarschaftsmenge liefert und dabei hart begrenzt (`MAX_DEPTH_CAP`,
+`MAX_GRAPH_ITEMS = 100 000`, `GRAPH_QUERY_SLA_MS = 200`). Bevor Schritt 6 (Kapitel 17)
+beginnt, braucht es entweder einen aggregierenden Endpunkt für genau diese Projektion, oder
+eine im Frontend zusammengesetzte Kette aus mehreren Abfragen — das ist eine
+Architekturentscheidung für die Umsetzung, keine UI-Frage, und wird dort getroffen, nicht
+hier vorweggenommen. Die Projektion selbst (welche Linktypen zählen als „Kette", was
+passiert bei einem Zyklus, harte Obergrenze der Stationen) ist Teil dieser Backend-Arbeit.
 
 ### Zeichensprache
 
@@ -254,23 +283,25 @@ Bedarf, Requirement und Komponentenblatt.
 | `●` gefüllt | die Station des aktuellen Artefakts |
 | `○` offen | Station mit Verknüpfungen |
 | `◍` halb | Station existiert, aber ohne Verknüpfung zu *diesem* Artefakt |
-| `↑` | Herkunft — woraus dieses Artefakt abgeleitet wurde |
-| `↓` | Ableitung — was daraus entstanden ist |
+| `↑ N` | Herkunft — N Vorgänger; bei mehreren ohne Pfadauswahl als Zahl, siehe 5.2 |
+| `↓ N` | Ableitung — N Nachfolger, gleiche Regel |
 | `⚠` | **keine Abdeckung** — die eigentliche Information |
-| `🧪N` | **Verifikations-Badge** — N verknüpfte Testfälle an dieser Station, unabhängig von ihrer Position im Baum |
+| `V·N` | **Verifikations-Badge** — N verknüpfte Testfälle, nur an Requirement-/Architektur-Stationen (5.1). Textkürzel statt Emoji — screenreaderfreundlich, mit `aria-label="N verknüpfte Testfälle"`. |
 
 ### Verhalten
 
 - **Klick auf eine Station** öffnet die verknüpften Artefakte in einem Panel neben der
-  Spine. Der Kontext bleibt stehen — man verlässt die Seite nicht.
-- **Klick auf ein 🧪-Badge** öffnet die verknüpften Testfälle dieser Station, getrennt vom
-  Ableitungspanel — Verifikation ist eine eigene Frage, keine weitere Ableitungsstufe.
+  Spine. Der Kontext bleibt stehen — man verlässt die Seite nicht. Bei mehreren Vorgängern/
+  Nachfolgern (5.2) zeigt das Panel alle, keine Vorauswahl.
+- **Klick auf ein `V·N`-Badge** öffnet die verknüpften Testfälle dieser Station, getrennt
+  vom Ableitungspanel — Verifikation ist eine eigene Frage, keine weitere Ableitungsstufe.
 - **Hover** zeigt die Titel der verknüpften Artefakte als Vorschau.
-- Die Spine ist **immer** sichtbar, solange ein Artefakt geöffnet ist, und scrollt nicht
-  mit dem Inhalt.
-- Auf schmalen Fenstern (< 1024 px) wandert sie waagerecht unter den Artefaktkopf. Bei mehr
-  als vier Zwischenstationen wird sie horizontal scrollbar statt umzubrechen — die
-  Reihenfolge der Kette bleibt so erkennbar.
+- Die Spine ist sichtbar, solange ein Artefakt **und** damit ein Detailbereich geöffnet ist
+  — entfällt zusammen mit dem Detailbereich (6.2), nicht eigenständig.
+- Auf schmalen Fenstern (< 1024 px) wandert sie waagerecht unter den Artefaktkopf und wird
+  ab mehr als vier Zwischenstationen horizontal scrollbar statt umzubrechen. Diese
+  horizontale Spine-Scrollfläche zählt nicht zu den drei vertikalen Scrollflächen aus
+  Kapitel 7.1.
 
 ### Warum das und nicht ein Breadcrumb
 
@@ -407,24 +438,65 @@ aufnimmt.
 
 ### 8.2 Statusfarben
 
-| Status | Bedeutung | Token |
-|---|---|---|
-| Entwurf | in Arbeit, nicht geprüft | `--color-badge-neutral-*` |
-| In Prüfung | eingereicht, wartet auf Freigabe | `--color-badge-info-*` |
-| Freigegeben | verbindlich, baseline-fähig | `--color-badge-success-*` |
-| Veraltet | ersetzt oder zurückgezogen | `--color-badge-warning-*` |
-| Abgelehnt | geprüft und verworfen | `--color-badge-danger-*` |
+**Fachliche Korrektur (2026-07-31):** Die Erstfassung ging von genau fünf festen
+Status-Namen aus (Entwurf/In Prüfung/Freigegeben/Veraltet/Abgelehnt). Das ist derselbe
+Fehler wie die ursprüngliche Trace-Spine (Kapitel 5.1) — eine feste Liste, wo das
+Datenmodell konfigurierbar ist: `Requirement.status` ist ein freies Textfeld, und die
+gültige Statusmenge kommt zur Laufzeit aus der `WorkflowDefinition` des jeweiligen
+Workspace. Allein die eingebauten Presets kennen bereits neun verschiedene
+Zustandsmengen — von `draft`/`done` (Preset `minimal`) über `Draft`/`Ready`/`Approved`/
+`Deprecated` (Testfälle) bis `Entwurf`/`Freigegeben`/`Archiviert` (Goals) — und Workspaces
+mit `workflow_configurability: "full"` können eigene Zustände anlegen. Es gibt keine
+kanonische Fünferliste zu dokumentieren.
 
-Die Palette existiert bereits vollständig in `tokens.css`, für beide Themes gespiegelt.
-Sie muss nur überall benutzt werden — heute tut das nur `getStatusBadgeStyle`, und das
-läuft in den Listen, aber nur in einem von sieben Detail-Köpfen.
+**Was stattdessen feststeht: fünf Farb-*Varianten*, nicht fünf Status.**
+
+| Variante | Token |
+|---|---|
+| neutral | `--color-badge-neutral-*` |
+| info | `--color-badge-info-*` |
+| success | `--color-badge-success-*` |
+| warning | `--color-badge-warning-*` |
+| danger | `--color-badge-danger-*` |
+
+Die Palette existiert bereits vollständig in `tokens.css`, für beide Themes gespiegelt. Was
+fehlt, ist nicht die Palette, sondern eine **einzige, verbindliche Quelle** für die
+Zuordnung Status → Variante.
+
+#### 8.2.1 Zuordnung Status → Variante: zentral in der Workflow-Engine, nicht im Frontend
+
+**Entscheidung (2026-07-31):** Die Zuordnung wird **nicht** als Namensliste im Frontend
+gepflegt (das bricht bei jedem neuen Preset oder Workspace-eigenen Status erneut). Sie wird
+Teil der Workflow-Definition selbst und zentral administrierbar:
+
+- Jeder Zustand in `WorkflowDefinition.workflow_json["states"]` bekommt ein Feld
+  `badge_variant` mit genau einem der fünf Werte oben. Fehlt es (Altbestand, manuell
+  angelegte Zustände), gilt `neutral` als Fallback — nie ein Rateversuch anhand des Namens.
+- Administrierbar über denselben Editor, der heute schon Zustände und Übergänge einer
+  Workflow-Definition verwaltet (Kapitel 12.9) — Statusfarbe ist eine Eigenschaft des
+  Zustands, kein separates Frontend-Konzept. Eine Änderung wirkt sofort auf allen Seiten,
+  die `<StatusBadge>` benutzen.
+- **Migration ohne Verhaltensänderung:** Beim Einführen wird `badge_variant` für alle
+  eingebauten Presets mit genau den Werten befüllt, die `getStatusBadgeStyle` heute schon
+  zurückgibt — die funktionale Untergrenze aus Kapitel 4 gilt auch hier. Ob z. B.
+  `deprecated` künftig als `danger` oder `warning` erscheint, ist damit keine Konzept-
+  Entscheidung mehr, sondern eine Workflow-Konfiguration, die jeder Workspace-Admin selbst
+  ändern kann.
+- Das Frontend fragt nur noch `badge_variant` ab und rendert die zugehörige Variante — es
+  enthält **keine** Status-Namensliste mehr. Das behebt zugleich das Problem, dass
+  `getStatusBadgeStyle` heute nur einen Teil der real vorkommenden Status kennt und den
+  Rest auf `neutral` zurückfallen lässt, ohne dass das je auffällt.
+
+**Damit gilt weiterhin unverändert:** Farbe kodiert ausschließlich Status — nur die Quelle
+der Zuordnung wandert von verstreutem Frontend-Code in eine einzige, sichtbare,
+admin-pflegbare Stelle im Datenmodell.
 
 ### 8.3 Was Farbe nicht tut
 
 | Information | Wird unterschieden über |
 |---|---|
 | Artefakttyp | Position und Text (Präfix der ID: `SYS-REQ`, `SYS-ARCH`) |
-| V-Modell-Ebene | neutrales Badge links neben dem Titel |
+| Ebene (Requirement) bzw. Baumtiefe (Architektur) | neutrales `<LevelBadge>` links neben dem Titel, siehe 12.4 — bei allen übrigen Artefakttypen entfällt es |
 | Priorität / Schwere | Text, bei Bedarf ein Symbol |
 | Auswahl | Fläche und linke Kante, nicht Textfarbe |
 
@@ -501,6 +573,11 @@ Hier wird ein Teil der gestalterischen Freiheit ausgegeben.
 
 ### 9.1 Die Empfehlung
 
+**Entschieden (2026-07-31):** IBM Plex, als **Default-Theme-Schrift** — Typografie ist Teil
+des Primitiv-Satzes eines Themes (Kapitel 8.6), nicht länger global fest verdrahtet. Ein
+neues Theme kann künftig auch die Schriftfamilie mitbestimmen; `default-dark`/
+`default-light` (die Migration des heutigen Zustands) verwenden beide IBM Plex.
+
 **Eine Familie, drei Schnitte: IBM Plex Sans, IBM Plex Mono, IBM Plex Sans Condensed.**
 
 Begründung aus dem Gegenstand:
@@ -526,9 +603,11 @@ schwerer zu scannen, als es sein müsste.
 Die Umstellung ist ein Ersetzen der Familie in einem Token. Der Aufwand liegt im
 Selbst-Hosten, das ohnehin ansteht.
 
-> **Falls Outfit bleiben soll:** Dann muss trotzdem ein Mono-Schnitt dazukommen und
-> `font-variant-numeric: tabular-nums` gesetzt werden. Die Empfehlung oben ist die
-> saubere Lösung; die Mindestanforderung ist der Mono-Schnitt.
+> **Entschieden, nicht mehr offen:** Die Erstfassung ließ „Outfit behalten + Mono
+> nachrüsten" als Alternative offen. Diese Alternative ist mit der Theming-Entscheidung
+> aus 9.1 vom Tisch — IBM Plex ist die Default-Theme-Schrift. Ein zukünftiges Theme *könnte*
+> eine andere Schriftfamilie wählen (Kapitel 8.6), müsste dann aber dieselbe Mindestanforderung
+> erfüllen: eigener Mono-Schnitt, `font-variant-numeric: tabular-nums`.
 
 ### 9.3 Rollen
 
@@ -752,7 +831,7 @@ Lesen den Titel — beide brauchen ihre Zeile.
 | Position | Inhalt | Darstellung |
 |---|---|---|
 | oben links | ID | `<ArtifactId>`, Mono |
-| oben links, daneben | Ebene / Typ | `<LevelBadge>`, neutral |
+| oben links, daneben | Ebene (nicht Typ — der läuft über das ID-Präfix, Prinzip 3.1) | `<LevelBadge>`, neutral |
 | oben rechts | Status | `<StatusBadge>`, farbkodiert |
 | oben rechts, ganz außen | Version | `<VersionBadge>`, nur bei > 1 |
 | unten | Titel | `--font-size-lg`, eine Zeile, bei Bedarf gekürzt |
@@ -771,9 +850,9 @@ Vier kleine Komponenten, die zusammen Prinzip 3.1 durchsetzen.
 
 | Komponente | Regel |
 |---|---|
-| `<ArtifactId>` | `--font-mono`, `--font-size-sm`, `user-select: all`, Klick kopiert mit Bestätigung, übersetzter Tooltip |
-| `<LevelBadge>` | **neutral** — Ebene ist kein Zustand |
-| `<StatusBadge>` | **einzige** farbkodierte Angabe, immer über `getStatusBadgeStyle` |
+| `<ArtifactId>` | `--font-mono`, `--font-size-sm`, `user-select: all` zur manuellen Auswahl; Kopieren über einen eigenen Kopier-Knopf (nicht denselben Klick, der sonst selektiert), übersetzter Tooltip |
+| `<LevelBadge>` | **neutral** — Ebene ist kein Zustand. Inhalt: `L0`–`L4` bei Requirement (aus `Requirement.level`, entfällt wenn `NULL`), `T0`, `T1`, … bei ArchitectureElement (Baumtiefe), sonst kein Badge (5.1) |
+| `<StatusBadge>` | **einzige** farbkodierte Angabe. Variante kommt aus `badge_variant` der Workflow-Definition (8.2.1), nicht aus einer Statusnamensliste im Frontend; unbekannt/nicht gesetzt → `neutral` |
 | `<VersionBadge>` | neutral, `tabular-nums`, nur ab Version 2 |
 
 **Behebt:** drei Status-Implementierungen (eine gefärbt, drei grau kopiert, drei fehlend),
@@ -878,15 +957,16 @@ warum.
 
 ### 12.10 `<TraceSpine>`
 
-Siehe Kapitel 5. Die Stationen sind **kein** festes Array — sie werden aus der realen
-Ableitungskette des Artefakts aufgelöst (Baumtiefe je Vorfahre/Nachfahre), Verifikation
-kommt als Badge pro Station, nicht als eigene Station.
+Siehe Kapitel 5. Die Stationen sind **kein** festes Array — sie werden nach der
+Projektionsregel aus 5.2 aufgelöst (Backend-Voraussetzung dort, noch offen). Verzweigungen
+zeigen ein Anzahl-Badge ohne Pfadauswahl (5.2), Verifikation kommt als `V·N`-Badge nur an
+Requirement-/Architektur-Stationen (5.1), nicht als eigene Station.
 
 ```tsx
 <TraceSpine
   artifact={selected}
-  chain={useDerivationChain(selected)}   // N Stationen, dynamisch aus get_level()
-  onSelectStation={(station) => openLinkedPanel(station)}
+  chain={useDerivationChain(selected)}   // N Stationen nach der Projektionsregel aus 5.2
+  onSelectStation={(station) => openLinkedPanel(station)}   // mehrere Vorgaenger/Nachfolger -> alle im Panel
   onSelectVerification={(station) => openTestPanel(station)}
 />
 ```
