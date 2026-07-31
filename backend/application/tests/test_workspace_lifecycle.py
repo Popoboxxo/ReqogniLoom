@@ -507,6 +507,63 @@ class TestWorkspaceProvisionsWorkflowDefinition:
 
 
 # ---------------------------------------------------------------------------
+# creator role assignment (GitHub #232)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceCreatorGetsAdminRole:
+    """Bugfix #232: create_workspace / clone_workspace must grant the
+    creating user an 'admin' UserRole in the new workspace.
+
+    Without this, a freshly created workspace has zero UserRole rows. The
+    REST Bearer-token path resolves roles tenant-globally so it never
+    noticed, but the MCP API-key dispatch path resolves roles strictly
+    per workspace_id (mcp_server/tool_registry.py._resolve_roles) and
+    returned an empty tuple, rejecting every write with
+    "Role '()' does not permit write operations" — even for the tenant
+    admin who just created the workspace.
+    """
+
+    def test_create_workspace_assigns_admin_role_to_creator(self):
+        from auth_tenancy.models import ROLE_ADMIN, UserRole
+
+        tenant, user = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+
+        svc = WorkspaceService()
+        with patch("application.workspace_service.ServiceBase._audit"):
+            workspace = svc.create_workspace(ctx, name="New WS Role Check", preset="standard")
+
+        role = UserRole.objects.filter(
+            user_id=user.id, workspace_id=workspace.id, suspended_at__isnull=True
+        ).first()
+        assert role is not None, (
+            "create_workspace must create a UserRole for the creator (#232)"
+        )
+        assert role.role == ROLE_ADMIN
+        assert role.tenant_id == tenant.id
+
+    def test_clone_workspace_assigns_admin_role_to_creator(self):
+        from auth_tenancy.models import ROLE_ADMIN, UserRole
+
+        tenant, user = _create_tenant_and_user()
+        source = _create_workspace(tenant, name="Source WS Role Check")
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+
+        svc = WorkspaceService()
+        with patch("application.workspace_service.ServiceBase._audit"):
+            target = svc.clone_workspace(ctx, source.id, "Cloned WS Role Check")
+
+        role = UserRole.objects.filter(
+            user_id=user.id, workspace_id=target.id, suspended_at__isnull=True
+        ).first()
+        assert role is not None, (
+            "clone_workspace must create a UserRole for the creator (#232)"
+        )
+        assert role.role == ROLE_ADMIN
+
+
+# ---------------------------------------------------------------------------
 # name/free-text hardening (Codeberg #56, #57, #80 part 2/4 dedup with #69)
 # ---------------------------------------------------------------------------
 
@@ -531,8 +588,8 @@ class TestWorkspaceNameHardening:
 
     def test_create_workspace_strips_script_tags_from_name(self):
         """A <script> payload in name must be stored as inert text (#57)."""
-        tenant, _ = _create_tenant_and_user()
-        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id)
+        tenant, user = _create_tenant_and_user()
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
         svc = WorkspaceService()
 
         with patch("application.workspace_service.ServiceBase._audit"):

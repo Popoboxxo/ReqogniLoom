@@ -27,6 +27,7 @@ from auth_tenancy.context import AuthContext
 from django.db.models import QuerySet
 from django.utils import timezone
 from django.utils.html import strip_tags
+from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -178,6 +179,29 @@ class WorkspaceService(ServiceBase):
             terminology_profile=terminology_profile,
         )
 
+        # #232: grant the creator an 'admin' UserRole in the new workspace.
+        # Without this, a freshly created workspace has zero UserRole rows,
+        # so any workspace-scoped role lookup (e.g. the MCP API-key dispatch
+        # path in mcp_server/tool_registry.py, which resolves roles strictly
+        # per workspace_id) returns an empty role tuple and every write is
+        # rejected with "Role '()' does not permit write operations" — even
+        # for the tenant admin who just created the workspace. The REST
+        # Bearer-token path happened to mask this because it resolves roles
+        # tenant-globally rather than per-workspace, so the gap only surfaced
+        # via API keys. ``update_or_create`` (not ``create``) so callers that
+        # already assign the creator a role explicitly (some tests, or a
+        # future caller) don't hit a duplicate-key error.
+        UserRole.objects.update_or_create(
+            workspace=workspace,
+            user_id=ctx.user_id,
+            role=ROLE_ADMIN,
+            defaults={
+                "tenant": tenant,
+                "assigned_by_id": ctx.user_id,
+                "suspended_at": None,
+            },
+        )
+
         # Seed the workspace's default workflow definitions (Requirement with
         # the tier-dependent preset + the fixed-preset per-entity workflows) and
         # the REQ-181/182 permission default. Shared with the REQ-188 first-start
@@ -240,6 +264,19 @@ class WorkspaceService(ServiceBase):
             workspace=target,
             active_tier=active_tier,
             terminology_profile=terminology,
+        )
+
+        # #232: same as create_workspace() — grant the creator 'admin' in the
+        # cloned workspace so it isn't role-less from the start.
+        UserRole.objects.update_or_create(
+            workspace=target,
+            user_id=ctx.user_id,
+            role=ROLE_ADMIN,
+            defaults={
+                "tenant_id": ctx.tenant_id,
+                "assigned_by_id": ctx.user_id,
+                "suspended_at": None,
+            },
         )
 
         # Provision the cloned workspace's default workflows (Requirement with
