@@ -297,6 +297,25 @@ class AuditableModel(models.Model):
 
     ``created_by``/``modified_by`` reference :class:`User` with ``SET_NULL`` so
     that deleting a user does not delete audited rows (REQ-L2-PL-009).
+
+    .. warning:: ``version`` is a **pure optimistic-concurrency counter**
+       (issue #213). It is *not* a content revision number and carries no
+       history: the row is overwritten in place on every write, so version
+       ``N`` only ever addresses the current state. Any save bumps it —
+       including writes that change nothing a user would recognise as
+       content. Consequences:
+
+       * ``version`` must only be used to detect concurrent modification
+         (``expected_version`` on update paths).
+       * Never present it as "this artifact has N revisions". Retrievable
+         history comes from Baselines (:mod:`baseline`), from the append-only
+         audit trail (:mod:`audit`), or — for the few types that have real
+         version tables — from ``DiagramVersion`` / ``GlossaryTermVersion`` /
+         ``PromptTemplate``.
+
+       :attr:`lock_version` is the unambiguous alias; prefer it in new code.
+       The column is not renamed because ``version`` is part of the published
+       REST/MCP contract (a rename needs its own design pass — see #213).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -316,10 +335,23 @@ class AuditableModel(models.Model):
         blank=True,
         related_name="+",
     )
+    # NOTE: intentionally no ``help_text`` — changing it would emit an
+    # AlterField migration for every concrete subclass without any schema
+    # change. The semantics are documented in the class docstring instead.
     version = models.IntegerField(default=1)
 
     class Meta:
         abstract = True
+
+    @property
+    def lock_version(self) -> int:
+        """Unambiguous alias for :attr:`version` (issue #213).
+
+        Read-only on purpose: writers must increment the counter atomically
+        via ``F('version') + 1`` rather than through a Python-level attribute
+        assignment, which would reintroduce the read-modify-write race.
+        """
+        return self.version
 
 
 class TenantScopedModel(AuditableModel):

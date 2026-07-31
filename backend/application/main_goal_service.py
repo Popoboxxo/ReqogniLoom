@@ -426,6 +426,8 @@ class MainGoalService(ServiceBase):
                 "source": mg.source,
                 "status": mg.status,
                 "modified_at": mg.created_at.isoformat() if mg.created_at else None,
+                # Immutable per-version rows — content always retrievable (#213).
+                "content_available": True,
             }
             for mg in qs
         ]

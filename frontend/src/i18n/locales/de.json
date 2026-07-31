@@ -732,7 +732,8 @@
         "compare": "Mit aktueller Version vergleichen",
         "copy": "Versions-ID kopieren"
       },
-      "copied": "Versions-ID kopiert"
+      "copied": "Versions-ID kopiert",
+      "noSnapshot": "Für diese Version ist kein Stand gespeichert."
     },
     "diff": {
       "title": "Diff",
