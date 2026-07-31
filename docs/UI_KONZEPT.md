@@ -636,6 +636,84 @@ einzeln anfassen, was Theming in der Praxis unmöglich macht.
   Kontrastregeln) gelten unverändert für **jedes** Theme. Theming tauscht die Werte hinter
   den semantischen Tokens aus, nicht deren Bedeutung.
 
+### 8.6.1 Default-Theme: der heutige Zustand
+
+**Kein neuer Beschluss — Festschreibung dessen, was bereits gilt.** `default-dark` und
+`default-light` sind die Migration des heutigen Zustands, nicht neu erfunden: Indigo
+(`#6366f1` / `#4f46e5`) als Primärfarbe, Slate als Flächenfamilie (Kapitel 4, „Bleibt").
+Jede Abweichung davon ist ein zusätzliches Theme, nicht eine Änderung des Default.
+
+### 8.6.2 Beispiel-Theme: „Bauhaus by Nils"
+
+**Eingereicht (2026-08-01), erste Kontrastprüfung durchgeführt — Ergebnis: umsetzbar, mit
+zwei offenen Punkten, bevor es freigegeben werden kann.** Dieser Abschnitt ist zugleich der
+Beleg, dass die Prüfpflicht aus 8.6 kein Lippenbekenntnis ist: Sie hat hier tatsächlich zwei
+Probleme gefunden, bevor irgendein Code geschrieben wurde.
+
+**Gelieferte Primitiv-Werte:**
+
+| Rolle laut Vorlage | Hex | Primitiv-Token |
+|---|---|---|
+| Hintergrund (Base) | `#F4F4F0` (Alabaster) | `--palette-bauhaus-alabaster` |
+| Primär (Text & Struktur) | `#1A2B4C` (Deep Navy Blue) | `--palette-bauhaus-navy` |
+| Primäre Aktion | `#EBB54A` (Mustard Yellow) | `--palette-bauhaus-mustard` |
+| Warnung / Fehler | `#C55A4E` (Terracotta Red) | `--palette-bauhaus-terracotta` |
+| Erfolg / Freigabe | `#4A7C72` (Muted Teal) | `--palette-bauhaus-teal` |
+| Deaktiviert / Rahmen | `#8E9CA3` (Slate Gray) | `--palette-bauhaus-slate` |
+
+**Rechnerisch geprüfte Kontraste (WCAG-Formel, relative Luminanz):**
+
+| Kombination | Verhältnis | Ergebnis |
+|---|---|---|
+| Navy-Text auf Alabaster-Fläche | 12,75 : 1 | weit über AA (4,5:1) — sehr gut |
+| Weiß auf Muted Teal (Erfolgs-Badge) | 4,76 : 1 | besteht AA knapp |
+| Navy auf Mustard Yellow | 7,53 : 1 | besteht AA deutlich |
+| **Weiß auf Mustard Yellow** | **1,87 : 1** | **durchfällt klar — kein Button-Text auf Mustard in Weiß** |
+| **Slate Gray-Text auf Alabaster** | **2,56 : 1** | **durchfällt selbst die 3:1-Schwelle für UI-Elemente** |
+| Weiß auf Terracotta Red | 4,25 : 1 | knapp unter AA für normalen Text — nur ab „groß/fett" (≥19px bold) zulässig |
+| Mustard Yellow als Fokusring auf Alabaster | 1,69 : 1 | durchfällt die 3:1-Nichttext-Kontrastregel (WCAG 1.4.11) |
+
+**Konkrete Konsequenzen für die Umsetzung:**
+
+- **Primäre Aktion (`--color-primary: var(--palette-bauhaus-mustard)`):** Button-*Text*
+  muss Navy sein, nicht Weiß — das Gegenteil vom Default-Theme, wo helle Schrift auf
+  dunklem Indigo liegt. `<Button primary>` darf die Textfarbe deshalb nicht hart auf Weiß
+  setzen, sondern muss ein eigenes `--color-on-primary`-Token lesen, das je Theme kippen
+  kann (Navy hier, Weiß im Default). **Neues Token, gehört in Anhang A.**
+- **`--color-focus` darf in diesem Theme nicht Mustard sein** (1,69:1, unsichtbar für
+  Sehbehinderte und objektiv unter der Nichttext-Schwelle). Vorschlag: Navy als Fokusring
+  — auf Alabaster mit 12,75:1 exzellent sichtbar, funktioniert auch auf den farbigen
+  Flächen selbst als Kontrastrahmen.
+- **Slate Gray ist in der Vorlage für „sekundäre Texte" *und* „Rahmen/Divider" vorgesehen
+  — das sind zwei verschiedene Anforderungen.** Als Rahmenfarbe (`--color-border`) ist der
+  gelieferte Wert unproblematisch, Nichttext-Elemente mit reiner Trennfunktion haben keine
+  Kontrastpflicht. Als **Text**farbe (`--color-text-muted`) besteht er die Prüfung nicht.
+  → **ENTSCHEIDUNG NÖTIG, nicht selbst getroffen:** entweder liefert Nils einen zweiten,
+  dunkleren Grauton eigens für sekundären Fließtext, oder `--color-text-muted` in diesem
+  Theme wird aus Navy mit reduzierter Deckkraft abgeleitet (z. B. Navy bei 65 % Opazität
+  auf Alabaster — rechnerisch neu zu prüfen, nicht ungeprüft übernehmen).
+- **Terracotta mit weißer Schrift** ist nur für Badges/Labels ab `--font-size-md` **und**
+  mindestens `--weight-semibold` zulässig (erfüllt die 3:1-Großtext-Schwelle sicher, die
+  4,5:1-Schwelle für Fließtext nicht). Für Fließtext-Fehlermeldungen (Kapitel 13.4, `role=
+  "alert"`) auf Terracotta-Grund ist Navy- oder Schwarztext zu verwenden, nicht Weiß.
+- **Fehlende Rollen:** Die Vorlage liefert zwei der fünf Status-Varianten direkt (`success`
+  = Teal, `danger` = Terracotta). Für `info` und `warning` (Kapitel 8.2) fehlt eine
+  eigenständige Farbe — Mustard ist im Konzept ausdrücklich „Primäre Aktion", nicht Status,
+  und darf laut Prinzip 3.3 (Farbe hat genau eine Bedeutung) nicht zusätzlich als
+  Statusfarbe wiederverwendet werden. **ENTSCHEIDUNG NÖTIG:** zwei weitere Töne von Nils
+  anfordern, oder `info`/`warning` aus vorhandenen Werten ableiten (z. B. abgestufte
+  Teal-/Terracotta-Varianten) — Letzteres ist ein Kompromiss, kein Ersatz für echte
+  Vorlagenwerte.
+- **`--color-surface-raised`** (erhöhte Fläche für Karten/Panels/Dialoge) ist in der
+  Vorlage nicht enthalten — Alabaster kann nicht beides sein (Seitengrund *und* Karte
+  müssen sich unterscheiden, sonst verschwinden Kartenränder). Vorschlag als Platzhalter:
+  reines Weiß `#FFFFFF` für Karten auf Alabaster-Grund — **zu bestätigen, kein
+  Vorlagenwert.**
+
+**Status:** Primitiv-Tabelle vollständig für das, was geliefert wurde. Freigabe für die
+Umsetzung erst nach den drei markierten Entscheidungen (Text-Grauton, Info/Warning-Farben,
+`--color-surface-raised`) und der Einführung von `--color-on-primary` als neuem Token.
+
 ---
 
 ## 9. Typografie
