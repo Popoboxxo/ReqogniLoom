@@ -1338,7 +1338,31 @@ class UserProfileSerializer(serializers.Serializer):
     ``last_name`` are the only writable fields (a user may edit their own name
     but not their username, email, tenant or roles). ``update`` applies the
     partial change and persists only the touched columns.
+
+    QIRK-002 (#73): any other key in the payload is rejected with HTTP 400
+    rather than silently dropped. Silently returning 200 made callers believe a
+    password or privilege change had been applied when it had not.
     """
+
+    #: Writable via this endpoint. Everything else in the payload is an error.
+    WRITABLE_FIELDS = ("first_name", "last_name")
+
+    #: Security/identity fields that a caller must never set here. Listed
+    #: explicitly so the 400 can carry a targeted, actionable message.
+    PROTECTED_FIELDS = (
+        "password",
+        "is_admin",
+        "is_superuser",
+        "is_staff",
+        "is_active",
+        "roles",
+        "role",
+        "tenant_id",
+        "tenant",
+        "username",
+        "email",
+        "id",
+    )
 
     id = serializers.UUIDField(read_only=True)
     username = serializers.CharField(read_only=True)
@@ -1350,6 +1374,40 @@ class UserProfileSerializer(serializers.Serializer):
         max_length=150, required=False, allow_blank=True, default=""
     )
     is_active = serializers.BooleanField(read_only=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject protected and unknown keys with 400 (QIRK-002, #73).
+
+        DRF ignores non-writable keys by default, which is safe (no mass
+        assignment) but misleading: the caller gets 200 for an operation that
+        never happened. Validation happens before ``update()``, so a payload
+        mixing legal and rejected fields applies nothing at all.
+        """
+        supplied = getattr(self, "initial_data", None)
+        if not isinstance(supplied, dict):
+            return attrs
+
+        errors: dict[str, list[str]] = {}
+        for key in supplied:
+            if key in self.WRITABLE_FIELDS:
+                continue
+            if key == "password":
+                errors[key] = [
+                    "Passwords cannot be changed via this endpoint. Use the "
+                    "administrative user management instead."
+                ]
+            elif key in self.PROTECTED_FIELDS:
+                errors[key] = [
+                    "This field is read-only and cannot be changed via "
+                    "/auth/me/."
+                ]
+            else:
+                errors[key] = ["Unknown field."]
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         """Apply first_name/last_name changes to ``instance`` and persist them.
