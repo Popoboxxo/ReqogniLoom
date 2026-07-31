@@ -259,11 +259,19 @@ class MainGoalServiceGenerateAiTests(TestCase):
         self.assertEqual(result["source"], "ai")
         self.assertEqual(result["status"], "Entwurf")
         self.assertEqual(result["generated_from_goal_ids"], [goal["id"]])
+        # Regression guard for #229: with LLM_PROVIDER=mock (the default),
+        # MockLlmProvider.complete() had no "goal_aggregate" branch and fell
+        # through to its generic ``json.dumps([])`` fallback, so ``content``
+        # was the literal string "[]" — truthy, so the old bare
+        # ``assertTrue(result["content"])`` above passed even with the bug.
         self.assertTrue(result["content"])
+        self.assertNotEqual(result["content"], "[]")
+        self.assertIn(goal["title"], result["content"])
 
         main_goal = MainGoal.objects.get(id=result["id"])
         self.assertEqual(main_goal.source, "ai")
         self.assertEqual(main_goal.generated_from_goal_ids, [goal["id"]])
+        self.assertNotEqual(main_goal.content, "[]")
 
     def test_generate_ai_ignores_unapproved_goals(self):
         """An ``Entwurf`` Goal is not aggregation input — generation must fail.

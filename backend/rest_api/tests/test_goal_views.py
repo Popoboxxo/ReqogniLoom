@@ -225,3 +225,60 @@ def test_goal_transitions_endpoint_approves_goal():
     retrieve_req.auth_context = ctx
     retrieve_resp = GoalViewSet.as_view({"get": "retrieve"})(retrieve_req, pk=goal_id)
     assert retrieve_resp.data["status"] == "Freigegeben"
+
+
+def test_goal_patch_returns_405_not_500():
+    """Regression test for #235: PATCH /api/v1/goals/{id}/ crashed with an
+    uncaught NotImplementedError (HTML 500) because GoalViewSet never
+    overrode BaseEntityViewSet.partial_update(). It must now fail cleanly
+    with a JSON 405 instead of crashing the server.
+    """
+    tenant, workspace = _new_tenant_and_workspace("T6", name="W6", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/goals/",
+        {"workspace_id": str(workspace.id), "title": "Goal to patch"},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = GoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+    goal_id = created.data["id"]
+
+    patch_req = factory.patch(
+        f"/api/v1/goals/{goal_id}/", {"title": "Renamed"}, format="json"
+    )
+    patch_req.auth_context = ctx
+    patch_resp = GoalViewSet.as_view({"patch": "partial_update"})(patch_req, pk=goal_id)
+
+    assert patch_resp.status_code == 405
+    assert "error" in patch_resp.data
+
+
+def test_goal_delete_returns_405_not_500():
+    """Regression test for #235: DELETE /api/v1/goals/{id}/ crashed with an
+    uncaught NotImplementedError (HTML 500) because GoalViewSet never
+    overrode BaseEntityViewSet.destroy().
+    """
+    tenant, workspace = _new_tenant_and_workspace("T7", name="W7", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/goals/",
+        {"workspace_id": str(workspace.id), "title": "Goal to delete"},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = GoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+    goal_id = created.data["id"]
+
+    delete_req = factory.delete(f"/api/v1/goals/{goal_id}/")
+    delete_req.auth_context = ctx
+    delete_resp = GoalViewSet.as_view({"delete": "destroy"})(delete_req, pk=goal_id)
+
+    assert delete_resp.status_code == 405
+    assert "error" in delete_resp.data

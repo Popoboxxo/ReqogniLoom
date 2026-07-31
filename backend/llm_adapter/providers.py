@@ -711,6 +711,34 @@ class MockLlmProvider(LlmCapabilityInterface):
                 ]
             )
 
+        if purpose == "goal_aggregate":
+            # MainGoalService.generate_ai (Goal/MainGoal feature, fix #229):
+            # unlike every other purpose above, ``goal_aggregate`` expects
+            # free-form prose (2-4 sentences), not a JSON array/object — the
+            # factory prompt template explicitly says "Respond with the
+            # MainGoal text only" (persistence.models.PROMPT_TEMPLATE_DEFAULTS).
+            # Falling through to the generic ``json.dumps([])`` fallback below
+            # produced the literal string "[]" as MainGoal.content. The mock
+            # never parses the prompt (context/prompt are ignored per this
+            # method's docstring), so it echoes the goal titles the caller
+            # already resolved into ``context["goal_titles"]`` instead of
+            # inventing content.
+            goal_titles = ctx.get("goal_titles")
+            goal_titles = [str(t) for t in goal_titles] if isinstance(goal_titles, list) else []
+            if goal_titles:
+                joined = "; ".join(goal_titles)
+                return (
+                    f"This workspace's overarching goal is to achieve: {joined}. "
+                    "It unifies the individual goals listed above into one "
+                    "shared direction (mock provider — no semantic synthesis "
+                    "performed)."
+                )
+            return (
+                "This workspace's overarching goal aggregates its current "
+                "goals into one shared direction (mock provider placeholder "
+                "— no goals were supplied)."
+            )
+
         if purpose == "derive_adr_from_decision":
             # Phase 3, Task 5 (ai_derivation.derive_adr_from_decision):
             # deterministic single ADR draft (title, description, context,

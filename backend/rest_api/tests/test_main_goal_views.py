@@ -263,3 +263,92 @@ def test_list_main_goals_requires_workspace_id():
     resp = MainGoalViewSet.as_view({"get": "list"})(req)
 
     assert resp.status_code == 400
+
+
+def test_main_goal_retrieve_returns_detail_not_500():
+    """GET /api/v1/main-goals/{pk}/ — regression test for #235:
+    MainGoalViewSet had no ``retrieve()`` override and inherited
+    BaseEntityViewSet's ``raise NotImplementedError`` stub, uncaught by the
+    except-blocks elsewhere in this file, causing an HTML 500 crash instead
+    of the expected detail payload.
+    """
+    tenant, workspace = _new_tenant_and_workspace("T8", name="W8", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/main-goals/",
+        {"workspace_id": str(workspace.id), "content": "Draft to retrieve."},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = MainGoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+    main_goal_id = created.data["id"]
+
+    retrieve_req = factory.get(f"/api/v1/main-goals/{main_goal_id}/")
+    retrieve_req.auth_context = ctx
+    retrieve_resp = MainGoalViewSet.as_view({"get": "retrieve"})(retrieve_req, pk=main_goal_id)
+
+    assert retrieve_resp.status_code == 200
+    assert retrieve_resp.data["id"] == main_goal_id
+    assert retrieve_resp.data["content"] == "Draft to retrieve."
+
+
+def test_main_goal_patch_returns_405_not_500():
+    """PATCH /api/v1/main-goals/{pk}/ — regression test for #235:
+    MainGoalViewSet inherited BaseEntityViewSet.partial_update()'s
+    ``raise NotImplementedError`` stub. It must now fail cleanly with a
+    JSON 405 instead of crashing the server.
+    """
+    tenant, workspace = _new_tenant_and_workspace("T9", name="W9", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/main-goals/",
+        {"workspace_id": str(workspace.id), "content": "Draft to patch."},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = MainGoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+    main_goal_id = created.data["id"]
+
+    patch_req = factory.patch(
+        f"/api/v1/main-goals/{main_goal_id}/", {"content": "Renamed"}, format="json"
+    )
+    patch_req.auth_context = ctx
+    patch_resp = MainGoalViewSet.as_view({"patch": "partial_update"})(
+        patch_req, pk=main_goal_id
+    )
+
+    assert patch_resp.status_code == 405
+    assert "error" in patch_resp.data
+
+
+def test_main_goal_delete_returns_405_not_500():
+    """DELETE /api/v1/main-goals/{pk}/ — regression test for #235:
+    MainGoalViewSet inherited BaseEntityViewSet.destroy()'s
+    ``raise NotImplementedError`` stub.
+    """
+    tenant, workspace = _new_tenant_and_workspace("T10", name="W10", goals_enabled=True)
+    ctx = _make_auth_context(tenant_id=tenant.id)
+    factory = APIRequestFactory()
+
+    create_req = factory.post(
+        "/api/v1/main-goals/",
+        {"workspace_id": str(workspace.id), "content": "Draft to delete."},
+        format="json",
+    )
+    create_req.auth_context = ctx
+    created = MainGoalViewSet.as_view({"post": "create"})(create_req)
+    assert created.status_code == 201
+    main_goal_id = created.data["id"]
+
+    delete_req = factory.delete(f"/api/v1/main-goals/{main_goal_id}/")
+    delete_req.auth_context = ctx
+    delete_resp = MainGoalViewSet.as_view({"delete": "destroy"})(delete_req, pk=main_goal_id)
+
+    assert delete_resp.status_code == 405
+    assert "error" in delete_resp.data

@@ -169,7 +169,10 @@ class MainGoalService(ServiceBase):
             prompt,
             purpose="goal_aggregate",
             artifact_id=str(workspace_id),
-            context={"workspace_id": str(workspace_id)},
+            context={
+                "workspace_id": str(workspace_id),
+                "goal_titles": [g.title for g in goals],
+            },
         )
 
         return self._create_row(
