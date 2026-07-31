@@ -406,8 +406,15 @@ SPECTACULAR_SETTINGS = {
 AUTH_JWT_SECRET: str = _get_required_secret("AUTH_JWT_SECRET")
 AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqogniloom")
 AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqogniloom-api")
-# Access-token lifetime in seconds (default 12h).
-AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=43200, cast=int)
+# Access-token lifetime in seconds (#77: reduced from 12h to 60min — a stolen/
+# leaked access token now only has a 1h window instead of 12h.
+# NOTE: PR #247 (silent JWT refresh via POST /api/v1/auth/refresh/, retried
+# transparently by the SPA on a 401) is what makes this safe to ship without
+# a UX regression — it was still open/unmerged at the time this TTL was
+# shortened. If #247 has not landed yet, users will be forced to re-login
+# every hour instead of every 12h; land #247 first (or concurrently) to avoid
+# that.
+AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=3600, cast=int)
 
 # ---------------------------------------------------------------------------
 # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02 Provider Abstraction)

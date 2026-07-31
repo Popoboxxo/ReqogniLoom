@@ -86,7 +86,7 @@ class PasswordAuthenticationService:
         self._ttl_seconds = (
             token_ttl_seconds
             if token_ttl_seconds is not None
-            else int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 43200))
+            else int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 3600))
         )
 
     # -- Credential verification ------------------------------------------

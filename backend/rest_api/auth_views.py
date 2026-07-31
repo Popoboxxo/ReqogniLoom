@@ -66,7 +66,7 @@ def _set_access_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         ACCESS_COOKIE_NAME,
         token,
-        max_age=int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 43200)),
+        max_age=int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 3600)),
         httponly=True,
         samesite="Lax",
         secure=settings.AUTH_COOKIE_SECURE,
