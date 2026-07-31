@@ -1,6 +1,6 @@
 # UI-Konzept ReqogniLoom
 
-> **Status:** Entwurf zur Abstimmung · **Stand:** 2026-07-28
+> **Status:** Entwurf zur Abstimmung · **Stand:** 2026-07-31 (fachlich korrigiert)
 > **Grundlage:** Konsistenz-Audit an der laufenden Anwendung (Issues #157–#186)
 > **Sammel-Issue:** #186 · **Geltungsbereich:** `frontend/` gesamt
 
@@ -92,8 +92,9 @@ Spezifikationsdokument** — nicht wie ein Ticket-Board. Konkret heißt das:
   am Rand.
 - Der **Freigabestand** ist die zweitwichtigste Information. Nicht dekorativ, sondern
   amtlich.
-- **Ordnung** ist bedeutungstragend. Die Ebene L0–L4 ist keine Kategorie, sondern eine
-  Position im Ableitungsbaum.
+- **Ordnung** ist bedeutungstragend. Die Ebene ist keine feste Kategorie aus einer
+  Fünf-Stufen-Liste, sondern eine Position im Ableitungsbaum — und dieser Baum hat pro
+  Projekt eine andere Tiefe (Kapitel 5.1).
 - **Lücken** sind Inhalt. Ein Requirement ohne Testfall ist die wichtigste Zeile auf dem
   Bildschirm.
 
@@ -168,10 +169,20 @@ Beschäftigung, kein Fortschritt.
 | **Scroll-Modell** | 2–5 Flächen je Seite → genau 3 in der ganzen Anwendung |
 | **Seitenkopf** | 5 Muster → 1 Komponente |
 | **Bäume** | 3 Implementierungen → 1 Primitive |
-| **Neu** | Trace-Spine als Orientierungselement |
+| **Neu** | Trace-Spine als Orientierungselement (dynamische Tiefe, Kapitel 5) |
+| **Neu** | Theming-System — benannte Paletten statt nur Hell/Dunkel (Kapitel 8.6) |
 
-Die gestalterische Freiheit wird also an drei Stellen ausgegeben: **Typografie**,
-**Spine**, **Statusdarstellung**. Alles andere wird aufgeräumt, nicht neu erfunden.
+Die gestalterische Freiheit wird also an vier Stellen ausgegeben: **Typografie**, **Spine**,
+**Statusdarstellung**, **Theming**. Alles andere wird aufgeräumt, nicht neu erfunden.
+
+### Funktionale Untergrenze
+
+**Harte Regel, keine Ermessensfrage:** Jede Seite, die auf dieses Konzept umgestellt wird,
+muss danach **mindestens** den Funktionsumfang bieten, den die heutige Seite hat. Das
+Konzept ändert Darstellung, Struktur und Durchsetzung — es ist kein Anlass, im Vorbeigehen
+eine Filter-, Export- oder Bearbeitungsfunktion zu verlieren, die heute existiert. Wo eine
+Umstellung eine bestehende Fähigkeit vorübergehend nicht abbildet, ist das ein offener
+Punkt im PR, kein akzeptierter Verlust.
 
 ---
 
@@ -180,44 +191,86 @@ Die gestalterische Freiheit wird also an drei Stellen ausgegeben: **Typografie**
 Der eine Teil, an den man sich erinnern soll.
 
 Am linken Rand des Detailbereichs steht eine schmale, senkrechte Leiste: die **Spine**.
-Sie zeigt die fünf V-Modell-Ebenen als feste Stationen und markiert, wo das aktuelle
-Artefakt sitzt.
+Sie zeigt die Ableitungskette rund um das aktuelle Artefakt und markiert, wo es sitzt.
+
+**Fachliche Korrektur (2026-07-31):** Die Erstfassung zeigte fünf feste V-Modell-Stationen
+(L0–L4). Das ist am echten Datenmodell falsch und wurde nach Rückmeldung korrigiert — siehe
+5.1 und 5.2.
+
+### 5.1 Warum keine feste Stufenzahl
+
+Zwei Annahmen der Erstfassung halten der Prüfung gegen `backend/persistence/models.py`
+nicht stand:
+
+**Erstens:** Die Zahl der Subsystem-Ebenen ist nicht fix. `ArchitectureElement.get_level()`
+liefert die **Baumtiefe per CTE-Annotation** (0 = Wurzel, 1 = Kind der Wurzel, …), kein
+Enum mit festen Stufen. `element_type` ist seit REQ-006 (D5) bewusst freies Text-Feld, keine
+geschlossene Liste — "Subsystem" und "Komponente" sind Namenskonventionen, keine
+Ebenennummern. Ein Projekt kann eine Ebene Subsysteme haben, ein anderes sechs, bevor die
+erste Komponente auftaucht. Eine Spine mit fest fünf Stationen zeigt in einem Fall vier
+leere Stufen, im anderen schneidet sie den echten Baum ab.
+
+**Zweitens:** Verifikation ist keine Ebene, sondern eine Verknüpfungsart. `TestCase` ist
+selbst ein `Artifact`; `TraceLink.source`/`target` sind generische Fremdschlüssel auf
+`Artifact`. Ein Testfall kann per `VERIFIES`/`TESTS`-Link an **jedes** Artefakt binden — an
+einen Stakeholder-Bedarf, ein Requirement, ein Subsystem auf beliebiger Tiefe oder eine
+Komponente. Das ist die rechte Seite des V-Modells: Tests laufen parallel zu jeder Ebene der
+linken Seite, nicht als eigene, nachgeschaltete Stufe darunter.
+
+### 5.2 Aufbau
+
+Die Spine rendert deshalb **N Stationen aus der tatsächlichen Ableitungskette** des
+geöffneten Artefakts — Bedarf, Requirement, dann so viele Architektur-Ebenen, wie der
+Baum an dieser Stelle tatsächlich hat — und hängt Verifikation als **Badge an jede
+Station**, nicht als eigene Station ans Ende.
 
 ```
    ╭──────────────────────────────────────────────────────────╮
    │                                                          │
-   │   L0   ○────  Stakeholder Needs                    2 ↑   │
+   │        ○────  Stakeholder-Bedarf                   2 ↑   │
    │        │                                                 │
-   │   L1   ●════  System Requirements        ◀ hier          │
+   │        ●════  System Requirement         ◀ hier     🧪2  │
    │        │                                                 │
-   │   L2   ○────  Subsysteme                           4 ↓   │
+   │        ○────  Subsystem                             4 ↓  │
    │        │                                                 │
-   │   L3   ◍────  Komponenten                          — ⚠   │
+   │        ○────  Sub-Subsystem                         3 ↓  │
    │        │                                                 │
-   │   L4   ○────  Verifikation                         7 ↓   │
+   │        ◍────  Komponente                       — ⚠  🧪5  │
    │                                                          │
    ╰──────────────────────────────────────────────────────────╯
 ```
+
+Zwei Architektur-Ebenen im Beispiel sind kein Zufallswert — die Spine fragt bei jedem
+Öffnen die reale Tiefe des Baums ab (`get_level()` je Vorfahre/Nachfahre in der Kette) und
+rendert genau so viele Zwischenstationen wie vorhanden sind, ohne Ober- oder Untergrenze.
+Ein Bedarf mit direkt darunterliegender Komponente (keine Subsystem-Zwischenebene) zeigt
+entsprechend keine leere Station — es gibt keine Pflichtebenen zwischen den Ankerpunkten
+Bedarf, Requirement und Komponentenblatt.
 
 ### Zeichensprache
 
 | Zeichen | Bedeutung |
 |---|---|
-| `●` gefüllt | die Ebene des aktuellen Artefakts |
-| `○` offen | Ebene mit Verknüpfungen |
-| `◍` halb | Ebene existiert, aber ohne Verknüpfung zu *diesem* Artefakt |
+| `●` gefüllt | die Station des aktuellen Artefakts |
+| `○` offen | Station mit Verknüpfungen |
+| `◍` halb | Station existiert, aber ohne Verknüpfung zu *diesem* Artefakt |
 | `↑` | Herkunft — woraus dieses Artefakt abgeleitet wurde |
 | `↓` | Ableitung — was daraus entstanden ist |
 | `⚠` | **keine Abdeckung** — die eigentliche Information |
+| `🧪N` | **Verifikations-Badge** — N verknüpfte Testfälle an dieser Station, unabhängig von ihrer Position im Baum |
 
 ### Verhalten
 
 - **Klick auf eine Station** öffnet die verknüpften Artefakte in einem Panel neben der
   Spine. Der Kontext bleibt stehen — man verlässt die Seite nicht.
+- **Klick auf ein 🧪-Badge** öffnet die verknüpften Testfälle dieser Station, getrennt vom
+  Ableitungspanel — Verifikation ist eine eigene Frage, keine weitere Ableitungsstufe.
 - **Hover** zeigt die Titel der verknüpften Artefakte als Vorschau.
 - Die Spine ist **immer** sichtbar, solange ein Artefakt geöffnet ist, und scrollt nicht
   mit dem Inhalt.
-- Auf schmalen Fenstern (< 1024 px) wandert sie waagerecht unter den Artefaktkopf.
+- Auf schmalen Fenstern (< 1024 px) wandert sie waagerecht unter den Artefaktkopf. Bei mehr
+  als vier Zwischenstationen wird sie horizontal scrollbar statt umzubrechen — die
+  Reihenfolge der Kette bleibt so erkennbar.
 
 ### Warum das und nicht ein Breadcrumb
 
@@ -398,6 +451,47 @@ sichtbaren Fokus, weil `global.css:41` global `outline: none` setzt.
 
 Der letzte Punkt betrifft heute konkret die Diff-Ansicht: feste Grün- und Rot-Werte auf
 hellem Grund, die im Dunkelmodus unlesbar werden.
+
+### 8.6 Theming-System
+
+**Anforderung (2026-07-31):** Farben sollen austauschbar sein — nicht nur zwischen Hell und
+Dunkel, sondern als benannte Paletten. Das ist mehr als der heutige `ThemeContext`, der
+genau zwei feste Werte kennt.
+
+**Best Practice, zwei Token-Ebenen statt einer.** Design-Systeme, die Themes tatsächlich
+austauschbar halten (Material Design 3, Adobe Spectrum, IBM Carbon), trennen konsequent:
+
+| Ebene | Beispiel | Ändert sich mit dem Theme? |
+|---|---|---|
+| **Primitiv** | `--palette-indigo-500: #6366f1` | nein — Rohfarbwerte, ein Satz pro Theme |
+| **Semantisch** | `--color-primary: var(--palette-indigo-500)` | ja — zeigt je nach aktivem Theme auf ein anderes Primitiv |
+
+Komponenten referenzieren **ausschließlich** die semantische Ebene (`--color-primary`,
+`--color-surface`, `--color-badge-success-bg`, …) — das ist bereits die Regel aus Kapitel 8.1
+und wird durch das ESLint-Gate aus Kapitel 16.1 erzwungen. Ein neues Theme fügt lediglich
+einen neuen Primitiv-Satz hinzu und mappt die bestehenden semantischen Namen darauf — **kein
+Component-Code ändert sich.** Ohne diese Trennung müsste jedes neue Theme jede Komponente
+einzeln anfassen, was Theming in der Praxis unmöglich macht.
+
+**Umsetzung:**
+
+- `ThemeContext` wird von einem Boolean (`isDark`) zu einer Theme-ID erweitert
+  (`activeTheme: string`), `data-theme={activeTheme}` statt `data-theme="dark"`.
+- Jedes Theme ist ein vollständiger Primitiv-Satz in `tokens.css` unter
+  `:root[data-theme="<id>"]` — analog zum bestehenden Light/Dark-Block, nicht als neue
+  Mechanik.
+- Zwei Themes sind zum Start Pflicht (Migration aus dem heutigen Zustand): `default-dark`
+  und `default-light`, byte-identisch zu den heutigen Werten — Theming ist eine
+  Erweiterung, kein Redesign der bestehenden Palette (Kapitel 4).
+- **Kontrastprüfung pro Theme, nicht einmalig.** Jedes neue Theme durchläuft dieselbe
+  4,5:1-Prüfung aus 8.5, bevor es freigegeben wird — sonst wiederholt sich der
+  Diff-Ansicht-Fehler (feste Werte, die in einem Kontext unlesbar werden) mit jedem
+  weiteren Theme.
+- **Auswahl:** Workspace-Setting mit User-Override, analog zum bestehenden Sprachumschalter
+  — Theme ist eine Präferenz, keine Tenant-Policy.
+- **Kein neues Farbkonzept.** Kapitel 8.1–8.5 (Farbe kodiert nur Status, Statuspalette,
+  Kontrastregeln) gelten unverändert für **jedes** Theme. Theming tauscht die Werte hinter
+  den semantischen Tokens aus, nicht deren Bedeutung.
 
 ---
 
@@ -784,17 +878,38 @@ warum.
 
 ### 12.10 `<TraceSpine>`
 
-Siehe Kapitel 5.
+Siehe Kapitel 5. Die Stationen sind **kein** festes Array — sie werden aus der realen
+Ableitungskette des Artefakts aufgelöst (Baumtiefe je Vorfahre/Nachfahre), Verifikation
+kommt als Badge pro Station, nicht als eigene Station.
 
 ```tsx
 <TraceSpine
   artifact={selected}
-  levels={['L0','L1','L2','L3','L4']}
-  onSelectLevel={(lvl) => openLinkedPanel(lvl)}
+  chain={useDerivationChain(selected)}   // N Stationen, dynamisch aus get_level()
+  onSelectStation={(station) => openLinkedPanel(station)}
+  onSelectVerification={(station) => openTestPanel(station)}
 />
 ```
 
-### 12.11 `<Alert>` und Rückmeldungen
+### 12.11 Dynamische Artefakt-Attribute
+
+**Anforderung (2026-07-31):** Die Menge und der Typ der Attribute pro Artefakttyp ist nicht
+fix — `CustomFieldDefinition`/`CustomFieldValue` (tenant-scoped) existieren im Datenmodell
+bereits für genau diesen Zweck, werden aber laut Audit nirgends angezeigt (#29).
+
+Detail-Formulare (`<ArtifactInspector>` und seine Editoren) rendern deshalb zwei Blöcke:
+
+1. **Feste Felder** — die eingebauten Attribute des Artefakttyps (Titel, Beschreibung, …),
+   wie heute.
+2. **Dynamischer Block** — eine Schleife über `CustomFieldDefinition` für den aktuellen
+   Artefakttyp/Workspace, ein Eingabe-Widget pro `CustomFieldType` (Text, Zahl, Auswahl, …).
+   Neue Felder erscheinen ohne Codeänderung, sobald sie im Workspace definiert werden.
+
+Das ist keine neue Fähigkeit, sondern das Nachholen einer bereits vorhandenen: Backend und
+Datenmodell unterstützen variable Attribute seit längerem, die Oberfläche zeigt sie nur
+nicht an.
+
+### 12.12 `<Alert>` und Rückmeldungen
 
 | Art | Darstellung | Dauer |
 |---|---|---|
@@ -982,6 +1097,26 @@ Startwerte in [Anhang B](#anhang-b-messwerte).
 ## 17. Umsetzungsreihenfolge
 
 Nach Wirkung je Aufwand. Die ersten beiden Schritte sind klein und tragen weit.
+
+### Schritt 0 — Pilot an drei Artefakttypen
+
+*vor Schritt 1 · Validierung, kein flächendeckender Umbau*
+
+Bevor das Konzept über zehn Routen ausgerollt wird, wird es an drei Artefakttypen mit
+unterschiedlichem Belastungsprofil geprüft:
+
+- **Goals/MainGoal** — neuester Artefakttyp, kleinster Bestandscode, geringstes
+  Regressionsrisiko.
+- **Architecture** — prüft die dynamische Spine (Kapitel 5.2) gegen echte, unterschiedlich
+  tiefe Bäume und die Baum-Primitive (Kapitel 12.5).
+- **Needs** — prüft `<PageHeader>`, `<ListToolbar>` und dynamische Attribute
+  (Kapitel 12.11) an einem etablierten, gut genutzten Artefakttyp.
+
+**Abnahmekriterium:** Für jeden der drei Piloten gilt die funktionale Untergrenze aus
+Kapitel 4 — mindestens derselbe Funktionsumfang wie die heutige Seite, geprüft anhand einer
+Liste der heute vorhandenen Fähigkeiten (Filter, Sortierung, Export, Bearbeitungsfelder,
+Aktionen) vor Beginn der Umstellung. Erst nach erfolgreichem Piloten an allen drei Typen
+beginnt der flächendeckende Rollout ab Schritt 1.
 
 ### Schritt 1 — Fundament
 
@@ -1200,3 +1335,4 @@ dauerhafter Test aus 16.1.
 | Datum | Änderung |
 |---|---|
 | 2026-07-28 | Erstfassung aus dem Konsistenz-Audit (#157–#186) |
+| 2026-07-31 | Fachliche Korrektur nach Review: Trace-Spine von fünf festen V-Modell-Stationen auf dynamische Ebenenzahl umgestellt (Kapitel 5, gegen `ArchitectureElement.get_level()` geprüft — Baumtiefe, kein Enum); Verifikation von eigener Endstufe zu Badge pro Station (Tests verlinken laut Datenmodell auf jede Ebene, nicht nur auf eine Verifikationsstufe); neues Kapitel 8.6 Theming-System (benannte Paletten über Primitiv-/Semantik-Token-Trennung, best practice nach Material Design 3 / Adobe Spectrum / IBM Carbon); Kapitel 12.11 Dynamische Artefakt-Attribute ergänzt (`CustomFieldDefinition` existiert im Datenmodell, wird nicht angezeigt — Audit #29); funktionale Untergrenze in Kapitel 4 ergänzt; Schritt 0 (Pilot an Goals, Architecture, Needs) vor die Umsetzungsreihenfolge gesetzt. |
