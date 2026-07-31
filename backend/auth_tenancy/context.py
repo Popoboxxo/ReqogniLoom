@@ -90,10 +90,17 @@ class AuthContext:
     Attributes:
         user_id: Authenticated user primary key (actor for AuditLog).
         tenant_id: Active tenant primary key (DB-validated).
-        active_roles: Non-suspended role names effective for this request.
+        active_roles: Non-suspended role names effective for this request. When
+            ``workspace_id`` is set these are the roles held **in that
+            workspace** only (GitHub #103); otherwise they are the tenant-wide
+            union, which is valid solely for requests that target no specific
+            workspace.
         auth_method: Mechanism that authenticated the request.
         api_key_id: API-key primary key for ``api_key`` auth, else ``None``.
         tenant_name: Human-readable tenant name (convenience for consumers).
+        workspace_id: Workspace this request targets, or ``None`` when the
+            request is not bound to a single workspace. Documents the scope
+            ``active_roles`` was resolved against.
     """
 
     user_id: UUID
@@ -102,6 +109,7 @@ class AuthContext:
     auth_method: AuthMethod
     api_key_id: UUID | None = None
     tenant_name: str = ""
+    workspace_id: UUID | None = None
 
     def has_role(self, role: str) -> bool:
         """Return whether ``role`` is among the active roles (case-insensitive)."""

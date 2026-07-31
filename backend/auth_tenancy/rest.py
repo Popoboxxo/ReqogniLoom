@@ -22,6 +22,7 @@ Requirements: REQ-L2-AT-001/002/003/007, REQ-L3-AT001-*, REQ-L3-AT002-001, REQ-1
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from rest_framework import authentication, exceptions, permissions
 from rest_framework.authentication import CSRFCheck
@@ -34,6 +35,7 @@ from .services import (
     Operation,
     TenantContextService,
 )
+from .workspace_scope import resolve_request_workspace_id
 
 # Header names (REQ-L2-AT-001/002).
 _AUTH_HEADER = "HTTP_AUTHORIZATION"
@@ -47,11 +49,17 @@ _API_KEY_PLAINTEXT_PREFIX = "reqlo_"
 ACCESS_COOKIE_NAME = "reqogniloom_access"
 
 
-def _resolve_roles_from_db(user_id: Any) -> tuple[str, ...]:
+def _resolve_roles_from_db(
+    user_id: Any, workspace_id: UUID | None = None
+) -> tuple[str, ...]:
     """Return active roles for *user_id* from the :class:`UserRole` table (REQ-126).
 
     Must be called **after** tenant activation so the ``UserRole`` queryset is
     scoped to the current tenant via the RLS thread-local.
+
+    When ``workspace_id`` is given the result is restricted to assignments in
+    that workspace (GitHub #103). Without it the tenant-wide union is returned,
+    which is only correct for requests that target no specific workspace.
 
     Used by :class:`AuthTenancyAuthentication` as a role fallback when:
     * Auth method is ``API_KEY`` (claims always carry ``roles=()``)
@@ -60,15 +68,28 @@ def _resolve_roles_from_db(user_id: Any) -> tuple[str, ...]:
     """
     from auth_tenancy.models import UserRole  # local import avoids circular dep
 
+    filters: dict[str, Any] = {
+        "user_id": user_id,
+        "suspended_at__isnull": True,
+    }
+    if workspace_id is not None:
+        filters["workspace_id"] = workspace_id
+
     role_entries = (
-        UserRole.objects.filter(
-            user_id=user_id,
-            suspended_at__isnull=True,
-        )
-        .values_list("role", flat=True)
-        .distinct()
+        UserRole.objects.filter(**filters).values_list("role", flat=True).distinct()
     )
     return tuple(sorted({str(r).lower() for r in role_entries}))
+
+
+def _workspace_exists(workspace_id: UUID) -> bool:
+    """Return whether *workspace_id* exists in the active tenant.
+
+    Must be called **after** tenant activation; ``Workspace.objects`` is
+    tenant-scoped, so a workspace of another tenant reads as non-existent.
+    """
+    from persistence.models import Workspace  # local import avoids circular dep
+
+    return Workspace.objects.filter(id=workspace_id).exists()
 
 
 class _StandardAuthError(exceptions.APIException):
@@ -126,21 +147,46 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
             tenant_context = self._tenancy.resolve_tenant_context(claims)
             self._tenancy.activate(tenant_context)
 
-            # Resolve effective roles (REQ-126).
+            # Resolve effective roles (REQ-126, GitHub #103).
             #
-            # API_KEY claims always carry roles=() — resolve from UserRole.
-            # BEARER_TOKEN claims carry roles at token-issuance time; if empty
-            # (new user, or role assigned after token was minted), fall back to
-            # a DB lookup for symmetric behaviour with the API_KEY path.
-            # When the JWT carries non-empty roles those are used as-is (fast
-            # path — no extra DB query).
-            active_roles = claims.roles
-            if claims.auth_method == AuthMethod.API_KEY or (
-                claims.auth_method == AuthMethod.BEARER_TOKEN and not active_roles
-            ):
-                active_roles = _resolve_roles_from_db(claims.user_id)
+            # ``UserRole`` is workspace-scoped, so authority must be evaluated
+            # against the workspace the request actually targets. When that
+            # workspace is resolvable the roles come from a workspace-filtered
+            # DB lookup and the JWT ``roles`` claim is deliberately ignored:
+            # the claim is a tenant-wide snapshot taken at login and trusting
+            # it would let a role held in workspace A authorise workspace B
+            # (cross-workspace privilege escalation, GitHub #103).
+            #
+            # Without a resolvable workspace (login, workspace list, admin-ops,
+            # ...) the previous behaviour is kept:
+            # * API_KEY claims always carry roles=() — resolve from UserRole.
+            # * BEARER_TOKEN claims carry roles at token-issuance time; if empty
+            #   (new user, or role assigned after token was minted), fall back to
+            #   a DB lookup for symmetric behaviour with the API_KEY path.
+            # * A non-empty JWT roles claim is used as-is (fast path).
+            workspace_id = resolve_request_workspace_id(request)
+            if workspace_id is not None:
+                active_roles = _resolve_roles_from_db(claims.user_id, workspace_id)
+                if not active_roles and not _workspace_exists(workspace_id):
+                    # The id names no workspace of this tenant, so there is
+                    # nothing to scope against and nothing to protect. Keep the
+                    # unscoped roles so the view still answers 404 instead of a
+                    # misleading 403 (mirrors the MCP dispatcher, which checks
+                    # workspace existence before resolving roles). Empty roles
+                    # for an *existing* workspace stay a deny — that is the
+                    # non-member case this fix is about.
+                    workspace_id = None
+                    active_roles = claims.roles or _resolve_roles_from_db(
+                        claims.user_id
+                    )
+            else:
+                active_roles = claims.roles
+                if claims.auth_method == AuthMethod.API_KEY or (
+                    claims.auth_method == AuthMethod.BEARER_TOKEN and not active_roles
+                ):
+                    active_roles = _resolve_roles_from_db(claims.user_id)
             auth_context = self._tenancy.build_auth_context(
-                claims, tenant_context, active_roles
+                claims, tenant_context, active_roles, workspace_id=workspace_id
             )
         except AuthError as exc:
             raise _StandardAuthError(exc, accept_language=accept_language) from exc

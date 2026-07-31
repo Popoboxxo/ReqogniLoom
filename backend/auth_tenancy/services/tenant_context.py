@@ -19,6 +19,8 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 """
 from __future__ import annotations
 
+from uuid import UUID
+
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant
 
@@ -56,6 +58,7 @@ class TenantContextService:
         claims: IdentityClaims,
         tenant_context: TenantContext,
         active_roles: tuple[str, ...],
+        workspace_id: UUID | None = None,
     ) -> AuthContext:
         """Build the immutable :class:`AuthContext` (REQ-L2-AT-005).
 
@@ -63,6 +66,9 @@ class TenantContextService:
             claims: Identity claims from COMP-AT-001.
             tenant_context: DB-resolved tenant.
             active_roles: Effective (non-suspended) roles from COMP-AT-002.
+            workspace_id: Workspace ``active_roles`` were resolved against, or
+                ``None`` when the request targets no specific workspace
+                (GitHub #103).
 
         Returns:
             A frozen :class:`AuthContext`. Mutation raises ``FrozenInstanceError``.
@@ -74,6 +80,7 @@ class TenantContextService:
             auth_method=claims.auth_method,
             api_key_id=claims.api_key_id,
             tenant_name=tenant_context.tenant_name,
+            workspace_id=workspace_id,
         )
 
     def activate(self, tenant_context: TenantContext) -> None:

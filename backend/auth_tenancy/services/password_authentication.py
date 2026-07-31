@@ -138,6 +138,13 @@ class PasswordAuthenticationService:
         Read via the ``unscoped`` manager: token issuance happens before a tenant
         context is active, and the user's tenant is the natural scope. Roles are
         de-duplicated across workspaces for the token claim.
+
+        NOT an authorisation source for workspace-bound requests (GitHub #103).
+        No workspace is known at login time, so this claim can only ever be a
+        tenant-wide snapshot. ``AuthTenancyAuthentication`` therefore ignores it
+        whenever the request resolves to a workspace and re-reads the roles
+        workspace-scoped from ``UserRole``; the claim is used only for requests
+        that target no specific workspace.
         """
         roles = (
             UserRole.unscoped.filter(user_id=user.id, suspended_at__isnull=True)
