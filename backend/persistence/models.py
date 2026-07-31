@@ -28,9 +28,10 @@ Foundation note (ADR-03, ADR-PL-03):
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Dict, Sequence
+from uuid import UUID
 
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models.functions import Lower
 
 # REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
@@ -644,6 +645,28 @@ class Workspace(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workspace"
+        indexes = [
+            # Issue #127: every workspace list query filters by tenant and
+            # (almost always) by is_active — see WorkspaceService.list_* and
+            # mcp_server/tools/cross_cutting.py. Without this composite index
+            # the query degenerates into a full scan of pl_workspace.
+            models.Index(
+                fields=["tenant", "is_active"], name="idx_workspace_tnt_active"
+            ),
+            # SN-33 sandbox lookups resolve children via parent_workspace.
+            models.Index(
+                fields=["tenant", "parent_workspace"],
+                name="idx_workspace_tnt_parent",
+            ),
+        ]
+        constraints = [
+            # Issue #127: MCP tools resolve workspaces by name within a tenant;
+            # duplicates made that resolution ambiguous. The DB is the only
+            # place this invariant can be enforced race-free.
+            models.UniqueConstraint(
+                fields=["tenant", "name"], name="uq_workspace_tenant_name"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -1005,17 +1028,111 @@ class ArchitectureElement(TenantScopedModel):
         Direct child → level=1
         Nested → level=2, etc.
 
-        NOTE: For bulk level retrieval, use manager.get_queryset_with_level()
-        which uses DB CTE annotation (avoids N+1 queries, REQ-L1-058 AC2).
-        This method is a fallback for single-instance level computation.
+        Issue #129: this used to recurse in Python, issuing one query per
+        ancestor (O(tree depth) round-trips per element). It now walks the
+        ancestor chain in a single recursive CTE, so a single-instance level
+        read costs exactly one query regardless of depth.
+
+        NOTE: For bulk level retrieval prefer :meth:`annotate_levels` (one
+        query for the whole set) or the in-memory pass in
+        ``ArchitectureService._annotate_levels`` (zero extra queries when the
+        whole workspace set is already loaded).
         """
         if self.parent_id is None:
             return 0
-        # Fetch parent and recurse
-        parent = ArchitectureElement.objects.filter(id=self.parent_id).first()
-        if parent is None:
-            return 0  # Orphaned child fallback
-        return 1 + parent.get_level()
+        levels = ArchitectureElement.annotate_levels([self])
+        return levels.get(self.id, 0)
+
+    @classmethod
+    def annotate_levels(cls, elements: Sequence["ArchitectureElement"]) -> Dict[UUID, int]:
+        """Set ``_level_annotated`` on *elements* using a single SQL query.
+
+        Issue #129: replaces the per-element Python recursion. One recursive
+        CTE walks the ancestor chain for every requested id at once, so the
+        query count is O(1) instead of O(elements x tree depth).
+
+        A dangling ``parent_id`` (ancestor row missing or invisible under the
+        active row-level-security policy) terminates the walk, which yields the
+        same depth the old orphan fallback produced.
+
+        Args:
+            elements: ArchitectureElement instances to annotate. Instances must
+                belong to a single tenant (they always do — the model is
+                tenant-scoped).
+
+        Returns:
+            Mapping of element id -> level. Empty when *elements* is empty.
+        """
+        elements = list(elements)
+        if not elements:
+            return {}
+
+        roots = {el.id: 0 for el in elements if el.parent_id is None}
+        pending = [el for el in elements if el.parent_id is not None]
+        for el in elements:
+            if el.parent_id is None:
+                el._level_annotated = 0
+
+        if not pending:
+            return roots
+
+        tenant_id = pending[0].tenant_id
+        ids = [el.id for el in pending]
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                WITH RECURSIVE ancestors AS (
+                    SELECT id AS start_id, id, parent_id, 0 AS depth
+                    FROM pl_architecture_element
+                    WHERE id = ANY(%s) AND tenant_id = %s
+
+                    UNION ALL
+
+                    SELECT a.start_id, ae.id, ae.parent_id, a.depth + 1
+                    FROM pl_architecture_element ae
+                    JOIN ancestors a ON ae.id = a.parent_id
+                    WHERE ae.tenant_id = %s
+                )
+                SELECT start_id, MAX(depth) FROM ancestors GROUP BY start_id
+                """,
+                [ids, tenant_id, tenant_id],
+            )
+            resolved = {row[0]: row[1] for row in cursor.fetchall()}
+
+        levels: Dict[UUID, int] = dict(roots)
+        for el in pending:
+            level = resolved.get(el.id, 0)
+            el._level_annotated = level
+            levels[el.id] = level
+        return levels
+
+    @classmethod
+    def annotate_roles(cls, elements: Sequence["ArchitectureElement"]) -> None:
+        """Set ``_role_annotated`` on *elements* using a single SQL query.
+
+        Issue #129: the ``get_role()`` fallback fires one EXISTS query per
+        instance. This resolves the children check for the whole set in one
+        query, mirroring ``ArchitectureService._annotate_roles`` for call sites
+        that do not already hold the complete workspace tree in memory.
+        """
+        elements = list(elements)
+        if not elements:
+            return
+
+        from workflow.services import outdated_item_ids
+
+        ids = [el.id for el in elements]
+        parents_with_children = set(
+            ArchitectureElement.objects.filter(parent_id__in=ids)
+            .exclude(id__in=outdated_item_ids("ArchitectureElement"))
+            .values_list("parent_id", flat=True)
+        )
+        for el in elements:
+            el._role_annotated = derive_architecture_role(
+                has_parent=el.parent_id is not None,
+                has_children=el.id in parents_with_children,
+            )
 
     @property
     def role(self) -> str:
@@ -1205,6 +1322,14 @@ class WorkflowDefinition(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workflow_definition"
+        indexes = [
+            # Issue #130: definitions are always resolved per tenant + artifact
+            # (workflow.services / rest_api workflow endpoints). Mirrors the
+            # composite-index pattern introduced by migration 0034.
+            models.Index(
+                fields=["tenant", "artifact"], name="idx_wfdef_tnt_artifact"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -1223,6 +1348,17 @@ class WorkflowState(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workflow_state"
+        indexes = [
+            # Issue #130: review/approval lists filter by state within a tenant
+            # (mcp_server/tools/review.py). Same pattern as migration 0034.
+            models.Index(
+                fields=["tenant", "current_state"], name="idx_wfstate_tnt_state"
+            ),
+            # State lookups for a single requirement are the hot read path.
+            models.Index(
+                fields=["tenant", "requirement"], name="idx_wfstate_tnt_req"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.current_state

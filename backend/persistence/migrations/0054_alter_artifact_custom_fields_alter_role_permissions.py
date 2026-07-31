@@ -8,7 +8,7 @@ import persistence.role_permissions
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('persistence', '0052_workspace_goals_toggles'),
+        ('persistence', '0053_data_model_medium_batch'),
     ]
 
     operations = [
