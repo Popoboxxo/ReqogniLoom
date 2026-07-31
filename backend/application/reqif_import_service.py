@@ -130,9 +130,6 @@ from uuid import UUID
 from auth_tenancy.context import AuthContext
 from django.db import IntegrityError, transaction
 
-from reqif.parser import ReqIFParser
-from reqif.models.reqif_spec_relation_type import ReqIFSpecRelationType
-
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.reqif_export_service import (
     _ATTR_CATEGORY,
@@ -479,6 +476,10 @@ class ReqifImportService(ServiceBase):
         parser are treated as hard errors (REQ-147: "unparseable XML,
         structural violation -> whole import rolled back, 400").
         """
+        # Issue #131: ``reqif`` is an optional dependency — import lazily so a
+        # missing/broken install cannot take down the whole Django URLConf.
+        from reqif.parser import ReqIFParser
+
         try:
             bundle = ReqIFParser.parse_from_string(reqif_text)
         except Exception as exc:  # noqa: BLE001 — normalise to ValidationError
@@ -783,6 +784,9 @@ class ReqifImportService(ServiceBase):
         tenant: Any,
         relations_report: ReqifEntityReport,
     ) -> None:
+        # Issue #131: lazy import of the optional ``reqif`` package.
+        from reqif.models.reqif_spec_relation_type import ReqIFSpecRelationType
+
         from persistence.models import TraceLink
 
         relation_type_long_names: Dict[str, str] = {}

@@ -599,10 +599,13 @@ class TraceLinkService(ServiceBase):
         the requirement's artifact and returns the target ArchitectureElement
         details. REQ-066: ORM access lives in the service layer.
 
-        Note: the target level is read via ``ArchitectureElement.level`` which
-        falls back to a per-instance computation. A previous ``get_with_level()``
-        prefetch was dead code — ``objects`` is a plain ``TenantManager`` without
-        that method, so the endpoint raised ``AttributeError`` on every call; the
+        Issue #129: the target levels are pre-computed for all resolved
+        elements in a single recursive-CTE query via
+        ``ArchitectureElement.annotate_levels`` before the dicts are built.
+        Reading ``ae.level`` per element would otherwise fall back to a
+        per-instance lookup (N+1). A previous ``get_with_level()`` prefetch was
+        dead code — ``objects`` is a plain ``TenantManager`` without that
+        method, so the endpoint raised ``AttributeError`` on every call; the
         annotation would also have been shadowed by the ``level`` property.
 
         Args:
@@ -635,20 +638,25 @@ class TraceLinkService(ServiceBase):
             )
         )
 
-        allocations: list[dict] = []
-        for tl in trace_links:
-            if tl.target and hasattr(tl.target, "architecture_element"):
-                ae = tl.target.architecture_element
-                allocations.append(
-                    {
-                        "architecture_element_id": str(ae.id),
-                        "architecture_element_title": ae.title,
-                        "target_level": ae.level,
-                        "asil_level": ae.asil_level,
-                        "make_or_buy": ae.make_or_buy,
-                    }
-                )
-        return allocations
+        elements = [
+            tl.target.architecture_element
+            for tl in trace_links
+            if tl.target and hasattr(tl.target, "architecture_element")
+        ]
+        # Issue #129: one CTE query for all levels instead of one query per
+        # ancestor per element.
+        ArchitectureElement.annotate_levels(elements)
+
+        return [
+            {
+                "architecture_element_id": str(ae.id),
+                "architecture_element_title": ae.title,
+                "target_level": ae.level,
+                "asil_level": ae.asil_level,
+                "make_or_buy": ae.make_or_buy,
+            }
+            for ae in elements
+        ]
 
     # ---------- Query ----------
 

@@ -113,37 +113,124 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from django.utils import timezone
 from django.utils.text import slugify
-
-from reqif.models.reqif_core_content import ReqIFCoreContent
-from reqif.models.reqif_data_type import ReqIFDataTypeDefinitionString
-from reqif.models.reqif_namespace_info import ReqIFNamespaceInfo
-from reqif.models.reqif_req_if_content import ReqIFReqIFContent
-from reqif.models.reqif_reqif_header import ReqIFReqIFHeader
-from reqif.models.reqif_spec_hierarchy import ReqIFSpecHierarchy
-from reqif.models.reqif_spec_object import ReqIFSpecObject, SpecObjectAttribute
-from reqif.models.reqif_spec_object_type import (
-    ReqIFSpecObjectType,
-    SpecAttributeDefinition,
-)
-from reqif.models.reqif_spec_relation import ReqIFSpecRelation
-from reqif.models.reqif_spec_relation_type import ReqIFSpecRelationType
-from reqif.models.reqif_specification import ReqIFSpecification
-from reqif.models.reqif_specification_type import ReqIFSpecificationType
-from reqif.models.reqif_types import SpecObjectAttributeType
-from reqif.reqif_bundle import ReqIFBundle
-from reqif.unparser import ReqIFUnparser
 
 from auth_tenancy.context import AuthContext
 
 from application.base import NotFoundError, ServiceBase
 from application.export_service import ExportResult
 
+if TYPE_CHECKING:  # pragma: no cover - resolved by type checkers only
+    from reqif.models.reqif_core_content import ReqIFCoreContent
+    from reqif.models.reqif_data_type import ReqIFDataTypeDefinitionString
+    from reqif.models.reqif_namespace_info import ReqIFNamespaceInfo
+    from reqif.models.reqif_req_if_content import ReqIFReqIFContent
+    from reqif.models.reqif_reqif_header import ReqIFReqIFHeader
+    from reqif.models.reqif_spec_hierarchy import ReqIFSpecHierarchy
+    from reqif.models.reqif_spec_object import (
+        ReqIFSpecObject,
+        SpecObjectAttribute,
+    )
+    from reqif.models.reqif_spec_object_type import (
+        ReqIFSpecObjectType,
+        SpecAttributeDefinition,
+    )
+    from reqif.models.reqif_spec_relation import ReqIFSpecRelation
+    from reqif.models.reqif_spec_relation_type import ReqIFSpecRelationType
+    from reqif.models.reqif_specification import ReqIFSpecification
+    from reqif.models.reqif_specification_type import ReqIFSpecificationType
+    from reqif.models.reqif_types import SpecObjectAttributeType
+    from reqif.reqif_bundle import ReqIFBundle
+    from reqif.unparser import ReqIFUnparser
+
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Optional dependency: ``reqif`` (issue #131)
+# ---------------------------------------------------------------------------
+# ``reqif`` is an optional, API-unstable (0.0.x) export dependency. Importing it
+# at module level made it a hard boot requirement for the *entire* Django
+# process: rest_api/urls.py transitively imports this module, so a missing or
+# broken ``reqif`` install killed every REST route and every ``manage.py``
+# command (including ``migrate`` and ``makemigrations --check``).
+#
+# The names below are therefore bound lazily into module globals on first use.
+# ``from __future__ import annotations`` (see top of file) keeps the type
+# annotations that reference them strings, so nothing resolves at import time.
+
+
+def _load_reqif() -> None:
+    """Bind the optional ``reqif`` symbols into this module's globals.
+
+    Idempotent and cheap after the first call. Raises a descriptive
+    ``ImportError`` when the optional dependency is unavailable, so the failure
+    surfaces when ReqIF export is actually invoked instead of at Django start.
+    """
+    global ReqIFCoreContent, ReqIFDataTypeDefinitionString, ReqIFNamespaceInfo
+    global ReqIFReqIFContent, ReqIFReqIFHeader, ReqIFSpecHierarchy
+    global ReqIFSpecObject, SpecObjectAttribute, ReqIFSpecObjectType
+    global SpecAttributeDefinition, ReqIFSpecRelation, ReqIFSpecRelationType
+    global ReqIFSpecification, ReqIFSpecificationType, SpecObjectAttributeType
+    global ReqIFBundle, ReqIFUnparser
+
+    if "ReqIFBundle" in globals():
+        return
+
+    try:
+        from reqif.models.reqif_core_content import (  # noqa: F401
+            ReqIFCoreContent,
+        )
+        from reqif.models.reqif_data_type import (  # noqa: F401
+            ReqIFDataTypeDefinitionString,
+        )
+        from reqif.models.reqif_namespace_info import (  # noqa: F401
+            ReqIFNamespaceInfo,
+        )
+        from reqif.models.reqif_req_if_content import (  # noqa: F401
+            ReqIFReqIFContent,
+        )
+        from reqif.models.reqif_reqif_header import (  # noqa: F401
+            ReqIFReqIFHeader,
+        )
+        from reqif.models.reqif_spec_hierarchy import (  # noqa: F401
+            ReqIFSpecHierarchy,
+        )
+        from reqif.models.reqif_spec_object import (  # noqa: F401
+            ReqIFSpecObject,
+            SpecObjectAttribute,
+        )
+        from reqif.models.reqif_spec_object_type import (  # noqa: F401
+            ReqIFSpecObjectType,
+            SpecAttributeDefinition,
+        )
+        from reqif.models.reqif_spec_relation import (  # noqa: F401
+            ReqIFSpecRelation,
+        )
+        from reqif.models.reqif_spec_relation_type import (  # noqa: F401
+            ReqIFSpecRelationType,
+        )
+        from reqif.models.reqif_specification import (  # noqa: F401
+            ReqIFSpecification,
+        )
+        from reqif.models.reqif_specification_type import (  # noqa: F401
+            ReqIFSpecificationType,
+        )
+        from reqif.models.reqif_types import (  # noqa: F401
+            SpecObjectAttributeType,
+        )
+        from reqif.reqif_bundle import ReqIFBundle  # noqa: F401
+        from reqif.unparser import ReqIFUnparser  # noqa: F401
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise ImportError(
+            "ReqIF export/import requires the optional 'reqif' package "
+            "(see backend/requirements.txt). Install it to enable ReqIF "
+            "interoperability; all other functionality is unaffected."
+        ) from exc
 
 # ---------------------------------------------------------------------------
 # Stable, deterministic ReqIF identifiers
@@ -232,7 +319,9 @@ class ReqifExportService(ServiceBase):
 
         Raises:
             NotFoundError: workspace does not exist in the active tenant.
+            ImportError: the optional ``reqif`` package is not installed.
         """
+        _load_reqif()
         self._set_tenant_context(ctx)
 
         from persistence.models import Workspace
@@ -308,6 +397,7 @@ class ReqifExportService(ServiceBase):
 
     @staticmethod
     def _build_need_type() -> ReqIFSpecObjectType:
+        _load_reqif()
         return ReqIFSpecObjectType.create(
             identifier=_SPEC_OBJECT_TYPE_NEED,
             long_name="Stakeholder Need",
@@ -359,6 +449,7 @@ class ReqifExportService(ServiceBase):
 
     @staticmethod
     def _build_requirement_type() -> ReqIFSpecObjectType:
+        _load_reqif()
         return ReqIFSpecObjectType.create(
             identifier=_SPEC_OBJECT_TYPE_REQUIREMENT,
             long_name="Requirement",
@@ -473,6 +564,7 @@ class ReqifExportService(ServiceBase):
 
     @staticmethod
     def _string_attr(definition_ref: str, value: str) -> SpecObjectAttribute:
+        _load_reqif()
         return SpecObjectAttribute(
             attribute_type=SpecObjectAttributeType.STRING,
             definition_ref=definition_ref,
@@ -483,6 +575,7 @@ class ReqifExportService(ServiceBase):
     def _spec_object_from_need(
         cls, need: Any, custom_fields: dict
     ) -> ReqIFSpecObject:
+        _load_reqif()
         attributes = [
             cls._string_attr(_ATTR_UID, need.uid or ""),
             cls._string_attr(_ATTR_TITLE, need.title or ""),
@@ -509,6 +602,7 @@ class ReqifExportService(ServiceBase):
     def _spec_object_from_requirement(
         cls, req: Any, custom_fields: dict
     ) -> ReqIFSpecObject:
+        _load_reqif()
         attributes = [
             cls._string_attr(_ATTR_UID, req.uid or ""),
             cls._string_attr(_ATTR_TITLE, req.title or ""),
@@ -569,6 +663,7 @@ class ReqifExportService(ServiceBase):
             kids.sort(key=lambda aid: _artifact_spec_object_id(aid))
 
         def build_nodes(parent: Optional[UUID], level: int) -> List[ReqIFSpecHierarchy]:
+            _load_reqif()
             nodes = []
             for artifact_id in children_by_parent.get(parent, []):
                 child_nodes = build_nodes(artifact_id, level + 1)
@@ -590,6 +685,7 @@ class ReqifExportService(ServiceBase):
     def _build_spec_relations(
         workspace_id: UUID, exported_ids: Dict[UUID, str]
     ) -> Tuple[List[ReqIFSpecRelation], List[ReqIFSpecRelationType]]:
+        _load_reqif()
         from persistence.models import TraceLink
 
         links = TraceLink.objects.filter(
