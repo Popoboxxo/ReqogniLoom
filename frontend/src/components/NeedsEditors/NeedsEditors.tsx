@@ -111,7 +111,7 @@ export default function NeedsEditors(): JSX.Element {
         <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
           {error.message}
         </p>
-        <button className="btn-secondary" onClick={refresh}>
+        <button className="btn-secondary" onClick={refresh} data-testid="need-reload-btn">
           {t('actions.reload', 'Erneut versuchen')}
         </button>
       </div>

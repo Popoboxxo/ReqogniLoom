@@ -129,6 +129,12 @@ class ImportResult:
         skipped_count: Number of rows that failed validation.
         errors: Per-row error list (empty on full success).
         status: "ok" | "validation_error" | "rollback"
+        warnings: Non-fatal notices, e.g. unrecognised CSV columns that were
+            silently dropped (fix #120). Always populated when applicable,
+            even on a fully successful import — a typo'd header (e.g.
+            "Beschreibung" instead of "description") must not be reported
+            as `success=true` without any signal that a whole column's
+            worth of data was discarded.
     """
 
     success: bool
@@ -136,6 +142,7 @@ class ImportResult:
     skipped_count: int
     errors: List[ImportRowError] = field(default_factory=list)
     status: str = "ok"
+    warnings: List[str] = field(default_factory=list)
 
 
 # ---------- Service ----------
@@ -199,7 +206,23 @@ class ImportService(ServiceBase):
         ws_uuid = UUID(str(workspace_id))
 
         # ---------- Parse CSV (RFC 4180) ----------
-        rows, parse_errors = self._parse_csv(csv_text)
+        rows, parse_errors, header_fields = self._parse_csv(csv_text)
+
+        # fix #120: unrecognised header columns (typos, un-mapped German
+        # labels like "Beschreibung") are silently dropped by _insert_rows'
+        # spec-driven loop, which iterates ENTITY_FIELD_SPECS rather than the
+        # row's own keys. Surface them as a warning so an import that quietly
+        # lost an entire column's data isn't reported as a clean success.
+        unknown_columns = self._unknown_columns(header_fields, entity_type)
+        warnings = (
+            [
+                "Unrecognized column(s) ignored, their data was NOT imported: "
+                f"{', '.join(unknown_columns)}. Expected columns for "
+                f"'{entity_type}': {', '.join(sorted(c for c, _ in ENTITY_FIELD_SPECS[entity_type]))}."
+            ]
+            if unknown_columns
+            else []
+        )
 
         if parse_errors:
             return ImportResult(
@@ -208,6 +231,7 @@ class ImportService(ServiceBase):
                 skipped_count=len(rows),
                 errors=parse_errors,
                 status="validation_error",
+                warnings=warnings,
             )
 
         if len(rows) > _MAX_ROWS:
@@ -229,6 +253,7 @@ class ImportService(ServiceBase):
                 skipped_count=len(rows),
                 errors=validation_errors,
                 status="validation_error",
+                warnings=warnings,
             )
 
         # ---------- Atomic insert of all valid rows ----------
@@ -268,6 +293,7 @@ class ImportService(ServiceBase):
                 skipped_count=len(rows),
                 errors=[],
                 status="rollback",
+                warnings=warnings,
             )
 
         return ImportResult(
@@ -276,6 +302,7 @@ class ImportService(ServiceBase):
             skipped_count=0,
             errors=[],
             status="ok",
+            warnings=warnings,
         )
 
     # ---------- Private helpers ----------
@@ -283,14 +310,15 @@ class ImportService(ServiceBase):
     @staticmethod
     def _parse_csv(
         csv_text: str,
-    ) -> Tuple[List[Tuple[int, Dict[str, str]]], List[ImportRowError]]:
+    ) -> Tuple[List[Tuple[int, Dict[str, str]]], List[ImportRowError], List[str]]:
         """Parse CSV text into (row_number, dict) tuples.
 
         Skips comment lines starting with '#'.
-        Returns (rows, errors).
+        Returns (rows, errors, header_fields).
         """
         errors: List[ImportRowError] = []
         rows: List[Tuple[int, Dict[str, str]]] = []
+        header_fields: List[str] = []
 
         # Strip comment lines (e.g. terminology header from ExportService)
         clean_lines = [
@@ -302,12 +330,34 @@ class ImportService(ServiceBase):
             reader = csv.DictReader(io.StringIO(clean_text))
             for line_num, row in enumerate(reader, start=2):  # 2 = header is line 1
                 rows.append((line_num, dict(row)))
+            header_fields = list(reader.fieldnames or [])
         except csv.Error as exc:
             errors.append(
                 ImportRowError(row_number=0, field="csv", message=f"CSV parse error: {exc}")
             )
 
-        return rows, errors
+        return rows, errors, header_fields
+
+    @staticmethod
+    def _unknown_columns(header_fields: List[str], entity_type: str) -> List[str]:
+        """Return header columns not recognised for *entity_type*'s field spec.
+
+        REQ-L3-IMP-001 follow-up (fix #120): ``_insert_rows`` builds each
+        row's content by iterating ``ENTITY_FIELD_SPECS`` (the known columns),
+        never the row's own keys — any header that doesn't exactly match a
+        spec column (a typo, or an un-mapped localized label such as
+        "Beschreibung" instead of "description") is therefore silently
+        ignored rather than raising or being reported. This helper makes
+        that gap visible so the caller can attach a warning.
+        """
+        known = {col for col, _kind in ENTITY_FIELD_SPECS.get(entity_type, [])}
+        return sorted(
+            {
+                col
+                for col in header_fields
+                if col is not None and col not in known
+            }
+        )
 
     @staticmethod
     def _validate_row(

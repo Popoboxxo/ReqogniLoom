@@ -124,26 +124,17 @@ def test_login_inactive_user_returns_401(db):
 
 @override_settings(**_JWT_OVERRIDES)
 @pytest.mark.django_db
-def test_me_patch_ignores_privileged_fields(admin_user):
+def test_me_patch_rejects_privileged_fields(admin_user):
     """PATCH /auth/me/ must not let a caller escalate roles/tenant via mass assignment.
 
-    Regression test for SEC-002 (#69): the request body may contain
-    ``roles``/``tenant_id``/``is_staff``/``is_superuser`` alongside the
-    legitimately editable ``first_name``/``last_name`` fields, but only the
-    latter may ever be persisted.
+    Regression test for SEC-002 (#69) — no privileged field may ever be
+    persisted. Since QIRK-002 (#73) the endpoint additionally *rejects* such a
+    payload with 400 instead of returning 200 and silently dropping the fields,
+    so the no-escalation guarantee below is now enforced by refusal.
     """
     other_tenant = Tenant.objects.create(name="Other T", slug="other-t", is_active=True)
 
-    login = APIClient().post(
-        "/api/v1/auth/login/",
-        {"username": "loginadmin", "password": "hunter2pass"},
-        format="json",
-    )
-    token = login.json()["token"]
-
-    authed = APIClient()
-    authed.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
-    resp = authed.patch(
+    resp = _auth_client().patch(
         "/api/v1/auth/me/",
         {
             "first_name": "Alice",
@@ -157,26 +148,108 @@ def test_me_patch_ignores_privileged_fields(admin_user):
         },
         format="json",
     )
-    assert resp.status_code == 200
-    body = resp.json()
+    assert resp.status_code == 400
 
-    # Legitimate, whitelisted fields are applied.
-    assert body["user"]["first_name"] == "Alice"
-    assert body["user"]["last_name"] == "Admin"
-
-    # Privileged/identity fields are untouched — no mass assignment.
-    assert body["tenant_id"] == str(admin_user.tenant_id)
-    assert body["tenant_id"] != str(other_tenant.id)
-    assert ROLE_ADMIN in body["roles"]
-    assert "superadmin" not in body["roles"]
-    assert body["user"]["username"] == "loginadmin"
-
+    # Nothing was persisted — neither the privileged fields nor the legal ones.
     admin_user.refresh_from_db()
     assert admin_user.tenant_id != other_tenant.id
     assert admin_user.is_staff is False
     assert admin_user.is_superuser is False
     assert admin_user.username == "loginadmin"
     assert admin_user.email == "loginadmin@t.test"
+    assert admin_user.first_name != "Alice"
+
+    # The identity payload still reports the original roles/tenant.
+    me = _auth_client().get("/api/v1/auth/me/").json()
+    assert me["tenant_id"] == str(admin_user.tenant_id)
+    assert ROLE_ADMIN in me["roles"]
+    assert "superadmin" not in me["roles"]
+
+
+def _auth_client(username: str = "loginadmin", password: str = "hunter2pass") -> APIClient:
+    """Log in and return an APIClient carrying the resulting Bearer token."""
+    token = (
+        APIClient()
+        .post(
+            "/api/v1/auth/login/",
+            {"username": username, "password": password},
+            format="json",
+        )
+        .json()["token"]
+    )
+    authed = APIClient()
+    authed.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    return authed
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("password", "hacked123"),
+        ("is_admin", True),
+        ("is_superuser", True),
+        ("is_staff", True),
+        ("is_active", False),
+        ("roles", ["superadmin"]),
+        ("tenant_id", "00000000-0000-0000-0000-000000000001"),
+        ("username", "hijacked"),
+        ("email", "hijacked@evil.test"),
+        ("id", "00000000-0000-0000-0000-000000000002"),
+    ],
+)
+def test_me_patch_rejects_protected_fields(admin_user, field, value):
+    """QIRK-002 (#73): protected fields must be rejected with 400, not ignored.
+
+    Previously the serializer silently dropped these and returned 200, which
+    made clients believe a password change / privilege change had been applied.
+    """
+    resp = _auth_client().patch("/api/v1/auth/me/", {field: value}, format="json")
+
+    assert resp.status_code == 400, f"{field} must be rejected, got {resp.status_code}"
+    assert field in str(resp.json())
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_me_patch_rejects_unknown_fields(admin_user):
+    """Unknown fields are rejected too, so typos surface instead of no-op'ing."""
+    resp = _auth_client().patch(
+        "/api/v1/auth/me/", {"frist_name": "Typo"}, format="json"
+    )
+    assert resp.status_code == 400
+    assert "frist_name" in str(resp.json())
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_me_patch_password_does_not_change_credentials(admin_user):
+    """A rejected password PATCH must leave the stored hash untouched (#73)."""
+    resp = _auth_client().patch(
+        "/api/v1/auth/me/", {"password": "hacked123"}, format="json"
+    )
+    assert resp.status_code == 400
+
+    admin_user.refresh_from_db()
+    assert admin_user.check_password("hunter2pass")
+    assert not admin_user.check_password("hacked123")
+
+
+@override_settings(**_JWT_OVERRIDES)
+@pytest.mark.django_db
+def test_me_patch_mixed_payload_is_rejected_atomically(admin_user):
+    """A payload mixing legal and protected fields applies *nothing* (#73)."""
+    resp = _auth_client().patch(
+        "/api/v1/auth/me/",
+        {"first_name": "Alice", "is_superuser": True},
+        format="json",
+    )
+    assert resp.status_code == 400
+
+    admin_user.refresh_from_db()
+    assert admin_user.first_name != "Alice"
+    assert admin_user.is_superuser is False
 
 
 @override_settings(**_JWT_OVERRIDES)

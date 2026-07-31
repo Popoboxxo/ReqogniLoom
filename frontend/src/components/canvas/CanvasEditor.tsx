@@ -1338,6 +1338,7 @@ export function CanvasEditor({
               : ""
           }
           data-testid="canvas-save-status"
+          role={saveStatus === "error" ? "alert" : "status"}
         >
           {saveStatus === "saving"
             ? t("canvas.status.saving", "Saving...")

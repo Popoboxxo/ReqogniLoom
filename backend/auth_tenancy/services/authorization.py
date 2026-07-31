@@ -177,6 +177,22 @@ class AuthorizationService:
         ).values_list("role", flat=True)
         return tuple(sorted(set(assignments)))
 
+    def active_roles_across_workspaces(self, *, user_id: UUID) -> tuple[str, ...]:
+        """Return every non-suspended role the user holds in any workspace.
+
+        Used where no workspace context is available — notably the MCP
+        ``tools/list`` RBAC gate (REQ-108, REQ-127), which must still show
+        write tools to a caller who may write *somewhere* while hiding them
+        from a pure Viewer.
+
+        Requires an active tenant context (the default manager is tenant-scoped),
+        so the aggregation never spans tenants.
+        """
+        assignments = UserRole.objects.filter(
+            user_id=user_id, suspended_at__isnull=True
+        ).values_list("role", flat=True)
+        return tuple(sorted(set(assignments)))
+
     def list_workspace_members(
         self, *, caller_user_id: UUID, workspace_id: UUID
     ) -> list["WorkspaceMember"]:

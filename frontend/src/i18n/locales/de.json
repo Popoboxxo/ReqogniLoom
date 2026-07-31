@@ -129,7 +129,8 @@
     "passwordPlaceholder": "Passwort eingeben...",
     "passwordRequired": "Bitte geben Sie ein Passwort ein.",
     "submit": "Anmelden",
-    "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut."
+    "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.",
+    "sessionExpired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an, um fortzufahren."
   },
   "loading": "Laden...",
   "actions": {
@@ -400,7 +401,11 @@
     "addTerm": "Begriff hinzufügen",
     "editTerm": "Begriff bearbeiten",
     "newTerm": "Neuer Begriff",
-    "deleteConfirm": "Diesen Begriff wirklich löschen?"
+    "deleteConfirm": "Diesen Begriff wirklich löschen?",
+    "loadFailed": "Begriffe konnten nicht geladen werden.",
+    "saveFailed": "Begriff konnte nicht gespeichert werden.",
+    "deleteFailed": "Begriff konnte nicht gelöscht werden.",
+    "linkSynonymFailed": "Verknüpfung konnte nicht gespeichert werden."
   },
   "adr": {
     "titlePlaceholder": "ADR-Titel",
@@ -615,6 +620,7 @@
     "edit": "Quelle bearbeiten",
     "delete": "Löschen",
     "deleteConfirm": "Dieses Diagramm wirklich löschen?",
+    "deleteFailed": "Diagramm konnte nicht gelöscht werden.",
     "type": "Typ",
     "source": "Quelle",
     "description": "Beschreibung",
@@ -732,7 +738,8 @@
         "compare": "Mit aktueller Version vergleichen",
         "copy": "Versions-ID kopieren"
       },
-      "copied": "Versions-ID kopiert"
+      "copied": "Versions-ID kopiert",
+      "noSnapshot": "Für diese Version ist kein Stand gespeichert."
     },
     "diff": {
       "title": "Diff",

@@ -91,6 +91,62 @@ def test_malformed_jwt_raises_invalid_token():
     assert exc.value.code == "invalid_token"
 
 
+# -- GitHub #135 refresh-token / access-token isolation ------------------
+
+
+def _refresh_claims(**overrides):
+    claims = {
+        "user_id": "11111111-1111-1111-1111-111111111111",
+        "tenant_id": "22222222-2222-2222-2222-222222222222",
+        "typ": "refresh",
+        "exp": int(time.time()) + 3600,
+        "iss": "reqflow",
+        "aud": "reqflow-api",
+    }
+    claims.update(overrides)
+    return claims
+
+
+def test_refresh_token_rejected_by_validate_bearer_token():
+    """A typ="refresh" token must never authenticate a normal request."""
+    token = encode_hs256(_refresh_claims(), _SECRET)
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_bearer_token(token)
+    assert exc.value.code == "invalid_token"
+
+
+def test_validate_refresh_token_accepts_valid_refresh_token():
+    token = encode_hs256(_refresh_claims(), _SECRET)
+    user_id, tenant_id = _service().validate_refresh_token(token)
+    assert str(user_id) == "11111111-1111-1111-1111-111111111111"
+    assert str(tenant_id) == "22222222-2222-2222-2222-222222222222"
+
+
+def test_validate_refresh_token_rejects_access_token():
+    """An access token (no typ, or typ="access") must not work as a refresh token."""
+    token = encode_hs256(
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "tenant_id": "22222222-2222-2222-2222-222222222222",
+            "typ": "access",
+            "exp": int(time.time()) + 3600,
+            "iss": "reqflow",
+            "aud": "reqflow-api",
+        },
+        _SECRET,
+    )
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_refresh_token(token)
+    assert exc.value.code == "invalid_token"
+
+
+def test_validate_refresh_token_rejects_expired_refresh_token():
+    token = encode_hs256(_refresh_claims(exp=int(time.time()) - 10), _SECRET)
+    with pytest.raises(AuthenticationFailed) as exc:
+        _service().validate_refresh_token(token)
+    assert exc.value.code == "token_expired"
+
+
 def test_alg_none_is_rejected():
     """A token claiming alg=none must not be accepted (REQ-L3-AT001-001)."""
     import base64

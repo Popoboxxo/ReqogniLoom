@@ -48,6 +48,11 @@ _API_KEY_PLAINTEXT_PREFIX = "reqlo_"
 # the JWT out of JavaScript reach (XSS mitigation). See LoginView/LogoutView.
 ACCESS_COOKIE_NAME = "reqogniloom_access"
 
+# httpOnly refresh-token cookie (GitHub #135). Long-lived counterpart to
+# ACCESS_COOKIE_NAME, only ever read by ``POST /auth/refresh/`` to mint a new
+# access token without forcing the user to re-authenticate mid-session.
+REFRESH_COOKIE_NAME = "reqogniloom_refresh"
+
 
 def _resolve_roles_from_db(
     user_id: Any, workspace_id: UUID | None = None
@@ -228,15 +233,28 @@ class AuthTenancyAuthentication(authentication.BaseAuthentication):
         (GET/HEAD/OPTIONS/TRACE) are skipped by Django's own middleware logic, so
         this only rejects unsafe methods lacking a valid ``X-CSRFToken``.
         """
+        enforce_csrf(request)
 
-        def _dummy_get_response(_request: Any) -> None:  # pragma: no cover
-            return None
 
-        check = CSRFCheck(_dummy_get_response)
-        check.process_request(request)
-        reason = check.process_view(request, None, (), {})
-        if reason:
-            raise exceptions.PermissionDenied(f"CSRF Failed: {reason}")
+def enforce_csrf(request: Any) -> None:
+    """Run Django's CSRF check for a cookie-driven, unsafe-method request.
+
+    Shared by :class:`AuthTenancyAuthentication` (REQ-052) and ``RefreshView``
+    (GitHub #135) — both accept an ambient httpOnly cookie as the credential,
+    so both must defend against CSRF the same way.
+
+    Raises:
+        rest_framework.exceptions.PermissionDenied: If the CSRF check fails.
+    """
+
+    def _dummy_get_response(_request: Any) -> None:  # pragma: no cover
+        return None
+
+    check = CSRFCheck(_dummy_get_response)
+    check.process_request(request)
+    reason = check.process_view(request, None, (), {})
+    if reason:
+        raise exceptions.PermissionDenied(f"CSRF Failed: {reason}")
 
 
 class HasOperationPermission(permissions.BasePermission):
@@ -281,6 +299,8 @@ class HasOperationPermission(permissions.BasePermission):
 
 __all__ = [
     "ACCESS_COOKIE_NAME",
+    "REFRESH_COOKIE_NAME",
     "AuthTenancyAuthentication",
     "HasOperationPermission",
+    "enforce_csrf",
 ]

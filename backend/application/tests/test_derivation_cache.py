@@ -203,6 +203,103 @@ def test_different_artifact_is_a_cache_miss(auth_context, workspace, monkeypatch
 
 
 # ---------------------------------------------------------------------------
+# fix #122: cache key must key off the *effective* (resolved) provider and
+# the active tenant, not the static env LLM_PROVIDER default.
+# ---------------------------------------------------------------------------
+
+
+class _NamedCountingProvider(_CountingProvider):
+    """Counting provider carrying a real ``PROVIDER_NAME`` (mirrors the real
+    provider classes in llm_adapter.providers, unlike the plain
+    ``_CountingProvider`` used by the other tests here)."""
+
+    def __init__(self, response: str, provider_name: str) -> None:
+        super().__init__(response)
+        self.PROVIDER_NAME = provider_name
+
+
+def test_provider_switch_for_same_tenant_is_not_served_stale_cache(
+    auth_context, workspace, monkeypatch
+):
+    """Regression for #122: env LLM_PROVIDER never changes in this test, but
+    the *effective* provider (e.g. a per-tenant LlmSettings override) does.
+    Before the fix the cache key was built from the static env default, so
+    a later provider switch for the same tenant/artifact/prompt kept serving
+    the first provider's stale cached answer.
+    """
+    need = _make_need(auth_context, workspace, "Need", "Desc")
+
+    mock_provider = _NamedCountingProvider(
+        json.dumps([{"title": "mock-answer", "description": "d", "rationale": "r"}]),
+        provider_name="mock",
+    )
+    real_provider = _NamedCountingProvider(
+        json.dumps([{"title": "anthropic-answer", "description": "d", "rationale": "r"}]),
+        provider_name="anthropic",
+    )
+
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: mock_provider
+    )
+    svc = AiDerivationService()
+    first = svc.derive_requirements_from_need(auth_context, need.id, n=1)
+    assert mock_provider.calls == 1
+
+    # Tenant now has a real provider configured — env LLM_PROVIDER (used only
+    # as a display fallback) is untouched.
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: real_provider
+    )
+    second = svc.derive_requirements_from_need(auth_context, need.id, n=1)
+
+    assert real_provider.calls == 1  # not served from mock's cache entry
+    assert first != second
+
+
+def test_different_tenants_do_not_share_cache(monkeypatch):
+    """Regression for #122: two tenants must never see each other's cached
+    derivation result even for the identical artifact id / prompt hash
+    (e.g. a UUID collision across tenants, or a shared test fixture id).
+    """
+    tenant_a = Tenant.objects.create(name="cache-tenant-a", slug="cache-tenant-a")
+    tenant_b = Tenant.objects.create(name="cache-tenant-b", slug="cache-tenant-b")
+
+    User.objects.create(username="a", email="a@example.com", tenant=tenant_a)
+    User.objects.create(username="b", email="b@example.com", tenant=tenant_b)
+
+    provider = _NamedCountingProvider(
+        json.dumps([{"title": "t", "description": "d", "rationale": "r"}]),
+        provider_name="anthropic",
+    )
+    monkeypatch.setattr(
+        "llm_adapter.providers.get_provider", lambda *a, **k: provider
+    )
+
+    svc = AiDerivationService()
+    # Same identical prompt/purpose/artifact_id string for both tenants.
+    TenantContext.set_tenant(tenant_a.id)
+    try:
+        out_a = svc._complete(
+            "shared prompt", purpose="need_to_sysreq", artifact_id="art-shared", context=None
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    # Simulate a second call under a different tenant context without going
+    # through a full derive_* flow (which would need its own artifacts).
+    TenantContext.set_tenant(tenant_b.id)
+    try:
+        out_b = svc._complete(
+            "shared prompt", purpose="need_to_sysreq", artifact_id="art-shared", context=None
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    assert provider.calls == 2  # tenant B did NOT get tenant A's cache hit
+    assert out_a == out_b  # same provider/response, just computed twice
+
+
+# ---------------------------------------------------------------------------
 # Invalidation
 # ---------------------------------------------------------------------------
 

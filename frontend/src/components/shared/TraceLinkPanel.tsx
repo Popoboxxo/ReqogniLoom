@@ -7,6 +7,7 @@ import { resolveArtifactRef, type ArtifactRef } from "../../api/artifactRefs";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { CreateTraceLinkDialog } from "./CreateTraceLinkDialog";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { extractErrorMessage } from "../../api/client";
 
 
 interface TraceLinkPanelProps {
@@ -27,12 +28,14 @@ export function TraceLinkPanel({
   const { activeWorkspace } = useWorkspace();
   const [links, setLinks] = useState<TraceLink[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
   const [showDialog, setShowDialog] = useState(false);
   const [refsById, setRefsById] = useState<Record<UUID, ArtifactRef>>({});
 
   const loadLinks = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await tracelinksApi.listForArtifact(workspaceId, artifactId);
       setLinks(res.results);
@@ -85,6 +88,7 @@ export function TraceLinkPanel({
       });
     } catch (err) {
       console.error("Failed to load trace links", err);
+      setError(extractErrorMessage(err) || t("tracelinks.loadFailed", "Trace links could not be loaded."));
     } finally {
       setLoading(false);
     }
@@ -98,10 +102,12 @@ export function TraceLinkPanel({
 
   const handleDelete = async (linkId: UUID) => {
     try {
+      setError(null);
       await tracelinksApi.delete(linkId);
       loadLinks();
     } catch (err) {
       console.error("Delete tracelink failed:", err);
+      setError(extractErrorMessage(err) || t("tracelinks.deleteFailed", "Trace link could not be deleted."));
     }
   };
 
@@ -240,6 +246,16 @@ export function TraceLinkPanel({
         onCreated={() => { setShowDialog(false); loadLinks(); }}
         defaultLinkType={(activeWorkspace?.default_link_type as LinkType) || 'derives-from'}
       />
+
+      {error && (
+        <p
+          role="alert"
+          data-testid="trace-link-panel-error"
+          style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)" }}
+        >
+          {error}
+        </p>
+      )}
 
       {loading && (
         <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>{t("loading")}</p>
