@@ -27,7 +27,7 @@ from application.base import ServiceBase
 from auth_tenancy.context import AuthContext
 
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
-from admin_ops.services.exceptions import BackupNotFoundError
+from admin_ops.services.exceptions import BackupNotFoundError, BackupStorageError
 from admin_ops.services.paths import absolute_backup_path, backup_root
 
 logger = logging.getLogger(__name__)
@@ -160,6 +160,27 @@ class BackupService:
                     size,
                 )
                 return row
+        except OSError as exc:
+            # GitHub #37: a filesystem error (typically PermissionError when
+            # the backup directory is not writable) must not leak the raw OS
+            # message ("Permission denied: /app/backups/") to REST/MCP
+            # callers. Record the real cause for operators, but raise a
+            # clean, actionable error for the caller.
+            self._record_failure(
+                backup_id=backup_id,
+                error=str(exc),
+                backup_type=backup_type,
+            )
+            logger.error(
+                "BackupService: backup directory %r is not writable: %s",
+                backup_root(),
+                exc,
+            )
+            raise BackupStorageError(
+                "Backup storage is not writable. Configure the BACKUP_DIR "
+                "environment variable to point at a writable directory, or "
+                "check the permissions of the default backup path."
+            ) from exc
         except Exception as exc:
             self._record_failure(
                 backup_id=backup_id,

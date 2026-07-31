@@ -18,4 +18,15 @@ class BackupNotFoundError(LookupError):
     """
 
 
-__all__ = ["BackupNotFoundError"]
+class BackupStorageError(RuntimeError):
+    """Raised when the backup directory cannot be created/written to
+    (GitHub #37).
+
+    Wraps the underlying ``OSError``/``PermissionError`` with an
+    operator-actionable message instead of letting the raw filesystem
+    error (which can read as ``"Permission denied: /app/backups/"``)
+    propagate to REST/MCP callers as an unmapped 500/INTERNAL_ERROR.
+    """
+
+
+__all__ = ["BackupNotFoundError", "BackupStorageError"]
