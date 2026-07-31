@@ -19,6 +19,7 @@ import pytest
 
 from application.base import NotFoundError
 from application.glossary_service import GlossaryService, GlossaryTermDTO
+from persistence.models import Tenant, User, Workspace
 
 pytestmark = pytest.mark.django_db
 
@@ -119,6 +120,67 @@ class TestGlossaryServiceSoftDelete:
             mock_mgr.filter.return_value.first.return_value = None
             with pytest.raises(NotFoundError, match="GlossaryTerm"):
                 svc.delete(ctx, TERM_ID)
+
+
+# ---------------------------------------------------------------------------
+# GlossaryService.update — #82 regression: `term` was silently dropped
+# ---------------------------------------------------------------------------
+
+
+class TestGlossaryServiceUpdate:
+    """Regression test for #82: PATCH must be able to update the `term` label.
+
+    POST /api/v1/glossary/ accepts `term` + `definition`, but PATCH previously
+    only forwarded `definition`/`synonyms`/`abbreviation` — the `term` field
+    silently was never persisted, so a glossary term's label was immutable
+    after creation via REST.
+    """
+
+    def test_update_changes_term_label(self):
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(name="Test Tenant", slug=f"test-{uuid.uuid4().hex[:8]}")
+        workspace = Workspace.unscoped.create(tenant=tenant, name="WS", preset={"tier": "standard"})
+        user = User.objects.create(
+            username=f"testuser-{uuid.uuid4().hex[:8]}",
+            email=f"test-{uuid.uuid4().hex[:8]}@example.com",
+            tenant=tenant,
+        )
+        TenantContext.set_tenant(tenant.id)
+        ctx = _make_ctx(roles=("editor",), tenant_id=tenant.id)
+        ctx.user_id = user.id
+
+        svc = GlossaryService()
+        created = svc.create(ctx, workspace.id, "Requirement", "A stated need.")
+
+        updated = svc.update(ctx, created.id, term="System Requirement")
+
+        assert updated.term == "System Requirement"
+        # definition must be untouched when not supplied
+        assert updated.definition == "A stated need."
+
+    def test_update_without_term_leaves_label_unchanged(self):
+        """Omitting `term` (definition-only PATCH) must not clear the label."""
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(name="Test Tenant", slug=f"test-{uuid.uuid4().hex[:8]}")
+        workspace = Workspace.unscoped.create(tenant=tenant, name="WS", preset={"tier": "standard"})
+        user = User.objects.create(
+            username=f"testuser-{uuid.uuid4().hex[:8]}",
+            email=f"test-{uuid.uuid4().hex[:8]}@example.com",
+            tenant=tenant,
+        )
+        TenantContext.set_tenant(tenant.id)
+        ctx = _make_ctx(roles=("editor",), tenant_id=tenant.id)
+        ctx.user_id = user.id
+
+        svc = GlossaryService()
+        created = svc.create(ctx, workspace.id, "Requirement", "A stated need.")
+
+        updated = svc.update(ctx, created.id, definition="Updated definition.")
+
+        assert updated.term == "Requirement"
+        assert updated.definition == "Updated definition."
 
 
 # ---------------------------------------------------------------------------

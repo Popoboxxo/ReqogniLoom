@@ -22,6 +22,7 @@ from django.db.utils import InternalError
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.requirement_service import RequirementService
 from application.workspace_service import WorkspaceService
+from audit.models import AuditEntry
 from persistence.models import (
     ArchitectureElement,
     Artifact,
@@ -170,6 +171,31 @@ class TestReactivateWorkspace:
         svc = WorkspaceService()
         with pytest.raises(PermissionDeniedError, match="admin"):
             svc.reactivate_workspace(workspace.id, ctx)
+
+    def test_reactivate_workspace_writes_real_audit_entry(self):
+        """Regression test for #82: reactivate_workspace must not 500.
+
+        Unlike the tests above, this does NOT mock ``ServiceBase._audit`` so
+        the real AuditLogWriter/AuditEntry.full_clean() path is exercised.
+        Previously ``op="workspace.reactivate"`` was not part of
+        AuditEntry.OP_CHOICES, so full_clean() raised a Django
+        ValidationError ("not a valid choice") that propagated as a 500.
+        """
+        tenant, user = _create_tenant_and_user()
+        workspace = _create_workspace(tenant)
+        workspace.is_active = False
+        workspace.closed_at = "2026-01-01T00:00:00Z"
+        workspace.closed_by = user
+        workspace.save()
+
+        ctx = _make_ctx(roles=("admin",), tenant_id=tenant.id, user_id=user.id)
+        svc = WorkspaceService()
+
+        result = svc.reactivate_workspace(workspace.id, ctx)
+
+        assert result.is_active is True
+        entry = AuditEntry.objects.get(entity_id=workspace.id, op="workspace.reactivate")
+        assert entry.entity_type == "Workspace"
 
 
 # ---------------------------------------------------------------------------
