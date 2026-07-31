@@ -13,7 +13,13 @@
 // 3. CRUD operations (validates DB-fallback works for write operations)
 
 import { test, expect } from '@playwright/test';
-import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import {
+  loginAsAdmin,
+  getAuthToken,
+  setWorkspaceId,
+  SEEDED_WORKSPACE_ID,
+  createIsolatedWorkspace,
+} from '../helpers/auth';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -94,12 +100,16 @@ test.describe('[REQ-126] Bearer Token Role Resolution E2E', () => {
   // =========================================================================
   test('[REQ-126] create Architecture element via Bearer token (DB-fallback validation)', async ({ request }) => {
     const token = await getAuthToken();
+    // Uses an isolated workspace: this creates a root architecture element
+    // (no parent_id), and the I5 invariant rejects a second root per
+    // workspace, so this must not share SEEDED_WORKSPACE_ID with other specs.
+    const workspaceId = await createIsolatedWorkspace(token);
 
     const archResp = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
         title: `Bearer Architecture E2E ${Date.now()}`,
-        workspace_id: SEEDED_WORKSPACE_ID,
+        workspace_id: workspaceId,
         element_type: 'Component',
       },
     });
@@ -137,13 +147,19 @@ test.describe('[REQ-126] Bearer Token Role Resolution E2E', () => {
   // =========================================================================
   test('[REQ-126] fast path still works for tokens with roles in JWT', async ({ request }) => {
     const token = await getAuthToken();
+    // Uses an isolated workspace: this creates a root architecture element
+    // (no parent_id). SEEDED_WORKSPACE_ID is shared with other specs (e.g. the
+    // "create Architecture element via Bearer token" test above) which may
+    // already own the workspace's single root, so a second root there would
+    // fail the I5 invariant with 400 regardless of the fast-path fix.
+    const workspaceId = await createIsolatedWorkspace(token);
 
     // Try to create an ADR (architecture) which requires WRITE permission
     const adrResp = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
         title: `Fast Path ADR ${Date.now()}`,
-        workspace_id: SEEDED_WORKSPACE_ID,
+        workspace_id: workspaceId,
         element_type: 'Layer',
       },
     });
