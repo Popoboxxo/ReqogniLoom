@@ -62,21 +62,23 @@ Req Alpha,description
 
 class TestParseCsv:
     def test_parses_valid_csv(self):
-        rows, errors = ImportService._parse_csv(_CSV_VALID)
+        rows, errors, header_fields = ImportService._parse_csv(_CSV_VALID)
         assert len(errors) == 0
         assert len(rows) == 2
         assert rows[0][1]["title"] == "Req One"
+        assert header_fields == ["title", "description", "category", "status"]
 
     def test_skips_comment_lines(self):
-        rows, errors = ImportService._parse_csv(_CSV_COMMENT_HEADER)
+        rows, errors, header_fields = ImportService._parse_csv(_CSV_COMMENT_HEADER)
         assert len(errors) == 0
         assert len(rows) == 1
         assert rows[0][1]["title"] == "Req Alpha"
 
     def test_empty_csv_produces_zero_rows(self):
-        rows, errors = ImportService._parse_csv("title,description\n")
+        rows, errors, header_fields = ImportService._parse_csv("title,description\n")
         assert len(errors) == 0
         assert len(rows) == 0
+        assert header_fields == ["title", "description"]
 
 
 # ---------- _validate_row ----------
@@ -144,6 +146,82 @@ class TestImportCsvValidation:
         assert result.status == "validation_error"
         assert len(result.errors) > 0
         assert result.imported_count == 0
+
+
+# ---------- _unknown_columns / warnings (fix #120) ----------
+
+
+_CSV_UNKNOWN_COLUMN = """\
+title,Beschreibung,category
+Req One,German description column,functional
+"""
+
+
+class TestUnknownColumns:
+    def test_known_columns_produce_no_unknown(self):
+        assert ImportService._unknown_columns(
+            ["title", "description", "category"], "Requirement"
+        ) == []
+
+    def test_typo_column_is_flagged(self):
+        assert ImportService._unknown_columns(
+            ["title", "Beschreibung"], "Requirement"
+        ) == ["Beschreibung"]
+
+    def test_none_header_key_is_ignored(self):
+        """csv.DictReader uses key `None` for extra, header-less cells."""
+        assert ImportService._unknown_columns(
+            ["title", None], "Requirement"
+        ) == []
+
+    def test_import_csv_reports_warning_for_unknown_column(self):
+        """A typo'd header must surface as a warning, not a silent drop (#120)."""
+        svc = ImportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.import_service.TenantContext"),
+            patch("application.import_service.ServiceBase._assert_write_permission"),
+            patch("application.import_service.transaction.atomic") as mock_atomic,
+            patch(
+                "application.import_service.ImportService._insert_rows",
+                return_value=1,
+            ),
+            patch("application.import_service.ServiceBase._audit"),
+        ):
+            mock_atomic.return_value.__enter__ = MagicMock(return_value=None)
+            mock_atomic.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = svc.import_csv(
+                _CSV_UNKNOWN_COLUMN, "Requirement", uuid.uuid4(), ctx
+            )
+
+        # The import still succeeds (non-fatal warning, not a hard failure) ...
+        assert result.success is True
+        # ... but the dropped column is visible in the response.
+        assert len(result.warnings) == 1
+        assert "Beschreibung" in result.warnings[0]
+
+    def test_import_csv_no_warning_when_all_columns_known(self):
+        svc = ImportService()
+        ctx = _make_ctx()
+
+        with (
+            patch("application.import_service.TenantContext"),
+            patch("application.import_service.ServiceBase._assert_write_permission"),
+            patch("application.import_service.transaction.atomic") as mock_atomic,
+            patch(
+                "application.import_service.ImportService._insert_rows",
+                return_value=2,
+            ),
+            patch("application.import_service.ServiceBase._audit"),
+        ):
+            mock_atomic.return_value.__enter__ = MagicMock(return_value=None)
+            mock_atomic.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = svc.import_csv(_CSV_VALID, "Requirement", uuid.uuid4(), ctx)
+
+        assert result.warnings == []
 
 
 # ---------- import_csv — success path ----------

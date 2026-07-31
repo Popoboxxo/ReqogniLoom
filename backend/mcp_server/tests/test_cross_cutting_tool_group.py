@@ -1102,3 +1102,122 @@ def test_change_impact_excludes_outdated_architecture_element_child_by_default(
     affected = result_incl.data["affected_entities"]
     assert len(affected) == 1
     assert affected[0]["id"] == str(child_id)
+
+
+# ---------------------------------------------------------------------------
+# traceability.create_link (fix #121) — generic TraceLink MCP write tool.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def two_requirements(workspace_with_data, auth_ctx):
+    """Two Requirements in the same workspace, ready to be linked."""
+    from application.requirement_service import RequirementService
+
+    workspace_id, _tenant_id = workspace_with_data
+    svc = RequirementService()
+    source = svc.create_requirement(
+        workspace_id=workspace_id, title="Source Req", ctx=auth_ctx
+    )
+    target = svc.create_requirement(
+        workspace_id=workspace_id, title="Target Req", ctx=auth_ctx
+    )
+    return source, target
+
+
+def test_create_link_creates_trace_link(two_requirements, auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from traceability.types import LinkType
+
+    source, target = two_requirements
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "traceability.create_link",
+        params={
+            "source_id": str(source.id),
+            "target_id": str(target.id),
+            "link_type": LinkType.DERIVES_FROM.value,
+        },
+        auth_context=auth_ctx,
+        api_key="x",
+    )
+
+    assert result.success is True
+    assert result.data["trace_link"]["source_id"] == str(source.id)
+    assert result.data["trace_link"]["target_id"] == str(target.id)
+    assert result.data["trace_link"]["link_type"] == LinkType.DERIVES_FROM.value
+
+
+def test_create_link_accepts_suggest_links_compatible_aliases(two_requirements, auth_ctx):
+    """source_artifact_id/artifact_id must be accepted as source_id/target_id
+    aliases so a traceability.suggest_links suggestion can be fed straight
+    into traceability.create_link (fix #121)."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from traceability.types import LinkType
+
+    source, target = two_requirements
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "traceability.create_link",
+        params={
+            # Field names as produced by suggest_links' LinkSuggestion /
+            # LinkCandidate DTOs, not source_id/target_id.
+            "source_artifact_id": str(source.id),
+            "artifact_id": str(target.id),
+            "link_type": LinkType.DERIVES_FROM.value,
+        },
+        auth_context=auth_ctx,
+        api_key="x",
+    )
+
+    assert result.success is True
+    assert result.data["trace_link"]["source_id"] == str(source.id)
+    assert result.data["trace_link"]["target_id"] == str(target.id)
+
+
+def test_create_link_rejects_invalid_link_type(two_requirements, auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    source, target = two_requirements
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "traceability.create_link",
+        params={
+            "source_id": str(source.id),
+            "target_id": str(target.id),
+            "link_type": "not-a-real-type",
+        },
+        auth_context=auth_ctx,
+        api_key="x",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+def test_create_link_requires_source_and_target(auth_ctx):
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from traceability.types import LinkType
+
+    group = CrossCuttingToolGroup()
+
+    result = group.execute_tool(
+        "traceability.create_link",
+        params={"link_type": LinkType.DERIVES_FROM.value},
+        auth_context=auth_ctx,
+        api_key="x",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+def test_create_link_is_a_write_tool():
+    """RBAC (#99 fail-closed default) must gate this tool like architecture.link."""
+    from mcp_server.tool_registry import _READ_ONLY_TOOL_NAMES, _WRITE_TOOL_PREFIXES
+
+    assert "traceability.create_link" in _WRITE_TOOL_PREFIXES
+    assert "traceability.create_link" not in _READ_ONLY_TOOL_NAMES
