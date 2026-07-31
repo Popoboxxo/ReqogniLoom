@@ -399,6 +399,82 @@ def test_query_tool_include_outdated_true_forwards_flag():
 
 
 # ---------------------------------------------------------------------------
+# #83 Bug 2 — issue.update (and every other GenericCrudToolGroup entity)
+# must reject a `status` field with a clear, actionable error instead of
+# forwarding it into the service's update_* method and surfacing an opaque
+# "unexpected keyword argument 'status'" TypeError as INTERNAL_ERROR.
+# ---------------------------------------------------------------------------
+
+
+def test_update_with_status_field_returns_clear_validation_error():
+    service = _EntitySpecificService()
+    group = _group_for(service)
+
+    result = group._handle_update(
+        params={"id": str(ENTITY_ID), "status": "Approved"},
+        auth_context=CTX,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "status" in result.message
+    assert "widget.update" in result.message
+    # The update method must never have been called with the bogus kwarg.
+    service.update_widget.assert_not_called()
+
+
+def test_update_with_unexpected_field_returns_validation_error_not_internal():
+    """Any other TypeError-inducing kwarg (misnamed field) should also
+    surface as an actionable VALIDATION_ERROR, not a bare INTERNAL_ERROR.
+
+    Uses the generic-named service (``update(ctx, term_id, definition=None)``,
+    no ``**kwargs`` catch-all) since ``_EntitySpecificService.update_widget``
+    accepts arbitrary kwargs and would not raise TypeError here.
+    """
+    service = _make_generic_named_service()
+    group = _group_for(service)
+
+    result = group._handle_update(
+        params={"id": str(ENTITY_ID), "totally_bogus_field": "x"},
+        auth_context=CTX,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "widget.update" in result.message
+
+
+@pytest.mark.django_db
+def test_issue_update_status_via_real_service_returns_validation_error():
+    """End-to-end with the real IssueService (no mocks) — regression guard
+    for the exact #83 Bug 2 repro: issue.update with {"status": "Approved"}."""
+    from application.issue_service import IssueService
+
+    tenant, workspace, ctx = _make_tenant_workspace_ctx("issue-mcp-status-bug83")
+    group = GenericCrudToolGroup("issue", IssueService)
+
+    create_result = group._handle_create(
+        params={"workspace_id": str(workspace.id), "title": "Bug83 Issue"},
+        auth_context=ctx,
+        api_key="reqlo_x",
+    )
+    assert create_result.success is True
+    issue_id = create_result.data["data"]["id"]
+
+    result = group._handle_update(
+        params={"id": issue_id, "status": "Approved"},
+        auth_context=ctx,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "status" in result.message
+
+
+# ---------------------------------------------------------------------------
 # ChangeRequest — real-DB create -> outdate -> query round-trip
 # (Phase 1 Task 4, COMP-AS-021)
 # ---------------------------------------------------------------------------

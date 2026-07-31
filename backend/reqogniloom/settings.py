@@ -196,6 +196,13 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + REQFLOW_APPS
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    # #36: activates request.LANGUAGE_CODE from the Accept-Language header
+    # (or the "django_language" session/cookie value) so translatable
+    # strings — Django's own and the ones DRF ships (gettext_lazy on
+    # serializer/field error messages) — render in the requester's
+    # language. Must sit between SessionMiddleware and CommonMiddleware
+    # per Django's LocaleMiddleware placement requirement.
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -300,6 +307,16 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
+
+# #36: restrict LocaleMiddleware's Accept-Language negotiation to the two
+# languages the frontend actually offers (see frontend/src/i18n/index.ts).
+# Without this, Django's default LANGUAGES list (70+ locales) could match an
+# unsupported but related tag (e.g. "de-CH") to a locale we never ship
+# translations for, instead of falling back to LANGUAGE_CODE.
+LANGUAGES = [
+    ("en", "English"),
+    ("de", "Deutsch"),
+]
 
 # ---------------------------------------------------------------------------
 # Static files

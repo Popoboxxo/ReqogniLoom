@@ -4922,6 +4922,12 @@ class TestRunViewSet(BaseEntityViewSet):
       GET    /api/v1/test-runs/{id}/results/             (A.6, REQ-L1-035)
       POST   /api/v1/test-runs/{id}/results/
       POST   /api/v1/test-runs/{id}/results/bulk/
+
+    Design note (#22): TestRuns are immutable audit records once created —
+    DELETE is intentionally unsupported (see ``destroy`` below), by design,
+    not an oversight. To finish a run, use ``POST .../close/`` instead of
+    deleting it; the recorded results and their aggregate status remain
+    available for audit/compliance even after closing.
     """
 
     serializer_class = TestRunSerializer
@@ -5098,9 +5104,25 @@ class TestRunViewSet(BaseEntityViewSet):
         )
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/test-runs/{id}/ — not supported (immutable)."""
+        """DELETE /api/v1/test-runs/{id}/ — intentionally unsupported (#22).
+
+        TestRuns are immutable audit records (REQ-L2-AS-030/031): once
+        created, their history of executed results must remain available
+        for traceability/compliance, so deletion is a permanent design
+        decision, not a missing feature. Returns 405 with a message that
+        points callers at ``POST .../close/`` — the correct way to finish a
+        run instead of removing it.
+        """
         return Response(
-            build_error_response("PERMISSION_DENIED", detect_lang(request), message="Test runs cannot be deleted."),
+            build_error_response(
+                "PERMISSION_DENIED",
+                detect_lang(request),
+                message=(
+                    "Test runs are immutable audit records and cannot be "
+                    "deleted. Use POST /api/v1/test-runs/{id}/close/ to "
+                    "finish a run instead."
+                ),
+            ),
             status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
