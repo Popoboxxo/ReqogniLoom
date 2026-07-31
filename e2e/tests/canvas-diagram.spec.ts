@@ -22,7 +22,11 @@ test.describe('[REQ-L1-056 / REQ-L2-DS-006] Canvas Editor', () => {
       data: {
         workspace_id: SEEDED_WORKSPACE_ID,
         name: 'E2E Canvas Test Diagram',
-        diagram_type: 'block',
+        // Content shape below ({objects, background}) is the free-drawing
+        // canvas payload (DiagramType.CANVAS) — 'block' requires a top-level
+        // 'nodes' key (backend/diagram/validator.py _JSON_REQUIRED_KEYS) and
+        // rejects this payload with a 400 VALIDATION_ERROR.
+        diagram_type: 'canvas',
         payload_format: 'json',
         content: JSON.stringify({ objects: [], background: '#ffffff' }),
         description: 'Created by E2E canvas test suite',

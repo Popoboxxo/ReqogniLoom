@@ -12,11 +12,19 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
   });
 
   test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {
-    test.setTimeout(10000);
+    // Bumped from 10000ms: the create flow now needs an extra fill+click
+    // round-trip (req-new-title-input/req-new-save-btn) before the detail
+    // editor renders (issue #172).
+    test.setTimeout(15000);
 
-    // Navigate to requirements and create a new one
+    // Navigate to requirements and create a new one. The create form
+    // (issue #172: PageHeader pattern) asks for the title up front via
+    // req-new-title-input/req-new-save-btn; the full editor (req-title etc.)
+    // only renders after Save navigates to the detail route.
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-title-input"]').fill('Diff Test Requirement');
+    await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // Fill in initial data
@@ -73,11 +81,19 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
   });
 
   test('[REQ-L2-RF-014] diff view shows version 0 baseline as all fields added', async ({ page }) => {
-    test.setTimeout(10000);
+    // Bumped from 10000ms: the create flow now needs an extra fill+click
+    // round-trip (req-new-title-input/req-new-save-btn) before the detail
+    // editor renders (issue #172).
+    test.setTimeout(15000);
 
-    // Navigate to requirements and create a new one
+    // Navigate to requirements and create a new one. The create form
+    // (issue #172: PageHeader pattern) asks for the title up front via
+    // req-new-title-input/req-new-save-btn; the full editor (req-title etc.)
+    // only renders after Save navigates to the detail route.
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.locator('[data-testid="create-req-btn"]').click();
+    await page.locator('[data-testid="req-new-title-input"]').fill('Baseline Diff Test');
+    await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
     // Fill in data and save
