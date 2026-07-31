@@ -95,6 +95,9 @@ RUN mkdir -p /app/backups && chown app:app /app/backups
 RUN SECRET_KEY=build-only-dummy \
     AUTH_JWT_SECRET=build-only-dummy \
     FIELD_ENCRYPTION_KEY=build-only-dummy \
+    DB_PASSWORD=build-only-dummy \
+    DB_APP_PASSWORD=build-only-dummy \
+    REDIS_PASSWORD=build-only-dummy \
     python manage.py collectstatic --noinput
 
 EXPOSE 8000

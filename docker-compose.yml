@@ -347,12 +347,11 @@ services:
       # For production: use 'production' target with nginx
       # For development: use 'development' target with 'docker-compose.override.yml'
       target: production
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
     restart: unless-stopped
     env_file: .env
-    environment:
-      # Environment variables used at build time for Vite
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
-      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
     ports:
       - "80:8080"
     logging:

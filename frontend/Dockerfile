@@ -21,11 +21,16 @@ CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
 # Production build stage
 FROM base AS builder
 
+ARG VITE_API_BASE_URL
+ARG VITE_ALLOWED_HOSTS
+
 RUN npm ci
 
 COPY . .
 
-RUN npm run build
+RUN VITE_API_BASE_URL=$VITE_API_BASE_URL \
+    VITE_ALLOWED_HOSTS=$VITE_ALLOWED_HOSTS \
+    npm run build
 
 # Production serve stage (nginx)
 FROM nginx:1.27-alpine AS production
