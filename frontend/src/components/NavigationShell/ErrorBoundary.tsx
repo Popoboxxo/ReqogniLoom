@@ -79,8 +79,8 @@ export class ErrorBoundary extends Component<
           {this.state.error?.message ?? "Unknown error"}
         </p>
         <div style={{ display: "flex", gap: "1rem", justifyContent: "center" }}>
-          <button onClick={this.handleReload}>{reloadLabel}</button>
-          <button onClick={this.handleBack}>{backLabel}</button>
+          <button onClick={this.handleReload} data-testid="error-reload-btn">{reloadLabel}</button>
+          <button onClick={this.handleBack} data-testid="error-back-btn">{backLabel}</button>
         </div>
       </div>
     );

@@ -92,7 +92,7 @@ def _noop_reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('persistence', '0052_workspace_goals_toggles'),
+        ('persistence', '0054_alter_artifact_custom_fields_alter_role_permissions'),
     ]
 
     operations = [

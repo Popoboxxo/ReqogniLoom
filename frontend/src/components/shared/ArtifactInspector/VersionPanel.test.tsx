@@ -11,7 +11,7 @@
  * that the error path (rejected fetch) still surfaces the error banner.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { VersionPanel } from "./VersionPanel";
 import * as diagramsModule from "../../../api/diagrams";
 import * as glossaryModule from "../../../api/glossary";
@@ -125,5 +125,65 @@ describe("VersionPanel — diagram/glossary (REQ-142)", () => {
       expect(screen.getByTestId("version-error")).toBeInTheDocument();
     });
     expect(screen.getByTestId("version-error")).toHaveTextContent("GlossaryTerm not found");
+  });
+});
+
+/**
+ * Issue #213 — for single-row artifact types the backend returns the empty
+ * creation baseline plus the current state, numbered by an optimistic-lock
+ * counter. Rows without a stored snapshot must not offer to switch to a
+ * version the backend cannot produce.
+ */
+describe("VersionPanel — snapshot availability (#213)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const SINGLE_ROW_VERSIONS: ArtifactVersion[] = [
+    { version: 0, label: "Creation baseline", modified_at: null, content_available: false },
+    { version: 7, label: "Current", modified_at: "2026-01-02T00:00:00Z", content_available: true },
+  ];
+
+  it("[#213] disables 'switch' for versions without a stored snapshot", async () => {
+    vi.mocked(diagramsModule.diagramsApi.versions).mockResolvedValue(SINGLE_ROW_VERSIONS);
+
+    render(
+      <VersionPanel
+        kind="diagram"
+        artifactId={ARTIFACT_ID}
+        currentVersion={{ version: 7, label: "Current", createdAt: null, baselineIds: [] }}
+        onSwitch={vi.fn()}
+        onCompare={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByTestId("version-row-0")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("version-overflow-0"));
+
+    // No content behind version 0 → cannot switch to it ...
+    expect(screen.getByTestId("version-switch-0")).toBeDisabled();
+    // ... but it remains a valid left-hand side for a diff.
+    expect(screen.getByTestId("version-compare-0")).toBeEnabled();
+  });
+
+  it("[#213] treats a missing content_available flag as available", async () => {
+    // Backends that predate #213 omit the flag; behaviour must not regress.
+    vi.mocked(diagramsModule.diagramsApi.versions).mockResolvedValue(MOCK_VERSIONS);
+
+    render(
+      <VersionPanel
+        kind="diagram"
+        artifactId={ARTIFACT_ID}
+        currentVersion={{ version: 2, label: "v2", createdAt: null, baselineIds: [] }}
+        onSwitch={vi.fn()}
+        onCompare={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByTestId("version-row-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("version-overflow-1"));
+
+    expect(screen.getByTestId("version-switch-1")).toBeEnabled();
+    expect(screen.getByTestId("version-compare-1")).toBeEnabled();
   });
 });

@@ -215,6 +215,7 @@ export function AiPromptsSection({ workspace, onSavePrompts }: Props): JSX.Eleme
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "32px" }}>
         <button
           onClick={handleSave}
+          data-testid="ai-prompts-save-btn"
           disabled={isSaving}
           style={{
             background: "linear-gradient(135deg, var(--color-primary), #4f46e5)",

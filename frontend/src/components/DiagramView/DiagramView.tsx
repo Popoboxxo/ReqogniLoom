@@ -21,6 +21,7 @@ import { DiagramCreateForm } from "./DiagramCreateForm";
 import { DiagramDetailView } from "./DiagramDetailView";
 import { useDiagramList } from "./useDiagramData";
 import { formPrimaryButtonStyle } from "./diagram-view-shared";
+import { extractErrorMessage } from "../../api/client";
 
 export default function DiagramView(): JSX.Element {
   const { t } = useTranslation();
@@ -28,6 +29,7 @@ export default function DiagramView(): JSX.Element {
   const navigate = useNavigate();
   const { items, isLoading, refresh, deleteDiagram } = useDiagramList();
   const [showCreate, setShowCreate] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleDelete = useCallback(
     async (diagramId: string): Promise<void> => {
@@ -35,10 +37,12 @@ export default function DiagramView(): JSX.Element {
         return;
       }
       try {
+        setDeleteError(null);
         await deleteDiagram(diagramId);
         if (diagramId === id) navigate("/diagrams");
       } catch (err) {
         console.error("Failed to delete diagram", err);
+        setDeleteError(extractErrorMessage(err) || t("diagrams.deleteFailed", "Failed to delete diagram."));
       }
     },
     [id, deleteDiagram, navigate, t],
@@ -88,6 +92,16 @@ export default function DiagramView(): JSX.Element {
             + {t("actions.new", "New")}
           </button>
         </div>
+
+        {deleteError && (
+          <p
+            role="alert"
+            data-testid="diagrams-delete-error"
+            style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}
+          >
+            {deleteError}
+          </p>
+        )}
 
         {items.length === 0 ? (
           <p

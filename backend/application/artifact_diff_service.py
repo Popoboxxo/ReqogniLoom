@@ -13,15 +13,31 @@ Interface:
     IF-AS-EXT-IN-001: GET /artifacts/{id}/diff?from=v1&to=v2
 
 Architecture decision (ADR-AS-019):
-    Option (a) — single-row version model. The current entity state represents
-    any valid version; version 0 represents the creation baseline (no data).
-    Historical snapshot reconstruction is not yet available. The response
+    Option (a) — single-row version model. Only the current entity state is
+    stored; version 0 represents the creation baseline (no data). Historical
+    snapshot reconstruction is not available for these types. The response
     includes a ``note`` field documenting this limitation when applicable.
 
     The diff computation logic (_compute_fields_diff) is separated from the
     data-fetching logic (_resolve_entity_snapshot) so that adding historical
     snapshot support later requires only implementing the snapshot resolver —
     the diff algorithm stays unchanged.
+
+Amendment (issue #213):
+    The version number of a single-row type is ``AuditableModel.version``, an
+    optimistic-lock counter — not a revision number. Originally *every*
+    non-zero version resolved to the current row, so ``diff(1, 2)`` on an
+    entity sitting at version 5 answered "no changes": the current state
+    compared against itself. That is a wrong answer dressed as a correct one.
+
+    Now only the current lock version resolves to a snapshot. Other non-zero
+    versions resolve to ``None``, which surfaces as the ``note`` (from-side) or
+    a ``NotFoundError`` (to-side), and version lists mark each entry with
+    ``content_available``. Types backed by real version tables (Diagram,
+    GlossaryTerm, Icd, Goal, MainGoal, PromptTemplate) are unaffected — every
+    version they list has a stored snapshot. Cross-artifact point-in-time
+    history remains the job of Baselines (:mod:`baseline`), and the append-only
+    operation trail that of :mod:`audit`.
 
 Diff library: Python stdlib ``difflib`` (no external dependency).
 """
@@ -85,6 +101,37 @@ _ENTITY_MODELS = {
     "Issue": Issue,
     "GlossaryTerm": GlossaryTerm,
 }
+
+
+# ---------------------------------------------------------------------------
+# Version-list helpers (issue #213)
+#
+# ``version`` on AuditableModel is an optimistic-lock counter, not a revision
+# number. Version-list entries therefore state explicitly whether a retrievable
+# snapshot exists behind the number, so clients stop treating "v7" as "seven
+# revisions I can open".
+# ---------------------------------------------------------------------------
+
+
+def creation_baseline_entry() -> Dict[str, Any]:
+    """Return the synthetic version-0 row (empty creation baseline)."""
+    return {
+        "version": 0,
+        "label": "Creation baseline",
+        "modified_at": None,
+        # Version 0 is the empty "before creation" state: diffing *against* it
+        # is supported, but there is no stored content to display.
+        "content_available": False,
+    }
+
+
+def _entity_timestamp(entity: Any) -> Optional[str]:
+    """Return the entity's last-modified timestamp as ISO-8601, if any."""
+    for attr in ("updated_at", "modified_at"):
+        value = getattr(entity, attr, None)
+        if value is not None and hasattr(value, "isoformat"):
+            return value.isoformat()
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +231,8 @@ class ArtifactDiffService(ServiceBase):
         """Resolve entity field values for a given version.
 
         Version 0 → None (creation baseline, no data).
-        Any valid version → current entity state (single-row model).
+        Current lock version → current entity state (single-row model).
+        Any other version → None (no snapshot stored — issue #213).
 
         Returns None when the version cannot be resolved.
         """
@@ -203,7 +251,7 @@ class ArtifactDiffService(ServiceBase):
         if entity is None:
             return None
 
-        return self._entity_to_snapshot(entity, entity_type)
+        return self._resolve_entity_snapshot_for_entity(entity, entity_type, version)
 
     @staticmethod
     def _entity_to_snapshot(
@@ -340,10 +388,12 @@ class ArtifactDiffService(ServiceBase):
         artifact_id: UUID,
         ctx: AuthContext,
     ) -> List[Dict[str, Any]]:
-        """List available versions for an artifact.
+        """List retrievable versions for an artifact.
 
-        Currently returns only the current version (single-row model).
-        Version 0 is always available as the creation baseline.
+        Single-row model: only the creation baseline (version 0, empty) and the
+        current state are retrievable. The version number is the optimistic-lock
+        counter and must not be read as a revision count (issue #213) — every
+        entry therefore carries ``content_available``.
         """
         self._set_tenant_context(ctx)
 
@@ -354,7 +404,7 @@ class ArtifactDiffService(ServiceBase):
         entity_type = artifact.artifact_type
         model_class = _ENTITY_MODELS.get(entity_type)
         if model_class is None:
-            return [{"version": 0, "label": "Creation baseline"}]
+            return [creation_baseline_entry()]
 
         entity = (
             model_class.objects.select_related("artifact")
@@ -362,17 +412,9 @@ class ArtifactDiffService(ServiceBase):
             .first()
         )
 
-        versions = [{"version": 0, "label": "Creation baseline"}]
+        versions = [creation_baseline_entry()]
         if entity is not None:
-            versions.append(
-                {
-                    "version": entity.version,
-                    "label": f"Current (v{entity.version})",
-                    "modified_at": entity.modified_at.isoformat()
-                    if entity.modified_at
-                    else None,
-                }
-            )
+            versions.append(self._current_version_entry(entity))
         return versions
 
     # ------------------------------------------------------------------
@@ -386,38 +428,41 @@ class ArtifactDiffService(ServiceBase):
         entity_id: UUID,
         ctx: AuthContext,
     ) -> List[Dict[str, Any]]:
-        """List available versions for an entity by type and ID.
+        """List retrievable versions for an entity by type and ID.
 
         Works for entities with a ``version`` field but no artifact FK
         (ADR, Risk, Issue, GlossaryTerm). Returns the same shape as
-        ``list_versions`` for consistency.
+        ``list_versions`` for consistency, including ``content_available``.
         """
         self._set_tenant_context(ctx)
 
         model_class = _ENTITY_MODELS.get(entity_type)
         if model_class is None:
-            return [{"version": 0, "label": "Creation baseline"}]
+            return [creation_baseline_entry()]
 
         entity = model_class.objects.filter(id=entity_id).first()
         if entity is None:
             raise NotFoundError(f"{entity_type} {entity_id} not found")
 
-        versions = [{"version": 0, "label": "Creation baseline"}]
+        versions = [creation_baseline_entry()]
         if hasattr(entity, "version"):
-            versions.append(
-                {
-                    "version": entity.version,
-                    "label": f"Current (v{entity.version})",
-                    "modified_at": entity.updated_at.isoformat()
-                    if hasattr(entity, "updated_at") and entity.updated_at
-                    else (
-                        entity.modified_at.isoformat()
-                        if hasattr(entity, "modified_at") and entity.modified_at
-                        else None
-                    ),
-                }
-            )
+            versions.append(self._current_version_entry(entity))
         return versions
+
+    def _current_version_entry(self, entity: Any) -> Dict[str, Any]:
+        """Build the "current state" row of a version list.
+
+        The label deliberately omits the lock-counter value: rendering
+        ``Current (v7)`` invited readers to assume seven retrievable
+        revisions exist (issue #213). ``version`` is still returned because
+        it is the addressing token for ``/diff/`` and for baseline pinning.
+        """
+        return {
+            "version": self._current_lock_version(entity),
+            "label": "Current",
+            "modified_at": _entity_timestamp(entity),
+            "content_available": True,
+        }
 
     def diff_for_entity(
         self,
@@ -494,12 +539,32 @@ class ArtifactDiffService(ServiceBase):
         """Resolve entity field values for a given version (no artifact FK).
 
         Version 0 → None (creation baseline, no data).
-        Any valid version → current entity state (single-row model).
+        Current lock version → current entity state (single-row model).
+        Any other version → None (no snapshot stored — issue #213).
+
+        Historical lock-counter values deliberately do **not** fall back to the
+        current row. Doing so made the API answer "these two versions are
+        identical" for writes it simply never stored, which is worse than
+        admitting the snapshot is unavailable.
         """
         if version == 0:
             return None
 
+        if version != self._current_lock_version(entity):
+            return None
+
         return self._entity_to_snapshot(entity, entity_type)
+
+    @staticmethod
+    def _current_lock_version(entity: Any) -> int:
+        """Return the entity's optimistic-lock counter, defaulting to 1.
+
+        Legacy rows created before the counter was consistently maintained can
+        carry ``None``; those are treated as version 1 so that the creation
+        state stays addressable.
+        """
+        raw = getattr(entity, "version", None)
+        return raw if isinstance(raw, int) else 1
 
     # ------------------------------------------------------------------
     # Diagram version/diff helpers (REQ-142)
@@ -532,6 +597,8 @@ class ArtifactDiffService(ServiceBase):
                 "version": v.version_number,
                 "label": f"v{v.version_number}",
                 "modified_at": v.created_at.isoformat() if v.created_at else None,
+                # Real immutable snapshot rows — content is always retrievable.
+                "content_available": True,
             }
             for v in versions
         ]
@@ -647,6 +714,8 @@ class ArtifactDiffService(ServiceBase):
                 "version": v.term_version,
                 "label": f"v{v.term_version}",
                 "modified_at": v.created_at.isoformat() if v.created_at else None,
+                # Real immutable snapshot rows — content is always retrievable.
+                "content_available": True,
             }
             for v in versions
         ]

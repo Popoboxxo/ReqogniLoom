@@ -129,7 +129,8 @@
     "passwordPlaceholder": "Enter password...",
     "passwordRequired": "Please enter a password.",
     "submit": "Sign In",
-    "invalidCredentials": "Invalid credentials. Please try again."
+    "invalidCredentials": "Invalid credentials. Please try again.",
+    "sessionExpired": "Your session has expired. Please sign in again to continue."
   },
   "loading": "Loading...",
   "actions": {
@@ -403,7 +404,11 @@
     "addTerm": "Add term",
     "editTerm": "Edit term",
     "newTerm": "New term",
-    "deleteConfirm": "Really delete this term?"
+    "deleteConfirm": "Really delete this term?",
+    "loadFailed": "Failed to load terms.",
+    "saveFailed": "Failed to save term.",
+    "deleteFailed": "Failed to delete term.",
+    "linkSynonymFailed": "Failed to save link."
   },
   "adr": {
     "titlePlaceholder": "ADR title",
@@ -618,6 +623,7 @@
     "edit": "Edit Source",
     "delete": "Delete",
     "deleteConfirm": "Really delete this diagram?",
+    "deleteFailed": "Failed to delete diagram.",
     "type": "Type",
     "source": "Source",
     "description": "Description",
@@ -735,7 +741,8 @@
         "compare": "Compare to current",
         "copy": "Copy version id"
       },
-      "copied": "Version id copied"
+      "copied": "Version id copied",
+      "noSnapshot": "No stored snapshot for this version."
     },
     "diff": {
       "title": "Diff",

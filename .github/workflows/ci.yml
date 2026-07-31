@@ -98,11 +98,21 @@ jobs:
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
           REDIS_URL: redis://localhost:6379
-          # REQ-081: fixed Fernet key so CI never depends on an ambient value.
-          # Matches the settings_test.py fallback; explicit here for parity
-          # with the other required vars in this job.
-          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
+          # REQ-081 / issue #151: no Fernet key literal in the repository.
+          # settings_test.py generates an ephemeral key per process when the
+          # variable is unset, which is all the suite needs (encrypted columns
+          # are written and read back within the same run). An optional
+          # repository secret still wins if one is configured.
+          FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
         run: pytest
+
+      - name: Security scan - pip-audit (fixes #153)
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          echo "Scanning backend dependencies for known vulnerabilities..."
+          pip-audit --desc
+        continue-on-error: false
 
   frontend-test:
     runs-on: ubuntu-latest
@@ -125,3 +135,10 @@ jobs:
       - name: Run Vitest
         working-directory: frontend
         run: npm run test
+
+      - name: Security scan - npm audit (fixes #153)
+        working-directory: frontend
+        run: |
+          echo "Scanning frontend dependencies for known vulnerabilities..."
+          npm audit --audit-level=high
+        continue-on-error: false

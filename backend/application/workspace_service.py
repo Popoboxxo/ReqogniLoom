@@ -85,6 +85,25 @@ def _sanitize_and_cap(value: str, *, max_length: int, field_name: str) -> str:
     return cleaned
 
 
+def _assert_workspace_name_free(
+    name: str, tenant_id: UUID | str, *, exclude_id: Optional[UUID] = None
+) -> None:
+    """Raise ``ValidationError`` when *name* is already taken in the tenant.
+
+    Issue #127: ``uq_workspace_tenant_name`` enforces this invariant in the
+    database (the only race-free place). This pre-check exists purely to turn
+    the resulting ``IntegrityError`` into a 400-mappable ``ValidationError``
+    with an actionable message.
+    """
+    qs = Workspace.objects.filter(tenant_id=tenant_id, name=name)
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    if qs.exists():
+        raise ValidationError(
+            f"A workspace named '{name}' already exists in this tenant"
+        )
+
+
 class WorkspaceService(ServiceBase):
     """COMP-AS-WS — Workspace queries + create scoped to the active tenant."""
 
@@ -161,6 +180,8 @@ class WorkspaceService(ServiceBase):
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
         if tenant is None:
             raise NotFoundError(f"Tenant {ctx.tenant_id} not found")
+
+        _assert_workspace_name_free(name_clean, ctx.tenant_id)
 
         workspace = Workspace.objects.create(
             tenant=tenant,
@@ -247,6 +268,8 @@ class WorkspaceService(ServiceBase):
         target_name_clean = (target_name or "").strip()
         if not target_name_clean:
             raise ValidationError("target_name is required")
+
+        _assert_workspace_name_free(target_name_clean, ctx.tenant_id)
 
         source_config = WorkspacePresetConfig.objects.filter(workspace=source).first()
         active_tier = source_config.active_tier if source_config else "standard"
@@ -581,6 +604,10 @@ class WorkspaceService(ServiceBase):
             new_name = _sanitize_and_cap(
                 new_name, max_length=_NAME_MAX_LENGTH, field_name="name"
             )
+            if new_name != ws.name:
+                _assert_workspace_name_free(
+                    new_name, ctx.tenant_id, exclude_id=ws.id
+                )
             ws.name = new_name
             update_fields.append("name")
 

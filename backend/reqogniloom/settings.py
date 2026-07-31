@@ -196,6 +196,13 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + REQFLOW_APPS
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    # #36: activates request.LANGUAGE_CODE from the Accept-Language header
+    # (or the "django_language" session/cookie value) so translatable
+    # strings — Django's own and the ones DRF ships (gettext_lazy on
+    # serializer/field error messages) — render in the requester's
+    # language. Must sit between SessionMiddleware and CommonMiddleware
+    # per Django's LocaleMiddleware placement requirement.
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -301,6 +308,16 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+# #36: restrict LocaleMiddleware's Accept-Language negotiation to the two
+# languages the frontend actually offers (see frontend/src/i18n/index.ts).
+# Without this, Django's default LANGUAGES list (70+ locales) could match an
+# unsupported but related tag (e.g. "de-CH") to a locale we never ship
+# translations for, instead of falling back to LANGUAGE_CODE.
+LANGUAGES = [
+    ("en", "English"),
+    ("de", "Deutsch"),
+]
+
 # ---------------------------------------------------------------------------
 # Static files
 # ---------------------------------------------------------------------------
@@ -353,6 +370,9 @@ REST_FRAMEWORK = {
     # higher rate since e2e suites legitimately log in many times per run.
     "DEFAULT_THROTTLE_RATES": {
         "login": "10/min" if DJANGO_ENV not in _NON_PROD_ENVS else "1000/min",
+        # #135: throttle the refresh endpoint like login — it is unauthenticated
+        # (validated only via the refresh cookie) and public.
+        "refresh": "30/min" if DJANGO_ENV not in _NON_PROD_ENVS else "1000/min",
     },
 }
 
@@ -407,14 +427,17 @@ AUTH_JWT_SECRET: str = _get_required_secret("AUTH_JWT_SECRET")
 AUTH_JWT_ISSUER: str = config("AUTH_JWT_ISSUER", default="reqogniloom")
 AUTH_JWT_AUDIENCE: str = config("AUTH_JWT_AUDIENCE", default="reqogniloom-api")
 # Access-token lifetime in seconds (#77: reduced from 12h to 60min — a stolen/
-# leaked access token now only has a 1h window instead of 12h.
-# NOTE: PR #247 (silent JWT refresh via POST /api/v1/auth/refresh/, retried
-# transparently by the SPA on a 401) is what makes this safe to ship without
-# a UX regression — it was still open/unmerged at the time this TTL was
-# shortened. If #247 has not landed yet, users will be forced to re-login
-# every hour instead of every 12h; land #247 first (or concurrently) to avoid
-# that.
+# leaked access token now only has a 1h window instead of 12h. Safe to ship
+# because PR #247 (silent JWT refresh via POST /api/v1/auth/refresh/, retried
+# transparently by the SPA on a 401) is merged — users are not force-logged-out
+# hourly.
 AUTH_JWT_TTL_SECONDS: int = config("AUTH_JWT_TTL_SECONDS", default=3600, cast=int)
+# Refresh-token lifetime in seconds (default 30d, GitHub #135). The refresh
+# token lets the SPA silently mint a new access token when the short-lived
+# access cookie expires mid-session, instead of hard-logging the user out.
+AUTH_JWT_REFRESH_TTL_SECONDS: int = config(
+    "AUTH_JWT_REFRESH_TTL_SECONDS", default=2592000, cast=int
+)
 
 # ---------------------------------------------------------------------------
 # LLM Provider — ARCH-L1-009 LlmAdapter (ADR-02 Provider Abstraction)

@@ -56,8 +56,16 @@ export function LoginPage(): JSX.Element {
         : null
     : null;
 
-  const from =
-    (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/";
+  const locationState = location.state as
+    | { from?: { pathname: string }; sessionExpired?: boolean }
+    | null;
+  const from = locationState?.from?.pathname ?? "/";
+  // GitHub #135: the token-refresh client redirects here with
+  // sessionExpired=true when a mid-session token expiry could not be
+  // silently refreshed — show that distinctly from a wrong-password error so
+  // the user understands their in-progress work wasn't rejected, the session
+  // simply timed out.
+  const [sessionExpired] = useState(locationState?.sessionExpired ?? false);
 
   const handleSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
@@ -151,6 +159,15 @@ export function LoginPage(): JSX.Element {
         {error && (
           <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: 0 }}>
             {error}
+          </p>
+        )}
+        {!error && sessionExpired && (
+          <p
+            role="alert"
+            data-testid="login-session-expired-notice"
+            style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", margin: 0 }}
+          >
+            {t("login.sessionExpired")}
           </p>
         )}
         <label htmlFor="username-input" style={{ fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--color-text)" }}>

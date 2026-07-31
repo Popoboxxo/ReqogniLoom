@@ -1405,20 +1405,9 @@ class AiDerivationService(ServiceBase):
             get_provider,
         )
         from llm_adapter.token_tracking import is_over_daily_limit, record_token_usage
+        from persistence.tenancy import TenantContext, TenantContextNotSetError
 
         provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
-        cache_key = _derivation_cache_key(
-            provider_name, purpose, str(artifact_id), prompt
-        )
-
-        cached = cache.get(cache_key)
-        if cached is not None:
-            logger.debug(
-                "LLM derivation cache hit (purpose=%s, artifact=%s)",
-                purpose,
-                artifact_id,
-            )
-            return cached
 
         try:
             provider = get_provider()
@@ -1436,6 +1425,35 @@ class AiDerivationService(ServiceBase):
             )
             # Fallback output is intentionally not cached (REQ-105).
             return f"{MOCK_FALLBACK_MARKER}{result}"
+
+        # fix #122: namespace the cache key by the *effective* provider
+        # (`get_provider()` resolves the per-tenant LlmSettings override on top
+        # of the env default — see providers._apply_db_settings) and by the
+        # active tenant, not by the static env-configured LLM_PROVIDER name.
+        # Keying on `provider_name` alone let one tenant's real-provider
+        # response be cached under (and served back from) the same bucket as
+        # every other tenant still on the "mock" default, and survived a
+        # provider switch for the same tenant since the key never changed.
+        effective_provider_name = getattr(provider, "PROVIDER_NAME", provider_name)
+        try:
+            cache_tenant_id = str(TenantContext.get_tenant())
+        except TenantContextNotSetError:
+            cache_tenant_id = "no-tenant"
+        cache_key = _derivation_cache_key(
+            f"{effective_provider_name}:{cache_tenant_id}",
+            purpose,
+            str(artifact_id),
+            prompt,
+        )
+
+        cached = cache.get(cache_key)
+        if cached is not None:
+            logger.debug(
+                "LLM derivation cache hit (purpose=%s, artifact=%s)",
+                purpose,
+                artifact_id,
+            )
+            return cached
 
         audit_logger = LlmAuditLogger()
 

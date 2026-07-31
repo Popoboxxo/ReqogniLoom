@@ -402,6 +402,7 @@ export function MermaidEditor({
                   : ""
           }
           data-testid="mermaid-save-status"
+          role={saveStatus === "error" ? "alert" : "status"}
         >
           {saveStatus === "saving"
             ? t("canvas.status.saving", "Saving...")

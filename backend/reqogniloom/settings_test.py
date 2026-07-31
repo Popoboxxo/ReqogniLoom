@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 
+from cryptography.fernet import Fernet
 from decouple import config
 
 # ---------------------------------------------------------------------------
@@ -37,9 +38,23 @@ from decouple import config
 # ---------------------------------------------------------------------------
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-do-not-use-in-production")
 os.environ.setdefault("AUTH_JWT_SECRET", "test-auth-jwt-secret-for-pytest-do-not-use-in-production")
-os.environ.setdefault(
-    "FIELD_ENCRYPTION_KEY", "KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis="
-)
+
+# Issue #151: the Fernet key must NOT be a literal in the repository. A
+# committed key trains the "Fernet key lives in git" pattern and — because this
+# module sets it via os.environ.setdefault — a process accidentally started with
+# `settings_test` against a real database would encrypt LlmSettings.api_key
+# values with a publicly known key.
+#
+# Generated per process instead. This is safe for the suite because encrypted
+# columns are only ever written and read back within the same test run; nothing
+# needs to decrypt data that outlives the process.
+#
+# An externally provided key still wins, but an *empty* value is treated as
+# absent: GitHub Actions injects "" for an undeclared secret, and
+# setdefault() would happily keep that empty string, leaving Fernet to fail
+# with a confusing error far from the cause.
+if not os.environ.get("FIELD_ENCRYPTION_KEY"):
+    os.environ["FIELD_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 from reqogniloom.settings import *  # noqa: F401,F403,E402 — intentional settings re-export
 

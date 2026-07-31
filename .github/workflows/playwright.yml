@@ -51,12 +51,24 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
+      # Issue #151: no Fernet key literal in the repository. The migrate step
+      # and the backend server are separate processes that must share one key
+      # (seed_demo encrypts values the server later decrypts), so it is
+      # generated once per run here and exported for the remaining steps.
+      # An optional repository secret takes precedence if configured.
+      - name: Generate ephemeral field encryption key
+        env:
+          FIELD_ENCRYPTION_KEY_SECRET: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+        run: |
+          KEY="${FIELD_ENCRYPTION_KEY_SECRET:-$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')}"
+          echo "::add-mask::$KEY"
+          echo "FIELD_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+
       - name: Run Django migrations
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
           AUTH_JWT_SECRET: ci-test-auth-jwt-secret
-          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
           DJANGO_ENV: test
           DEBUG: 'True'
           DB_NAME: reqflow
@@ -88,7 +100,6 @@ jobs:
         env:
           SECRET_KEY: ci-test-secret-key
           AUTH_JWT_SECRET: ci-test-auth-jwt-secret
-          FIELD_ENCRYPTION_KEY: 'KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis='
           DJANGO_ENV: test
           DEBUG: 'True'
           DB_NAME: reqflow

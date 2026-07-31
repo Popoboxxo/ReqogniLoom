@@ -43,6 +43,15 @@ checks above (see the historical note this replaced). Baseline captured
 ``grep -c "\.objects\." rest_api/serializers.py``) — the ratchet starts at 0
 and any new ``.objects.``/``.unscoped.`` access fails the build immediately,
 same as any other file absent from ``MAX_ORM_LINES``.
+
+Issue #124 follow-up (2026-07-31): the initial MCP ratchet only scanned
+``mcp_server/tools/*.py``, so the transport/dispatch modules directly under
+``mcp_server/`` stayed unguarded — and ``tool_registry.py`` does reach for the
+ORM there. The top-level modules are now ratcheted too, so a new violation
+cannot slip in outside the ``tools`` package.
+Baseline captured 2026-07-31: tool_registry.py 1 (``_default_workspace_exists``
+pre-auth existence probe); ``_resolve_global_roles`` migrated to
+``AuthorizationService.active_roles_across_workspaces``.
 """
 from __future__ import annotations
 
@@ -54,7 +63,12 @@ import pytest
 # Directory holding the REST API view modules under guard.
 _REST_API_DIR = Path(__file__).resolve().parent.parent
 # Directory holding the MCP tool-group modules under guard (issue #124).
-_MCP_TOOLS_DIR = _REST_API_DIR.parent / "mcp_server" / "tools"
+_MCP_SERVER_DIR = _REST_API_DIR.parent / "mcp_server"
+_MCP_TOOLS_DIR = _MCP_SERVER_DIR / "tools"
+
+# ``models.py`` *defines* the MCP persistence models — ORM access there is the
+# point, not a layering violation, so it is excluded from the root-level scan.
+_MCP_ROOT_EXCLUDED = {"__init__.py", "models.py"}
 
 # Matches ``X.objects.`` and ``X.unscoped.`` manager access.
 _ORM_RE = re.compile(r"\.(objects|unscoped)\.")
@@ -94,6 +108,12 @@ MCP_TOOLS_MAX_ORM_LINES: dict[str, int] = {
     "needs.py": 1,
 }
 
+# Issue #124 follow-up: frozen baseline for the transport/dispatch modules
+# directly under ``mcp_server/``. NEVER raise a value here; only lower it.
+MCP_ROOT_MAX_ORM_LINES: dict[str, int] = {
+    "tool_registry.py": 1,
+}
+
 
 def _view_files() -> list[Path]:
     """Return ``views.py``, every ``*_views.py`` module, and ``serializers.py``
@@ -114,6 +134,15 @@ def _mcp_tool_files() -> list[Path]:
         return []
     return sorted(
         p for p in _MCP_TOOLS_DIR.glob("*.py") if p.name != "__init__.py"
+    )
+
+
+def _mcp_root_files() -> list[Path]:
+    """Return the top-level ``mcp_server/*.py`` modules under guard (#124)."""
+    if not _MCP_SERVER_DIR.exists():
+        return []
+    return sorted(
+        p for p in _MCP_SERVER_DIR.glob("*.py") if p.name not in _MCP_ROOT_EXCLUDED
     )
 
 
@@ -186,6 +215,31 @@ def test_no_new_direct_orm_access_mcp_tools(path: Path) -> None:
         f"If you legitimately removed violations, LOWER the ceiling in "
         f"MCP_TOOLS_MAX_ORM_LINES — never raise it."
     )
+
+
+@pytest.mark.parametrize("path", _mcp_root_files(), ids=lambda p: p.name)
+def test_no_new_direct_orm_access_mcp_root(path: Path) -> None:
+    """No top-level mcp_server module may exceed its frozen ceiling (#124)."""
+    allowed = MCP_ROOT_MAX_ORM_LINES.get(path.name, 0)
+    actual = _count_orm_lines(path)
+    assert actual <= allowed, (
+        f"{path.name}: {actual} direct-ORM line(s) exceed the ratchet ceiling "
+        f"of {allowed}. Move ORM access into an Application service (ADR-01). "
+        f"If you legitimately removed violations, LOWER the ceiling in "
+        f"MCP_ROOT_MAX_ORM_LINES — never raise it."
+    )
+
+
+def test_mcp_root_ratchet_is_monotonic() -> None:
+    """Frozen top-level mcp_server baselines must still match the real count."""
+    for name, cap in MCP_ROOT_MAX_ORM_LINES.items():
+        path = _MCP_SERVER_DIR / name
+        actual = _count_orm_lines(path)
+        assert actual == cap, (
+            f"{name}: ratchet ceiling is {cap} but file now has {actual} "
+            f"direct-ORM line(s). Lower MCP_ROOT_MAX_ORM_LINES['{name}'] "
+            f"to {actual}."
+        )
 
 
 def test_mcp_tools_ratchet_is_monotonic() -> None:
