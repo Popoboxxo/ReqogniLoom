@@ -215,3 +215,32 @@ class TestGetTestRunResultsEndpoint:
         assert response.status_code == 200
         assert response.data[0]["testcase"]["id"] is None
         assert response.data[0]["testcase"]["title"] == "Orphan Test"
+
+
+@pytest.mark.django_db
+class TestDeleteTestRunEndpoint:
+    """DELETE /api/v1/test-runs/{id}/ — intentionally unsupported (#22).
+
+    TestRuns are immutable audit records by design (see the TestRunViewSet
+    class docstring). This locks in the 405 + actionable message pointing
+    to ``close/`` as the correct way to finish a run, so the behaviour
+    documented in #22 doesn't silently regress to a bare/undocumented 405.
+    """
+
+    def _view(self):
+        from rest_api.views import TestRunViewSet as _TRVS
+        return _TRVS.as_view({"delete": "destroy"})
+
+    def test_delete_returns_405_with_actionable_message(self) -> None:
+        run_id = uuid.uuid4()
+        factory = APIRequestFactory()
+        req = factory.delete(f"/api/v1/test-runs/{run_id}/")
+        req.auth_context = _make_auth_context()
+
+        view = self._view()
+        response = view(req, pk=str(run_id))
+
+        assert response.status_code == 405
+        message = response.data["error"]["message"]
+        assert "immutable" in message.lower()
+        assert "close" in message.lower()
