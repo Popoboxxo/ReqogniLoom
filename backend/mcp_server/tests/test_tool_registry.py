@@ -557,33 +557,47 @@ class TestApiKeyGlobalRoleResolution:
             api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
         )
 
-    def _patch_user_role(self, roles):
-        """Patch auth_tenancy.models.UserRole so no DB access is needed."""
-        user_role = MagicMock()
-        user_role.objects.filter.return_value.values_list.return_value = list(roles)
-        return patch("auth_tenancy.models.UserRole", user_role)
+    def _registry_with_global_roles(self, roles):
+        """Build a registry whose authz service reports ``roles`` globally.
+
+        Issue #124: the cross-workspace role query moved out of the registry
+        into ``AuthorizationService.active_roles_across_workspaces`` (ADR-01),
+        so the stub seam is the service — matching
+        :meth:`test_api_key_with_workspace_uses_scoped_lookup` — instead of the
+        ``UserRole`` model. No DB access is needed either way.
+        """
+        authz_svc = MagicMock()
+        authz_svc.active_roles_across_workspaces.return_value = tuple(roles)
+        return ToolRegistry(auth_service=MagicMock(), authz_service=authz_svc), authz_svc
 
     def test_api_key_without_workspace_loads_global_roles(self):
-        registry = ToolRegistry(
-            auth_service=MagicMock(), authz_service=MagicMock()
-        )
+        registry, authz_svc = self._registry_with_global_roles(["admin", "editor"])
         ctx = self._api_key_ctx()
 
-        with self._patch_user_role(["admin", "editor"]):
-            resolved = registry._resolve_roles(ctx, workspace_id=None)
+        resolved = registry._resolve_roles(ctx, workspace_id=None)
 
         assert resolved.active_roles == ("admin", "editor")
         assert resolved.user_id == ctx.user_id
         assert resolved.auth_method == AuthMethod.API_KEY
+        authz_svc.active_roles_across_workspaces.assert_called_once_with(
+            user_id=ctx.user_id
+        )
 
     def test_api_key_without_workspace_empty_when_no_roles(self):
-        registry = ToolRegistry(
-            auth_service=MagicMock(), authz_service=MagicMock()
-        )
+        registry, _ = self._registry_with_global_roles([])
         ctx = self._api_key_ctx()
 
-        with self._patch_user_role([]):
-            resolved = registry._resolve_roles(ctx, workspace_id=None)
+        resolved = registry._resolve_roles(ctx, workspace_id=None)
+
+        assert resolved.active_roles == ()
+
+    def test_api_key_without_workspace_fails_closed_on_service_error(self):
+        """A failing role lookup must degrade to no roles, never leak an error."""
+        authz_svc = MagicMock()
+        authz_svc.active_roles_across_workspaces.side_effect = RuntimeError("boom")
+        registry = ToolRegistry(auth_service=MagicMock(), authz_service=authz_svc)
+
+        resolved = registry._resolve_roles(self._api_key_ctx(), workspace_id=None)
 
         assert resolved.active_roles == ()
 

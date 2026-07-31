@@ -538,7 +538,7 @@ class ToolRegistry:
             return ToolResult.error("AUTH_FAILED", auth_error)
 
         # --- Activate TenantContext for tenant-scoped queries ---
-        # Subsequent steps (role resolution via UserRole.objects, RBAC, preset
+        # Subsequent steps (role resolution via AuthorizationService, RBAC, preset
         # lookup, tool execution) all hit tenant-scoped models whose default
         # manager requires an active TenantContext. We must set the context
         # INSIDE this method — the View layer cannot do it earlier because
@@ -713,12 +713,13 @@ class ToolRegistry:
         an empty tuple if the lookup fails.
         """
         try:
-            from auth_tenancy.models import UserRole
-
-            assignments = UserRole.objects.filter(
-                user_id=ctx.user_id, suspended_at__isnull=True
-            ).values_list("role", flat=True)
-            return tuple(sorted(set(assignments)))
+            roles = self._authz_service.active_roles_across_workspaces(
+                user_id=ctx.user_id
+            )
+            # Coerce defensively: a stubbed/partial service must degrade to the
+            # fail-closed empty tuple rather than leak a non-role object into
+            # the RBAC gate.
+            return tuple(sorted({str(role) for role in roles}))
         except Exception:
             logger.debug("Global role resolution failed for user=%s", ctx.user_id)
             return ()
