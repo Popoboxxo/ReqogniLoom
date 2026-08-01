@@ -144,13 +144,6 @@ export default function NeedsEditors(): JSX.Element {
         // we have?" and makes a silently truncated list noticeable. It
         // replaces the counter that only appeared under an active filter.
         summary={needsSummary}
-        primaryAction={{
-          // ch. 14.2: name the result ("New need"), not the gesture ("+ New").
-          label: t('needs.newNeed', 'Neuer Bedarf'),
-          onClick: handleCreateNewClick,
-          disabled: showCreate,
-          testId: 'create-need-btn',
-        }}
       />
       <SplitView
       leftPanel={
@@ -163,6 +156,7 @@ export default function NeedsEditors(): JSX.Element {
           setNewTitle={setNewTitle}
           onSubmitCreate={handleCreateNew}
           createError={createError}
+          onCreateClick={handleCreateNewClick}
         />
       }
       rightPanel={
