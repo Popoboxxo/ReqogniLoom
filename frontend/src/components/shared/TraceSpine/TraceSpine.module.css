@@ -1,0 +1,246 @@
+/*
+ * <TraceSpine> — UI concept ch. 5, ch. 12.10.
+ *
+ * All values come from styles/tokens.css; no hardcoded colours or sizes.
+ * The reduced-motion override lives once in tokens.css (ch. 11.3) and is
+ * deliberately NOT repeated here.
+ */
+
+.wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* ch. 5: the spine stays visible and does not scroll with the content. */
+.rail {
+  position: sticky;
+  top: 0;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-border);
+}
+
+.stations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.station {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.glyph {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+}
+
+.station[data-current] .glyph {
+  color: var(--color-primary);
+}
+
+.stationButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  text-align: left;
+}
+
+.stationButton:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+}
+
+.stationButton:disabled {
+  cursor: default;
+  color: var(--color-text-muted);
+}
+
+.station[data-current] .stationButton {
+  font-weight: var(--weight-semibold);
+}
+
+.stationLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.here {
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.markers {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Branch count — neutral, because a count is not a state (ch. 3.3). */
+.countBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-badge-neutral-bg);
+  color: var(--color-badge-neutral-text);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.8;
+}
+
+/* Missing coverage is the information this component exists for (ch. 5). */
+.warning {
+  color: var(--color-warning);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+}
+
+.verification,
+.verificationEmpty {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.8;
+}
+
+.verification {
+  background: var(--color-badge-neutral-bg);
+  color: var(--color-badge-neutral-text);
+}
+
+.verificationEmpty {
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  padding: var(--space-3);
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.panelTitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.panelList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.panelItemButton {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.panelItemButton:hover {
+  background: var(--color-card-active-bg);
+}
+
+.panelItemTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+/*
+ * ch. 5 "Verhalten" / ch. 6.3: below --bp-lg (1024px) the rail moves
+ * horizontally under the artifact header. With more than four intermediate
+ * stations it scrolls sideways instead of wrapping, so the order of the
+ * chain stays recognisable.
+ */
+@media (max-width: 1024px) {
+  .wrapper {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rail {
+    position: static;
+    width: 100%;
+    border-left: none;
+    border-bottom: 2px solid var(--color-border);
+    overflow-x: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .stations {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .station {
+    flex: 0 0 auto;
+  }
+}
