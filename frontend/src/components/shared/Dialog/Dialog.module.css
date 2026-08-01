@@ -1,0 +1,139 @@
+/*
+ * <Dialog> — UI concept ch. 12.8.
+ *
+ * Every value comes from styles/tokens.css (ch. 8.4: dialogs sit on the
+ * raised surface). The backdrop is the only place with a literal colour,
+ * because a scrim is a shade of the viewport rather than a themed surface.
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(15, 23, 42, 0.55);
+  overflow: auto;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 85vh;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  outline: none;
+}
+
+/* The panel is programmatically focusable (tabIndex=-1); when it takes the
+   focus itself — a dialog without any control — that has to be visible. */
+.panel:focus-visible {
+  box-shadow: var(--shadow-card), 0 0 0 2px var(--color-focus);
+}
+
+.sm {
+  max-width: 420px;
+}
+
+.md {
+  max-width: 640px;
+}
+
+.lg {
+  max-width: 880px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.description {
+  margin: 0;
+  padding: var(--space-3) var(--space-6) 0;
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-muted);
+}
+
+.content {
+  padding: var(--space-4) var(--space-6) var(--space-5);
+  overflow: auto;
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6) var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Below --bp-sm the dialog uses the full width and drops the outer gutter,
+   so long legends stay readable on a phone. */
+@media (max-width: 640px) {
+  .overlay {
+    padding: var(--space-2);
+    align-items: flex-start;
+  }
+
+  .panel {
+    max-height: 92vh;
+  }
+
+  .header,
+  .description,
+  .content,
+  .footer {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}
