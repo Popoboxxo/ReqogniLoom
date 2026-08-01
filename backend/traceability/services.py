@@ -225,6 +225,37 @@ def get_trace_link(link_id: uuid.UUID):
     return _manager.get(link_id=link_id)
 
 
+def list_trace_links(
+    workspace_id: Optional[uuid.UUID] = None,
+    filters: Optional[dict] = None,
+    link_type: Optional[str] = None,
+) -> list:
+    """List the actual TraceLink rows for the active tenant (fix #264).
+
+    IF-TE-EXT-IN-003. REQ-L2-TE-011 (tenant-scoped via TenantManager).
+
+    ``query()`` returns :class:`NeighborResult` projections, which carry the
+    *neighbour* entity but neither the TraceLink's own primary key nor both
+    endpoints. Callers that must prove a link really exists in the database
+    (round-trip verification after ``create_trace_link``) need the ORM rows
+    themselves, hence this thin read-only facade over
+    ``TraceLinkManager.get_trace_links``.
+
+    Args:
+        workspace_id: Restrict to links whose *source* lives in this workspace.
+        filters: Extra ORM filter kwargs, e.g. ``{"target_id": <uuid>}``.
+        link_type: Restrict to a single link type.
+
+    Returns:
+        List of TraceLink ORM instances (``source``/``target`` select_related).
+    """
+    return _manager.get_trace_links(
+        workspace_id=workspace_id,
+        filters=filters,
+        link_type=link_type,
+    )
+
+
 def update_trace_link(
     link_id: uuid.UUID,
     link_type: Optional[str] = None,
@@ -369,6 +400,7 @@ __all__ = [
     # TraceLink CRUD
     "create_trace_link",
     "get_trace_link",
+    "list_trace_links",
     "update_trace_link",
     "delete_trace_link",
     "batch_create_trace_links",

@@ -482,6 +482,22 @@ class CrossCuttingToolGroup(BaseToolGroup):
         """traceability.query — return upstream/downstream TraceLink graph.
 
         REQ-L2-MC-004: returns upstream/downstream graph with link-type annotation.
+
+        Fix #264 (Befund B): ``artifact_id`` used to be handed to the
+        TraceabilityEngine verbatim. Links are stored between *Artifact* ids,
+        while every other tool (including ``traceability.create_link``)
+        accepts and returns the user-facing business-entity id — a Requirement
+        or TestCase primary key. Querying with the same id that had just been
+        linked therefore matched nothing and returned ``count: 0``, making a
+        successfully persisted link look lost. The id is now resolved through
+        the same service seam ``create_link`` uses, and the response reports
+        the real TraceLink rows (own ``id`` plus both endpoints) instead of
+        NeighborResult projections, whose missing attributes previously left
+        ``id``/``source_id``/``target_id`` silently ``None``.
+
+        An ``artifact_id`` that resolves to no entity now returns NOT_FOUND
+        rather than an empty link list, so a typo is no longer indistinguishable
+        from an artifact that genuinely has no links.
         """
         artifact_id = require_uuid(params, "artifact_id")
         direction: str = params.get("direction", "both")
@@ -493,8 +509,13 @@ class CrossCuttingToolGroup(BaseToolGroup):
             )
 
         try:
-            from traceability.services import query as te_query
+            resolved_id = self._trace_service.resolve_entity_to_artifact_id(
+                artifact_id, ctx=auth_context
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
 
+        try:
             links: List[Dict[str, Any]] = []
 
             directions_to_query = (
@@ -502,17 +523,17 @@ class CrossCuttingToolGroup(BaseToolGroup):
             )
 
             for dir_val in directions_to_query:
-                results = te_query(
-                    artifact_id=artifact_id,
+                rows = self._trace_service.list_links_for_entity(
+                    entity_id=resolved_id,
                     direction=dir_val,
-                    transitive=False,
+                    ctx=auth_context,
                 )
-                for link in results:
+                for link in rows:
                     links.append({
-                        "id": str(link.id) if hasattr(link, "id") else None,
-                        "source_id": str(link.source_id) if hasattr(link, "source_id") else None,
-                        "target_id": str(link.target_id) if hasattr(link, "target_id") else None,
-                        "link_type": link.link_type if hasattr(link, "link_type") else None,
+                        "id": str(link.id),
+                        "source_id": str(link.source_id),
+                        "target_id": str(link.target_id),
+                        "link_type": link.link_type,
                         "direction": dir_val,
                     })
 
@@ -522,6 +543,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
         return ToolResult.ok({
             "artifact_id": str(artifact_id),
+            # Echoed so a caller that passed a Requirement/TestCase id can
+            # correlate the returned Artifact-level endpoints (fix #264).
+            "resolved_artifact_id": str(resolved_id),
             "direction": direction,
             "links": links,
             "count": len(links),
@@ -644,6 +668,13 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
         trace_link_id = str(trace_link.id) if hasattr(trace_link, "id") else str(source_id)
 
+        # Fix #264: the endpoints the caller passed are business-entity ids;
+        # the persisted link stores the backing Artifact ids. Report both so
+        # the reported success is verifiable against traceability.query
+        # instead of having to be taken on faith (Befund B).
+        resolved_source_id = str(getattr(trace_link, "source_id", source_id))
+        resolved_target_id = str(getattr(trace_link, "target_id", target_id))
+
         write_mcp_audit(
             ctx=auth_context,
             operation="create",
@@ -663,6 +694,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "source_id": str(source_id),
                 "target_id": str(target_id),
                 "link_type": link_type,
+                # Artifact-level endpoints as actually persisted (fix #264).
+                "source_artifact_id": resolved_source_id,
+                "target_artifact_id": resolved_target_id,
             }
         })
 

@@ -1624,8 +1624,14 @@ class TraceLinkViewSet(BaseEntityViewSet):
         """GET /api/v1/tracelinks/?workspace_id=<id>[&artifact_id=<id>]
 
         When artifact_id is provided: returns upstream + downstream links for that artifact.
-        When only workspace_id is provided: returns empty list
-        (workspace-level scan is not yet supported by TraceLinkService).
+        When only workspace_id is provided: returns every link whose source
+        lives in that workspace.
+
+        Fix #264 (Befund B): the workspace-level branch used to return an
+        unconditional empty page, so this endpoint reported ``count: 0`` for
+        every workspace no matter what was stored. Anyone verifying a freshly
+        created trace link this way concluded the write had been silently
+        dropped. TraceLinkService.list_links_for_workspace now backs it.
         """
         lang = detect_lang(request)
         try:
@@ -1638,13 +1644,23 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 )
 
             artifact_id_str = request.query_params.get("artifact_id")
-            if not artifact_id_str:
-                # Workspace-level listing not supported — return empty paginated result
-                return self._paginate(request, [])
-
-            artifact_id = UUID(artifact_id_str)
             svc = self._svc()
             items: list = []
+
+            if not artifact_id_str:
+                links = svc.list_links_for_workspace(
+                    workspace_id=UUID(workspace_id_str), ctx=ctx
+                )
+                titles = _resolve_artifact_titles(
+                    [tl.source_id for tl in links] + [tl.target_id for tl in links]
+                )
+                return self._paginate(
+                    request,
+                    [_tracelink_to_dict(tl, titles) for tl in links],
+                    lambda item: TraceLinkSerializer(item).data,
+                )
+
+            artifact_id = UUID(artifact_id_str)
             for direction in ("upstream", "downstream"):
                 try:
                     results = svc.query_trace_links(
@@ -1655,7 +1671,15 @@ class TraceLinkViewSet(BaseEntityViewSet):
                     for r in results:
                         items.append(_neighbor_to_dict(r, artifact_id, direction))
                 except Exception:
-                    pass  # no links in this direction — safe to ignore
+                    # No links in this direction is the common case. An
+                    # unresolvable artifact_id also lands here — log it so a
+                    # bad id is not indistinguishable from "no links" (#264).
+                    logger.debug(
+                        "TraceLink %s query failed for artifact=%s",
+                        direction,
+                        artifact_id,
+                        exc_info=True,
+                    )
 
             # REQ-002: batch-resolve titles for all unique artifact IDs so the
             # frontend can display human-readable labels without extra requests.
