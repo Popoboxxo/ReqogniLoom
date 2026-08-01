@@ -240,6 +240,10 @@ export default function RequirementEditors(): JSX.Element {
           the filters below; now matches the Architecture/Glossary pattern). */}
       <PageHeader
         title={t('nav.requirements')}
+        // This header sits INSIDE the narrow split-view panel, not at page
+        // level, so it keeps the smaller heading until the Requirements
+        // route is migrated in its own step (UI concept ch. 6.1/17 step 3).
+        density="compact"
         count={{ shown: requirements.length, total: requirements.length }}
         primaryAction={{
           label: `+ ${t('actions.new')}`,

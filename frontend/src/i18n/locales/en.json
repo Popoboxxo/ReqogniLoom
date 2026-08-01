@@ -217,7 +217,8 @@
     "selectVerificationMethod": "Select Method",
     "status": "Status",
     "viewDiff": "View Diff",
-    "hideDiff": "Hide Diff"
+    "hideDiff": "Hide Diff",
+    "resetFilters": "Reset filters"
   },
   "arch": {
     "deriveRequirement": "Derive requirement",
@@ -267,7 +268,11 @@
       "edit": "Edit",
       "addChild": "Add Child",
       "linkRequirement": "Link to Requirement"
-    }
+    },
+    "summary_one": "{{count}} element",
+    "summary_other": "{{count}} elements",
+    "activeSuffix": "{{count}} active",
+    "newElement": "New architecture element"
   },
   "traceability": {
     "upstream": "Upstream Links",
@@ -430,7 +435,11 @@
     "deriveFailed": "Derivation failed.",
     "deriveEmpty": "The AI proposed no system requirements.",
     "deriveCreated": "Created and linked {{count}} system requirement(s).",
-    "deriveArchOptional": "Assign architecture element (optional)"
+    "deriveArchOptional": "Assign architecture element (optional)",
+    "summary_one": "{{count}} need",
+    "summary_other": "{{count}} needs",
+    "approvedSuffix": "{{count}} approved",
+    "newNeed": "New need"
   },
   "deriveRequirements": {
     "title": "Derived system requirements (draft)",
@@ -984,5 +993,57 @@
       "propagated_one": "Change propagated to {{count}} workspace currently on default.",
       "propagated_other": "Change propagated to {{count}} workspaces currently on default."
     }
+  },
+  "artifactId": {
+    "copyHint": "Copy identifier",
+    "copied": "Copied",
+    "copyLabel": "Copy identifier {{id}}"
+  },
+  "pageHeader": {
+    "more": "More actions",
+    "moreLabel": "Show more actions"
+  },
+  "goals": {
+    "title": "Goals",
+    "summary_one": "{{count}} goal",
+    "summary_other": "{{count}} goals",
+    "approvedSuffix": "{{count}} approved",
+    "newGoal": "New goal",
+    "mainGoal": "Main goal",
+    "mainGoalNone": "No main goal approved yet.",
+    "mainGoalNoneHint": "The main goal summarises the approved goals of this workspace. Generate it with AI or write it yourself.",
+    "mainGoalDraft": "Draft",
+    "generate": "Generate main goal with AI",
+    "generateDisabledHint": "AI generation is disabled for this workspace.",
+    "manualOpen": "Write main goal yourself",
+    "manualCancel": "Cancel input",
+    "manualPlaceholder": "Main goal",
+    "manualCreate": "Create draft",
+    "approve": "Approve",
+    "edit": "Edit",
+    "saveVersion": "Save new version",
+    "create": "Create goal",
+    "goalTitle": "Title",
+    "goalDescription": "Description",
+    "empty": "No goals yet",
+    "emptyHint": "Goals record what this workspace is meant to achieve. They are the input for the main goal."
+  },
+  "traceSpine": {
+    "title": "Derivation chain",
+    "here": "here",
+    "origin": "Origin",
+    "derived": "Derived",
+    "noCoverage": "No coverage",
+    "verification_one": "{{count}} test case",
+    "verification_other": "{{count}} test cases",
+    "verificationOpen": "Show linked test cases",
+    "stationOpen": "Show linked artifacts",
+    "empty": "No links yet",
+    "emptyHint": "This artifact is not linked to any other one yet.",
+    "loading": "Loading chain...",
+    "error": "Could not load the derivation chain.",
+    "close": "Close",
+    "stationCount_one": "{{count}} artifact",
+    "stationCount_other": "{{count}} artifacts"
   }
 }

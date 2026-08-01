@@ -14,17 +14,30 @@
  * views.
  */
 
-import { getStatusBadgeStyle } from "../../utils/statusBadge";
+import { getStatusBadgeStyle, type BadgeVariant } from "../../utils/statusBadge";
 
 interface StatusBadgeProps {
   status: string;
   /** Optional override for the rendered label (defaults to the raw status). */
   label?: string;
+  /**
+   * UI concept ch. 8.2.1: the semantic variant should come from the workflow
+   * definition so that workspace-defined states are coloured deliberately
+   * instead of by string match. No backend field carries it yet — passing
+   * `undefined` keeps the name-based fallback in resolveBadgeVariant().
+   */
+  badgeVariant?: BadgeVariant | null;
+  testId?: string;
 }
 
-export function StatusBadge({ status, label }: StatusBadgeProps): JSX.Element {
+export function StatusBadge({
+  status,
+  label,
+  badgeVariant,
+  testId = "status-badge",
+}: StatusBadgeProps): JSX.Element {
   return (
-    <span data-testid="status-badge" style={getStatusBadgeStyle(status)}>
+    <span data-testid={testId} style={getStatusBadgeStyle(status, badgeVariant)}>
       {label ?? status}
     </span>
   );

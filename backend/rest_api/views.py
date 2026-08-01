@@ -2946,6 +2946,11 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
     return {
         "id": str(el.id),
         "workspace_id": str(el.artifact.workspace_id) if hasattr(el, "artifact") else None,
+        # REQ-016 / UI concept ch. 12.11: the frontend needs the owning
+        # Artifact id to read and write workspace-defined custom fields via
+        # /artifacts/<id>/custom-field-values/. The OneToOne has always
+        # existed on the model; only the API never exposed it.
+        "artifact_id": str(el.artifact_id) if getattr(el, "artifact_id", None) else None,
         "title": el.title,
         "description": getattr(el, "description", ""),
         "uid": getattr(el, "uid", None),
@@ -3219,6 +3224,8 @@ def _goal_to_dict(goal: Any) -> dict[str, Any]:
     return {
         "id": str(goal.id),
         "workspace_id": str(goal.workspace_id),
+        # REQ-016 / UI concept ch. 12.11 — see _arch_to_dict for the rationale.
+        "artifact_id": str(goal.artifact_id) if getattr(goal, "artifact_id", None) else None,
         "lineage_id": str(goal.lineage_id),
         "sequence_number": goal.sequence_number,
         "title": goal.title,

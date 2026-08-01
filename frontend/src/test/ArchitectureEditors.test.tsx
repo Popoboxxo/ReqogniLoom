@@ -76,6 +76,10 @@ vi.mock("../api/tracelinks", () => ({
     listForArtifact: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
+    // <TraceSpine> composes the derivation chain from two neighbourhood
+    // queries (UI concept ch. 5). Empty results are the correct fixture
+    // here: this spec is about the editor fields, not about the chain.
+    impact: vi.fn().mockResolvedValue([]),
   },
 }));
 

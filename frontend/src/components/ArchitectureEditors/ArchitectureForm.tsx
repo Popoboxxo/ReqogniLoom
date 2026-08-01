@@ -1,3 +1,8 @@
+// ReadOnlyField was removed with the identity-block rewrite: UID, level
+// and version now render through <ArtifactId>, <LevelBadge> and
+// <VersionBadge> (UI concept ch. 12.4) instead of a generic mono
+// read-only cell.
+
 /**
  * ArchitectureForm Component — REQ-L3-RF004-004, REQ-L1-084
  *
@@ -20,6 +25,9 @@ import { useEntityType } from '../../context/EntityTypeContext';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { ArtifactDiff } from '../ArtifactDiff/ArtifactDiff';
 import { VersionBadge } from '../shared/VersionBadge';
+import { ArtifactId } from '../shared/ArtifactId';
+import { LevelBadge } from '../shared/LevelBadge';
+import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { architectureApi } from '../../api/architecture';
 import { extractErrorMessage } from '../../api/client';
@@ -161,33 +169,10 @@ function DeleteConfirmationDialog({
   );
 }
 
-/**
- * Read-only field component.
- */
-interface ReadOnlyFieldProps {
-  label: string;
-  value: string | number | null | undefined;
-}
-
-function ReadOnlyField({ label, value }: ReadOnlyFieldProps): JSX.Element {
-  return (
-    <div style={{ marginBottom: 'var(--space-4)' }}>
-      <label style={labelStyle}>{label}</label>
-      <div
-        style={{
-          ...readOnlyStyle,
-          marginBottom: 0,
-          padding: 'var(--space-2) var(--space-3)',
-          color: 'var(--color-text-muted)',
-          fontSize: 'var(--font-size-sm)',
-          fontFamily: 'monospace',
-        }}
-      >
-        {value || '—'}
-      </div>
-    </div>
-  );
-}
+// ReadOnlyField was removed with the identity-block rewrite: UID, level and
+// version now render through <ArtifactId>, <LevelBadge> and <VersionBadge>
+// (UI concept ch. 12.4) instead of a generic mono read-only cell that
+// re-implemented the identifier style inline.
 
 /**
  * ArchitectureForm — implements REQ-L3-RF004-004 & REQ-L1-084
@@ -396,8 +381,34 @@ export function ArchitectureForm({
         )}
       </div>
 
-      {/* Header with UID and Version (read-only) */}
+      {/* Identity block — UI concept ch. 12.4: id, level, version in one
+          row, always in the same order and the same representation as in the
+          list and in the trace spine. Replaces the UID/Version/Level grid
+          whose UID cell re-implemented the mono style inline. */}
       <div style={{ marginBottom: 'var(--space-6)' }}>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            marginBottom: 'var(--space-4)',
+          }}
+        >
+          <ArtifactId
+            testId="arch-artifact-id"
+            value={element.uid}
+            fallback={element.id.slice(0, 8)}
+            copyValue={element.uid || element.id}
+          />
+          <LevelBadge
+            level={element.level ?? 0}
+            title={t('arch.level')}
+            testId="arch-level-badge"
+          />
+          <VersionBadge version={element.version || 1} />
+        </div>
+
         <div
           style={{
             display: 'grid',
@@ -406,32 +417,6 @@ export function ArchitectureForm({
             marginBottom: 'var(--space-4)',
           }}
         >
-          {element.uid ? (
-            <ReadOnlyField label="UID" value={element.uid} />
-          ) : (
-            <div style={{ marginBottom: 'var(--space-4)' }}>
-              <label style={labelStyle}>UID</label>
-              <div
-                style={{
-                  ...readOnlyStyle,
-                  marginBottom: 0,
-                  padding: 'var(--space-2) var(--space-3)',
-                  color: 'var(--color-text-muted)',
-                  fontSize: 'var(--font-size-sm)',
-                  fontFamily: 'monospace',
-                  opacity: 0.6,
-                }}
-                title="Short ID (UUID prefix, no semantic uid assigned yet)"
-              >
-                {element.id.slice(0, 8)}
-              </div>
-            </div>
-          )}
-          <div>
-            <label style={labelStyle}>Version</label>
-            <VersionBadge version={element.version || 1} />
-          </div>
-          <ReadOnlyField label={t('arch.level')} value={element.level ?? 0} />
           {/* SysEng 2.0 §1.2: structural role is derived from tree position by
               the backend and shown read-only here — it is NOT the free-text
               element_type field below and cannot be edited directly. Reparenting
@@ -642,6 +627,14 @@ export function ArchitectureForm({
           disabled={isSaving}
         />
       </div>
+
+      {/* Workspace-defined attributes (REQ-016, UI concept ch. 12.11).
+          CustomFieldsEditor above edits the free-form JSON blob on the
+          element; this block renders the typed CustomFieldDefinitions of the
+          workspace, which the data model has supported all along but only
+          the Requirements editor ever displayed. Renders nothing when the
+          workspace defines no fields. */}
+      {element.artifact_id && <ArtifactCustomFields artifactId={element.artifact_id} />}
 
       {/* Change reason — extended preset only */}
       {isExtendedPreset && (

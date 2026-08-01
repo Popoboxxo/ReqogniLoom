@@ -262,6 +262,17 @@ async function apiFetch<T>(
     return undefined as T;
   }
 
+  // A 2xx with an empty body is NOT an error, but response.json() throws a
+  // SyntaxError on it. DRF renders `Response(None)` as a zero-length body
+  // (see MainGoalViewSet.current, which answers "no approved main goal yet"
+  // exactly that way), so without this guard a legitimate empty result
+  // reached the UI as "SyntaxError: Unexpected end of JSON input".
+  // Optional access on purpose: not every caller/mock supplies a full
+  // Headers object, and a missing header must never break a normal response.
+  if (response.headers?.get?.("content-length") === "0") {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
 
