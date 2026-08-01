@@ -214,7 +214,8 @@
     "selectVerificationMethod": "Methode auswählen",
     "status": "Status",
     "viewDiff": "Diff anzeigen",
-    "hideDiff": "Diff verbergen"
+    "hideDiff": "Diff verbergen",
+    "resetFilters": "Filter zurücksetzen"
   },
   "arch": {
     "deriveRequirement": "Anforderung ableiten",
@@ -264,7 +265,11 @@
       "edit": "Bearbeiten",
       "addChild": "Kind-Element hinzufügen",
       "linkRequirement": "Mit Anforderung verknüpfen"
-    }
+    },
+    "summary_one": "{{count}} Element",
+    "summary_other": "{{count}} Elemente",
+    "activeSuffix": "{{count}} aktiv",
+    "newElement": "Neues Architekturelement"
   },
   "traceability": {
     "upstream": "Upstream-Links",
@@ -427,7 +432,11 @@
     "deriveFailed": "Ableitung fehlgeschlagen.",
     "deriveEmpty": "Die KI hat keine Systemanforderungen vorgeschlagen.",
     "deriveCreated": "{{count}} Systemanforderung(en) angelegt und verknüpft.",
-    "deriveArchOptional": "Architekturelement zuweisen (optional)"
+    "deriveArchOptional": "Architekturelement zuweisen (optional)",
+    "summary_one": "{{count}} Bedarf",
+    "summary_other": "{{count}} Bedarfe",
+    "approvedSuffix": "{{count}} freigegeben",
+    "newNeed": "Neuer Bedarf"
   },
   "deriveRequirements": {
     "title": "Abgeleitete Systemanforderungen (Entwurf)",
@@ -981,5 +990,57 @@
       "propagated_one": "Änderung auf {{count}} Workspace übertragen, der aktuell den Standard verwendet.",
       "propagated_other": "Änderung auf {{count}} Workspaces übertragen, die aktuell den Standard verwenden."
     }
+  },
+  "artifactId": {
+    "copyHint": "Bezeichner kopieren",
+    "copied": "Kopiert",
+    "copyLabel": "Bezeichner {{id}} kopieren"
+  },
+  "pageHeader": {
+    "more": "Weitere Aktionen",
+    "moreLabel": "Weitere Aktionen anzeigen"
+  },
+  "goals": {
+    "title": "Ziele",
+    "summary_one": "{{count}} Ziel",
+    "summary_other": "{{count}} Ziele",
+    "approvedSuffix": "{{count}} freigegeben",
+    "newGoal": "Neues Ziel",
+    "mainGoal": "Haupt-Ziel",
+    "mainGoalNone": "Noch kein Haupt-Ziel freigegeben.",
+    "mainGoalNoneHint": "Das Haupt-Ziel fasst die freigegebenen Ziele des Workspace zusammen. Erzeuge es per KI oder schreibe es selbst.",
+    "mainGoalDraft": "Entwurf",
+    "generate": "Haupt-Ziel per KI erzeugen",
+    "generateDisabledHint": "KI-Generierung ist fuer diesen Workspace deaktiviert.",
+    "manualOpen": "Haupt-Ziel selbst schreiben",
+    "manualCancel": "Eingabe abbrechen",
+    "manualPlaceholder": "Haupt-Ziel",
+    "manualCreate": "Entwurf anlegen",
+    "approve": "Freigeben",
+    "edit": "Bearbeiten",
+    "saveVersion": "Neue Version speichern",
+    "create": "Ziel anlegen",
+    "goalTitle": "Titel",
+    "goalDescription": "Beschreibung",
+    "empty": "Noch keine Ziele",
+    "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe fuer das Haupt-Ziel."
+  },
+  "traceSpine": {
+    "title": "Ableitungskette",
+    "here": "hier",
+    "origin": "Herkunft",
+    "derived": "Ableitung",
+    "noCoverage": "Keine Abdeckung",
+    "verification_one": "{{count}} Testfall",
+    "verification_other": "{{count}} Testfaelle",
+    "verificationOpen": "Verknuepfte Testfaelle anzeigen",
+    "stationOpen": "Verknuepfte Artefakte anzeigen",
+    "empty": "Noch keine Verknuepfungen",
+    "emptyHint": "Dieses Artefakt ist noch mit keinem anderen verknuepft.",
+    "loading": "Kette wird geladen...",
+    "error": "Ableitungskette konnte nicht geladen werden.",
+    "close": "Schliessen",
+    "stationCount_one": "{{count}} Artefakt",
+    "stationCount_other": "{{count}} Artefakte"
   }
 }

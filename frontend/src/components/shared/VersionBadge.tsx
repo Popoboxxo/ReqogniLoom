@@ -1,12 +1,38 @@
+/**
+ * ARCH-L1-001 ReactFrontend — <VersionBadge> (UI concept ch. 12.4).
+ *
+ * The release state is the second-most important piece of information on an
+ * artifact (ch. 2) — but it is *not* a workflow status, so it renders
+ * neutral. It used to be filled with `--color-primary`, which put a third
+ * meaning on the colour channel next to type and status (ch. 8.1).
+ *
+ * The current/superseded distinction is kept, now carried by border weight
+ * and emphasis instead of hue, so it survives the "colour belongs to state"
+ * rule (ch. 3.3) without losing information in the version timeline.
+ */
+
 import { useTranslation } from "react-i18next";
 
 interface VersionBadgeProps {
   version: number | string;
   isCurrent?: boolean;
+  /**
+   * UI concept ch. 12.4: in list rows the badge only appears from version 2
+   * — "v1" on every row is noise. Detail headers and the version timeline
+   * keep showing it, hence opt-in rather than default.
+   */
+  hideWhenFirst?: boolean;
 }
 
-export function VersionBadge({ version, isCurrent = true }: VersionBadgeProps): JSX.Element {
+export function VersionBadge({
+  version,
+  isCurrent = true,
+  hideWhenFirst = false,
+}: VersionBadgeProps): JSX.Element | null {
   const { t } = useTranslation();
+
+  if (hideWhenFirst && Number(version) <= 1) return null;
+
   return (
     <span
       data-testid="version-badge"
@@ -17,13 +43,17 @@ export function VersionBadge({ version, isCurrent = true }: VersionBadgeProps): 
         marginLeft: "var(--space-2)",
         padding: "2px 8px",
         borderRadius: "var(--radius-sm)",
-        background: isCurrent ? "var(--color-primary)" : "var(--color-text-muted)",
-        color: "white",
+        background: "var(--color-badge-neutral-bg)",
+        border: `1px solid ${isCurrent ? "var(--color-border-hover)" : "transparent"}`,
+        color: "var(--color-badge-neutral-text)",
+        opacity: isCurrent ? 1 : 0.7,
+        fontFamily: "var(--font-mono)",
         fontSize: "var(--font-size-xs)",
-        fontWeight: 600,
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
+        fontWeight: isCurrent ? "var(--weight-semibold)" : "var(--weight-regular)",
+        fontVariantNumeric: "tabular-nums",
+        letterSpacing: "var(--tracking-normal)",
         verticalAlign: "middle",
+        whiteSpace: "nowrap",
       }}
       title={isCurrent ? t("icds.current", "Current Version") : t("icds.superseded", "Superseded Version")}
     >

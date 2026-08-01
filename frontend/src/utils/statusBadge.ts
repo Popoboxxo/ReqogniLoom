@@ -11,7 +11,13 @@
 
 import type { CSSProperties } from 'react';
 
-type BadgeVariant = 'info' | 'danger' | 'success' | 'warning' | 'neutral';
+/**
+ * The five semantic variants of UI concept ch. 8.2. Exported because
+ * <StatusBadge> accepts an explicit variant, which is the seam a future
+ * server-provided `badge_variant` on the workflow definition would plug
+ * into (see resolveBadgeVariant).
+ */
+export type BadgeVariant = 'info' | 'danger' | 'success' | 'warning' | 'neutral';
 
 const BADGE_BASE: CSSProperties = {
   borderRadius: 'var(--radius-full)',
@@ -41,6 +47,13 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   done: 'success',
   passed: 'success',
   resolved: 'success',
+  implemented: 'success',
+  verified: 'success',
+  mitigated: 'success',
+  // Goal / MainGoal workflow (backend/workflow/definition_store.py) uses
+  // German state names; without these keys every Goal badge fell back to
+  // neutral grey, i.e. "approved" and "draft" looked identical (ch. 8.2).
+  freigegeben: 'success',
 
   // In-progress / under review
   review: 'info',
@@ -49,6 +62,10 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   in_progress: 'info',
   'in progress': 'info',
   monitored: 'info',
+  submitted: 'info',
+  under_review: 'info',
+  'under review': 'info',
+  ready: 'info',
 
   // Negative
   rejected: 'danger',
@@ -57,25 +74,51 @@ const STATUS_VARIANT_MAP: Record<string, BadgeVariant> = {
   wontfix: 'danger',
   superseded: 'danger',
 
-  // Warning / attention
+  // Warning / attention — "outdated"/"archived" mean superseded but
+  // recoverable, which ch. 8.2 maps to warning rather than danger.
   suspect: 'warning',
   partial: 'warning',
+  outdated: 'warning',
+  archiviert: 'warning',
 
   // Neutral / draft / terminal
   draft: 'neutral',
+  entwurf: 'neutral',
   open: 'neutral',
+  identified: 'neutral',
   accepted: 'neutral',
   closed: 'neutral',
   not_run: 'neutral',
 };
 
 /**
+ * Resolves the semantic badge variant for a workflow state.
+ *
+ * UI concept ch. 8.2.1 wants this to come from the workflow definition
+ * (`badge_variant` per state) so workspace-defined states get a deliberate
+ * colour instead of a guess. That field does **not** exist in the backend
+ * today — neither on WorkflowDefinition nor on any serializer — so the
+ * signature already accepts it while the name-based table below stays the
+ * fallback. Once the backend ships it, callers pass it through and this
+ * table only serves legacy/unknown states.
+ */
+export const resolveBadgeVariant = (
+  status: string,
+  badgeVariant?: BadgeVariant | null,
+): BadgeVariant => {
+  if (badgeVariant && badgeVariant in VARIANT_COLORS) return badgeVariant;
+  return STATUS_VARIANT_MAP[status.toLowerCase().trim()] ?? 'neutral';
+};
+
+/**
  * Returns the inline style for a status badge based on its raw status string.
  * Unknown statuses fall back to the neutral variant.
  */
-export const getStatusBadgeStyle = (status: string): CSSProperties => {
-  const variant: BadgeVariant = STATUS_VARIANT_MAP[status.toLowerCase()] ?? 'neutral';
-  const colors = VARIANT_COLORS[variant];
+export const getStatusBadgeStyle = (
+  status: string,
+  badgeVariant?: BadgeVariant | null,
+): CSSProperties => {
+  const colors = VARIANT_COLORS[resolveBadgeVariant(status, badgeVariant)];
   return { ...BADGE_BASE, background: colors.bg, color: colors.color };
 };
 
