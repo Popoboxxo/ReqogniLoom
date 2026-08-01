@@ -196,6 +196,8 @@ export type MakeOrBuyDecision = "Make" | "Buy" | "Reuse" | null;
 export interface ArchitectureElement {
   id: UUID;
   workspace_id: UUID;
+  /** Owning Artifact — the key for workspace custom fields (REQ-016). */
+  artifact_id?: UUID;
   title: string;
   description: string;
   element_type: ElementType;
@@ -307,6 +309,8 @@ export interface Adr {
 export interface Goal {
   id: UUID;
   workspace_id: UUID;
+  /** Owning Artifact — the key for workspace custom fields (REQ-016). */
+  artifact_id?: UUID;
   lineage_id: UUID;
   sequence_number: number;
   title: string;

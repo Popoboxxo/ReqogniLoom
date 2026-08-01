@@ -461,6 +461,11 @@ class StakeholderNeedSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact. StakeholderNeedDTO has carried this
+    # since REQ-001, but the serializer never declared it, so DRF dropped it
+    # from every response — the UI could not address the custom-field value
+    # endpoint for a need (UI concept ch. 12.11). Read-only.
+    artifact_id = serializers.UUIDField(read_only=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True, read_only=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
@@ -513,6 +518,10 @@ class ArchitectureElementSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact, needed by the UI to read/write
+    # workspace-defined custom fields (UI concept ch. 12.11). Read-only —
+    # the Artifact is created by the service, never supplied by the client.
+    artifact_id = serializers.UUIDField(read_only=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     # REQ-006 (D5): free-form field — no longer restricted to ElementType.choices,
@@ -955,6 +964,10 @@ class GoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact, needed by the UI to read/write
+    # workspace-defined custom fields (UI concept ch. 12.11). Read-only —
+    # the Artifact is created by the service, never supplied by the client.
+    artifact_id = serializers.UUIDField(read_only=True)
     lineage_id = serializers.UUIDField(required=False, allow_null=True)
     sequence_number = serializers.IntegerField(read_only=True)
     title = SanitizedCharField(max_length=255)
