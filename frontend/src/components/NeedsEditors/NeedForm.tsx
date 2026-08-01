@@ -13,8 +13,11 @@ import { tracelinksApi } from '../../api/tracelinks';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
 import { VersionBadge } from '../shared/VersionBadge';
+import { ArtifactId } from '../shared/ArtifactId';
+import { StatusBadge } from '../shared/StatusBadge';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
+import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 
 interface NeedFormProps {
   need: StakeholderNeed | null;
@@ -259,10 +262,17 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
     >
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-6)' }}>
-          <div>
-            <span style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', fontFamily: 'monospace', marginRight: 'var(--space-2)' }}>
-              {need.uid}
-            </span>
+          {/* Identity block — UI concept ch. 12.4: id, status, version in
+              that order, identical to the list row. Replaces the inline
+              `fontFamily: monospace` span (one of four such duplicates). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
+            <ArtifactId
+              testId="need-artifact-id"
+              value={need.uid}
+              fallback={need.id.slice(0, 8)}
+              copyValue={need.uid || need.id}
+            />
+            {need.status && <StatusBadge status={need.status} testId="need-status-badge" />}
             {need.version && <VersionBadge version={need.version} />}
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
@@ -400,6 +410,14 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
             disabled={isSaving}
           />
         </div>
+
+        {/* SECTION: workspace-defined attributes (REQ-016, UI concept
+            ch. 12.11). CustomFieldsEditor above edits the free-form JSON blob
+            on the need itself; this block renders the typed
+            CustomFieldDefinitions of the workspace, which existed in the data
+            model but were never shown outside the Requirements editor.
+            Renders nothing when the workspace defines no fields. */}
+        {need.artifact_id && <ArtifactCustomFields artifactId={need.artifact_id} />}
 
         {/* SECTION: Change Control (REQ-162) — Extended preset only, mirrors
             RequirementForm/ArchitectureForm change_reason handling. */}

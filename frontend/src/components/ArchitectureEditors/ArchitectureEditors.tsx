@@ -21,6 +21,10 @@ import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
 import { WorkspaceTree } from "../shared/WorkspaceTree";
 import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
+import { PageHeader } from "../shared/PageHeader";
+import { ListToolbar } from "../shared/ListToolbar";
+import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
+import type { ChainArtifact } from "../shared/TraceSpine";
 import { ArchitectureForm } from "./ArchitectureForm";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
@@ -195,6 +199,63 @@ export default function ArchitectureEditors(): JSX.Element {
     })),
   [filteredElements, t]);
 
+  // UI concept ch. 12.1: always-visible summary. `lifecycle_status` defaults
+  // to 'active' server-side, so an absent value counts as active here too.
+  const archSummary = useMemo(() => {
+    const active = elements.filter(
+      (el) => (el.lifecycle_status ?? 'active') === 'active',
+    ).length;
+    return [
+      t('arch.summary', { count: elements.length, defaultValue: `${elements.length}` }),
+      t('arch.activeSuffix', { count: active, defaultValue: `${active} active` }),
+    ].join(' · ');
+  }, [elements, t]);
+
+  // Trace spine (ch. 5, ch. 12.10). The chain is composed client-side from
+  // the existing /tracelinks/impact/ neighbourhood query — no new backend
+  // endpoint. `elements` is already loaded exhaustively by
+  // useArchitectureData, so architecture station depths resolve without an
+  // extra round trip.
+  const derivationChain = useDerivationChain(
+    element?.artifact_id ?? element?.id ?? null,
+    'ArchitectureElement',
+    element?.level ?? 0,
+    { architectureElements: elements, enabled: !!element },
+  );
+
+  // The trace graph is keyed by Artifact id, the detail routes take the
+  // domain-entity id. For architecture the mapping is available locally
+  // (the exhaustive element list carries both). For requirements, needs and
+  // test cases there is no client-side mapping and no endpoint that resolves
+  // an Artifact id to its entity — so those entries are shown but not
+  // navigable. See the PR description: closing this needs a backend
+  // resolver, which this change deliberately does not add.
+  const archElementByArtifactId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const el of elements) {
+      if (el.artifact_id) map.set(el.artifact_id, el.id);
+      map.set(el.id, el.id);
+    }
+    return map;
+  }, [elements]);
+
+  const isChainArtifactOpenable = useCallback(
+    (artifact: ChainArtifact): boolean =>
+      artifact.artifactType === 'ArchitectureElement' &&
+      archElementByArtifactId.has(artifact.id),
+    [archElementByArtifactId],
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const elementId = archElementByArtifactId.get(artifact.id);
+      if (artifact.artifactType === 'ArchitectureElement' && elementId) {
+        navigate(`/architecture/${elementId}`);
+      }
+    },
+    [archElementByArtifactId, navigate],
+  );
+
   if (isLoading) {
     return (
       <p
@@ -249,89 +310,38 @@ export default function ArchitectureEditors(): JSX.Element {
         height: "100%",
       }}
     >
+      {/* UI concept ch. 12.2: search / filter / sort come from the shared
+          ListToolbar instead of a hand-built input + select pair. The
+          heading and the primary action moved up into the page-level
+          <PageHeader> (ch. 12.1) — a toolbar carries no primary action.
+          The status filter is now `arch-filter-status` (was
+          `arch-status-filter`); it is not referenced by any e2e spec. */}
       <div style={{ marginBottom: 'var(--space-3)' }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-3)",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-            }}
-          >
-            {t("nav.architecture")}
-          </h3>
-          <button
-            data-testid="create-arch-btn"
-            onClick={() => setShowCreateForm(true)}
-            style={{
-              background: "var(--color-primary)",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            + {t("actions.new")}
-          </button>
-        </div>
-
-        {/* Search input */}
-        <input
-          type="text"
-          value={listSearch}
-          onChange={(e) => setListSearch(e.target.value)}
-          placeholder={t('editor.searchPlaceholder', 'Search...')}
-          style={{
-            width: "100%",
-            padding: "var(--space-2) var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-border)",
-            fontSize: "var(--font-size-sm)",
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
-            boxSizing: "border-box",
-          }}
+        <ListToolbar
+          testIdPrefix="arch"
+          searchValue={listSearch}
+          onSearchChange={setListSearch}
+          searchPlaceholder={t('editor.searchPlaceholder', 'Search...')}
+          filters={[
+            {
+              // REQ-175: lifecycle-status filter. ArchitectureElement has no
+              // denormalized workflow status, so this filters lifecycle_status.
+              id: 'status',
+              allLabel: t('editor.allStatuses', 'All Statuses'),
+              value: statusFilter,
+              options: ARCH_LIFECYCLE_STATUSES.map((s) => ({
+                value: s,
+                label: t(`arch.lifecycleStatus.${s}`, s),
+              })),
+              onChange: setStatusFilter,
+            },
+          ]}
+          countLabel={
+            listSearch || statusFilter
+              ? `${filteredElements.length} / ${elements.length}`
+              : null
+          }
         />
-
-        {/* REQ-175: lifecycle-status filter */}
-        <label htmlFor="arch-status-filter" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
-          {t('editor.allStatuses', 'All Statuses')}
-        </label>
-        <select
-          id="arch-status-filter"
-          data-testid="arch-status-filter"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          style={{
-            width: "100%",
-            marginTop: "var(--space-2)",
-            padding: "var(--space-2) var(--space-3)",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-border)",
-            fontSize: "var(--font-size-sm)",
-            background: "var(--color-surface)",
-            color: "var(--color-text)",
-            boxSizing: "border-box",
-          }}
-        >
-          <option value="">{t('editor.allStatuses', 'All Statuses')}</option>
-          {ARCH_LIFECYCLE_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {t(`arch.lifecycleStatus.${s}`, s)}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/* Inline create form */}
@@ -420,6 +430,18 @@ export default function ArchitectureEditors(): JSX.Element {
               padding: "var(--space-6)",
             }}
           >
+            {/* Trace spine — UI concept ch. 5 / ch. 12.10. Architecture is
+                the pilot for it because its tree has a genuinely variable
+                depth, which is exactly what the dynamic station count has
+                to survive (ch. 5.1). */}
+            <TraceSpine
+              stations={derivationChain.stations}
+              isLoading={derivationChain.isLoading}
+              error={derivationChain.error}
+              onOpenArtifact={handleOpenChainArtifact}
+              isOpenable={isChainArtifactOpenable}
+            />
+
             <EntityTypeProvider
               entityType="architecture_element"
               entitySubType={element.element_type}
@@ -593,6 +615,33 @@ export default function ArchitectureEditors(): JSX.Element {
           </div>
         </div>
       )}
+
+      {/* UI concept ch. 12.1: exactly one <h1> per route, always-visible
+          summary, one primary action top right, everything rare in the
+          overflow menu. Replaces the <h3> + "+ New" pair that used to sit
+          inside the narrow list panel. `create-arch-btn` keeps its test id —
+          it is referenced by nine e2e specs. */}
+      <div style={{ padding: "0 var(--space-4)" }}>
+        <PageHeader
+          title={t("nav.architecture")}
+          summary={archSummary}
+          primaryAction={{
+            // ch. 14.2: name the result, not the gesture.
+            label: t("arch.newElement", "Neues Architekturelement"),
+            onClick: () => setShowCreateForm(true),
+            disabled: showCreateForm,
+            testId: "create-arch-btn",
+          }}
+          overflowActions={[
+            {
+              label: t("archDecompose.trigger", "KI-Zerlegung"),
+              onClick: () => setShowDecomposePanel(true),
+              disabled: !element || !activeWorkspace,
+              testId: "arch-decompose-overflow-btn",
+            },
+          ]}
+        />
+      </div>
 
       <SplitView
         leftPanel={listPanel}

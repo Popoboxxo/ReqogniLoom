@@ -85,6 +85,21 @@ export default function NeedsEditors(): JSX.Element {
     setShowCreate(true);
   };
 
+  // ch. 12.1 — always-visible summary: total plus the number already
+  // approved, which is the figure a reviewer actually asks for.
+  const needsSummary = React.useMemo(() => {
+    const approved = needs.filter(
+      (n) => (n.status ?? '').toLowerCase() === 'approved',
+    ).length;
+    return [
+      t('needs.summary', { count: needs.length, defaultValue: `${needs.length}` }),
+      t('needs.approvedSuffix', {
+        count: approved,
+        defaultValue: `${approved} approved`,
+      }),
+    ].join(' · ');
+  }, [needs, t]);
+
   const handleSaved = () => {
     refresh();
   };
@@ -125,9 +140,13 @@ export default function NeedsEditors(): JSX.Element {
           Architecture/Glossary pattern (title + count + primary action). */}
       <PageHeader
         title={t('nav.needs')}
-        count={{ shown: needs.length, total: needs.length }}
+        // ch. 12.1: the summary is always visible — it answers "how many do
+        // we have?" and makes a silently truncated list noticeable. It
+        // replaces the counter that only appeared under an active filter.
+        summary={needsSummary}
         primaryAction={{
-          label: `+ ${t('actions.new', 'New')}`,
+          // ch. 14.2: name the result ("New need"), not the gesture ("+ New").
+          label: t('needs.newNeed', 'Neuer Bedarf'),
           onClick: handleCreateNewClick,
           disabled: showCreate,
           testId: 'create-need-btn',
