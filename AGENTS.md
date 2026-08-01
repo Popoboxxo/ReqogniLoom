@@ -83,20 +83,10 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
  Gemini->AGENTS.md
 > **ENTRY:** `orchestrator`-Agent (für alle Dev-Tasks).
-`agent-meta v0.90.10` | DoD: `rapid-prototyping` | REQ-Trace: `false`
+`agent-meta v0.91.2` | DoD: `rapid-prototyping` | REQ-Trace: `false`
 
 
 ## Regeln
-
-# A2A Anti-Re-Delegation Gates
-
-1. Limit depth to 10, no self-handoff.
-2. Short payload: `payload.t` max 300 Zeichen.
-3. No Re-Delegation (payload starts with "Du bist...").
-4. Singleton Orchestrator: NUR der `main_chat` darf den `orchestrator` spawnen.
-5. Execution-Trace-Isolation: Worker-Output muss strukturiert sein (STATUS, RESULT, ARTIFACTS). Keine rohen Logs propagieren.
-
-
 
 # Branch-Guard
 
@@ -109,15 +99,7 @@ Verwende Feature-Branches (`feat/`, `fix/`, `chore/`). Keine Code-Änderungen di
 Verwende Conventional Commits (feat, fix, chore).
 Beschreibungssprache: `Englisch`
 Max 72 Zeichen in erster Zeile. Imperativ.
-
 Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
-
-
-
-
-# GitHub Issue Lifecycle
-
-Issues referenzieren und am Ende mit passendem Keyword (`Fixes #123`, `Closes #123`) im PR oder Commit schließen. Kommentiere das Issue nach Fertigstellung.
 
 
 
@@ -133,75 +115,25 @@ Issues referenzieren und am Ende mit passendem Keyword (`Fixes #123`, `Closes #1
 
 
 
-# Lifecycle-Tasks
+# Orchestrator
+Jeder Dev-Task -> `orchestrator`. Ausnahme: User Override oder 1-Step (falls erlaubt).
+## Direkter Dispatch (nur nach Regel 2)
 
-Beim Start prüfen: existiert `.gemini/pending-tasks.md`?
-Falls ja und enthält `- [ ]`: User fragen ob delegiert werden soll.
-Nach Erledigung: löschen. Datei nicht committen.
+| Operation | Direkt an | Bedingung |
+|-----------|-----------|-----------|
+| Commit, Push, Branch, Tag, PR | `git` | Einzelner Git-Befehl |
+| Sync, Upgrade, Meta-Konfiguration | `agent-meta-manager` | Reine agent-meta-Operation |
+| Bug/Feature/Verbesserung melden | `feedback` | Issue-Erstellung |
+| Session-Erkenntnisse speichern | `documenter` | Nur bei Session-Ende |
 
-
-
-# No Worktree Isolation
-
-**Anti-Pattern:** Niemals das Argument `isolation: "worktree"` beim Spawnen von Subagenten verwenden.
-**Grund:** Agenten schreiben dann ihren Output in den internen Ordner `.claude/worktrees/agent-<id>/` anstatt in das eigentliche Projektverzeichnis. Das führt zu fehlgeleiteten Dateien und Datenverlust in der eigentlichen Codebase.
-
-Alle Agenten müssen direkt im Projektverzeichnis arbeiten (Isolation deaktivieren oder weglassen). Der `.claude/` Ordner (sowie `.gemini/`, `.continue/`, `.mammouth/` etc.) ist strikt als Infrastruktur-Ordner zu betrachten und darf nicht für Arbeitskopien missbraucht werden.
-
-
-
-# Provider-Agnostic Policy
-
-Generische Templates in `1-generic/` müssen provider-agnostisch sein. Keine spezifischen Prompts für Claude, Gemini etc., außer als Fallback/Feature-Flag.
-
-
-
-# Python Conventions
-
-PEP8 einhalten. Type Hints (typing) verwenden. Docstrings für Klassen/Methoden schreiben.
-
-
-
-# Session-Abschluss
-
-Delegate Session-Zusammenfassung an `documenter` am Ende großer Features, um CODEBASE_OVERVIEW.md aktuell zu halten.
-
-
-
-# Submodule-Schutzkonzept
-
-Regeln für den Umgang mit allen Git-Submodulen (`.agent-meta/`, `external/*/`, und alle weiteren in `.gitmodules`):
-
-- **Keine direkten Änderungen in Submodul-Verzeichnissen:** Dateien in `.agent-meta/`, `external/*/` und allen anderen Submodul-Pfaden dürfen in Konsumenten-Repositories niemals direkt editiert oder committet werden. Submodule sind separate Repositories mit eigenem Lifecycle (Build, Push, Deploy, Version-Tags). Änderungen MÜSSEN im Submodul-Repo selbst durchgeführt, committet und gepusht werden — danach aktualisiert das Parent-Repo die Pinned-Commit-Referenz.
-- **Keine Mutation von `.gitmodules` / Git Staging:** `.gitmodules` darf nicht automatisch modifiziert werden und Submodule dürfen nicht automatisch via `git add` gestaged werden.
-- **Kein Source-Code-Scaffolding in Konsumenten-Projekten:** In Konsumenten-Projekten wird kein Anwendungscode generiert/gerüstet; verwaltet werden ausschließlich `.meta-config/project.yaml` und die Managed Blocks.
-- **Framework-Änderungen nur im agent-meta Repo:** Änderungen am agent-meta Framework müssen auf Feature-Branches im agent-meta Repository selbst durchgeführt werden.
-
-
-
-
-# CRITICAL GATE
-MAIN CHAT darf nicht selbst editieren. ALLES -> `orchestrator`. Keine Ausnahmen.
-
-
-
+> **Faustregel:** >1 Tool-Call → Orchestrator. Unsicher → Orchestrator.
 
 ## Git Delegation
 Git Mutationen (commit, push, add etc) -> `git` Agent. Read-only (status, log) im Main Chat ok.
 
-
-
 Native Extensions (Skills/Hooks) erlaubt, ignorieren nicht Branch-Guard/DoD.
 
-
-
-
-
 Anti-Recursion: Worker dürfen nicht an `orchestrator` zurück delegieren.
-
-
-## Anti-Patterns
-- **Worktree Isolation:** Niemals `isolation: "worktree"` bei Subagenten verwenden (schreibt in interne Infrastruktur-Ordner, führt zu Datenverlust).
 
 
 
@@ -356,6 +288,10 @@ Die Knowledge Engine ist aktiviert. Domäne: **internal-docs**.
 - **Gardening:** `knowledge-gardener` pflegt Links, Tags, Typos, Timestamps
 
 <!-- agent-meta:managed-end -->
+
+
+
+
 
 
 

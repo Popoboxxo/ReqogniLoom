@@ -26,6 +26,8 @@ import { ListToolbar } from "../shared/ListToolbar";
 import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
 import type { ChainArtifact } from "../shared/TraceSpine";
 import { ArchitectureForm } from "./ArchitectureForm";
+import { ArchitectureLegend } from "./ArchitectureLegend";
+import { Dialog } from "../shared/Dialog";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
@@ -104,6 +106,10 @@ export default function ArchitectureEditors(): JSX.Element {
 
   // AI Decompose panel state
   const [showDecomposePanel, setShowDecomposePanel] = useState(false);
+
+  // Legend (help) dialog. Requested after a live test: the page shows five
+  // badge families and nothing said which of them carries the colour.
+  const [showLegend, setShowLegend] = useState(false);
 
   const handleDeriveRequirement = useCallback(async (): Promise<void> => {
     if (!element || !activeWorkspace) return;
@@ -639,9 +645,34 @@ export default function ArchitectureEditors(): JSX.Element {
               disabled: !element || !activeWorkspace,
               testId: "arch-decompose-overflow-btn",
             },
+            {
+              // ch. 12.8: the dialog title repeats this label verbatim.
+              label: t("archLegend.trigger", "Legende"),
+              onClick: () => setShowLegend(true),
+              testId: "arch-legend-btn",
+            },
           ]}
         />
       </div>
+
+      {/* Legend — the first user of the real <Dialog> primitive
+          (ch. 12.8): portal, focus trap, Escape, focus back to the
+          overflow trigger. The two hand-built overlays above still use the
+          old pattern; converting them is a separate change. */}
+      {showLegend && (
+        <Dialog
+          title={t("archLegend.trigger", "Legende")}
+          description={t(
+            "archLegend.dialogDescription",
+            "Was die Farben, Kennzeichen und Symbole dieser Ansicht bedeuten.",
+          )}
+          size="lg"
+          onClose={() => setShowLegend(false)}
+          testId="arch-legend-dialog"
+        >
+          <ArchitectureLegend />
+        </Dialog>
+      )}
 
       <SplitView
         leftPanel={listPanel}

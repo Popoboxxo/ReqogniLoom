@@ -61,13 +61,19 @@ vi.mock("../shared/ArtifactInspector", () => ({
 
 vi.mock("./NeedForm", () => ({ NeedForm: () => null }));
 
-// NeedList is mocked to expose only the resulting create-form state; the
-// create trigger itself now lives in the (unmocked) shared PageHeader
-// component rendered by NeedsEditors (issue #172), identified by the same
-// "create-need-btn" testid it always used.
+// NeedList is mocked to expose the create button (now in ListToolbar via actions
+// prop) and the resulting create-form state. Button location moved from PageHeader
+// to ListToolbar per user request (improved UX).
 vi.mock("./NeedList", () => ({
-  NeedList: (props: { showCreateForm?: boolean }) => (
-    <div>{props.showCreateForm && <span data-testid="create-form-open" />}</div>
+  NeedList: (props: { showCreateForm?: boolean; onCreateClick?: () => void }) => (
+    <div>
+      {props.onCreateClick && (
+        <button data-testid="create-need-btn" onClick={props.onCreateClick}>
+          Create
+        </button>
+      )}
+      {props.showCreateForm && <span data-testid="create-form-open" />}
+    </div>
   ),
 }));
 
