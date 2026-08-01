@@ -619,6 +619,15 @@ class TestResolveArtifactId:
                 "application.models.MainGoal.objects.filter",
                 return_value=MagicMock(first=MagicMock(return_value=None)),
             ),
+            # fix #264: TestCase/StakeholderNeed joined the resolution chain.
+            patch(
+                "persistence.models.TestCase.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
+            patch(
+                "persistence.models.StakeholderNeed.objects.filter",
+                return_value=MagicMock(first=MagicMock(return_value=None)),
+            ),
         ):
             with pytest.raises(NotFoundError, match="Entity"):
                 svc._resolve_artifact_id(unknown_id)

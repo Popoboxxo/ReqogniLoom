@@ -516,7 +516,13 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "tool": "traceability.query",
         "params": {"artifact_id": "__UUID__", "workspace_id": "__WORKSPACE__"},
         "result_key": "links",
-        "needs_seed": None,
+        # fix #264: this case used to run on a fresh random uuid4, which is not
+        # a happy path — it exercised an id that resolves to nothing. The tool
+        # answered with an empty link list, indistinguishable from "artifact
+        # exists but has no links"; that ambiguity is exactly what made the
+        # issue's phantom-link report impossible to diagnose. An unresolvable
+        # id now returns NOT_FOUND, so the happy path needs a real artifact.
+        "needs_seed": "artifact",
     },
     # artifact.*
     {
