@@ -1,4 +1,4 @@
-agent-meta-version: 0.90.10
+agent-meta-version: 0.91.3
 test-repo:
   enabled: false
   path: ''
@@ -522,7 +522,7 @@ orchestrator:
     main-chat: true
     ask-user: true
     meta-feedback: false
-  mode: strict
+  mode: advisory
   provider-overrides:
     Claude:
       mode: main-chat
@@ -627,3 +627,13 @@ knowledge-engine:
   wiki-dir: wiki
   schema-language: auto
   enabled: true
+rules:
+  issue-lifecycle:
+    embed: false
+    alwaysApply: true
+# Maximum number of agents that a coordinator (orchestrator, feature) may run in parallel via run_in_background. Default: 2. Set to 1 to disable parallelism.
+max-parallel-agents: 2
+# When true, sync.py injects a debug block into every generated agent. Active agents announce themselves ([Agent: <name>]), log every delegation (→ Delegiere an: ...), and confirm completion (✓ [Agent: <name>] fertig). Default: false — no change to any agent file.
+debug-mode: false
+# Allow sync.py to write files containing detected secrets to committed (non-gitignored) paths. Default: false — sync aborts with an error when a secret is detected in a committed file. Set to true only when you deliberately commit secret-looking values (e.g. static demo tokens). NOT recommended for production projects.
+allow-committed-secrets: false
