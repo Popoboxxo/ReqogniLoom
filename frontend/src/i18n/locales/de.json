@@ -1055,6 +1055,19 @@
     "close": "Schließen",
     "closeLabel": "Dialog schließen"
   },
+  "emptyState": {
+    "loading": {
+      "label": "Lädt"
+    },
+    "noMatch": {
+      "title": "Kein Treffer",
+      "description": "Es gibt Einträge, aber keiner passt zum aktuellen Filter."
+    },
+    "forbidden": {
+      "title": "Keine Berechtigung",
+      "requiredRole": "Dafür wird die Rolle „{{role}}“ benötigt."
+    }
+  },
   "archLegend": {
     "trigger": "Legende",
     "dialogDescription": "Was die Farben, Kennzeichen und Symbole dieser Ansicht bedeuten.",
