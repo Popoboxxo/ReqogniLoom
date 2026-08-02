@@ -108,7 +108,15 @@ class GoalService(ServiceBase):
                 .order_by("-sequence_number")
                 .first()
             )
-            sequence_number = (last.sequence_number + 1) if last else 1
+            if last is None:
+                # Issue #270 finding 4: an unknown lineage_id used to silently
+                # start a *second* lineage at sequence 1 under the caller's
+                # UUID. Clients that mistakenly pass a Goal *version* id then
+                # get a response whose lineage_id equals that version id and
+                # believe the lineage changed. Fail loudly instead, and name
+                # the real lineage when the UUID is recognisably a Goal id.
+                raise NotFoundError(self._unknown_lineage_message(workspace.id, lineage_id))
+            sequence_number = last.sequence_number + 1
 
         artifact = Artifact.objects.create(
             tenant=tenant, workspace=workspace, artifact_type="Goal"
@@ -168,6 +176,24 @@ class GoalService(ServiceBase):
             "description": goal.description,
             "status": goal.status,
         }
+
+    @staticmethod
+    def _unknown_lineage_message(
+        workspace_id: uuid.UUID, lineage_id: uuid.UUID
+    ) -> str:
+        """Build the NotFoundError message for an unknown ``lineage_id``.
+
+        Adds a hint when the supplied UUID is in fact a Goal *version* id —
+        the mix-up issue #270 finding 4 reported.
+        """
+        message = f"Goal lineage {lineage_id} not found in workspace {workspace_id}"
+        stray = Goal.objects.filter(id=lineage_id, workspace_id=workspace_id).first()
+        if stray is not None:
+            message += (
+                f" — {lineage_id} is the id of Goal version v"
+                f"{stray.sequence_number}; its lineage_id is {stray.lineage_id}"
+            )
+        return message
 
     def get(self, goal_id: uuid.UUID, ctx: Any) -> Goal:
         """Fetch a single Goal version (tenant-scoped).

@@ -42,6 +42,10 @@ EC_SIGNATURE_REQUIRED = "SIGNATURE_REQUIRED"
 EC_SIGNATURE_INVALID = "SIGNATURE_INVALID"
 EC_DEFINITION_NOT_FOUND = "DEFINITION_NOT_FOUND"
 
+# Preset *tier* names (presets.registry). Entity-specific workflow schema keys
+# such as "goal_default" live in the same ``preset`` field but are not tiers.
+_PRESET_TIERS = frozenset({"minimal", "standard", "extended"})
+
 
 # ---------------------------------------------------------------------------
 # DTOs (IF-WE-EXT-IN-001, IF-WE-INT-002)
@@ -182,6 +186,47 @@ class TransitionValidator:
         except WorkflowDefinitionError:
             return None
 
+    @staticmethod
+    def _resolve_preset_tier(
+        workspace_id: str, definition: WorkflowDefinitionDTO
+    ) -> Optional[str]:
+        """Return the workspace's active preset tier, or ``None`` if unknown.
+
+        Issue #270 finding 1: the change_reason error message used to claim
+        "extended preset" unconditionally, sending users of Minimal/Standard
+        workspaces hunting for a setting they never made. The tier is read
+        from the PresetConfigEngine (IF-PC-EXT-IN-001) instead.
+
+        ``definition.preset`` is only a usable fallback when it happens to be
+        a tier name — every entity-specific schema ("goal_default",
+        "risk_default", ...) drives one entity type and says nothing about
+        the workspace's tier.
+        """
+        tier: Optional[str] = None
+        try:
+            from presets.services import get_preset
+
+            tier = get_preset(workspace_id).preset
+        except Exception:  # noqa: BLE001 — never fail a validation on a label
+            tier = None
+        if tier in _PRESET_TIERS:
+            return tier
+        if definition.preset in _PRESET_TIERS:
+            return definition.preset
+        return None
+
+    @classmethod
+    def _change_reason_message(
+        cls, workspace_id: str, definition: WorkflowDefinitionDTO
+    ) -> str:
+        """Build the CHANGE_REASON_REQUIRED message with real preset context."""
+        tier = cls._resolve_preset_tier(workspace_id, definition)
+        scope = f"This workspace ({tier} preset)" if tier else "This workspace"
+        return (
+            f"{scope} requires a change_reason for this transition. "
+            "Please describe your change."
+        )
+
     def validate(self, request: ValidationRequest) -> ValidationResult:
         """Run four-rule sequential validation (REQ-L3-WE002-001).
 
@@ -240,10 +285,7 @@ class TransitionValidator:
             return ValidationResult(
                 valid=False,
                 error_code=EC_CHANGE_REASON_REQUIRED,
-                error_message=(
-                    "This workspace (extended preset) requires a change_reason "
-                    "for all modifications. Please describe your change."
-                ),
+                error_message=self._change_reason_message(ws_str, definition),
             )
 
         # ---- Rule 4: SignatureGate -------------------------------------------
