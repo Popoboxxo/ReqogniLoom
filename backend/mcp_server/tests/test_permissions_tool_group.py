@@ -16,6 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
 
@@ -587,6 +588,13 @@ def _post(handler, method, params, *, request_id: int = 1, api_key: str = VALID_
     return handler.handle_http_request(body=body)
 
 
+# ``django_db``: these E2E classes drive the real
+# ``ToolRegistry.dispatch_request``, which arms the PostgreSQL RLS session
+# variable via ``persistence.middleware.set_request_tenant`` (``SET
+# app.current_tenant``, COMP-PL-006 / fix #110) and resets it in the
+# ``finally``. That is a real DB round-trip on the production path, so the
+# tests need DB access even though every collaborator below is mocked.
+@pytest.mark.django_db
 class TestE2EPermissions:
     @patch("mcp_server.tools.permissions.write_mcp_audit")
     def test_set_rule_e2e_returns_jsonrpc_result(self, mock_audit):
