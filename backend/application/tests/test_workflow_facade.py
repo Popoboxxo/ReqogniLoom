@@ -255,8 +255,9 @@ class TestCheckTransitionRoles:
 class TestRemapWorkflowExc:
     def test_remaps_role_error_to_permission_denied(self):
         from workflow.services import WorkflowTransitionError
+        from workflow.transition_validator import EC_ROLE_NOT_ALLOWED
 
-        exc = WorkflowTransitionError("EC_ROLE_NOT_ALLOWED", "no role")
+        exc = WorkflowTransitionError(EC_ROLE_NOT_ALLOWED, "no role")
         with pytest.raises(PermissionDeniedError):
             _remap_workflow_exc(exc)
 
