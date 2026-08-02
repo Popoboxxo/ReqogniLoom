@@ -93,7 +93,8 @@ def test_leaked_key_is_gone_from_the_worktree():
     offenders = [
         str(p.relative_to(REPO_ROOT))
         for p in _tracked_files()
-        if LEAKED_KEY in p.read_text(encoding="utf-8", errors="ignore")
+        if p.name != Path(__file__).name
+        and LEAKED_KEY in p.read_text(encoding="utf-8", errors="ignore")
     ]
     assert not offenders, (
         "The previously leaked Fernet key reappeared in: "
