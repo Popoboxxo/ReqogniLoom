@@ -3,9 +3,9 @@
  *
  * Verifies:
  *   - Renders nothing when isOpen is false
- *   - Fetches and displays commit_short + build_time once the version
- *     endpoint resolves
- *   - Falls back to just the commit_short when build_time is null
+ *   - Fetches and displays app_version + commit_short once the version
+ *     endpoint resolves (#74: the public endpoint only ever returns these
+ *     two fields — no full commit hash or build timestamp)
  *   - Shows an "unavailable" marker (without crashing the dialog) when the
  *     version fetch fails, while the health snapshot still renders
  */
@@ -54,12 +54,10 @@ describe("SystemHealthDialog — version indicator", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("displays commit_short and formatted build_time once resolved", async () => {
+  it("displays app_version and commit_short once resolved", async () => {
     vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
       app_version: "0.2.0",
-      commit: "abcdef1234567890",
       commit_short: "abcdef1",
-      build_time: "2026-07-16T12:00:00Z",
     });
 
     render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
@@ -67,16 +65,13 @@ describe("SystemHealthDialog — version indicator", () => {
     await waitFor(() => {
       expect(screen.getByTestId("system-health-version")).toHaveTextContent("abcdef1");
     });
-    expect(screen.getByTestId("system-health-version")).toHaveTextContent("built");
     expect(screen.getByTestId("system-health-version")).toHaveTextContent("v0.2.0");
   });
 
-  it("displays only commit_short when build_time is null", async () => {
+  it("displays only commit_short when app_version is unknown", async () => {
     vi.mocked(versionModule.versionApi.getVersion).mockResolvedValue({
       app_version: "unknown",
-      commit: "abcdef1234567890",
       commit_short: "abcdef1",
-      build_time: null,
     });
 
     render(<SystemHealthDialog isOpen onClose={vi.fn()} />);
@@ -86,7 +81,7 @@ describe("SystemHealthDialog — version indicator", () => {
         "Version: abcdef1"
       );
     });
-    expect(screen.getByTestId("system-health-version")).not.toHaveTextContent("built");
+    expect(screen.getByTestId("system-health-version")).not.toHaveTextContent("v0.2.0");
   });
 
   it("shows an unavailable marker without crashing when the version fetch fails", async () => {

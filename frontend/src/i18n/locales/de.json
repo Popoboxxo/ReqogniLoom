@@ -129,7 +129,8 @@
     "passwordPlaceholder": "Passwort eingeben...",
     "passwordRequired": "Bitte geben Sie ein Passwort ein.",
     "submit": "Anmelden",
-    "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut."
+    "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.",
+    "sessionExpired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an, um fortzufahren."
   },
   "loading": "Laden...",
   "actions": {
@@ -213,7 +214,8 @@
     "selectVerificationMethod": "Methode auswählen",
     "status": "Status",
     "viewDiff": "Diff anzeigen",
-    "hideDiff": "Diff verbergen"
+    "hideDiff": "Diff verbergen",
+    "resetFilters": "Filter zurücksetzen"
   },
   "arch": {
     "deriveRequirement": "Anforderung ableiten",
@@ -263,7 +265,11 @@
       "edit": "Bearbeiten",
       "addChild": "Kind-Element hinzufügen",
       "linkRequirement": "Mit Anforderung verknüpfen"
-    }
+    },
+    "summary_one": "{{count}} Element",
+    "summary_other": "{{count}} Elemente",
+    "activeSuffix": "{{count}} aktiv",
+    "newElement": "Neues Architekturelement"
   },
   "traceability": {
     "upstream": "Upstream-Links",
@@ -400,7 +406,11 @@
     "addTerm": "Begriff hinzufügen",
     "editTerm": "Begriff bearbeiten",
     "newTerm": "Neuer Begriff",
-    "deleteConfirm": "Diesen Begriff wirklich löschen?"
+    "deleteConfirm": "Diesen Begriff wirklich löschen?",
+    "loadFailed": "Begriffe konnten nicht geladen werden.",
+    "saveFailed": "Begriff konnte nicht gespeichert werden.",
+    "deleteFailed": "Begriff konnte nicht gelöscht werden.",
+    "linkSynonymFailed": "Verknüpfung konnte nicht gespeichert werden."
   },
   "adr": {
     "titlePlaceholder": "ADR-Titel",
@@ -422,7 +432,11 @@
     "deriveFailed": "Ableitung fehlgeschlagen.",
     "deriveEmpty": "Die KI hat keine Systemanforderungen vorgeschlagen.",
     "deriveCreated": "{{count}} Systemanforderung(en) angelegt und verknüpft.",
-    "deriveArchOptional": "Architekturelement zuweisen (optional)"
+    "deriveArchOptional": "Architekturelement zuweisen (optional)",
+    "summary_one": "{{count}} Bedarf",
+    "summary_other": "{{count}} Bedarfe",
+    "approvedSuffix": "{{count}} freigegeben",
+    "newNeed": "Neuer Bedarf"
   },
   "deriveRequirements": {
     "title": "Abgeleitete Systemanforderungen (Entwurf)",
@@ -615,6 +629,7 @@
     "edit": "Quelle bearbeiten",
     "delete": "Löschen",
     "deleteConfirm": "Dieses Diagramm wirklich löschen?",
+    "deleteFailed": "Diagramm konnte nicht gelöscht werden.",
     "type": "Typ",
     "source": "Quelle",
     "description": "Beschreibung",
@@ -732,7 +747,8 @@
         "compare": "Mit aktueller Version vergleichen",
         "copy": "Versions-ID kopieren"
       },
-      "copied": "Versions-ID kopiert"
+      "copied": "Versions-ID kopiert",
+      "noSnapshot": "Für diese Version ist kein Stand gespeichert."
     },
     "diff": {
       "title": "Diff",
@@ -809,7 +825,7 @@
   },
   "archDecompose": {
     "trigger": "KI-Zerlegung",
-    "title": "KI-Zerlegung (Copilot)",
+    "title": "KI-Zerlegung",
     "close": "Schließen",
     "breadth": "Breite (Kinder je Ebene)",
     "depth": "Tiefe (Ebenen)",
@@ -826,7 +842,7 @@
   },
   "deriveTestcase": {
     "trigger": "Testfall generieren",
-    "title": "Testfall-Entwurf (Copilot)",
+    "title": "Testfall-Entwurf",
     "close": "Schließen",
     "generate": "Entwurf generieren",
     "generating": "Wird generiert...",
@@ -974,5 +990,101 @@
       "propagated_one": "Änderung auf {{count}} Workspace übertragen, der aktuell den Standard verwendet.",
       "propagated_other": "Änderung auf {{count}} Workspaces übertragen, die aktuell den Standard verwenden."
     }
+  },
+  "artifactId": {
+    "copyHint": "Bezeichner kopieren",
+    "copied": "Kopiert",
+    "copyLabel": "Bezeichner {{id}} kopieren"
+  },
+  "pageHeader": {
+    "more": "Weitere Aktionen",
+    "moreLabel": "Weitere Aktionen anzeigen"
+  },
+  "goals": {
+    "title": "Ziele",
+    "summary_one": "{{count}} Ziel",
+    "summary_other": "{{count}} Ziele",
+    "approvedSuffix": "{{count}} freigegeben",
+    "newGoal": "Neues Ziel",
+    "mainGoal": "Haupt-Ziel",
+    "mainGoalNone": "Noch kein Haupt-Ziel freigegeben.",
+    "mainGoalNoneHint": "Das Haupt-Ziel fasst die freigegebenen Ziele des Workspace zusammen. Erzeuge es per KI oder schreibe es selbst.",
+    "mainGoalDraft": "Entwurf",
+    "generate": "Haupt-Ziel per KI erzeugen",
+    "generateDisabledHint": "KI-Generierung ist fuer diesen Workspace deaktiviert.",
+    "manualOpen": "Haupt-Ziel selbst schreiben",
+    "manualCancel": "Eingabe abbrechen",
+    "manualPlaceholder": "Haupt-Ziel",
+    "manualCreate": "Entwurf anlegen",
+    "approve": "Freigeben",
+    "edit": "Bearbeiten",
+    "saveVersion": "Neue Version speichern",
+    "create": "Ziel anlegen",
+    "goalTitle": "Titel",
+    "goalDescription": "Beschreibung",
+    "editTitle": "Ziel bearbeiten",
+    "untitled": "Ohne Titel",
+    "noDescription": "Keine Beschreibung.",
+    "versions": "Versionen",
+    "versionsNone": "Nur die aktuelle Version.",
+    "empty": "Noch keine Ziele",
+    "emptyHint": "Ziele halten fest, was der Workspace erreichen soll. Sie sind die Eingabe fuer das Haupt-Ziel."
+  },
+  "traceSpine": {
+    "title": "Ableitungskette",
+    "here": "hier",
+    "origin": "Herkunft",
+    "derived": "Ableitung",
+    "noCoverage": "Keine Abdeckung",
+    "verification_one": "{{count}} Testfall",
+    "verification_other": "{{count}} Testfaelle",
+    "verificationOpen": "Verknuepfte Testfaelle anzeigen",
+    "stationOpen": "Verknuepfte Artefakte anzeigen",
+    "empty": "Noch keine Verknuepfungen",
+    "emptyHint": "Dieses Artefakt ist noch mit keinem anderen verknuepft.",
+    "loading": "Kette wird geladen...",
+    "error": "Ableitungskette konnte nicht geladen werden.",
+    "close": "Schliessen",
+    "stationCount_one": "{{count}} Artefakt",
+    "stationCount_other": "{{count}} Artefakte"
+  },
+  "dialog": {
+    "close": "Schließen",
+    "closeLabel": "Dialog schließen"
+  },
+  "archLegend": {
+    "trigger": "Legende",
+    "dialogDescription": "Was die Farben, Kennzeichen und Symbole dieser Ansicht bedeuten.",
+    "intro": "Farbe steht auf dieser Seite ausschließlich für den Status. Artefakttyp, Ebene und Version werden über Text und Position unterschieden — sie bleiben bewusst neutral.",
+    "statusTitle": "Status (farbig)",
+    "statusHint": "Der Status wird im Kopf des Elements gesetzt und ist die einzige farbcodierte Information.",
+    "statusDraft": "Entwurf",
+    "statusDraftMeaning": "In Arbeit, noch nicht geprüft.",
+    "statusReview": "In Prüfung",
+    "statusReviewMeaning": "Eingereicht, wartet auf Freigabe.",
+    "statusApproved": "Freigegeben",
+    "statusApprovedMeaning": "Verbindlich und baseline-fähig.",
+    "statusOutdated": "Veraltet",
+    "statusOutdatedMeaning": "Ersetzt oder zurückgezogen, noch nachvollziehbar.",
+    "statusRejected": "Abgelehnt",
+    "statusRejectedMeaning": "Geprüft und verworfen.",
+    "lifecycleTitle": "Lebenszyklus des Elements",
+    "lifecycleHint": "Unabhängig vom Freigabestatus. Der Filter über der Liste greift auf dieses Feld zu; gelöschte Elemente werden gar nicht angezeigt.",
+    "lifecycleActive": "Gültiger Teil der aktuellen Architektur.",
+    "lifecycleOutdated": "Noch vorhanden, aber überholt — für Traceability weiter sichtbar.",
+    "lifecycleDeprecated": "Wird nicht mehr verwendet, bleibt für bestehende Verknüpfungen erhalten.",
+    "levelTitle": "Ebene",
+    "levelHint": "Die Ebene ist die tatsächliche Tiefe im Architekturbaum, keine feste Liste — sie wächst mit der Zerlegung. Eine Ebene ist kein Status, deshalb ist das Kennzeichen im Kopf neutral. Im Navigationsbaum links ist dieselbe Marke zusätzlich nach Tiefe eingefärbt; diese Farbe ist eine Altdarstellung und bedeutet keinen Status.",
+    "level0": "Wurzel — das System selbst.",
+    "level1": "Direkte Zerlegung der Wurzel, z. B. Subsysteme.",
+    "levelN": "Jede weitere Zerlegungsstufe, z. B. Komponenten und deren Teile.",
+    "identityTitle": "Kopfzeile des Elements",
+    "identifier": "Bezeichner des Elements, immer in Festbreitenschrift. Ein Klick auf den Bezeichner in der Kopfzeile kopiert ihn.",
+    "version": "Aktuelle Fassung. Neutral gehalten — eine Version ist kein Status. Ältere Fassungen erscheinen blasser und ohne Rahmen.",
+    "spineTitle": "Ableitungskette",
+    "spineHint": "Der Streifen über dem Formular zeigt, woher das Element abgeleitet ist und was daraus folgt.",
+    "spineHere": "Die Station, auf der das gerade geöffnete Element sitzt.",
+    "spineCount": "Anzahl der Artefakte auf dieser Station beziehungsweise der verknüpften Testfälle. Anklicken öffnet die Liste.",
+    "spineEmpty": "Auf dieser Station fehlt eine Verknüpfung — eine Lücke in der Nachverfolgbarkeit."
   }
 }

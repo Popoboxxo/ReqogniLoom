@@ -32,7 +32,7 @@ vi.mock("../api/search", () => ({
 }));
 
 vi.mock("../api/version", () => ({
-  versionApi: { getVersion: vi.fn(async () => ({ app_version: "0.0.0", commit: "abc", commit_short: "abc", build_time: null })) },
+  versionApi: { getVersion: vi.fn(async () => ({ app_version: "0.0.0", commit_short: "abc" })) },
 }));
 
 let nextListResult: unknown = { count: 0, next: null, previous: null, results: [] };

@@ -196,6 +196,8 @@ export type MakeOrBuyDecision = "Make" | "Buy" | "Reuse" | null;
 export interface ArchitectureElement {
   id: UUID;
   workspace_id: UUID;
+  /** Owning Artifact — the key for workspace custom fields (REQ-016). */
+  artifact_id?: UUID;
   title: string;
   description: string;
   element_type: ElementType;
@@ -307,6 +309,8 @@ export interface Adr {
 export interface Goal {
   id: UUID;
   workspace_id: UUID;
+  /** Owning Artifact — the key for workspace custom fields (REQ-016). */
+  artifact_id?: UUID;
   lineage_id: UUID;
   sequence_number: number;
   title: string;
@@ -629,9 +633,21 @@ export interface ArtifactDiffResult {
 }
 
 export interface ArtifactVersion {
+  /**
+   * Addressing token for `/diff/` and baseline pinning. For single-row
+   * artifact types this is the backend's optimistic-lock counter, NOT a
+   * revision number — it also increments on writes that change nothing
+   * user-visible (issue #213).
+   */
   version: number;
   label: string;
   modified_at?: string | null;
+  /**
+   * Whether a retrievable snapshot is stored for this version. `false` for
+   * the empty creation baseline and for historical lock-counter values of
+   * single-row types. Older backends omit the flag; treat that as `true`.
+   */
+  content_available?: boolean;
 }
 
 // ---------------------------------------------------------------------------

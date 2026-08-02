@@ -12,6 +12,17 @@ Tools implemented:
                                  name a missing trace link (mock LLM by
                                  default). No pgvector/embedding dependency
                                  (UMSETZUNGSPLAN_SYSENG_2.0.md §3.2).
+  traceability.create_link    — generic write tool (fix #121): create a
+                                 TraceLink between any two artifacts/entities
+                                 via TraceLinkService, the same service
+                                 ``architecture.link``/``test.link`` already
+                                 wrap. Accepts ``source_artifact_id`` /
+                                 ``artifact_id`` as aliases for
+                                 ``source_id`` / ``target_id`` so a
+                                 ``traceability.suggest_links`` suggestion
+                                 (``source_artifact_id`` + a ranked
+                                 candidate's ``artifact_id``) can be fed in
+                                 directly with only ``link_type`` added.
   artifact.search      — full-text search across all artifact types
   artifact.get_tree    — hierarchical artifact structure rooted at an artifact
   workspace.get_context — workspace status summary for AI agent session start
@@ -44,6 +55,7 @@ from application.services import (
     SearchService,
     TraceLinkService,
     ValidationError,
+    VALID_LINK_TYPES,
 )
 from application.traceability_suggest_service import (
     SuggestLinksResponseError,
@@ -59,6 +71,7 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    write_mcp_audit,
 )
 
 logger = logging.getLogger(__name__)
@@ -172,6 +185,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
     _TOOL_MAP = {
         "traceability.query": "_handle_traceability_query",
         "traceability.suggest_links": "_handle_traceability_suggest_links",
+        "traceability.create_link": "_handle_traceability_create_link",
         "artifact.search": "_handle_artifact_search",
         "artifact.get_tree": "_handle_artifact_get_tree",
         "workspace.get_context": "_handle_workspace_get_context",
@@ -225,6 +239,49 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "traceability.create_link",
+            "description": (
+                "Create a TraceLink between two artifacts/entities (write, "
+                "audited). Generic counterpart to architecture.link/"
+                "test.link for Need->Requirement, Requirement->Requirement "
+                "and any other core-entity pair (fix #121). Compatible with "
+                "traceability.suggest_links output: pass a suggestion's "
+                "'source_artifact_id' as 'source_id' and a ranked "
+                "candidate's 'artifact_id' as 'target_id' (both accepted "
+                "as aliases) to accept that suggestion."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source_id": {
+                        "type": "string",
+                        "description": "UUID of the link source (alias: source_artifact_id).",
+                    },
+                    "source_artifact_id": {
+                        "type": "string",
+                        "description": "Alias for 'source_id' (matches suggest_links output).",
+                    },
+                    "target_id": {
+                        "type": "string",
+                        "description": "UUID of the link target (alias: artifact_id).",
+                    },
+                    "artifact_id": {
+                        "type": "string",
+                        "description": (
+                            "Alias for 'target_id' (matches a suggest_links "
+                            "ranked candidate's 'artifact_id')."
+                        ),
+                    },
+                    "link_type": {
+                        "type": "string",
+                        "enum": sorted(VALID_LINK_TYPES),
+                        "description": "TraceLink type.",
+                    },
+                },
+                "required": ["link_type"],
             },
         },
         {
@@ -424,6 +481,22 @@ class CrossCuttingToolGroup(BaseToolGroup):
         """traceability.query — return upstream/downstream TraceLink graph.
 
         REQ-L2-MC-004: returns upstream/downstream graph with link-type annotation.
+
+        Fix #264 (Befund B): ``artifact_id`` used to be handed to the
+        TraceabilityEngine verbatim. Links are stored between *Artifact* ids,
+        while every other tool (including ``traceability.create_link``)
+        accepts and returns the user-facing business-entity id — a Requirement
+        or TestCase primary key. Querying with the same id that had just been
+        linked therefore matched nothing and returned ``count: 0``, making a
+        successfully persisted link look lost. The id is now resolved through
+        the same service seam ``create_link`` uses, and the response reports
+        the real TraceLink rows (own ``id`` plus both endpoints) instead of
+        NeighborResult projections, whose missing attributes previously left
+        ``id``/``source_id``/``target_id`` silently ``None``.
+
+        An ``artifact_id`` that resolves to no entity now returns NOT_FOUND
+        rather than an empty link list, so a typo is no longer indistinguishable
+        from an artifact that genuinely has no links.
         """
         artifact_id = require_uuid(params, "artifact_id")
         direction: str = params.get("direction", "both")
@@ -435,8 +508,13 @@ class CrossCuttingToolGroup(BaseToolGroup):
             )
 
         try:
-            from traceability.services import query as te_query
+            resolved_id = self._trace_service.resolve_entity_to_artifact_id(
+                artifact_id, ctx=auth_context
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
 
+        try:
             links: List[Dict[str, Any]] = []
 
             directions_to_query = (
@@ -444,17 +522,17 @@ class CrossCuttingToolGroup(BaseToolGroup):
             )
 
             for dir_val in directions_to_query:
-                results = te_query(
-                    artifact_id=artifact_id,
+                rows = self._trace_service.list_links_for_entity(
+                    entity_id=resolved_id,
                     direction=dir_val,
-                    transitive=False,
+                    ctx=auth_context,
                 )
-                for link in results:
+                for link in rows:
                     links.append({
-                        "id": str(link.id) if hasattr(link, "id") else None,
-                        "source_id": str(link.source_id) if hasattr(link, "source_id") else None,
-                        "target_id": str(link.target_id) if hasattr(link, "target_id") else None,
-                        "link_type": link.link_type if hasattr(link, "link_type") else None,
+                        "id": str(link.id),
+                        "source_id": str(link.source_id),
+                        "target_id": str(link.target_id),
+                        "link_type": link.link_type,
                         "direction": dir_val,
                     })
 
@@ -464,6 +542,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
         return ToolResult.ok({
             "artifact_id": str(artifact_id),
+            # Echoed so a caller that passed a Requirement/TestCase id can
+            # correlate the returned Artifact-level endpoints (fix #264).
+            "resolved_artifact_id": str(resolved_id),
             "direction": direction,
             "links": links,
             "count": len(links),
@@ -523,6 +604,100 @@ class CrossCuttingToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
         return ToolResult.ok(result.to_dict())
+
+    # ------------------------------------------------------------------
+    # traceability.create_link
+    # ------------------------------------------------------------------
+
+    def _handle_traceability_create_link(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """traceability.create_link — generic TraceLink creation (write, audited).
+
+        Fix #121: previously the only MCP tools able to create a TraceLink
+        were ``architecture.link`` (Requirement -> ArchElement) and
+        ``test.link`` (Test -> Requirement/ArchElement). There was no way to
+        create a Need->Requirement or Requirement->Requirement link, and
+        ``traceability.suggest_links`` had no accept step — its ranked
+        candidates were display-only. This tool wraps the same
+        ``TraceLinkService.create_trace_link`` those two tools already use,
+        for any source/target pair, and accepts ``source_artifact_id`` /
+        ``artifact_id`` as aliases for ``source_id`` / ``target_id`` so a
+        ``suggest_links`` suggestion can be passed straight through: its
+        ``source_artifact_id`` plus a ``ranked_candidates[i].artifact_id``.
+        """
+        source_id = optional_uuid(params, "source_id") or optional_uuid(
+            params, "source_artifact_id"
+        )
+        target_id = optional_uuid(params, "target_id") or optional_uuid(
+            params, "artifact_id"
+        )
+        link_type = require_param(params, "link_type")
+
+        if source_id is None:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'source_id' (or 'source_artifact_id') is required.",
+            )
+        if target_id is None:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'target_id' (or 'artifact_id') is required.",
+            )
+
+        if link_type not in VALID_LINK_TYPES:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Invalid link_type '{link_type}'. Valid types: {sorted(VALID_LINK_TYPES)}",
+            )
+
+        try:
+            trace_link = self._trace_service.create_trace_link(
+                source_id=source_id,
+                target_id=target_id,
+                link_type=link_type,
+                ctx=auth_context,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        trace_link_id = str(trace_link.id) if hasattr(trace_link, "id") else str(source_id)
+
+        # Fix #264: the endpoints the caller passed are business-entity ids;
+        # the persisted link stores the backing Artifact ids. Report both so
+        # the reported success is verifiable against traceability.query
+        # instead of having to be taken on faith (Befund B).
+        resolved_source_id = str(getattr(trace_link, "source_id", source_id))
+        resolved_target_id = str(getattr(trace_link, "target_id", target_id))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="create",
+            entity_type="TraceLink",
+            entity_id=UUID(trace_link_id),
+            tool_name="traceability.create_link",
+            api_key=api_key,
+            details={
+                "source_id": str(source_id),
+                "target_id": str(target_id),
+                "link_type": link_type,
+            },
+        )
+        return ToolResult.ok({
+            "trace_link": {
+                "id": trace_link_id,
+                "source_id": str(source_id),
+                "target_id": str(target_id),
+                "link_type": link_type,
+                # Artifact-level endpoints as actually persisted (fix #264).
+                "source_artifact_id": resolved_source_id,
+                "target_artifact_id": resolved_target_id,
+            }
+        })
 
     # ------------------------------------------------------------------
     # artifact.search

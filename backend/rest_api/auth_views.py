@@ -32,9 +32,19 @@ from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from auth_tenancy.errors import AuthError, build_error_body
-from auth_tenancy.rest import ACCESS_COOKIE_NAME, HasOperationPermission
-from auth_tenancy.services import PasswordAuthenticationService, UserProfileService
+from auth_tenancy.rest import (
+    ACCESS_COOKIE_NAME,
+    REFRESH_COOKIE_NAME,
+    HasOperationPermission,
+    enforce_csrf,
+)
+from auth_tenancy.services import (
+    AuthenticationService,
+    PasswordAuthenticationService,
+    UserProfileService,
+)
 from rest_api.serializers import UserProfileSerializer
+from rest_framework import exceptions as drf_exceptions
 
 
 class LoginRateThrottle(AnonRateThrottle):
@@ -47,6 +57,17 @@ class LoginRateThrottle(AnonRateThrottle):
     """
 
     scope = "login"
+
+
+class RefreshRateThrottle(AnonRateThrottle):
+    """#135: rate-limit the public refresh endpoint.
+
+    Scoped to the ``refresh`` throttle rate — the endpoint is unauthenticated
+    (identity comes from the refresh cookie, not from ``AuthTenancyAuthentication``)
+    so it needs its own brute-force cap, same rationale as ``LoginRateThrottle``.
+    """
+
+    scope = "refresh"
 
 # The access cookie is scoped to the API mount so it is never sent to unrelated
 # paths (e.g. static assets). Login/logout must use the same path or the browser
@@ -66,12 +87,37 @@ def _set_access_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         ACCESS_COOKIE_NAME,
         token,
-        max_age=int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 43200)),
+        max_age=int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 3600)),
         httponly=True,
         samesite="Lax",
         secure=settings.AUTH_COOKIE_SECURE,
         path=_ACCESS_COOKIE_PATH,
     )
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    """Attach the signed refresh JWT as an httpOnly cookie (GitHub #135).
+
+    Same hardening as the access cookie (``httponly``, ``SameSite=Lax``,
+    ``Secure`` per ``AUTH_COOKIE_SECURE``) but with the much longer
+    ``AUTH_JWT_REFRESH_TTL_SECONDS`` lifetime, and the same path so login/
+    logout/refresh consistently see and can clear it.
+    """
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        token,
+        max_age=int(getattr(settings, "AUTH_JWT_REFRESH_TTL_SECONDS", 2592000)),
+        httponly=True,
+        samesite="Lax",
+        secure=settings.AUTH_COOKIE_SECURE,
+        path=_ACCESS_COOKIE_PATH,
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    """Delete both the access and refresh cookies (logout / failed refresh)."""
+    response.delete_cookie(ACCESS_COOKIE_NAME, path=_ACCESS_COOKIE_PATH)
+    response.delete_cookie(REFRESH_COOKIE_NAME, path=_ACCESS_COOKIE_PATH)
 
 
 def _auth_error_response(
@@ -137,6 +183,7 @@ class LoginView(APIView):
             user = service.authenticate_credentials(username, password)
             roles = service.resolve_roles(user)
             token = service.issue_token(user, roles)
+            refresh_token = service.issue_refresh_token(user)
         except AuthError as exc:
             return _auth_error_response(
                 exc.code,
@@ -159,6 +206,7 @@ class LoginView(APIView):
             status=status.HTTP_200_OK,
         )
         _set_access_cookie(response, token)
+        _set_refresh_cookie(response, refresh_token)
         # Force a CSRF cookie so the SPA can echo X-CSRFToken on cookie-authed
         # mutations (CsrfViewMiddleware writes it on the response).
         get_token(request)
@@ -166,19 +214,101 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
-    """``POST /api/v1/auth/logout/`` — clear the httpOnly access cookie (REQ-052).
+    """``POST /api/v1/auth/logout/`` — clear the httpOnly auth cookies (REQ-052).
 
     Requires a valid credential (any authenticated role) and, on the cookie auth
     path, a CSRF token — both enforced by the global authentication layer. The
-    response deletes ``reqogniloom_access`` so a subsequent request is anonymous.
+    response deletes both ``reqogniloom_access`` and ``reqogniloom_refresh``
+    (GitHub #135) so a subsequent request is anonymous and cannot silently
+    refresh a new session.
     """
 
     permission_classes = [HasOperationPermission]
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Delete the access cookie and return 204."""
+        """Delete the auth cookies and return 204."""
         response = Response(status=status.HTTP_204_NO_CONTENT)
-        response.delete_cookie(ACCESS_COOKIE_NAME, path=_ACCESS_COOKIE_PATH)
+        _clear_auth_cookies(response)
+        return response
+
+
+class RefreshView(APIView):
+    """``POST /api/v1/auth/refresh/`` — exchange the refresh cookie for a new
+    access token (GitHub #135).
+
+    PUBLIC endpoint (no ``AuthTenancyAuthentication``/Bearer token required —
+    the access token may well be expired, that is the whole point) but NOT
+    unauthenticated: identity is asserted by the httpOnly
+    ``reqogniloom_refresh`` cookie, so CSRF is enforced exactly like the other
+    cookie-driven unsafe-method endpoints (REQ-052).
+
+    On success: mints and sets a fresh access cookie *and* rotates the refresh
+    cookie (defense-in-depth — limits the blast radius of a leaked refresh
+    token to one use), and returns the caller's identity (same shape as
+    ``LoginView``/``MeView``) so the SPA can refresh its in-memory auth state
+    without a follow-up ``GET /auth/me/``.
+
+    On failure (missing/invalid/expired refresh cookie, CSRF failure, or the
+    user no longer existing/active): clears both cookies so the SPA's retry
+    logic falls through to a real login instead of looping.
+    """
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+    throttle_classes = [RefreshRateThrottle]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Validate the refresh cookie and mint a new access token."""
+        accept_language = request.META.get("HTTP_ACCEPT_LANGUAGE")
+
+        refresh_token = request.COOKIES.get(REFRESH_COOKIE_NAME)
+        if not refresh_token:
+            return _auth_error_response(
+                "authentication_required",
+                accept_language=accept_language,
+                http_status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            enforce_csrf(request)
+        except drf_exceptions.PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
+        authn = AuthenticationService()
+        try:
+            user_id, tenant_id = authn.validate_refresh_token(refresh_token)
+        except AuthError as exc:
+            response = _auth_error_response(
+                exc.code, accept_language=accept_language, http_status=exc.status_code
+            )
+            _clear_auth_cookies(response)
+            return response
+
+        user = authn.resolve_active_user(user_id, tenant_id)
+        if user is None:
+            response = _auth_error_response(
+                "authentication_required",
+                accept_language=accept_language,
+                http_status=status.HTTP_401_UNAUTHORIZED,
+            )
+            _clear_auth_cookies(response)
+            return response
+
+        service = PasswordAuthenticationService()
+        roles = service.resolve_roles(user)
+        access_token = service.issue_token(user, roles)
+        new_refresh_token = service.issue_refresh_token(user)
+
+        response = Response(
+            {
+                "user": _user_payload(user, roles),
+                "tenant_id": str(user.tenant_id) if user.tenant_id else None,
+                "roles": list(roles),
+            },
+            status=status.HTTP_200_OK,
+        )
+        _set_access_cookie(response, access_token)
+        _set_refresh_cookie(response, new_refresh_token)
         return response
 
 
@@ -257,4 +387,11 @@ class MeView(APIView):
         )
 
 
-__all__ = ["LoginView", "LogoutView", "MeView", "LoginRateThrottle"]
+__all__ = [
+    "LoginView",
+    "LogoutView",
+    "MeView",
+    "RefreshView",
+    "LoginRateThrottle",
+    "RefreshRateThrottle",
+]

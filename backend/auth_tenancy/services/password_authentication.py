@@ -86,7 +86,13 @@ class PasswordAuthenticationService:
         self._ttl_seconds = (
             token_ttl_seconds
             if token_ttl_seconds is not None
-            else int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 43200))
+            else int(getattr(settings, "AUTH_JWT_TTL_SECONDS", 3600))
+        )
+        self._refresh_ttl_seconds = int(
+            getattr(settings, "AUTH_JWT_REFRESH_TTL_SECONDS", 2592000)
+        )
+        self._refresh_ttl_seconds = int(
+            getattr(settings, "AUTH_JWT_REFRESH_TTL_SECONDS", 2592000)
         )
 
     # -- Credential verification ------------------------------------------
@@ -184,8 +190,49 @@ class PasswordAuthenticationService:
             "user_id": str(user.id),
             "tenant_id": str(user.tenant_id),
             "roles": list(effective_roles),
+            "typ": "access",
             "iat": issued_at,
             "exp": issued_at + self._ttl_seconds,
+        }
+        if self._jwt_issuer is not None:
+            claims["iss"] = self._jwt_issuer
+        if self._jwt_audience is not None:
+            claims["aud"] = self._jwt_audience
+
+        return encode_hs256(claims, self._jwt_secret)
+
+    def issue_refresh_token(self, user: User) -> str:
+        """Mint a long-lived HS256 refresh JWT for ``user`` (GitHub #135).
+
+        Carries only ``user_id``/``tenant_id`` (no roles — roles are re-resolved
+        fresh from the database at refresh time, see
+        ``AuthenticationService.validate_refresh_token``) plus the ``typ``:
+        ``"refresh"`` claim that distinguishes it from an access token so it can
+        never authenticate a normal request (``validate_bearer_token`` rejects
+        it explicitly).
+
+        Args:
+            user: The user to mint a refresh token for; must have a tenant.
+
+        Returns:
+            The compact JWT string (without the ``Bearer `` prefix).
+
+        Raises:
+            AuthenticationFailed: ``invalid_token`` if the JWT secret is not
+                configured or the user has no tenant.
+        """
+        if not self._jwt_secret:
+            raise AuthenticationFailed("invalid_token")
+        if user.tenant_id is None:
+            raise AuthenticationFailed("invalid_token")
+
+        issued_at = int(time.time())
+        claims: dict[str, object] = {
+            "user_id": str(user.id),
+            "tenant_id": str(user.tenant_id),
+            "typ": "refresh",
+            "iat": issued_at,
+            "exp": issued_at + self._refresh_ttl_seconds,
         }
         if self._jwt_issuer is not None:
             claims["iss"] = self._jwt_issuer

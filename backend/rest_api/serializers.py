@@ -39,6 +39,23 @@ from rest_api.preset_guard import FieldFilter
 from persistence.models import ElementType
 
 # ---------------------------------------------------------------------------
+# Lock-counter semantics (issue #213)
+# ---------------------------------------------------------------------------
+
+# ``AuditableModel.version`` is an optimistic-concurrency counter, not a
+# content revision number. It is exposed so clients can send it back as
+# ``expected_version``; it must not be rendered as "this artifact has N
+# revisions". Historical values have no retrievable snapshot — real history
+# comes from the ``/versions/`` and ``/history/`` endpoints and from Baselines.
+LOCK_VERSION_HELP_TEXT = (
+    "Optimistic-lock counter for concurrency control (send back as "
+    "expected_version). NOT a content revision number: it also increments on "
+    "writes that change nothing user-visible, and historical values have no "
+    "retrievable snapshot. Use /versions/, /history/ or Baselines for real "
+    "history."
+)
+
+# ---------------------------------------------------------------------------
 # i18n error translation (REQ-L2-RA-004, REQ-L3-RA002-002)
 # ---------------------------------------------------------------------------
 
@@ -348,7 +365,9 @@ class ArtifactSerializer(
     workspace_id = serializers.UUIDField(required=True)
     artifact_type = serializers.CharField(max_length=64)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
 
@@ -412,7 +431,9 @@ class RequirementSerializer(
         allow_null=True,
         help_text="Unique identifier (read-only, auto-generated)",
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     # B006/#104: bounded like other short justification fields — unbounded
     # TextField-backed CharFields allow unbounded-size payloads (DoS risk).
     change_reason = SanitizedCharField(required=False, allow_blank=True, max_length=2000)
@@ -440,6 +461,11 @@ class StakeholderNeedSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact. StakeholderNeedDTO has carried this
+    # since REQ-001, but the serializer never declared it, so DRF dropped it
+    # from every response — the UI could not address the custom-field value
+    # endpoint for a need (UI concept ch. 12.11). Read-only.
+    artifact_id = serializers.UUIDField(read_only=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True, read_only=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
@@ -462,7 +488,9 @@ class StakeholderNeedSerializer(
     )
     uid = serializers.CharField(read_only=True, allow_null=True)
     suspect = serializers.BooleanField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     # #104: bounded — see RequirementSerializer.change_reason.
     change_reason = SanitizedCharField(
         write_only=True, required=False, allow_blank=True, max_length=2000
@@ -490,6 +518,10 @@ class ArchitectureElementSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact, needed by the UI to read/write
+    # workspace-defined custom fields (UI concept ch. 12.11). Read-only —
+    # the Artifact is created by the service, never supplied by the client.
+    artifact_id = serializers.UUIDField(read_only=True)
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     # REQ-006 (D5): free-form field — no longer restricted to ElementType.choices,
@@ -526,7 +558,9 @@ class ArchitectureElementSerializer(
         required=False, write_only=True
     )
     suspect = serializers.BooleanField(required=False, default=False)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -603,7 +637,9 @@ class TestCaseSerializer(
     verifies_link_id = serializers.UUIDField(
         read_only=True, allow_null=True, required=False, default=None
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -652,7 +688,9 @@ class TraceLinkSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         default="",
         help_text="Artifact type of the target (e.g. Requirement, ArchitectureElement).",
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
@@ -715,7 +753,9 @@ class BaselineDeltaEntrySerializer(serializers.Serializer):
     """
 
     item_id = serializers.CharField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     entity_type = serializers.CharField(read_only=True)
     state = serializers.JSONField(read_only=True, allow_null=True)
 
@@ -739,7 +779,9 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     scope = serializers.CharField(max_length=32)
     description = serializers.CharField(allow_blank=True, required=False, default="", max_length=20000)
     artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     entries = BaselineDeltaEntrySerializer(
         many=True, read_only=True, required=False
@@ -800,7 +842,9 @@ class WorkflowDefinitionSerializer(
     workspace_id = serializers.UUIDField(required=True)
     artifact_id = serializers.UUIDField()
     name = serializers.CharField(max_length=255)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
@@ -836,7 +880,9 @@ class WorkspaceSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     is_active = serializers.BooleanField(read_only=True, default=True)
     closed_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
     closed_by = serializers.UUIDField(read_only=True, allow_null=True, default=None)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -860,7 +906,9 @@ class AdrSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["Draft", "In Review", "Approved", "Rejected", "Superseded"],
         default="Draft",
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -904,7 +952,9 @@ class RiskSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         choices=["Identified", "Monitored", "Mitigated", "Accepted", "Closed"],
         default="Identified",
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -914,12 +964,18 @@ class GoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: id of the owning Artifact, needed by the UI to read/write
+    # workspace-defined custom fields (UI concept ch. 12.11). Read-only —
+    # the Artifact is created by the service, never supplied by the client.
+    artifact_id = serializers.UUIDField(read_only=True)
     lineage_id = serializers.UUIDField(required=False, allow_null=True)
     sequence_number = serializers.IntegerField(read_only=True)
     title = SanitizedCharField(max_length=255)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     status = serializers.CharField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -936,7 +992,9 @@ class MainGoalSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         child=serializers.CharField(), read_only=True, required=False
     )
     status = serializers.CharField(read_only=True)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -960,7 +1018,9 @@ class TestRunSerializer(PresetAwareSerializerMixin, serializers.Serializer):
     started_at = serializers.DateTimeField(read_only=True)
     finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
     result_summary = serializers.JSONField(read_only=True, required=False)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -981,7 +1041,9 @@ class TestRunResultSerializer(PresetAwareSerializerMixin, serializers.Serializer
     # #104: test log/failure message, unbounded before — cap at 10000 chars
     # (DoS risk; long enough for typical stack traces/assertion output).
     message = serializers.CharField(allow_blank=True, default="", max_length=10000)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
@@ -1039,7 +1101,9 @@ class IssueSerializer(PresetAwareSerializerMixin, serializers.Serializer):
         },
     )
     tags = serializers.JSONField(required=False, default=list)
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -1066,7 +1130,9 @@ class ChangeRequestSerializer(PresetAwareSerializerMixin, serializers.Serializer
     assigned_reviewer_id = serializers.UUIDField(
         allow_null=True, required=False, default=None
     )
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -1154,7 +1220,7 @@ class AttributeVisibilityConfigSerializer(serializers.Serializer):
     modified_at = serializers.DateTimeField(read_only=True)
     version = serializers.IntegerField(
         read_only=True,
-        help_text="Audit: version counter",
+        help_text=LOCK_VERSION_HELP_TEXT,
     )
 
 
@@ -1324,7 +1390,9 @@ class GlossaryTermSerializer(serializers.Serializer):
     definition = SanitizedCharField(max_length=20000)
     synonyms = serializers.JSONField(required=False, default=list)
     abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
-    version = serializers.IntegerField(read_only=True)
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)
@@ -1338,7 +1406,31 @@ class UserProfileSerializer(serializers.Serializer):
     ``last_name`` are the only writable fields (a user may edit their own name
     but not their username, email, tenant or roles). ``update`` applies the
     partial change and persists only the touched columns.
+
+    QIRK-002 (#73): any other key in the payload is rejected with HTTP 400
+    rather than silently dropped. Silently returning 200 made callers believe a
+    password or privilege change had been applied when it had not.
     """
+
+    #: Writable via this endpoint. Everything else in the payload is an error.
+    WRITABLE_FIELDS = ("first_name", "last_name")
+
+    #: Security/identity fields that a caller must never set here. Listed
+    #: explicitly so the 400 can carry a targeted, actionable message.
+    PROTECTED_FIELDS = (
+        "password",
+        "is_admin",
+        "is_superuser",
+        "is_staff",
+        "is_active",
+        "roles",
+        "role",
+        "tenant_id",
+        "tenant",
+        "username",
+        "email",
+        "id",
+    )
 
     id = serializers.UUIDField(read_only=True)
     username = serializers.CharField(read_only=True)
@@ -1350,6 +1442,40 @@ class UserProfileSerializer(serializers.Serializer):
         max_length=150, required=False, allow_blank=True, default=""
     )
     is_active = serializers.BooleanField(read_only=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject protected and unknown keys with 400 (QIRK-002, #73).
+
+        DRF ignores non-writable keys by default, which is safe (no mass
+        assignment) but misleading: the caller gets 200 for an operation that
+        never happened. Validation happens before ``update()``, so a payload
+        mixing legal and rejected fields applies nothing at all.
+        """
+        supplied = getattr(self, "initial_data", None)
+        if not isinstance(supplied, dict):
+            return attrs
+
+        errors: dict[str, list[str]] = {}
+        for key in supplied:
+            if key in self.WRITABLE_FIELDS:
+                continue
+            if key == "password":
+                errors[key] = [
+                    "Passwords cannot be changed via this endpoint. Use the "
+                    "administrative user management instead."
+                ]
+            elif key in self.PROTECTED_FIELDS:
+                errors[key] = [
+                    "This field is read-only and cannot be changed via "
+                    "/auth/me/."
+                ]
+            else:
+                errors[key] = ["Unknown field."]
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         """Apply first_name/last_name changes to ``instance`` and persist them.

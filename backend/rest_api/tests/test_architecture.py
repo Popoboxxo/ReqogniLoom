@@ -1,4 +1,4 @@
-"""Architecture guardrail — Service-Layer boundary enforcement (REQ-066).
+r"""Architecture guardrail — Service-Layer boundary enforcement (REQ-066).
 
 The REST API layer (``rest_api/*_views.py`` and ``rest_api/views.py``) must not
 talk to the ORM directly. All persistence access belongs in the Application
@@ -15,8 +15,14 @@ Two violation classes are tracked:
 * ``.objects.`` / ``.unscoped.`` — direct ORM manager access (``MAX_ORM_LINES``).
 * ``from persistence.models import`` — direct model import (``MODEL_IMPORT_ALLOWLIST``).
 
-Serializers (``serializers.py``) are intentionally out of scope: model access in
-serializer validators / choice fields is permitted by the Option-B decision.
+Serializers (``serializers.py``) are covered by the same ``.objects.``/
+``.unscoped.`` ratchet as the ``*_views.py`` files (issue #132): a future
+queryset access inside a serializer validator/choice field is exactly where
+N+1 problems tend to creep in unnoticed, since ``_apply_query_optimization``
+(``rest_api/serializers.py``) only operates at the ViewSet level. The
+``ElementType`` enum import it already has is a deliberate, harmless
+Option-B exception (an enum, not a queryset) and is allowlisted below like
+the other legacy model imports.
 
 Baseline captured 2026-07-14 (pre-REQ-066):
     views.py 27, icd_views.py 7, diagram_views.py 4, settings_views.py 3,
@@ -115,10 +121,15 @@ MAX_ORM_LINES: dict[str, int] = {
 # Files still permitted to ``from persistence.models import`` directly. Shrinks
 # as service methods replace the last direct model references in each file.
 # views.py fully cleaned in REQ-066 Phase 2/3 — no longer allowlisted.
+# serializers.py (#132): only ``ElementType``, an enum used in a choice field —
+# not a queryset — per the Option-B decision; the direct-ORM ratchet above
+# (MAX_ORM_LINES, defaulting to 0 for serializers.py) is what actually guards
+# against a future N+1-prone queryset access sneaking in here.
 MODEL_IMPORT_ALLOWLIST: set[str] = {
     "icd_views.py",
     "diagram_views.py",
     "diagram_canvas_views.py",
+    "serializers.py",
 }
 
 # Issue #124: frozen baseline for mcp_server/tools/*.py — ADR-01 violations
@@ -137,11 +148,15 @@ MCP_ROOT_MAX_ORM_LINES: dict[str, int] = {
 
 
 def _view_files() -> list[Path]:
-    """Return ``views.py`` and every ``*_views.py`` module in the REST API dir."""
+    """Return ``views.py``, every ``*_views.py`` module, and ``serializers.py``
+    (#132) in the REST API dir — all guarded by the same ratchet."""
     files = sorted(_REST_API_DIR.glob("*_views.py"))
     base = _REST_API_DIR / "views.py"
     if base.exists():
         files.append(base)
+    serializers = _REST_API_DIR / "serializers.py"
+    if serializers.exists():
+        files.append(serializers)
     return files
 
 

@@ -12,11 +12,19 @@
  * explicit "AI generation is disabled for this workspace" error, which is
  * surfaced here — the button is deliberately not hidden client-side, so the
  * user learns why it is unavailable instead of the feature silently vanishing.
+ *
+ * UI concept rollout: identity row (StatusBadge + VersionBadge) above the
+ * content, an empty state that offers the next step instead of reporting a
+ * condition (ch. 3.5 / 12.7), and action labels that name the result
+ * (ch. 14.2).
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { extractErrorMessage } from "../../api/client";
 import { mainGoalApi } from "../../api/main-goal";
+import { StatusBadge } from "../shared/StatusBadge";
+import { VersionBadge } from "../shared/VersionBadge";
 import type { MainGoal, UUID } from "../../types";
 
 interface MainGoalPanelProps {
@@ -24,7 +32,24 @@ interface MainGoalPanelProps {
   aiEnabled: boolean;
 }
 
+const sectionStyle: React.CSSProperties = {
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--color-surface-raised)",
+  padding: "var(--space-4)",
+};
+
+const bodyStyle: React.CSSProperties = {
+  margin: 0,
+  maxWidth: "var(--measure)",
+  fontSize: "var(--font-size-base)",
+  lineHeight: "var(--leading-relaxed)",
+  color: "var(--color-text)",
+  whiteSpace: "pre-wrap",
+};
+
 export function MainGoalPanel({ workspaceId, aiEnabled }: MainGoalPanelProps): JSX.Element {
+  const { t } = useTranslation();
   const [current, setCurrent] = useState<MainGoal | null>(null);
   const [draft, setDraft] = useState<MainGoal | null>(null);
   const [manualContent, setManualContent] = useState("");
@@ -34,7 +59,10 @@ export function MainGoalPanel({ workspaceId, aiEnabled }: MainGoalPanelProps): J
   useEffect(() => {
     mainGoalApi
       .current(workspaceId)
-      .then(setCurrent)
+      // "No approved main goal yet" is an empty result, not an error
+      // (ch. 13.3): the endpoint answers 200 with an empty body, so normalise
+      // undefined to null and let the empty state speak.
+      .then((mg) => setCurrent(mg ?? null))
       .catch((err: unknown) => setError(extractErrorMessage(err)));
   }, [workspaceId]);
 
@@ -72,61 +100,207 @@ export function MainGoalPanel({ workspaceId, aiEnabled }: MainGoalPanelProps): J
   };
 
   return (
-    <div data-testid="main-goal-panel">
+    <div data-testid="main-goal-panel" style={sectionStyle}>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "var(--space-2)",
+          marginBottom: "var(--space-3)",
+        }}
+      >
+        <h2
+          style={{
+            margin: 0,
+            fontSize: "var(--font-size-xl)",
+            lineHeight: "var(--leading-tight)",
+            letterSpacing: "var(--tracking-tight)",
+            fontWeight: "var(--weight-semibold)",
+            color: "var(--color-text)",
+          }}
+        >
+          {t("goals.mainGoal", "Haupt-Ziel")}
+        </h2>
+        {current && (
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+            <StatusBadge status={current.status} testId="main-goal-status" />
+            <VersionBadge version={current.sequence_number} hideWhenFirst />
+          </div>
+        )}
+      </div>
+
       {error && (
         <p
           data-testid="main-goal-error"
           role="alert"
-          style={{ color: "var(--color-danger)" }}
+          style={{
+            color: "var(--color-danger)",
+            fontSize: "var(--font-size-sm)",
+            marginTop: 0,
+          }}
         >
           {error}
         </p>
       )}
-      {current ? <p>{current.content}</p> : <p>Kein Haupt-Ziel freigegeben.</p>}
-      <button
-        data-testid="main-goal-generate-button"
-        onClick={() => void handleGenerate()}
-        title={
-          aiEnabled
-            ? undefined
-            : "KI-Generierung ist fuer diesen Workspace deaktiviert."
-        }
-      >
-        Haupt-Ziel per KI generieren
-      </button>
-      <button
-        data-testid="main-goal-manual-toggle-button"
-        onClick={() => {
-          setError(null);
-          setManualOpen((open) => !open);
-        }}
-      >
-        {manualOpen ? "Manuelle Eingabe abbrechen" : "Haupt-Ziel manuell eingeben"}
-      </button>
-      {manualOpen && (
-        <div data-testid="main-goal-manual-form">
-          <textarea
-            data-testid="main-goal-manual-input"
-            value={manualContent}
-            onChange={(e) => setManualContent(e.target.value)}
-            placeholder="Haupt-Ziel"
-          />
-          <button
-            data-testid="main-goal-manual-create-button"
-            onClick={() => void handleCreateManual()}
+
+      {current ? (
+        <p style={bodyStyle}>{current.content}</p>
+      ) : (
+        <div data-testid="main-goal-empty">
+          <p
+            style={{
+              margin: 0,
+              fontSize: "var(--font-size-lg)",
+              fontWeight: "var(--weight-semibold)",
+              color: "var(--color-text)",
+            }}
           >
-            Entwurf anlegen
-          </button>
+            {t("goals.mainGoalNone", "Noch kein Haupt-Ziel freigegeben.")}
+          </p>
+          <p
+            style={{
+              margin: "var(--space-2) 0 0",
+              maxWidth: "var(--measure)",
+              fontSize: "var(--font-size-sm)",
+              lineHeight: "var(--leading-normal)",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            {t(
+              "goals.mainGoalNoneHint",
+              "Das Haupt-Ziel fasst die freigegebenen Ziele des Workspace zusammen.",
+            )}
+          </p>
         </div>
       )}
+
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "var(--space-2)",
+          marginTop: "var(--space-4)",
+        }}
+      >
+        <button
+          type="button"
+          className="btn-secondary"
+          data-testid="main-goal-generate-button"
+          onClick={() => void handleGenerate()}
+          title={
+            aiEnabled
+              ? undefined
+              : t(
+                  "goals.generateDisabledHint",
+                  "KI-Generierung ist fuer diesen Workspace deaktiviert.",
+                )
+          }
+        >
+          {t("goals.generate", "Haupt-Ziel per KI erzeugen")}
+        </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          data-testid="main-goal-manual-toggle-button"
+          aria-expanded={manualOpen}
+          onClick={() => {
+            setError(null);
+            setManualOpen((open) => !open);
+          }}
+        >
+          {manualOpen
+            ? t("goals.manualCancel", "Eingabe abbrechen")
+            : t("goals.manualOpen", "Haupt-Ziel selbst schreiben")}
+        </button>
+      </div>
+
+      {manualOpen && (
+        <form
+          data-testid="main-goal-manual-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleCreateManual();
+          }}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-2)",
+            marginTop: "var(--space-3)",
+          }}
+        >
+          <label
+            htmlFor="main-goal-manual"
+            style={{
+              fontSize: "var(--font-size-sm)",
+              fontWeight: "var(--weight-semibold)",
+              color: "var(--color-text)",
+            }}
+          >
+            {t("goals.manualPlaceholder", "Haupt-Ziel")}
+          </label>
+          <textarea
+            id="main-goal-manual"
+            data-testid="main-goal-manual-input"
+            value={manualContent}
+            rows={5}
+            onChange={(e) => setManualContent(e.target.value)}
+            style={{
+              padding: "var(--space-2) var(--space-3)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
+              fontFamily: "var(--font-sans)",
+              fontSize: "var(--font-size-sm)",
+              lineHeight: "var(--leading-normal)",
+              resize: "vertical",
+            }}
+          />
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button
+              type="submit"
+              className="btn-primary"
+              data-testid="main-goal-manual-create-button"
+            >
+              {t("goals.manualCreate", "Entwurf anlegen")}
+            </button>
+          </div>
+        </form>
+      )}
+
       {draft && (
-        <div data-testid="main-goal-draft">
-          <p>{draft.content}</p>
+        <div
+          data-testid="main-goal-draft"
+          style={{
+            marginTop: "var(--space-4)",
+            padding: "var(--space-3)",
+            borderRadius: "var(--radius-md)",
+            border: "1px dashed var(--color-border-hover)",
+            background: "var(--color-surface)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
+              marginBottom: "var(--space-2)",
+            }}
+          >
+            <StatusBadge status={draft.status} testId="main-goal-draft-status" />
+            <VersionBadge version={draft.sequence_number} hideWhenFirst />
+          </div>
+          <p style={bodyStyle}>{draft.content}</p>
           <button
+            type="button"
+            className="btn-primary"
             data-testid="main-goal-approve-button"
+            style={{ marginTop: "var(--space-3)" }}
             onClick={() => void handleApprove(draft.id)}
           >
-            Freigeben
+            {t("goals.approve", "Freigeben")}
           </button>
         </div>
       )}

@@ -129,7 +129,8 @@
     "passwordPlaceholder": "Enter password...",
     "passwordRequired": "Please enter a password.",
     "submit": "Sign In",
-    "invalidCredentials": "Invalid credentials. Please try again."
+    "invalidCredentials": "Invalid credentials. Please try again.",
+    "sessionExpired": "Your session has expired. Please sign in again to continue."
   },
   "loading": "Loading...",
   "actions": {
@@ -216,7 +217,8 @@
     "selectVerificationMethod": "Select Method",
     "status": "Status",
     "viewDiff": "View Diff",
-    "hideDiff": "Hide Diff"
+    "hideDiff": "Hide Diff",
+    "resetFilters": "Reset filters"
   },
   "arch": {
     "deriveRequirement": "Derive requirement",
@@ -266,7 +268,11 @@
       "edit": "Edit",
       "addChild": "Add Child",
       "linkRequirement": "Link to Requirement"
-    }
+    },
+    "summary_one": "{{count}} element",
+    "summary_other": "{{count}} elements",
+    "activeSuffix": "{{count}} active",
+    "newElement": "New architecture element"
   },
   "traceability": {
     "upstream": "Upstream Links",
@@ -403,7 +409,11 @@
     "addTerm": "Add term",
     "editTerm": "Edit term",
     "newTerm": "New term",
-    "deleteConfirm": "Really delete this term?"
+    "deleteConfirm": "Really delete this term?",
+    "loadFailed": "Failed to load terms.",
+    "saveFailed": "Failed to save term.",
+    "deleteFailed": "Failed to delete term.",
+    "linkSynonymFailed": "Failed to save link."
   },
   "adr": {
     "titlePlaceholder": "ADR title",
@@ -425,7 +435,11 @@
     "deriveFailed": "Derivation failed.",
     "deriveEmpty": "The AI proposed no system requirements.",
     "deriveCreated": "Created and linked {{count}} system requirement(s).",
-    "deriveArchOptional": "Assign architecture element (optional)"
+    "deriveArchOptional": "Assign architecture element (optional)",
+    "summary_one": "{{count}} need",
+    "summary_other": "{{count}} needs",
+    "approvedSuffix": "{{count}} approved",
+    "newNeed": "New need"
   },
   "deriveRequirements": {
     "title": "Derived system requirements (draft)",
@@ -618,6 +632,7 @@
     "edit": "Edit Source",
     "delete": "Delete",
     "deleteConfirm": "Really delete this diagram?",
+    "deleteFailed": "Failed to delete diagram.",
     "type": "Type",
     "source": "Source",
     "description": "Description",
@@ -735,7 +750,8 @@
         "compare": "Compare to current",
         "copy": "Copy version id"
       },
-      "copied": "Version id copied"
+      "copied": "Version id copied",
+      "noSnapshot": "No stored snapshot for this version."
     },
     "diff": {
       "title": "Diff",
@@ -812,7 +828,7 @@
   },
   "archDecompose": {
     "trigger": "AI Decompose",
-    "title": "AI Decomposition (Copilot)",
+    "title": "AI Decomposition",
     "close": "Close",
     "breadth": "Breadth (children per level)",
     "depth": "Depth (levels)",
@@ -829,7 +845,7 @@
   },
   "deriveTestcase": {
     "trigger": "Generate Test",
-    "title": "TestCase Draft (Copilot)",
+    "title": "TestCase Draft",
     "close": "Close",
     "generate": "Generate draft",
     "generating": "Generating...",
@@ -977,5 +993,101 @@
       "propagated_one": "Change propagated to {{count}} workspace currently on default.",
       "propagated_other": "Change propagated to {{count}} workspaces currently on default."
     }
+  },
+  "artifactId": {
+    "copyHint": "Copy identifier",
+    "copied": "Copied",
+    "copyLabel": "Copy identifier {{id}}"
+  },
+  "pageHeader": {
+    "more": "More actions",
+    "moreLabel": "Show more actions"
+  },
+  "goals": {
+    "title": "Goals",
+    "summary_one": "{{count}} goal",
+    "summary_other": "{{count}} goals",
+    "approvedSuffix": "{{count}} approved",
+    "newGoal": "New goal",
+    "mainGoal": "Main goal",
+    "mainGoalNone": "No main goal approved yet.",
+    "mainGoalNoneHint": "The main goal summarises the approved goals of this workspace. Generate it with AI or write it yourself.",
+    "mainGoalDraft": "Draft",
+    "generate": "Generate main goal with AI",
+    "generateDisabledHint": "AI generation is disabled for this workspace.",
+    "manualOpen": "Write main goal yourself",
+    "manualCancel": "Cancel input",
+    "manualPlaceholder": "Main goal",
+    "manualCreate": "Create draft",
+    "approve": "Approve",
+    "edit": "Edit",
+    "saveVersion": "Save new version",
+    "create": "Create goal",
+    "goalTitle": "Title",
+    "goalDescription": "Description",
+    "editTitle": "Edit goal",
+    "untitled": "Untitled",
+    "noDescription": "No description.",
+    "versions": "Versions",
+    "versionsNone": "Only the current version.",
+    "empty": "No goals yet",
+    "emptyHint": "Goals record what this workspace is meant to achieve. They are the input for the main goal."
+  },
+  "traceSpine": {
+    "title": "Derivation chain",
+    "here": "here",
+    "origin": "Origin",
+    "derived": "Derived",
+    "noCoverage": "No coverage",
+    "verification_one": "{{count}} test case",
+    "verification_other": "{{count}} test cases",
+    "verificationOpen": "Show linked test cases",
+    "stationOpen": "Show linked artifacts",
+    "empty": "No links yet",
+    "emptyHint": "This artifact is not linked to any other one yet.",
+    "loading": "Loading chain...",
+    "error": "Could not load the derivation chain.",
+    "close": "Close",
+    "stationCount_one": "{{count}} artifact",
+    "stationCount_other": "{{count}} artifacts"
+  },
+  "dialog": {
+    "close": "Close",
+    "closeLabel": "Close dialog"
+  },
+  "archLegend": {
+    "trigger": "Legend",
+    "dialogDescription": "What the colours, markers and symbols of this view mean.",
+    "intro": "On this page colour stands for status and nothing else. Artifact type, level and version are told apart by text and position — they stay deliberately neutral.",
+    "statusTitle": "Status (coloured)",
+    "statusHint": "The status is set in the element header and is the only colour-coded information.",
+    "statusDraft": "Draft",
+    "statusDraftMeaning": "In progress, not reviewed yet.",
+    "statusReview": "In review",
+    "statusReviewMeaning": "Submitted, waiting for approval.",
+    "statusApproved": "Approved",
+    "statusApprovedMeaning": "Binding and ready for a baseline.",
+    "statusOutdated": "Outdated",
+    "statusOutdatedMeaning": "Superseded or withdrawn, still traceable.",
+    "statusRejected": "Rejected",
+    "statusRejectedMeaning": "Reviewed and discarded.",
+    "lifecycleTitle": "Element lifecycle",
+    "lifecycleHint": "Independent of the approval status. The filter above the list works on this field; deleted elements are not shown at all.",
+    "lifecycleActive": "Valid part of the current architecture.",
+    "lifecycleOutdated": "Still present but superseded — kept visible for traceability.",
+    "lifecycleDeprecated": "No longer used, kept for existing links.",
+    "levelTitle": "Level",
+    "levelHint": "The level is the real depth in the architecture tree, not a fixed list — it grows with the decomposition. A level is not a state, which is why the marker in the header is neutral. In the navigation tree on the left the same marker is additionally coloured by depth; that colour is a legacy rendering and carries no status meaning.",
+    "level0": "Root — the system itself.",
+    "level1": "Direct decomposition of the root, e.g. subsystems.",
+    "levelN": "Every further decomposition step, e.g. components and their parts.",
+    "identityTitle": "Element header",
+    "identifier": "Identifier of the element, always in a monospaced font. Clicking the identifier in the header copies it.",
+    "version": "Current revision. Kept neutral — a version is not a status. Older revisions appear dimmed and without a border.",
+    "spineTitle": "Derivation chain",
+    "spineHint": "The strip above the form shows where the element is derived from and what follows from it.",
+    "spineHere": "The station the currently opened element sits on.",
+    "spineCount": "Number of artifacts on this station, or of the linked test cases. Clicking opens the list.",
+    "spineEmpty": "A link is missing on this station — a gap in traceability."
   }
 }

@@ -85,6 +85,21 @@ export default function NeedsEditors(): JSX.Element {
     setShowCreate(true);
   };
 
+  // ch. 12.1 — always-visible summary: total plus the number already
+  // approved, which is the figure a reviewer actually asks for.
+  const needsSummary = React.useMemo(() => {
+    const approved = needs.filter(
+      (n) => (n.status ?? '').toLowerCase() === 'approved',
+    ).length;
+    return [
+      t('needs.summary', { count: needs.length, defaultValue: `${needs.length}` }),
+      t('needs.approvedSuffix', {
+        count: approved,
+        defaultValue: `${approved} approved`,
+      }),
+    ].join(' · ');
+  }, [needs, t]);
+
   const handleSaved = () => {
     refresh();
   };
@@ -111,7 +126,7 @@ export default function NeedsEditors(): JSX.Element {
         <p style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-4)' }}>
           {error.message}
         </p>
-        <button className="btn-secondary" onClick={refresh}>
+        <button className="btn-secondary" onClick={refresh} data-testid="need-reload-btn">
           {t('actions.reload', 'Erneut versuchen')}
         </button>
       </div>
@@ -125,13 +140,10 @@ export default function NeedsEditors(): JSX.Element {
           Architecture/Glossary pattern (title + count + primary action). */}
       <PageHeader
         title={t('nav.needs')}
-        count={{ shown: needs.length, total: needs.length }}
-        primaryAction={{
-          label: `+ ${t('actions.new', 'New')}`,
-          onClick: handleCreateNewClick,
-          disabled: showCreate,
-          testId: 'create-need-btn',
-        }}
+        // ch. 12.1: the summary is always visible — it answers "how many do
+        // we have?" and makes a silently truncated list noticeable. It
+        // replaces the counter that only appeared under an active filter.
+        summary={needsSummary}
       />
       <SplitView
       leftPanel={
@@ -144,6 +156,7 @@ export default function NeedsEditors(): JSX.Element {
           setNewTitle={setNewTitle}
           onSubmitCreate={handleCreateNew}
           createError={createError}
+          onCreateClick={handleCreateNewClick}
         />
       }
       rightPanel={

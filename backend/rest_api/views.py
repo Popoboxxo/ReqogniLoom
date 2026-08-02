@@ -1624,8 +1624,14 @@ class TraceLinkViewSet(BaseEntityViewSet):
         """GET /api/v1/tracelinks/?workspace_id=<id>[&artifact_id=<id>]
 
         When artifact_id is provided: returns upstream + downstream links for that artifact.
-        When only workspace_id is provided: returns empty list
-        (workspace-level scan is not yet supported by TraceLinkService).
+        When only workspace_id is provided: returns every link whose source
+        lives in that workspace.
+
+        Fix #264 (Befund B): the workspace-level branch used to return an
+        unconditional empty page, so this endpoint reported ``count: 0`` for
+        every workspace no matter what was stored. Anyone verifying a freshly
+        created trace link this way concluded the write had been silently
+        dropped. TraceLinkService.list_links_for_workspace now backs it.
         """
         lang = detect_lang(request)
         try:
@@ -1638,13 +1644,23 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 )
 
             artifact_id_str = request.query_params.get("artifact_id")
-            if not artifact_id_str:
-                # Workspace-level listing not supported — return empty paginated result
-                return self._paginate(request, [])
-
-            artifact_id = UUID(artifact_id_str)
             svc = self._svc()
             items: list = []
+
+            if not artifact_id_str:
+                links = svc.list_links_for_workspace(
+                    workspace_id=UUID(workspace_id_str), ctx=ctx
+                )
+                titles = _resolve_artifact_titles(
+                    [tl.source_id for tl in links] + [tl.target_id for tl in links]
+                )
+                return self._paginate(
+                    request,
+                    [_tracelink_to_dict(tl, titles) for tl in links],
+                    lambda item: TraceLinkSerializer(item).data,
+                )
+
+            artifact_id = UUID(artifact_id_str)
             for direction in ("upstream", "downstream"):
                 try:
                     results = svc.query_trace_links(
@@ -1655,7 +1671,15 @@ class TraceLinkViewSet(BaseEntityViewSet):
                     for r in results:
                         items.append(_neighbor_to_dict(r, artifact_id, direction))
                 except Exception:
-                    pass  # no links in this direction — safe to ignore
+                    # No links in this direction is the common case. An
+                    # unresolvable artifact_id also lands here — log it so a
+                    # bad id is not indistinguishable from "no links" (#264).
+                    logger.debug(
+                        "TraceLink %s query failed for artifact=%s",
+                        direction,
+                        artifact_id,
+                        exc_info=True,
+                    )
 
             # REQ-002: batch-resolve titles for all unique artifact IDs so the
             # frontend can display human-readable labels without extra requests.
@@ -2946,6 +2970,11 @@ def _arch_to_dict(el: Any) -> dict[str, Any]:
     return {
         "id": str(el.id),
         "workspace_id": str(el.artifact.workspace_id) if hasattr(el, "artifact") else None,
+        # REQ-016 / UI concept ch. 12.11: the frontend needs the owning
+        # Artifact id to read and write workspace-defined custom fields via
+        # /artifacts/<id>/custom-field-values/. The OneToOne has always
+        # existed on the model; only the API never exposed it.
+        "artifact_id": str(el.artifact_id) if getattr(el, "artifact_id", None) else None,
         "title": el.title,
         "description": getattr(el, "description", ""),
         "uid": getattr(el, "uid", None),
@@ -3219,6 +3248,8 @@ def _goal_to_dict(goal: Any) -> dict[str, Any]:
     return {
         "id": str(goal.id),
         "workspace_id": str(goal.workspace_id),
+        # REQ-016 / UI concept ch. 12.11 — see _arch_to_dict for the rationale.
+        "artifact_id": str(goal.artifact_id) if getattr(goal, "artifact_id", None) else None,
         "lineage_id": str(goal.lineage_id),
         "sequence_number": goal.sequence_number,
         "title": goal.title,
@@ -4922,6 +4953,12 @@ class TestRunViewSet(BaseEntityViewSet):
       GET    /api/v1/test-runs/{id}/results/             (A.6, REQ-L1-035)
       POST   /api/v1/test-runs/{id}/results/
       POST   /api/v1/test-runs/{id}/results/bulk/
+
+    Design note (#22): TestRuns are immutable audit records once created —
+    DELETE is intentionally unsupported (see ``destroy`` below), by design,
+    not an oversight. To finish a run, use ``POST .../close/`` instead of
+    deleting it; the recorded results and their aggregate status remain
+    available for audit/compliance even after closing.
     """
 
     serializer_class = TestRunSerializer
@@ -5098,9 +5135,25 @@ class TestRunViewSet(BaseEntityViewSet):
         )
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/test-runs/{id}/ — not supported (immutable)."""
+        """DELETE /api/v1/test-runs/{id}/ — intentionally unsupported (#22).
+
+        TestRuns are immutable audit records (REQ-L2-AS-030/031): once
+        created, their history of executed results must remain available
+        for traceability/compliance, so deletion is a permanent design
+        decision, not a missing feature. Returns 405 with a message that
+        points callers at ``POST .../close/`` — the correct way to finish a
+        run instead of removing it.
+        """
         return Response(
-            build_error_response("PERMISSION_DENIED", detect_lang(request), message="Test runs cannot be deleted."),
+            build_error_response(
+                "PERMISSION_DENIED",
+                detect_lang(request),
+                message=(
+                    "Test runs are immutable audit records and cannot be "
+                    "deleted. Use POST /api/v1/test-runs/{id}/close/ to "
+                    "finish a run instead."
+                ),
+            ),
             status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
@@ -5346,6 +5399,7 @@ class CsvImportView(APIView):
                 }
                 for e in result.errors
             ],
+            "warnings": result.warnings,
         }
 
         http_status = status.HTTP_201_CREATED if result.success else status.HTTP_400_BAD_REQUEST
@@ -5675,11 +5729,22 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return status_rejection
         try:
             term_id = UUID(pk)
+            # #82: `term` was previously dropped here — PATCH silently
+            # ignored the label field that POST accepts, so a term's name
+            # could never be corrected after creation.
+            term_label = request.data.get("term")
             definition = request.data.get("definition")
             synonyms = request.data.get("synonyms")
             abbreviation = request.data.get("abbreviation")
 
-            term = self._svc().update(ctx, term_id, definition=definition, synonyms=synonyms, abbreviation=abbreviation)
+            term = self._svc().update(
+                ctx,
+                term_id,
+                term=term_label,
+                definition=definition,
+                synonyms=synonyms,
+                abbreviation=abbreviation,
+            )
             return Response(term.__dict__)
         except Exception as e:
             return _service_error_response(e, lang)

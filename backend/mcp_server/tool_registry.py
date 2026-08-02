@@ -69,6 +69,8 @@ _WRITE_TOOL_PREFIXES: Tuple[str, ...] = (
     "architecture.update",
     "architecture.link",
     "architecture.decompose_commit",
+    # Fix #121: generic TraceLink creation (CrossCuttingToolGroup).
+    "traceability.create_link",
     "architecture.outdate",
     "architecture.reactivate",
     "test.create",
@@ -215,6 +217,34 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
 )
 
 _READ_ONLY_TOOL_SUFFIXES: Tuple[str, ...] = (".read", ".query")
+
+# ---------------------------------------------------------------------------
+# Instance-level tools exempt from workspace-scoped role narrowing
+# (GitHub #37, same bug class as #103 but inverted: #103 narrowed roles to
+# the target workspace to STOP cross-workspace escalation; this narrowing is
+# wrong for tools whose target is not a workspace at all).
+#
+# ``BackupMetadata`` (admin_ops) is instance-level — not even tenant-scoped,
+# let alone workspace-scoped (see admin_ops/rest.py). A caller's admin
+# authority for these tools must therefore be evaluated tenant-wide
+# (``active_roles_across_workspaces``), never against a single workspace.
+#
+# Without this exemption, a request that happens to carry an incidental
+# ``workspace_id`` param (e.g. a UI/MCP client that always attaches the
+# "currently active workspace" to every call) would narrow the caller's
+# roles to that one workspace via ``_resolve_roles``. A tenant admin who
+# holds the Admin role in a *different* workspace (or in none at all, if
+# they were provisioned as a superuser) is then wrongly denied
+# PERMISSION_DENIED for an operation that has nothing to do with workspaces.
+# ---------------------------------------------------------------------------
+
+_INSTANCE_LEVEL_TOOLS: frozenset[str] = frozenset(
+    {
+        "admin.backup_create",
+        "admin.backup_list",
+        "admin.restore",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Tool → feature-key mapping for preset filtering (REQ-L2-MC-008)
@@ -559,7 +589,13 @@ class ToolRegistry:
                 return ToolResult.error(
                     "NOT_FOUND", f"Workspace '{workspace_id}' does not exist."
                 )
-            auth_ctx = self._resolve_roles(auth_ctx, workspace_id)  # type: ignore[arg-type]
+            # GitHub #37: instance-level tools (e.g. admin.backup_create) are
+            # not workspace-bound; an incidental workspace_id in params must
+            # not narrow the caller's roles to that single workspace.
+            role_workspace_id = (
+                None if tool_name in _INSTANCE_LEVEL_TOOLS else workspace_id
+            )
+            auth_ctx = self._resolve_roles(auth_ctx, role_workspace_id)  # type: ignore[arg-type]
 
             # --- Step 2b: Existence check (ADR-L3-MC002-03) ---
             # Resolved before the RBAC gate: an unrecognised tool name never

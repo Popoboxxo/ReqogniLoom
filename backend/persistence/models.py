@@ -28,8 +28,10 @@ Foundation note (ADR-03, ADR-PL-03):
 from __future__ import annotations
 
 import uuid
+from typing import Any, Dict, Sequence
+from uuid import UUID
 
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models.functions import Lower
 
 # REQ-L2-VS-004: pgvector Django integration. Requires the ``pgvector`` package
@@ -38,7 +40,9 @@ from django.db.models.functions import Lower
 # Requirement.embedding field references VectorField/HnswIndex directly.
 from pgvector.django import HnswIndex, VectorField
 
+from persistence.custom_fields import validate_custom_fields
 from persistence.encryption import decrypt_secret, encrypt_secret
+from persistence.role_permissions import validate_role_permissions
 from persistence.tenancy import TenantManager, UnscopedManager
 
 
@@ -297,6 +301,25 @@ class AuditableModel(models.Model):
 
     ``created_by``/``modified_by`` reference :class:`User` with ``SET_NULL`` so
     that deleting a user does not delete audited rows (REQ-L2-PL-009).
+
+    .. warning:: ``version`` is a **pure optimistic-concurrency counter**
+       (issue #213). It is *not* a content revision number and carries no
+       history: the row is overwritten in place on every write, so version
+       ``N`` only ever addresses the current state. Any save bumps it —
+       including writes that change nothing a user would recognise as
+       content. Consequences:
+
+       * ``version`` must only be used to detect concurrent modification
+         (``expected_version`` on update paths).
+       * Never present it as "this artifact has N revisions". Retrievable
+         history comes from Baselines (:mod:`baseline`), from the append-only
+         audit trail (:mod:`audit`), or — for the few types that have real
+         version tables — from ``DiagramVersion`` / ``GlossaryTermVersion`` /
+         ``PromptTemplate``.
+
+       :attr:`lock_version` is the unambiguous alias; prefer it in new code.
+       The column is not renamed because ``version`` is part of the published
+       REST/MCP contract (a rename needs its own design pass — see #213).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -316,10 +339,23 @@ class AuditableModel(models.Model):
         blank=True,
         related_name="+",
     )
+    # NOTE: intentionally no ``help_text`` — changing it would emit an
+    # AlterField migration for every concrete subclass without any schema
+    # change. The semantics are documented in the class docstring instead.
     version = models.IntegerField(default=1)
 
     class Meta:
         abstract = True
+
+    @property
+    def lock_version(self) -> int:
+        """Unambiguous alias for :attr:`version` (issue #213).
+
+        Read-only on purpose: writers must increment the counter atomically
+        via ``F('version') + 1`` rather than through a Python-level attribute
+        assignment, which would reintroduce the read-modify-write race.
+        """
+        return self.version
 
 
 class TenantScopedModel(AuditableModel):
@@ -505,10 +541,24 @@ class User(AuditableModel):
 
 
 class Role(TenantScopedModel):
-    """RBAC role with a JSON permission set (REQ-L1-010)."""
+    """RBAC role with a JSON permission set (REQ-L1-010).
+
+    ``permissions`` is schema-validated (issue #128) — see
+    :func:`persistence.role_permissions.validate_role_permissions` for the
+    accepted structure.
+    """
 
     name = models.CharField(max_length=150)
-    permissions = models.JSONField(default=dict, blank=True)
+    permissions = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_role_permissions],
+        help_text=(
+            "Issue #128: RBAC permission map, "
+            '{"<key>": true | false | ["<scope>", ...]}. Validated on save() '
+            "— arbitrary/nested JSON is rejected."
+        ),
+    )
 
     class Meta:
         db_table = "pl_role"
@@ -517,6 +567,17 @@ class Role(TenantScopedModel):
                 fields=["tenant", "name"], name="uq_role_tenant_name"
             ),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Validate ``permissions`` before every write (issue #128).
+
+        Field ``validators`` only run via ``full_clean()``, which nothing in
+        this codebase calls for Role — so the check is enforced here to make it
+        effective on the real write path. Authorization data must never reach
+        the database in a shape the RBAC layer cannot interpret.
+        """
+        self.permissions = validate_role_permissions(self.permissions)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.name
@@ -584,6 +645,28 @@ class Workspace(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workspace"
+        indexes = [
+            # Issue #127: every workspace list query filters by tenant and
+            # (almost always) by is_active — see WorkspaceService.list_* and
+            # mcp_server/tools/cross_cutting.py. Without this composite index
+            # the query degenerates into a full scan of pl_workspace.
+            models.Index(
+                fields=["tenant", "is_active"], name="idx_workspace_tnt_active"
+            ),
+            # SN-33 sandbox lookups resolve children via parent_workspace.
+            models.Index(
+                fields=["tenant", "parent_workspace"],
+                name="idx_workspace_tnt_parent",
+            ),
+        ]
+        constraints = [
+            # Issue #127: MCP tools resolve workspaces by name within a tenant;
+            # duplicates made that resolution ambiguous. The DB is the only
+            # place this invariant can be enforced race-free.
+            models.UniqueConstraint(
+                fields=["tenant", "name"], name="uq_workspace_tenant_name"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -633,6 +716,12 @@ class Artifact(TenantScopedModel):
         null=True,
         default=dict,
         blank=True,
+        # Issue #128: the prose schema below is enforced by
+        # persistence.custom_fields.validate_custom_fields (single source of
+        # truth). The REST serializer already applies it on the write path;
+        # declaring it here as well keeps forms/admin and full_clean() callers
+        # consistent with the documented contract.
+        validators=[validate_custom_fields],
         help_text=(
             "REQ-L2-AS-037: User-defined custom attributes as a flat key-value "
             "map. Keys: strings. Values: str, int, float, bool, or null. "
@@ -726,6 +815,22 @@ class Requirement(TenantScopedModel):
     artifact = models.OneToOneField(
         Artifact, on_delete=models.CASCADE, related_name="requirement"
     )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="+",
+        null=True,
+        blank=True,
+        help_text=(
+            "#133: denormalized copy of artifact.workspace_id, kept in sync by "
+            "RequirementService/reqif_import_service/ImportService on create. "
+            "Exists solely to back a DB-level UniqueConstraint on "
+            "(workspace, uid) — Requirement otherwise has no direct workspace "
+            "column and uid uniqueness was only enforced at the application "
+            "layer (check-then-insert), which is race-prone under concurrent "
+            "creates."
+        ),
+    )
     title = models.CharField(max_length=500)
     description = models.TextField(blank=True)
     acceptance_criteria = models.TextField(
@@ -809,14 +914,7 @@ class Requirement(TenantScopedModel):
             ),
             # #44: uid is looked up scoped to a workspace (via artifact__workspace)
             # on every create/update to enforce uniqueness at the application layer
-            # (RequirementService); this index backs that lookup. A hard DB-level
-            # UniqueConstraint is intentionally NOT used here: uid is not unique
-            # across the whole tenant by design (ReqIF import legitimately copies
-            # the same identifiers into a different workspace of the same tenant,
-            # see application/tests/test_reqif_import_service.py::
-            # TestReqifImportUpsertCollisions), and Requirement has no denormalized
-            # workspace column to express a workspace-scoped DB constraint without
-            # a schema change.
+            # (RequirementService); this index backs that lookup.
             models.Index(fields=["tenant", "uid"], name="idx_req_tnt_uid"),
         ]
         constraints = [
@@ -831,6 +929,23 @@ class Requirement(TenantScopedModel):
             models.CheckConstraint(
                 check=models.Q(type__in=[c[0] for c in RequirementType.choices]),
                 name="ck_requirement_type_valid",
+            ),
+            # #133: uid was only enforced application-side (check-then-insert in
+            # RequirementService._assert_uid_unique_in_workspace), which is
+            # race-prone under concurrent creates. Scoped to workspace, not
+            # tenant: ReqIF import legitimately copies the same identifier into a
+            # different workspace of the same tenant (see
+            # application/tests/test_reqif_import_service.py::
+            # TestReqifImportUpsertCollisions). Partial (uid non-null/non-blank)
+            # because most requirements never get an explicit uid assigned.
+            # The application-level pre-check still exists to surface a clean
+            # ValidationError (400) for the common case; this constraint is the
+            # race-free authority of last resort (mirrors the precedent set for
+            # Workspace.name uniqueness / issue #127).
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_requirement_workspace_uid",
             ),
         ]
 
@@ -939,17 +1054,111 @@ class ArchitectureElement(TenantScopedModel):
         Direct child → level=1
         Nested → level=2, etc.
 
-        NOTE: For bulk level retrieval, use manager.get_queryset_with_level()
-        which uses DB CTE annotation (avoids N+1 queries, REQ-L1-058 AC2).
-        This method is a fallback for single-instance level computation.
+        Issue #129: this used to recurse in Python, issuing one query per
+        ancestor (O(tree depth) round-trips per element). It now walks the
+        ancestor chain in a single recursive CTE, so a single-instance level
+        read costs exactly one query regardless of depth.
+
+        NOTE: For bulk level retrieval prefer :meth:`annotate_levels` (one
+        query for the whole set) or the in-memory pass in
+        ``ArchitectureService._annotate_levels`` (zero extra queries when the
+        whole workspace set is already loaded).
         """
         if self.parent_id is None:
             return 0
-        # Fetch parent and recurse
-        parent = ArchitectureElement.objects.filter(id=self.parent_id).first()
-        if parent is None:
-            return 0  # Orphaned child fallback
-        return 1 + parent.get_level()
+        levels = ArchitectureElement.annotate_levels([self])
+        return levels.get(self.id, 0)
+
+    @classmethod
+    def annotate_levels(cls, elements: Sequence["ArchitectureElement"]) -> Dict[UUID, int]:
+        """Set ``_level_annotated`` on *elements* using a single SQL query.
+
+        Issue #129: replaces the per-element Python recursion. One recursive
+        CTE walks the ancestor chain for every requested id at once, so the
+        query count is O(1) instead of O(elements x tree depth).
+
+        A dangling ``parent_id`` (ancestor row missing or invisible under the
+        active row-level-security policy) terminates the walk, which yields the
+        same depth the old orphan fallback produced.
+
+        Args:
+            elements: ArchitectureElement instances to annotate. Instances must
+                belong to a single tenant (they always do — the model is
+                tenant-scoped).
+
+        Returns:
+            Mapping of element id -> level. Empty when *elements* is empty.
+        """
+        elements = list(elements)
+        if not elements:
+            return {}
+
+        roots = {el.id: 0 for el in elements if el.parent_id is None}
+        pending = [el for el in elements if el.parent_id is not None]
+        for el in elements:
+            if el.parent_id is None:
+                el._level_annotated = 0
+
+        if not pending:
+            return roots
+
+        tenant_id = pending[0].tenant_id
+        ids = [el.id for el in pending]
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                WITH RECURSIVE ancestors AS (
+                    SELECT id AS start_id, id, parent_id, 0 AS depth
+                    FROM pl_architecture_element
+                    WHERE id = ANY(%s) AND tenant_id = %s
+
+                    UNION ALL
+
+                    SELECT a.start_id, ae.id, ae.parent_id, a.depth + 1
+                    FROM pl_architecture_element ae
+                    JOIN ancestors a ON ae.id = a.parent_id
+                    WHERE ae.tenant_id = %s
+                )
+                SELECT start_id, MAX(depth) FROM ancestors GROUP BY start_id
+                """,
+                [ids, tenant_id, tenant_id],
+            )
+            resolved = {row[0]: row[1] for row in cursor.fetchall()}
+
+        levels: Dict[UUID, int] = dict(roots)
+        for el in pending:
+            level = resolved.get(el.id, 0)
+            el._level_annotated = level
+            levels[el.id] = level
+        return levels
+
+    @classmethod
+    def annotate_roles(cls, elements: Sequence["ArchitectureElement"]) -> None:
+        """Set ``_role_annotated`` on *elements* using a single SQL query.
+
+        Issue #129: the ``get_role()`` fallback fires one EXISTS query per
+        instance. This resolves the children check for the whole set in one
+        query, mirroring ``ArchitectureService._annotate_roles`` for call sites
+        that do not already hold the complete workspace tree in memory.
+        """
+        elements = list(elements)
+        if not elements:
+            return
+
+        from workflow.services import outdated_item_ids
+
+        ids = [el.id for el in elements]
+        parents_with_children = set(
+            ArchitectureElement.objects.filter(parent_id__in=ids)
+            .exclude(id__in=outdated_item_ids("ArchitectureElement"))
+            .values_list("parent_id", flat=True)
+        )
+        for el in elements:
+            el._role_annotated = derive_architecture_role(
+                has_parent=el.parent_id is not None,
+                has_children=el.id in parents_with_children,
+            )
 
     @property
     def role(self) -> str:
@@ -1139,6 +1348,14 @@ class WorkflowDefinition(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workflow_definition"
+        indexes = [
+            # Issue #130: definitions are always resolved per tenant + artifact
+            # (workflow.services / rest_api workflow endpoints). Mirrors the
+            # composite-index pattern introduced by migration 0034.
+            models.Index(
+                fields=["tenant", "artifact"], name="idx_wfdef_tnt_artifact"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -1157,6 +1374,17 @@ class WorkflowState(TenantScopedModel):
 
     class Meta:
         db_table = "pl_workflow_state"
+        indexes = [
+            # Issue #130: review/approval lists filter by state within a tenant
+            # (mcp_server/tools/review.py). Same pattern as migration 0034.
+            models.Index(
+                fields=["tenant", "current_state"], name="idx_wfstate_tnt_state"
+            ),
+            # State lookups for a single requirement are the hot read path.
+            models.Index(
+                fields=["tenant", "requirement"], name="idx_wfstate_tnt_req"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.current_state

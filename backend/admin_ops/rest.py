@@ -59,6 +59,7 @@ from admin_ops.services import (
     BackupService,
 )
 from admin_ops.services.admin_restore_service import RESTORE_CAPTCHA
+from admin_ops.services.exceptions import BackupStorageError
 from auth_tenancy.context import AuthContext
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import Operation
@@ -386,6 +387,13 @@ class BackupListCreateView(APIView):
             return _err("VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
         except NotFoundError as exc:
             return _err("NOT_FOUND", str(exc), status.HTTP_404_NOT_FOUND)
+        except BackupStorageError as exc:
+            # GitHub #37: clean 500 with an actionable message instead of a
+            # raw OSError ("Permission denied: /app/backups/") reaching the
+            # client, or an unmapped exception producing a bare 500.
+            return _err(
+                "BACKUP_STORAGE_ERROR", str(exc), status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return Response(
             {"backup": _backup_to_dict(row)},

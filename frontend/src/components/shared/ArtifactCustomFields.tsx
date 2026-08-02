@@ -58,10 +58,15 @@ export function ArtifactCustomFields({
     setIsLoading(true);
     setError(null);
     try {
+      // Defensive: this block is embedded in artifact editors, so a response
+      // that is not the expected array (paginated envelope, error body,
+      // stubbed client) must degrade to "no custom fields" instead of
+      // throwing and tearing the whole host form out of the tree.
       const data = await customFieldsApi.getValues(artifactId);
-      setRows(data);
+      const safeRows = Array.isArray(data) ? data : [];
+      setRows(safeRows);
       setDraft(
-        Object.fromEntries(data.map((r) => [r.definition_id, r.value]))
+        Object.fromEntries(safeRows.map((r) => [r.definition_id, r.value]))
       );
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -91,9 +96,12 @@ export function ArtifactCustomFields({
           value: draft[r.definition_id] ?? "",
         }))
       );
-      setRows(updated);
+      // Same reasoning as in load(): keep the current rows rather than
+      // crashing when the response is not the expected array.
+      const safeUpdated = Array.isArray(updated) ? updated : rows;
+      setRows(safeUpdated);
       setDraft(
-        Object.fromEntries(updated.map((r) => [r.definition_id, r.value]))
+        Object.fromEntries(safeUpdated.map((r) => [r.definition_id, r.value]))
       );
       setSavedOk(true);
     } catch (err) {

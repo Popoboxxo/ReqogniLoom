@@ -2,8 +2,12 @@
 admin_ops — internal path utilities (REQ-L1-046).
 
 The DR foundation writes one JSON file per backup under a directory
-derived from Django's settings:
+resolved in this order (GitHub #37):
 
+* ``BACKUP_DIR`` environment variable, if set — an operator-configurable
+  override so a deployment can point backups at a writable mount
+  independent of ``MEDIA_ROOT``/``BASE_DIR`` (e.g. when the default
+  container path is not writable).
 * If ``settings.MEDIA_ROOT`` is set, the file lives at
   ``<MEDIA_ROOT>/backups/<id>.json``.
 * Otherwise we fall back to ``<BASE_DIR>/backups/<id>.json`` (and then
@@ -20,14 +24,18 @@ from django.conf import settings
 
 
 _BACKUP_SUBDIR = "backups"
+_BACKUP_DIR_ENV_VAR = "BACKUP_DIR"
 
 
 def backup_root() -> str:
     """Return the absolute directory that holds backup JSON files.
 
     Never raises; falls back to the bare subdirectory name if neither
-    ``MEDIA_ROOT`` nor ``BASE_DIR`` is set.
+    ``BACKUP_DIR``, ``MEDIA_ROOT`` nor ``BASE_DIR`` is set.
     """
+    backup_dir_env = os.environ.get(_BACKUP_DIR_ENV_VAR, "").strip()
+    if backup_dir_env:
+        return backup_dir_env
     media_root = getattr(settings, "MEDIA_ROOT", "") or ""
     if media_root:
         return os.path.join(str(media_root), _BACKUP_SUBDIR)

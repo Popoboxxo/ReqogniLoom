@@ -946,11 +946,6 @@ export function SidebarNavigation(): JSX.Element {
         {versionInfo && (
           <span
             data-testid="build-version-indicator"
-            title={
-              versionInfo.build_time
-                ? `${versionInfo.commit} (${versionInfo.build_time})`
-                : versionInfo.commit
-            }
             style={{
               padding: "var(--space-1) var(--space-3)",
               fontSize: "var(--font-size-xs)",

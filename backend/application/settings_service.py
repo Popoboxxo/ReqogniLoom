@@ -9,7 +9,9 @@ Behaviour is a faithful port of the previous view logic:
 
   - ``api_key`` on LlmSettings is write-only and only the whitelisted fields are
     ever mutated.
-  - LlmSettings row is created on first access with ``provider=mock``.
+  - LlmSettings row is created on first access, defaulting ``provider`` to
+    the ``LLM_PROVIDER`` environment variable if set to a valid choice,
+    otherwise ``mock`` (GitHub #32).
 
 PromptTemplate note (Phase 4 backward-compat, REQ-L2-PT-001): the persistence
 model backing prompt templates was replaced (see ``persistence.models.
@@ -32,6 +34,7 @@ leaf_id: COMP-AS-SET
 """
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from typing import Any
 
@@ -60,6 +63,26 @@ _PROMPT_SLOT_FIELDS = (
     "sysreq_decompose_next_level",
     "goal_aggregate",
 )
+
+
+def _env_default_provider() -> str:
+    """Return the LLM provider a freshly created tenant should default to.
+
+    GitHub #32: the tenant's :class:`LlmSettings` row is created lazily
+    on first access to ``/api/v1/llm-settings/``. Hard-coding
+    ``provider=mock`` here meant a deployment that configures a real
+    provider via the ``LLM_PROVIDER`` environment variable (see
+    ``docker-compose.yml``) still reported/used ``mock`` until an admin
+    manually edited the settings once through the UI/API — the endpoint
+    never reflected the actually configured provider.
+
+    Falls back to ``mock`` when ``LLM_PROVIDER`` is unset or not a valid
+    choice, preserving the previous safe default.
+    """
+    candidate = os.environ.get("LLM_PROVIDER", "").strip().lower()
+    if candidate in LlmProvider.values:
+        return candidate
+    return LlmProvider.MOCK
 
 
 class SettingsService(ServiceBase):
@@ -94,7 +117,7 @@ class SettingsService(ServiceBase):
         self._set_tenant_context(ctx)
         obj, _ = LlmSettings.objects.get_or_create(
             tenant_id=ctx.tenant_id,
-            defaults={"provider": LlmProvider.MOCK},
+            defaults={"provider": _env_default_provider()},
         )
         return obj
 

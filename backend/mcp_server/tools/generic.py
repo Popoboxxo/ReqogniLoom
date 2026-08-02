@@ -215,15 +215,51 @@ class GenericCrudToolGroup(BaseToolGroup):
         try:
             obj = self._create_method(ctx=auth_context, workspace_id=workspace_id, **kwargs)
             return ToolResult.ok({"data": self._to_dict(obj)})
+        except TypeError as exc:
+            # #268: a required field missing from `params` (e.g. `description`
+            # for Adr, `probability`/`impact` for Risk) surfaces here as a
+            # Python TypeError from the service call's missing positional
+            # argument. Left uncaught, that used to fall through to the bare
+            # `except Exception` below as an opaque INTERNAL_ERROR (HTTP 500)
+            # instead of an actionable client-facing validation error —
+            # mirrors the TypeError handling in `_handle_update` (#83 Bug 1).
+            return ToolResult.error(
+                "VALIDATION_ERROR", f"Missing or invalid field for {self.prefix}.create: {exc}"
+            )
         except Exception as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
 
     def _handle_update(self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
         kwargs = {k: v for k, v in params.items() if k != "id"}
+        # #83 Bug 2: `status` is a workflow-managed field for every entity
+        # this generic group serves (Adr, Risk, Issue, GlossaryTerm, ...) —
+        # it can only move through `{prefix}.outdate` / `{prefix}.reactivate`
+        # (soft-delete/restore) or the REST workflow `transitions/` endpoint
+        # (WorkflowEngine-gated), mirroring the REST PATCH rejection in
+        # WorkflowTransitionsMixin._reject_status_in_patch (QA-123). Forwarding
+        # it here used to hit the update method's missing parameter and
+        # surface as an opaque "INTERNAL_ERROR: ...got an unexpected keyword
+        # argument 'status'" instead of an actionable message.
+        if "status" in kwargs:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"'status' cannot be changed via {self.prefix}.update; use "
+                f"{self.prefix}.outdate / {self.prefix}.reactivate for "
+                "lifecycle changes, or the REST workflow transitions "
+                "endpoint (POST /api/v1/<entity>/{id}/transitions/) for a "
+                "state-machine-gated status change.",
+            )
         try:
             obj = self._update_method(ctx=auth_context, **{self._update_id_param: obj_id}, **kwargs)
             return ToolResult.ok({"data": self._to_dict(obj)})
+        except TypeError as exc:
+            # Any other unexpected/misnamed field: surface a clear, actionable
+            # message instead of letting it fall through to a bare
+            # INTERNAL_ERROR (#83 Bug 1 root cause pattern).
+            return ToolResult.error(
+                "VALIDATION_ERROR", f"Invalid field for {self.prefix}.update: {exc}"
+            )
         except Exception as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
 

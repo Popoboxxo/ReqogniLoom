@@ -26,6 +26,7 @@ interface NeedListProps {
   setNewTitle?: (val: string) => void;
   onSubmitCreate?: () => void;
   createError?: string | null;
+  onCreateClick?: () => void;
 }
 
 type NeedSortKey = 'default' | 'title' | 'status' | 'updated';
@@ -85,6 +86,7 @@ export function NeedList({
   setNewTitle,
   onSubmitCreate,
   createError,
+  onCreateClick,
 }: NeedListProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -147,6 +149,28 @@ export function NeedList({
                 total: needs.length,
               })
             : null
+        }
+        actions={
+          onCreateClick && (
+            <button
+              onClick={onCreateClick}
+              disabled={showCreateForm}
+              data-testid="create-need-btn"
+              style={{
+                background: 'var(--color-primary)',
+                color: 'white',
+                border: 'none',
+                borderRadius: 'var(--radius-md)',
+                padding: 'var(--space-2) var(--space-4)',
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 600,
+                cursor: showCreateForm ? 'not-allowed' : 'pointer',
+                opacity: showCreateForm ? 0.6 : 1,
+              }}
+            >
+              {t('needs.newNeed', 'Neuer Bedarf')}
+            </button>
+          )
         }
       />
 

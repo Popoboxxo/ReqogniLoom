@@ -142,15 +142,30 @@ class GlossaryService(ServiceBase):
         self,
         ctx: AuthContext,
         term_id: UUID,
+        term: Optional[str] = None,
         definition: Optional[str] = None,
         synonyms: Optional[list] = None,
         abbreviation: Optional[str] = None,
     ) -> GlossaryTermDTO:
+        """Update a GlossaryTerm (REQ-L1-044).
+
+        Args:
+            term: New label for the term. #82: PATCH previously silently
+                dropped this field, so a term's label could only ever be set
+                at creation time (POST) — inconsistent with every other
+                artifact type where the title/label is PATCH-able.
+            definition: New narrative definition.
+            synonyms: New synonym list.
+            abbreviation: New abbreviation.
+        """
         gt = GlossaryTerm.objects.filter(id=term_id).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
 
         changed = False
+        if term is not None and term != gt.term:
+            gt.term = term
+            changed = True
         if definition is not None and definition != gt.definition:
             gt.definition = definition
             changed = True
@@ -167,7 +182,7 @@ class GlossaryService(ServiceBase):
         # Update version and save
         gt.version = F("version") + 1
         gt.modified_by_id = ctx.user_id
-        gt.save(update_fields=["definition", "synonyms", "abbreviation", "version", "modified_at", "modified_by"])
+        gt.save(update_fields=["term", "definition", "synonyms", "abbreviation", "version", "modified_at", "modified_by"])
         gt.refresh_from_db(fields=["version"])
 
         GlossaryTermVersion.objects.create(

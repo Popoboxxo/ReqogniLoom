@@ -10,7 +10,11 @@
  *   legacy in-memory Bearer token is still supported for non-browser callers.
  * - Sends X-CSRFToken (from the ``csrftoken`` cookie) on unsafe methods, as the
  *   cookie auth path is CSRF-protected server-side.
- * - On 401 → clears auth state; caller redirects to /login.
+ * - On 401 → attempts a single-flight silent refresh (POST /auth/refresh/,
+ *   GitHub #135) and retries the original request once; only clears auth
+ *   state and notifies the caller if the refresh also fails (or the request
+ *   IS the refresh/login call). Parallel 401s share one refresh attempt and
+ *   the unauthorized notification fires at most once per session.
  * - On 403 → throws ForbiddenError (permission error, no logout — REQ-051).
  * - Accepts/sends JSON; sends Accept-Language from i18n.
  */
@@ -38,6 +42,9 @@ export function readCookie(name: string): string | null {
 
 let _token: string | null = null;
 let _onUnauthorized: (() => void) | null = null;
+// Guards against firing the unauthorized handler more than once for a burst
+// of parallel requests that all 401 around the same time (GitHub #135).
+let _unauthorizedNotified = false;
 
 export function setAuthToken(token: string | null): void {
   _token = token;
@@ -51,15 +58,81 @@ export function setUnauthorizedHandler(handler: () => void): void {
   _onUnauthorized = handler;
 }
 
+/**
+ * Re-arms the unauthorized notification (GitHub #135). Call this once a
+ * session is (re-)established (login success, restored session) so a later
+ * 401 can notify again.
+ */
+export function resetUnauthorizedGuard(): void {
+  _unauthorizedNotified = false;
+}
+
+function notifyUnauthorized(): void {
+  if (_unauthorizedNotified) return;
+  _unauthorizedNotified = true;
+  _onUnauthorized?.();
+}
+
+// ---------------------------------------------------------------------------
+// Silent token refresh (GitHub #135)
+// ---------------------------------------------------------------------------
+
+// Single-flight guard: concurrent 401s share one in-flight refresh instead of
+// each firing its own POST /auth/refresh/ (and each risking its own logout).
+let _refreshPromise: Promise<boolean> | null = null;
+
+async function doRefresh(): Promise<boolean> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    const csrf = readCookie("csrftoken");
+    if (csrf) headers["X-CSRFToken"] = csrf;
+
+    const response = await fetch(`${BASE_URL}/auth/refresh/`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers,
+    });
+    if (response.ok) {
+      // A successful refresh re-establishes the session; allow a future
+      // 401 (e.g. after the new access token itself expires) to notify again.
+      resetUnauthorizedGuard();
+      return true;
+    }
+    return false;
+  } catch {
+    // Network error while refreshing — treat as a failed refresh so the
+    // caller falls back to the normal 401 handling instead of hanging.
+    return false;
+  }
+}
+
+function attemptRefresh(): Promise<boolean> {
+  if (!_refreshPromise) {
+    _refreshPromise = doRefresh().finally(() => {
+      _refreshPromise = null;
+    });
+  }
+  return _refreshPromise;
+}
+
 // ---------------------------------------------------------------------------
 // Core fetch wrapper
 // ---------------------------------------------------------------------------
 
 const BASE_URL = "/api/v1";
 
+// Auth endpoints must never trigger a refresh-and-retry on their own 401:
+// retrying /auth/refresh/ after a failed refresh would loop, and /auth/login/
+// 401s are simply "wrong credentials", not an expired session.
+const _NO_REFRESH_PATHS = ["/auth/refresh/", "/auth/login/"];
+
 async function apiFetch<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  _isRetryAfterRefresh = false
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -102,10 +175,24 @@ async function apiFetch<T>(
     headers,
   });
 
-  // 401 → not authenticated: clear auth state and redirect to login
-  // (REQ-L2-RF-010).
+  // 401 → not authenticated. Before giving up, try a silent single-flight
+  // refresh and retry the original request once (GitHub #135) — this is what
+  // saves in-progress form content when the access token expires mid-session
+  // instead of hard-logging the user out. Only clears auth state / notifies
+  // the caller if the refresh also fails, or if this call already IS a retry
+  // or an auth endpoint (avoids infinite loops / retrying login).
   if (response.status === 401) {
-    _onUnauthorized?.();
+    const canTryRefresh =
+      !_isRetryAfterRefresh && !_NO_REFRESH_PATHS.includes(path);
+    if (canTryRefresh) {
+      const refreshed = await attemptRefresh();
+      if (refreshed) {
+        return apiFetch<T>(path, options, true);
+      }
+    }
+    // Refresh unavailable/failed (or not attempted) → clear auth state and
+    // let the caller redirect to /login (REQ-L2-RF-010).
+    notifyUnauthorized();
     const err: ApiError = {
       error: {
         code: "AUTHENTICATION_REQUIRED",
@@ -172,6 +259,17 @@ async function apiFetch<T>(
     // HTTP 204 No Content: response body is empty. Callers should declare
     // their response type as void, undefined, or a union (T | undefined).
     // This cast is safe because 204 responses have no body by spec.
+    return undefined as T;
+  }
+
+  // A 2xx with an empty body is NOT an error, but response.json() throws a
+  // SyntaxError on it. DRF renders `Response(None)` as a zero-length body
+  // (see MainGoalViewSet.current, which answers "no approved main goal yet"
+  // exactly that way), so without this guard a legitimate empty result
+  // reached the UI as "SyntaxError: Unexpected end of JSON input".
+  // Optional access on purpose: not every caller/mock supplies a full
+  // Headers object, and a missing header must never break a normal response.
+  if (response.headers?.get?.("content-length") === "0") {
     return undefined as T;
   }
 

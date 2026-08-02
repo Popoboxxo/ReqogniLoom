@@ -516,7 +516,13 @@ _HAPPY_PATH_CASES: List[Dict[str, Any]] = [
         "tool": "traceability.query",
         "params": {"artifact_id": "__UUID__", "workspace_id": "__WORKSPACE__"},
         "result_key": "links",
-        "needs_seed": None,
+        # fix #264: this case used to run on a fresh random uuid4, which is not
+        # a happy path — it exercised an id that resolves to nothing. The tool
+        # answered with an empty link list, indistinguishable from "artifact
+        # exists but has no links"; that ambiguity is exactly what made the
+        # issue's phantom-link report impossible to diagnose. An unresolvable
+        # id now returns NOT_FOUND, so the happy path needs a real artifact.
+        "needs_seed": "artifact",
     },
     # artifact.*
     {
@@ -1598,6 +1604,67 @@ def test_e2e_user_list_viewer_denied(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_e2e_user_create_then_assign_role_onboards_brand_new_user(
+    admin_client: Client,
+    e2e_tenant: Tenant,
+    e2e_workspace: Workspace,
+    e2e_user_admin: User,
+    e2e_userrole_admin: UserRole,
+):
+    """GitHub #30: a user created via ``user.create`` holds no workspace
+    membership yet; ``user.assign_role`` must still succeed for that
+    brand-new, non-member user instead of failing with 'not a member'
+    (SEC-05 onboarding fix).
+    """
+    create_response = post_mcp(
+        admin_client,
+        "user.create",
+        {
+            "username": "onboarding-target",
+            "email": "onboarding-target@e2e.test",
+            "password": "verysecret123",
+            "workspace_id": str(e2e_workspace.id),
+        },
+    )
+    assert create_response.status_code == 200, create_response.content
+    new_user_id = extract_result(create_response)["user"]["id"]
+
+    # The new user must not hold any role anywhere yet (no auto-membership).
+    set_request_tenant(e2e_tenant.id)
+    try:
+        assert not UserRole.objects.filter(user_id=new_user_id).exists()
+    finally:
+        clear_request_tenant()
+
+    assign_response = post_mcp(
+        admin_client,
+        "user.assign_role",
+        {
+            "user_id": new_user_id,
+            "workspace_id": str(e2e_workspace.id),
+            "role": "viewer",
+            "preset": "extended",
+        },
+    )
+    assert assign_response.status_code == 200, assign_response.content
+    assignment = extract_result(assign_response)["assignment"]
+    assert assignment["user_id"] == new_user_id
+    assert assignment["role"] == "viewer"
+
+    # The role assignment is now the user's first (and only) membership.
+    set_request_tenant(e2e_tenant.id)
+    try:
+        assert UserRole.objects.filter(
+            user_id=new_user_id,
+            workspace_id=e2e_workspace.id,
+            role="viewer",
+            suspended_at__isnull=True,
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_e2e_admin_backup_list_empty(
     admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
@@ -1609,6 +1676,54 @@ def test_e2e_admin_backup_list_empty(
     result = extract_result(response)
     assert "backups" in result
     assert isinstance(result["backups"], list)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_e2e_admin_backup_create_allowed_regardless_of_workspace_role_scope(
+    admin_client: Client,
+    e2e_tenant: Tenant,
+    e2e_workspace: Workspace,
+    e2e_user_admin: User,
+    e2e_userrole_admin: UserRole,
+    mock_backup_service: None,
+):
+    """GitHub #37: ``admin.backup_create`` is an instance-level DR
+    operation (``BackupMetadata`` is not even tenant-scoped, let alone
+    workspace-scoped). The caller is Admin in *e2e_workspace* only, via
+    *e2e_userrole_admin*. If the request happens to carry a *different*
+    workspace's id (e.g. a client that always attaches the "current
+    workspace" context to every call), role resolution must not narrow
+    to that other workspace and wrongly deny a legitimate tenant admin.
+    """
+    from presets.models import WorkspacePresetConfig
+
+    set_request_tenant(e2e_tenant.id)
+    try:
+        other_ws = Workspace.objects.create(
+            tenant=e2e_tenant,
+            name="Other Workspace (no role for e2e_user_admin)",
+            is_active=True,
+            preset={"name": "other"},
+        )
+        WorkspacePresetConfig.unscoped.create(
+            tenant=e2e_tenant,
+            workspace=other_ws,
+            active_tier="extended",
+            terminology_profile="dev_mode",
+            downgrade_policy="allow",
+        )
+    finally:
+        clear_request_tenant()
+
+    # e2e_user_admin holds an active role only in e2e_workspace, NOT in
+    # other_ws. Before the fix, passing other_ws.id here narrowed roles
+    # to other_ws (empty) and the write-gate denied the call.
+    response = post_mcp(
+        admin_client, "admin.backup_create", {"workspace_id": str(other_ws.id)}
+    )
+    assert response.status_code == 200, response.content
+    result = extract_result(response)
+    assert "backup" in result
 
 
 @pytest.mark.django_db(transaction=True)

@@ -93,7 +93,22 @@ class TraceLinkService(ServiceBase):
              Goal<->Requirement trace link raised "Entity not found").
           6. If it matches a MainGoal, return MainGoal.artifact_id (same gap
              as Goal — fix #237).
-          7. Otherwise raise NotFoundError.
+          7. If it matches a TestCase, return TestCase.artifact_id (fix #264).
+          8. If it matches a StakeholderNeed, return its artifact_id (#264).
+          9. Otherwise raise NotFoundError.
+
+        Fix #264: TestCase and StakeholderNeed were missing from this chain
+        even though both are plain ``OneToOneField(Artifact)`` entities like
+        Requirement. Every caller that passes the user-facing id — the one
+        ``GET /testcases/{id}`` and ``GET /needs/{id}`` return — therefore got
+        NotFoundError, which surfaced as a 404 on ``traceability.create_link``
+        for ``verifies`` (Requirement -> TestCase) and ``derives-from``
+        (Requirement -> StakeholderNeed), i.e. exactly the pairs the SE
+        endpoint matrix in ``traceability.types`` advertises as legal.
+
+        They are appended at the end rather than next to Requirement so the
+        earlier steps keep their established probe order; the id spaces are
+        disjoint UUIDs, so order is irrelevant for correctness.
         """
         from persistence.models import (
             ArchitectureElement,
@@ -134,7 +149,45 @@ class TraceLinkService(ServiceBase):
         if main_goal is not None:
             return UUID(str(main_goal.artifact_id))
 
+        # 7./8. TestCase / StakeholderNeed -> Artifact (fix #264). Imported
+        # locally to keep the module-level import list stable; both are
+        # tenant-scoped models, so ``objects`` already applies the tenant
+        # filter — a foreign-tenant id stays invisible and still raises below.
+        from persistence.models import StakeholderNeed, TestCase
+
+        test_case = TestCase.objects.filter(id=entity_id).first()
+        if test_case is not None:
+            return UUID(str(test_case.artifact_id))
+
+        need = StakeholderNeed.objects.filter(id=entity_id).first()
+        if need is not None:
+            return UUID(str(need.artifact_id))
+
         raise NotFoundError(f"Entity {entity_id} not found")
+
+    def resolve_entity_to_artifact_id(
+        self, entity_id: UUID, ctx: Optional[AuthContext] = None
+    ) -> UUID:
+        """Public wrapper around :meth:`_resolve_artifact_id` (fix #264).
+
+        Layer 3 (rest_api, mcp_server) needs the entity -> Artifact mapping to
+        report and re-query the endpoints of a link it just created, but must
+        not reach into a private method to get it (ADR-01 single entry point).
+
+        Args:
+            entity_id: Artifact, Requirement, ArchitectureElement, ADR, Goal,
+                MainGoal, TestCase or StakeholderNeed UUID.
+            ctx: AuthContext; when given, the tenant context is set first.
+
+        Returns:
+            The backing Artifact UUID.
+
+        Raises:
+            NotFoundError: *entity_id* matches none of the known tables.
+        """
+        if ctx is not None:
+            self._set_tenant_context(ctx)
+        return self._resolve_artifact_id(entity_id)
 
     def _check_se_semantics(
         self,
@@ -236,9 +289,13 @@ class TraceLinkService(ServiceBase):
         if link_type == LinkType.ALLOCATED_TO:
             self._check_allocation_invariant(resolved_source, resolved_target)
 
+        from django.db import IntegrityError
+
         from traceability.services import (
+            CrossTenantLinkError,
             SourceNotFoundError,
             TargetNotFoundError,
+            TraceLinkError,
             create_trace_link as te_create,
         )
 
@@ -253,6 +310,25 @@ class TraceLinkService(ServiceBase):
             raise NotFoundError("Source entity not found") from exc
         except TargetNotFoundError as exc:
             raise NotFoundError("Target entity not found") from exc
+        except IntegrityError as exc:
+            # uq_tracelink_edge (issue #126): the identical edge already
+            # exists. A duplicate is a client error, not a server fault.
+            raise ValidationError(
+                f"A '{link_type}' link between these two artifacts already exists"
+            ) from exc
+        except TraceLinkError as exc:
+            # Fix #264 (Befund C): CycleDetectedError / CrossTenantLinkError /
+            # InvalidLinkTypeError derive from Exception, not from this
+            # layer's ValidationError, so they used to travel unmapped through
+            # Layer 2 and out of the MCP tool — which only catches
+            # NotFound/Validation/PermissionDenied — and became an opaque
+            # HTTP 500 (-32603). They are all rejected *inputs*, so they map
+            # to ValidationError and the caller gets a 400 with the reason.
+            if isinstance(exc, CrossTenantLinkError):
+                raise ValidationError(
+                    "Cross-workspace TraceLinks are not permitted"
+                ) from exc
+            raise ValidationError(str(exc)) from exc
         except Exception as exc:
             # Re-map cross-tenant errors as ValidationError
             msg = str(exc)
@@ -599,10 +675,13 @@ class TraceLinkService(ServiceBase):
         the requirement's artifact and returns the target ArchitectureElement
         details. REQ-066: ORM access lives in the service layer.
 
-        Note: the target level is read via ``ArchitectureElement.level`` which
-        falls back to a per-instance computation. A previous ``get_with_level()``
-        prefetch was dead code — ``objects`` is a plain ``TenantManager`` without
-        that method, so the endpoint raised ``AttributeError`` on every call; the
+        Issue #129: the target levels are pre-computed for all resolved
+        elements in a single recursive-CTE query via
+        ``ArchitectureElement.annotate_levels`` before the dicts are built.
+        Reading ``ae.level`` per element would otherwise fall back to a
+        per-instance lookup (N+1). A previous ``get_with_level()`` prefetch was
+        dead code — ``objects`` is a plain ``TenantManager`` without that
+        method, so the endpoint raised ``AttributeError`` on every call; the
         annotation would also have been shadowed by the ``level`` property.
 
         Args:
@@ -635,20 +714,25 @@ class TraceLinkService(ServiceBase):
             )
         )
 
-        allocations: list[dict] = []
-        for tl in trace_links:
-            if tl.target and hasattr(tl.target, "architecture_element"):
-                ae = tl.target.architecture_element
-                allocations.append(
-                    {
-                        "architecture_element_id": str(ae.id),
-                        "architecture_element_title": ae.title,
-                        "target_level": ae.level,
-                        "asil_level": ae.asil_level,
-                        "make_or_buy": ae.make_or_buy,
-                    }
-                )
-        return allocations
+        elements = [
+            tl.target.architecture_element
+            for tl in trace_links
+            if tl.target and hasattr(tl.target, "architecture_element")
+        ]
+        # Issue #129: one CTE query for all levels instead of one query per
+        # ancestor per element.
+        ArchitectureElement.annotate_levels(elements)
+
+        return [
+            {
+                "architecture_element_id": str(ae.id),
+                "architecture_element_title": ae.title,
+                "target_level": ae.level,
+                "asil_level": ae.asil_level,
+                "make_or_buy": ae.make_or_buy,
+            }
+            for ae in elements
+        ]
 
     # ---------- Query ----------
 
@@ -685,6 +769,72 @@ class TraceLinkService(ServiceBase):
                 if getattr(r, "link_type", None) == link_type
             ]
         return results
+
+    def list_links_for_entity(
+        self,
+        entity_id: UUID,
+        direction: str,
+        ctx: AuthContext,
+        link_type: Optional[str] = None,
+    ) -> list:
+        """Return the real TraceLink rows attached to *entity_id* (fix #264).
+
+        Unlike :meth:`query_trace_links`, which returns ``NeighborResult``
+        projections carrying only the *neighbour* endpoint, this returns the
+        persisted TraceLink ORM instances — with their own primary key and
+        both endpoints. That is what a caller needs to prove that a link
+        created via :meth:`create_trace_link` actually reached the database
+        (Befund B in #264: the write succeeded but every read-back path
+        reported nothing, which looked like silent data loss).
+
+        Args:
+            entity_id: Artifact or business-entity UUID (resolved internally).
+            direction: ``"upstream"`` (entity is the link target) or
+                ``"downstream"`` (entity is the link source).
+            ctx: AuthContext for tenant scoping.
+            link_type: Optional link-type filter.
+
+        Returns:
+            List of TraceLink ORM instances.
+
+        Raises:
+            NotFoundError: *entity_id* resolves to no known entity.
+            ValidationError: *direction* is neither upstream nor downstream.
+        """
+        if direction not in ("upstream", "downstream"):
+            raise ValidationError(
+                f"Invalid direction '{direction}'. "
+                "Valid directions: ['downstream', 'upstream']"
+            )
+
+        self._set_tenant_context(ctx)
+        resolved_id = self._resolve_artifact_id(entity_id)
+
+        from traceability.services import list_trace_links
+
+        key = "target_id" if direction == "upstream" else "source_id"
+        return list_trace_links(
+            filters={key: resolved_id}, link_type=link_type
+        )
+
+    def list_links_for_workspace(
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        link_type: Optional[str] = None,
+    ) -> list:
+        """Return every TraceLink whose source lives in *workspace_id* (#264).
+
+        Backs the workspace-level listing of ``GET /api/v1/tracelinks/``,
+        which previously returned an unconditional empty page — so a caller
+        verifying a freshly created link that way always saw ``count: 0``
+        regardless of what was in the database (Befund B in #264).
+        """
+        self._set_tenant_context(ctx)
+
+        from traceability.services import list_trace_links
+
+        return list_trace_links(workspace_id=workspace_id, link_type=link_type)
 
     def list_incoming(self, entity_id: UUID, ctx: AuthContext) -> List[TraceEdgeDTO]:
         """List TraceLinks where *entity_id* is the target (MCP-05, Codeberg #117).
