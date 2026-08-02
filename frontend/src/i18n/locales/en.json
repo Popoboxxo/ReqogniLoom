@@ -1063,6 +1063,9 @@
       "title": "No matches",
       "description": "There are entries, but none match the current filter."
     },
+    "error": {
+      "retryLabel": "Try again"
+    },
     "forbidden": {
       "title": "No permission",
       "requiredRole": "This requires the \"{{role}}\" role."

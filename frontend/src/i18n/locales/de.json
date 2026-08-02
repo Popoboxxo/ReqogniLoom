@@ -1063,6 +1063,9 @@
       "title": "Kein Treffer",
       "description": "Es gibt Einträge, aber keiner passt zum aktuellen Filter."
     },
+    "error": {
+      "retryLabel": "Erneut versuchen"
+    },
     "forbidden": {
       "title": "Keine Berechtigung",
       "requiredRole": "Dafür wird die Rolle „{{role}}“ benötigt."

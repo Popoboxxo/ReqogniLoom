@@ -15,18 +15,43 @@ import type { ComponentProps } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import deLocale from "../../../i18n/locales/de.json";
 
-// The shared i18next instance is not initialised in unit tests; keep the
-// literal default of every t(key, default, params?) call, with a minimal
-// {{placeholder}} interpolation so the `forbidden` variant stays readable.
+/**
+ * Look up a dot-path key in the real `de.json`, e.g. `"emptyState.error.retryLabel"`.
+ * Returns `undefined` when the key (or an intermediate segment) is missing —
+ * matching real i18next's "key not found" case, where the caller's fallback
+ * is used instead.
+ */
+function resolveLocaleKey(key: string): string | undefined {
+  const value = key
+    .split(".")
+    .reduce<unknown>(
+      (node, segment) =>
+        node && typeof node === "object" ? (node as Record<string, unknown>)[segment] : undefined,
+      deLocale,
+    );
+  return typeof value === "string" ? value : undefined;
+}
+
+// The shared i18next instance is not initialised in unit tests, so `t` is
+// mocked here — but it mimics real i18next's actual resolution order:
+// **if the key exists in the real locale file, its real value wins**, the
+// caller-supplied fallback is only used when the key is genuinely missing.
+// A naive mock that always returns the fallback (regardless of key) cannot
+// catch a wrong-key bug like using `actions.reload` ("Neu laden") while
+// claiming the fallback "Erneut versuchen" — the key would resolve to a
+// real, different string, and this mock (unlike a fallback-only one)
+// surfaces that mismatch as a failing assertion instead of silently
+// masking it.
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (_key: string, fallback?: string, params?: Record<string, string>) => {
-      if (!fallback) return _key;
-      if (!params) return fallback;
+    t: (key: string, fallback?: string, params?: Record<string, string>) => {
+      const resolved = resolveLocaleKey(key) ?? fallback ?? key;
+      if (!params) return resolved;
       return Object.entries(params).reduce(
         (acc, [name, value]) => acc.replace(`{{${name}}}`, value),
-        fallback,
+        resolved,
       );
     },
     i18n: { language: "de", changeLanguage: vi.fn() },
@@ -111,6 +136,29 @@ describe("<EmptyState> — UI concept ch. 12.7 and 13.1", () => {
 
       await user.click(screen.getByRole("button", { name: "Erneut versuchen" }));
       expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses emptyState.error.retryLabel, not the unrelated actions.reload key", () => {
+      // Regression guard: `actions.reload` also exists in de.json/en.json,
+      // but resolves to "Neu laden" ("Reload the page"), not "Erneut
+      // versuchen" ("try the action again") — a real key that happens to
+      // share the same intended English gloss is a trap here. Assert both
+      // that the real locale value for the retry button is what's
+      // rendered, and that it's distinct from the unrelated key's value.
+      expect(resolveLocaleKey("emptyState.error.retryLabel")).toBe("Erneut versuchen");
+      expect(resolveLocaleKey("actions.reload")).toBe("Neu laden");
+
+      render(
+        <EmptyState
+          variant="error"
+          title="Titel"
+          description="Beschreibung"
+          onRetry={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: "Erneut versuchen" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Neu laden" })).not.toBeInTheDocument();
     });
   });
 

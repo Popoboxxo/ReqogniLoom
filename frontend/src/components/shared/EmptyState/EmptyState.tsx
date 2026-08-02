@@ -213,7 +213,7 @@ export function EmptyState(props: EmptyStateProps): JSX.Element | null {
             data-testid={`${props.testId ?? testId}-retry`}
             onClick={props.onRetry}
           >
-            {props.retryLabel ?? t("actions.reload", "Erneut versuchen")}
+            {props.retryLabel ?? t("emptyState.error.retryLabel", "Erneut versuchen")}
           </button>
         </div>
       </div>
