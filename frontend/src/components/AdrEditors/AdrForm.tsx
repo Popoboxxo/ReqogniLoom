@@ -59,7 +59,9 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
         description: formData.description,
         context: formData.context,
         consequences: formData.consequences,
-        status: formData.status,
+        // #263: `status` is deliberately NOT sent. It is a read-only
+        // WorkflowEngine mirror; lifecycle changes run through
+        // POST .../transitions/ (see <WorkflowStatusEditor/>).
         ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
       });
       onSaved();

@@ -175,7 +175,9 @@ export function NeedForm({ need, onSaved, onDeleted, attributeVisibility = {}, o
         description: formData.description,
         category: formData.category,
         moscow_priority: formData.moscow_priority,
-        status: formData.status,
+        // #263: `status` is deliberately NOT sent. It is a read-only
+        // WorkflowEngine mirror; lifecycle changes run through
+        // POST .../transitions/ (see <WorkflowStatusEditor/> below).
         custom_fields: formData.custom_fields,
       };
       if (isExtendedPreset) {

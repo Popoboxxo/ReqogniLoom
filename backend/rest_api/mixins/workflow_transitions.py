@@ -34,6 +34,48 @@ from application.services import (
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
 
+#: Keys that are never writable through PATCH on any entity, whether or not the
+#: serializer happens to declare them (#269, finding 5). ``workspace_id`` is a
+#: create-time field — a PATCH carrying it is an attempted cross-workspace move,
+#: which has to go through the dedicated move flow. ``is_admin`` is not a field
+#: of any entity at all; it is listed explicitly so a mass-assignment probe gets
+#: a precise error instead of the generic "unknown field".
+_PROTECTED_PATCH_FIELDS = frozenset(
+    {
+        "artifact_id",
+        "created_at",
+        "created_by_id",
+        "id",
+        "is_admin",
+        "modified_by_id",
+        "tenant_id",
+        "updated_at",
+        "uid",
+        "version",
+        "workspace_id",
+    }
+)
+
+#: Keys accepted on every entity even when the serializer does not declare them.
+#: ``change_reason`` and ``custom_fields`` are sent by the UI detail panels on
+#: every save, and ``expected_version`` carries optimistic-locking state, so
+#: rejecting them as "unknown" would break working save paths.
+_ALWAYS_ALLOWED_PATCH_FIELDS = frozenset(
+    {"change_reason", "custom_fields", "expected_version"}
+)
+
+
+def _same_status(candidate: Any, current: str) -> bool:
+    """Compare a client-supplied status against the stored one, leniently.
+
+    Status labels are mirrored across the WorkflowEngine and the entity's own
+    column and differ in casing between entity types (``'draft'`` vs
+    ``'Draft'``). Comparing case-insensitively keeps a harmless echo of the
+    value the client just read via GET from being treated as a status *change*,
+    which under #263 cost the user the rest of their edit.
+    """
+    return str(candidate).strip().casefold() == str(current).strip().casefold()
+
 
 class WorkflowTransitionsMixin:
     """Adds GET/POST ``transitions/`` and GET ``workflow-history/`` actions.
@@ -215,27 +257,117 @@ class WorkflowTransitionsMixin:
             ]
         )
 
-    @staticmethod
-    def _reject_status_in_patch(request: Request, lang: str) -> Response | None:
-        """Reject a PATCH payload that carries ``status`` (QA-123).
+    def _current_status(self, pk: str, ctx: Any) -> str | None:
+        """Return the entity's current status, as the GET representation reports it.
 
-        ``status`` is a read-only serializer field for every workflow-backed
-        entity, so DRF silently drops it from ``validated_data`` — the request
-        returned HTTP 200 with ``version`` bumped from the other fields, but
-        the status itself never changed and the caller was given no signal
-        that their change was ignored. Status may only move through the
-        WorkflowEngine via ``POST .../transitions/``, so a PATCH containing it
-        is rejected outright instead of pretending to succeed.
+        Override in ViewSets whose serializer exposes ``status`` so
+        :meth:`_validate_patch_payload` can tell an unchanged status echo apart
+        from an actual status change (#263). Returning ``None`` means "cannot
+        determine" and makes the guard fall back to accepting-and-ignoring the
+        field, because losing the rest of the payload is the worse failure.
         """
-        if isinstance(request.data, dict) and "status" in request.data:
+        return None
+
+    def _validate_patch_payload(
+        self,
+        request: Request,
+        lang: str,
+        *,
+        serializer_cls: type | None = None,
+        pk: str | None = None,
+        ctx: Any = None,
+    ) -> Response | None:
+        """Validate PATCH field names; return a 400 Response or ``None`` if OK.
+
+        Three rules, all reported as field-level errors in the standard error
+        envelope so a client can point at the offending key:
+
+        ``status`` (#263 / QA-123)
+            Status only moves through the WorkflowEngine
+            (``POST .../transitions/``). A payload whose ``status`` *equals* the
+            current one changes nothing, so it is accepted and the field
+            ignored — the UI detail panels resend the whole form and the
+            previous blanket rejection threw away the description the user had
+            just typed. A *differing* status is still refused, so a real status
+            change can never be silently swallowed.
+
+        Protected fields (#269, finding 5)
+            Server-owned or privilege-shaped keys (``workspace_id``,
+            ``is_admin``, ``version``, ...) used to be dropped by DRF without a
+            word while the request still reported 200 — a cross-workspace move
+            or a mass-assignment attempt looked like it had succeeded.
+
+        Unknown fields (#269, finding 5)
+            A key the serializer does not declare (a typo, or ``title`` on
+            glossary, which uses ``term``) used to return 200 and bump
+            ``version`` although nothing was written. Rejecting it keeps
+            ``version`` an honest change counter.
+        """
+        data = request.data
+        if not isinstance(data, dict):
+            return None
+
+        known: set[str] = set(_ALWAYS_ALLOWED_PATCH_FIELDS)
+        if serializer_cls is not None:
+            # Instantiated without context on purpose: that yields the
+            # unfiltered field superset, so a field merely hidden by the
+            # workspace's rigor preset is not mistaken for an unknown one.
+            known |= set(serializer_cls().fields)
+
+        errors: list[dict[str, Any]] = []
+        for field in data:
+            if field == "status":
+                exposed = "status" in known
+                current = None
+                if exposed and pk is not None:
+                    try:
+                        current = self._current_status(pk, ctx)
+                    except Exception:  # noqa: BLE001 — never mask the PATCH itself
+                        current = None
+                if exposed and (current is None or _same_status(data[field], current)):
+                    # Either a verbatim echo of the current status, or a status
+                    # we could not read back. Both are accepted and ignored:
+                    # discarding the rest of the payload (#263) is the worse
+                    # outcome, and the response body still reports the real,
+                    # unchanged status.
+                    continue
+                errors.append(
+                    {
+                        "field": "status",
+                        "errors": [
+                            "status cannot be changed via PATCH; use "
+                            "POST .../transitions/ with a target_state "
+                            "instead."
+                        ],
+                    }
+                )
+                continue
+            if field in _PROTECTED_PATCH_FIELDS:
+                errors.append(
+                    {
+                        "field": field,
+                        "errors": [f"'{field}' is read-only and cannot be set via PATCH."],
+                    }
+                )
+                continue
+            if field not in known:
+                errors.append(
+                    {"field": field, "errors": [f"Unknown field '{field}'."]}
+                )
+
+        if errors:
+            # Keep a human-readable summary in ``message`` as well: the detail
+            # panels surface ``error.message`` directly in their save alert, so
+            # field-only errors would degrade into a generic "validation error".
+            summary = (
+                errors[0]["errors"][0]
+                if len(errors) == 1
+                else "Invalid fields: "
+                + ", ".join(str(e["field"]) for e in errors)
+            )
             return Response(
                 build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    message=(
-                        "status cannot be changed via PATCH; use "
-                        "POST .../transitions/ with a target_state instead."
-                    ),
+                    "VALIDATION_ERROR", lang, details=errors, message=summary
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )

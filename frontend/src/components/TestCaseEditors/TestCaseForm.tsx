@@ -57,7 +57,9 @@ export function TestCaseForm({ testCase, onSaved, onDeleted }: TestCaseFormProps
       await testcasesApi.update(testCase.id, {
         title: formData.title,
         description: formData.description,
-        status: formData.status,
+        // #263: `status` is deliberately NOT sent. It is a read-only
+        // WorkflowEngine mirror; lifecycle changes run through
+        // POST .../transitions/ (see <WorkflowStatusEditor/>).
         custom_fields: formData.custom_fields,
         ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
       });
