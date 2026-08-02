@@ -149,7 +149,10 @@
     "dismiss": "Verwerfen",
     "clear": "Zurücksetzen",
     "derive": "Ableiten",
-    "deriving": "Leitet ab..."
+    "deriving": "Leitet ab...",
+    "deleting": "Löscht...",
+    "confirmDelete": "Ja, löschen",
+    "deleteConfirmPrompt": "Löschen?"
   },
   "workflowEditor": {
     "changeStatus": "Status ändern",
