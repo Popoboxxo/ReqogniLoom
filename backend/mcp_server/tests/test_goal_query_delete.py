@@ -260,7 +260,7 @@ def test_goal_delete_rejects_role_without_approver_permission():
     )
 
     assert result.success is False
-    assert result.error_code == "VALIDATION_ERROR"
+    assert result.error_code == "PERMISSION_DENIED"
 
 
 def test_goal_delete_unknown_id_returns_not_found():
