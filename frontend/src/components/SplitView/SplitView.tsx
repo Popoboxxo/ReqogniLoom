@@ -229,7 +229,7 @@ export const SplitView = React.forwardRef<
             flexDirection: 'column',
             height: '100%',
             overflow: 'hidden',
-            background: 'var(--color-background)',
+            background: 'var(--color-surface)',
           }}
         >
           {/* Mobile: tab-like toggle between left and right panels */}
@@ -301,7 +301,7 @@ export const SplitView = React.forwardRef<
           display: 'flex',
           height: '100%',
           overflow: 'hidden',
-          background: 'var(--color-background)',
+          background: 'var(--color-surface)',
           fontFamily: 'var(--font-sans)',
           color: 'var(--color-text)',
         }}
@@ -351,7 +351,7 @@ export const SplitView = React.forwardRef<
           style={{
             flex: '1 1 auto',
             overflow: 'auto',
-            background: 'var(--color-background)',
+            background: 'var(--color-surface)',
             padding: 'var(--space-4)',
           }}
         >

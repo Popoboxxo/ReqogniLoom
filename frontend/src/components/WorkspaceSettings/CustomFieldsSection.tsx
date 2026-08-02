@@ -37,7 +37,7 @@ const headingStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   padding: "var(--space-2) var(--space-3)",
-  background: "var(--color-background)",
+  background: "var(--color-surface-raised)",
   border: "1px solid var(--color-border)",
   borderRadius: "var(--radius-md)",
   color: "var(--color-text)",

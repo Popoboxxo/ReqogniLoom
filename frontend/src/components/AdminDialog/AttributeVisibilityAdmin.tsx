@@ -394,7 +394,7 @@ export const AttributeVisibilityAdmin: React.FC<AttributeVisibilityAdminProps> =
           style={{
             maxHeight: '400px',
             overflowY: 'auto',
-            background: 'var(--color-background)',
+            background: 'var(--color-surface-raised)',
             borderRadius: 'var(--radius-md)',
             border: '1px solid var(--color-border)',
           }}

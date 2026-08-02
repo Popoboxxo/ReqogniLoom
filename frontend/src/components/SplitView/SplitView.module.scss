@@ -11,7 +11,7 @@
   overflow: hidden;
   font-family: var(--font-sans);
   color: var(--color-text);
-  background: var(--color-background);
+  background: var(--color-surface);
 }
 
 .leftPanel {
@@ -72,7 +72,7 @@
   flex: 1 1 auto;
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--color-background);
+  background: var(--color-surface);
   padding: var(--space-4);
 
   scrollbar-width: thin;

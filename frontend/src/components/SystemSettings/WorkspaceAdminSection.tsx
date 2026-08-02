@@ -236,7 +236,7 @@ export function WorkspaceAdminSection(): JSX.Element {
                 padding: "var(--space-2)",
                 borderRadius: "var(--radius-md)",
                 border: "1px solid var(--color-border)",
-                background: "var(--color-background)",
+                background: "var(--color-surface-raised)",
                 color: "var(--color-text)",
               }}
             />
@@ -302,7 +302,7 @@ export function WorkspaceAdminSection(): JSX.Element {
             style={{
               marginTop: "var(--space-4)",
               padding: "var(--space-4)",
-              background: "var(--color-background, #f9fafb)",
+              background: "var(--color-surface-raised)",
               border: "1px solid var(--color-danger, #dc2626)",
               borderRadius: "var(--radius-md)",
             }}
