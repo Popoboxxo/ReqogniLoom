@@ -36,6 +36,18 @@ _GOAL_STATES: list[str] = list(PRESET_SCHEMAS["goal_default"]["states"])
 _MAIN_GOAL_STATES: list[str] = list(PRESET_SCHEMAS["main_goal_default"]["states"])
 
 
+def _goal_payload(goal: Any) -> Dict[str, Any]:
+    """Serialize a Goal ORM row for the ``goal.read``/``goal.query`` responses."""
+    return {
+        "id": str(goal.id),
+        "lineage_id": str(goal.lineage_id),
+        "sequence_number": goal.sequence_number,
+        "title": goal.title,
+        "description": goal.description,
+        "status": goal.status,
+    }
+
+
 def _main_goal_payload(main_goal: Any) -> Dict[str, Any]:
     """Serialize a MainGoal ORM row for the ``main_goal`` response envelope."""
     return {
@@ -53,10 +65,12 @@ class GoalToolGroup(BaseToolGroup):
 
     _TOOL_MAP = {
         "goal.read": "_handle_read",
+        "goal.query": "_handle_query",
         "goal.create": "_handle_create",
         "goal.create_version": "_handle_create_version",
         "goal.list_versions": "_handle_list_versions",
         "goal.transition": "_handle_transition",
+        "goal.delete": "_handle_delete",
     }
     _TOOL_SCHEMAS = [
         {
@@ -66,6 +80,29 @@ class GoalToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {"goal_id": {"type": "string"}},
                 "required": ["goal_id"],
+            },
+        },
+        {
+            "name": "goal.query",
+            "description": (
+                "List the current version of every Goal lineage in a "
+                "workspace (read-only). By default omits lineages whose "
+                "current version is 'Archiviert'; set include_archived to "
+                "list those too."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string"},
+                    "include_archived": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, include lineages whose current version "
+                            "is 'Archiviert'. Defaults to false."
+                        ),
+                    },
+                },
+                "required": ["workspace_id"],
             },
         },
         {
@@ -137,6 +174,27 @@ class GoalToolGroup(BaseToolGroup):
                 "required": ["goal_id", "target_state"],
             },
         },
+        {
+            "name": "goal.delete",
+            "description": (
+                "Archive a Goal version (soft-delete, write). Goals are "
+                "immutable lineage-versioned rows, so this transitions the "
+                "version to 'Archiviert' via the WorkflowEngine (same path "
+                "as goal.transition) rather than removing the row. "
+                "Reversible through goal.transition back to 'Entwurf'."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "string"},
+                    "change_reason": {
+                        "type": "string",
+                        "description": "Optional audit reason for archiving.",
+                    },
+                },
+                "required": ["goal_id"],
+            },
+        },
     ]
 
     def _handle_read(
@@ -147,16 +205,17 @@ class GoalToolGroup(BaseToolGroup):
             goal = GoalService().get(goal_id, auth_context)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
-        return ToolResult.ok(
-            {
-                "id": str(goal.id),
-                "lineage_id": str(goal.lineage_id),
-                "sequence_number": goal.sequence_number,
-                "title": goal.title,
-                "description": goal.description,
-                "status": goal.status,
-            }
+        return ToolResult.ok(_goal_payload(goal))
+
+    def _handle_query(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        workspace_id = require_uuid(params, "workspace_id")
+        include_archived = bool(params.get("include_archived", False))
+        goals = GoalService().list_current(
+            workspace_id, auth_context, include_archived=include_archived
         )
+        return ToolResult.ok({"goals": [_goal_payload(g) for g in goals]})
 
     def _handle_create(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
@@ -229,6 +288,42 @@ class GoalToolGroup(BaseToolGroup):
                 auth_context,
                 change_reason=params.get("change_reason"),
                 credential=params.get("credential"),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        return ToolResult.ok(
+            {
+                "id": str(goal.id),
+                "lineage_id": str(goal.lineage_id),
+                "sequence_number": goal.sequence_number,
+                "status": goal.status,
+            }
+        )
+
+    def _handle_delete(
+        self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Archive a Goal version (soft-delete) via the WorkflowEngine.
+
+        Goals are immutable, lineage-versioned rows (see module docstring) —
+        an outright DELETE would silently break lineage history and MainGoal
+        aggregation. Consistent with the rest of the system's soft-delete
+        convention, this instead transitions the version to the 'Archiviert'
+        state through the exact same ``GoalService.transition_status`` /
+        ``WorkflowFacade`` path ``goal.transition`` uses, so role /
+        change_reason gates apply identically (no parallel delete logic).
+        """
+        goal_id = require_uuid(params, "goal_id")
+        try:
+            goal = GoalService().transition_status(
+                goal_id,
+                "Archiviert",
+                auth_context,
+                change_reason=params.get("change_reason"),
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))

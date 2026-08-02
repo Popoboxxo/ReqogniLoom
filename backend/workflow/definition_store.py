@@ -390,6 +390,19 @@ def _goal_transitions() -> list[dict[str, Any]]:
             "signature_gate": False,
         },
         {
+            # Issue #216: goal.delete archives a Goal version regardless of
+            # its current state. Without this edge only an already-approved
+            # version could be archived — a Draft first had to detour through
+            # Freigegeben, which is neither how archiving is expected to work
+            # nor how the sibling adr/risk/issue soft-delete escape hatch
+            # (workflow.services.outdate(), state-agnostic) behaves.
+            "from_state": "Entwurf",
+            "to_state": "Archiviert",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
             "from_state": "Freigegeben",
             "to_state": "Entwurf",
             "allowed_roles": ["editor", "approver", "admin"],

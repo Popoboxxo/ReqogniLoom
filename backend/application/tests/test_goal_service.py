@@ -227,6 +227,49 @@ class GoalServiceTests(TestCase):
         titles = sorted(g.title for g in current)
         self.assertEqual(titles, ["Goal A revised", "Goal B"])
 
+    def test_list_current_include_archived_adds_back_archived_lineages(self):
+        """goal.query's include_archived flag: list_current excludes
+        'Archiviert' lineages by default but must include them on request
+        (basis for the MCP goal.query tool, issue #216)."""
+        workspace = Workspace.objects.create(
+            tenant=self.tenant, name="W-enabled-archived", goals_enabled=True
+        )
+        _provision_goal_workflow(workspace)
+        editor_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("editor",))
+        approver_ctx = _make_ctx(tenant_id=self.tenant.id, roles=("approver",))
+        svc = GoalService()
+
+        archived = svc.create_version(
+            workspace_id=workspace.id,
+            title="Goal to archive",
+            description="",
+            lineage_id=None,
+            ctx=editor_ctx,
+        )
+        svc.create_version(
+            workspace_id=workspace.id,
+            title="Goal to keep",
+            description="",
+            lineage_id=None,
+            ctx=editor_ctx,
+        )
+        svc.transition_status(
+            uuid.UUID(archived["id"]), "Archiviert", approver_ctx
+        )
+
+        default_titles = sorted(
+            g.title for g in svc.list_current(workspace_id=workspace.id, ctx=approver_ctx)
+        )
+        self.assertEqual(default_titles, ["Goal to keep"])
+
+        with_archived_titles = sorted(
+            g.title
+            for g in svc.list_current(
+                workspace_id=workspace.id, ctx=approver_ctx, include_archived=True
+            )
+        )
+        self.assertEqual(with_archived_titles, ["Goal to archive", "Goal to keep"])
+
     def test_get_returns_single_goal_version(self):
         workspace = Workspace.objects.create(
             tenant=self.tenant, name="W-enabled-5", goals_enabled=True
@@ -323,6 +366,19 @@ class GoalServiceTransitionTests(TestCase):
             )
 
         self.assertEqual(Goal.objects.get(id=created["id"]).status, "Entwurf")
+
+    def test_transition_status_archives_goal_directly_from_entwurf(self):
+        """Basis for goal.delete (issue #216): a Draft goal must be archivable
+        without first being approved — unlike Freigegeben -> Archiviert this
+        edge didn't exist yet."""
+        created = self._create_goal()
+
+        goal = GoalService().transition_status(
+            uuid.UUID(created["id"]), "Archiviert", self.approver_ctx
+        )
+
+        self.assertEqual(goal.status, "Archiviert")
+        self.assertEqual(Goal.objects.get(id=created["id"]).status, "Archiviert")
 
     def test_transition_status_raises_not_found_for_unknown_id(self):
         with self.assertRaises(NotFoundError):

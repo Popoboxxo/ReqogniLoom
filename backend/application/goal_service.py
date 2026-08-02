@@ -243,22 +243,32 @@ class GoalService(ServiceBase):
             for g in qs
         ]
 
-    def list_current(self, workspace_id: uuid.UUID, ctx: Any) -> list[Goal]:
-        """Return the latest, non-archived version of every lineage.
+    def list_current(
+        self, workspace_id: uuid.UUID, ctx: Any, *, include_archived: bool = False
+    ) -> list[Goal]:
+        """Return the latest version of every lineage in a workspace.
 
         Args:
             workspace_id: Target workspace UUID.
             ctx: Resolved AuthContext.
+            include_archived: When False (default), lineages whose newest
+                version is "Archiviert" are omitted (UI/REST default listing
+                behaviour, unchanged). When True, the latest version of every
+                lineage is returned regardless of status — the basis for the
+                MCP ``goal.query`` tool's ``include_archived`` param
+                (issue #216), which mirrors ``{prefix}.query``'s
+                ``include_outdated`` flag in ``mcp_server/tools/generic.py``.
 
         Returns:
             List of Goal ORM instances, one per lineage (the highest
-            sequence_number, excluding "Archiviert").
+            sequence_number).
         """
         self._set_tenant_context(ctx)
+        qs = Goal.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
+        if not include_archived:
+            qs = qs.exclude(status="Archiviert")
         latest_ids = (
-            Goal.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
-            .exclude(status="Archiviert")
-            .order_by("lineage_id", "-sequence_number")
+            qs.order_by("lineage_id", "-sequence_number")
             .distinct("lineage_id")
             .values_list("id", flat=True)
         )
