@@ -31,11 +31,11 @@ from __future__ import annotations
 from typing import Any
 
 from django.utils import translation
-from django.utils.html import strip_tags
 from rest_framework import pagination, serializers
 from rest_framework.request import Request
 
 from rest_api.preset_guard import FieldFilter
+from rest_api.sanitization import validate_free_text
 from persistence.models import ElementType
 
 # ---------------------------------------------------------------------------
@@ -325,25 +325,34 @@ class CustomFieldsSerializerMixin:
 
 
 class SanitizedCharField(serializers.CharField):
-    """CharField that strips HTML/script markup from free-text input.
+    """CharField that *rejects* HTML markup and script-capable URI schemes.
 
     B006: XSS/SQLi payloads (e.g. ``<script>alert(1)</script>``) were stored
     verbatim in free-text fields like ``title``/``description`` and echoed
     back unescaped, enabling stored XSS in any consumer that renders the
-    value as HTML. ``strip_tags`` removes markup while keeping the plain-text
-    content, so a script payload is persisted as the inert text
-    ``alert(1)`` instead of an executable ``<script>`` tag. SQL injection is
-    not applicable here (the ORM always parametrizes queries); this field
-    only addresses the HTML/script-injection half of B006.
+    value as HTML. SQL injection is not applicable here (the ORM always
+    parametrizes queries); this field only addresses the HTML/script-injection
+    half of B006.
+
+    #269 changed the remedy from *strip silently* to *reject*: stripping
+    turned ``{"title": "<img src=x onerror=alert(1)>"}`` into a ``201`` with an
+    empty title, i.e. silent data loss (same failure class as #263), and it
+    did not cover ``javascript:`` URIs at all. See
+    :mod:`rest_api.sanitization` for the rules and the trade-off.
 
     Applied to user-authored narrative fields (title, description, and
     similar prose fields) across the entity serializers, not to identifiers,
-    UUIDs, enums or read-only fields.
+    UUIDs, enums or read-only fields. Declaring a new field with this class is
+    also what enrols it in the ViewSet-level guard
+    (``FreeTextSanitizationMixin``), which covers write paths that read
+    ``request.data`` without running the serializer.
     """
 
     def to_internal_value(self, data: Any) -> str:
         value = super().to_internal_value(data)
-        return strip_tags(value)
+        # No field_name here: DRF already nests a field-level error under the
+        # field's key, so passing one would produce {"title": {"title": [...]}}.
+        return validate_free_text(value)
 
 
 # ---------------------------------------------------------------------------
@@ -773,11 +782,11 @@ class BaselineSerializer(PresetAwareSerializerMixin, serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
-    name = serializers.CharField(
+    name = SanitizedCharField(
         max_length=500, required=False, allow_blank=True, default=""
     )
     scope = serializers.CharField(max_length=32)
-    description = serializers.CharField(allow_blank=True, required=False, default="", max_length=20000)
+    description = SanitizedCharField(allow_blank=True, required=False, default="", max_length=20000)
     artifact_id = serializers.UUIDField(required=False, allow_null=True, default=None)
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
@@ -841,7 +850,7 @@ class WorkflowDefinitionSerializer(
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
     artifact_id = serializers.UUIDField()
-    name = serializers.CharField(max_length=255)
+    name = SanitizedCharField(max_length=255)
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
@@ -1146,8 +1155,8 @@ class IcdParameterSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True)
     icd_version_id = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(max_length=200)
-    description = serializers.CharField(
+    name = SanitizedCharField(max_length=200)
+    description = SanitizedCharField(
         allow_blank=True, default="", max_length=2000
     )
     unit = serializers.CharField(allow_blank=True, default="", max_length=50)
@@ -1367,7 +1376,7 @@ class GlossaryTermVersionSerializer(serializers.Serializer):
     term_fk_id = serializers.UUIDField(read_only=True)
     term_version = serializers.IntegerField(read_only=True)
     # #104: matches GlossaryTermSerializer.definition — unbounded before (DoS risk).
-    definition = serializers.CharField(max_length=20000)
+    definition = SanitizedCharField(max_length=20000)
     synonyms = serializers.JSONField(required=False, default=list)
     abbreviation = serializers.CharField(required=False, allow_blank=True, default="")
     created_at = serializers.DateTimeField(read_only=True)
@@ -1435,10 +1444,12 @@ class UserProfileSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     username = serializers.CharField(read_only=True)
     email = serializers.EmailField(read_only=True)
-    first_name = serializers.CharField(
+    # #269: user-authored and rendered in the navigation shell / audit trail,
+    # so they belong to the same free-text class as title/description.
+    first_name = SanitizedCharField(
         max_length=150, required=False, allow_blank=True, default=""
     )
-    last_name = serializers.CharField(
+    last_name = SanitizedCharField(
         max_length=150, required=False, allow_blank=True, default=""
     )
     is_active = serializers.BooleanField(read_only=True)

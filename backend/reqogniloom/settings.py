@@ -337,6 +337,53 @@ AUTH_USER_MODEL = "persistence.User"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------------------------------------------------------------------------
+# API rate limiting (GitHub #269) — every rate is operator-configurable.
+#
+# Each value uses DRF's "<count>/<period>" syntax (second|minute|hour|day, or
+# their s/m/h/d abbreviations). Setting a variable to an EMPTY string disables
+# that throttle entirely — useful for a load test or an air-gapped single-user
+# deployment, and the reason the values are read as plain strings rather than
+# parsed here.
+#
+# Defaults are environment-aware: non-prod (dev/test/CI) gets very high ceilings
+# because the e2e suite legitimately logs in and paginates hundreds of times per
+# run, and a 429 there is a flaky test rather than a caught attack.
+# ---------------------------------------------------------------------------
+_IS_NON_PROD = DJANGO_ENV in _NON_PROD_ENVS
+
+
+def _throttle_rate(name: str, *, prod: str, non_prod: str) -> str:
+    """Read a throttle rate from the environment with an env-aware default."""
+    return config(name, default=non_prod if _IS_NON_PROD else prod).strip()
+
+
+# Generic ceiling for authenticated callers (#269 finding 1). 600/min ~= 10 rps
+# sustained per user, far above interactive UI usage (a dashboard load is a
+# couple of dozen requests) but low enough to make bulk scraping impractical.
+API_RATE_LIMIT_USER: str = _throttle_rate(
+    "API_RATE_LIMIT_USER", prod="600/min", non_prod="20000/min"
+)
+# Unauthenticated callers only reach genuinely public endpoints (schema,
+# health), so they need far less headroom.
+API_RATE_LIMIT_ANON: str = _throttle_rate(
+    "API_RATE_LIMIT_ANON", prod="120/min", non_prod="20000/min"
+)
+# #72/#269: FAILED logins per (client IP, username) pair.
+LOGIN_THROTTLE_RATE: str = _throttle_rate(
+    "LOGIN_THROTTLE_RATE", prod="10/min", non_prod="1000/min"
+)
+# #269: FAILED logins per client IP across all usernames (anti credential
+# spraying). Must stay clearly above LOGIN_THROTTLE_RATE, otherwise it
+# reintroduces the per-IP lockout this issue is about.
+LOGIN_IP_THROTTLE_RATE: str = _throttle_rate(
+    "LOGIN_IP_THROTTLE_RATE", prod="60/min", non_prod="5000/min"
+)
+# #135: the unauthenticated refresh endpoint.
+REFRESH_THROTTLE_RATE: str = _throttle_rate(
+    "REFRESH_THROTTLE_RATE", prod="30/min", non_prod="1000/min"
+)
+
+# ---------------------------------------------------------------------------
 # Django REST Framework — ARCH-L1-002 RestApiAdapter
 # COMP-RA-003 AuthEnforcer: AuthTenancyAuthentication provides Bearer+API-Key auth.
 # COMP-RA-003 RbacPermission: enforces RBAC matrix (REQ-L2-RA-005, REQ-L2-RA-006).
@@ -364,15 +411,26 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
         "rest_framework.filters.SearchFilter",
     ],
-    # #72: throttle the public login endpoint against credential-stuffing /
-    # brute-force attempts. Scoped rate so other anonymous/public endpoints
-    # (e.g. schema) are unaffected. Non-prod envs (dev/test/CI) get a much
-    # higher rate since e2e suites legitimately log in many times per run.
+    # #269 finding 1: a generic cap applies to EVERY endpoint, not just the two
+    # auth endpoints that used to opt in. The two classes are mutually
+    # exclusive per request (one keys on the auth context, the other on the IP
+    # of a request that has none).
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_api.throttling.AuthContextUserRateThrottle",
+        "rest_api.throttling.AuthContextAnonRateThrottle",
+    ],
+    # Rates come from the env-configurable settings above. ``None`` (from an
+    # empty env value) makes DRF treat the scope as unlimited.
     "DEFAULT_THROTTLE_RATES": {
-        "login": "10/min" if DJANGO_ENV not in _NON_PROD_ENVS else "1000/min",
+        "user": API_RATE_LIMIT_USER or None,
+        "anon": API_RATE_LIMIT_ANON or None,
+        # #72/#269: brute-force cap on the public login endpoint. Counts only
+        # failed attempts, keyed per (IP, username) — see rest_api.throttling.
+        "login": LOGIN_THROTTLE_RATE or None,
+        "login_ip": LOGIN_IP_THROTTLE_RATE or None,
         # #135: throttle the refresh endpoint like login — it is unauthenticated
         # (validated only via the refresh cookie) and public.
-        "refresh": "30/min" if DJANGO_ENV not in _NON_PROD_ENVS else "1000/min",
+        "refresh": REFRESH_THROTTLE_RATE or None,
     },
 }
 

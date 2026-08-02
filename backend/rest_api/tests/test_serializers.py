@@ -224,20 +224,42 @@ class TestRequirementSerializer:
         assert not ser.is_valid()
         assert "change_reason" in ser.errors
 
-    def test_script_tags_stripped_from_title_and_description(self) -> None:
+    def test_script_tags_rejected_in_title_and_description(self) -> None:
         """Regression (SEC-001/#57): free-text fields must not persist raw
         HTML/script markup verbatim (stored-XSS risk for non-React API
-        consumers like MCP responses or the ReqIF export)."""
+        consumers like MCP responses or the ReqIF export).
+
+        BREAKING CHANGE (#269 finding 3): the remedy used to be a silent
+        ``strip_tags`` — ``"<img src=x onerror=alert(1)>"`` became ``""`` and
+        the caller got a ``201``, i.e. data loss it could not detect. The
+        payload is now rejected with a field-level error instead; the caller
+        keeps its input and is told why.
+        """
         data = {
             "workspace_id": str(uuid.uuid4()),
             "title": "<script>alert(1)</script>Title",
             "description": "<img src=x onerror=alert(1)>Body",
         }
         ser = RequirementSerializer(data=data)
-        assert ser.is_valid(), ser.errors
-        assert "<script>" not in ser.validated_data["title"]
-        assert "alert(1)Title" == ser.validated_data["title"]
-        assert "<img" not in ser.validated_data["description"]
+        assert not ser.is_valid()
+        assert set(ser.errors) == {"title", "description"}
+        assert "disallowed content" in str(ser.errors["title"][0])
+
+    def test_javascript_uri_rejected_in_free_text(self) -> None:
+        """#269 finding 3: markup-free but script-capable input must also fail.
+
+        ``strip_tags`` left ``javascript:alert(1)`` untouched, and the frontend
+        renders descriptions as Markdown — ``[x](javascript:...)`` becomes a
+        real ``<a href>``.
+        """
+        data = {
+            "workspace_id": str(uuid.uuid4()),
+            "title": "Ordinary title",
+            "description": "See [details](javascript:alert(1)).",
+        }
+        ser = RequirementSerializer(data=data)
+        assert not ser.is_valid()
+        assert "description" in ser.errors
 
 
 # ---------------------------------------------------------------------------

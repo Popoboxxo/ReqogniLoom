@@ -72,7 +72,7 @@ from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
 from audit.query import AuditLogQuery, AuditQueryFilters
 from rest_api.auth_enforcer import get_auth_context
-from rest_api.mixins import WorkflowTransitionsMixin
+from rest_api.mixins import FreeTextSanitizationMixin, WorkflowTransitionsMixin
 
 logger = logging.getLogger(__name__)
 from rest_api.preset_guard import PresetError, PresetGateMixin
@@ -160,13 +160,17 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
 # ---------------------------------------------------------------------------
 
 
-class BaseEntityViewSet(PresetGateMixin, viewsets.ViewSet):
+class BaseEntityViewSet(FreeTextSanitizationMixin, PresetGateMixin, viewsets.ViewSet):
     """Shared behaviour: error mapping, auth context, preset gate, pagination.
 
     Subclasses must implement list(), retrieve(), create(), partial_update(),
     destroy() and set:
       - serializer_class
       - preset_endpoint_key (optional, from PresetGateMixin)
+
+    #269: ``FreeTextSanitizationMixin`` guards every write body here rather
+    than in each subclass, because several subclasses read ``request.data``
+    directly instead of running ``serializer_class`` (see the mixin docstring).
     """
 
     serializer_class: type | None = None
