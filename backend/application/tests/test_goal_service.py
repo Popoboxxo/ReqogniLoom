@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from django.test import TestCase
 
-from application.base import NotFoundError, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.goal_service import GoalService
 from application.models import Goal, MainGoal
 from persistence.models import Artifact, Tenant, Workspace
@@ -357,7 +357,7 @@ class GoalServiceTransitionTests(TestCase):
         """goal_default gates Entwurf -> Freigegeben to approver/admin."""
         created = self._create_goal()
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(PermissionDeniedError):
             GoalService().transition_status(
                 uuid.UUID(created["id"]),
                 "Freigegeben",

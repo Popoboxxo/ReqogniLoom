@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from django.test import TestCase
 
-from application.base import NotFoundError, ValidationError
+from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.goal_service import GoalService
 from application.main_goal_service import MainGoalService
 from application.models import MainGoal
@@ -393,7 +393,7 @@ class MainGoalServiceApproveTests(TestCase):
             workspace_id=workspace.id, content="Draft main goal.", ctx=editor_ctx
         )
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(PermissionDeniedError):
             svc.approve(
                 uuid.UUID(created["id"]),
                 editor_ctx,
