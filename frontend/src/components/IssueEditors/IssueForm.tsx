@@ -62,7 +62,9 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
         description: formData.description,
         severity: formData.severity,
         category: formData.category,
-        status: formData.status,
+        // #263: `status` is deliberately NOT sent. It is a read-only
+        // WorkflowEngine mirror; lifecycle changes run through
+        // POST .../transitions/ (see <WorkflowStatusEditor/>).
         tags: formData.tags,
         ...(isExtendedPreset ? { change_reason: changeReason.trim() } : {}),
       });

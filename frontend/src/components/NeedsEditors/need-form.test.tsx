@@ -221,6 +221,23 @@ describe("NeedForm — AI derivation feedback (REQ-008)", () => {
     expect(status.textContent).toContain("KI nicht verfügbar");
   });
 
+  it("never sends status in the save payload (#263)", async () => {
+    // Regression: the panel used to resend the read-only `status` mirror with
+    // every save. The server rejected the whole PATCH, so the description the
+    // user had just typed was silently discarded. Status changes belong to
+    // POST .../transitions/ (WorkflowStatusEditor), never to the save button.
+    renderForm();
+
+    await userEvent.click(screen.getByRole("button", { name: "Speichern" }));
+
+    await waitFor(() => expect(stakeholderNeedApi.update).toHaveBeenCalled());
+    const payload = vi.mocked(stakeholderNeedApi.update).mock.calls[0][1];
+    expect(payload).not.toHaveProperty("status");
+    // The content fields are still there — this is a narrowing, not a removal.
+    expect(payload).toHaveProperty("title");
+    expect(payload).toHaveProperty("description");
+  });
+
   it("shows status message with role=status while AI derive is loading (REQ-008 B1)", async () => {
     // Never resolves — stays in loading state
     vi.mocked(stakeholderNeedApi.deriveRequirements).mockReturnValue(

@@ -94,7 +94,9 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
   const saveFields = () => {
     if (!risk) return {};
     const fields: Partial<Record<keyof Risk, unknown>> = {};
-    for (const key of ['title', 'description', 'severity', 'probability', 'impact', 'status', 'category', 'owner', 'mitigation_strategy'] as const) {
+    // #263: `status` is deliberately absent. It is a read-only WorkflowEngine
+    // mirror; lifecycle changes run through POST .../transitions/.
+    for (const key of ['title', 'description', 'severity', 'probability', 'impact', 'category', 'owner', 'mitigation_strategy'] as const) {
       if (key in formData) fields[key] = formData[key];
     }
     return fields;

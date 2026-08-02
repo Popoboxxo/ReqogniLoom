@@ -237,7 +237,11 @@ class GenericCrudToolGroup(BaseToolGroup):
         # it can only move through `{prefix}.outdate` / `{prefix}.reactivate`
         # (soft-delete/restore) or the REST workflow `transitions/` endpoint
         # (WorkflowEngine-gated), mirroring the REST PATCH rejection in
-        # WorkflowTransitionsMixin._reject_status_in_patch (QA-123). Forwarding
+        # WorkflowTransitionsMixin._validate_patch_payload (QA-123). Unlike the
+        # REST guard — which since #263 tolerates an unchanged status echo
+        # because the UI resends the whole form — this one rejects `status`
+        # outright: MCP callers pass explicit kwargs, so there is no
+        # whole-object echo to accommodate here. Forwarding
         # it here used to hit the update method's missing parameter and
         # surface as an opaque "INTERNAL_ERROR: ...got an unexpected keyword
         # argument 'status'" instead of an actionable message.
