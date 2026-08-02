@@ -28,7 +28,6 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from auth_tenancy.errors import AuthError, build_error_body
@@ -44,30 +43,14 @@ from auth_tenancy.services import (
     UserProfileService,
 )
 from rest_api.serializers import UserProfileSerializer
+from rest_api.throttling import (
+    LoginIpRateThrottle,
+    LoginRateThrottle,
+    RefreshRateThrottle,
+    record_login_failure,
+    reset_login_throttle,
+)
 from rest_framework import exceptions as drf_exceptions
-
-
-class LoginRateThrottle(AnonRateThrottle):
-    """#72: rate-limit the public login endpoint (REQ-L2-MC-018 pattern).
-
-    Scoped to the ``login`` throttle rate (see ``REST_FRAMEWORK.
-    DEFAULT_THROTTLE_RATES``) so brute-force / credential-stuffing attempts
-    against ``POST /api/v1/auth/login/`` are capped without affecting other
-    anonymous endpoints.
-    """
-
-    scope = "login"
-
-
-class RefreshRateThrottle(AnonRateThrottle):
-    """#135: rate-limit the public refresh endpoint.
-
-    Scoped to the ``refresh`` throttle rate — the endpoint is unauthenticated
-    (identity comes from the refresh cookie, not from ``AuthTenancyAuthentication``)
-    so it needs its own brute-force cap, same rationale as ``LoginRateThrottle``.
-    """
-
-    scope = "refresh"
 
 # The access cookie is scoped to the API mount so it is never sent to unrelated
 # paths (e.g. static assets). Login/logout must use the same path or the browser
@@ -162,7 +145,10 @@ class LoginView(APIView):
 
     authentication_classes: list = []
     permission_classes = [AllowAny]
-    throttle_classes = [LoginRateThrottle]
+    # #269: both throttles count FAILED attempts only, and both are keyed so
+    # that one attacker cannot lock out unrelated users — see
+    # ``rest_api.throttling`` for the (IP, username) vs. per-IP rationale.
+    throttle_classes = [LoginRateThrottle, LoginIpRateThrottle]
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Validate credentials and return a token on success, 401 otherwise."""
@@ -172,6 +158,7 @@ class LoginView(APIView):
         password = data.get("password")
 
         if not isinstance(username, str) or not isinstance(password, str):
+            record_login_failure(request)
             return _auth_error_response(
                 "invalid_token",
                 accept_language=accept_language,
@@ -185,11 +172,16 @@ class LoginView(APIView):
             token = service.issue_token(user, roles)
             refresh_token = service.issue_refresh_token(user)
         except AuthError as exc:
+            record_login_failure(request)
             return _auth_error_response(
                 exc.code,
                 accept_language=accept_language,
                 http_status=exc.status_code,
             )
+
+        # Correct credentials clear this (IP, username) bucket so a user is
+        # never punished for their own — or a neighbour's — earlier typos.
+        reset_login_throttle(request)
 
         # Phase 1 (REQ-052): the token is ALSO returned in the body for backward
         # compatibility with the e2e login helper and API tooling; the browser
@@ -392,6 +384,9 @@ __all__ = [
     "LogoutView",
     "MeView",
     "RefreshView",
+    # Re-exported from rest_api.throttling (#269) so existing imports of
+    # ``rest_api.auth_views.LoginRateThrottle`` keep resolving.
+    "LoginIpRateThrottle",
     "LoginRateThrottle",
     "RefreshRateThrottle",
 ]
