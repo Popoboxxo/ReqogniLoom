@@ -1172,3 +1172,122 @@ class TestListRequirementsExcludesOutdated:
         )
         ids_incl = {r.id for r in results_incl}
         assert deleted.id in ids_incl
+
+
+# ---------------------------------------------------------------------------
+# Regression (Issue #267): GET /api/v1/requirements/?search=<term> silently
+# ignored the ``search`` query parameter and returned every item in the
+# workspace unfiltered — the RequirementViewSet.list() never read
+# request.query_params["search"], and list_requirements() had no ``search``
+# parameter at all. Fixed by threading ``search`` through to a
+# title/description/uid icontains filter on the queryset.
+# ---------------------------------------------------------------------------
+
+
+class TestListRequirementsSearchFilter:
+    """GET /api/v1/requirements/?workspace_id=...&search=<term> (Issue #267)."""
+
+    def test_search_filters_by_title_case_insensitive(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        svc = RequirementService()
+        matching = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Payment Gateway Integration",
+            ctx=req_outdate_ctx,
+        )
+        other = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Unrelated Requirement",
+            ctx=req_outdate_ctx,
+        )
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, search="payment gateway"
+        )
+        ids = {r.id for r in results}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+    def test_search_filters_by_description(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        svc = RequirementService()
+        matching = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Req A",
+            description="Handles OAuth token refresh.",
+            ctx=req_outdate_ctx,
+        )
+        other = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Req B",
+            description="Nothing related.",
+            ctx=req_outdate_ctx,
+        )
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, search="oauth"
+        )
+        ids = {r.id for r in results}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+    def test_search_filters_by_uid(self, req_outdate_ctx, req_outdate_workspace):
+        svc = RequirementService()
+        matching = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Req A",
+            ctx=req_outdate_ctx,
+            uid="REQ-L1-SPECIAL-001",
+        )
+        other = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Req B",
+            ctx=req_outdate_ctx,
+            uid="REQ-L1-OTHER-002",
+        )
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, search="special"
+        )
+        ids = {r.id for r in results}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+    def test_search_term_that_looks_like_sqli_is_treated_as_literal_text(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        """A SQLi-shaped search term must be treated as plain text (no items
+        match) rather than being evaluated as SQL or ignored entirely."""
+        svc = RequirementService()
+        svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Regular Requirement",
+            ctx=req_outdate_ctx,
+        )
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, search="' OR 1=1--"
+        )
+
+        assert list(results) == []
+
+    def test_no_search_param_returns_all(
+        self, req_outdate_ctx, req_outdate_workspace
+    ):
+        svc = RequirementService()
+        a = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id, title="Req A", ctx=req_outdate_ctx
+        )
+        b = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id, title="Req B", ctx=req_outdate_ctx
+        )
+
+        results = svc.list_requirements(req_outdate_workspace.id, req_outdate_ctx)
+        ids = {r.id for r in results}
+
+        assert {a.id, b.id} <= ids

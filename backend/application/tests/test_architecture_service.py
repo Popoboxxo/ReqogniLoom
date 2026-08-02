@@ -1625,3 +1625,35 @@ class TestListArchitectureElementsExcludesOutdated:
         assert deleted.id in ids_incl
 
 
+class TestListArchitectureElementsSearchFilter:
+    """Issue #267 (same root cause as RequirementService.list_requirements):
+    GET /api/v1/architecture-elements/?search=<term> must filter on
+    title/description/uid instead of being silently ignored."""
+
+    def test_search_filters_by_title_case_insensitive(
+        self, arch_outdate_ctx, arch_outdate_workspace
+    ):
+        svc = ArchitectureService()
+        matching = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Payment Gateway Component",
+            ctx=arch_outdate_ctx,
+        )
+        other = svc.create_architecture_element(
+            workspace_id=arch_outdate_workspace.id,
+            title="Unrelated Component",
+            ctx=arch_outdate_ctx,
+            parent_id=matching.id,
+        )
+
+        elements = svc.list_architecture_elements(
+            workspace_id=arch_outdate_workspace.id,
+            ctx=arch_outdate_ctx,
+            search="payment gateway",
+        )
+        ids = {el.id for el in elements}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+

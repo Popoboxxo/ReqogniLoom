@@ -834,6 +834,46 @@ class TestRequirementListStatusFilter:
         assert svc_mock.list_requirements.call_args.kwargs["status"] is None
 
 
+class TestRequirementListSearchFilter:
+    """GET /api/v1/requirements/?workspace_id=...&search=<term> (Issue #267).
+
+    Regression: the ``search`` query parameter was never read from the
+    request and never forwarded to RequirementService.list_requirements(),
+    so it had zero effect on the response — every item in the workspace was
+    always returned regardless of the search term.
+    """
+
+    def _svc_mock(self) -> MagicMock:
+        svc = MagicMock()
+        svc.list_requirements.return_value = []
+        return svc
+
+    def test_list_forwards_search_query_param_to_service(self) -> None:
+        workspace_id = uuid.uuid4()
+        req = _make_request(
+            "get", params={"workspace_id": str(workspace_id), "search": "payment"}
+        )
+        view = RequirementViewSet.as_view({"get": "list"})
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = view(req)
+
+        assert response.status_code == 200
+        svc_mock.list_requirements.assert_called_once()
+        assert svc_mock.list_requirements.call_args.kwargs["search"] == "payment"
+
+    def test_list_without_search_passes_none(self) -> None:
+        workspace_id = uuid.uuid4()
+        req = _make_request("get", params={"workspace_id": str(workspace_id)})
+        view = RequirementViewSet.as_view({"get": "list"})
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = view(req)
+
+        assert response.status_code == 200
+        assert svc_mock.list_requirements.call_args.kwargs["search"] is None
+
+
 # ---------------------------------------------------------------------------
 # ArchitectureElementViewSet — PATCH wires expected_version
 # ---------------------------------------------------------------------------

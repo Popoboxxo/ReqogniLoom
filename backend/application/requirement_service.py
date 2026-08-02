@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 from django.db.utils import OperationalError, ProgrammingError
 from persistence.models import Artifact, Requirement, Tenant, Workspace
 from persistence.transactions import TransactionContextManager, atomic_transaction
@@ -461,6 +461,7 @@ class RequirementService(ServiceBase):
         ctx: AuthContext,
         include_deleted: bool = False,
         status: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> QuerySet[Requirement]:
         """Return Requirements in *workspace_id*.
 
@@ -472,6 +473,13 @@ class RequirementService(ServiceBase):
         a pure read filter on the denormalized mirror column — it does not
         affect the workflow engine and does not accept the client to *write*
         status (see ``update_requirement``).
+
+        Issue #267 regression fix: ``search`` case-insensitively filters on
+        title/description/uid via ``icontains`` (bound query parameters — not
+        raw SQL, so search terms are always treated as literal text, never
+        interpreted as SQL). Previously this parameter did not exist at all,
+        so ``?search=`` was silently ignored by the ViewSet and every item in
+        the workspace was returned unfiltered regardless of the search term.
 
         REQ-088: Returns a lazy ``QuerySet`` (no ``list()``) so the caller —
         e.g. the paginating ViewSet (REQ-034) — can slice with LIMIT/OFFSET
@@ -489,6 +497,12 @@ class RequirementService(ServiceBase):
             qs = qs.exclude(status="outdated")
         if status:
             qs = qs.filter(status=status)
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(uid__icontains=search)
+            )
         return qs
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------

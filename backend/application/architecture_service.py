@@ -344,12 +344,21 @@ class ArchitectureService(ServiceBase):
         return arch_el
 
     def list_architecture_elements(
-        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        include_deleted: bool = False,
+        search: Optional[str] = None,
     ) -> List[ArchitectureElement]:
         """Return ArchitectureElements in *workspace_id*.
 
         REQ-006: Excludes soft-deleted elements (lifecycle_status='deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
+
+        Issue #267 (same root cause as RequirementService.list_requirements):
+        ``search`` case-insensitively filters on title/description/uid. Applied
+        *after* level/role annotation (which needs the full, unfiltered tree to
+        resolve ancestors correctly) rather than as a queryset filter.
         """
         self._set_tenant_context(ctx)
         # select_related("artifact") avoids one query per element when the
@@ -376,6 +385,15 @@ class ArchitectureService(ServiceBase):
         # from tree position in the same single-pass fashion (no per-element
         # children query).
         self._annotate_roles(elements)
+        if search:
+            needle = search.lower()
+            elements = [
+                el
+                for el in elements
+                if needle in (el.title or "").lower()
+                or needle in (el.description or "").lower()
+                or needle in (el.uid or "").lower()
+            ]
         return elements
 
     @staticmethod

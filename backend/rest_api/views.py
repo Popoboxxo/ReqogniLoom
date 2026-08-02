@@ -259,7 +259,11 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return {"need": StakeholderNeedSerializer(updated.to_dict()).data}
 
     def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET /api/v1/needs/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs."""
+        """GET /api/v1/needs/?workspace_id=<id> or /api/v1/workspaces/<workspace_id>/needs/ — list workspace needs.
+
+        Issue #267: optional ``?search=<term>`` case-insensitively filters on
+        title/description/uid (same root cause as RequirementViewSet).
+        """
         lang = detect_lang(request)
         try:
             workspace_id = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
@@ -268,7 +272,10 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"),
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            items = self.service.list_by_workspace(get_auth_context(request), workspace_id)
+            search = request.query_params.get("search") or None
+            items = self.service.list_by_workspace(
+                get_auth_context(request), workspace_id, search=search
+            )
             return self._paginate(
                 request,
                 items,
@@ -554,6 +561,9 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         REQ-144: optional ``?status=<state>`` filters by the WorkflowEngine
         lifecycle mirror (e.g. ``?status=in_review`` for the review queue).
+        Issue #267: optional ``?search=<term>`` case-insensitively filters on
+        title/description/uid — previously read but never forwarded to the
+        service, so the parameter had no effect.
         """
         lang = detect_lang(request)
         try:
@@ -566,8 +576,9 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 )
             workspace_id = UUID(workspace_id_str)
             status_filter = request.query_params.get("status") or None
+            search = request.query_params.get("search") or None
             items = self._svc().list_requirements(
-                workspace_id=workspace_id, ctx=ctx, status=status_filter
+                workspace_id=workspace_id, ctx=ctx, status=status_filter, search=search
             )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(exc if isinstance(exc, ValidationError) else ValidationError(str(exc)), lang)
@@ -1235,6 +1246,11 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         }
 
     def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/architecture-elements/ — list architecture elements.
+
+        Issue #267: optional ``?search=<term>`` case-insensitively filters on
+        title/description/uid (same root cause as RequirementViewSet).
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
@@ -1243,8 +1259,12 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"), status=status.HTTP_400_BAD_REQUEST)
             # REQ-006: include_deleted=true exposes soft-deleted elements (admin use)
             include_deleted = request.query_params.get("include_deleted", "").lower() == "true"
+            search = request.query_params.get("search") or None
             items = self._svc().list_architecture_elements(
-                workspace_id=UUID(workspace_id_str), ctx=ctx, include_deleted=include_deleted
+                workspace_id=UUID(workspace_id_str),
+                ctx=ctx,
+                include_deleted=include_deleted,
+                search=search,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -1465,13 +1485,21 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return {"test_case": TestCaseSerializer(_test_to_dict(updated)).data}
 
     def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/test-cases/ — list test cases.
+
+        Issue #267: optional ``?search=<term>`` case-insensitively filters on
+        title/description/uid (same root cause as RequirementViewSet).
+        """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
             workspace_id_str = request.query_params.get("workspace_id")
             if not workspace_id_str:
                 return Response(build_error_response("VALIDATION_ERROR", lang, message="workspace_id is required"), status=status.HTTP_400_BAD_REQUEST)
-            items = self._svc().list_test_cases(workspace_id=UUID(workspace_id_str), ctx=ctx)
+            search = request.query_params.get("search") or None
+            items = self._svc().list_test_cases(
+                workspace_id=UUID(workspace_id_str), ctx=ctx, search=search
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:

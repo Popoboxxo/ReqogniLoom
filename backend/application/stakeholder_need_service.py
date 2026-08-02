@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from django.db.models import F
+from django.db.models import F, Q
 from persistence.models import Artifact, StakeholderNeed, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 
@@ -140,12 +140,19 @@ class StakeholderNeedService(ServiceBase):
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 
     def list_by_workspace(
-        self, ctx: AuthContext, workspace_id: UUID | str, include_deleted: bool = False
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+        include_deleted: bool = False,
+        search: str | None = None,
     ) -> List[StakeholderNeedDTO]:
         """Return StakeholderNeeds in workspace_id.
 
         REQ-006: Excludes soft-deleted needs (lifecycle_status='deleted') by default.
         Pass include_deleted=True for admin/audit access.
+
+        Issue #267 (same root cause as RequirementService.list_requirements):
+        ``search`` case-insensitively filters on title/description/uid.
         """
         needs = StakeholderNeed.objects.select_related("artifact").filter(
             tenant_id=ctx.tenant_id, artifact__workspace_id=workspace_id
@@ -155,6 +162,12 @@ class StakeholderNeedService(ServiceBase):
             # not `lifecycle_status` (StakeholderNeed is registered in
             # workflow.lifecycle_manager._STATUS_MIRROR_MODELS).
             needs = needs.exclude(status="outdated")
+        if search:
+            needs = needs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(uid__icontains=search)
+            )
         return [StakeholderNeedDTO.from_orm(n) for n in needs]
 
     @atomic_transaction
