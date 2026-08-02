@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from diagram.manager import DiagramManager
-from diagram.models import Diagram, DiagramType, PayloadFormat
+from diagram.models import Diagram, DiagramType, DiagramVersion, PayloadFormat
 from diagram.renderer import DiagramRenderer, RenderHints
 from diagram.validator import DiagramValidator, ValidationResult
 
@@ -129,7 +129,7 @@ class MermaidLiveRenderer:
         source: str,
         tenant: object,
         user: Optional[object] = None,
-    ) -> Diagram:
+    ) -> "DiagramVersion":
         """Handle Mermaid source update for an existing diagram.
 
         IF-L1-059 entry point: PUT /api/v1/diagrams/{id}/mermaid-source
@@ -144,7 +144,8 @@ class MermaidLiveRenderer:
             user:       Optional User ORM object for audit.
 
         Returns:
-            The updated Diagram ORM object.
+            The newly created DiagramVersion produced by DiagramManager — not
+            the Diagram header. Its ``id`` is a version id.
 
         Raises:
             DiagramValidationError: If source validation fails.

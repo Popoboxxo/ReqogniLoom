@@ -27,6 +27,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rest_framework.test import APIRequestFactory
 
+from diagram.renderer import RenderHints
 from rest_api.diagram_canvas_views import (
     CanvasStrokeView,
     MermaidPreviewView,
@@ -133,10 +134,16 @@ def _build_preview_data(
     preview.diagram_type = diagram_type
     preview.fallback_mode = fallback_mode
     preview.error_message = None
-    preview.render_hints = MagicMock()
-    preview.render_hints.supported_formats = ["svg"]
-    preview.render_hints.renderer = "mermaid-js"
-    preview.render_hints.notes = ""
+    # Use the REAL RenderHints dataclass, not a MagicMock. A MagicMock happily
+    # invents any attribute, which is exactly why the view could read
+    # non-existent fields (`supported_formats`, `renderer`, `notes`) and still
+    # pass its tests while every live request returned a 500.
+    preview.render_hints = RenderHints(
+        render_hint="mermaid.js",
+        diagram_type="flowchart",
+        supported_types=["flowchart", "sequenceDiagram"],
+        client_side=True,
+    )
     return preview
 
 
@@ -681,3 +688,177 @@ class TestCanvasStrokeValidationError:
 
         assert response.status_code == 400
         assert "error" in response.data
+
+
+# ---------------------------------------------------------------------------
+# Regression: <uuid:pk> URL converter hands the view a UUID, not a str
+# ---------------------------------------------------------------------------
+
+
+class TestPkAcceptsUuidInstance:
+    """The routes are declared as ``diagrams/<uuid:pk>/...`` (rest_api/urls.py).
+
+    Django's ``uuid`` path converter parses the segment before dispatch, so the
+    view receives a :class:`uuid.UUID`, never a string. The views used to call
+    ``UUID(pk)`` on that value, which raises
+    ``AttributeError: 'UUID' object has no attribute 'replace'`` and surfaced as
+    a 500 on mermaid-preview / mermaid-source.
+
+    Every other test in this module calls ``view(req, pk=str(...))`` and
+    therefore never exercised the real routing type — these tests pass the UUID
+    instance the router actually produces.
+    """
+
+    @patch("rest_api.diagram_canvas_views.get_mermaid_preview")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_mermaid_preview_get_accepts_uuid_pk(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_preview: MagicMock,
+    ) -> None:
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_preview.return_value = _build_preview_data()
+
+        request = _make_mermaid_request("get")
+        view = MermaidPreviewView.as_view()
+        response = view(request, pk=FAKE_DIAGRAM_ID)
+
+        assert response.status_code == 200
+        mock_preview.assert_called_once_with(diagram_id=FAKE_DIAGRAM_ID)
+
+    @patch("rest_api.diagram_canvas_views.update_mermaid_source")
+    @patch("rest_api.diagram_canvas_views._resolve_user")
+    @patch("rest_api.diagram_canvas_views._resolve_tenant")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_mermaid_source_put_accepts_uuid_pk(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_tenant: MagicMock,
+        mock_user: MagicMock,
+        mock_update: MagicMock,
+    ) -> None:
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_tenant.return_value = MagicMock()
+        mock_user.return_value = MagicMock()
+        mock_update.return_value = _build_export_result()
+
+        request = _make_mermaid_request("put", data=MERMAID_SOURCE_PAYLOAD)
+        view = MermaidSourceView.as_view()
+        response = view(request, pk=FAKE_DIAGRAM_ID)
+
+        assert response.status_code == 200
+        assert mock_update.call_args.kwargs["diagram_id"] == FAKE_DIAGRAM_ID
+
+    @patch("rest_api.diagram_canvas_views.get_canvas_diagram")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_canvas_strokes_get_accepts_uuid_pk(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_canvas: MagicMock,
+    ) -> None:
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_canvas.return_value = _build_export_result()
+
+        request = _make_request("get")
+        view = CanvasStrokeView.as_view()
+        response = view(request, pk=FAKE_DIAGRAM_ID)
+
+        assert response.status_code == 200
+        mock_canvas.assert_called_once_with(diagram_id=FAKE_DIAGRAM_ID)
+
+    def test_verify_diagram_ownership_accepts_both_pk_types(self) -> None:
+        """The ownership helper must tolerate UUID (router) and str (direct)."""
+        from rest_api.diagram_canvas_views import _as_uuid
+
+        assert _as_uuid(FAKE_DIAGRAM_ID) == FAKE_DIAGRAM_ID
+        assert _as_uuid(str(FAKE_DIAGRAM_ID)) == FAKE_DIAGRAM_ID
+
+
+# ---------------------------------------------------------------------------
+# Regression: render_hints field mapping + PUT response identity
+# ---------------------------------------------------------------------------
+
+
+class TestMermaidResponseContract:
+    """Guards two bugs that the UUID crash used to mask."""
+
+    @patch("rest_api.diagram_canvas_views.get_mermaid_preview")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_render_hints_mapped_to_wire_contract(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_preview: MagicMock,
+    ) -> None:
+        """RenderHints must be translated, not read with the wire field names.
+
+        The view previously read ``render_hints.supported_formats`` straight off
+        the dataclass, which only has ``render_hint``/``diagram_type``/
+        ``supported_types``/``client_side`` — a guaranteed 500 in production.
+        """
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_preview.return_value = _build_preview_data()
+
+        request = _make_mermaid_request("get")
+        view = MermaidPreviewView.as_view()
+        response = view(request, pk=FAKE_DIAGRAM_ID)
+
+        assert response.status_code == 200
+        hints = response.data["render_hints"]
+        # Wire contract (frontend MermaidRenderHints) must be preserved.
+        assert set(hints) == {"supported_formats", "renderer", "notes"}
+        assert hints["renderer"] == "mermaid.js"
+        assert hints["supported_formats"] == ["flowchart", "sequenceDiagram"]
+
+    @patch("rest_api.diagram_canvas_views.get_mermaid_preview")
+    @patch("rest_api.diagram_canvas_views.update_mermaid_source")
+    @patch("rest_api.diagram_canvas_views._resolve_user")
+    @patch("rest_api.diagram_canvas_views._resolve_tenant")
+    @patch("rest_api.diagram_canvas_views.get_auth_context")
+    @patch("rest_api.diagram_canvas_views._verify_diagram_ownership")
+    def test_put_reads_back_preview_by_diagram_id_not_version_id(
+        self,
+        mock_verify: MagicMock,
+        mock_auth: MagicMock,
+        mock_tenant: MagicMock,
+        mock_user: MagicMock,
+        mock_update: MagicMock,
+        mock_preview: MagicMock,
+    ) -> None:
+        """PUT must re-read the preview by diagram id, not by the version id.
+
+        ``update_mermaid_source`` returns the newly created *DiagramVersion*;
+        using its ``.id`` looked up a non-existent Diagram and produced a 200
+        carrying empty fallback data instead of the saved source.
+        """
+        version_id = uuid.uuid4()
+        returned_version = MagicMock()
+        returned_version.id = version_id
+
+        mock_auth.return_value = _make_auth_context()
+        mock_verify.return_value = MagicMock()
+        mock_tenant.return_value = MagicMock()
+        mock_user.return_value = MagicMock()
+        mock_update.return_value = returned_version
+        mock_preview.return_value = _build_preview_data()
+
+        request = _make_mermaid_request("put", data=MERMAID_SOURCE_PAYLOAD)
+        view = MermaidSourceView.as_view()
+        response = view(request, pk=FAKE_DIAGRAM_ID)
+
+        assert response.status_code == 200
+        mock_preview.assert_called_once_with(diagram_id=FAKE_DIAGRAM_ID)
+        assert mock_preview.call_args.kwargs["diagram_id"] != version_id
+        assert response.data["is_valid"] is True
+        assert response.data["source"] == "flowchart TD\n  A --> B"

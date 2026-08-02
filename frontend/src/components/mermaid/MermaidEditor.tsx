@@ -69,6 +69,20 @@ export function MermaidEditor({
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const cmViewRef = useRef<InstanceType<typeof import("@codemirror/view").EditorView> | null>(null);
 
+  // Mirror of `isDirty` for use inside callbacks that must stay referentially
+  // stable. `performAutoSave` runs from a 2s timer that was scheduled during a
+  // render where `isDirty` was still false; reading the state variable there
+  // would capture that stale value and abort every scheduled save. The ref is
+  // written synchronously next to every `setIsDirty` call, so it is always
+  // current when the timer fires.
+  const isDirtyRef = useRef(false);
+
+  // Always points at the newest `handleSourceChange`. The CodeMirror instance
+  // is created once per `diagramId` and its `updateListener` closes over
+  // whatever binding existed at that moment — without this indirection the
+  // editor would keep calling the mount-time callback forever.
+  const handleSourceChangeRef = useRef<(newSource: string) => void>(() => {});
+
   // -----------------------------------------------------------------------
   // Load initial source from server if not provided
   // -----------------------------------------------------------------------
@@ -124,7 +138,7 @@ export function MermaidEditor({
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const newSource = update.state.doc.toString();
-              handleSourceChange(newSource);
+              handleSourceChangeRef.current(newSource);
             }
           }),
           EditorView.lineWrapping,
@@ -157,6 +171,7 @@ export function MermaidEditor({
     (newSource: string) => {
       setSource(newSource);
       setIsDirty(true);
+      isDirtyRef.current = true;
       onSourceChange?.(newSource);
 
       // Debounced preview fetch (300ms)
@@ -175,9 +190,18 @@ export function MermaidEditor({
         void performAutoSave(newSource);
       }, AUTO_SAVE_DELAY_MS);
     },
+    // `fetchPreview` and `performAutoSave` are intentionally omitted: both are
+    // declared further down, so naming them here would evaluate a `const` in
+    // its temporal dead zone on every render. Omitting them is safe because
+    // neither reads render-scoped state any more — `performAutoSave` goes
+    // through `isDirtyRef`, and both only close over `diagramId`, which is
+    // already a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [diagramId, onSourceChange]
   );
+
+  // Publish the current callback for the CodeMirror updateListener.
+  handleSourceChangeRef.current = handleSourceChange;
 
   // -----------------------------------------------------------------------
   // Preview fetch
@@ -270,12 +294,17 @@ export function MermaidEditor({
 
   const performAutoSave = useCallback(
     async (currentSource: string) => {
-      if (!isDirty) return;
+      // Read the ref, not the `isDirty` state: this function is invoked from a
+      // debounce timer scheduled by an older render, so the state variable
+      // captured here would still be the mount-time `false` and would abort
+      // every auto-save.
+      if (!isDirtyRef.current) return;
 
       setSaveStatus("saving");
       try {
         await diagramsApi.saveMermaidSource(diagramId, currentSource);
         setIsDirty(false);
+        isDirtyRef.current = false;
         setSaveStatus("saved");
 
         setTimeout(() => setSaveStatus("idle"), 2000);
@@ -284,7 +313,7 @@ export function MermaidEditor({
         setSaveStatus("error");
       }
     },
-    [diagramId, isDirty]
+    [diagramId]
   );
 
   // Manual save

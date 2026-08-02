@@ -76,9 +76,18 @@ def get_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> Icd:
 def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
     """Delete a tenant-scoped ICD and all its immutable versions (REQ-066).
 
-    IcdVersion rows are immutable via a DB trigger (ADR-ICD-01); the trigger is
-    temporarily disabled to permit cascade deletion, then re-enabled in a
-    ``finally`` block so it always survives the operation.
+    IcdVersion rows are immutable via a DB trigger (ADR-ICD-01). The trigger is
+    not disabled — that would require table ownership, which the least-privilege
+    runtime role (``persistence.db_roles.APP_DB_ROLE``, REQ-L2-PL-010) does not
+    have, and it would suspend the guard for every concurrent session. Instead
+    the trigger function consults the transaction-local session variable
+    ``app.allow_icd_version_delete`` (see migration
+    ``icd/0006_icd_version_delete_guard.py``), which any role may set. UPDATEs on
+    IcdVersion remain unconditionally forbidden.
+
+    The whole operation runs in one atomic block so that ``set_config(...,
+    is_local => true)`` is scoped to it and reverts on both commit and rollback —
+    the gate can never leak onto a pooled connection.
 
     Args:
         icd_id:    UUID of the Icd to delete.
@@ -90,16 +99,16 @@ def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
     req_id: REQ-066, REQ-L2-ICD-001
     leaf_id: COMP-ICD-001
     """
-    from django.db import connection
+    from django.db import connection, transaction
 
-    icd = Icd.objects.get(id=icd_id, tenant_id=tenant_id)
+    with transaction.atomic():
+        icd = Icd.objects.get(id=icd_id, tenant_id=tenant_id)
 
-    with connection.cursor() as cursor:
-        # Temporarily disable the immutability trigger to allow deletion.
-        cursor.execute(
-            "ALTER TABLE icd_version DISABLE TRIGGER trg_icd_version_immutable"
-        )
-        try:
+        with connection.cursor() as cursor:
+            # Open the delete gate for this transaction only.
+            cursor.execute(
+                "SELECT set_config('app.allow_icd_version_delete', 'true', true)"
+            )
             # Nullify FK to avoid constraint issues, then delete versions.
             icd.current_version = None
             icd.save(update_fields=["current_version"])
@@ -107,13 +116,9 @@ def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
                 "DELETE FROM icd_version WHERE icd_id = %s",
                 [str(icd.id)],
             )
-        finally:
-            cursor.execute(
-                "ALTER TABLE icd_version ENABLE TRIGGER trg_icd_version_immutable"
-            )
 
-    # Now delete the ICD itself (no child FK references remain).
-    icd.delete()
+        # Now delete the ICD itself (no child FK references remain).
+        icd.delete()
 
 
 def create_icd(payload: IcdCreateDTO) -> IcdResult:
