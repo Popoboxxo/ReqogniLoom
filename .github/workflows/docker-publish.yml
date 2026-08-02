@@ -62,9 +62,36 @@ jobs:
       - name: Resolve build metadata (backend version stamp)
         id: build_meta
         run: |
-          echo "app_version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          echo "git_commit_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          # Extract app_version from version tag (e.g., v1.0.1 → 1.0.1)
+          # For workflow_dispatch: extract from VERSION file instead
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            # workflow_dispatch: read from VERSION file at the current commit
+            VERSION=$(git show HEAD:VERSION | tr -d '[:space:]')
+          fi
+
+          # Commit SHA is always GITHUB_SHA (the commit being built)
+          GIT_COMMIT_SHA="${GITHUB_SHA}"
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Validate that we have non-empty values (not "unknown")
+          if [[ -z "$VERSION" || "$VERSION" == "unknown" ]]; then
+            echo "ERROR: app_version is empty or unknown" >&2
+            exit 1
+          fi
+          if [[ -z "$GIT_COMMIT_SHA" || "$GIT_COMMIT_SHA" == "unknown" ]]; then
+            echo "ERROR: git_commit_sha is empty or unknown" >&2
+            exit 1
+          fi
+
+          echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "git_commit_sha=$GIT_COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
+
+          echo "[build-meta] app_version=$VERSION"
+          echo "[build-meta] git_commit_sha=$GIT_COMMIT_SHA"
+          echo "[build-meta] build_time=$BUILD_TIME"
 
       - name: Build and push (backend — stamps version/commit/build-time)
         if: matrix.image == 'backend'

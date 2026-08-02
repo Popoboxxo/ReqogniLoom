@@ -129,9 +129,22 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       # Stamps the deployed version/commit/build time into the image (GET
-      # /api/v1/version/). Prefer `scripts/build.sh` (or `make build`), which
-      # populates all three from git + the root VERSION file, e.g.:
-      #   APP_VERSION=$(cat VERSION) GIT_COMMIT_SHA=$(git rev-parse HEAD) BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker-compose build backend
+      # /api/v1/version/).
+      #
+      # For production CI/CD: the GitHub workflow (.github/workflows/docker-publish.yml)
+      # overrides these args with real values from git + VERSION file.
+      #
+      # For local development: use the ./backend/scripts/build.sh helper:
+      #   ./backend/scripts/build.sh [TAG]
+      #
+      # This script automatically extracts APP_VERSION (from ./VERSION),
+      # GIT_COMMIT_SHA (from git rev-parse HEAD), and BUILD_TIME (current UTC).
+      # It ensures single source of truth: env-vars set at build time match
+      # the OCI image labels, eliminating drift (Issue #266).
+      #
+      # Manual override (not recommended):
+      #   APP_VERSION=$(cat VERSION) GIT_COMMIT_SHA=$(git rev-parse HEAD) \
+      #   BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker-compose build backend
       args:
         APP_VERSION: ${APP_VERSION:-unknown}
         GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
