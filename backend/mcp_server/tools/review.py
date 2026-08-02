@@ -128,18 +128,19 @@ class ReviewToolGroup(BaseToolGroup):
     def _handle_list_pending(
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        from workflow.models import WorkflowItemState
-        from workflow.services import is_approval_gate
+        from workflow.services import is_approval_gate, list_item_states
 
         workspace_id = require_uuid(params, "workspace_id")
         item_type = params.get("item_type")
 
         facade = WorkflowFacade()
-        qs = WorkflowItemState.objects.filter(
-            tenant_id=auth_context.tenant_id, workspace_id=workspace_id
+        # ADR-01 (#124): the tenant/workspace/item_type filtering moved into
+        # workflow.services.list_item_states — same queryset, same laziness.
+        qs = list_item_states(
+            workspace_id,
+            tenant_id=auth_context.tenant_id,
+            item_type=item_type,
         )
-        if item_type:
-            qs = qs.filter(item_type=item_type)
 
         pending = []
         for state in qs:
@@ -257,8 +258,7 @@ class ReviewToolGroup(BaseToolGroup):
         self, *, params, auth_context, api_key, operation, reason_param
     ) -> ToolResult:
         from workflow.definition_store import get_state_meta
-        from workflow.models import WorkflowEngineDefinition
-        from workflow.services import is_approval_gate
+        from workflow.services import get_workflow_json, is_approval_gate
 
         item_id = require_uuid(params, "item_id")
         item_type = require_param(params, "item_type")
@@ -270,10 +270,10 @@ class ReviewToolGroup(BaseToolGroup):
             item_id, auth_context, item_type=item_type, workspace_id=workspace_id
         )
 
-        definition_row = WorkflowEngineDefinition.objects.filter(
-            workspace_id=workspace_id, item_type=item_type
-        ).first()
-        workflow_json = definition_row.workflow_json if definition_row else {}
+        # ADR-01 (#124): raw-document read delegated to the workflow service;
+        # it returns {} for an unconfigured workspace, matching the previous
+        # ``definition_row.workflow_json if definition_row else {}``.
+        workflow_json = get_workflow_json(workspace_id, item_type)
 
         # Prefer the preset's explicit auto_approve_target (Phase 3) among the
         # currently available transitions; fall back to the first genuine

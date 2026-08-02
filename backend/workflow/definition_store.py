@@ -835,6 +835,33 @@ class WorkflowDefinitionStore:
 
     # -- Read (IF-WE-INT-001, IF-WE-INT-003) ---------------------------------
 
+    def get_workflow_json(
+        self, workspace_id: UUID | str, item_type: str
+    ) -> dict[str, Any]:
+        """Return the raw ``workflow_json`` for a workspace / item-type.
+
+        ``get_definition`` projects the record onto ``WorkflowDefinitionDTO``,
+        which deliberately drops the per-state metadata block. Callers that
+        need ``get_state_meta`` (e.g. the ``auto_approve_target`` flag used by
+        the ``review.*`` MCP tools) therefore need the untouched document.
+
+        Unlike ``get_definition`` this does **not** raise when nothing is
+        configured — it returns an empty dict, so callers can treat "no
+        workflow" and "workflow without metadata" uniformly.
+
+        Args:
+            workspace_id: Owning workspace.
+            item_type:    Entity type key (e.g. ``"Requirement"``).
+
+        Returns:
+            The stored ``workflow_json`` document, or ``{}`` if no definition
+            exists for that workspace/type.
+        """
+        record = WorkflowEngineDefinition.objects.filter(
+            workspace_id=str(workspace_id), item_type=item_type
+        ).first()
+        return record.workflow_json if record is not None else {}
+
     def get_definition(
         self, workspace_id: UUID | str, item_type: str
     ) -> WorkflowDefinitionDTO:

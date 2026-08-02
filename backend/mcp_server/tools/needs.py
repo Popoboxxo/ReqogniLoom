@@ -282,14 +282,21 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
     ) -> ToolResult:
         need_id = require_uuid(params, "id")
         from application.trace_link_service import TraceLinkService
-        from persistence.models import StakeholderNeed
+
+        # Validate need exists. ADR-01 (#124): the tenant-scoped lookup lives in
+        # StakeholderNeedService.get(), which runs the exact same
+        # select_related("artifact") query and exposes artifact_id on the DTO —
+        # no behaviour change, only the layering violation goes. The lookup is
+        # kept in its own try block so that a NotFoundError raised further down
+        # by TraceLinkService still maps to INTERNAL_ERROR, exactly as it did
+        # when this was a StakeholderNeed.DoesNotExist catch.
         try:
-            # Validate need exists
-            need_model = StakeholderNeed.objects.select_related("artifact").get(
-                id=need_id, tenant_id=auth_context.tenant_id
-            )
-            artifact_id = need_model.artifact_id
-            
+            need_dto = self._service.get(ctx=auth_context, need_id=need_id)
+        except NotFoundError:
+            return ToolResult.error("NOT_FOUND", f"StakeholderNeed {need_id} not found.")
+
+        artifact_id = need_dto.artifact_id
+        try:
             trace_service = TraceLinkService()
             # query_trace_links returns NeighborResult objects whose neighbor is
             # exposed as `entity_id` (not source_id/target_id). Upstream = incoming
@@ -306,8 +313,6 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 "incoming_traces": [{"source": str(t.entity_id), "type": t.link_type} for t in incoming],
                 "outgoing_traces": [{"target": str(t.entity_id), "type": t.link_type} for t in outgoing],
             })
-        except StakeholderNeed.DoesNotExist:
-            return ToolResult.error("NOT_FOUND", f"StakeholderNeed {need_id} not found.")
         except Exception as exc:
             return ToolResult.error("INTERNAL_ERROR", str(exc))
 

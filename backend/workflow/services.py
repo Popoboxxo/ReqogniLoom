@@ -457,6 +457,53 @@ def get_definition(
     return _get_store().get_definition(workspace_id, item_type)
 
 
+def get_workflow_json(workspace_id: UUID | str, item_type: str) -> dict[str, Any]:
+    """Return the raw ``workflow_json`` document, or ``{}`` when unconfigured.
+
+    Exposed at the service boundary (ADR-01, issue #124) for the ``review.*``
+    MCP tools, which pair it with :func:`workflow.definition_store.get_state_meta`
+    to read per-state metadata such as ``auto_approve_target``. That metadata is
+    intentionally absent from :class:`WorkflowDefinitionDTO`, so
+    :func:`get_definition` cannot serve this need.
+
+    Never raises for "not configured" — an unconfigured workspace yields ``{}``,
+    which ``get_state_meta`` handles as "no metadata".
+    """
+    return _get_store().get_workflow_json(workspace_id, item_type)
+
+
+def list_item_states(
+    workspace_id: UUID | str,
+    *,
+    tenant_id: UUID | str,
+    item_type: str | None = None,
+) -> "QuerySet[WorkflowItemState]":
+    """Return the tracked workflow states of a workspace's items.
+
+    Exposed at the service boundary (ADR-01, issue #124) for
+    ``review.list_pending``, which walks every tracked item to find those
+    sitting in front of an approval gate.
+
+    Args:
+        workspace_id: Workspace to scope to.
+        item_type:    Optional entity-type filter (e.g. ``"Requirement"``);
+                      ``None`` returns every tracked type.
+        tenant_id:    Explicit tenant filter, applied on top of the
+                      tenant-scoped ``objects`` manager — keyword-only so a
+                      caller cannot silently pass it positionally and end up
+                      with a cross-tenant read.
+
+    Returns:
+        Lazy ``QuerySet`` of ``WorkflowItemState`` rows.
+    """
+    qs = WorkflowItemState.objects.filter(
+        tenant_id=tenant_id, workspace_id=workspace_id
+    )
+    if item_type:
+        qs = qs.filter(item_type=item_type)
+    return qs
+
+
 def get_available_transitions(
     item_id: UUID | str,
     item_type: str,
@@ -861,8 +908,10 @@ __all__ = [
     "reactivate",
     "initialize_workflow_states",
     "get_definition",
+    "get_workflow_json",
     "get_available_transitions",
     "is_approval_gate",
+    "list_item_states",
     "get_history",
     "outdated_item_ids",
     "create_default_workflow",

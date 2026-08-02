@@ -46,8 +46,6 @@ import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from django.db.models import F, OuterRef, Subquery
-
 from auth_tenancy.context import AuthContext
 
 from application.services import (
@@ -63,6 +61,7 @@ from application.traceability_suggest_service import (
     SuggestLinksResponseError,
     TraceabilitySuggestService,
 )
+from application import workspace_context_service
 
 from traceability.audit import AuditScope
 
@@ -851,21 +850,18 @@ class CrossCuttingToolGroup(BaseToolGroup):
             except Exception:
                 logger.debug("Could not load terminology for workspace=%s", workspace_id)
 
-            # Count open requirements (status != 'approved')
+            # Count open requirements (status != 'approved').
+            # ADR-01 (#124): query moved to application.workspace_context_service;
+            # it applies the same REQ-006 rule that outdated requirements only
+            # count as "open" when the caller explicitly asked for them.
             try:
-                from persistence.models import Requirement
-
-                from persistence.tenancy import TenantContext
-
-                TenantContext.set_tenant(auth_context.tenant_id)
-                open_reqs_qs = Requirement.objects.filter(
-                    artifact__workspace_id=UUID(workspace_id)
-                ).exclude(status="approved")
-                # REQ-006 fix: outdated requirements must not count as "open"
-                # unless the caller explicitly asked to include them.
-                if not include_outdated:
-                    open_reqs_qs = open_reqs_qs.exclude(status="outdated")
-                context_data["open_requirements_count"] = open_reqs_qs.count()
+                context_data["open_requirements_count"] = (
+                    workspace_context_service.count_open_requirements(
+                        workspace_id=UUID(workspace_id),
+                        tenant_id=auth_context.tenant_id,
+                        include_outdated=include_outdated,
+                    )
+                )
             except Exception:
                 logger.debug("Could not count open requirements")
 
@@ -910,12 +906,12 @@ class CrossCuttingToolGroup(BaseToolGroup):
             # REQ-L2-MC-004 (Phase 2, Task 3): apply the per-depth token
             # budget as the final step, honouring per-workspace overrides
             # (Workspace.ai_prompts["context_token_budgets"]).
+            # ADR-01 (#124): lookup moved to application.workspace_context_service.
             try:
-                from persistence.models import Workspace
-                from persistence.tenancy import TenantContext as _TenantContext
-
-                _TenantContext.set_tenant(auth_context.tenant_id)
-                workspace_obj = Workspace.objects.filter(id=UUID(workspace_id)).first()
+                workspace_obj = workspace_context_service.get_workspace(
+                    workspace_id=UUID(workspace_id),
+                    tenant_id=auth_context.tenant_id,
+                )
             except Exception:
                 logger.debug(
                     "Could not load workspace for token-budget lookup workspace=%s",
@@ -948,13 +944,15 @@ class CrossCuttingToolGroup(BaseToolGroup):
         role = params.get("role", "")
         include_outdated = bool(params.get("include_outdated", False))
 
-        from persistence.models import Workspace
-        from persistence.tenancy import TenantContext
+        # ADR-01 (#124): WorkspaceService.get_workspace sets the tenant context
+        # and resolves through the tenant-scoped manager, so it is equivalent to
+        # the previous explicit ``id=..., tenant_id=...`` filter — including the
+        # "not found" message, which it raises verbatim as NotFoundError.
+        from application.workspace_service import WorkspaceService
 
-        TenantContext.set_tenant(auth_context.tenant_id)
         try:
-            workspace = Workspace.objects.get(id=workspace_id, tenant_id=auth_context.tenant_id)
-        except Workspace.DoesNotExist:
+            workspace = WorkspaceService().get_workspace(workspace_id, auth_context)
+        except NotFoundError:
             return ToolResult.error("NOT_FOUND", f"Workspace {workspace_id} not found")
 
         counts = self._entity_counts(
@@ -1011,15 +1009,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", "requirement_id is required")
         include_outdated = bool(params.get("include_outdated", False))
 
-        from persistence.models import Requirement
-        from persistence.tenancy import TenantContext
+        # ADR-01 (#124): resolved via RequirementService, which sets the tenant
+        # context and select_related("artifact") just like the previous inline
+        # query. ``include_deleted=True`` is REQUIRED to keep behaviour
+        # identical: the old query had no status filter, so coverage_gaps could
+        # always be asked about an outdated Requirement. The service's default
+        # (exclude status="outdated") would silently turn those into NOT_FOUND.
+        from application.requirement_service import RequirementService
 
-        TenantContext.set_tenant(auth_context.tenant_id)
         try:
-            requirement = Requirement.objects.get(
-                id=UUID(str(req_id_str)), tenant_id=auth_context.tenant_id
+            requirement = RequirementService().get_requirement(
+                UUID(str(req_id_str)), auth_context, include_deleted=True
             )
-        except (Requirement.DoesNotExist, ValueError):
+        except (NotFoundError, ValueError):
             return ToolResult.error("NOT_FOUND", f"Requirement {req_id_str} not found")
 
         from traceability.coverage_calculator import CoverageCalculator
@@ -1325,61 +1327,13 @@ class CrossCuttingToolGroup(BaseToolGroup):
     ) -> List[Dict[str, Any]]:
         """Return the most recent workflow transitions across all item types.
 
-        REQ-L2-MC-004 (Phase 2, Task 3): ``depth=full`` field. Queries
-        ``WorkflowHistoryEntry`` directly via its own ``workspace_id`` column
-        (confirmed present on the model — no per-entity-type join needed to
-        find the entries themselves). Titles are then resolved in a second,
-        bulk step per ``item_type`` (one query per distinct entity type
-        represented in the result, not one query per entry).
+        REQ-L2-MC-004 (Phase 2, Task 3): ``depth=full`` field. ADR-01 (#124):
+        the queries now live in ``application.workspace_context_service``; this
+        stays as a thin adapter so the tool's call sites are unchanged.
         """
-        from workflow.models import WorkflowHistoryEntry
-
-        entries = list(
-            WorkflowHistoryEntry.objects.filter(workspace_id=workspace_id)
-            .select_related("item_state")
-            .order_by("-transitioned_at")[:limit]
+        return workspace_context_service.recent_changes(
+            workspace_id=workspace_id, tenant_id=tenant_id, limit=limit
         )
-        if not entries:
-            return []
-
-        ids_by_type: Dict[str, List[UUID]] = {}
-        for entry in entries:
-            ids_by_type.setdefault(entry.item_state.item_type, []).append(
-                entry.item_state.item_id
-            )
-
-        # item_type -> (model, title field name)
-        title_lookup: Dict[str, Any] = {}
-        try:
-            from persistence.models import ArchitectureElement, Requirement, TestCase
-
-            type_model_map = {
-                "Requirement": Requirement,
-                "ArchitectureElement": ArchitectureElement,
-                "TestCase": TestCase,
-            }
-            for item_type, item_ids in ids_by_type.items():
-                model = type_model_map.get(item_type)
-                if model is None:
-                    continue
-                title_lookup.update(
-                    dict(model.objects.filter(id__in=item_ids).values_list("id", "title"))
-                )
-        except Exception:
-            logger.debug("Could not resolve titles for recent_changes workspace=%s", workspace_id)
-
-        return [
-            {
-                "entity_type": entry.item_state.item_type,
-                "title": title_lookup.get(
-                    entry.item_state.item_id, str(entry.item_state.item_id)
-                ),
-                "timestamp": (
-                    entry.transitioned_at.isoformat() if entry.transitioned_at else None
-                ),
-            }
-            for entry in entries
-        ]
 
     def _truncate_to_budget(
         self, context_data: Dict[str, Any], budget: "int | None"
@@ -1412,161 +1366,30 @@ class CrossCuttingToolGroup(BaseToolGroup):
     ) -> Dict[str, Any]:
         """Return per-entity-type counts for ``workspace.get_context`` depth.
 
-        REQ-L2-MC-004 (Phase 2, Task 1). Two different "outdated" exclusion
-        mechanisms are used depending on whether the entity type has a
-        denormalized ``status`` mirror column (Requirement, TestCase) or not
-        (ArchitectureElement — soft-delete state lives only in
-        ``WorkflowItemState``, see ``ArchitectureElement.get_role()``).
+        REQ-L2-MC-004 (Phase 2, Task 1). ADR-01 (#124): the aggregation itself
+        now lives in ``application.workspace_context_service``; this stays as a
+        thin adapter so the tool's call sites are unchanged.
         """
-        from persistence.models import ArchitectureElement, Requirement, TestCase, TestRunResult
-        from application.models import Risk
-        from workflow.services import outdated_item_ids
-
-        req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
-        req_outdated = req_qs.filter(status="outdated").count()
-        req_active = req_qs.exclude(status="outdated").count()
-
-        arch_qs = ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
-        arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
-        arch_total = arch_qs.count()
-        arch_outdated = arch_qs.filter(id__in=arch_outdated_ids).count()
-
-        test_qs = TestCase.objects.filter(artifact__workspace_id=workspace_id)
-        test_outdated = test_qs.filter(status="outdated").count()
-        test_active_qs = test_qs.exclude(status="outdated")
-        test_active = test_active_qs.count()
-        # TestCase.status is the WorkflowEngine lifecycle mirror
-        # (Draft/Ready/Approved/Deprecated/outdated) — it does NOT carry
-        # pass/fail execution results. Those live on TestRunResult (one row
-        # per TestCase execution within a TestRun); "pass"/"fail" here means
-        # each TestCase's most recent TestRunResult.status.
-        latest_result_status = (
-            TestRunResult.objects.filter(test_case_id=OuterRef("pk"))
-            .order_by(F("executed_at").desc(nulls_last=True), "-id")
-            .values("status")[:1]
+        return workspace_context_service.entity_counts(
+            workspace_id=workspace_id,
+            tenant_id=tenant_id,
+            include_outdated=include_outdated,
         )
-        test_pass = test_active_qs.annotate(
-            _latest_result_status=Subquery(latest_result_status)
-        ).filter(_latest_result_status="passed").count()
-        test_fail = test_active_qs.annotate(
-            _latest_result_status=Subquery(latest_result_status)
-        ).filter(_latest_result_status="failed").count()
-
-        risk_qs = Risk.objects.filter(workspace_id=workspace_id)
-        risk_open = risk_qs.filter(status=Risk.RiskStatus.IDENTIFIED).count()
-        risk_mitigated = risk_qs.filter(status=Risk.RiskStatus.MITIGATED).count()
-        risk_accepted = risk_qs.filter(status=Risk.RiskStatus.ACCEPTED).count()
-
-        # NOTE: "outdated" is always reported (agents need to see how many
-        # items were soft-deleted), and "total" always covers active+outdated.
-        # ``include_outdated`` does not hide the outdated count here — it only
-        # governs whether outdated items are included in list-level responses
-        # (Task 2/3 depth=normal/full) and in ``open_requirements_count``
-        # above. "active" always excludes outdated regardless of the flag.
-        return {
-            "requirements": {
-                "active": req_active,
-                "outdated": req_outdated,
-                "total": req_active + req_outdated,
-            },
-            "architecture": {
-                "active": arch_total - arch_outdated,
-                "outdated": arch_outdated,
-                "total": arch_total,
-            },
-            "tests": {
-                "active": test_active,
-                "pass": test_pass,
-                "fail": test_fail,
-                "outdated": test_outdated,
-            },
-            "risks": {
-                "open": risk_open,
-                "mitigated": risk_mitigated,
-                "accepted": risk_accepted,
-            },
-        }
 
     def _entity_lists(
         self, *, workspace_id: UUID, tenant_id: UUID, include_outdated: bool
     ) -> Dict[str, Any]:
         """Return lightweight per-item lists for ``depth in ("normal", "full")``.
 
-        REQ-L2-MC-004 (Phase 2, Task 2). Reuses the same outdated-exclusion
-        pattern as ``_entity_counts``: Requirement/TestCase via the
-        denormalized ``status`` mirror, ArchitectureElement via
-        ``outdated_item_ids()``.
-
-        Field-name notes (verified against persistence.models):
-        - ArchitectureElement has no ``name``/``type``/``status`` fields —
-          it uses ``title``, ``element_type``, ``lifecycle_status``. Those
-          are aliased below to the documented ``name``/``type``/``status``
-          keys via ``.values()`` expression kwargs.
-        - TestCase has no direct FK to Requirement. The link is expressed
-          via a TraceLink (source=TestCase artifact, target=Requirement
-          artifact, link_type="verifies" — traceability.types.LinkType.
-          VERIFIES). ``linked_req_id`` is resolved via a correlated
-          subquery through TraceLink.target__requirement__id (reverse
-          OneToOne from Artifact to Requirement).
+        REQ-L2-MC-004 (Phase 2, Task 2). ADR-01 (#124): the aggregation itself
+        now lives in ``application.workspace_context_service``; this stays as a
+        thin adapter so the tool's call sites are unchanged.
         """
-        from django.db.models import OuterRef as _OuterRef, Subquery as _Subquery
-
-        from persistence.models import ArchitectureElement, Requirement, TestCase, TraceLink
-        from traceability.types import LinkType
-        from workflow.services import outdated_item_ids
-
-        req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
-        if not include_outdated:
-            req_qs = req_qs.exclude(status="outdated")
-        requirements = list(req_qs.values("id", "title", "status", "level"))
-
-        # NOTE: ArchitectureElement.lifecycle_status is a dead field — it is
-        # NEVER written by outdate() (see workflow/services.py and
-        # persistence/models.py). The real outdated state lives exclusively
-        # in WorkflowItemState, resolved via outdated_item_ids() below. The
-        # "status" key exposed to callers must reflect that, not the
-        # (always-active-looking) lifecycle_status mirror.
-        arch_outdated_ids = outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
-        arch_qs = ArchitectureElement.objects.filter(artifact__workspace_id=workspace_id)
-        if not include_outdated:
-            arch_qs = arch_qs.exclude(id__in=arch_outdated_ids)
-        architecture = [
-            {
-                "id": item["id"],
-                "name": item["name"],
-                "type": item["type"],
-                "status": "outdated" if item["id"] in arch_outdated_ids else "active",
-            }
-            for item in arch_qs.values(
-                "id",
-                name=F("title"),
-                type=F("element_type"),
-            )
-        ]
-
-        linked_req_subquery = _Subquery(
-            TraceLink.objects.filter(
-                source_id=_OuterRef("artifact_id"),
-                link_type=LinkType.VERIFIES.value,
-                target__requirement__isnull=False,
-            )
-            .order_by("id")
-            .values("target__requirement__id")[:1]
+        return workspace_context_service.entity_lists(
+            workspace_id=workspace_id,
+            tenant_id=tenant_id,
+            include_outdated=include_outdated,
         )
-        test_qs = TestCase.objects.filter(artifact__workspace_id=workspace_id)
-        if not include_outdated:
-            test_qs = test_qs.exclude(status="outdated")
-        tests = list(
-            test_qs.annotate(linked_req_id=linked_req_subquery).values(
-                "id", "title", "status", "linked_req_id"
-            )
-        )
-
-        return {
-            "requirements_list": requirements,
-            "architecture_list": architecture,
-            "tests_list": tests,
-        }
 
 
 __all__ = ["CrossCuttingToolGroup"]

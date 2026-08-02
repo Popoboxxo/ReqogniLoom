@@ -34,6 +34,8 @@ from diagram.services import (
     get_diagram,
     get_diagram_header,
     list_diagrams,
+    resolve_tenant,
+    resolve_user,
     update_diagram,
 )
 
@@ -204,19 +206,18 @@ class DiagramToolGroup(BaseToolGroup):
     # ------------------------------------------------------------------
     # Tenant/user resolution — diagram/services.py's create/update take
     # ORM Tenant/User objects, not bare ids (TenantScopedModel requirement).
+    # ADR-01 (#124): the lookups themselves now live in diagram/services.py
+    # next to the contract that demands them; these stay as thin adapters
+    # from AuthContext to that service call.
     # ------------------------------------------------------------------
 
     @staticmethod
     def _resolve_tenant(auth_context: AuthContext) -> Any:
-        from persistence.models import Tenant
-
-        return Tenant.objects.get(id=auth_context.tenant_id)
+        return resolve_tenant(auth_context.tenant_id)
 
     @staticmethod
     def _resolve_user(auth_context: AuthContext) -> Optional[Any]:
-        from persistence.models import User
-
-        return User.objects.filter(id=auth_context.user_id).first()
+        return resolve_user(auth_context.user_id)
 
     # ------------------------------------------------------------------
     # diagram.create
