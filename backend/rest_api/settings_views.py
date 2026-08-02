@@ -111,7 +111,9 @@ class LlmSettingsView(APIView):
         ctx = get_auth_context(request)
         if not ctx.has_role(ROLE_ADMIN):
             return self._forbidden(lang)
-        obj = SettingsService().get_or_create_llm_settings(ctx)
+        # Read-only: never materialises a row (issue #276). Without a stored
+        # row the response mirrors the effective environment configuration.
+        obj = SettingsService().get_llm_settings(ctx)
         return Response(LlmSettingsSerializer(obj).data)
 
     # ---- PUT / PATCH --------------------------------------------------
@@ -129,7 +131,11 @@ class LlmSettingsView(APIView):
             return self._forbidden(lang)
 
         svc = SettingsService()
-        obj = svc.get_or_create_llm_settings(ctx)
+        # Validate against the *effective* settings without creating a row —
+        # a rejected request must leave no trace, because row existence now
+        # means "explicitly configured" (issue #276). The row is created by
+        # update_llm_settings once the payload is known to be valid.
+        obj = svc.get_llm_settings(ctx)
         ser = LlmSettingsSerializer(obj, data=request.data, partial=partial)
         if not ser.is_valid():
             return Response(

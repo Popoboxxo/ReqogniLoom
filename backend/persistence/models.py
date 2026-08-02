@@ -1745,8 +1745,13 @@ class LlmSettings(TenantScopedModel):
     """Per-tenant LLM provider configuration (REQ-L2-LLM-001).
 
     Singleton per tenant: a unique constraint on ``tenant`` guarantees at most
-    one row. The row is created lazily via ``get_or_create`` in the REST layer
-    and seeded for existing tenants by the accompanying data migration.
+    one row. The row is created lazily on the first *write* through
+    :class:`~application.settings_service.SettingsService`; reads never create
+    it and no migration seeds it. That is load-bearing, not incidental:
+    ``llm_adapter.providers._apply_db_settings`` gives an existing row
+    unconditional precedence over ``LLM_PROVIDER`` & co., so a row must exist
+    only when an admin explicitly configured this tenant — otherwise the
+    environment configuration would be silently overridden (issue #276).
 
     ``api_key`` holds the raw provider secret. It is never exposed through the
     REST serializer (write-only); readers only learn whether a key is set.

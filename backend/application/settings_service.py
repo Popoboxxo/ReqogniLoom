@@ -9,9 +9,11 @@ Behaviour is a faithful port of the previous view logic:
 
   - ``api_key`` on LlmSettings is write-only and only the whitelisted fields are
     ever mutated.
-  - LlmSettings row is created on first access, defaulting ``provider`` to
-    the ``LLM_PROVIDER`` environment variable if set to a valid choice,
-    otherwise ``mock`` (GitHub #32).
+  - The LlmSettings row is created on first *write*, defaulting ``provider``
+    to the ``LLM_PROVIDER`` environment variable if set to a valid choice,
+    otherwise ``mock`` (GitHub #32). Reads never create it: the row's mere
+    existence overrides the environment in the LLM adapter, so materialising
+    one on a GET pinned the provider forever (issue #276).
 
 PromptTemplate note (Phase 4 backward-compat, REQ-L2-PT-001): the persistence
 model backing prompt templates was replaced (see ``persistence.models.
@@ -85,6 +87,28 @@ def _env_default_provider() -> str:
     return LlmProvider.MOCK
 
 
+def _env_base_url() -> str:
+    """Return the base URL the adapter resolves from the environment.
+
+    Both spellings are accepted, matching
+    ``llm_adapter.providers._read_env_config`` (issue #276): the compose files
+    pass ``LLM_BASE_URL``, while ``LLM_API_BASE_URL`` is the historical name
+    and keeps precedence.
+    """
+    return (
+        os.environ.get("LLM_API_BASE_URL")
+        or os.environ.get("LLM_BASE_URL")
+        or ""
+    )
+
+
+def _env_model_name() -> str:
+    """Return the model id the adapter resolves from the environment (#276)."""
+    return (
+        os.environ.get("LLM_MODEL_NAME") or os.environ.get("LLM_MODEL") or ""
+    )
+
+
 class SettingsService(ServiceBase):
     """Tenant-scoped LLM + PromptTemplate configuration facade (REQ-066)."""
 
@@ -112,12 +136,55 @@ class SettingsService(ServiceBase):
 
     # ---- LlmSettings ------------------------------------------------------
 
+    def get_llm_settings(self, ctx: AuthContext) -> LlmSettings:
+        """Return the tenant's LLM settings for reading — WITHOUT persisting.
+
+        When the tenant has no stored row this returns an **unsaved**
+        instance mirroring the effective environment configuration, so the
+        caller sees what the adapter actually uses.
+
+        Issue #276: this used to be a ``get_or_create``, which meant merely
+        opening the settings page wrote a row — and
+        ``llm_adapter.providers._apply_db_settings`` gives an existing row
+        unconditional precedence over the environment. The deployment's
+        ``LLM_PROVIDER`` was thereby frozen into the database on first read
+        and every later ``.env`` change became a silent no-op. Keeping reads
+        side-effect free is what makes "a row exists" mean "an admin
+        explicitly configured this tenant".
+        """
+        self._set_tenant_context(ctx)
+        obj = LlmSettings.objects.filter(tenant_id=ctx.tenant_id).first()
+        if obj is not None:
+            return obj
+        return LlmSettings(
+            tenant_id=ctx.tenant_id,
+            provider=_env_default_provider(),
+            base_url=_env_base_url(),
+            model_name=_env_model_name(),
+            api_key=os.environ.get("LLM_API_KEY", ""),
+        )
+
     def get_or_create_llm_settings(self, ctx: AuthContext) -> LlmSettings:
-        """Return the tenant's singleton LlmSettings row, creating it if absent."""
+        """Return the tenant's singleton LlmSettings row, creating it if absent.
+
+        Write path only — creating the row is an explicit act of configuration
+        (see :meth:`get_llm_settings` for why reads must not create one).
+        """
         self._set_tenant_context(ctx)
         obj, _ = LlmSettings.objects.get_or_create(
             tenant_id=ctx.tenant_id,
-            defaults={"provider": _env_default_provider()},
+            defaults={
+                # Seed from the environment so the first write does not
+                # silently drop the configuration already in effect — a PATCH
+                # touching a single field must not leave the row internally
+                # inconsistent (e.g. provider=ollama with a blank base_url).
+                # The api_key is deliberately NOT copied: a secret is never
+                # duplicated into a second store implicitly; an unset
+                # ``api_key`` on the row keeps LLM_API_KEY as the fallback.
+                "provider": _env_default_provider(),
+                "base_url": _env_base_url(),
+                "model_name": _env_model_name(),
+            },
         )
         return obj
 
