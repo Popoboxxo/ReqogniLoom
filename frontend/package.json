@@ -15,12 +15,12 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@fontsource/inter": "^5.2.5",
-    "@fontsource/outfit": "^5.2.5",
     "@codemirror/commands": "^6.7.0",
     "@codemirror/state": "^6.4.0",
     "@codemirror/view": "^6.34.0",
     "@dagrejs/dagre": "^3.0.0",
+    "@fontsource/inter": "^5.2.5",
+    "@fontsource/outfit": "^5.2.5",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-virtual": "^3.14.8",
     "@xyflow/react": "^12.11.2",
@@ -32,7 +32,7 @@
     "react-dom": "^18.3.0",
     "react-i18next": "^17.0.11",
     "react-markdown": "^9.0.0",
-    "react-router-dom": "^6.26.0"
+    "react-router-dom": "^6.30.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
