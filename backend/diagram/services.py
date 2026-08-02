@@ -41,6 +41,7 @@ from diagram.mcp_artifact_provider import McpArtifactProvider
 
 if TYPE_CHECKING:
     from auth_tenancy.context import AuthContext
+    from persistence.models import Tenant, User
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (lazy-initialised, stateless)
@@ -454,6 +455,54 @@ def validate_mermaid_source(
 
 
 # ---------------------------------------------------------------------------
+# Tenant/user resolution (ADR-01, issue #124)
+# ---------------------------------------------------------------------------
+#
+# ``create_diagram``/``update_diagram`` take ORM ``Tenant``/``User`` objects
+# rather than bare ids, because ``TenantScopedModel`` requires the instance.
+# Callers therefore need a way to turn the ids on an ``AuthContext`` into those
+# objects. That lookup used to live in ``mcp_server/tools/diagram.py``, which
+# violated ADR-01's Single-Entry-Point rule; it now lives here, next to the
+# contract that forces it. The queries are byte-for-byte the ones the MCP tool
+# ran before, so the observable behaviour — including ``Tenant.DoesNotExist``
+# propagating out of ``resolve_tenant`` and ``resolve_user`` returning ``None``
+# for an unknown/absent user id — is unchanged.
+
+
+def resolve_tenant(tenant_id: uuid.UUID) -> "Tenant":
+    """Return the ``Tenant`` ORM object for ``tenant_id``.
+
+    Args:
+        tenant_id: UUID of the tenant, typically ``AuthContext.tenant_id``.
+
+    Returns:
+        The Tenant ORM object required by ``create_diagram``/``update_diagram``.
+
+    Raises:
+        Tenant.DoesNotExist: If no tenant with that id exists.
+    """
+    from persistence.models import Tenant
+
+    return Tenant.objects.get(id=tenant_id)
+
+
+def resolve_user(user_id: Optional[uuid.UUID]) -> Optional["User"]:
+    """Return the ``User`` ORM object for ``user_id``, or ``None``.
+
+    Args:
+        user_id: UUID of the user, typically ``AuthContext.user_id``. May be
+            ``None`` for machine/API-key contexts without a user.
+
+    Returns:
+        The User ORM object used for audit attribution, or ``None`` when the
+        id is absent or matches no row.
+    """
+    from persistence.models import User
+
+    return User.objects.filter(id=user_id).first()
+
+
+# ---------------------------------------------------------------------------
 # Re-exports for downstream consumers
 # ---------------------------------------------------------------------------
 
@@ -474,6 +523,9 @@ __all__ = [
     "update_mermaid_source",
     "get_mermaid_preview",
     "validate_mermaid_source",
+    # Tenant/user resolution — ADR-01 (#124)
+    "resolve_tenant",
+    "resolve_user",
     # DTOs
     "CanvasExportResult",
     "DiagramResult",

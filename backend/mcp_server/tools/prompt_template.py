@@ -79,7 +79,11 @@ from django.db import IntegrityError
 from application.ai_derivation_service import (
     PROMPT_TEMPLATE_DEFAULTS,
 )
-from application.prompt_template_versioning import publish_new_version
+from application.prompt_template_versioning import (
+    get_active_template,
+    list_active_templates,
+    publish_new_version,
+)
 from auth_tenancy.context import AuthContext
 from persistence.models import PromptTemplate
 
@@ -223,27 +227,23 @@ class PromptTemplateToolGroup(BaseToolGroup):
         slot = require_param(params, "slot")
         workspace_id = optional_uuid(params, "workspace_id")
 
+        # ADR-01 (#124): scope lookups delegated to
+        # application.prompt_template_versioning; the queries are unchanged, so
+        # the workspace-first / tenant-wide-fallback / factory-default
+        # precedence below behaves exactly as before.
         if workspace_id is not None:
-            row = (
-                PromptTemplate.objects.filter(
-                    tenant_id=auth_context.tenant_id,
-                    workspace_id=workspace_id,
-                    name=slot,
-                    is_active=True,
-                )
-                .first()
+            row = get_active_template(
+                tenant_id=auth_context.tenant_id,
+                name=slot,
+                workspace_id=workspace_id,
             )
             if row is not None:
                 return ToolResult.ok({"slot": slot, "content": row.content})
 
-        row = (
-            PromptTemplate.objects.filter(
-                tenant_id=auth_context.tenant_id,
-                workspace_id=None,
-                name=slot,
-                is_active=True,
-            )
-            .first()
+        row = get_active_template(
+            tenant_id=auth_context.tenant_id,
+            name=slot,
+            workspace_id=None,
         )
         if row is not None:
             return ToolResult.ok({"slot": slot, "content": row.content})
@@ -267,13 +267,14 @@ class PromptTemplateToolGroup(BaseToolGroup):
         self, *, params: Dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         workspace_id = optional_uuid(params, "workspace_id")
-        qs = PromptTemplate.objects.filter(
-            tenant_id=auth_context.tenant_id, is_active=True
+        # ADR-01 (#124): an omitted workspace_id still means "no workspace
+        # filter" (tenant-wide *and* workspace-scoped rows) — see
+        # list_active_templates' docstring.
+        rows = list_active_templates(
+            tenant_id=auth_context.tenant_id, workspace_id=workspace_id
         )
-        if workspace_id is not None:
-            qs = qs.filter(workspace_id=workspace_id)
 
-        templates = [_template_to_dict(row) for row in qs.order_by("name")]
+        templates = [_template_to_dict(row) for row in rows]
         return ToolResult.ok({"templates": templates, "count": len(templates)})
 
     # ------------------------------------------------------------------
@@ -309,12 +310,14 @@ class PromptTemplateToolGroup(BaseToolGroup):
         content = require_param(params, "content")
         workspace_id = optional_uuid(params, "workspace_id")
 
-        had_prior = PromptTemplate.objects.filter(
-            tenant_id=auth_context.tenant_id,
-            workspace_id=workspace_id,
-            name=name,
-            is_active=True,
-        ).exists()
+        had_prior = (
+            get_active_template(
+                tenant_id=auth_context.tenant_id,
+                name=name,
+                workspace_id=workspace_id,
+            )
+            is not None
+        )
 
         try:
             new_row = publish_new_version(

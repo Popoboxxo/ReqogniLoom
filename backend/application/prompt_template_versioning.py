@@ -22,17 +22,65 @@ from persistence.models import PromptTemplate
 from persistence.transactions import atomic_transaction
 
 
-@atomic_transaction
-def publish_new_version(
-    *, tenant_id: UUID, name: str, content: str, workspace_id: UUID | None = None
-) -> PromptTemplate:
-    """Deactivate the current active row for the scope (if any); create version N+1."""
-    prior = PromptTemplate.objects.filter(
+def get_active_template(
+    *, tenant_id: UUID, name: str, workspace_id: UUID | None = None
+) -> PromptTemplate | None:
+    """Return the active row for one exact scope, or ``None``.
+
+    Note the scope semantics: ``workspace_id=None`` selects the *tenant-wide*
+    scope, because ``None`` is the real column value for tenant-wide rows. It
+    does **not** mean "any workspace" — use :func:`list_active_templates` for
+    an unfiltered listing.
+
+    Args:
+        tenant_id:    Owning tenant.
+        name:         Template name (the "slot").
+        workspace_id: Workspace scope, or ``None`` for the tenant-wide row.
+
+    Returns:
+        The active ``PromptTemplate`` for that scope, or ``None`` if there is
+        none. At most one row per scope can be active (enforced by
+        ``PromptTemplate.save()``).
+    """
+    return PromptTemplate.objects.filter(
         tenant_id=tenant_id,
         workspace_id=workspace_id,
         name=name,
         is_active=True,
     ).first()
+
+
+def list_active_templates(
+    *, tenant_id: UUID, workspace_id: UUID | None = None
+) -> list[PromptTemplate]:
+    """Return the tenant's active templates, ordered by name.
+
+    Unlike :func:`get_active_template`, ``workspace_id=None`` here means *no
+    workspace filter at all*: the result then contains both the tenant-wide
+    rows and every workspace-scoped row. This mirrors the pre-existing
+    ``prompt_template.list`` behaviour exactly.
+
+    Args:
+        tenant_id:    Owning tenant.
+        workspace_id: Restrict to one workspace, or ``None`` for no filter.
+
+    Returns:
+        Active ``PromptTemplate`` rows sorted by ``name``.
+    """
+    qs = PromptTemplate.objects.filter(tenant_id=tenant_id, is_active=True)
+    if workspace_id is not None:
+        qs = qs.filter(workspace_id=workspace_id)
+    return list(qs.order_by("name"))
+
+
+@atomic_transaction
+def publish_new_version(
+    *, tenant_id: UUID, name: str, content: str, workspace_id: UUID | None = None
+) -> PromptTemplate:
+    """Deactivate the current active row for the scope (if any); create version N+1."""
+    prior = get_active_template(
+        tenant_id=tenant_id, name=name, workspace_id=workspace_id
+    )
 
     next_version = (prior.version + 1) if prior is not None else 1
     if prior is not None:
@@ -51,4 +99,4 @@ def publish_new_version(
     return new_row
 
 
-__all__ = ["publish_new_version"]
+__all__ = ["get_active_template", "list_active_templates", "publish_new_version"]

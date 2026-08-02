@@ -31,6 +31,49 @@ separate, larger refactor — REQ-066 follow-up) is scoped and executed.
 Baseline captured 2026-07-29: cross_cutting.py 19, users.py 10,
 prompt_template.py 4, review.py 2, diagram.py 2, needs.py 1 (38 total).
 
+Issue #124 migration round 1 (2026-08-02): 24 of those 38 violations were
+moved down into the service layer, so the baseline drops from 38 to 14
+(cross_cutting.py 4, users.py 10) and four modules leave the allowlist
+entirely — ``needs.py``, ``diagram.py``, ``prompt_template.py`` and
+``review.py`` are now at 0 and any regression there fails immediately.
+New/extended service seams behind that move:
+
+* ``application.workspace_context_service`` (new) — the ``workspace.get_context``
+  read model: open-requirement count, entity counts, entity lists, recent
+  changes, workspace lookup (13 lines out of ``cross_cutting.py``).
+* ``application.prompt_template_versioning`` — ``get_active_template`` /
+  ``list_active_templates`` (4 lines out of ``prompt_template.py``).
+* ``workflow.services`` — ``get_workflow_json`` / ``list_item_states``
+  (2 lines out of ``review.py``).
+* ``diagram.services`` — ``resolve_tenant`` / ``resolve_user`` (2 lines out
+  of ``diagram.py``).
+* Existing seams reused: ``StakeholderNeedService.get`` (``needs.py``),
+  ``WorkspaceService.get_workspace`` and ``RequirementService.get_requirement``
+  (``cross_cutting.py``).
+
+Deliberately NOT migrated, so the remaining 14 are a considered stop, not an
+oversight:
+
+* ``users.py`` (10) — 2 are prose inside the module docstring (the counter is
+  line-based and does not skip string literals); the other 8 are user
+  provisioning/deactivation. There is no user-creation service in the codebase,
+  and the handlers encode security-relevant semantics (superuser-only
+  ``tenant_id`` override, uniqueness pre-checks plus the #125 TOCTOU
+  ``IntegrityError`` fallback, explicit ``update_fields``). That needs a
+  purpose-built ``auth_tenancy`` service and its own review, not a mechanical
+  move.
+* ``cross_cutting.py`` (4) — ``context.change_impact`` resolves entities
+  through a runtime ``entity_type -> model`` map, so the ORM access is generic
+  dispatch rather than a fixed query; giving it a service seam means designing
+  a polymorphic entity resolver first.
+
+Issue #132 (2026-07-28): ``serializers.py`` was entirely exempt from both
+checks above (see the historical note this replaced). Baseline captured
+2026-07-31: 0 direct-ORM lines (verified via
+``grep -c "\.objects\." rest_api/serializers.py``) — the ratchet starts at 0
+and any new ``.objects.``/``.unscoped.`` access fails the build immediately,
+same as any other file absent from ``MAX_ORM_LINES``.
+
 Issue #124 follow-up (2026-07-31): the initial MCP ratchet only scanned
 ``mcp_server/tools/*.py``, so the transport/dispatch modules directly under
 ``mcp_server/`` stayed unguarded — and ``tool_registry.py`` does reach for the
@@ -82,12 +125,8 @@ MODEL_IMPORT_ALLOWLIST: set[str] = {
 # that pre-date this guard. NEVER raise a value here; only lower it as
 # call-sites are migrated into application/ services.
 MCP_TOOLS_MAX_ORM_LINES: dict[str, int] = {
-    "cross_cutting.py": 19,
+    "cross_cutting.py": 4,
     "users.py": 10,
-    "prompt_template.py": 4,
-    "review.py": 2,
-    "diagram.py": 2,
-    "needs.py": 1,
 }
 
 # Issue #124 follow-up: frozen baseline for the transport/dispatch modules
