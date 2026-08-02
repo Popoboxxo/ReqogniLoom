@@ -446,6 +446,78 @@ def test_update_with_unexpected_field_returns_validation_error_not_internal():
     assert "widget.update" in result.message
 
 
+# ---------------------------------------------------------------------------
+# #268 — {prefix}.create with a missing required field (e.g. adr.create
+# without `description`, risk.create without `probability`/`impact`) must
+# reject with a clear VALIDATION_ERROR (HTTP 400/422), not let the service
+# call's TypeError fall through to a bare INTERNAL_ERROR (HTTP 500).
+# Mirrors the TypeError -> VALIDATION_ERROR pattern already established for
+# _handle_update (#83 Bug 1).
+# ---------------------------------------------------------------------------
+
+
+def test_create_with_missing_required_field_returns_validation_error_not_internal():
+    """Generic-named service (``create(ctx, workspace_id, term, definition=None)``)
+    raises TypeError when the required `term` field is omitted. That must
+    surface as VALIDATION_ERROR, never INTERNAL_ERROR."""
+    service = _make_generic_named_service()
+    group = _group_for(service)
+
+    result = group._handle_create(
+        params={"workspace_id": str(WORKSPACE_ID)},
+        auth_context=CTX,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "widget.create" in result.message
+
+
+@pytest.mark.django_db
+def test_adr_create_without_description_via_real_service_returns_validation_error():
+    """End-to-end with the real AdrService (no mocks) — regression guard for
+    #268 Befund A: adr.create with only {"workspace_id": ...} used to 500
+    with `AdrService.create_adr() missing 1 required positional argument:
+    description`."""
+    from application.adr_service import AdrService
+
+    tenant, workspace, ctx = _make_tenant_workspace_ctx("adr-mcp-268")
+    group = GenericCrudToolGroup("adr", AdrService)
+
+    result = group._handle_create(
+        params={"workspace_id": str(workspace.id), "title": "Bug268 ADR"},
+        auth_context=ctx,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "description" in result.message
+
+
+@pytest.mark.django_db
+def test_risk_create_without_probability_impact_via_real_service_returns_validation_error():
+    """End-to-end with the real RiskService (no mocks) — regression guard for
+    #268 Befund B: risk.create with only {"workspace_id": ...} used to 500
+    with `RiskService.create_risk() missing 2 required positional arguments:
+    probability and impact`."""
+    from application.risk_service import RiskService
+
+    tenant, workspace, ctx = _make_tenant_workspace_ctx("risk-mcp-268")
+    group = GenericCrudToolGroup("risk", RiskService)
+
+    result = group._handle_create(
+        params={"workspace_id": str(workspace.id), "title": "Bug268 Risk"},
+        auth_context=ctx,
+        api_key="reqlo_x",
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "probability" in result.message and "impact" in result.message
+
+
 @pytest.mark.django_db
 def test_issue_update_status_via_real_service_returns_validation_error():
     """End-to-end with the real IssueService (no mocks) — regression guard
