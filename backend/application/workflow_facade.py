@@ -703,11 +703,12 @@ class WorkflowFacade(ServiceBase):
 def _remap_workflow_exc(exc: Exception) -> None:
     """Re-raise workflow-domain exceptions as application-layer exceptions."""
     from workflow.services import WorkflowTransitionError
+    from workflow.transition_validator import EC_ROLE_NOT_ALLOWED
 
     from application.base import ValidationError, PermissionDeniedError
 
     if isinstance(exc, WorkflowTransitionError):
-        if exc.error_code in ("EC_ROLE_NOT_ALLOWED",):
+        if exc.error_code in (EC_ROLE_NOT_ALLOWED,):
             raise PermissionDeniedError(exc.error_message) from exc
         raise ValidationError(exc.error_message) from exc
     raise exc

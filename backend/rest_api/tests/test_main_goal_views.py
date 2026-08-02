@@ -175,13 +175,10 @@ def test_approve_rejects_editor_role():
     approve_req.auth_context = editor_ctx
     approve_resp = MainGoalViewSet.as_view({"post": "approve"})(approve_req, pk=main_goal_id)
 
-    # Accepts both codes until GitHub Issue #214 (WorkflowFacade._remap_workflow_exc
-    # compares exc.error_code against the literal "EC_ROLE_NOT_ALLOWED", but the
-    # real transition_validator constant's value is "ROLE_NOT_ALLOWED", so the
-    # branch never matches and role rejections surface as 400 instead of 403) is
-    # fixed. Reviewed and confirmed a legitimate accommodation, not test-design
-    # laxness (Task 6 fix round 1, finding I2).
-    assert approve_resp.status_code in (400, 403)
+    # GitHub Issue #214 fix: WorkflowFacade._remap_workflow_exc now correctly
+    # compares exc.error_code against the actual EC_ROLE_NOT_ALLOWED constant.
+    # Role-based rejections now properly map to 403 PermissionDenied.
+    assert approve_resp.status_code == 403
 
 
 def test_current_returns_none_when_never_approved():
