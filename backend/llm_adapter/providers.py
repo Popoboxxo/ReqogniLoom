@@ -87,6 +87,20 @@ class ProviderConfig:
 def _read_env_config() -> ProviderConfig:
     """Read ProviderConfig purely from environment variables.
 
+    Two spellings are accepted for the model and the base URL (issue #276):
+    ``docker-compose.yml``, ``deployment/docker-compose.ghcr.yml`` and
+    ``.env.example`` all pass ``LLM_MODEL`` / ``LLM_BASE_URL`` through to the
+    backend, while this function historically read only ``LLM_MODEL_NAME`` /
+    ``LLM_API_BASE_URL`` — so every model and base-URL value a deployment
+    configured was silently dropped. The historical names keep precedence, so
+    environments that already set them are unaffected;
+    :class:`OllamaProvider` and :class:`OpencodeGoProvider` already read the
+    short ``LLM_MODEL`` directly, which is the precedent for the alias.
+
+    ``or`` (not ``get(name, default)``) is used deliberately: ``.env.example``
+    ships these variables *present but empty*, and an empty value must fall
+    through to the alias rather than shadow it.
+
     Returns:
         Populated ProviderConfig instance.
     """
@@ -94,8 +108,14 @@ def _read_env_config() -> ProviderConfig:
         provider_name=os.environ.get("LLM_PROVIDER", ""),
         timeout=int(os.environ.get("LLM_TIMEOUT", "30")),
         api_key=os.environ.get("LLM_API_KEY", ""),
-        api_base_url=os.environ.get("LLM_API_BASE_URL") or None,
-        model_name=os.environ.get("LLM_MODEL_NAME", ""),
+        api_base_url=(
+            os.environ.get("LLM_API_BASE_URL")
+            or os.environ.get("LLM_BASE_URL")
+            or None
+        ),
+        model_name=(
+            os.environ.get("LLM_MODEL_NAME") or os.environ.get("LLM_MODEL") or ""
+        ),
         azure_deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT") or None,
         azure_api_version=os.environ.get("AZURE_OPENAI_API_VERSION") or None,
         mock_delay=float(os.environ.get("MOCK_LLM_DELAY", "0.0")),
@@ -114,6 +134,18 @@ def _apply_db_settings(cfg: ProviderConfig) -> ProviderConfig:
       - Any failure (no active tenant context, DB unavailable, no row) is
         swallowed and the untouched env config is returned — the environment
         remains the source of truth when settings are not configured.
+
+    .. important:: The unconditional ``provider`` precedence above is only
+       sound because **a LlmSettings row exists if and only if an admin
+       explicitly saved settings** for that tenant (issue #276). Nothing may
+       create the row implicitly: ``0026_add_llm_settings`` no longer seeds a
+       ``provider=mock`` row, ``0056_unseed_default_llm_settings`` removes the
+       pristine ones it left behind, and
+       ``SettingsService.get_llm_settings`` serves reads from an *unsaved*,
+       env-derived instance. A machine-created row would otherwise pin the
+       provider forever and make every later ``LLM_PROVIDER`` change a silent
+       no-op — the deployment would keep returning mock placeholders with no
+       error anywhere.
     """
     try:
         from persistence.models import LlmSettings

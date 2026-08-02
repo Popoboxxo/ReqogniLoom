@@ -4,12 +4,29 @@
 #
 # Operation order matters:
 #   1. CreateModel + unique constraint on tenant.
-#   2. Seed a default (provider=mock) row for every existing tenant — this runs
-#      BEFORE Row-Level Security is enabled so the insert is not rejected by the
-#      tenant-isolation policy (which would match no rows without an active
-#      ``app.current_tenant`` setting during migration).
-#   3. Enable + FORCE RLS on ``pl_llm_settings`` (defense-in-depth, mirrors
+#   2. Enable + FORCE RLS on ``pl_llm_settings`` (defense-in-depth, mirrors
 #      0003_rls_policies.py / 0010_rls_item_permission.py).
+#
+# This migration originally seeded a default ``provider="mock"`` row for every
+# existing tenant (between the two steps above, so the insert ran before the
+# tenant-isolation policy could reject it). That seeding step was REMOVED —
+# see issue #276 and 0056_unseed_default_llm_settings.py, which deletes the
+# rows it created on already-migrated deployments.
+#
+# Why: ``llm_adapter.providers._apply_db_settings`` gives an existing
+# LlmSettings row unconditional precedence over the environment. A seeded row
+# therefore pinned the tenant to the mock provider permanently and turned the
+# deployment's ``LLM_PROVIDER`` into a silent no-op — AI features returned
+# mock placeholders with no error anywhere. Row existence must mean "an admin
+# explicitly configured this tenant"; without a row the environment is the
+# fallback, which is the documented architecture.
+#
+# Dropping the operation is safe for deployments that already applied this
+# migration: Django records only the migration *name* in ``django_migrations``
+# and never re-runs applied operations. Fresh installs are unaffected in
+# practice either way — on an empty database no tenant exists yet when this
+# migration runs (the base tenant is created afterwards by the post_migrate
+# self-init, application/self_init.py), so the seed matched zero rows there.
 
 from django.conf import settings
 from django.db import migrations, models
@@ -34,22 +51,6 @@ _DISABLE_RLS_SQL = (
     f"ALTER TABLE {_TABLE} NO FORCE ROW LEVEL SECURITY;\n"
     f"ALTER TABLE {_TABLE} DISABLE ROW LEVEL SECURITY;"
 )
-
-
-def _seed_defaults(apps, schema_editor):
-    """Create a default mock LlmSettings row for every existing tenant."""
-    Tenant = apps.get_model("persistence", "Tenant")
-    LlmSettings = apps.get_model("persistence", "LlmSettings")
-    for tenant in Tenant.objects.all():
-        LlmSettings.objects.get_or_create(
-            tenant=tenant, defaults={"provider": "mock"}
-        )
-
-
-def _unseed_defaults(apps, schema_editor):
-    """Reverse: drop all seeded rows (table is dropped by CreateModel reverse)."""
-    LlmSettings = apps.get_model("persistence", "LlmSettings")
-    LlmSettings.objects.all().delete()
 
 
 class Migration(migrations.Migration):
@@ -86,6 +87,5 @@ class Migration(migrations.Migration):
             model_name='llmsettings',
             constraint=models.UniqueConstraint(fields=('tenant',), name='uq_llm_settings_tenant'),
         ),
-        migrations.RunPython(_seed_defaults, _unseed_defaults),
         migrations.RunSQL(sql=_ENABLE_RLS_SQL, reverse_sql=_DISABLE_RLS_SQL),
     ]
