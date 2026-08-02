@@ -180,6 +180,11 @@ export const SplitView = React.forwardRef<HTMLDivElement, SplitViewProps>(
     // The concept contract is selected by the presence of `list`. This
     // keeps every legacy call site (`leftPanel`/`rightPanel`) on the old
     // render path untouched.
+    // `!== undefined` (not `!= null`) is deliberate: `list` is the ReactNode
+    // that IS the list pane, so an explicit `list={null}` is a caller error
+    // (there is no meaningful "empty concept contract"), not a signal to
+    // fall back to the legacy contract. `detail`, by contrast, treats
+    // `null` as a first-class, meaningful value (ch. 6.2 "no selection").
     const isConceptContract = list !== undefined;
 
     if (isConceptContract) {
@@ -474,7 +479,6 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
             flex: `0 0 ${leftPanelWidth}px`,
             minWidth: `${leftMinWidth}px`,
             maxWidth: `${leftMaxWidthPercent}%`,
-            overflowX: 'hidden',
             borderRight: '1px solid var(--color-border)',
             background: 'var(--color-surface)',
             padding: 'var(--space-4)',
@@ -513,7 +517,6 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
           style={{
             ...SCROLL_SURFACE_STYLE,
             flex: '1 1 auto',
-            overflowX: 'hidden',
             background: 'var(--color-surface)',
             padding: 'var(--space-4)',
           }}

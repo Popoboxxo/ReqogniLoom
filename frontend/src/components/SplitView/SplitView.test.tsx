@@ -59,6 +59,49 @@ describe("SplitView — concept contract", () => {
     expect(children.indexOf(detail)).toBeGreaterThan(children.indexOf(spine));
   });
 
+  it("AC2c: in the narrow (--bp-lg) zone, spine wanders horizontal but stays independent of detail's scroll container", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      writable: true,
+      configurable: true,
+      value: 900, // between fallback --bp-md (768) and --bp-lg (1024)
+    });
+
+    try {
+      render(
+        <SplitView
+          list={<div data-testid="the-list">List content</div>}
+          detail={<div data-testid="the-detail">Detail content</div>}
+          spine={<div data-testid="the-spine">Spine content</div>}
+        />
+      );
+
+      const list = screen.getByTestId("splitview-list");
+      const spine = screen.getByTestId("splitview-spine");
+      const detail = screen.getByTestId("splitview-detail");
+
+      // Still structurally independent of detail's scroll container.
+      expect(spine.contains(detail)).toBe(false);
+      expect(detail.contains(spine)).toBe(false);
+
+      // Spine renders as a sibling of the list/detail row wrapper, above
+      // it in DOM order (ch. 6.3: "Spine wandert waagerecht unter den
+      // Artefaktkopf").
+      const root = spine.parentElement as HTMLElement;
+      const row = list.parentElement as HTMLElement;
+      expect(root.contains(row)).toBe(true);
+      expect(row).not.toBe(root);
+      const rootChildren = Array.from(root.children);
+      expect(rootChildren.indexOf(spine)).toBeLessThan(rootChildren.indexOf(row));
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalWidth,
+      });
+    }
+  });
+
   it("AC2b: omits the spine slot entirely when no spine prop is passed", () => {
     render(
       <SplitView
@@ -105,6 +148,32 @@ describe("SplitView — concept contract", () => {
       const computed = window.getComputedStyle(surface);
       expect(computed.overscrollBehavior).toBe("contain");
       expect(computed.scrollbarGutter).toBe("stable");
+    }
+  });
+
+  it("regression: legacy panels keep both-axis overflow: auto (no horizontal clipping)", () => {
+    // Guards against an earlier regression where spreading
+    // SCROLL_SURFACE_STYLE and then overriding with `overflowX: 'hidden'`
+    // silently clipped horizontal scroll on both legacy panels for all
+    // pre-existing call sites — never requested by AC3, which only covers
+    // overscroll-behavior/scrollbar-gutter.
+    render(
+      <SplitView
+        leftPanel={<div>Left</div>}
+        rightPanel={<div>Right</div>}
+        responsiveMode={false}
+      />
+    );
+
+    const divider = screen.getByTestId("splitview-divider");
+    const left = divider.previousElementSibling as HTMLElement;
+    const right = divider.nextElementSibling as HTMLElement;
+
+    for (const surface of [left, right]) {
+      const computed = window.getComputedStyle(surface);
+      expect(computed.overflow).toBe("auto");
+      expect(computed.overflowX).not.toBe("hidden");
+      expect(computed.overflowY).not.toBe("hidden");
     }
   });
 
