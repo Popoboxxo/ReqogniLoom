@@ -62,11 +62,23 @@ vi.mock("@codemirror/state", () => ({
   },
 }));
 
+// Captures the updateListener callback the component registers with
+// CodeMirror, so tests can drive the real edit path instead of asserting on
+// render output only.
+const cm = vi.hoisted(() => ({
+  listener: null as ((update: unknown) => void) | null,
+}));
+
 vi.mock("@codemirror/view", () => ({
   EditorView: class {
     destroy = vi.fn();
     state = { doc: { toString: () => "flowchart TD\n  A --> B" } };
-    static updateListener = { of: vi.fn() };
+    static updateListener = {
+      of: vi.fn((cb: (update: unknown) => void) => {
+        cm.listener = cb;
+        return "updateListener";
+      }),
+    };
     static lineWrapping = "lineWrapping";
   },
   keymap: {
@@ -200,5 +212,73 @@ describe("MermaidEditor", () => {
 
     vi.useRealTimers();
     expect(screen.getByTestId("mermaid-editor")).toBeInTheDocument();
+  });
+
+  /**
+   * Regression: the auto-save timer fires a `performAutoSave` that was captured
+   * when `isDirty` was still false. Reading the state variable there made every
+   * scheduled save abort at `if (!isDirty) return`, so edits were silently
+   * dropped. `performAutoSave` must read the dirty flag through a ref.
+   *
+   * The edit is injected through the captured CodeMirror updateListener, i.e.
+   * the same path a real keystroke takes — this also covers the second half of
+   * the bug, where the listener held the mount-time `handleSourceChange`.
+   */
+  it("auto-saves the edited source after the debounce delay", async () => {
+    cm.listener = null;
+    render(
+      <MermaidEditor
+        diagramId="test-diagram-id"
+        initialSource="flowchart TD\n  A --> B"
+      />
+    );
+
+    // CodeMirror is initialised via dynamic import — wait for registration.
+    await waitFor(() => {
+      expect(cm.listener).not.toBeNull();
+    });
+
+    // Simulate a keystroke in the editor.
+    await act(async () => {
+      cm.listener?.({
+        docChanged: true,
+        state: { doc: { toString: () => "flowchart TD\n  A --> C" } },
+      });
+    });
+
+    await waitFor(
+      () => {
+        expect(mockSaveMermaidSource).toHaveBeenCalledWith(
+          "test-diagram-id",
+          "flowchart TD\n  A --> C"
+        );
+      },
+      { timeout: 5000 }
+    );
+  });
+
+  it("enables the save button once the source is edited", async () => {
+    cm.listener = null;
+    render(
+      <MermaidEditor
+        diagramId="test-diagram-id"
+        initialSource="flowchart TD\n  A --> B"
+      />
+    );
+
+    expect(screen.getByTestId("mermaid-save-btn")).toBeDisabled();
+
+    await waitFor(() => {
+      expect(cm.listener).not.toBeNull();
+    });
+
+    await act(async () => {
+      cm.listener?.({
+        docChanged: true,
+        state: { doc: { toString: () => "flowchart TD\n  A --> D" } },
+      });
+    });
+
+    expect(screen.getByTestId("mermaid-save-btn")).toBeEnabled();
   });
 });

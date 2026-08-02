@@ -379,7 +379,7 @@ def update_mermaid_source(
     source: str,
     tenant: object,
     user: Optional[object] = None,
-) -> Diagram:
+) -> "DiagramVersion":
     """Update Mermaid source code for an existing diagram.
 
     IF-L1-059 entry point: PUT /api/v1/diagrams/{id}/mermaid-source
@@ -393,7 +393,8 @@ def update_mermaid_source(
         user:       Optional User ORM object for audit.
 
     Returns:
-        The updated Diagram ORM object.
+        The newly created DiagramVersion (NOT the Diagram header) — its ``id``
+        is a version id, so callers must not use it to look the diagram up.
 
     Raises:
         DiagramValidationError: If source validation fails.

@@ -414,11 +414,11 @@ class TestIcdGetAndDelete:
             with pytest.raises(Icd.DoesNotExist):
                 get_icd(result.icd.id, tenant_b.id)
 
-    @pytest.mark.django_db(transaction=True)
     def test_delete_icd_removes_row(self, tenant_a, workspace_id, src_id, tgt_id):
-        # transaction=True: delete_icd toggles the icd_version immutability
-        # trigger via ALTER TABLE, which cannot run with pending trigger events
-        # inside the default wrapping test transaction.
+        # No transaction=True needed: delete_icd opens the icd_version
+        # immutability trigger via a transaction-local GUC instead of
+        # ALTER TABLE ... DISABLE TRIGGER (which required table ownership the
+        # runtime app role does not have — see icd/0006_icd_version_delete_guard).
         from icd.models import Icd
         from icd.services import delete_icd
 
@@ -427,6 +427,77 @@ class TestIcdGetAndDelete:
             delete_icd(result.icd.id, tenant_a.id)
 
         assert not Icd.unscoped.filter(id=result.icd.id).exists()
+
+    def test_delete_icd_removes_child_versions(
+        self, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """delete_icd must cascade to the immutable IcdVersion rows.
+
+        Regression guard for the trigger's allow-path: a BEFORE DELETE trigger
+        that returns NULL silently cancels the row deletion, so an incorrect
+        implementation leaves orphaned versions behind while still reporting
+        success.
+        """
+        from icd.models import IcdVersion
+        from icd.services import delete_icd
+
+        with active_tenant(tenant_a):
+            result = self._create(tenant_a, workspace_id, src_id, tgt_id)
+            assert IcdVersion.unscoped.filter(icd_id=result.icd.id).exists()
+
+            delete_icd(result.icd.id, tenant_a.id)
+
+        assert not IcdVersion.unscoped.filter(icd_id=result.icd.id).exists()
+
+    def test_icd_version_delete_still_blocked_without_gate(
+        self, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """IcdVersion stays immutable for anything outside delete_icd (REQ-L2-ICD-001).
+
+        The GUC escape hatch must not weaken the guarantee: a plain DELETE that
+        did not open the gate still has to raise.
+        """
+        from django.db import connection, transaction
+        from django.db.utils import InternalError, ProgrammingError
+
+        with active_tenant(tenant_a):
+            result = self._create(tenant_a, workspace_id, src_id, tgt_id)
+            version_id = result.current_version.id
+
+            with pytest.raises((InternalError, ProgrammingError)) as exc_info:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "DELETE FROM icd_version WHERE id = %s", [str(version_id)]
+                        )
+
+        assert "immutable" in str(exc_info.value).lower()
+
+    def test_icd_version_update_blocked_even_with_gate_open(
+        self, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """The delete gate must not unlock UPDATEs on historical versions."""
+        from django.db import connection, transaction
+        from django.db.utils import InternalError, ProgrammingError
+
+        with active_tenant(tenant_a):
+            result = self._create(tenant_a, workspace_id, src_id, tgt_id)
+            version_id = result.current_version.id
+
+            with pytest.raises((InternalError, ProgrammingError)) as exc_info:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT set_config("
+                            "'app.allow_icd_version_delete', 'true', true)"
+                        )
+                        cursor.execute(
+                            "UPDATE icd_version SET version_number = version_number "
+                            "WHERE id = %s",
+                            [str(version_id)],
+                        )
+
+        assert "immutable" in str(exc_info.value).lower()
 
 
 @pytest.mark.django_db

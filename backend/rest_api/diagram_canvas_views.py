@@ -71,13 +71,53 @@ def _resolve_user(request: Request) -> User | None:
     return User.objects.filter(id=ctx.user_id).first()
 
 
-def _verify_diagram_ownership(pk: str, tenant_id: str) -> Diagram:
+def _as_uuid(value: str | UUID) -> UUID:
+    """Coerce a path parameter to :class:`~uuid.UUID`.
+
+    All diagram sub-resource routes are declared with the ``<uuid:pk>`` URL
+    converter (rest_api/urls.py), so Django hands the view an already-parsed
+    ``UUID``. Calling ``UUID(value)`` on such an instance raises
+    ``AttributeError: 'UUID' object has no attribute 'replace'`` — the crash
+    behind the failing mermaid-preview/mermaid-source E2E specs. This helper
+    keeps the views working for both the converted route and direct/unit-test
+    invocation with a plain string.
+    """
+    return value if isinstance(value, UUID) else UUID(value)
+
+
+def _verify_diagram_ownership(pk: str | UUID, tenant_id: str) -> Diagram:
     """Verify that the diagram exists and belongs to the tenant.
 
     Raises:
         Diagram.DoesNotExist: If not found or tenant mismatch.
     """
-    return Diagram.objects.get(id=UUID(pk), tenant_id=tenant_id)
+    return Diagram.objects.get(id=_as_uuid(pk), tenant_id=tenant_id)
+
+
+def _serialize_render_hints(hints: Any | None) -> dict[str, Any] | None:
+    """Map :class:`diagram.renderer.RenderHints` onto the published wire shape.
+
+    The response contract (``MermaidRenderHints`` in frontend/src/types/index.ts)
+    is ``{supported_formats, renderer, notes}``, but the dataclass produced by
+    ``DiagramRenderer.get_render_hints`` exposes ``render_hint``,
+    ``diagram_type``, ``supported_types`` and ``client_side``. The view used to
+    read the contract names straight off the dataclass, which raised
+    ``AttributeError: 'RenderHints' object has no attribute 'supported_formats'``
+    and turned every mermaid-preview call into a 500.
+
+    Translating here keeps the wire contract (and the frontend type) unchanged.
+    """
+    if hints is None:
+        return None
+    return {
+        "supported_formats": list(getattr(hints, "supported_types", []) or []),
+        "renderer": getattr(hints, "render_hint", "") or "",
+        "notes": (
+            "client-side rendering"
+            if getattr(hints, "client_side", True)
+            else "server-side rendering"
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -109,14 +149,14 @@ class CanvasStrokeView(APIView):
         },
         tags=["diagrams"],
     )
-    def get(self, request: Request, pk: str) -> Response:
+    def get(self, request: Request, pk: str | UUID) -> Response:
         """GET /api/v1/diagrams/{id}/canvas-strokes/"""
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
             _verify_diagram_ownership(pk, ctx.tenant_id)
 
-            export_result = get_canvas_diagram(diagram_id=UUID(pk))
+            export_result = get_canvas_diagram(diagram_id=_as_uuid(pk))
             stroke_data = export_result.stroke_data
             strokes = stroke_data.get("strokes", [])
 
@@ -165,7 +205,7 @@ class CanvasStrokeView(APIView):
         },
         tags=["diagrams"],
     )
-    def post(self, request: Request, pk: str) -> Response:
+    def post(self, request: Request, pk: str | UUID) -> Response:
         """POST /api/v1/diagrams/{id}/canvas-strokes/ — auto-save."""
         lang = detect_lang(request)
         try:
@@ -181,7 +221,7 @@ class CanvasStrokeView(APIView):
             diagram = canvas_auto_save(
                 stroke_data=serializer.validated_data,
                 tenant=tenant,
-                diagram_id=UUID(pk),
+                diagram_id=_as_uuid(pk),
                 user=user,
             )
 
@@ -244,7 +284,7 @@ class CanvasStrokeView(APIView):
         },
         tags=["diagrams"],
     )
-    def put(self, request: Request, pk: str) -> Response:
+    def put(self, request: Request, pk: str | UUID) -> Response:
         """PUT /api/v1/diagrams/{id}/canvas-strokes/ — replace all."""
         lang = detect_lang(request)
         try:
@@ -260,7 +300,7 @@ class CanvasStrokeView(APIView):
             diagram = canvas_auto_save(
                 stroke_data=serializer.validated_data,
                 tenant=tenant,
-                diagram_id=UUID(pk),
+                diagram_id=_as_uuid(pk),
                 user=user,
             )
 
@@ -335,14 +375,14 @@ class MermaidSourceView(APIView):
         },
         tags=["diagrams"],
     )
-    def get(self, request: Request, pk: str) -> Response:
+    def get(self, request: Request, pk: str | UUID) -> Response:
         """GET /api/v1/diagrams/{id}/mermaid-source/"""
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
             _verify_diagram_ownership(pk, ctx.tenant_id)
 
-            preview_data = get_mermaid_preview(diagram_id=UUID(pk))
+            preview_data = get_mermaid_preview(diagram_id=_as_uuid(pk))
 
             response_data = {
                 "diagram_id": str(preview_data.diagram_id),
@@ -383,7 +423,7 @@ class MermaidSourceView(APIView):
         },
         tags=["diagrams"],
     )
-    def put(self, request: Request, pk: str) -> Response:
+    def put(self, request: Request, pk: str | UUID) -> Response:
         """PUT /api/v1/diagrams/{id}/mermaid-source/ — update source."""
         lang = detect_lang(request)
         try:
@@ -396,15 +436,21 @@ class MermaidSourceView(APIView):
             tenant = _resolve_tenant(request)
             user = _resolve_user(request)
 
-            diagram = update_mermaid_source(
-                diagram_id=UUID(pk),
+            update_mermaid_source(
+                diagram_id=_as_uuid(pk),
                 source=serializer.validated_data["source"],
                 tenant=tenant,
                 user=user,
             )
 
-            # Return updated source data
-            preview_data = get_mermaid_preview(diagram_id=diagram.id)
+            # Return updated source data.
+            # NOTE: update_mermaid_source returns the newly created
+            # *DiagramVersion*, not the Diagram header, so its ``.id`` is a
+            # version id. Passing that to get_mermaid_preview() looked up a
+            # non-existent Diagram and silently produced fallback data (empty
+            # source, is_valid=false) with HTTP 200. Re-use the path parameter,
+            # which is the diagram id we already validated ownership for.
+            preview_data = get_mermaid_preview(diagram_id=_as_uuid(pk))
             response_data = {
                 "diagram_id": str(preview_data.diagram_id),
                 "source": preview_data.source,
@@ -465,27 +511,21 @@ class MermaidPreviewView(APIView):
         },
         tags=["diagrams"],
     )
-    def get(self, request: Request, pk: str) -> Response:
+    def get(self, request: Request, pk: str | UUID) -> Response:
         """GET /api/v1/diagrams/{id}/mermaid-preview/"""
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
             _verify_diagram_ownership(pk, ctx.tenant_id)
 
-            preview_data = get_mermaid_preview(diagram_id=UUID(pk))
+            preview_data = get_mermaid_preview(diagram_id=_as_uuid(pk))
 
             response_data = {
                 "diagram_id": str(preview_data.diagram_id),
                 "source": preview_data.source,
                 "diagram_type": preview_data.diagram_type,
-                "render_hints": (
-                    {
-                        "supported_formats": preview_data.render_hints.supported_formats,
-                        "renderer": preview_data.render_hints.renderer,
-                        "notes": preview_data.render_hints.notes,
-                    }
-                    if preview_data.render_hints
-                    else None
+                "render_hints": _serialize_render_hints(
+                    preview_data.render_hints
                 ),
                 "fallback_mode": preview_data.fallback_mode,
                 "error_message": preview_data.error_message,
