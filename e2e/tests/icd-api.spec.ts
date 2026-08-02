@@ -9,20 +9,28 @@ test.describe('[REQ-L2-ICD-001] ICD CRUD API', () => {
     const token = await getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
 
-    // Fetch existing artifacts for source/target element IDs
-    const artifactsResp = await request.get(
-      `${BACKEND_URL}/api/v1/artifacts/?workspace_id=${SEEDED_WORKSPACE_ID}`,
+    // Fetch existing ArchitectureElement artifacts for source/target element IDs.
+    // NOTE: /api/v1/icds/ requires source_element_id/target_element_id to
+    // reference ArchitectureElement artifacts (backend/icd/icd_manager.py).
+    // The generic /api/v1/artifacts/ endpoint returns the workspace's whole
+    // artifact tree (all types, e.g. StakeholderNeed) and does not support
+    // filtering by artifact_type, so it cannot reliably be used here — use
+    // the dedicated /api/v1/architecture/ endpoint instead.
+    const architectureResp = await request.get(
+      `${BACKEND_URL}/api/v1/architecture/?workspace_id=${SEEDED_WORKSPACE_ID}`,
       { headers },
     );
     let sourceId: string;
     let targetId: string;
 
-    expect(artifactsResp.status()).toBe(200);
-    const artifacts = await artifactsResp.json();
-    const artifactList: Record<string, unknown>[] = Array.isArray(artifacts) ? artifacts : (artifacts.results ?? []);
-    expect(artifactList.length).toBeGreaterThanOrEqual(2);
-    sourceId = artifactList[0].id as string;
-    targetId = artifactList[1].id as string;
+    expect(architectureResp.status()).toBe(200);
+    const architectureElements = await architectureResp.json();
+    const elementList: Record<string, unknown>[] = Array.isArray(architectureElements)
+      ? architectureElements
+      : (architectureElements.results ?? []);
+    expect(elementList.length).toBeGreaterThanOrEqual(2);
+    sourceId = elementList[0].id as string;
+    targetId = elementList[1].id as string;
 
     // Step 1: Create an ICD
     const createResp = await request.post(`${BACKEND_URL}/api/v1/icds/`, {

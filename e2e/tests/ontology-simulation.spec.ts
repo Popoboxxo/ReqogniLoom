@@ -6,9 +6,11 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 test.describe('Ontology Simulation & Trace Link Config', () => {
   let testWorkspaceId: string;
+  let authToken: string;
 
   test.beforeEach(async ({ request, page }) => {
     const token = await getAuthToken();
+    authToken = token;
 
     // 1. Create a dedicated workspace for this ontology test
     const createResp = await request.post(`${BACKEND_URL}/api/v1/workspaces/`, {
@@ -24,7 +26,15 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     const ws = await createResp.json();
     testWorkspaceId = ws.id;
 
-    // 2. Set decomposition_link_type to 'derives-from'
+    // 2. Set decomposition_link_type to 'derives-from'.
+    // NOTE (see below, main test body): as of UMSETZUNGSPLAN_SYSENG_2.0.md
+    // §1.4 (backend/application/requirement_service.py, decompose()),
+    // Workspace.decomposition_link_type is documented as "functionally dead"
+    // for the decompose/derive path — every derive always creates a
+    // 'decomposes' link now, regardless of this setting. The PATCH call is
+    // kept here to assert the setting itself still round-trips correctly
+    // (workspace config API contract), even though it no longer influences
+    // derive/decompose behavior.
     const patchResp = await request.patch(`${BACKEND_URL}/api/v1/workspaces/${testWorkspaceId}/`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -32,13 +42,15 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
       }
     });
     expect(patchResp.ok()).toBeTruthy();
+    const patchedWs = await patchResp.json();
+    expect(patchedWs.decomposition_link_type).toBe('derives-from');
 
     // 3. Inject this workspace into the session so UI uses it
     await setWorkspaceId(page, testWorkspaceId);
     await loginAsAdmin(page);
   });
 
-  test('simulate L1 to L2 decomposition with derives-from', async ({ page }) => {
+  test('simulate L1 to L2 decomposition creates decomposes links', async ({ page, request }) => {
     // ---------------------------------------------------------
     // 1. Create Level 1 Requirement (System Req)
     // ---------------------------------------------------------
@@ -93,8 +105,17 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     await page.locator('[data-testid="req-tracelink-type-select"]').selectOption('allocated-to');
     await page.locator('[data-testid="req-tracelink-submit-btn"]').click();
 
-    // Verify link appears in the UI
-    await expect(page.locator('[data-testid="req-tracelink-item"]').filter({ hasText: /allocated/i })).toBeVisible({ timeout: 8000 });
+    // Verify link appears in the UI.
+    // NOTE: ReqTraceLinkPanel groups links by target artifact type into
+    // separate sections/testids (req-tracelink-requirements-section [tree],
+    // req-tracelink-architecture-section [flat list], req-tracelink-other-section)
+    // — the old flat "req-tracelink-item" testid no longer exists at all for
+    // Requirement<->ArchitectureElement links; the correct one is
+    // "req-tracelink-arch-item" (see ReqTraceLinkPanel.tsx). It also renders
+    // the *neutral* Tri-Label form via getLinkTypeLabel()
+    // (frontend/src/constants/traceLinkLabels.ts) — for 'allocated-to' that's
+    // "Allocation", not "allocated".
+    await expect(page.locator('[data-testid="req-tracelink-arch-item"]').filter({ hasText: /allocation/i })).toBeVisible({ timeout: 8000 });
 
     // ---------------------------------------------------------
     // 4. Derive L2 Requirement (Subsystem Req)
@@ -117,9 +138,40 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     // Wait for the new child requirement to load
     await expect(page.locator('[data-testid="req-title"]')).toHaveValue('SUB-REQ-001: Subsystem Function', { timeout: 10000 });
 
-    // Check its traceability to confirm it's linked via derives-from instead
-    // of parent-child. Rendered label is "Derives From" (getLinkTypeLabel),
-    // not the raw enum value, so match on the display text.
-    await expect(page.locator('[data-testid="req-tracelink-item"]').filter({ hasText: /derives from/i })).toBeVisible({ timeout: 8000 });
+    // Check its traceability to confirm what link type the derive action
+    // actually created.
+    // NOTE — this assertion's premise changed since the test was written:
+    // backend/application/requirement_service.py::decompose() is now
+    // hardcoded to always create LinkType.DECOMPOSES links for every
+    // workspace (see the "UMSETZUNGSPLAN_SYSENG_2.0.md §1.4" comment there),
+    // regardless of Workspace.decomposition_link_type. So deriving a child
+    // requirement here creates a 'decomposes' link, not 'derives-from' —
+    // the workspace-level setting (patched above) no longer has any effect
+    // on this path. This spec now documents/verifies that real, current
+    // behavior instead of the old (deprecated) configurable-link-type
+    // premise.
+    //
+    // For Requirement<->Requirement links, ReqTraceLinkPanel renders a
+    // lazily-expanded RequirementTreeNode tree (frontend/src/components/
+    // RequirementEditors/RequirementTreeNode.tsx) — not a flat
+    // "req-tracelink-item" list (that testid doesn't exist for this link
+    // type at all). Note also that RequirementTreeNode only recognizes
+    // link_type 'derives-from'/'derived-by' when building its tree (see
+    // RequirementTreeNode.tsx: `if (!['derives-from', 'derived-by']
+    // .includes(link.link_type)) continue;`), so a 'decomposes' link (as
+    // created here) is *not* surfaced by that tree UI at all — verify via
+    // the API instead, which is the only current way to observe this link.
+    const l2ReqId = page.url().split('/').pop();
+    const tracelinksResp = await request.get(
+      `${BACKEND_URL}/api/v1/tracelinks/?workspace_id=${testWorkspaceId}&artifact_id=${l2ReqId}`,
+      { headers: { Authorization: `Bearer ${authToken}` } },
+    );
+    expect(tracelinksResp.status()).toBe(200);
+    const tracelinksBody = await tracelinksResp.json();
+    const decomposesLink = tracelinksBody.results.find(
+      (l: { link_type: string; target_id: string; source_id: string }) =>
+        l.link_type === 'decomposes' && (l.source_id === l2ReqId || l.target_id === l2ReqId),
+    );
+    expect(decomposesLink, 'expected a decomposes trace link for the derived L2 requirement').toBeDefined();
   });
 });
