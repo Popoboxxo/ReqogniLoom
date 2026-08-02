@@ -53,9 +53,34 @@ function countOccurrences(text: string, pattern: RegExp): number {
   return matches ? matches.length : 0;
 }
 
+/**
+ * Count `pattern` matches in `text`, skipping comment lines — mirroring
+ * `_count_orm_lines` in `backend/rest_api/tests/test_architecture.py`,
+ * which skips lines whose trimmed content starts with `#`. Here that means
+ * skipping `//` line comments and `*`/`/*` JSDoc/block-comment lines.
+ *
+ * Without this, a naive full-text scan for hex literals also matches
+ * decimal GitHub issue references in comments (e.g. `// #135`,
+ * `* ...(issue #173):`), since digits 0-9 are valid hex characters too.
+ * That produced a materially inflated, wrong baseline in an earlier
+ * revision of this file (see the comment on HEX_LITERAL_OCCURRENCE_BASELINE
+ * below) — a real bug, not a scope/methodology quirk.
+ */
+function countNonCommentOccurrences(text: string, pattern: RegExp): number {
+  let count = 0;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) {
+      continue;
+    }
+    count += countOccurrences(line, pattern);
+  }
+  return count;
+}
+
 // --- (a) Inline `style={{` usage in components/ ---------------------------
 //
-// Plan baseline (2026-08-01, docs/.superpowers/sdd/.../task-7.4-brief.md): 1462.
+// Plan baseline (2026-08-01, .superpowers/sdd/2026-08-01-ui-konzept-vollrollout/task-7.4-brief.md): 1462.
 // Actually measured on this branch (feat/ui-konzept-vollrollout-phase0,
 // after Tasks 0.1-0.3): 1468. The +6 delta is plausible drift from Phase 0
 // work landing between the plan's measurement date and this task; the
@@ -66,19 +91,27 @@ const STYLE_BRACE_BASELINE = 1468;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
-// Plan baseline: 145 occurrences in 29 files. Actually measured (whole
-// frontend/src, `.tsx`, excluding `*.test.tsx`, via this same walker): 152
-// occurrences in 48 files. Both figures differ from the plan; the exact
-// methodology behind the plan's 145/29 figures is not reproducible from the
-// brief alone (it may have used a narrower scope, e.g. components/ only —
-// which measures at 145 occurrences in 45 files, closer but still not an
-// exact match — or a stricter regex, e.g. requiring a `style=`/CSS context).
-// Per the task instructions, the actually measured values (from the exact
-// code below) are used as the enforced baseline rather than the plan
-// figures.
+// Plan baseline: 145 occurrences in 29 files.
+//
+// CORRECTION (post-review, see task-7.4-report.md "Fix" section): an
+// earlier revision of this file counted 152 occurrences in 48 files using
+// a naive full-text `text.match(pattern)` scan. That count was WRONG, not
+// just a methodology drift from the plan: `/#[0-9a-fA-F]{3,8}/` also
+// matches decimal GitHub issue references in comments (e.g. `// #135`,
+// `* ...(issue #173):`), because digits 0-9 are valid hex characters. 15 of
+// those 48 files (e.g. App.tsx, LoginPage.tsx, StatusBadge.tsx) contained
+// ONLY such comment references and zero real hex colors.
+//
+// Fixed by skipping comment lines (see countNonCommentOccurrences above),
+// mirroring how the backend counterpart skips `#`-prefixed comment lines.
+// Actually measured with the fix, whole frontend/src, `.tsx`, excluding
+// `*.test.tsx`: 135 occurrences in 36 files. This is close to the plan's
+// 145/29 — the small remaining gap is plausible normal drift between the
+// plan's 2026-08-01 measurement and now, not a counting bug (spot-checked:
+// every remaining match is a real hex color in a style/color context).
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
-const HEX_LITERAL_OCCURRENCE_BASELINE = 152;
-const HEX_LITERAL_FILE_BASELINE = 48;
+const HEX_LITERAL_OCCURRENCE_BASELINE = 135;
+const HEX_LITERAL_FILE_BASELINE = 36;
 
 // --- (c) Duplicate tree implementations ------------------------------------
 //
@@ -86,10 +119,11 @@ const HEX_LITERAL_FILE_BASELINE = 48;
 // with a target of 1 after Phase 4. Actually measured: 4 — `GoalsTree.tsx`
 // was added under `components/Goals/` after the plan's 2026-08-01
 // measurement (Goal/MainGoal traceability work, see commit 3c71b8a6) and
-// was not yet accounted for. This fixed list is intentionally explicit
-// (per the task brief: "eine feste Liste ... reicht") rather than a naming
-// heuristic, since generic name matching (e.g. "*tree*") also matches
-// unrelated files (TraceSpine, ListToolbar, ArtifactId, etc.).
+// was not yet accounted for. This fixed list is a deliberate implementation
+// choice (not mandated by the task brief) rather than a naming heuristic,
+// since generic name matching (e.g. "*tree*") also matches unrelated files
+// (TraceSpine, ListToolbar, ArtifactId, etc.) whose basenames merely
+// contain the substring "tree" without being tree implementations.
 const KNOWN_TREE_IMPLEMENTATIONS = [
   join(COMPONENTS_DIR, "shared", "WorkspaceTree", "workspace-tree.tsx"),
   join(COMPONENTS_DIR, "ArchitectureEditors", "DecompositionTree.tsx"),
@@ -136,7 +170,10 @@ describe("UI concept ratchet (Task 7.4)", () => {
     let totalOccurrences = 0;
     let filesWithHex = 0;
     for (const file of files) {
-      const count = countOccurrences(readFileSync(file, "utf-8"), HEX_LITERAL_PATTERN);
+      // Comment lines are excluded — see countNonCommentOccurrences: a
+      // naive full-text scan also matches decimal issue references like
+      // `// #135`, which are not hex color literals.
+      const count = countNonCommentOccurrences(readFileSync(file, "utf-8"), HEX_LITERAL_PATTERN);
       if (count > 0) {
         totalOccurrences += count;
         filesWithHex += 1;
