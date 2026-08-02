@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
@@ -619,6 +620,13 @@ def _handler(registry: ToolRegistry) -> ProtocolHandler:
     return ProtocolHandler(tool_registry=registry)
 
 
+# ``django_db``: these E2E classes drive the real
+# ``ToolRegistry.dispatch_request``, which arms the PostgreSQL RLS session
+# variable via ``persistence.middleware.set_request_tenant`` (``SET
+# app.current_tenant``, COMP-PL-006 / fix #110) and resets it in the
+# ``finally``. That is a real DB round-trip on the production path, so the
+# tests need DB access even though every collaborator below is mocked.
+@pytest.mark.django_db
 class TestE2EAdminBackupCreate:
     @patch("mcp_server.tools.backup.write_mcp_audit")
     def test_successful_create_returns_jsonrpc_result_envelope(self, mock_audit):
@@ -664,6 +672,7 @@ class TestE2EAdminBackupCreate:
         backup.create_backup.assert_not_called()
 
 
+@pytest.mark.django_db
 class TestE2EAdminRestore:
     @patch("mcp_server.tools.backup.write_mcp_audit")
     def test_successful_restore_with_correct_captcha(self, mock_audit):

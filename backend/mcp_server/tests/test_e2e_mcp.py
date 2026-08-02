@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from unittest.mock import ANY, MagicMock, patch
 from uuid import UUID
 
+import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
@@ -132,6 +133,13 @@ def _handler(registry: ToolRegistry) -> ProtocolHandler:
 # ---------------------------------------------------------------------------
 
 
+# ``django_db``: these E2E classes drive the real
+# ``ToolRegistry.dispatch_request``, which arms the PostgreSQL RLS session
+# variable via ``persistence.middleware.set_request_tenant`` (``SET
+# app.current_tenant``, COMP-PL-006 / fix #110) and resets it in the
+# ``finally``. That is a real DB round-trip on the production path, so the
+# tests need DB access even though every collaborator below is mocked.
+@pytest.mark.django_db
 class TestE2EWorkspaceClose:
     @patch("mcp_server.tools.admin.write_mcp_audit")
     def test_successful_close_returns_jsonrpc_result_envelope(self, mock_audit):
@@ -234,6 +242,7 @@ class TestE2EWorkspaceClose:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestE2EWorkspaceReactivate:
     @patch("mcp_server.tools.admin.write_mcp_audit")
     def test_successful_reactivate_returns_jsonrpc_result_envelope(self, mock_audit):
@@ -281,6 +290,7 @@ class TestE2EWorkspaceReactivate:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestE2EWorkspaceDelete:
     @patch("mcp_server.tools.admin.write_mcp_audit")
     def test_successful_delete_with_correct_captcha(self, mock_audit):
@@ -370,6 +380,7 @@ class TestE2EWorkspaceDelete:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestE2EWorkspaceNamespace:
     def test_workspace_get_context_falls_through_to_cross_cutting(self):
         """The new AdminToolGroup owns the ``workspace`` prefix but

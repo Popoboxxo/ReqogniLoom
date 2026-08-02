@@ -18,6 +18,7 @@ import json
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
+import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod, IdentityClaims
 from auth_tenancy.errors import AuthenticationFailed
@@ -947,6 +948,13 @@ def _handler(registry: ToolRegistry) -> ProtocolHandler:
     return ProtocolHandler(tool_registry=registry)
 
 
+# ``django_db``: these E2E classes drive the real
+# ``ToolRegistry.dispatch_request``, which arms the PostgreSQL RLS session
+# variable via ``persistence.middleware.set_request_tenant`` (``SET
+# app.current_tenant``, COMP-PL-006 / fix #110) and resets it in the
+# ``finally``. That is a real DB round-trip on the production path, so the
+# tests need DB access even though every collaborator below is mocked.
+@pytest.mark.django_db
 class TestE2EUserList:
     @patch("mcp_server.tools.users.User.objects")
     def test_successful_list_returns_jsonrpc_result(self, mock_user_objects):
@@ -1009,6 +1017,7 @@ class TestE2EUserList:
         assert response["error"]["code"] == ERROR_CODE_MAP["AUTH_FAILED"]
 
 
+@pytest.mark.django_db
 class TestE2EUserCreate:
     @patch("mcp_server.tools.users.User.objects")
     @patch("mcp_server.tools.users.Tenant.objects")
@@ -1068,6 +1077,7 @@ class TestE2EUserCreate:
         assert response["error"]["code"] == ERROR_CODE_MAP["PERMISSION_DENIED"]
 
 
+@pytest.mark.django_db
 class TestE2EUserAssignRole:
     @patch("mcp_server.tools.users.write_mcp_audit")
     @patch("mcp_server.tools.users.UserRole.objects")
@@ -1100,6 +1110,7 @@ class TestE2EUserAssignRole:
         mock_audit.assert_called_once()
 
 
+@pytest.mark.django_db
 class TestE2EUserDeactivate:
     @patch("mcp_server.tools.users.write_mcp_audit")
     @patch("mcp_server.tools.users.User.objects")

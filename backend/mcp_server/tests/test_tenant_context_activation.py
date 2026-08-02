@@ -24,8 +24,13 @@ Why this matters:
 Implementation notes:
 - ``TenantContext`` is a thread-local singleton; we read its state via
   the private ``_thread_local.tenant_id`` attribute.
-- The auth services are mocked (``MagicMock``) — we do not need a
-  database or a real API-key row for these tests.
+- The auth services are mocked (``MagicMock``) — no real API-key row is
+  needed. DB access is still required: ``set_request_tenant`` /
+  ``clear_request_tenant`` also arm and reset the PostgreSQL RLS session
+  variable (``SET app.current_tenant``, COMP-PL-006 / fix #110), which
+  opens a cursor on the production path. Hence the ``django_db`` mark on
+  :class:`TestTenantContextActivation` — the second isolation layer is
+  part of the behaviour under test, not an accident.
 - An autouse fixture clears ``TenantContext`` before and after each
   test so no sibling test can observe stale thread-local state.
 """
@@ -146,8 +151,15 @@ def _build_registry(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestTenantContextActivation:
-    """Verify TenantContext lifecycle inside ``dispatch_request``."""
+    """Verify TenantContext lifecycle inside ``dispatch_request``.
+
+    Needs ``django_db``: every dispatch here reaches
+    ``persistence.middleware.set_request_tenant`` /
+    ``clear_request_tenant``, which execute ``SET`` / ``RESET
+    app.current_tenant`` on the connection (COMP-PL-006).
+    """
 
     def test_valid_api_key_activates_tenant_context_during_dispatch(self):
         """A valid API key must set ``TenantContext`` to the auth tenant
