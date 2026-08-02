@@ -160,15 +160,3 @@
     }
   }
 }
-
-// Reduced motion support (accessibility)
-@media (prefers-reduced-motion: reduce) {
-  .divider {
-    transition: none;
-  }
-
-  .leftPanel,
-  .rightPanel {
-    scroll-behavior: auto;
-  }
-}

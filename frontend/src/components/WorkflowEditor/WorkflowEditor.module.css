@@ -1257,15 +1257,3 @@
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .stateNode,
-  .inspector,
-  .spinner,
-  .edgeLabel,
-  .iconButton,
-  .toolbarButton {
-    transition: none;
-    animation: none;
-  }
-}

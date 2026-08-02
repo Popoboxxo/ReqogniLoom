@@ -214,12 +214,3 @@
   outline: 2px solid white;
   outline-offset: 2px;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .skeletonRow {
-    animation: none;
-  }
-  .row {
-    transition: none;
-  }
-}
