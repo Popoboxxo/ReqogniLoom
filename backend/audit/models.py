@@ -117,6 +117,16 @@ class AuditEntry(TenantScopedModel):
     OP_BASELINE_CREATE = "baseline.create"
     OP_WORKSPACE_CLOSE = "workspace.close"
     OP_WORKSPACE_REACTIVATE = "workspace.reactivate"
+    OP_WORKSPACE_DELETE = "workspace.delete"
+    OP_CLONE = "clone"
+    OP_ASSIGN = "assign"
+    # NOTE (#265): ``op`` is validated against this list by
+    # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
+    # re-raises the resulting ValidationError — so a service that audits an
+    # operation missing here fails its whole transaction with a 500 *after*
+    # the business mutation already succeeded. Any new ``operation=`` string
+    # passed to ``ServiceBase._audit`` MUST be added here (guarded by
+    # ``audit/tests/test_op_vocabulary.py``).
     OP_CHOICES = [
         (OP_CREATE, "Create"),
         (OP_UPDATE, "Update"),
@@ -125,6 +135,9 @@ class AuditEntry(TenantScopedModel):
         (OP_BASELINE_CREATE, "Baseline Create"),
         (OP_WORKSPACE_CLOSE, "Workspace Close"),
         (OP_WORKSPACE_REACTIVATE, "Workspace Reactivate"),
+        (OP_WORKSPACE_DELETE, "Workspace Delete"),
+        (OP_CLONE, "Clone"),
+        (OP_ASSIGN, "Assign"),
     ]
 
     SOURCE_REST = "rest"

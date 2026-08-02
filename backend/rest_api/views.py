@@ -3493,27 +3493,22 @@ class WorkspaceViewSet(BaseEntityViewSet):
         return Response(WorkspaceSerializer(_workspace_to_dict(ws)).data)
 
     def destroy(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
-        """DELETE /api/v1/workspaces/{pk}/ — soft-close a workspace (REQ-L1-042, CR-01).
+        """DELETE /api/v1/workspaces/{pk}/ — captcha-confirmed hard-delete.
 
-        Mirrors the reversible ``POST .../close/`` action (sets
-        ``is_active=False``, ``closed_at``, ``closed_by``) so the standard
-        REST verb performs a real, admin-only, undoable operation instead of
-        raising ``NotImplementedError``. The irreversible full-cascade
-        hard-delete stays behind the dedicated, captcha-confirmed
-        ``POST /api/v1/workspaces/{pk}/delete/`` action and is intentionally
-        not triggered by plain DELETE.
+        BREAKING (#265): this verb previously performed a *soft-close* and
+        answered 204 while the workspace stayed fully usable at the same URL,
+        so clients could not distinguish it from a real deletion. It now runs
+        the exact same confirmation-gated path as
+        ``POST /api/v1/workspaces/{pk}/delete/``:
 
-        Returns 204 on success.
+        * no/empty ``confirmation`` in the body → 400 (nothing happens),
+        * wrong ``confirmation`` → 409 (nothing happens),
+        * matching ``confirmation`` → 204 and the workspace is really gone.
+
+        The reversible soft-close remains available as
+        ``POST /api/v1/workspaces/{pk}/close/``.
         """
-        lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
-            self._svc().close_workspace(workspace_id=UUID(pk), ctx=ctx)
-        except (NotFoundError, PermissionDeniedError) as exc:
-            return _service_error_response(exc, lang)
-        except Exception as exc:
-            return _service_error_response(exc, lang)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return self._confirmed_hard_delete(request, pk)
 
     @action(detail=True, methods=["patch"], url_path="preset")
     def set_preset(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
@@ -3656,6 +3651,14 @@ class WorkspaceViewSet(BaseEntityViewSet):
         matching the workspace name (case-sensitive). On mismatch returns 409.
         On success returns 204.
         """
+        return self._confirmed_hard_delete(request, pk)
+
+    def _confirmed_hard_delete(self, request: Request, pk: str | None) -> Response:
+        """Single implementation behind ``POST .../delete/`` and ``DELETE ...`` (#265).
+
+        Both verbs must enforce the same captcha and hit the same service call,
+        so neither can drift into a silent no-op.
+        """
         lang = detect_lang(request)
         confirmation = request.data.get("confirmation", "")
         if not confirmation:
@@ -3667,9 +3670,16 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
+            workspace_id = UUID(str(pk))
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
             ctx = get_auth_context(request)
             self._svc().delete_workspace(
-                workspace_id=UUID(pk),
+                workspace_id=workspace_id,
                 confirmation_text=str(confirmation),
                 ctx=ctx,
             )
