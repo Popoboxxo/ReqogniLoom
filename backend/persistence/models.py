@@ -1738,6 +1738,7 @@ class LlmProvider(models.TextChoices):
     ANTHROPIC = "anthropic", "Anthropic"
     OPENAI = "openai", "OpenAI"
     OLLAMA = "ollama", "Ollama"
+    OPENCODE_GO = "opencode_go", "OpenCode Go"
     MOCK = "mock", "Mock"
 
 
