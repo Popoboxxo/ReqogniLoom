@@ -14,7 +14,7 @@ Delegates to:
 
 Internal interfaces served:
   IF-AS-INT-006  BaselineFacade → is_scope_allowed(workspace_id, scope)
-  IF-AS-INT-007  WorkflowFacade → validate_transition_roles(ctx, target_state)
+  IF-AS-INT-007  WorkflowFacade → validate_transition_roles(ctx, target_state, workspace_id)
   IF-AS-INT-008  RequirementService + others → is_change_reason_required(workspace_id)
 
 Architecture:
@@ -127,7 +127,7 @@ class PresetPolicyService:
     # ---------- Public API (IF-AS-INT-007) ----------
 
     def validate_transition_roles(
-        self, ctx: AuthContext, target_state: str
+        self, ctx: AuthContext, target_state: str, workspace_id: str
     ) -> Tuple[bool, Optional[str]]:
         """Check that *ctx* has a role permitted for *target_state* transition.
 
@@ -137,12 +137,21 @@ class PresetPolicyService:
         the preset-level gate: if the workspace requires approval_workflows,
         only approver/manager roles may transition to 'approved'.
 
+        Args:
+            ctx: Resolved AuthContext (used for active_roles only — presets are
+                workspace-scoped, NOT tenant-scoped; see REQ-L3-PPL-003 fix
+                for GitHub issue #215).
+            target_state: Requested new state name.
+            workspace_id: Workspace UUID whose preset governs this transition.
+                A tenant_id must never be passed here — a tenant can own many
+                workspaces, each with its own preset.
+
         Returns:
             (True, None) if allowed.
             (False, error_message) if denied.
         """
         try:
-            preset = self._get_preset(str(ctx.tenant_id))
+            preset = self._get_preset(str(workspace_id))
             if target_state.lower() in ("approved", "accepted"):
                 is_approver = any(
                     r.lower() in ("approver", "manager", "admin")
