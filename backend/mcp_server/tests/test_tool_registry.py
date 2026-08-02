@@ -19,6 +19,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+import pytest
+
 
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
@@ -146,6 +148,7 @@ class TestToolGroupRouter:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestToolRegistryDispatch:
 
     def _make_registry(self, auth_claims=None, roles=("editor",)):
@@ -638,6 +641,7 @@ class TestApiKeyGlobalRoleResolution:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 class TestListToolsDeduplication:
     """REQ-129: tools/list must not emit duplicate tool entries.
 
