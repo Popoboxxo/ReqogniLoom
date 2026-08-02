@@ -45,6 +45,15 @@ services:
       #   docker-compose down -v  # WARNING: deletes all postgres data
       #   docker-compose up -d
       - postgres_data:/var/lib/postgresql/data
+      # Superuser bootstrap: installs the pgvector `vector` extension into
+      # template1 AND ${DB_NAME} so the least-privilege runtime role
+      # (DB_APP_USER, NOSUPERUSER — REQ-L2-PL-010) never has to run
+      # `CREATE EXTENSION` itself. Every database cloned from template1
+      # afterwards — including Django's ephemeral `test_*` databases created by
+      # `pytest --create-db` — inherits the extension automatically.
+      # Only executed on a completely EMPTY data directory; for an existing
+      # volume run ./scripts/enable_pgvector.sh once instead.
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
     logging:
       driver: "json-file"
       options:

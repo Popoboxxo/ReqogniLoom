@@ -574,9 +574,17 @@ docker-compose up -d
 
 ### PostgreSQL with pgvector
 
-The postgres service uses `pgvector/pgvector:pg16-alpine` image, which includes the pgvector extension for vector-based semantic search. The migration system automatically enables the extension on first run.
+The postgres service uses the `pgvector/pgvector:pg16` image, which ships the pgvector extension for vector-based semantic search.
 
-No manual setup is required.
+`CREATE EXTENSION vector` requires **superuser** rights, but the application connects at runtime as the least-privilege, `NOSUPERUSER` role `DB_APP_USER` (default `reqogniloom_app`, REQ-L2-PL-010). The extension is therefore installed up front by the superuser init hook `docker/postgres/initdb/10-pgvector.sh` — into **`template1`** and into `${DB_NAME}`. Because `CREATE DATABASE` clones `template1`, every database created afterwards (including Django's ephemeral `test_*` databases from `pytest --create-db`) inherits the extension, and the `CREATE EXTENSION IF NOT EXISTS vector` in `persistence/migrations/0024_requirement_embedding.py` degrades to a harmless `NOTICE`.
+
+No manual setup is required for a fresh volume.
+
+**Existing volume:** the Postgres image runs `/docker-entrypoint-initdb.d/` scripts only on a completely empty data directory. A dev machine set up before this hook existed will still fail with `permission denied to create extension "vector"` on `pytest --create-db`. Fix it once, without recreating the volume or losing data:
+
+```bash
+./scripts/enable_pgvector.sh
+```
 
 ### Monitoring & Logs
 
