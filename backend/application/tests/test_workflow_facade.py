@@ -217,7 +217,7 @@ class TestCheckTransitionRoles:
             return_value=mock_policy,
         ):
             with pytest.raises(PermissionDeniedError, match="no approver role"):
-                WorkflowFacade._check_transition_roles(ctx, "approved")
+                WorkflowFacade._check_transition_roles(ctx, "approved", str(WS_ID))
 
     def test_passes_when_allowed(self):
         ctx = _make_ctx()
@@ -229,7 +229,24 @@ class TestCheckTransitionRoles:
             return_value=mock_policy,
         ):
             # Should not raise
-            WorkflowFacade._check_transition_roles(ctx, "In Review")
+            WorkflowFacade._check_transition_roles(ctx, "In Review", str(WS_ID))
+
+    def test_passes_workspace_id_not_tenant_id(self):
+        """Regression (GitHub #215): the facade must forward workspace_id
+        (not ctx.tenant_id) to PresetPolicyService.validate_transition_roles."""
+        ctx = _make_ctx(tenant_id=uuid.uuid4())
+        mock_policy = MagicMock()
+        mock_policy.validate_transition_roles.return_value = (True, None)
+
+        with patch(
+            "application.workflow_facade.get_preset_policy_service",
+            return_value=mock_policy,
+        ):
+            WorkflowFacade._check_transition_roles(ctx, "approved", str(WS_ID))
+
+        mock_policy.validate_transition_roles.assert_called_once_with(
+            ctx, "approved", str(WS_ID)
+        )
 
 
 # ---------- Exception remapping ----------
@@ -253,3 +270,136 @@ class TestRemapWorkflowExc:
     def test_passes_through_unknown(self):
         with pytest.raises(RuntimeError):
             _remap_workflow_exc(RuntimeError("surprise"))
+
+
+# ---------------------------------------------------------------------------
+# GitHub #215 regression: real DB-backed workspace, real (unmocked)
+# PresetPolicyService — the preset-level "approval_workflows" role gate must
+# actually resolve the workspace's preset, not accidentally look up ctx.tenant_id
+# as if it were a workspace_id. The workflow-engine's own per-transition
+# allowed_roles (workflow.services.transition) is stubbed out here because that
+# gate is a *separate* defense layer (already covered by its own tests) — this
+# test isolates PresetPolicyService.validate_transition_roles exactly the way
+# custom/extended workflows can be configured (permissive engine-level roles,
+# relying solely on the preset feature gate for the "approved" state).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def gh215_tenant(db):
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="gh215-tenant", slug="gh215-tenant")
+
+
+@pytest.fixture
+def gh215_workspace(gh215_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext as PersistenceTenantContext
+
+    PersistenceTenantContext.set_tenant(gh215_tenant.id)
+    try:
+        ws = Workspace.objects.create(tenant=gh215_tenant, name="gh215-workspace")
+    finally:
+        PersistenceTenantContext.clear_tenant()
+
+    from presets.services import switch_preset
+
+    # REQ-L2-PC-008: extended tier turns on the approval_workflows feature.
+    switch_preset(str(ws.id), "extended")
+    return ws
+
+
+@pytest.fixture
+def gh215_editor_ctx(gh215_tenant):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=gh215_tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="gh215-tenant",
+    )
+
+
+@pytest.fixture
+def gh215_approver_ctx(gh215_tenant):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=gh215_tenant.id,
+        active_roles=("approver",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="gh215-tenant",
+    )
+
+
+@pytest.mark.django_db
+class TestPresetRoleGateUsesWorkspaceId:
+    """GitHub #215: validate_transition_roles must resolve the preset via
+    workspace_id, not ctx.tenant_id — otherwise the approval_workflows role
+    gate is silently inert (fail-open) for every real transition."""
+
+    def test_editor_without_approver_role_is_blocked(
+        self, gh215_workspace, gh215_editor_ctx
+    ):
+        """Extended preset (approval_workflows=True) + editor-only role +
+        target_state='approved' must raise PermissionDeniedError.
+
+        Before the fix: PresetPolicyService._get_preset(str(ctx.tenant_id))
+        raises Workspace.DoesNotExist (tenant_id is not a workspace_id) and
+        the exception handler fails open -> (True, None) -> no error raised.
+        This assertion is RED on the pre-fix code and GREEN after the fix.
+        """
+        facade = WorkflowFacade()
+
+        with pytest.raises(PermissionDeniedError):
+            facade._check_transition_roles(
+                gh215_editor_ctx, "approved", str(gh215_workspace.id)
+            )
+
+    def test_approver_role_is_allowed_and_logs_no_error(
+        self, gh215_workspace, gh215_approver_ctx, caplog
+    ):
+        """Same extended-preset workspace, but ctx has the 'approver' role:
+        the gate must pass, and — since the workspace_id now resolves
+        correctly — no 'validate_transition_roles failed' ERROR is logged
+        (previously logged on every single transition, approver or not)."""
+        import logging
+
+        facade = WorkflowFacade()
+
+        with caplog.at_level(logging.ERROR, logger="application.preset_policy_service"):
+            # Should not raise.
+            facade._check_transition_roles(
+                gh215_approver_ctx, "approved", str(gh215_workspace.id)
+            )
+
+        assert not any(
+            "validate_transition_roles failed" in rec.message for rec in caplog.records
+        )
+
+    def test_end_to_end_transition_blocked_for_non_approver(
+        self, gh215_workspace, gh215_editor_ctx
+    ):
+        """Full facade.transition() call (not just the private role-gate
+        helper) is blocked before the workflow-engine is ever invoked."""
+        facade = WorkflowFacade()
+
+        with patch("workflow.services.transition") as mock_wf_transition:
+            with pytest.raises(PermissionDeniedError):
+                facade.transition(
+                    item_id=uuid.uuid4(),
+                    target_state="approved",
+                    change_reason="attempted self-approval",
+                    ctx=gh215_editor_ctx,
+                    item_type="Requirement",
+                    workspace_id=gh215_workspace.id,
+                )
+
+        # The preset-level gate must reject before the engine is reached.
+        mock_wf_transition.assert_not_called()

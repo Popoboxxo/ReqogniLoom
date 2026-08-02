@@ -10,7 +10,7 @@ audit logging via _audit and preset-role validation via PresetPolicyService.
 
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: transition, initialize_workflow_states
-  IF-AS-INT-007     — outbound: PresetPolicyService.validate_transition_roles()
+  IF-AS-INT-007     — outbound: PresetPolicyService.validate_transition_roles(workspace_id)
 
 Architecture:
   docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/Components/
@@ -102,7 +102,7 @@ class WorkflowFacade(ServiceBase):
         self._check_change_reason(str(ws_uuid), change_reason)
 
         # REQ-L3-WF-001: preset-level role gate (IF-AS-INT-007)
-        self._check_transition_roles(ctx, target_state)
+        self._check_transition_roles(ctx, target_state, str(ws_uuid))
 
         # REQ-L3-WF-002 + REQ-L3-WF-006: atomic wrap
         with transaction.atomic():
@@ -678,14 +678,22 @@ class WorkflowFacade(ServiceBase):
                 )
 
     @staticmethod
-    def _check_transition_roles(ctx: AuthContext, target_state: str) -> None:
+    def _check_transition_roles(
+        ctx: AuthContext, target_state: str, workspace_id: str
+    ) -> None:
         """Raise PermissionDeniedError if preset blocks this role for target_state.
 
         REQ-L3-WF-001. Delegates to IF-AS-INT-007.
+
+        ``workspace_id`` (NOT ``ctx.tenant_id``) governs which preset applies —
+        a tenant can own many workspaces, each with its own preset (GitHub
+        issue #215).
         """
         # get_preset_policy_service is imported at module level to allow test mocking.
         policy = get_preset_policy_service()
-        allowed, error_msg = policy.validate_transition_roles(ctx, target_state)
+        allowed, error_msg = policy.validate_transition_roles(
+            ctx, target_state, workspace_id
+        )
         if not allowed:
             raise PermissionDeniedError(error_msg or "Transition denied by preset policy.")
 
