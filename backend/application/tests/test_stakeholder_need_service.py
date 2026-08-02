@@ -646,6 +646,33 @@ class TestDeleteCallsRealOutdate:
         assert item_id in [n.id for n in results_incl]
 
 
+class TestListByWorkspaceSearchFilter:
+    """Issue #267 (same root cause as RequirementService.list_requirements):
+    GET /api/v1/needs/?search=<term> must filter on title/description/uid
+    instead of being silently ignored."""
+
+    def test_search_filters_by_title_case_insensitive(self, need_ctx, need_workspace):
+        svc = StakeholderNeedService(preset_policy_service=None)
+        matching = svc.create(
+            ctx=need_ctx,
+            workspace_id=need_workspace.id,
+            title="Payment Gateway Need",
+        )
+        other = svc.create(
+            ctx=need_ctx,
+            workspace_id=need_workspace.id,
+            title="Unrelated Need",
+        )
+
+        results = svc.list_by_workspace(
+            ctx=need_ctx, workspace_id=need_workspace.id, search="payment gateway"
+        )
+        ids = {n.id for n in results}
+
+        assert ids == {matching.id}
+        assert other.id not in ids
+
+
 # ---------------------------------------------------------------------------
 # DomainEvent emission (regression: DomainEventOutbox.publish() misuse)
 # ---------------------------------------------------------------------------

@@ -581,3 +581,82 @@ class TestTenantIsolation:
             svc.get_test_case(TC_ID, ctx)
 
         mock_stc.assert_called_once_with(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Regression (Issue #267, same root cause as RequirementService.list_requirements):
+# GET /api/v1/test-cases/?search=<term> must filter on title/description/uid
+# instead of being silently ignored.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tc_search_tenant():
+    from persistence.models import Tenant
+
+    return Tenant.objects.create(name="tc-search-tenant", slug="tc-search-tenant")
+
+
+@pytest.fixture
+def tc_search_user(tc_search_tenant):
+    from persistence.models import User
+
+    return User.objects.create(
+        username="tc-search-user",
+        email="tc-search@example.com",
+        tenant=tc_search_tenant,
+    )
+
+
+@pytest.fixture
+def tc_search_workspace(tc_search_tenant):
+    from persistence.models import Workspace
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(tc_search_tenant.id)
+    try:
+        return Workspace.objects.create(
+            tenant=tc_search_tenant, name="tc-search-workspace"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.fixture
+def tc_search_ctx(tc_search_user):
+    from auth_tenancy.context import AuthContext
+
+    return AuthContext(
+        user_id=tc_search_user.id,
+        tenant_id=tc_search_user.tenant.id,
+        active_roles=("editor",),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="tc-search-tenant",
+    )
+
+
+@pytest.mark.django_db
+class TestListTestCasesSearchFilter:
+    def test_search_filters_by_title_case_insensitive(
+        self, tc_search_ctx, tc_search_workspace
+    ):
+        svc = TestService()
+        matching = svc.create_test_case(
+            workspace_id=tc_search_workspace.id,
+            title="Payment Gateway Test",
+            ctx=tc_search_ctx,
+        )
+        other = svc.create_test_case(
+            workspace_id=tc_search_workspace.id,
+            title="Unrelated Test",
+            ctx=tc_search_ctx,
+        )
+
+        results = svc.list_test_cases(
+            tc_search_workspace.id, tc_search_ctx, search="payment gateway"
+        )
+        ids = {tc.id for tc in results}
+
+        assert ids == {matching.id}
+        assert other.id not in ids

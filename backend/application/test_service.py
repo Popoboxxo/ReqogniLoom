@@ -27,7 +27,7 @@ import logging
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, TestCase, Tenant, Workspace
@@ -280,6 +280,7 @@ class TestService(ServiceBase):
         ctx: AuthContext,
         test_type: Optional[str] = None,
         include_deleted: bool = False,
+        search: Optional[str] = None,
     ) -> QuerySet[TestCase]:
         """Return TestCases in *workspace_id*, optionally filtered by test_type.
 
@@ -287,6 +288,10 @@ class TestService(ServiceBase):
         ``include_deleted=True`` for admin/audit access. ``TestCase`` is
         registered in ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``,
         so outdate() mirrors the "outdated" state into the `status` column.
+
+        Issue #267 (same root cause as RequirementService.list_requirements):
+        ``search`` case-insensitively filters on title/description/uid via
+        ``icontains``.
 
         REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
         (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
@@ -299,6 +304,12 @@ class TestService(ServiceBase):
             qs = qs.exclude(status="outdated")
         if test_type is not None:
             qs = qs.filter(artifact__artifact_type=f"TestCase:{test_type}")
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(uid__icontains=search)
+            )
         return qs
 
     # ---------- Coverage (REQ-L2-AS-025) ----------
