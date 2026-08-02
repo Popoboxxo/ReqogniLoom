@@ -20,8 +20,18 @@ django-celery-beat>=2.9.0,<3.0
 redis>=5.0,<6.0
 
 # Testing
-pytest>=8.0,<9.0
-pytest-django>=4.8,<5.0
+# pytest floor raised to 9.0.3 for CVE-2025-71176 / PYSEC-2026-1845 (CWE-379):
+# predictable /tmp/pytest-of-{user} basetemp directories on UNIX allow a local
+# user to cause a DoS or possibly escalate privileges. Fixed only in 9.0.3 —
+# there is no 8.x backport, so the CI pip-audit gate forces the major bump.
+pytest>=9.0.3,<10.0
+# pytest-django 4.12.0 is the first release whose own test matrix runs against
+# pytest>=9; earlier 4.x releases predate pytest 9 entirely. Its install
+# requirement is only `pytest>=7`, so the floor has to be pinned here.
+# Heads-up: pytest-django 4.12.1 drops support for Django 4.2, which this file
+# still pins above. When 4.12.1 is released this range will resolve to it and
+# break — the fix is upgrading Django (4.2 is past end of life), not capping.
+pytest-django>=4.12.0,<5.0
 pypdf>=6.14.2,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
