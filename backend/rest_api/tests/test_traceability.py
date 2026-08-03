@@ -310,6 +310,17 @@ def test_resolve_does_not_leak_cross_tenant_adr():
     assert resp.status_code == 200
     assert resp.data[0]["resolved"] is False
     assert resp.data[0]["entity_type"] is None
+    assert resp.data[0]["entity_id"] is None
+
+    # Sanity: the SAME id resolves for its own tenant, proving the negative
+    # result above is a tenant-isolation effect, not a fixture bug (mirrors
+    # the Requirement sibling test).
+    ctx_a = _make_auth_context(tenant_id=tenant_a.id)
+    own_resp = _resolve(ctx_a, [artifact_a.id])
+    assert own_resp.status_code == 200
+    assert own_resp.data[0]["resolved"] is True
+    assert own_resp.data[0]["entity_type"] == "Adr"
+    assert str(own_resp.data[0]["entity_id"]) == str(adr_a.id)
 
 
 def test_resolve_mixed_batch_returns_200_and_preserves_order():
@@ -370,3 +381,78 @@ def test_resolve_rejects_batch_over_limit():
     resp = _resolve(ctx, too_many)
 
     assert resp.status_code == 400
+
+
+def test_resolve_artifacts_service_truncates_oversized_batch_directly():
+    """Task 3.2a hardening (review finding 1): resolve_artifacts() itself
+    must cap its input, independent of the REST view's 400 check, since it is
+    a Layer 1 export (__all__) any future non-REST caller (MCP tool, Celery
+    task, another service) could call directly with an unbounded id list.
+
+    Calls the service function directly (bypassing the view entirely) with
+    RESOLVE_BATCH_LIMIT + 1 ids and asserts it degrades gracefully (silently
+    truncates, like impact_analysis's own _clamp_depth/_clamp_limit) instead
+    of building an unbounded IN clause across nine domain tables.
+    """
+    from traceability.service import RESOLVE_BATCH_LIMIT, resolve_artifacts
+
+    tenant, workspace = _new_tenant_and_workspace("T-resolve-svc-cap", name="W")
+
+    artifact, requirement = _make_requirement(tenant, workspace)
+    padding = [uuid.uuid4() for _ in range(RESOLVE_BATCH_LIMIT)]
+    oversized = [artifact.id] + padding  # RESOLVE_BATCH_LIMIT + 1 entries
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        results = resolve_artifacts(oversized, tenant_id=tenant.id)
+    finally:
+        TenantContext.clear_tenant()
+
+    assert len(results) == RESOLVE_BATCH_LIMIT
+    # The truncation keeps the head of the input, so the one resolvable id
+    # (placed first) must still resolve correctly.
+    first = results[0]
+    assert str(first.artifact_id) == str(artifact.id)
+    assert first.resolved is True
+    assert first.entity_type == "Requirement"
+    assert str(first.entity_id) == str(requirement.id)
+
+
+def test_resolve_artifacts_service_applies_explicit_tenant_filter_for_adr():
+    """Task 3.2a hardening (review finding 2): resolve_artifacts()'s explicit
+    tenant_id filter for the five non-TenantScopedModel types (Adr and
+    friends) must actually be load-bearing, not dead/unused. Regression guard
+    for the specific `.filter(tenant_id=...)` line — calls the service
+    directly with the WRONG tenant_id for a verified artifact_id (simulating
+    what would happen if a future caller mixed up Artifact-side verification
+    with a mismatched tenant_id argument) and asserts the row does not
+    resolve.
+    """
+    from traceability.service import resolve_artifacts
+
+    tenant_a, workspace_a = _new_tenant_and_workspace("T-A-svc-adr-filter", name="WA")
+    tenant_b, _workspace_b = _new_tenant_and_workspace("T-B-svc-adr-filter", name="WB")
+
+    artifact_a, adr_a = _make_adr(tenant_a, workspace_a)
+
+    # Correct tenant_id -> resolves.
+    TenantContext.set_tenant(tenant_a.id)
+    try:
+        own = resolve_artifacts([artifact_a.id], tenant_id=tenant_a.id)
+    finally:
+        TenantContext.clear_tenant()
+    assert own[0].resolved is True
+    assert own[0].entity_type == "Adr"
+    assert str(own[0].entity_id) == str(adr_a.id)
+
+    # Correct TenantContext (so the Artifact-side check still passes) but a
+    # mismatched tenant_id argument -> the explicit Adr-side filter must
+    # reject it even though the single-point Artifact check alone would not.
+    TenantContext.set_tenant(tenant_a.id)
+    try:
+        mismatched = resolve_artifacts([artifact_a.id], tenant_id=tenant_b.id)
+    finally:
+        TenantContext.clear_tenant()
+    assert mismatched[0].resolved is False
+    assert mismatched[0].entity_type is None
+    assert mismatched[0].entity_id is None

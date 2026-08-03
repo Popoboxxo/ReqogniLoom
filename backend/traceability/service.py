@@ -492,10 +492,15 @@ def detect_cycles(
 def _domain_model_registry() -> "list[tuple[str, object, bool]]":
     """Return ``(entity_type_label, model, is_tenant_scoped)`` for every type.
 
-    ``is_tenant_scoped`` is informational only (used for the docstring/tests'
-    self-review, not for filtering — see :func:`resolve_artifacts` for why
-    filtering the *Artifact* side once is sufficient even for the
-    non-tenant-scoped application-layer models).
+    ``is_tenant_scoped`` drives an explicit, redundant ``tenant_id`` filter in
+    :func:`resolve_artifacts` for the five application-layer models that are
+    plain ``models.Model`` (no ``TenantManager``). The single-point invariant
+    (tenant check happens once, on the ``Artifact`` side, via
+    ``verified_ids``) already holds without it — this is defense-in-depth so a
+    future refactor that queries these five tables directly from
+    caller-supplied ids, bypassing ``verified_ids``, does not silently
+    reintroduce a cross-tenant leak (review finding, Task 3.2a hardening
+    round; this codebase has shipped exactly this bug class before).
     """
     from persistence.models import (
         ArchitectureElement,
@@ -546,15 +551,30 @@ def resolve_artifacts(
     OneToOne ``artifact`` FK, so a row can only be found via an artifact_id
     that already passed the tenant check — there is no path for a
     cross-tenant Adr/Risk/Issue/Goal/MainGoal row to be reached from a
-    tenant-verified artifact_id set.
+    tenant-verified artifact_id set. As defense-in-depth on top of that
+    single-point invariant (Task 3.2a hardening round), *tenant_id* is also
+    applied as an explicit ``.filter(tenant_id=...)`` for exactly those five
+    models — redundant with the Artifact-side check today, but a second,
+    independent barrier against a future refactor that queries them directly.
+
+    Batch size is defensively re-clamped to ``RESOLVE_BATCH_LIMIT`` inside
+    this function (silently truncating, mirroring ``impact_analysis``'s own
+    ``_clamp_depth``/``_clamp_limit``), in addition to the REST layer's 400
+    on an over-limit request — this function is a Layer 1 export
+    (``__all__``), so a future non-REST caller must not be able to build an
+    unbounded ``IN`` clause across nine domain tables just by skipping the
+    view.
 
     Args:
         artifact_ids: Candidate Artifact ids (deduplication is caller's
             concern; duplicates simply produce duplicate result entries in
-            the same input order).
-        tenant_id: Active tenant (kept in the signature for symmetry with
-            ``impact_analysis``/``find_path``; enforcement happens via
-            ``TenantContext`` as described above, not via this parameter).
+            the same input order). Truncated to ``RESOLVE_BATCH_LIMIT``
+            entries if longer.
+        tenant_id: Active tenant. Enforced twice: implicitly via
+            ``TenantContext`` (as described above, for the Artifact-side
+            check and the four ``TenantScopedModel`` domain tables), and
+            explicitly via this parameter for the five non-tenant-scoped
+            application-layer models (Adr/Risk/Issue/Goal/MainGoal).
 
     Returns:
         One :class:`ResolvedArtifact` per input id, in input order.
@@ -566,6 +586,19 @@ def resolve_artifacts(
     str_ids = [str(a) for a in artifact_ids if a]
     if not str_ids:
         return []
+
+    # Defensive re-clamp (Task 3.2a hardening round, review finding 1):
+    # the REST layer (rest_api.views.TraceabilityViewSet.resolve) already
+    # rejects an over-limit batch with a 400 before this function is ever
+    # called, but resolve_artifacts is a Layer 1 export in __all__ — any
+    # future non-REST caller (MCP tool, Celery task, another service) could
+    # call it directly with an unbounded id list. Silently truncating here
+    # mirrors impact_analysis's own defensive re-clamp via _clamp_depth /
+    # _clamp_limit ("the REST layer also enforces this" — see MAX_DEPTH_CAP
+    # above) rather than raising, so a direct caller degrades gracefully
+    # instead of crashing.
+    if len(str_ids) > RESOLVE_BATCH_LIMIT:
+        str_ids = str_ids[:RESOLVE_BATCH_LIMIT]
 
     from persistence.models import Artifact
 
@@ -579,11 +612,22 @@ def resolve_artifacts(
     ]
     verified_set = set(verified_ids)
 
+    str_tenant_id = str(tenant_id)
     resolved_map: dict[str, tuple[str, str]] = {}
-    for entity_type, model, _tenant_scoped in _domain_model_registry():
-        for row in model.objects.filter(artifact_id__in=verified_ids).values(
-            "id", "artifact_id"
-        ):
+    for entity_type, model, is_tenant_scoped in _domain_model_registry():
+        qs = model.objects.filter(artifact_id__in=verified_ids)
+        if not is_tenant_scoped:
+            # Review finding 2 (Task 3.2a hardening round): Adr/Risk/Issue/
+            # Goal/MainGoal are plain models.Model, not TenantScopedModel, so
+            # they carry no automatic ORM-level tenant filter. The
+            # verified_ids restriction above already makes this safe (each
+            # has a UNIQUE artifact FK, and verified_ids only ever contains
+            # this tenant's Artifact ids), but adding the explicit
+            # tenant_id filter turns that single-point invariant into a
+            # redundant, defense-in-depth one — directly relevant given this
+            # codebase's history of tenant-scoping gaps.
+            qs = qs.filter(tenant_id=str_tenant_id)
+        for row in qs.values("id", "artifact_id"):
             key = str(row["artifact_id"])
             # Defensive: artifact_id__in was already restricted to
             # verified_ids, so `key` is always in verified_set here.
