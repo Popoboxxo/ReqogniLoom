@@ -44,6 +44,10 @@ DEFAULT_MAX_DEPTH = 10
 DEFAULT_LIMIT = 200
 MAX_LIMIT = 1000
 
+# REQ-L2-TE-019 / Task 3.2a: hard cap on the number of artifact_ids a single
+# ``resolve`` call may request, mirroring the impact/path row caps above.
+RESOLVE_BATCH_LIMIT = 200
+
 
 # ---------------------------------------------------------------------------
 # Result dataclasses
@@ -82,6 +86,32 @@ class TracePath:
 
     def to_dict(self) -> dict:
         return {"nodes": self.nodes, "length": self.length}
+
+
+@dataclass
+class ResolvedArtifact:
+    """Result of resolving one ``Artifact.id`` to its backing domain entity.
+
+    Task 3.2a (UI-Konzept Vollrollout): the trace graph (TraceLink,
+    impact_analysis) is keyed by ``Artifact.id`` while detail routes take
+    domain-entity ids (Requirement.id, Adr.id, ...). ``resolved=False`` means
+    *artifact_id* does not exist, is not visible to the caller's tenant, or
+    has no backing domain row (e.g. deleted) — the frontend keeps such
+    entries visible-but-not-clickable rather than treating this as an error.
+    """
+
+    artifact_id: str
+    resolved: bool
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "artifact_id": self.artifact_id,
+            "resolved": self.resolved,
+            "entity_type": self.entity_type,
+            "entity_id": self.entity_id,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -449,14 +479,144 @@ def detect_cycles(
     return list(unique.values())
 
 
+# ---------------------------------------------------------------------------
+# 2d. Artifact <-> domain-entity resolution (Task 3.2a, UI-Konzept Vollrollout)
+# ---------------------------------------------------------------------------
+
+#: Ordered (entity_type label, model) pairs covering every Generic Artifact
+#: Model type that carries a backing ``Artifact`` (OneToOne). Order mirrors
+#: TraceLinkService._resolve_artifact_id's probe order for consistency.
+#: Kept as a function-local import list (not module-level) to avoid circular
+#: imports between ``traceability`` and ``persistence``/``application``,
+#: exactly like ``_enrich`` above.
+def _domain_model_registry() -> "list[tuple[str, object, bool]]":
+    """Return ``(entity_type_label, model, is_tenant_scoped)`` for every type.
+
+    ``is_tenant_scoped`` is informational only (used for the docstring/tests'
+    self-review, not for filtering — see :func:`resolve_artifacts` for why
+    filtering the *Artifact* side once is sufficient even for the
+    non-tenant-scoped application-layer models).
+    """
+    from persistence.models import (
+        ArchitectureElement,
+        Requirement,
+        StakeholderNeed,
+        TestCase,
+    )
+    from application.models import Adr, Goal, Issue, MainGoal, Risk
+
+    return [
+        ("Requirement", Requirement, True),
+        ("ArchitectureElement", ArchitectureElement, True),
+        ("StakeholderNeed", StakeholderNeed, True),
+        ("TestCase", TestCase, True),
+        ("Adr", Adr, False),
+        ("Risk", Risk, False),
+        ("Issue", Issue, False),
+        ("Goal", Goal, False),
+        ("MainGoal", MainGoal, False),
+    ]
+
+
+def resolve_artifacts(
+    artifact_ids: list[uuid.UUID | str],
+    tenant_id: uuid.UUID,
+) -> list[ResolvedArtifact]:
+    """Resolve each ``Artifact.id`` in *artifact_ids* to ``(entity_type, entity_id)``.
+
+    REQ-L2-TE-019 (Task 3.2a): the trace graph (TraceLink, impact_analysis) is
+    keyed by ``Artifact.id`` for every artifact type; UI detail routes take the
+    domain-entity id instead (``Requirement.id``, ``Adr.id``, ...). No single
+    endpoint previously mapped one to the other for *every* type — this closes
+    that gap, covering all nine Generic Artifact Model types with a backing
+    Artifact: Requirement, ArchitectureElement, StakeholderNeed, TestCase,
+    Adr, Risk, Issue, Goal, MainGoal.
+
+    Tenant isolation (mirrors ``_enrich`` above, REQ-L2-TE-011):
+    ``Artifact.objects`` is the tenant-isolating default manager (see
+    ``persistence.tenancy.TenantManager`` / ``TenantContext``), so
+    ``Artifact.objects.filter(id__in=...)`` silently drops any id belonging to
+    another tenant — the caller MUST have already propagated the active
+    tenant into ``TenantContext`` (e.g. via ``ServiceBase._set_tenant_context``)
+    before calling this function, exactly as every other read in this module
+    requires. Only ids that survive that *first* tenant-scoped Artifact query
+    are ever used to probe the nine domain tables below. This is safe even
+    for Adr/Risk/Issue/Goal/MainGoal, which are plain (non-tenant-scoped)
+    Django models with their own ``tenant_id`` column: each has a UNIQUE
+    OneToOne ``artifact`` FK, so a row can only be found via an artifact_id
+    that already passed the tenant check — there is no path for a
+    cross-tenant Adr/Risk/Issue/Goal/MainGoal row to be reached from a
+    tenant-verified artifact_id set.
+
+    Args:
+        artifact_ids: Candidate Artifact ids (deduplication is caller's
+            concern; duplicates simply produce duplicate result entries in
+            the same input order).
+        tenant_id: Active tenant (kept in the signature for symmetry with
+            ``impact_analysis``/``find_path``; enforcement happens via
+            ``TenantContext`` as described above, not via this parameter).
+
+    Returns:
+        One :class:`ResolvedArtifact` per input id, in input order.
+        ``resolved=False`` for ids that don't exist, aren't visible to the
+        active tenant, or have no backing domain row (e.g. an Artifact left
+        behind after a domain-entity delete) — never raised as an error, so a
+        mixed batch of resolvable and unresolvable ids always returns 200.
+    """
+    str_ids = [str(a) for a in artifact_ids if a]
+    if not str_ids:
+        return []
+
+    from persistence.models import Artifact
+
+    # Step 1 — the ONLY tenant-scoping check: an id absent here is either
+    # nonexistent or belongs to another tenant; both cases resolve to
+    # resolved=False without distinguishing them (no tenant-existence oracle
+    # is exposed to the caller).
+    verified_ids = [
+        str(row["id"])
+        for row in Artifact.objects.filter(id__in=str_ids).values("id")
+    ]
+    verified_set = set(verified_ids)
+
+    resolved_map: dict[str, tuple[str, str]] = {}
+    for entity_type, model, _tenant_scoped in _domain_model_registry():
+        for row in model.objects.filter(artifact_id__in=verified_ids).values(
+            "id", "artifact_id"
+        ):
+            key = str(row["artifact_id"])
+            # Defensive: artifact_id__in was already restricted to
+            # verified_ids, so `key` is always in verified_set here.
+            resolved_map[key] = (entity_type, str(row["id"]))
+
+    results: list[ResolvedArtifact] = []
+    for aid in str_ids:
+        if aid in verified_set and aid in resolved_map:
+            entity_type, entity_id = resolved_map[aid]
+            results.append(
+                ResolvedArtifact(
+                    artifact_id=aid,
+                    resolved=True,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                )
+            )
+        else:
+            results.append(ResolvedArtifact(artifact_id=aid, resolved=False))
+    return results
+
+
 __all__ = [
     "ImpactNode",
     "TracePath",
+    "ResolvedArtifact",
     "impact_analysis",
     "find_path",
     "detect_cycles",
+    "resolve_artifacts",
     "MAX_DEPTH_CAP",
     "DEFAULT_MAX_DEPTH",
     "DEFAULT_LIMIT",
     "MAX_LIMIT",
+    "RESOLVE_BATCH_LIMIT",
 ]

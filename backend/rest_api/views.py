@@ -90,6 +90,7 @@ from rest_api.serializers import (
     IssueSerializer,
     MainGoalSerializer,
     RequirementSerializer,
+    ResolvedArtifactSerializer,
     RiskSerializer,
     SimilarRequirementSerializer,
     SimilarTraceLinkSerializer,
@@ -2213,6 +2214,76 @@ class TraceabilityViewSet(viewsets.GenericViewSet):
             return _service_error_response(exc, lang)
 
         return Response({"cycles": cycles, "count": len(cycles)})
+
+    @action(detail=False, methods=["get"], url_path="resolve")
+    def resolve(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/traceability/resolve/?artifact_ids=<uuid>[,<uuid>...]
+
+        Task 3.2a (UI-Konzept Vollrollout): resolves one or more Artifact ids
+        to their backing domain-entity ``(entity_type, entity_id)``, across
+        every Generic Artifact Model type (Requirement, ArchitectureElement,
+        StakeholderNeed, TestCase, Adr, Risk, Issue, Goal, MainGoal). The
+        trace graph (TraceLink, ``impact`` above) is keyed by Artifact id
+        while detail routes take domain-entity ids — this closes that gap for
+        every type at once, instead of each frontend page maintaining its own
+        ad-hoc lookup against an already-loaded list.
+
+        Read-only and tenant-scoped exactly like ``impact``/``path``/``cycles``
+        above (see ``traceability.service.resolve_artifacts`` docstring for
+        the tenant-isolation argument in detail).
+
+        Unresolvable ids (unknown, belonging to another tenant, or a deleted
+        domain row) are never an error: they come back with
+        ``resolved: false`` and null entity fields, distinguishing "batch call
+        failed" (4xx/5xx) from "this particular id is not openable" (200 with
+        ``resolved: false``) — the latter is the caller's (frontend
+        ``isOpenable``) responsibility to react to, not this endpoint's.
+        """
+        from traceability.service import RESOLVE_BATCH_LIMIT, resolve_artifacts
+
+        lang = detect_lang(request)
+        raw = request.query_params.get("artifact_ids")
+        if not raw:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="artifact_ids is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        id_strs = [s.strip() for s in raw.split(",") if s.strip()]
+        if not id_strs:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="artifact_ids is required"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(id_strs) > RESOLVE_BATCH_LIMIT:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=f"artifact_ids must contain at most {RESOLVE_BATCH_LIMIT} entries",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            parsed_ids = [UUID(s) for s in id_strs]
+        except ValueError:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="artifact_ids must be valid UUIDs"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+            svc = self._svc()
+            svc._set_tenant_context(ctx)
+            resolutions = resolve_artifacts(parsed_ids, tenant_id=ctx.tenant_id)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception("TraceabilityViewSet.resolve: unhandled exception")
+            return _service_error_response(exc, lang)
+
+        serialized = [ResolvedArtifactSerializer(r.to_dict()).data for r in resolutions]
+        return Response(serialized)
 
 
 # ---------------------------------------------------------------------------
