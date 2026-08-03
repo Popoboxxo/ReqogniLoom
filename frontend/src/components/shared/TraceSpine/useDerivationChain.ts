@@ -36,10 +36,34 @@
  * ordinary `TestCase --verifies--> X` shape and approximate for longer
  * chains. Making this exact needs a per-station coverage query on the
  * backend; until then the badge is a lower bound, never an overstatement.
+ *
+ * ## Route resolution (Task 3.2b)
+ *
+ * The chain above is keyed by `Artifact.id`, but a host's detail route
+ * takes the domain-entity id (`Requirement.id`, `Adr.id`, ...). This hook
+ * batch-resolves every artifact id appearing in the chain via
+ * `GET /traceability/resolve/` (Task 3.2a) once the chain itself has
+ * settled, and exposes the result as `isOpenable`/`resolveEntry` — a host
+ * with no local mapping of its own (e.g. a future Requirements/Needs/Goals
+ * detail view, Task 3.3) can hand these straight to `<TraceSpine>` instead
+ * of maintaining its own lookup. A host that already has a cheaper local
+ * mapping (e.g. `ArchitectureEditors`, which has the full element list
+ * loaded) may keep passing its own `isOpenable` to `<TraceSpine>` instead —
+ * that prop stays optional and this hook does not change its contract.
+ *
+ * `isOpenable` deliberately returns `false` — not "unknown", not a thrown
+ * error — for three distinct cases: the backend reports `resolved: false`
+ * (deleted/foreign-tenant artifact), the resolve call is still in flight,
+ * and the resolve call failed outright. All three are "cannot offer a link
+ * right now", and `<TraceSpine>` only has a boolean to disable the button
+ * with, so collapsing them is intentional; `isResolving` is exposed
+ * separately for a host that wants to distinguish "still loading" in its
+ * own UI.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { tracelinksApi, type ImpactNode } from "../../../api/tracelinks";
+import { traceabilityApi, type ResolvedArtifact } from "../../../api/traceability";
 import { extractErrorMessage } from "../../../api/client";
 import type { ArchitectureElement, UUID } from "../../../types";
 
@@ -77,10 +101,31 @@ export interface ChainStation {
   isCurrent: boolean;
 }
 
+/** A chain artifact's backing domain entity, once resolved (Task 3.2b). */
+export interface ResolvedChainEntry {
+  entityType: string;
+  entityId: UUID;
+}
+
 export interface DerivationChain {
   stations: ChainStation[];
   isLoading: boolean;
   error: string | null;
+  /**
+   * True while the chain's artifact ids are being batch-resolved to their
+   * domain entities. Independent of `isLoading` (which covers the impact
+   * queries) — the resolve call only starts once the chain has stations.
+   */
+  isResolving: boolean;
+  /**
+   * Whether `artifact` can be routed to. Backed by `GET /traceability/resolve/`
+   * (Task 3.2b); returns `false` while resolution is in flight, on a failed
+   * resolve call, and when the backend itself reports `resolved: false` — see
+   * the file docs for why these three collapse into one boolean.
+   */
+  isOpenable: (artifact: ChainArtifact) => boolean;
+  /** The resolved `(entityType, entityId)` for `artifact`, or `null` if not (yet) resolvable. */
+  resolveEntry: (artifact: ChainArtifact) => ResolvedChainEntry | null;
 }
 
 /** Sort weight so needs come before requirements before architecture. */
@@ -130,12 +175,15 @@ export function useDerivationChain(
   const [outgoing, setOutgoing] = useState<ImpactNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedById, setResolvedById] = useState<Map<UUID, ResolvedArtifact>>(new Map());
+  const [isResolving, setIsResolving] = useState(false);
 
   useEffect(() => {
     if (!artifactId || !enabled) {
       setIncoming([]);
       setOutgoing([]);
       setError(null);
+      setResolvedById(new Map());
       return;
     }
     let cancelled = false;
@@ -148,15 +196,19 @@ export function useDerivationChain(
     // stubbed client) would escape a bare `.catch()` on Promise.all and take
     // the surrounding editor down with it.
     void (async () => {
+      let inc: ImpactNode[] = [];
+      let out: ImpactNode[] = [];
       try {
-        const [inc, out] = await Promise.all([
+        const [incResult, outResult] = await Promise.all([
           tracelinksApi.impact(artifactId, { direction: "incoming", maxDepth }),
           tracelinksApi.impact(artifactId, { direction: "outgoing", maxDepth }),
         ]);
         if (cancelled) return;
         // Defensive: an unexpected envelope must not crash the detail view.
-        setIncoming(Array.isArray(inc) ? inc : []);
-        setOutgoing(Array.isArray(out) ? out : []);
+        inc = Array.isArray(incResult) ? incResult : [];
+        out = Array.isArray(outResult) ? outResult : [];
+        setIncoming(inc);
+        setOutgoing(out);
       } catch (err: unknown) {
         if (cancelled) return;
         setIncoming([]);
@@ -165,12 +217,63 @@ export function useDerivationChain(
       } finally {
         if (!cancelled) setIsLoading(false);
       }
+
+      // Route resolution (Task 3.2b) runs as a second phase of the SAME
+      // effect, after `inc`/`out` are known, rather than as a separate
+      // effect keyed off `incoming`/`outgoing` state — the latter would fire
+      // once for the initial empty arrays and again once state catches up,
+      // doubling the resolve call for no benefit (batching already covers
+      // the "many ids" case, this is about not calling twice for one chain).
+      if (cancelled) return;
+      const ids = new Set<UUID>();
+      ids.add(artifactId);
+      for (const node of inc) if (node.artifact_id) ids.add(node.artifact_id);
+      for (const node of out) if (node.artifact_id) ids.add(node.artifact_id);
+      const idList = [...ids];
+
+      if (idList.length === 0) {
+        setResolvedById(new Map());
+        return;
+      }
+      setIsResolving(true);
+      try {
+        const results = await traceabilityApi.resolve(idList);
+        if (cancelled) return;
+        const map = new Map<UUID, ResolvedArtifact>();
+        for (const r of Array.isArray(results) ? results : []) {
+          if (r?.artifact_id) map.set(r.artifact_id, r);
+        }
+        setResolvedById(map);
+      } catch {
+        if (cancelled) return;
+        // isOpenable() below treats "no entry" the same as "resolved:
+        // false" — a failed batch call degrades to every entry being
+        // reported as not openable rather than crashing, and never leaves
+        // stale resolutions from a previous artifact around.
+        setResolvedById(new Map());
+      } finally {
+        if (!cancelled) setIsResolving(false);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
   }, [artifactId, enabled, maxDepth]);
+
+  const isOpenable = useCallback(
+    (artifact: ChainArtifact): boolean => resolvedById.get(artifact.id)?.resolved === true,
+    [resolvedById],
+  );
+
+  const resolveEntry = useCallback(
+    (artifact: ChainArtifact): ResolvedChainEntry | null => {
+      const entry = resolvedById.get(artifact.id);
+      if (!entry || !entry.resolved || !entry.entity_type || !entry.entity_id) return null;
+      return { entityType: entry.entity_type, entityId: entry.entity_id };
+    },
+    [resolvedById],
+  );
 
   /** artifact id -> architecture tree depth, for station bucketing. */
   const levelByArtifactId = useMemo(() => {
@@ -301,5 +404,5 @@ export function useDerivationChain(
     levelByArtifactId,
   ]);
 
-  return { stations, isLoading, error };
+  return { stations, isLoading, error, isResolving, isOpenable, resolveEntry };
 }

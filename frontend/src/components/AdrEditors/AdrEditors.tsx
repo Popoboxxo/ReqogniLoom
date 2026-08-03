@@ -9,6 +9,9 @@ import { AdrForm } from './AdrForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
+import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
+import type { ChainArtifact } from '../shared/TraceSpine';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useAdrData } from './useAdrData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { adrsApi } from '../../api/adrs';
@@ -70,6 +73,22 @@ export default function AdrEditors(): JSX.Element {
   const handleSaved = () => { refresh(); };
   const handleDeleted = () => { navigate('/adrs'); refresh(); };
 
+  // Trace spine (Task 3.3 — UI concept ch. 5).
+  const derivationChain = useDerivationChain(
+    item?.artifact_id ?? item?.id ?? null,
+    'Adr',
+    null,
+    { enabled: !!item },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
+
   // Page-level loading / error states — only gate the full view on the
   // initial load (no data yet), keeping the list visible on detail reloads.
   if (isLoading && items.length === 0) {
@@ -121,14 +140,26 @@ export default function AdrEditors(): JSX.Element {
           rightPanel={
             <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
               <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+                {item && (
+                  <TraceSpine
+                    stations={derivationChain.stations}
+                    isLoading={derivationChain.isLoading}
+                    error={derivationChain.error}
+                    onOpenArtifact={handleOpenChainArtifact}
+                    isOpenable={derivationChain.isOpenable}
+                  />
+                )}
                 <AdrForm adr={item} onSaved={handleSaved} onDeleted={handleDeleted} />
+                {/* TraceLinkPanel stays: it is the create/delete CRUD surface
+                    for trace links (Task 3.3 decision — the Spine above is a
+                    read-only derivation-chain view, not a link editor). */}
                 {item && activeWorkspace && (
                   <TraceLinkPanel workspaceId={activeWorkspace.id} artifactId={item.id} />
                 )}
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                return <RightSidebar kind="adr" artifactId={item.id} currentVersion={ver} />;
+                return <RightSidebar kind="adr" artifactId={item.id} currentVersion={ver} hideTraceLinks />;
               })()}
             </div>
           }

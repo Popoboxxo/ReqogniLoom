@@ -24,6 +24,7 @@
 
 import {
   type CSSProperties,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -31,6 +32,7 @@ import {
   useState,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import styles from './workspace-tree.module.css';
 
 // ---------------------------------------------------------------------------
 // Level badge colors — design doc section 6
@@ -148,6 +150,24 @@ export interface WorkspaceTreeProps {
    * Small lists fall back to normal rendering (no layout change). Default: false.
    */
   virtualize?: boolean;
+  /**
+   * Task 3.1: optional per-row content override. When provided, replaces
+   * the tree's default name+badge label with custom content (e.g. an
+   * `<ArtifactRow>`) while TreeRow keeps owning the chrome that makes this
+   * a *tree* — the expand/collapse chevron, depth indent and click-to-select.
+   * Purely additive: callers that omit this prop (Architecture, Needs,
+   * Goals) render exactly as before.
+   */
+  renderRow?: (node: WorkspaceTreeNode, ctx: { isSelected: boolean }) => ReactNode;
+  /**
+   * Task 3.1: overrides the virtualizer's fixed row-height estimate
+   * (`VIRTUAL_ROW_HEIGHT`, tuned for the default single-line label). A
+   * `renderRow` override that is visually taller — e.g. `<ArtifactRow>`'s
+   * two-line id/title layout — MUST pass a matching estimate here, or
+   * absolutely-positioned virtualized rows will overlap once the list
+   * exceeds `VIRTUALIZE_THRESHOLD`. No effect when `virtualize` is unset.
+   */
+  virtualRowHeight?: number;
   'data-testid'?: string;
 }
 
@@ -245,6 +265,8 @@ export function WorkspaceTree({
   emptyLabel = 'No items.',
   noMatchesLabel = 'No matches found.',
   virtualize = false,
+  renderRow,
+  virtualRowHeight,
   'data-testid': testId = 'workspace-tree',
 }: WorkspaceTreeProps): JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -315,7 +337,7 @@ export function WorkspaceTree({
   const rowVirtualizer = useVirtualizer({
     count: visibleRows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => VIRTUAL_ROW_HEIGHT,
+    estimateSize: () => virtualRowHeight ?? VIRTUAL_ROW_HEIGHT,
     overscan: 12,
   });
 
@@ -401,6 +423,7 @@ export function WorkspaceTree({
                   isExpanded={isExpanded}
                   showLevelBadge={showLevelBadge}
                   onAddChild={onAddChild}
+                  renderRow={renderRow}
                   testIdPrefix={testId}
                   onSelect={onSelect}
                   onToggle={toggleExpand}
@@ -439,6 +462,7 @@ export function WorkspaceTree({
               isExpanded={isExpanded}
               showLevelBadge={showLevelBadge}
               onAddChild={onAddChild}
+              renderRow={renderRow}
               testIdPrefix={testId}
               onSelect={onSelect}
               onToggle={toggleExpand}
@@ -462,6 +486,8 @@ interface TreeRowProps {
   isExpanded: boolean;
   showLevelBadge: boolean;
   onAddChild?: (id: string) => void;
+  /** Task 3.1: custom row content override — see `WorkspaceTreeProps.renderRow`. */
+  renderRow?: (node: WorkspaceTreeNode, ctx: { isSelected: boolean }) => ReactNode;
   testIdPrefix: string;
   onSelect: (id: string) => void;
   onToggle: (id: string) => void;
@@ -477,11 +503,17 @@ function TreeRow({
   isExpanded,
   showLevelBadge,
   onAddChild,
+  renderRow,
   testIdPrefix,
   onSelect,
   onToggle,
   rowStyle,
 }: TreeRowProps): JSX.Element {
+  // Task 3.1: when a custom row renderer is used (e.g. <ArtifactRow>), it
+  // owns its own selected background/left-edge accent and hover state, so
+  // the <li> chrome around it stays neutral to avoid a double highlight.
+  const hasCustomRow = Boolean(renderRow);
+
   return (
     <li
       role="treeitem"
@@ -494,31 +526,40 @@ function TreeRow({
         alignItems: 'center',
         gap: 'var(--space-1)',
         minHeight: '32px',
-        padding: '4px 8px',
+        padding: hasCustomRow ? '0 8px' : '4px 8px',
         paddingLeft: `${8 + depth * 16}px`,
         borderRadius: 'var(--radius-sm)',
         cursor: 'pointer',
         userSelect: 'none',
-        background: isSelected ? 'var(--color-card-active-bg)' : 'transparent',
-        borderLeft: isSelected
-          ? '3px solid var(--color-primary)'
-          : '3px solid transparent',
+        background: !hasCustomRow && isSelected ? 'var(--color-card-active-bg)' : 'transparent',
+        borderLeft:
+          !hasCustomRow && isSelected
+            ? '3px solid var(--color-primary)'
+            : '3px solid transparent',
         color: 'var(--color-text)',
         transition: 'background var(--transition-fast)',
         boxSizing: 'border-box',
         ...rowStyle,
       }}
-      onMouseEnter={(e) => {
-        if (!isSelected) {
-          (e.currentTarget as HTMLLIElement).style.background =
-            'var(--color-surface-raised)';
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!isSelected) {
-          (e.currentTarget as HTMLLIElement).style.background = 'transparent';
-        }
-      }}
+      onMouseEnter={
+        hasCustomRow
+          ? undefined
+          : (e) => {
+              if (!isSelected) {
+                (e.currentTarget as HTMLLIElement).style.background =
+                  'var(--color-surface-raised)';
+              }
+            }
+      }
+      onMouseLeave={
+        hasCustomRow
+          ? undefined
+          : (e) => {
+              if (!isSelected) {
+                (e.currentTarget as HTMLLIElement).style.background = 'transparent';
+              }
+            }
+      }
     >
       {/* Expand / collapse toggle — rotate 90° when expanded (design doc §6) */}
       {hasChildren ? (
@@ -551,60 +592,71 @@ function TreeRow({
         <span aria-hidden="true" style={{ width: '16px', flexShrink: 0 }} />
       )}
 
-      {/* Node name */}
-      <span
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          fontSize: 'var(--font-size-sm)',
-          fontWeight: isSelected ? 600 : 400,
-        }}
-        title={node.name}
-      >
-        {node.name}
-      </span>
+      {hasCustomRow ? (
+        // Task 3.1: custom row content (e.g. <ArtifactRow>) replaces the
+        // default name+badge label. The chevron above and depth indent
+        // already applied via the <li> padding are the only tree chrome.
+        <div className={styles.customRowSlot} data-testid={`${testIdPrefix}-row-${node.id}`}>
+          {renderRow!(node, { isSelected })}
+        </div>
+      ) : (
+        <>
+          {/* Node name */}
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: isSelected ? 600 : 400,
+            }}
+            title={node.name}
+          >
+            {node.name}
+          </span>
 
-      {/* Status / type badge (node.badge) */}
-      {node.badge && (
-        <span
-          data-testid={`${testIdPrefix}-badge-${node.id}`}
-          style={{
-            flexShrink: 0,
-            fontSize: '0.7rem',
-            padding: '1px 6px',
-            borderRadius: 'var(--radius-full)',
-            background: node.badge.bg,
-            color: node.badge.color,
-            fontWeight: 500,
-            lineHeight: '16px',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {node.badge.text}
-        </span>
-      )}
+          {/* Status / type badge (node.badge) */}
+          {node.badge && (
+            <span
+              data-testid={`${testIdPrefix}-badge-${node.id}`}
+              style={{
+                flexShrink: 0,
+                fontSize: '0.7rem',
+                padding: '1px 6px',
+                borderRadius: 'var(--radius-full)',
+                background: node.badge.bg,
+                color: node.badge.color,
+                fontWeight: 500,
+                lineHeight: '16px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {node.badge.text}
+            </span>
+          )}
 
-      {/* Level badge L0-L4 (design doc §6 — level_badge colors) */}
-      {showLevelBadge && node.level && (
-        <span
-          data-testid={`${testIdPrefix}-level-${node.id}`}
-          style={{
-            flexShrink: 0,
-            fontSize: '12px',
-            padding: '1px 6px',
-            borderRadius: 'var(--radius-full)',
-            background: levelBadgeColor(node.level),
-            color: 'white',
-            fontWeight: 600,
-            lineHeight: '16px',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {node.level}
-        </span>
+          {/* Level badge L0-L4 (design doc §6 — level_badge colors) */}
+          {showLevelBadge && node.level && (
+            <span
+              data-testid={`${testIdPrefix}-level-${node.id}`}
+              style={{
+                flexShrink: 0,
+                fontSize: '12px',
+                padding: '1px 6px',
+                borderRadius: 'var(--radius-full)',
+                background: levelBadgeColor(node.level),
+                color: 'white',
+                fontWeight: 600,
+                lineHeight: '16px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {node.level}
+            </span>
+          )}
+        </>
       )}
 
       {/* Add-child button — Architecture view only (onAddChild prop) */}

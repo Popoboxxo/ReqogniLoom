@@ -44,6 +44,10 @@ DEFAULT_MAX_DEPTH = 10
 DEFAULT_LIMIT = 200
 MAX_LIMIT = 1000
 
+# REQ-L2-TE-019 / Task 3.2a: hard cap on the number of artifact_ids a single
+# ``resolve`` call may request, mirroring the impact/path row caps above.
+RESOLVE_BATCH_LIMIT = 200
+
 
 # ---------------------------------------------------------------------------
 # Result dataclasses
@@ -82,6 +86,32 @@ class TracePath:
 
     def to_dict(self) -> dict:
         return {"nodes": self.nodes, "length": self.length}
+
+
+@dataclass
+class ResolvedArtifact:
+    """Result of resolving one ``Artifact.id`` to its backing domain entity.
+
+    Task 3.2a (UI-Konzept Vollrollout): the trace graph (TraceLink,
+    impact_analysis) is keyed by ``Artifact.id`` while detail routes take
+    domain-entity ids (Requirement.id, Adr.id, ...). ``resolved=False`` means
+    *artifact_id* does not exist, is not visible to the caller's tenant, or
+    has no backing domain row (e.g. deleted) — the frontend keeps such
+    entries visible-but-not-clickable rather than treating this as an error.
+    """
+
+    artifact_id: str
+    resolved: bool
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "artifact_id": self.artifact_id,
+            "resolved": self.resolved,
+            "entity_type": self.entity_type,
+            "entity_id": self.entity_id,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -449,14 +479,188 @@ def detect_cycles(
     return list(unique.values())
 
 
+# ---------------------------------------------------------------------------
+# 2d. Artifact <-> domain-entity resolution (Task 3.2a, UI-Konzept Vollrollout)
+# ---------------------------------------------------------------------------
+
+#: Ordered (entity_type label, model) pairs covering every Generic Artifact
+#: Model type that carries a backing ``Artifact`` (OneToOne). Order mirrors
+#: TraceLinkService._resolve_artifact_id's probe order for consistency.
+#: Kept as a function-local import list (not module-level) to avoid circular
+#: imports between ``traceability`` and ``persistence``/``application``,
+#: exactly like ``_enrich`` above.
+def _domain_model_registry() -> "list[tuple[str, object, bool]]":
+    """Return ``(entity_type_label, model, is_tenant_scoped)`` for every type.
+
+    ``is_tenant_scoped`` drives an explicit, redundant ``tenant_id`` filter in
+    :func:`resolve_artifacts` for the five application-layer models that are
+    plain ``models.Model`` (no ``TenantManager``). The single-point invariant
+    (tenant check happens once, on the ``Artifact`` side, via
+    ``verified_ids``) already holds without it — this is defense-in-depth so a
+    future refactor that queries these five tables directly from
+    caller-supplied ids, bypassing ``verified_ids``, does not silently
+    reintroduce a cross-tenant leak (review finding, Task 3.2a hardening
+    round; this codebase has shipped exactly this bug class before).
+    """
+    from persistence.models import (
+        ArchitectureElement,
+        Requirement,
+        StakeholderNeed,
+        TestCase,
+    )
+    from application.models import Adr, Goal, Issue, MainGoal, Risk
+
+    return [
+        ("Requirement", Requirement, True),
+        ("ArchitectureElement", ArchitectureElement, True),
+        ("StakeholderNeed", StakeholderNeed, True),
+        ("TestCase", TestCase, True),
+        ("Adr", Adr, False),
+        ("Risk", Risk, False),
+        ("Issue", Issue, False),
+        ("Goal", Goal, False),
+        ("MainGoal", MainGoal, False),
+    ]
+
+
+def resolve_artifacts(
+    artifact_ids: list[uuid.UUID | str],
+    tenant_id: uuid.UUID,
+) -> list[ResolvedArtifact]:
+    """Resolve each ``Artifact.id`` in *artifact_ids* to ``(entity_type, entity_id)``.
+
+    REQ-L2-TE-019 (Task 3.2a): the trace graph (TraceLink, impact_analysis) is
+    keyed by ``Artifact.id`` for every artifact type; UI detail routes take the
+    domain-entity id instead (``Requirement.id``, ``Adr.id``, ...). No single
+    endpoint previously mapped one to the other for *every* type — this closes
+    that gap, covering all nine Generic Artifact Model types with a backing
+    Artifact: Requirement, ArchitectureElement, StakeholderNeed, TestCase,
+    Adr, Risk, Issue, Goal, MainGoal.
+
+    Tenant isolation (mirrors ``_enrich`` above, REQ-L2-TE-011):
+    ``Artifact.objects`` is the tenant-isolating default manager (see
+    ``persistence.tenancy.TenantManager`` / ``TenantContext``), so
+    ``Artifact.objects.filter(id__in=...)`` silently drops any id belonging to
+    another tenant — the caller MUST have already propagated the active
+    tenant into ``TenantContext`` (e.g. via ``ServiceBase._set_tenant_context``)
+    before calling this function, exactly as every other read in this module
+    requires. Only ids that survive that *first* tenant-scoped Artifact query
+    are ever used to probe the nine domain tables below. This is safe even
+    for Adr/Risk/Issue/Goal/MainGoal, which are plain (non-tenant-scoped)
+    Django models with their own ``tenant_id`` column: each has a UNIQUE
+    OneToOne ``artifact`` FK, so a row can only be found via an artifact_id
+    that already passed the tenant check — there is no path for a
+    cross-tenant Adr/Risk/Issue/Goal/MainGoal row to be reached from a
+    tenant-verified artifact_id set. As defense-in-depth on top of that
+    single-point invariant (Task 3.2a hardening round), *tenant_id* is also
+    applied as an explicit ``.filter(tenant_id=...)`` for exactly those five
+    models — redundant with the Artifact-side check today, but a second,
+    independent barrier against a future refactor that queries them directly.
+
+    Batch size is defensively re-clamped to ``RESOLVE_BATCH_LIMIT`` inside
+    this function (silently truncating, mirroring ``impact_analysis``'s own
+    ``_clamp_depth``/``_clamp_limit``), in addition to the REST layer's 400
+    on an over-limit request — this function is a Layer 1 export
+    (``__all__``), so a future non-REST caller must not be able to build an
+    unbounded ``IN`` clause across nine domain tables just by skipping the
+    view.
+
+    Args:
+        artifact_ids: Candidate Artifact ids (deduplication is caller's
+            concern; duplicates simply produce duplicate result entries in
+            the same input order). Truncated to ``RESOLVE_BATCH_LIMIT``
+            entries if longer.
+        tenant_id: Active tenant. Enforced twice: implicitly via
+            ``TenantContext`` (as described above, for the Artifact-side
+            check and the four ``TenantScopedModel`` domain tables), and
+            explicitly via this parameter for the five non-tenant-scoped
+            application-layer models (Adr/Risk/Issue/Goal/MainGoal).
+
+    Returns:
+        One :class:`ResolvedArtifact` per input id, in input order.
+        ``resolved=False`` for ids that don't exist, aren't visible to the
+        active tenant, or have no backing domain row (e.g. an Artifact left
+        behind after a domain-entity delete) — never raised as an error, so a
+        mixed batch of resolvable and unresolvable ids always returns 200.
+    """
+    str_ids = [str(a) for a in artifact_ids if a]
+    if not str_ids:
+        return []
+
+    # Defensive re-clamp (Task 3.2a hardening round, review finding 1):
+    # the REST layer (rest_api.views.TraceabilityViewSet.resolve) already
+    # rejects an over-limit batch with a 400 before this function is ever
+    # called, but resolve_artifacts is a Layer 1 export in __all__ — any
+    # future non-REST caller (MCP tool, Celery task, another service) could
+    # call it directly with an unbounded id list. Silently truncating here
+    # mirrors impact_analysis's own defensive re-clamp via _clamp_depth /
+    # _clamp_limit ("the REST layer also enforces this" — see MAX_DEPTH_CAP
+    # above) rather than raising, so a direct caller degrades gracefully
+    # instead of crashing.
+    if len(str_ids) > RESOLVE_BATCH_LIMIT:
+        str_ids = str_ids[:RESOLVE_BATCH_LIMIT]
+
+    from persistence.models import Artifact
+
+    # Step 1 — the ONLY tenant-scoping check: an id absent here is either
+    # nonexistent or belongs to another tenant; both cases resolve to
+    # resolved=False without distinguishing them (no tenant-existence oracle
+    # is exposed to the caller).
+    verified_ids = [
+        str(row["id"])
+        for row in Artifact.objects.filter(id__in=str_ids).values("id")
+    ]
+    verified_set = set(verified_ids)
+
+    str_tenant_id = str(tenant_id)
+    resolved_map: dict[str, tuple[str, str]] = {}
+    for entity_type, model, is_tenant_scoped in _domain_model_registry():
+        qs = model.objects.filter(artifact_id__in=verified_ids)
+        if not is_tenant_scoped:
+            # Review finding 2 (Task 3.2a hardening round): Adr/Risk/Issue/
+            # Goal/MainGoal are plain models.Model, not TenantScopedModel, so
+            # they carry no automatic ORM-level tenant filter. The
+            # verified_ids restriction above already makes this safe (each
+            # has a UNIQUE artifact FK, and verified_ids only ever contains
+            # this tenant's Artifact ids), but adding the explicit
+            # tenant_id filter turns that single-point invariant into a
+            # redundant, defense-in-depth one — directly relevant given this
+            # codebase's history of tenant-scoping gaps.
+            qs = qs.filter(tenant_id=str_tenant_id)
+        for row in qs.values("id", "artifact_id"):
+            key = str(row["artifact_id"])
+            # Defensive: artifact_id__in was already restricted to
+            # verified_ids, so `key` is always in verified_set here.
+            resolved_map[key] = (entity_type, str(row["id"]))
+
+    results: list[ResolvedArtifact] = []
+    for aid in str_ids:
+        if aid in verified_set and aid in resolved_map:
+            entity_type, entity_id = resolved_map[aid]
+            results.append(
+                ResolvedArtifact(
+                    artifact_id=aid,
+                    resolved=True,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                )
+            )
+        else:
+            results.append(ResolvedArtifact(artifact_id=aid, resolved=False))
+    return results
+
+
 __all__ = [
     "ImpactNode",
     "TracePath",
+    "ResolvedArtifact",
     "impact_analysis",
     "find_path",
     "detect_cycles",
+    "resolve_artifacts",
     "MAX_DEPTH_CAP",
     "DEFAULT_MAX_DEPTH",
     "DEFAULT_LIMIT",
     "MAX_LIMIT",
+    "RESOLVE_BATCH_LIMIT",
 ]

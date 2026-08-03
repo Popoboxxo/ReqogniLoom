@@ -90,6 +90,17 @@ vi.mock("../api/tracelinks", () => ({
     listForArtifact: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
+    // Task 3.3: <TraceSpine>'s useDerivationChain calls impact() on mount —
+    // without a mock this throws synchronously and gets swallowed into the
+    // hook's own error state, stealing the extractErrorMessage() mock queue
+    // from unrelated save-error assertions below.
+    impact: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+vi.mock("../api/traceability", () => ({
+  traceabilityApi: {
+    resolve: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -286,5 +297,78 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
       expect(alert).toBeInTheDocument();
       expect(alert).toHaveTextContent(fieldError);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3.1 — ArtifactRow list rows + EmptyState empty/no-match distinction
+// ---------------------------------------------------------------------------
+
+describe("RequirementEditors Task 3.1 (ArtifactRow / EmptyState)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+
+    vi.mocked(requirementsApi.list).mockResolvedValue({
+      results: [MOCK_REQUIREMENT],
+      count: 1,
+    } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([MOCK_REQUIREMENT] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(MOCK_REQUIREMENT);
+
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+
+    vi.mocked(testcasesApi.list).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    });
+  });
+
+  it("renders each requirement as an ArtifactRow with id, status and title", async () => {
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`)).toBeInTheDocument();
+    });
+    const row = screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`);
+    expect(row).toHaveTextContent(MOCK_REQUIREMENT.title);
+    expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}-status`)).toHaveTextContent(
+      MOCK_REQUIREMENT.status
+    );
+  });
+
+  it("shows the empty variant with a create action when there are no requirements at all", async () => {
+    vi.mocked(requirementsApi.list).mockResolvedValue({ results: [], count: 0 } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([]);
+    renderEditor();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("req-list-empty")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("req-list-empty-create")).toBeInTheDocument();
+    expect(screen.queryByTestId("req-list-no-match")).not.toBeInTheDocument();
+  });
+
+  it("shows the no-match variant with only a reset-filters action when the filter matches nothing", async () => {
+    renderEditor();
+    await waitFor(() => {
+      expect(screen.getByTestId(`req-row-${MOCK_REQUIREMENT.id}`)).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByTestId("req-list-search-input"), "no such requirement title");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("req-list-no-match")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("req-list-no-match-reset-filters")).toBeInTheDocument();
+    expect(screen.queryByTestId("req-list-empty")).not.toBeInTheDocument();
   });
 });

@@ -16,14 +16,18 @@
  * rejected action surfaces in exactly one place (ch. 12.12).
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { extractErrorMessage } from "../../api/client";
 import { goalsApi } from "../../api/goals";
 import { ArtifactCustomFields } from "../shared/ArtifactCustomFields";
 import { ArtifactId } from "../shared/ArtifactId";
 import { StatusBadge } from "../shared/StatusBadge";
 import { VersionBadge } from "../shared/VersionBadge";
+import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
+import type { ChainArtifact } from "../shared/TraceSpine";
+import { getArtifactRoute } from "../../utils/artifactRoutes";
 import type { ArtifactVersion, Goal } from "../../types";
 
 /** Workflow state a Goal must reach to count as aggregation input. */
@@ -47,8 +51,28 @@ const sectionLabelStyle: React.CSSProperties = {
 
 export function GoalDetail({ goal, onEdit, onApprove }: GoalDetailProps): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [versions, setVersions] = useState<ArtifactVersion[]>([]);
   const [versionsError, setVersionsError] = useState<string | null>(null);
+
+  // Trace spine (Task 3.3 — UI concept ch. 5). Goal is one of the nine
+  // types the `/traceability/resolve/` endpoint covers (Task 3.2a); it has
+  // no special station/level handling of its own in useDerivationChain,
+  // which is fine — it falls back to a single generic "Goal" station.
+  const derivationChain = useDerivationChain(
+    goal.artifact_id ?? goal.id,
+    'Goal',
+    null,
+    { enabled: !!goal },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +97,16 @@ export function GoalDetail({ goal, onEdit, onApprove }: GoalDetailProps): JSX.El
 
   return (
     <article data-testid="goal-detail">
+      {/* Trace spine (Task 3.3). Goals has no RightSidebar today, so there is
+          no trace-link duplication to remove here — this is a pure addition. */}
+      <TraceSpine
+        stations={derivationChain.stations}
+        isLoading={derivationChain.isLoading}
+        error={derivationChain.error}
+        onOpenArtifact={handleOpenChainArtifact}
+        isOpenable={derivationChain.isOpenable}
+      />
+
       {/* 1. Identity — ch. 12.4, same order and representation as the tree. */}
       <div
         style={{

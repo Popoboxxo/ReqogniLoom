@@ -717,6 +717,21 @@ class ImpactNodeSerializer(serializers.Serializer):
     )
 
 
+class ResolvedArtifactSerializer(serializers.Serializer):
+    """Serializer for one ``artifact_id -> (entity_type, entity_id)`` resolution
+    (Task 3.2a, UI-Konzept Vollrollout, REQ-L2-TE-019).
+
+    ``entity_type``/``entity_id`` are ``None`` when ``resolved`` is False
+    (unknown/foreign-tenant/deleted artifact_id) — the frontend keeps such
+    entries visible-but-not-clickable rather than treating this as an error.
+    """
+
+    artifact_id = serializers.UUIDField(read_only=True)
+    resolved = serializers.BooleanField(read_only=True)
+    entity_type = serializers.CharField(read_only=True, allow_null=True)
+    entity_id = serializers.UUIDField(read_only=True, allow_null=True)
+
+
 class SimilarRequirementSerializer(serializers.Serializer):
     """Serializer for a similarity-search hit (REQ-L2-VS-004).
 

@@ -8,6 +8,9 @@ import { TestCaseList } from './TestCaseList';
 import { TestCaseForm } from './TestCaseForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
+import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
+import type { ChainArtifact } from '../shared/TraceSpine';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useTestCaseData } from './useTestCaseData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { testcasesApi } from '../../api/testcases';
@@ -69,6 +72,28 @@ export default function TestCaseEditors(): JSX.Element {
   const handleSaved = () => { refresh(); };
   const handleDeleted = () => { navigate('/testcases'); refresh(); };
 
+  // Trace spine (Task 3.3 — UI concept ch. 5). Test cases are not their own
+  // station type in the derivation-chain model (useDerivationChain docs) —
+  // they attach to the station of whatever they verify — but the currently
+  // opened test case still gets its own "current" station showing what it
+  // verifies/derives from.
+  const derivationChain = useDerivationChain(
+    // TestCase has no separate `artifact_id` field on the frontend type
+    // (unlike Requirement/Adr/Risk/Issue) — its own id is the Artifact id.
+    item?.id ?? null,
+    'TestCase',
+    null,
+    { enabled: !!item },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
+
   // Page-level loading / error states — only gate the full view on the
   // initial load (no data yet), keeping the list visible on detail reloads.
   if (isLoading && items.length === 0) {
@@ -121,11 +146,20 @@ export default function TestCaseEditors(): JSX.Element {
           rightPanel={
             <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
               <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+                {item && (
+                  <TraceSpine
+                    stations={derivationChain.stations}
+                    isLoading={derivationChain.isLoading}
+                    error={derivationChain.error}
+                    onOpenArtifact={handleOpenChainArtifact}
+                    isOpenable={derivationChain.isOpenable}
+                  />
+                )}
                 <TestCaseForm testCase={item} onSaved={handleSaved} onDeleted={handleDeleted} />
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                return <RightSidebar kind="testCase" artifactId={item.id} currentVersion={ver} />;
+                return <RightSidebar kind="testCase" artifactId={item.id} currentVersion={ver} hideTraceLinks />;
               })()}
             </div>
           }

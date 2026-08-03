@@ -38,6 +38,23 @@ export interface CyclesResponse {
   count: number;
 }
 
+/**
+ * Result of resolving one ``Artifact.id`` to its backing domain entity
+ * (Task 3.2a/3.2b, REQ-L2-TE-019). Mirrors
+ * `backend/rest_api/serializers.py::ResolvedArtifactSerializer` — see there
+ * and `backend/traceability/service.py::resolve_artifacts` for the
+ * tenant-isolation and "resolved: false is never an error" contract.
+ */
+export interface ResolvedArtifact {
+  artifact_id: UUID;
+  resolved: boolean;
+  entity_type: string | null;
+  entity_id: UUID | null;
+}
+
+/** Batch cap mirrored from `backend/traceability/service.py::RESOLVE_BATCH_LIMIT`. */
+export const RESOLVE_BATCH_LIMIT = 200;
+
 export type ImpactDirection = "outgoing" | "incoming" | "both";
 
 export interface ImpactParams {

@@ -43,6 +43,9 @@ import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
 import { Dialog } from '../shared/Dialog';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
+import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
+import type { ChainArtifact } from '../shared/TraceSpine';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
 import type { RequirementType } from '../../types';
 
 /**
@@ -216,6 +219,25 @@ export default function RequirementEditors(): JSX.Element {
     };
   }, [requirement]);
 
+  // Trace spine (Task 3.3 — UI concept ch. 5). Uses the resolve-endpoint
+  // backed isOpenable/resolveEntry from the hook itself; unlike Architecture
+  // (Task 3.2's pilot, which predates the resolve endpoint) this page has no
+  // cheaper local id mapping to fall back on.
+  const derivationChain = useDerivationChain(
+    requirement?.artifact_id ?? requirement?.id ?? null,
+    'Requirement',
+    null,
+    { enabled: !!requirement },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
+
   // Loading state
   if (isLoading) {
     return <p role="status">{t('loading')}</p>;
@@ -366,6 +388,7 @@ export default function RequirementEditors(): JSX.Element {
         selectedId={selectedId}
         onSelect={(id) => navigate(`/requirements/${id}`)}
         onDelete={handleDelete}
+        onCreateNew={() => setShowCreateForm(true)}
       />
     </div>
   );
@@ -376,6 +399,13 @@ export default function RequirementEditors(): JSX.Element {
   const rightPanel = requirement ? (
     <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
       <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+      <TraceSpine
+        stations={derivationChain.stations}
+        isLoading={derivationChain.isLoading}
+        error={derivationChain.error}
+        onOpenArtifact={handleOpenChainArtifact}
+        isOpenable={derivationChain.isOpenable}
+      />
       <EntityTypeProvider
         entityType="requirement"
         entitySubType={(requirement.type || 'SyReq') as RequirementType}
@@ -444,6 +474,7 @@ export default function RequirementEditors(): JSX.Element {
           kind="requirement"
           artifactId={requirement.id}
           currentVersion={currentVersion}
+          hideTraceLinks
         />
       )}
     </div>

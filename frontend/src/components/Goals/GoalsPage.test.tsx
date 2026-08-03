@@ -11,6 +11,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import GoalsPage from "./GoalsPage";
 import * as goalsModule from "../../api/goals";
 import * as mainGoalModule from "../../api/main-goal";
@@ -54,7 +55,7 @@ describe("GoalsPage", () => {
   it("renders the two tree roots and shows the main goal by default", async () => {
     vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([]);
 
-    render(<GoalsPage />);
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
 
     expect(await screen.findByTestId("goals-tree-node-__main-goal__")).toBeInTheDocument();
     expect(screen.getByTestId("goals-tree-node-__goals__")).toBeInTheDocument();
@@ -68,7 +69,7 @@ describe("GoalsPage", () => {
       makeGoal({ id: "g2", lineage_id: "l2", title: "New Goal" })
     );
 
-    render(<GoalsPage />);
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
 
     expect(await screen.findByText("Existing Goal")).toBeInTheDocument();
 
@@ -91,7 +92,7 @@ describe("GoalsPage", () => {
       makeGoal({ status: "Freigegeben" }),
     ]);
 
-    render(<GoalsPage />);
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
     expect(await screen.findByTestId("goal-status")).toHaveTextContent("Freigegeben");
@@ -105,7 +106,7 @@ describe("GoalsPage", () => {
       new_state: "Freigegeben",
     });
 
-    render(<GoalsPage />);
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
     fireEvent.click(await screen.findByTestId("goal-approve-button"));
@@ -124,7 +125,7 @@ describe("GoalsPage", () => {
       makeGoal({ status: "Freigegeben" }),
     ]);
 
-    render(<GoalsPage />);
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
     await screen.findByTestId("goal-detail");
@@ -137,7 +138,7 @@ describe("GoalsPage", () => {
       makeGoal({ id: "g1-v2", sequence_number: 2, title: "Existing Goal, revised" })
     );
 
-    render(<GoalsPage />);
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
     fireEvent.click(await screen.findByTestId("goal-edit-button"));
@@ -164,7 +165,7 @@ describe("GoalsPage", () => {
       new Error("Goals are not enabled for this workspace")
     );
 
-    render(<GoalsPage />);
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
 
     fireEvent.click(await screen.findByTestId("create-goal-btn"));
     fireEvent.change(screen.getByTestId("goal-title-input"), { target: { value: "X" } });
@@ -183,7 +184,7 @@ describe("GoalsPage", () => {
       new Error("Role not allowed")
     );
 
-    render(<GoalsPage />);
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
     fireEvent.click(await screen.findByTestId("goal-approve-button"));

@@ -500,11 +500,14 @@ export default function ArchitectureEditors(): JSX.Element {
             </div>
           </div>
 
-          {/* New unified right sidebar (REQ-L2-RF-034). */}
+          {/* New unified right sidebar (REQ-L2-RF-034). Trace-link display is
+              now owned by the <TraceSpine> above (Task 3.3) — hideTraceLinks
+              keeps the sidebar to versions/baselines only. */}
           <RightSidebar
             kind="architecture"
             artifactId={element.id}
             currentVersion={currentVersion}
+            hideTraceLinks
           />
         </>
       ) : (

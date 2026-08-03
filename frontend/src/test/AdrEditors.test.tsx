@@ -96,6 +96,8 @@ vi.mock("../api/tracelinks", () => ({
     listForArtifact: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
+    // Task 3.3: <TraceSpine>'s useDerivationChain calls impact() on mount.
+    impact: vi.fn().mockResolvedValue([]),
   },
 }));
 
