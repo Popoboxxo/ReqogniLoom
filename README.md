@@ -14,7 +14,7 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 - **Requirements Management** — Create, organize, and manage requirements with workflow states and categorization
 - **Architecture Elements** — Model systems engineering structures (MBSE-compatible)
 - **Testcase Management** — Attach test cases to requirements and track coverage
-- **Traceability** — Automatic and manual linking between requirements, architecture elements, and test cases (8 link types)
+- **Traceability** — Automatic and manual linking between requirements, architecture elements, and test cases (14 link types: parent-child, derives-from, satisfies, verifies, implements, refines, documents, realizes, traces, copy-of, allocated-to, uses-term, decides, decomposes)
 - **Baselines & Snapshots** — Capture and compare system states across time
 - **Visual Artifact Diff** — Side-by-side and unified field-level change highlighting for requirements, architecture elements, and test cases
 - **History Endpoint** — Full audit trail per artifact (GET /api/v1/requirements/{id}/history/)
@@ -25,8 +25,8 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 - **Workflow Automation** — Configurable requirement states and transitions
 
 ### AI Integration
-- **MCP Server** — 11 AI-powered tool groups (40+ tools) for Claude, Cursor, and other LLM platforms
-- **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama, or mock mode
+- **MCP Server** — native Model Context Protocol server; 25 tool-group prefixes (requirement, needs, architecture, test, traceability, artifact, workspace, permissions, admin, audit, events, user, adr, risk, issue, glossary, change_request, prompt_template, ai_derivation, diagram, custom_field, review, baseline, goal, main_goal), 40+ individual tools, for Claude Desktop, Cursor, and other MCP-capable LLM platforms
+- **LLM Adapter** — Pluggable providers: Anthropic, OpenAI, Ollama (local), Azure OpenAI, opencode_go, or mock mode (default, no external calls)
 - **AI Derivation** — Configurable prompts to intelligently decompose Stakeholder Needs into System Requirements
 - **Semantic Glossary & Linking** — Intelligent requirement matching and terminology suggestions
 
@@ -38,34 +38,102 @@ Whether you're managing a small backlog or orchestrating a multi-level systems a
 - **Internationalization** — German and English interfaces
 
 ### Developer Experience
-- **REST API** — Full-featured /api/v1/ with JWT authentication
-- **Type-Safe Frontend** — React 18 + TypeScript + Vite
-- **Comprehensive Tests** — 1,416 backend tests (pytest) + 111 E2E tests (Playwright/Chromium)
-- **Docker Compose** — Production-ready local development stack
+- **REST API** — Full-featured /api/v1/ with JWT authentication, 20+ ViewSets/APIViews, OpenAPI 3.0 schema (drf-spectacular)
+- **Type-Safe Frontend** — React 18 + TypeScript (strict) + Vite; unified page-header/list-toolbar/artifact-row/empty-state pattern across artifact types, shared `Dialog` primitive (focus-trap, keyboard nav), Trace-Spine derivation-chain navigator, ARIA-compliant virtualized tree — see [`docs/UI_KONZEPT.md`](docs/UI_KONZEPT.md) for the design system rationale
+- **Comprehensive Tests** — pytest backend suite + Vitest frontend unit tests + Playwright E2E suite (42 spec files)
+- **Docker Compose** — self-hosted stack (ADR-08) with dedicated migrate/backup services
 
-## Architecture
+## System Architecture
 
+ReqogniLoom follows a strict **Single-Entry-Point Pattern** (ADR-01): both the REST API and the native MCP server are thin transport adapters that call into the *same* Layer 2 `application/` domain services — there is no parallel business logic. Layer 0 (`persistence`, `auth_tenancy`, `presets`, `audit`) provides tenant-isolated storage (Row-Level Security, ADR-03); Layer 1 hosts the core engines (LLM adapter, traceability, workflow, baseline, diagram/ICD).
+
+```mermaid
+graph TD
+    subgraph FE["Frontend — React 18 + TypeScript SPA"]
+        UI["components/ (pages, Trace-Spine, Dialog)"]
+        CTX["context/ (state)"]
+        APICLIENT["api/ (Axios client, JWT injection)"]
+        UI --> CTX --> APICLIENT
+    end
+
+    EXT["AI Assistant<br/>(Claude Desktop, Cursor, ...)<br/>or CI Pipeline"]
+
+    subgraph L3["Layer 3 — Integration (transport only)"]
+        REST["REST API<br/>DRF, 20+ ViewSets/APIViews<br/>JWT Auth + OpenAPI"]
+        MCP["MCP Server<br/>JSON-RPC 2.0<br/>25 tool-group prefixes, 40+ tools"]
+    end
+
+    subgraph L2["Layer 2 — Application (Single Entry Point, ADR-01)"]
+        APP["application/ domain services<br/>Requirement, Architecture, TestCase,<br/>TraceLink, Baseline, Workflow, ..."]
+    end
+
+    subgraph L1["Layer 1 — Core Engines"]
+        LLM["llm_adapter"]
+        TRACE["traceability"]
+        WF["workflow"]
+        BASE["baseline"]
+        DIAG["diagram / icd / se_metrics"]
+    end
+
+    subgraph L0["Layer 0 — Foundation"]
+        PERSIST["persistence (PostgreSQL / Django ORM)"]
+        AUTH["auth_tenancy (JWT, RBAC, Row-Level Security)"]
+        PRESET["presets (Rigor: minimal/standard/extended)"]
+        AUDIT["audit (Audit Log)"]
+    end
+
+    APICLIENT -->|"HTTPS + JWT"| REST
+    EXT -->|"JSON-RPC 2.0 + X-API-Key: reqlo_..."| MCP
+
+    REST --> APP
+    MCP --> APP
+    APP --> LLM
+    APP --> TRACE
+    APP --> WF
+    APP --> BASE
+    APP --> DIAG
+    APP -.->|"reads rigor config"| PRESET
+    LLM --> PERSIST
+    TRACE --> PERSIST
+    WF --> PERSIST
+    BASE --> PERSIST
+    PERSIST --> AUTH
+    PERSIST --> AUDIT
 ```
-Layer 4 (UI)       │  React 18 + TypeScript + Vite
-                   │  (CSS Design System, i18n DE/EN, JWT Auth)
-───────────────────┼─────────────────────────────────────
-Layer 3 (API)      │  REST API (DRF, 16 ViewSets + 2 APIViews)
-                    │  MCP Server (11 Tool Groups, 40+ AI Tools)
-───────────────────┼─────────────────────────────────────
-Layer 2 (App)      │  Single Entry Point
-                    │  19 Domain Services (16 Core + 3 v1.1)
-───────────────────┼─────────────────────────────────────
-Layer 1 (Core)     │  LLM Adapter, Traceability Engine, Workflow, Baseline,
-                   │  Diagram Generation, ICD (Interface Control Documents)
-───────────────────┼─────────────────────────────────────
-Layer 0 (Base)     │  Persistence, Auth & Tenancy, Presets, Audit Log
-                   │
-Cross-Cutting      │  SE Metrics, Resilience (Retry/Circuit-Breaker)
+
+**V-Model Traceability:** ReqogniLoom follows a V-Model decomposition (L0 stakeholder needs → L1 system requirements → L2 subsystems → L3 components → L4 presentation), with full REQ traceability from stakeholder needs down to test cases.
+
+### Integration Data Flow
+
+How an external AI assistant (via MCP) and a CI pipeline (via REST) reach the same application layer and database:
+
+```mermaid
+sequenceDiagram
+    participant Assistant as AI Assistant (Claude Desktop / Cursor)
+    participant CI as CI Pipeline / curl script
+    participant MCP as MCP Server (/mcp/)
+    participant REST as REST API (/api/v1/)
+    participant APP as Application Services (Layer 2)
+    participant DB as PostgreSQL (tenant-scoped via RLS)
+
+    Assistant->>MCP: JSON-RPC 2.0 call, header X-API-Key: reqlo_...
+    MCP->>APP: invoke domain service method
+    APP->>DB: query / write (tenant context active)
+    DB-->>APP: result
+    APP-->>MCP: domain object
+    MCP-->>Assistant: JSON-RPC 2.0 result
+
+    CI->>REST: POST /api/v1/auth/login/ (username + password)
+    REST-->>CI: JWT token
+    CI->>REST: GET/POST ... (Authorization: Bearer token)
+    REST->>APP: invoke domain service method
+    APP->>DB: query / write (tenant context active)
+    DB-->>APP: result
+    APP-->>REST: domain object
+    REST-->>CI: JSON response
 ```
 
-**V-Model Traceability:** ReqogniLoom follows a 3-tier V-Model decomposition (L0 stakeholder needs → L1 system requirements → L2 subsystem requirements → L3 components), with full REQ traceability from stakeholder needs down to test cases.
-
-**Services:** postgres (PostgreSQL) + redis (caching/Celery) + backend (Django :8000) + frontend (Vite :5173) + celery (async tasks)
+**Services (production `docker-compose.yml`):** `postgres` (PostgreSQL 16 + pgvector) · `postgres-backup` (scheduled `pg_dump`) · `redis` (Celery broker/cache) · `migrate` (one-shot migrations + self-init: admin user, base workspace, default workflows) · `backend` (Django :8000) · `celery` (async worker) · `celery-beat` (periodic tasks) · `frontend` (React + nginx, published on :80). The included `docker-compose.override.yml` swaps `frontend`/`backend` into hot-reload dev mode automatically.
 
 ## How to Start
 
@@ -85,25 +153,29 @@ docker-compose build
 
 ### 2. Configure Secrets (REQUIRED)
 
-Before starting the stack, you **must** set up two critical secrets in a `.env` file:
+Before starting the stack, you **must** set up three critical secrets in a `.env` file — the application refuses to start in production mode if any is missing or empty:
 
 ```bash
 # Copy the example .env
 cp .env.example .env
 
-# Generate SECRET_KEY
-python3 -c "import secrets; print(secrets.token_urlsafe(64))" >> /tmp/secret_key.txt
+# Generate SECRET_KEY (Django)
+python3 -c "import secrets; print(secrets.token_urlsafe(64))"
 
-# Generate AUTH_JWT_SECRET  
-python3 -c "import secrets; print(secrets.token_urlsafe(64))" >> /tmp/auth_jwt_secret.txt
+# Generate AUTH_JWT_SECRET (JWT signing)
+python3 -c "import secrets; print(secrets.token_urlsafe(64))"
 
-# Edit .env and fill in BOTH variables (use the generated values):
+# Generate FIELD_ENCRYPTION_KEY (encrypts stored LLM API keys at rest)
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Edit .env and fill in all three (plus DB_PASSWORD / DB_APP_PASSWORD / SYSTEM_ADMIN_PASSWORD):
 # SECRET_KEY=<value-from-above>
 # AUTH_JWT_SECRET=<value-from-above>
+# FIELD_ENCRYPTION_KEY=<value-from-above>
 vim .env
 ```
 
-**Why this is required:** Both `SECRET_KEY` and `AUTH_JWT_SECRET` are critical for security and workflow integrity. They are not defaulted in production — the application will fail to start if either is missing or empty.
+**Why this is required:** `SECRET_KEY`, `AUTH_JWT_SECRET`, and `FIELD_ENCRYPTION_KEY` are critical for security and are not defaulted in production (`DJANGO_ENV=production`, the `.env.example` default). `DB_PASSWORD`/`DB_APP_PASSWORD` and `SYSTEM_ADMIN_PASSWORD` also need real values before first start (see `.env.example` for the full annotated list).
 
 ### 3. Start the Stack
 
@@ -111,21 +183,24 @@ vim .env
 docker-compose up
 ```
 
-Wait for all services to be ready (backend and frontend should show "ready" or similar log messages).
-Open a new terminal for the next step.
+The one-shot `migrate` service runs first (`backend`/`celery`/`celery-beat` wait for it via `depends_on: service_completed_successfully`). It applies migrations **and** self-initializes a fresh database on first run: base tenant, base workspace, admin user, and default workflow/permission definitions (`application/self_init.py`, triggered via a `post_migrate` signal) — no manual `migrate`/seed step is needed for a first start. Wait for `backend` and `frontend` to report healthy; open a new terminal for the next step.
 
-### 4. Initialize Database
+### 4. Verify the Database Was Initialized
 
 ```bash
-# Run migrations
-docker-compose exec backend python manage.py migrate
+docker-compose ps
+# migrate should show "Exited (0)"; postgres/redis/backend/celery/celery-beat/frontend should show "Up (healthy)"
 ```
 
-The backend service automatically runs the `bootstrap_admin` command during startup (after migrations) to initialize the system admin user.
+If you ever need to (re-)run migrations manually (e.g. after pulling new model changes without recreating the stack):
+
+```bash
+docker-compose run --rm migrate
+```
 
 ### 5. Access with Default Admin User
 
-The bootstrap process creates an admin user automatically if `SYSTEM_ADMIN_*` environment variables are set (or uses defaults if not).
+Self-init creates the admin user automatically on first start if `SYSTEM_ADMIN_PASSWORD` is set (uses `SYSTEM_ADMIN_USERNAME`/`SYSTEM_ADMIN_EMAIL` defaults otherwise). Provisioning is create-only — an admin who later changes their password via the UI keeps it across restarts.
 
 **Default credentials** (if not overridden in `.env`):
 - **Username:** `admin`
@@ -193,13 +268,15 @@ docker-compose down
 LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... docker-compose up
 ```
 
-**Supported Providers:**
-- `anthropic` — Claude API (set `LLM_API_KEY`)
-- `openai` — OpenAI API (set `LLM_API_KEY`)
-- `ollama` — Local Ollama instance (set `LLM_OLLAMA_BASE_URL`, default: http://localhost:11434)
+**Supported Providers** (`backend/llm_adapter/providers.py`):
+- `anthropic` — Claude API (set `LLM_API_KEY`, `LLM_MODEL`)
+- `openai` — OpenAI API (set `LLM_API_KEY`, `LLM_MODEL`)
+- `ollama` — Local Ollama instance (set `LLM_BASE_URL`, default `http://localhost:11434`, and `LLM_MODEL`)
+- `azure` — Azure OpenAI (set `LLM_API_KEY`, `LLM_BASE_URL` to the resource endpoint, `LLM_MODEL` to the deployment name)
+- `opencode_go` — opencode/go-backed provider (see `.env.example` for its variables)
 - `mock` — Dry-run mode, no API calls (default)
 
-See `.env.example` for all available configuration options.
+See `.env.example` for all available configuration options and per-provider examples.
 
 ### 8b. Verify Installation
 
@@ -434,11 +511,13 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
    vim .env
    ```
 
-   Key variables:
-   - `SECRET_KEY` — generate with Python (above)
-   - `DEBUG=False` — disable debug mode (default in .env.example)
+   Key variables (see `.env.example` for the full annotated list):
+   - `SECRET_KEY`, `AUTH_JWT_SECRET`, `FIELD_ENCRYPTION_KEY` — generate with Python (see [How to Start](#2-configure-secrets-required) above)
+   - `DEBUG=False`, `DJANGO_ENV=production` — disable debug mode (default in `.env.example`)
    - `ALLOWED_HOSTS` — your server hostname(s)
-   - `DB_PASSWORD` — strong password (32+ chars, random)
+   - `CORS_ALLOWED_ORIGINS` — your exact frontend origin(s), never `*`
+   - `DB_PASSWORD`, `DB_APP_PASSWORD` — strong passwords (32+ chars, random)
+   - `SYSTEM_ADMIN_PASSWORD` — required for the admin account to be created on first start
    - `LLM_PROVIDER` — leave as `mock` for core features without AI
 
 3. **Build and start:**
@@ -448,14 +527,11 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
    docker-compose up -d
    ```
 
-4. **Initialize database:**
+4. **Database initialization is automatic:**
+
+   The one-shot `migrate` service runs migrations and self-initializes the base tenant, workspace, admin user, and default workflows (`application/self_init.py`) before `backend`/`celery`/`celery-beat` start — no manual step needed. Optionally seed demo data afterwards:
 
    ```bash
-   # Run migrations
-   docker-compose exec backend python manage.py migrate
-   
-   # The admin user is automatically created by the bootstrap_admin command during startup
-   # (you can optionally seed demo data afterwards)
    docker-compose exec backend python manage.py seed_demo
    ```
 
@@ -463,23 +539,54 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
 
    ```bash
    docker-compose ps
-   # All should show: Up (healthy) or Up
+   # migrate: Exited (0); postgres/postgres-backup/redis/backend/celery/celery-beat/frontend: Up (healthy) or Up
    ```
 
 ### Architecture
 
-**Services:**
-- **postgres** — pgvector/pgvector:pg16-alpine (PostgreSQL with pgvector extension)
-- **redis** — redis:7-alpine (Celery message broker + caching)
-- **backend** — Django REST API (:8000)
-- **celery** — Async task worker (depends on redis and postgres)
-- **frontend** — React + Nginx (:3000)
+```mermaid
+graph LR
+    subgraph Host["Docker Host"]
+        FE["frontend<br/>React + nginx<br/>host :80 → container :8080"]
+        BE["backend<br/>Django REST + MCP<br/>host :8000"]
+        MIG["migrate (one-shot)<br/>migrations + self-init"]
+        CEL["celery<br/>worker: default, llm, events queues"]
+        BEAT["celery-beat<br/>periodic tasks"]
+        PG["postgres<br/>pgvector/pgvector:pg16<br/>host :5432 (internal use)"]
+        PGB["postgres-backup<br/>scheduled pg_dump"]
+        RD["redis<br/>7-alpine, host :6379 (internal use)"]
+    end
+
+    FE -->|HTTPS/HTTP + JWT| BE
+    BE --> PG
+    BE --> RD
+    MIG -->|runs first| PG
+    BE -.->|depends_on: migrate completed| MIG
+    CEL --> PG
+    CEL --> RD
+    BEAT --> PG
+    BEAT --> RD
+    PGB -->|pg_dump| PG
+```
+
+**Services** (`docker-compose.yml`):
+- **postgres** — `pgvector/pgvector:pg16` (PostgreSQL 16 with the pgvector extension pre-installed into `template1`)
+- **postgres-backup** — `postgres:16-alpine` sidecar; runs `backup_postgres.sh` every `BACKUP_INTERVAL` seconds (default 24h), retains `BACKUP_RETENTION` (default 7) gzip dumps
+- **redis** — `redis:7-alpine` (Celery broker + cache, `appendonly` persistence, 256mb `maxmemory`)
+- **migrate** — one-shot; runs `python manage.py migrate` then the `post_migrate` self-init signal; `backend`/`celery`/`celery-beat` wait for it via `service_completed_successfully`
+- **backend** — Django REST API + MCP server (`:8000`), connects as the least-privilege `DB_APP_USER` role (RLS-enforced)
+- **celery** — async worker consuming the `default`, `llm`, `events` queues
+- **celery-beat** — periodic task scheduler (`django_celery_beat.schedulers:DatabaseScheduler`)
+- **frontend** — React build served by nginx, container port `8080`, published on host `:80`
 
 **Data Persistence:**
-- `postgres_data` named volume — automatically managed by Docker
-- (Optional) Redis persistence — configure in redis service if needed
+- `postgres_data` — named volume, PostgreSQL data directory
+- `postgres_backup_data` — named volume, retained `pg_dump` archives
+- `backend_dr_backups` — named volume, `admin.backup_create`/`restore` JSON files (`/app/backups`)
 
 ### Reverse Proxy Setup (nginx example)
+
+> **Note:** `docker-compose.yml` publishes `frontend` on host port `80` by default (container listens on `8080`). If you front the stack with your own reverse proxy on `80`/`443` (recommended for TLS), either remove the `ports:` mapping on the `frontend` service and let the proxy reach it via the Docker network, or rebind it to a non-conflicting host port (e.g. `"3000:8080"`) and adjust the `upstream frontend` block below accordingly.
 
 ```nginx
 # /etc/nginx/sites-available/reqogniloom
@@ -605,17 +712,28 @@ docker-compose logs -f
 
 ### Backup & Restore
 
-**Backup database:**
+**Automatic backups:** the `postgres-backup` sidecar service already runs `pg_dump` on a schedule (`BACKUP_INTERVAL`, default 24h) and retains the last `BACKUP_RETENTION` (default 7) gzip-compressed dumps in the `postgres_backup_data` volume — no manual cron job needed.
+
+**Manual backup:**
 
 ```bash
 docker-compose exec postgres pg_dump -U reqogniloom reqogniloom > backup.sql
 ```
 
-**Restore database:**
+**Manual restore:**
 
 ```bash
 docker-compose exec -T postgres psql -U reqogniloom reqogniloom < backup.sql
 ```
+
+**Restore from an automatic backup:**
+
+```bash
+docker-compose exec postgres-backup sh -c 'gunzip -c /backups/reqogniloom_<timestamp>.sql.gz' | \
+  docker-compose exec -T postgres psql -U reqogniloom reqogniloom
+```
+
+There is also an application-level Disaster Recovery mechanism (`admin.backup_create`/`admin.backup_list`/`admin.restore` MCP tools, Admin role + `X-Captcha: RESTORE` header) that snapshots artifacts as JSON into the `backend_dr_backups` volume — a separate, artifact-level complement to the raw Postgres dumps above.
 
 ### Scaling Considerations
 
@@ -693,20 +811,20 @@ find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
 
 ## MCP Server
 
-ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **11 tool groups** (40+ individual tools) for requirements engineering, test management, traceability, workspace administration, permissions, backups, audit, and user management.
+ReqogniLoom ships a native MCP (Model Context Protocol) server alongside the REST API. The server exposes **25 tool-group prefixes** (40+ individual tools, verified floor — see `backend/mcp_server/tests/test_mcp_api_key_roles.py`) for requirements engineering, stakeholder needs, architecture, test management, traceability, ADRs, risks, issues, glossary, change requests, goals, diagrams, AI derivation, workspace administration, permissions, backups, audit, and user management. Several prefixes share one underlying tool-group implementation (e.g. `traceability`/`artifact`/`context` all route to `CrossCuttingToolGroup`, `audit`/`events` to `AuditToolGroup`) — see `backend/mcp_server/tool_registry.py` for the full prefix → implementation map.
 
 ### Transport Endpoints
 
 | Endpoint | Method | Transport | Authentication |
 |----------|--------|-----------|----------------|
-| `/mcp/` | POST | HTTP/JSON-RPC 2.0 | `X-API-Key: rfk_<key>` header OR `params.api_key` in body |
-| `/mcp/sse/` | POST | SSE (single event) | `X-API-Key: rfk_<key>` header |
+| `/mcp/` | POST | HTTP/JSON-RPC 2.0 | `X-API-Key: reqlo_<key>` header OR `params.api_key` in body |
+| `/mcp/sse/` | POST | SSE (single event) | `X-API-Key: reqlo_<key>` header |
 | `/mcp/` | GET | — | Server info / health check (no auth required) |
 | (stdio) | — | stdio (local pipe) | `params.api_key` argument |
 
 ### Authentication
 
-MCP tools authenticate via API keys prefixed with `rfk_`. To create one:
+MCP tools authenticate via API keys prefixed with `reqlo_`. To create one:
 
 ```bash
 # 1. Obtain a JWT session token via the REST API
@@ -719,7 +837,7 @@ curl -X POST http://localhost:8000/api/v1/api-keys/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"claude-desktop"}'
-# Response: {"id":7, "key":"rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12", ...}
+# Response: {"id":7, "key":"reqlo_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12", ...}
 ```
 
 The plaintext key is returned **once** at creation. Store it securely.
@@ -729,7 +847,7 @@ The plaintext key is returned **once** at creation. Store it securely.
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12" \
+  -H "X-API-Key: reqlo_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12" \
   -d '{
     "jsonrpc":"2.0",
     "id":1,
@@ -753,7 +871,7 @@ curl -X POST http://localhost:8000/mcp/ \
         "-s",
         "-X", "POST",
         "http://localhost:8000/mcp/stdio/",
-        "-H", "X-API-Key: rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12",
+        "-H", "X-API-Key: reqlo_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12",
         "-d", "@-"
       ]
     }
@@ -772,7 +890,7 @@ curl -X POST http://localhost:8000/mcp/ \
         "-s",
         "-X", "POST",
         "http://localhost:8000/mcp/stdio/",
-        "-H", "X-API-Key: rfk_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12",
+        "-H", "X-API-Key: reqlo_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12",
         "-d", "@-"
       ]
     }
@@ -780,25 +898,32 @@ curl -X POST http://localhost:8000/mcp/ \
 }
 ```
 
-### Tool Groups (11 prefixes, 40+ tools)
+### Tool Groups (25 prefixes)
 
 | Prefix | Purpose | Example tools | Role required |
 |--------|---------|---------------|---------------|
-| `requirement` | Read, create, update, decompose, validate requirements | `get`, `query`, `create`, `update`, `decompose`, `validate` | Member |
-| `architecture` | Read, create, update, link architecture artifacts | `get`, `query`, `create`, `update`, `link` | Member |
-| `test` | Read, create, link, run tests, report results | `get`, `query`, `create`, `update`, `link`, `run_create`, `run_get`, `run_report_results` | Member |
-| `traceability` | Cross-cutting traceability queries | `query`, `artifact.search`, `artifact.get_tree`, `workspace.get_context` | Member |
-| `artifact` | Artifact tree and comments | `get_tree`, `get_comments` | Member |
-| `workspace` | **Admin** — close, reactivate, delete workspaces | `get_context`, `close`, `reactivate`, `delete` | Admin |
+| `requirement` | Read, create, update, decompose, validate, derive requirements | `get`, `query`, `create`, `update`, `decompose`, `validate`, `derive` | Member |
+| `needs` | Stakeholder Needs CRUD + trace/derive to requirements | `read`, `create`, `update`, `get_traces`, `derive_requirements` | Member |
+| `architecture` | Read, create, update, link, decompose architecture artifacts | `get`, `query`, `create`, `update`, `link`, `decompose` | Member |
+| `test` | Read, create, link, run tests, report results, derive from requirement | `get`, `query`, `create`, `update`, `link`, `run_create`, `run_get`, `run_report_results`, `derive_from_requirement` | Member |
+| `traceability` / `artifact` / `context` | Cross-cutting traceability, artifact tree/search, workspace context (one shared `CrossCuttingToolGroup`) | `traceability.query`, `artifact.search`, `artifact.get_tree`, `workspace.get_context` | Member |
+| `adr` / `risk` / `issue` / `glossary` / `change_request` | Generic CRUD for ADRs, risks, issues, glossary terms, change requests | `read`, `create`, `update`, `delete` | Member |
+| `goal` / `main_goal` | Goal and MainGoal CRUD (workflow-backed) | `get`, `query`, `create`, `update` | Member |
+| `diagram` | Diagram generation and CRUD | `get`, `create`, `update` | Member |
+| `custom_field` | Custom field definitions | `get`, `list` | Member |
+| `review` | Review workflow tools | `get`, `create` | Member |
+| `baseline` | Baseline capture, diff, restore (wraps `BaselineFacade`) | `create`, `get`, `diff` | Member |
+| `prompt_template` | Read configurable AI derivation prompts | `get` | Member |
+| `ai_derivation` | AI-assisted derivation of requirements/architecture/decomposition | `derive_requirements_from_need`, `suggest_architecture_for_requirement`, `decompose_requirement_next_level` | Member |
+| `workspace` | **Admin** — close, reactivate, delete workspaces (falls through non-lifecycle `workspace.*` to `context`) | `get_context`, `close`, `reactivate`, `delete` | Admin |
 | `permissions` | **Admin** — RBAC rule management | `set_rule`, `list`, `revoke`, `check` | Admin |
 | `admin` | **Admin** — Backup & restore (Captcha `RESTORE` required) | `backup_create`, `backup_list`, `restore` | Admin |
-| `audit` | Audit log query | `query` (filters: actor, operation, workspace, time) | Member (own scope) / Admin (all) |
-| `events` | Dead-letter-queue inspection & replay | `dlq_list`, `dlq_replay` | Member |
+| `audit` / `events` | Audit log query + Domain-Event Dead-Letter Queue (one shared `AuditToolGroup`) | `audit.query`, `events.dlq_list`, `events.dlq_replay` | Member (own scope) / Admin (all) |
 | `user` | **Admin** — User & role management | `create`, `assign_role`, `list`, `deactivate` | Admin |
 
 ### Security Notes
 
-- **Never commit API keys.** The `rfk_` prefix is intentional so secrets-scanners can grep for it.
+- **Never commit API keys.** The `reqlo_` prefix is intentional so secrets-scanners can grep for it.
 - **Keys inherit the creator's roles.** Creating a key as Admin gives it Admin scope; there is no separate key-role system.
 - **All calls are audit-logged** (`actor`, `operation`, `workspace`, `params` summary, `timestamp`).
 - **Workspace lifecycle (close/reactivate/delete)** and **permissions mutations** require Admin role; attempts return `PERMISSION_DENIED`.
@@ -830,38 +955,51 @@ curl -H "Authorization: Bearer <token>" \
 
 ### API Endpoints
 
+20+ ViewSets/APIViews back `/api/v1/`, covering every artifact type plus cross-cutting concerns. Selected resources:
+
 | Resource | Endpoint |
 |----------|----------|
-| Requirements | `GET/POST /api/v1/requirements/` |
-| Requirement Detail | `GET/PATCH/DELETE /api/v1/requirements/{id}/` |
-| Test Cases | `GET/POST /api/v1/testcases/` |
+| Requirements | `GET/POST /api/v1/requirements/`, `GET/PATCH/DELETE /api/v1/requirements/{id}/` |
+| Stakeholder Needs | `GET/POST /api/v1/needs/` |
 | Architecture Elements | `GET/POST /api/v1/architecture_elements/` |
+| Test Cases | `GET/POST /api/v1/testcases/` |
+| Test Runs | `GET/POST /api/v1/test_runs/` |
 | Traceability Links | `GET/POST /api/v1/links/` |
 | Baselines | `GET/POST /api/v1/baselines/` |
-| Workflows | `GET/POST /api/v1/workflows/` |
+| Workflow Definitions | `GET/POST /api/v1/workflows/` |
+| Goals / Main Goals | `GET/POST /api/v1/goals/`, `GET/POST /api/v1/main_goals/` |
+| ADRs / Risks / Issues / Change Requests | `GET/POST /api/v1/adrs/`, `/risks/`, `/issues/`, `/change_requests/` |
+| Glossary Terms | `GET/POST /api/v1/glossary_terms/` |
+| Workspaces | `GET/POST /api/v1/workspaces/` |
+| API Keys | `GET/POST /api/v1/api-keys/` |
+| ICD (Interface Control Documents) | `GET/POST /api/v1/icd/...` |
+| Diagrams | `GET/POST /api/v1/diagrams/...` |
+| SE Metrics | `GET /api/v1/metrics/...` |
 
-Full OpenAPI specification available at http://localhost:8000/api/v1/docs/
+Full OpenAPI 3.0 specification (drf-spectacular) available at http://localhost:8000/api/v1/docs/ (Swagger UI) — the authoritative endpoint reference.
 
 ## Technology Stack
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
 | **Backend** | Django | 4.2+ |
-| | Django REST Framework | 3.14+ |
-| | PostgreSQL (ORM) | 14+ |
+| | Django REST Framework | 3.15+ |
+| | drf-spectacular (OpenAPI 3.0) | latest |
+| | PostgreSQL (via pgvector image, Django ORM) | 16 |
 | | Celery | 5.3+ |
-| | Redis | 7.0+ (caching, message broker) |
+| | Redis | 7.0+ (caching, Celery broker) |
 | **Frontend** | React | 18+ |
-| | TypeScript | 5+ |
-| | Vite | 5+ |
+| | TypeScript (strict mode) | 5.5+ |
+| | Vite | 5.4+ |
 | | TanStack Query | 5+ |
-| | CSS Modules | Native |
+| | CSS Modules / Design Tokens | Native |
 | **Testing** | pytest | 7+ |
+| | Vitest | latest |
 | | Playwright | 1.40+ |
-| **Infrastructure** | Docker | 20.10+ |
-| | Docker Compose | 2.0+ |
-| **LLM Integration** | MCP SDK | Latest |
-| | LLM Adapters | Anthropic, OpenAI, Ollama |
+| **Infrastructure** | Docker | 24+ |
+| | Docker Compose | 2.20+ |
+| **AI / LLM Integration** | Native MCP server | JSON-RPC 2.0 (HTTP, SSE, stdio) |
+| | LLM Adapters | Anthropic, OpenAI, Ollama, Azure OpenAI, opencode_go, mock (default) |
 
 ## Development Workflow
 
@@ -899,26 +1037,33 @@ docker-compose logs -f frontend
 
 ### Environment Variables
 
-Key variables (see `.env.example` for full list):
+Key variables (discrete vars, not a single `DATABASE_URL` — see `.env.example` for the full annotated list):
 
 ```bash
-# Database
-DATABASE_URL=postgresql://user:password@postgres:5432/reqogniloom
+# Database (postgres superuser role, used only by the `migrate` service)
+DB_NAME=reqogniloom
+DB_USER=reqogniloom
+DB_PASSWORD=<strong-password>
+# Least-privilege runtime role used by backend/celery/celery-beat (RLS-enforced)
+DB_APP_USER=reqogniloom_app
+DB_APP_PASSWORD=<strong-password>
 
-# Redis
-REDIS_URL=redis://redis:6379/0
+# Redis (used via CELERY_BROKER_URL / CELERY_RESULT_BACKEND, composed in docker-compose.yml)
+REDIS_PASSWORD=
 
 # LLM Provider
-LLM_PROVIDER=mock  # or: anthropic, openai, ollama
+LLM_PROVIDER=mock  # or: anthropic, openai, ollama, azure, opencode_go
 LLM_API_KEY=...    # if not using mock
 
-# Application
-DEBUG=false
+# Application secrets (all REQUIRED in production — see "Configure Secrets" above)
+DEBUG=False
 ALLOWED_HOSTS=localhost,127.0.0.1
-SECRET_KEY=<generated-on-startup>
+SECRET_KEY=<generate-with-python-secrets>
+AUTH_JWT_SECRET=<generate-with-python-secrets>
+FIELD_ENCRYPTION_KEY=<generate-with-python-cryptography-fernet>
 
 # Tenancy
-DEFAULT_WORKSPACE_NAME=Default Workspace
+DEFAULT_TENANT_ID=1
 ```
 
 ### Presets & Rigor Levels
@@ -953,18 +1098,22 @@ docker-compose up
 ### Database migration fails
 
 ```bash
+# Check the one-shot migrate service's own logs first — it runs before backend/celery
+docker-compose logs migrate
+
 # Reset database (⚠️ deletes all data)
 docker-compose down
 docker volume rm reqogniloom_postgres_data
-docker-compose up
-docker-compose exec backend python manage.py migrate
+docker-compose up -d
+# migrate runs automatically; to re-run it manually:
+docker-compose run --rm migrate
 ```
 
 ### Frontend blank page
 
 - Clear browser cache (Ctrl+Shift+Delete / Cmd+Shift+Delete)
 - Check frontend logs: `docker-compose logs frontend`
-- Verify API is accessible: `curl http://localhost:8000/api/v1/health/`
+- Verify API is accessible: `curl http://localhost:8000/health/`
 
 ### E2E tests fail
 
@@ -980,6 +1129,17 @@ DEBUG=pw:api npx playwright test
 ```
 
 ## Roadmap
+
+### Known Limitations
+
+- **Workflow Admin UI coverage:** the workflow engine itself supports configurable state machines end-to-end for all artifact types (backed cleanly for Goal/MainGoal), but the Workflow Admin UI currently only lists 7 of the ~13 configurable entity types — tracked in issues #332/#333. Configuring workflows for the remaining entity types requires the REST/MCP API directly.
+
+### UI-Konzept Vollrollout (Implemented — 2026-08-01)
+- ✅ Unified page-header / list-toolbar / artifact-row / empty-state pattern across all artifact types
+- ✅ Shared `Dialog` primitive with focus-trap and full keyboard handling
+- ✅ Trace-Spine — visual derivation-chain navigator, wired into most artifact detail views, backed by a tenant-scoped backend `resolve` endpoint
+- ✅ ARIA-compliant keyboard navigation + virtualization on the shared tree component
+- ✅ Documented theming system — see [`docs/UI_KONZEPT.md`](docs/UI_KONZEPT.md)
 
 ### v1.1 (Implemented — 2026-06-27)
 - ✅ PDF-Report-Export (Requirement Documents + Traceability Matrix)
