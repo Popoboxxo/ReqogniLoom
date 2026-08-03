@@ -90,6 +90,17 @@ vi.mock("../api/tracelinks", () => ({
     listForArtifact: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
+    // Task 3.3: <TraceSpine>'s useDerivationChain calls impact() on mount —
+    // without a mock this throws synchronously and gets swallowed into the
+    // hook's own error state, stealing the extractErrorMessage() mock queue
+    // from unrelated save-error assertions below.
+    impact: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+vi.mock("../api/traceability", () => ({
+  traceabilityApi: {
+    resolve: vi.fn().mockResolvedValue([]),
   },
 }));
 

@@ -42,6 +42,14 @@ export interface RightSidebarProps {
   kind: ArtifactKind;
   artifactId: string | number;
   currentVersion?: VersionRef;
+  /**
+   * Hides the TracePanel section (REQ-L2-RF-037 / Task 3.3). Trace-link
+   * display now lives in `<TraceSpine>` on every route that has one — the
+   * shell must not show the same links twice (UI concept ch. 3.4 "Eine
+   * Fläche, eine Aufgabe"). Pages without a Spine yet (Glossary, ICD) keep
+   * the default `false` so they don't lose their only trace-link view.
+   */
+  hideTraceLinks?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +120,7 @@ export function RightSidebar({
   kind,
   artifactId,
   currentVersion,
+  hideTraceLinks = false,
 }: RightSidebarProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -246,14 +255,16 @@ export function RightSidebar({
         >
           ≅
         </button>
-        <button
-          type="button"
-          className={styles.collapsedIconButton}
-          aria-label={t("sidebar.trace.title", "Trace Links")}
-          title={t("sidebar.trace.title", "Trace Links")}
-        >
-          🔗
-        </button>
+        {!hideTraceLinks && (
+          <button
+            type="button"
+            className={styles.collapsedIconButton}
+            aria-label={t("sidebar.trace.title", "Trace Links")}
+            title={t("sidebar.trace.title", "Trace Links")}
+          >
+            🔗
+          </button>
+        )}
       </div>
     );
   }
@@ -340,7 +351,7 @@ export function RightSidebar({
               leftVersion={diffLeft}
               rightVersion={diffRight}
             />
-            <TracePanel kind={kind} artifactId={artifactId} />
+            {!hideTraceLinks && <TracePanel kind={kind} artifactId={artifactId} />}
           </div>
           {renderResizeHandle()}
         </>

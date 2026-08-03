@@ -10,7 +10,7 @@
  * the editor and the ArtifactInspector (Version / Diff / Trace). The
  * inspector is hidden when the user is browsing the list (no detail).
  */
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
@@ -19,6 +19,9 @@ import { NeedList } from './NeedList';
 import { NeedForm } from './NeedForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
+import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
+import type { ChainArtifact } from '../shared/TraceSpine';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useNeedData } from './useNeedData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
@@ -109,6 +112,22 @@ export default function NeedsEditors(): JSX.Element {
     refresh();
   };
 
+  // Trace spine (Task 3.3 — UI concept ch. 5).
+  const derivationChain = useDerivationChain(
+    need?.artifact_id ?? need?.id ?? null,
+    'StakeholderNeed',
+    null,
+    { enabled: !!need },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
+
   // Page-level loading / error states — only gate the full view on the
   // initial load (no data yet). Once the list is populated, keep it visible
   // while the detail pane reloads (UI standards §1.4).
@@ -169,6 +188,15 @@ export default function NeedsEditors(): JSX.Element {
           }}
         >
           <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+            {need && (
+              <TraceSpine
+                stations={derivationChain.stations}
+                isLoading={derivationChain.isLoading}
+                error={derivationChain.error}
+                onOpenArtifact={handleOpenChainArtifact}
+                isOpenable={derivationChain.isOpenable}
+              />
+            )}
             <NeedForm
               need={need}
               onSaved={handleSaved}
@@ -176,7 +204,9 @@ export default function NeedsEditors(): JSX.Element {
               attributeVisibility={attributeVisibility}
             />
           </div>
-          {/* ArtifactInspector — REQ-L1-095, REQ-L2-RF-034 (detail only) */}
+          {/* ArtifactInspector — REQ-L1-095, REQ-L2-RF-034 (detail only).
+              hideTraceLinks: the <TraceSpine> above now owns trace-link
+              display (Task 3.3). */}
           {need && (() => {
             const needCurrentVersion: VersionRef = {
               version: need.version,
@@ -189,6 +219,7 @@ export default function NeedsEditors(): JSX.Element {
                 kind="stakeholderNeed"
                 artifactId={need.id}
                 currentVersion={needCurrentVersion}
+                hideTraceLinks
               />
             );
           })()}

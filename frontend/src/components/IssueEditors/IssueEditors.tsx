@@ -9,6 +9,9 @@ import { IssueForm } from './IssueForm';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
+import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
+import type { ChainArtifact } from '../shared/TraceSpine';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useIssueData } from './useIssueData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { issuesApi } from '../../api/issues';
@@ -64,6 +67,22 @@ export default function IssueEditors(): JSX.Element {
   const handleSaved = () => { refresh(); };
   const handleDeleted = () => { navigate('/issues'); refresh(); };
 
+  // Trace spine (Task 3.3 — UI concept ch. 5).
+  const derivationChain = useDerivationChain(
+    item?.artifact_id ?? item?.id ?? null,
+    'Issue',
+    null,
+    { enabled: !!item },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
+
   // Page-level loading / error states — only gate the full view on the
   // initial load (no data yet), keeping the list visible on detail reloads.
   if (isLoading && items.length === 0) {
@@ -113,6 +132,15 @@ export default function IssueEditors(): JSX.Element {
           rightPanel={
             <div style={{ display: 'flex', height: '100%', minHeight: 0, gap: 'var(--space-3)' }}>
               <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'auto' }}>
+                {item && (
+                  <TraceSpine
+                    stations={derivationChain.stations}
+                    isLoading={derivationChain.isLoading}
+                    error={derivationChain.error}
+                    onOpenArtifact={handleOpenChainArtifact}
+                    isOpenable={derivationChain.isOpenable}
+                  />
+                )}
                 <IssueForm issue={item} onSaved={handleSaved} onDeleted={handleDeleted} />
                 {/* Task 2.3: the "Neue Verknüpfung" button used to float under
                     the form as an inline-styled one-off, wired to its own
@@ -120,14 +148,16 @@ export default function IssueEditors(): JSX.Element {
                     owns a "new link" action in its own header (same as
                     AdrEditors/RiskEditors), so relocating here both fixes the
                     placement and removes the duplicate dialog wiring
-                    IssueEditors used to carry on its own. */}
+                    IssueEditors used to carry on its own. TraceLinkPanel
+                    stays as the CRUD surface alongside the read-only Spine
+                    above (Task 3.3 decision). */}
                 {item && activeWorkspace && (
                   <TraceLinkPanel workspaceId={activeWorkspace.id} artifactId={item.id} />
                 )}
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                return <RightSidebar kind="issue" artifactId={item.id} currentVersion={ver} />;
+                return <RightSidebar kind="issue" artifactId={item.id} currentVersion={ver} hideTraceLinks />;
               })()}
             </div>
           }
