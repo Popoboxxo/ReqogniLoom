@@ -3,20 +3,14 @@
  *
  * Surfaces whether a workspace's workflow/permission configuration mirrors the
  * tenant-wide global default ("On Default") or has diverged ("Customized"), and
- * offers a one-click reset. Reuses the existing ``permission_level`` pill shape
- * (rounded-full, xs, bold) — only the color pairs (success/warning/muted) are
- * new, all from existing CSS variables. Badge labels are always visible text
- * (never color-only) for accessibility.
+ * offers a one-click reset. The badge itself renders through the single
+ * project-wide `shared/StatusBadge` (Task 1.6, UI-Konzept-Vollrollout) — this
+ * component only translates the config-sync state into a status/label/variant
+ * triple; it owns no rendering or color logic of its own. Badge labels are
+ * always visible text (never color-only) for accessibility.
  */
 
-const pillBase: React.CSSProperties = {
-  display: "inline-block",
-  padding: "1px var(--space-2)",
-  borderRadius: "var(--radius-full)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  whiteSpace: "nowrap",
-};
+import { StatusBadge } from "../shared/StatusBadge";
 
 interface DefaultStatusBadgeProps {
   isCustomized: boolean;
@@ -30,46 +24,31 @@ export function DefaultStatusBadge({
 }: DefaultStatusBadgeProps): JSX.Element {
   if (!hasSource) {
     return (
-      <span
-        data-testid="default-status-badge"
-        data-variant="no-source"
-        style={{
-          ...pillBase,
-          background: "var(--color-surface-raised)",
-          color: "var(--color-text-muted)",
-        }}
-      >
-        No Global Source
-      </span>
+      <StatusBadge
+        status="no-source"
+        label="No Global Source"
+        badgeVariant="neutral"
+        testId="default-status-badge"
+      />
     );
   }
   if (isCustomized) {
     return (
-      <span
-        data-testid="default-status-badge"
-        data-variant="customized"
-        style={{
-          ...pillBase,
-          background: "rgba(245,158,11,0.12)",
-          color: "var(--color-warning, #f59e0b)",
-        }}
-      >
-        Customized
-      </span>
+      <StatusBadge
+        status="customized"
+        label="Customized"
+        badgeVariant="warning"
+        testId="default-status-badge"
+      />
     );
   }
   return (
-    <span
-      data-testid="default-status-badge"
-      data-variant="on-default"
-      style={{
-        ...pillBase,
-        background: "rgba(22,163,74,0.12)",
-        color: "var(--color-success, #16a34a)",
-      }}
-    >
-      On Default
-    </span>
+    <StatusBadge
+      status="on-default"
+      label="On Default"
+      badgeVariant="success"
+      testId="default-status-badge"
+    />
   );
 }
 

@@ -221,10 +221,3 @@
   background: var(--color-border);
   opacity: 0.6;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .chip,
-  .rowButton {
-    transition: none;
-  }
-}

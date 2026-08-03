@@ -6,6 +6,26 @@ html {
   scroll-behavior: smooth;
 }
 
+/*
+ * Reduced motion — UI concept ch. 11.3. Consolidated single source of truth
+ * for the whole app (used to be duplicated across several CSS modules); also
+ * cancels the `scroll-behavior: smooth` set above.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  html {
+    scroll-behavior: auto !important;
+  }
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);

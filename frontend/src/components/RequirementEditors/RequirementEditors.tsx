@@ -40,6 +40,7 @@ import { RequirementForm } from './RequirementForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
+import { Dialog } from '../shared/Dialog';
 import { RightSidebar } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import type { RequirementType } from '../../types';
@@ -462,41 +463,19 @@ export default function RequirementEditors(): JSX.Element {
   return (
     <>
       {showDeriveTestcasePanel && requirement && activeWorkspace && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 1000,
-            overflow: 'auto',
-            padding: 'var(--space-4)',
-          }}
-          data-testid="derive-testcase-dialog"
+        <Dialog
+          title={t('deriveTestcase.title')}
+          description={requirement.title}
+          onClose={() => setShowDeriveTestcasePanel(false)}
+          size="lg"
+          testId="derive-testcase-dialog"
         >
-          <div
-            style={{
-              background: 'var(--color-surface)',
-              borderRadius: 'var(--radius-lg)',
-              boxShadow: 'var(--shadow-md)',
-              maxWidth: '600px',
-              width: '100%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-            }}
-          >
-            <DeriveTestCasePanel
-              workspaceId={activeWorkspace.id}
-              requirement={{ id: requirement.id, title: requirement.title }}
-              onCreated={() => setShowDeriveTestcasePanel(false)}
-              onClose={() => setShowDeriveTestcasePanel(false)}
-            />
-          </div>
-        </div>
+          <DeriveTestCasePanel
+            workspaceId={activeWorkspace.id}
+            requirement={{ id: requirement.id, title: requirement.title }}
+            onCreated={() => setShowDeriveTestcasePanel(false)}
+          />
+        </Dialog>
       )}
       <SplitView
         leftPanel={leftPanel}

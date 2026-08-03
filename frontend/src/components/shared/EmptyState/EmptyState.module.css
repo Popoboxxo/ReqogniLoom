@@ -1,0 +1,134 @@
+/*
+ * <EmptyState> — UI concept ch. 12.7 and 13.1.
+ *
+ * Every value comes from styles/tokens.css. No variant introduces its own
+ * colour or spacing scale.
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-5);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  line-height: var(--leading-tight);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.description {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.primaryButton {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-primary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  /* --color-on-primary is not defined in tokens.css; every other call
+     site in the codebase (ImpactView, TraceabilityView,
+     CreateTraceLinkDialog) uses this same var()-with-fallback pattern
+     rather than a bare hex literal. */
+  color: var(--color-on-primary, #fff);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.primaryButton:hover {
+  background: var(--color-primary-dark);
+}
+
+.primaryButton:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.secondaryButton {
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.secondaryButton:hover {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-hover);
+}
+
+.secondaryButton:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* `loading` — placeholders in the shape of the eventual content (ch. 13.2),
+   not a centred spinner. They occupy the same height so nothing jumps when
+   real data arrives. */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.skeletonLine {
+  height: var(--space-4);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-raised) 25%,
+    var(--color-border) 37%,
+    var(--color-surface-raised) 63%
+  );
+  background-size: 400% 100%;
+  animation: empty-state-shimmer 1.4s ease infinite;
+}
+
+.skeletonLineWide {
+  width: 80%;
+}
+
+.skeletonLineMedium {
+  width: 60%;
+}
+
+.skeletonLineNarrow {
+  width: 40%;
+}
+
+@keyframes empty-state-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonLine {
+    animation: none;
+  }
+}

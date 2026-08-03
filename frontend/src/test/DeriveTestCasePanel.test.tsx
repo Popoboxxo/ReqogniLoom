@@ -67,13 +67,12 @@ const CREATED_TEST_CASE: TestCase = {
   updated_at: "2026-07-20T00:00:00Z",
 } as TestCase;
 
-function renderPanel(onCreated = vi.fn(), onClose = vi.fn()) {
+function renderPanel(onCreated = vi.fn()) {
   return render(
     <DeriveTestCasePanel
       workspaceId="ws-1"
       requirement={{ id: "req-1", title: "The system shall log in users" }}
       onCreated={onCreated}
-      onClose={onClose}
     />
   );
 }
@@ -183,14 +182,5 @@ describe("DeriveTestCasePanel", () => {
 
     expect(screen.queryByTestId("derive-testcase-draft")).toBeNull();
     expect(create).not.toHaveBeenCalled();
-  });
-
-  it("calls onClose when the close button is clicked", async () => {
-    const onClose = vi.fn();
-    const user = userEvent.setup();
-    renderPanel(vi.fn(), onClose);
-
-    await user.click(screen.getByTestId("derive-testcase-close"));
-    expect(onClose).toHaveBeenCalled();
   });
 });

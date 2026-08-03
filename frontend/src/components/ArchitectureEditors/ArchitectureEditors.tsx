@@ -516,36 +516,26 @@ export default function ArchitectureEditors(): JSX.Element {
   return (
     <>
       {deleteTarget && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              background: "var(--color-surface)",
-              padding: "var(--space-6)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-md)",
-              maxWidth: "400px",
-              textAlign: "center",
-            }}
-          >
-            <h3 style={{ margin: 0, marginBottom: "var(--space-3)" }}>
-              {t("arch.deleteTitle")}
-            </h3>
-            <p style={{ margin: 0, marginBottom: "var(--space-4)" }}>
-              {t("arch.deleteConfirm")}: <strong>{deleteTarget.title}</strong>?
-            </p>
-            <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "center" }}>
+        <Dialog
+          title={t("arch.deleteTitle")}
+          onClose={() => setDeleteTarget(null)}
+          size="sm"
+          testId="arch-delete-dialog"
+          footer={
+            <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                style={{
+                  background: "var(--color-surface-raised)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-2) var(--space-4)",
+                  cursor: "pointer",
+                }}
+              >
+                {t("actions.cancel")}
+              </button>
               <button
                 data-testid="confirm-delete-btn"
                 onClick={() => {
@@ -563,63 +553,32 @@ export default function ArchitectureEditors(): JSX.Element {
               >
                 {t("actions.delete")}
               </button>
-              <button
-                onClick={() => setDeleteTarget(null)}
-                style={{
-                  background: "var(--color-surface-raised)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  cursor: "pointer",
-                }}
-              >
-                {t("actions.cancel")}
-              </button>
             </div>
-          </div>
-        </div>
+          }
+        >
+          <p style={{ margin: 0 }}>
+            {t("arch.deleteConfirm")}: <strong>{deleteTarget.title}</strong>?
+          </p>
+        </Dialog>
       )}
 
       {showDecomposePanel && element && activeWorkspace && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 1000,
-            overflow: "auto",
-            padding: "var(--space-4)",
-          }}
-          data-testid="arch-decompose-dialog"
+        <Dialog
+          title={t("archDecompose.title")}
+          description={element.title}
+          onClose={() => setShowDecomposePanel(false)}
+          size="lg"
+          testId="arch-decompose-dialog"
         >
-          <div
-            style={{
-              background: "var(--color-surface)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-md)",
-              maxWidth: "600px",
-              width: "100%",
-              maxHeight: "90vh",
-              overflow: "auto",
+          <ArchitectureDecomposePanel
+            workspaceId={activeWorkspace.id}
+            element={{ id: element.id, title: element.title }}
+            onCommitted={() => {
+              setShowDecomposePanel(false);
+              refresh();
             }}
-          >
-            <ArchitectureDecomposePanel
-              workspaceId={activeWorkspace.id}
-              element={{ id: element.id, title: element.title }}
-              onCommitted={() => {
-                setShowDecomposePanel(false);
-                refresh();
-              }}
-              onClose={() => setShowDecomposePanel(false)}
-            />
-          </div>
-        </div>
+          />
+        </Dialog>
       )}
 
       {/* UI concept ch. 12.1: exactly one <h1> per route, always-visible

@@ -131,26 +131,6 @@
 }
 
 /*
- * Reduced motion — UI concept ch. 11.3. This rule used to be duplicated in
- * four CSS modules; it belongs exactly once, at the token layer, and must
- * also cancel the global `scroll-behavior: smooth` from global.css.
- */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-
-  html {
-    scroll-behavior: auto !important;
-  }
-}
-
-/*
  * Light theme — mirrors every token above so any component built against
  * var(--color-*) is contrast-safe in both modes. Activated by ThemeContext
  * setting data-theme="light" on <html> (see src/context/ThemeContext.tsx).

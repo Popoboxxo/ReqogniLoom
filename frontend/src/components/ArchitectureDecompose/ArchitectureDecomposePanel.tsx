@@ -34,8 +34,6 @@ export interface ArchitectureDecomposePanelProps {
   element: { id: string; title: string };
   /** Called after a successful commit (e.g. to refresh the architecture tree). */
   onCommitted?: (result: CommitResult) => void;
-  /** Called when the user closes the panel. */
-  onClose?: () => void;
 }
 
 type Phase = "idle" | "generating" | "review" | "committing" | "done";
@@ -50,12 +48,6 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid var(--color-border)",
     borderRadius: "var(--radius-lg)",
     color: "var(--color-text)",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "var(--space-3)",
   },
   controls: {
     display: "flex",
@@ -113,7 +105,6 @@ export function ArchitectureDecomposePanel({
   workspaceId,
   element,
   onCommitted,
-  onClose,
 }: ArchitectureDecomposePanelProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -171,24 +162,6 @@ export function ArchitectureDecomposePanel({
 
   return (
     <section style={styles.panel} data-testid="arch-decompose-panel">
-      <header style={styles.header}>
-        <div>
-          <strong>{t("archDecompose.title")}</strong>
-          <div style={styles.muted} data-testid="arch-decompose-element-title">
-            {element.title}
-          </div>
-        </div>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            data-testid="arch-decompose-close"
-          >
-            {t("archDecompose.close")}
-          </button>
-        )}
-      </header>
-
       <div style={styles.controls}>
         <label style={styles.field}>
           <span style={styles.muted}>{t("archDecompose.breadth")}</span>

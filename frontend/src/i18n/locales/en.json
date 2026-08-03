@@ -1055,6 +1055,22 @@
     "close": "Close",
     "closeLabel": "Close dialog"
   },
+  "emptyState": {
+    "loading": {
+      "label": "Loading"
+    },
+    "noMatch": {
+      "title": "No matches",
+      "description": "There are entries, but none match the current filter."
+    },
+    "error": {
+      "retryLabel": "Try again"
+    },
+    "forbidden": {
+      "title": "No permission",
+      "requiredRole": "This requires the \"{{role}}\" role."
+    }
+  },
   "archLegend": {
     "trigger": "Legend",
     "dialogDescription": "What the colours, markers and symbols of this view mean.",

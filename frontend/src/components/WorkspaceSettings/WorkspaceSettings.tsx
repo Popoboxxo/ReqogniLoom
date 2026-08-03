@@ -176,7 +176,7 @@ export default function WorkspaceSettings(): JSX.Element {
     padding: "var(--space-2) var(--space-3)",
     borderRadius: "var(--radius-md)",
     border: "1px solid var(--color-border)",
-    background: "var(--color-background)",
+    background: "var(--color-surface-raised)",
     color: "var(--color-text)",
     fontSize: "var(--font-size-sm)",
   };
@@ -290,7 +290,7 @@ export default function WorkspaceSettings(): JSX.Element {
                   onChange={(e) => { setName(e.target.value); setSavedOk(false); }}
                   style={{
                     flex: 1,
-                    background: "var(--color-background)",
+                    background: "var(--color-surface-raised)",
                     border: "1px solid var(--color-border)",
                     borderRadius: "var(--radius-md)",
                     padding: "var(--space-2) var(--space-3)",

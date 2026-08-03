@@ -149,7 +149,10 @@
     "dismiss": "Verwerfen",
     "clear": "Zurücksetzen",
     "derive": "Ableiten",
-    "deriving": "Leitet ab..."
+    "deriving": "Leitet ab...",
+    "deleting": "Löscht...",
+    "confirmDelete": "Ja, löschen",
+    "deleteConfirmPrompt": "Löschen?"
   },
   "workflowEditor": {
     "changeStatus": "Status ändern",
@@ -1051,6 +1054,22 @@
   "dialog": {
     "close": "Schließen",
     "closeLabel": "Dialog schließen"
+  },
+  "emptyState": {
+    "loading": {
+      "label": "Lädt"
+    },
+    "noMatch": {
+      "title": "Kein Treffer",
+      "description": "Es gibt Einträge, aber keiner passt zum aktuellen Filter."
+    },
+    "error": {
+      "retryLabel": "Erneut versuchen"
+    },
+    "forbidden": {
+      "title": "Keine Berechtigung",
+      "requiredRole": "Dafür wird die Rolle „{{role}}“ benötigt."
+    }
   },
   "archLegend": {
     "trigger": "Legende",

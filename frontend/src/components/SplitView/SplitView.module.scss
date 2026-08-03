@@ -3,6 +3,15 @@
  *
  * Implements responsive layout and divider feedback for generic split-view container.
  * Token-based design system integration.
+ *
+ * NOTE: SplitView.tsx currently applies its layout and scroll rules as
+ * inline styles (both the legacy and the concept contract), not via these
+ * CSS Module classes — this predates the concept contract and keeps
+ * `getComputedStyle` assertions deterministic across build/test tooling
+ * with varying CSS-Modules support. This file is kept in sync as the
+ * documented, importable equivalent for future direct use and is exercised
+ * indirectly (Vite's SCSS pipeline still compiles it as part of the build).
+ * See UI_KONZEPT.md ch. 6.3 (breakpoints) and ch. 7 (scroll model).
  */
 
 .splitView {
@@ -11,7 +20,7 @@
   overflow: hidden;
   font-family: var(--font-sans);
   color: var(--color-text);
-  background: var(--color-background);
+  background: var(--color-surface);
 }
 
 .leftPanel {
@@ -20,6 +29,8 @@
   max-width: 70%;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
   padding: var(--space-4);
@@ -72,7 +83,9 @@
   flex: 1 1 auto;
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--color-background);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background: var(--color-surface);
   padding: var(--space-4);
 
   scrollbar-width: thin;
@@ -96,7 +109,14 @@
   }
 }
 
-// Mobile / Responsive breakpoint (<768px)
+// Narrow breakpoint (--bp-lg in tokens.css, ch. 6.3): list/detail keep the
+// side-by-side layout but shift to a 45:55 ratio; the concept contract
+// (SplitView.tsx `ConceptSplitView`) computes this in JS since custom
+// properties cannot be read inside `@media` conditions. Kept here for the
+// legacy contract's divider/min-width affordances only.
+//
+// CSS custom properties cannot be referenced inside `@media` conditions, so
+// this pixel value MUST stay in sync with `--bp-md` in tokens.css.
 @media (max-width: 768px) {
   .splitView {
     flex-direction: column;
@@ -158,17 +178,5 @@
     &.dragging {
       box-shadow: 0 0 12px rgba(255, 255, 255, 0.1);
     }
-  }
-}
-
-// Reduced motion support (accessibility)
-@media (prefers-reduced-motion: reduce) {
-  .divider {
-    transition: none;
-  }
-
-  .leftPanel,
-  .rightPanel {
-    scroll-behavior: auto;
   }
 }

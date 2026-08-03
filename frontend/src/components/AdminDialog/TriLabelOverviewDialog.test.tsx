@@ -71,7 +71,7 @@ describe("TriLabelOverviewDialog", () => {
     const onClose = vi.fn();
     render(<TriLabelOverviewDialog isOpen onClose={onClose} />);
 
-    fireEvent.click(screen.getByTestId("tri-label-overview-close"));
+    fireEvent.click(screen.getByTestId("tri-label-overview-dialog-close"));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
