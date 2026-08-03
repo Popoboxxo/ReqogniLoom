@@ -30,6 +30,7 @@ import { searchApi } from "../../api/search";
 import type { SearchHit } from "../../api/search";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
+import { PageHeader } from "../shared/PageHeader";
 import type { TraceLink, UUID } from "../../types";
 
 /** Maximum tree depth — bounds recursion for cyclic/dense trace graphs. */
@@ -327,16 +328,7 @@ export function ImpactView(): JSX.Element {
 
   return (
     <div data-testid="impact-view">
-      <h2
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          margin: "0 0 var(--space-6)",
-        }}
-      >
-        {t("nav.impact", "Impact-Analyse")}
-      </h2>
+      <PageHeader title={t("nav.impact", "Impact-Analyse")} />
 
       {!activeWorkspace ? (
         <p style={{ color: "var(--color-text-muted)" }}>

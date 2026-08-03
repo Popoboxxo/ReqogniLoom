@@ -36,6 +36,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SplitView } from "../SplitView/SplitView";
+import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { ArtifactDiff, type DiffEntityType } from "../ArtifactDiff/ArtifactDiff";
 import { type AllowedTransition } from "../../api/requirements";
@@ -498,7 +499,10 @@ export default function ReviewsView({
 
   return (
     <div data-testid="reviews-view">
-      <h1 style={{ marginTop: 0 }}>{t("nav.reviews", "Reviews")}</h1>
+      <PageHeader
+        title={t("nav.reviews", "Reviews")}
+        count={{ shown: filtered.length, total: items.length }}
+      />
       <SplitView leftPanel={listPanel} rightPanel={detailPanel} moduleType="reviews" />
     </div>
   );
