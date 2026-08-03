@@ -7,5 +7,6 @@ export type {
   ChainArtifact,
   ChainStation,
   DerivationChain,
+  ResolvedChainEntry,
   StationDirection,
 } from "./useDerivationChain";

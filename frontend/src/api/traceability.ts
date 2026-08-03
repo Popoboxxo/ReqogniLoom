@@ -11,11 +11,13 @@
 
 import { apiClient } from "./client";
 import type { UUID } from "../types";
-import type {
-  CyclesResponse,
-  ImpactNode,
-  ImpactParams,
-  TracePath,
+import {
+  RESOLVE_BATCH_LIMIT,
+  type CyclesResponse,
+  type ImpactNode,
+  type ImpactParams,
+  type ResolvedArtifact,
+  type TracePath,
 } from "./tracelinks";
 
 export type {
@@ -23,8 +25,10 @@ export type {
   ImpactDirection,
   ImpactNode,
   ImpactParams,
+  ResolvedArtifact,
   TracePath,
 } from "./tracelinks";
+export { RESOLVE_BATCH_LIMIT } from "./tracelinks";
 
 export const traceabilityApi = {
   /** Impact analysis: all artifacts reachable from an artifact (REQ-L2-TE-019). */
@@ -57,6 +61,25 @@ export const traceabilityApi = {
   cycles(workspaceId: UUID): Promise<CyclesResponse> {
     return apiClient.get<CyclesResponse>(
       `/traceability/cycles/?workspace_id=${workspaceId}`
+    );
+  },
+
+  /**
+   * Batch-resolve Artifact ids to their backing domain entity (Task 3.2b,
+   * REQ-L2-TE-019). One call for the whole set, not one per entry — mirrors
+   * the backend's own batch design (`resolve_artifacts`, capped at
+   * `RESOLVE_BATCH_LIMIT`). Duplicate/empty ids are dropped before the
+   * request; an empty input short-circuits without a network call. Results
+   * are NOT guaranteed to preserve input order-to-index correspondence for
+   * callers that dedupe — match on `artifact_id` in the response.
+   */
+  resolve(artifactIds: UUID[]): Promise<ResolvedArtifact[]> {
+    const unique = [...new Set(artifactIds.filter((id): id is UUID => Boolean(id)))];
+    if (unique.length === 0) return Promise.resolve([]);
+    const capped = unique.slice(0, RESOLVE_BATCH_LIMIT);
+    const query = new URLSearchParams({ artifact_ids: capped.join(",") });
+    return apiClient.get<ResolvedArtifact[]>(
+      `/traceability/resolve/?${query.toString()}`
     );
   },
 };
