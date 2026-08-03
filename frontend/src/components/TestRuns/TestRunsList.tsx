@@ -17,8 +17,9 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { SplitView } from "../SplitView/SplitView";
-import { StatusBadge } from "./StatusBadge";
+import { StatusBadge } from "../shared/StatusBadge";
 import { TestRunDetailEditor } from "./TestRunDetailEditor";
+import { getTestRunStatusLabel } from "./testRunStatusLabel";
 import { useTestRunsData } from "./useTestRunsData";
 
 // REQ-175: TestRun.status choices — see persistence/models.py TestRun.status.
@@ -471,7 +472,7 @@ export function TestRunsList(): JSX.Element {
                     }}
                   >
                     <strong>{item.name}</strong>
-                    <StatusBadge status={item.status} />
+                    <StatusBadge status={item.status} label={getTestRunStatusLabel(item.status)} />
                   </div>
                   {item.ci_job_id && (
                     <p

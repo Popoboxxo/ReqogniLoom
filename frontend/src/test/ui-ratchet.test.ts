@@ -86,8 +86,16 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // work landing between the plan's measurement date and this task; the
 // measured value is used as the enforced baseline per the task instructions
 // (measure the real current value, don't blindly trust the plan number).
+//
+// Task 1.6 (status-badge consolidation) removed the inline `style={{...}}`
+// blocks from the deleted `TestRuns/StatusBadge.tsx`, the local `StatusBadge`
+// in `TestRuns.tsx`, and the three hand-rolled pill returns in
+// `WorkspaceSettings/DefaultStatusBadge.tsx` — all now render through the
+// single `shared/StatusBadge`, which owns its own inline style. Re-measured
+// after that change: 1463. Baseline lowered in the same PR per the ratchet
+// rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1468;
+const STYLE_BRACE_BASELINE = 1463;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
@@ -109,9 +117,15 @@ const STYLE_BRACE_BASELINE = 1468;
 // 145/29 — the small remaining gap is plausible normal drift between the
 // plan's 2026-08-01 measurement and now, not a counting bug (spot-checked:
 // every remaining match is a real hex color in a style/color context).
+//
+// Task 1.6 removed the hardcoded hex palette from `TestRuns.tsx`'s local
+// `StatusBadge` (`#3b82f6`, `#22c55e`, `#ef4444`, `#eab308`, `#64748b`) and
+// the `rgba(...)`/`var(--color-warning, #f59e0b)` fallbacks in
+// `WorkspaceSettings/DefaultStatusBadge.tsx`. Re-measured: 128 occurrences
+// in 35 files. Baseline lowered in the same PR per the ratchet rule above.
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
-const HEX_LITERAL_OCCURRENCE_BASELINE = 135;
-const HEX_LITERAL_FILE_BASELINE = 36;
+const HEX_LITERAL_OCCURRENCE_BASELINE = 128;
+const HEX_LITERAL_FILE_BASELINE = 35;
 
 // --- (c) Duplicate tree implementations ------------------------------------
 //
@@ -134,14 +148,19 @@ const TREE_IMPLEMENTATION_BASELINE = 4;
 
 // --- (d) Duplicate status-badge implementations ----------------------------
 //
-// Plan baseline: 3, target 1 after Task 1.6. Actually measured: 3, matching
-// the plan exactly — no deviation to document here.
-const KNOWN_STATUS_BADGE_IMPLEMENTATIONS = [
-  join(COMPONENTS_DIR, "shared", "StatusBadge.tsx"),
-  join(COMPONENTS_DIR, "TestRuns", "StatusBadge.tsx"),
-  join(COMPONENTS_DIR, "WorkspaceSettings", "DefaultStatusBadge.tsx"),
-];
-const STATUS_BADGE_IMPLEMENTATION_BASELINE = 3;
+// Plan baseline: 3, target 1 after Task 1.6. Task 1.6 folded
+// `TestRuns/StatusBadge.tsx` into `shared/StatusBadge` as a label/variant
+// call (test-run execution states are a different semantic domain from
+// artifact workflow status but render through the same tokens, so the
+// honest outcome is a variant of the one component, not a second one — see
+// the task-1.6-brief risk note). `WorkspaceSettings/DefaultStatusBadge.tsx`
+// now also delegates its actual badge markup to `shared/StatusBadge`
+// (status/label/badgeVariant translation only); it stays as its own file
+// because it keeps a distinct public API (isCustomized/hasSource) plus the
+// co-located `ResetToDefaultButton`, but it renders no badge markup itself
+// anymore. Baseline lowered to 1 in the same PR per the ratchet rule above.
+const KNOWN_STATUS_BADGE_IMPLEMENTATIONS = [join(COMPONENTS_DIR, "shared", "StatusBadge.tsx")];
+const STATUS_BADGE_IMPLEMENTATION_BASELINE = 1;
 
 describe("UI concept ratchet (Task 7.4)", () => {
   it("does not add new inline style={{ usages beyond the frozen baseline", () => {

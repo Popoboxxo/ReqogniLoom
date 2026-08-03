@@ -11,42 +11,9 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { testRunsApi } from "../../api/test-runs";
+import { StatusBadge } from "../shared/StatusBadge";
 import type { TestRun } from "../../types";
-
-// ---------------------------------------------------------------------------
-// Status badge helpers
-// ---------------------------------------------------------------------------
-
-const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  in_progress: { bg: "rgba(59,130,246,0.15)", color: "#3b82f6" },
-  passed: { bg: "rgba(34,197,94,0.15)", color: "#22c55e" },
-  failed: { bg: "rgba(239,68,68,0.15)", color: "#ef4444" },
-  partial: { bg: "rgba(234,179,8,0.15)", color: "#eab308" },
-};
-
-function StatusBadge({ status }: { status: string }): JSX.Element {
-  const colors = STATUS_COLORS[status] || {
-    bg: "rgba(100,116,139,0.15)",
-    color: "#64748b",
-  };
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "2px var(--space-2)",
-        borderRadius: "var(--radius-sm)",
-        background: colors.bg,
-        color: colors.color,
-        fontSize: "0.75rem",
-        fontWeight: 600,
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-      }}
-    >
-      {status}
-    </span>
-  );
-}
+import { getTestRunStatusLabel } from "./testRunStatusLabel";
 
 // ---------------------------------------------------------------------------
 // TestRuns component
@@ -182,7 +149,10 @@ export default function TestRuns(): JSX.Element {
             marginBottom: "var(--space-6)",
           }}
         >
-          <StatusBadge status={selectedRun?.status || "in_progress"} />
+          <StatusBadge
+            status={selectedRun?.status || "in_progress"}
+            label={getTestRunStatusLabel(selectedRun?.status || "in_progress")}
+          />
           {selectedRun?.ci_job_id && (
             <span
               style={{
@@ -545,7 +515,7 @@ export default function TestRuns(): JSX.Element {
                   </span>
                 )}
               </div>
-              <StatusBadge status={item.status} />
+              <StatusBadge status={item.status} label={getTestRunStatusLabel(item.status)} />
             </li>
           ))}
         </ul>

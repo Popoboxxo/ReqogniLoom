@@ -16,9 +16,10 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { testRunsApi } from "../../api/test-runs";
+import { StatusBadge } from "../shared/StatusBadge";
 import { VersionBadge } from "../shared/VersionBadge";
 import type { TestRun, TestRunResult } from "../../types";
-import { StatusBadge } from "./StatusBadge";
+import { getTestRunStatusLabel } from "./testRunStatusLabel";
 
 export interface TestRunDetailEditorProps {
   testRun: TestRun;
@@ -122,7 +123,7 @@ export function TestRunDetailEditor({
             alignItems: "center",
           }}
         >
-          <StatusBadge status={testRun.status} />
+          <StatusBadge status={testRun.status} label={getTestRunStatusLabel(testRun.status)} />
           {typeof testRun.version === "number" && (
             <VersionBadge version={testRun.version} />
           )}
@@ -328,7 +329,7 @@ export function TestRunDetailEditor({
                 <span style={{ color: "var(--color-text)" }}>
                   {result.test_case_title || result.test_case_id}
                 </span>
-                <StatusBadge status={result.status} />
+                <StatusBadge status={result.status} label={getTestRunStatusLabel(result.status)} />
               </li>
             ))}
           </ul>
