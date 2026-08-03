@@ -189,6 +189,8 @@
     "editMode": "Edit",
     "previewMode": "Preview",
     "empty": "No items found.",
+    "emptyTitle": "No requirements yet",
+    "emptyDescription": "Requirements capture what the system must do and why.",
     "descriptionPlaceholder": "Enter description in Markdown...",
     "newRequirementTitle": "New Requirement",
     "untitled": "Untitled",

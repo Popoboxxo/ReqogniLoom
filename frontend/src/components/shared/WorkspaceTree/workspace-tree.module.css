@@ -1,0 +1,10 @@
+/*
+ * Task 3.1: layout-only class for the `renderRow` custom-content slot in
+ * `TreeRow`. Kept as a CSS module (not an inline `style={{`) so the ratchet
+ * guard in `src/test/ui-ratchet.test.ts` isn't tripped by an additive,
+ * non-visual layout tweak.
+ */
+.customRowSlot {
+  flex: 1;
+  min-width: 0;
+}

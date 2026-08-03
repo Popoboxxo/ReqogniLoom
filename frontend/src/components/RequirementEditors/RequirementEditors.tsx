@@ -366,6 +366,7 @@ export default function RequirementEditors(): JSX.Element {
         selectedId={selectedId}
         onSelect={(id) => navigate(`/requirements/${id}`)}
         onDelete={handleDelete}
+        onCreateNew={() => setShowCreateForm(true)}
       />
     </div>
   );

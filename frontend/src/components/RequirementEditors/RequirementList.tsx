@@ -23,6 +23,8 @@ import { useTranslation } from 'react-i18next';
 import { ListToolbar } from '../shared/ListToolbar';
 import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
+import { ArtifactRow } from '../shared/ArtifactRow';
+import { EmptyState } from '../shared/EmptyState';
 import { Requirement, RequirementType, UUID } from '../../types';
 import { REQ_CATEGORIES, WORKFLOW_STATES } from '../../types';
 
@@ -91,17 +93,22 @@ interface RequirementListProps {
   selectedId?: string;
   onSelect: (id: UUID) => void;
   onDelete: (id: UUID) => void;
+  /** Task 3.1: wired to the "empty" EmptyState's create action (ch. 12.7/13.3). */
+  onCreateNew: () => void;
 }
 
 /**
  * RequirementList — Left panel with filterable list of requirements.
- * (REQ-003) Uses WorkspaceTree for uniform compact-row navigation.
+ * (REQ-003) Uses WorkspaceTree for uniform compact-row navigation; rows are
+ * rendered as <ArtifactRow> (Task 3.1, ch. 12.3) via WorkspaceTree's
+ * `renderRow` slot, keeping the tree's own chevron/indent/select chrome.
  */
 export const RequirementList: React.FC<RequirementListProps> = ({
   requirements,
   selectedId,
   onSelect,
   onDelete,
+  onCreateNew,
 }) => {
   const { t } = useTranslation();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -128,7 +135,21 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     [visibleRequirements],
   );
 
+  // Task 3.1: lookup used by renderRow to hydrate <ArtifactRow> from the
+  // WorkspaceTreeNode id — avoids widening WorkspaceTreeNode's shape.
+  const reqById = useMemo(() => {
+    const map = new Map<string, Requirement>();
+    for (const req of visibleRequirements) map.set(req.id, req);
+    return map;
+  }, [visibleRequirements]);
+
   const hasActiveListControls = Boolean(listSearch || categoryFilter || statusFilter);
+
+  const resetFilters = (): void => {
+    setListSearch('');
+    setCategoryFilter('');
+    setStatusFilter('');
+  };
 
   return (
     <div>
@@ -218,18 +239,58 @@ export const RequirementList: React.FC<RequirementListProps> = ({
         </div>
       )}
 
-      {/* Unified tree navigation — REQ-003 */}
-      {/* REQ-091: enable virtualization for this hot-path list (threshold 100). */}
-      <WorkspaceTree
-        data-testid="req-list-tree"
-        nodes={treeNodes}
-        selectedId={selectedId}
-        onSelect={onSelect}
-        showSearch={false}
-        virtualize
-        emptyLabel={t('editor.empty')}
-        noMatchesLabel={t('editor.noMatches')}
-      />
+      {/* Task 3.1 / ch. 13.3: distinguish "nothing exists" from "nothing
+          matches the current filter" — the former wants a create action,
+          the latter only a filter reset. */}
+      {requirements.length === 0 ? (
+        <EmptyState
+          variant="empty"
+          testId="req-list-empty"
+          title={t('editor.emptyTitle')}
+          description={t('editor.emptyDescription')}
+          actions={[
+            { label: `+ ${t('editor.newRequirementTitle')}`, onClick: onCreateNew, testId: 'req-list-empty-create' },
+          ]}
+        />
+      ) : visibleRequirements.length === 0 ? (
+        <EmptyState variant="no-match" testId="req-list-no-match" onResetFilters={resetFilters} />
+      ) : (
+        // Unified tree navigation — REQ-003. Rows are <ArtifactRow> via
+        // renderRow (Task 3.1); WorkspaceTree still owns expand/collapse,
+        // depth indent and click-to-select.
+        // REQ-091: enable virtualization for this hot-path list (threshold 100).
+        <WorkspaceTree
+          data-testid="req-list-tree"
+          nodes={treeNodes}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          showSearch={false}
+          virtualize
+          // Task 3.1: <ArtifactRow>'s two-line id/title layout is taller
+          // than WorkspaceTree's default single-line row estimate (34px);
+          // override it so virtualized rows (>100 items, REQ-091) don't
+          // overlap.
+          virtualRowHeight={64}
+          emptyLabel={t('editor.empty')}
+          noMatchesLabel={t('editor.noMatches')}
+          renderRow={(node, { isSelected }) => {
+            const req = reqById.get(node.id);
+            if (!req) return null;
+            return (
+              <ArtifactRow
+                id={req.uid}
+                idFallback={req.id.slice(0, 8)}
+                levelLabel={req.type ? getTypeBadgeAbbreviation(req.type) : undefined}
+                title={(req.suspect ? '⚠ ' : '') + (req.title || t('editor.untitled'))}
+                status={req.status}
+                version={req.version}
+                selected={isSelected}
+                testId={`req-row-${req.id}`}
+              />
+            );
+          }}
+        />
+      )}
     </div>
   );
 };

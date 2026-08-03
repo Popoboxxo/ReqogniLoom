@@ -189,6 +189,8 @@
     "editMode": "Bearbeiten",
     "previewMode": "Vorschau",
     "empty": "Keine Einträge vorhanden.",
+    "emptyTitle": "Noch keine Anforderungen",
+    "emptyDescription": "Anforderungen beschreiben, was das System leisten muss und warum.",
     "descriptionPlaceholder": "Beschreibung in Markdown eingeben...",
     "newRequirementTitle": "Neue Anforderung",
     "untitled": "Ohne Titel",
