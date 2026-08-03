@@ -1,0 +1,63 @@
+/*
+ * <ArtifactRow> — UI concept ch. 12.3. Every value comes from
+ * styles/tokens.css. Selection is a full-row background plus a 3px left
+ * edge accent in --color-primary, never a text-colour change (ch. 12.3) —
+ * the same mechanic shared/WorkspaceTree's TreeRow uses.
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background var(--transition-fast);
+}
+
+.root:hover {
+  background: var(--color-surface-raised);
+}
+
+.selected,
+.selected:hover {
+  background: var(--color-card-active-bg);
+  border-left: 3px solid var(--color-primary);
+}
+
+.root:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.topLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: var(--font-size-lg);
+  line-height: var(--leading-tight);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
