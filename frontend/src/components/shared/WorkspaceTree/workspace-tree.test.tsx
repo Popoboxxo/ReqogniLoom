@@ -14,7 +14,7 @@
  *   - onAddChild button per node
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WorkspaceTree } from './workspace-tree';
@@ -378,6 +378,341 @@ describe('WorkspaceTree — virtualization (REQ-091)', () => {
     expect(screen.queryAllByRole('treeitem').length).toBeLessThan(
       LARGE_NODES.length,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 4.1: ARIA treeview keyboard navigation
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — keyboard navigation', () => {
+  // Flat list (no expand/collapse) plus a hierarchical branch, so ↑/↓/Home/End
+  // and letter-jump can be exercised on a simple list while →/←/* get a real
+  // parent/child/sibling structure.
+  const KB_FLAT: WorkspaceTreeNode[] = [
+    { id: 'k1', name: 'Alpha', parentId: null },
+    { id: 'k2', name: 'Bravo', parentId: null },
+    { id: 'k3', name: 'Charlie', parentId: null },
+    { id: 'k4', name: 'Another Alpha-like', parentId: null },
+  ];
+
+  const KB_TREE: WorkspaceTreeNode[] = [
+    { id: 'root', name: 'Root', parentId: null },
+    { id: 'child-a', name: 'Child A', parentId: 'root' },
+    { id: 'child-b', name: 'Child B', parentId: 'root' },
+    { id: 'grandchild', name: 'Grandchild', parentId: 'child-a' },
+  ];
+
+  // Dispatches a keydown on the tree's root <ul role="tree"> — where the
+  // keyboard handler is actually attached. It does NOT depend on which
+  // element holds real DOM focus: the handler reads its "current item" from
+  // WorkspaceTree's own `focusedId` state (the roving-tabindex source of
+  // truth), exactly like a real browser event bubbling up from whichever
+  // <li> has tabIndex=0 and real focus. Using `.focus()` on an arbitrary row
+  // to fake a starting position does NOT update that state, so this helper
+  // drives navigation with real ArrowDown/ArrowUp presses instead — the only
+  // way to move `focusedId` (and real DOM focus, via `focusRowAtIndex`) is
+  // through the component's own handler.
+  //
+  // Before the very first key press nothing has real DOM focus yet (a real
+  // user would have Tab-ed into the tree, landing on whichever row already
+  // carries tabIndex=0 — the same row `effectiveFocusedId` designates). We
+  // replicate that one-time "tab into the tree" step here so genuine no-op
+  // keys (e.g. ArrowRight on a leaf) can be asserted to *retain* focus
+  // rather than comparing against an unfocused document.body.
+  function pressKey(key: string): void {
+    const tree = screen.getByRole('tree');
+    if (!tree.contains(document.activeElement)) {
+      tree.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
+    }
+    fireEvent.keyDown(tree, { key });
+  }
+
+  it('ArrowDown moves focus to the next visible item', () => {
+    renderTree({ nodes: KB_FLAT });
+    // Default focus target is the first visible row (k1) before any key press.
+    pressKey('ArrowDown');
+    expect(screen.getByTestId('workspace-tree-node-k2')).toHaveFocus();
+  });
+
+  it('ArrowDown at the last item stays on the last item', () => {
+    renderTree({ nodes: KB_FLAT });
+    pressKey('ArrowDown');
+    pressKey('ArrowDown');
+    pressKey('ArrowDown'); // now at k4 (last)
+    pressKey('ArrowDown'); // no-op, clamped
+    expect(screen.getByTestId('workspace-tree-node-k4')).toHaveFocus();
+  });
+
+  it('ArrowUp moves focus to the previous visible item', () => {
+    renderTree({ nodes: KB_FLAT });
+    pressKey('ArrowDown'); // k1 -> k2
+    pressKey('ArrowUp'); // k2 -> k1
+    expect(screen.getByTestId('workspace-tree-node-k1')).toHaveFocus();
+  });
+
+  it('ArrowUp at the first item stays on the first item', () => {
+    renderTree({ nodes: KB_FLAT });
+    pressKey('ArrowUp'); // already at k1, clamped
+    expect(screen.getByTestId('workspace-tree-node-k1')).toHaveFocus();
+  });
+
+  it('ArrowRight on a collapsed parent expands it without moving focus', async () => {
+    renderTree({ nodes: KB_TREE });
+    // Collapse root first (it auto-expands on mount). Default focus is root.
+    await waitFor(() => expect(screen.getByText('Child A')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('workspace-tree-toggle-root'));
+    expect(screen.queryByText('Child A')).not.toBeInTheDocument();
+
+    pressKey('ArrowRight');
+
+    expect(screen.getByText('Child A')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-tree-node-root')).toHaveFocus();
+  });
+
+  it('ArrowRight on an already-expanded parent moves focus to its first child', async () => {
+    renderTree({ nodes: KB_TREE });
+    await waitFor(() => expect(screen.getByText('Child A')).toBeInTheDocument());
+
+    pressKey('ArrowRight'); // root is expanded -> move to first child
+
+    expect(screen.getByTestId('workspace-tree-node-child-a')).toHaveFocus();
+  });
+
+  it('ArrowRight on a leaf is a no-op', () => {
+    renderTree({ nodes: KB_FLAT });
+    pressKey('ArrowRight'); // k1 is a leaf
+    expect(screen.getByTestId('workspace-tree-node-k1')).toHaveFocus();
+  });
+
+  it('ArrowLeft on an expanded parent collapses it without moving focus', async () => {
+    renderTree({ nodes: KB_TREE });
+    await waitFor(() => expect(screen.getByText('Child A')).toBeInTheDocument());
+
+    pressKey('ArrowLeft'); // root is expanded -> collapse
+
+    expect(screen.queryByText('Child A')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-tree-node-root')).toHaveFocus();
+  });
+
+  it('ArrowLeft on a collapsed/leaf child moves focus to its parent', async () => {
+    renderTree({ nodes: KB_TREE });
+    await waitFor(() => expect(screen.getByText('Child B')).toBeInTheDocument());
+
+    pressKey('ArrowRight'); // root -> child-a
+    pressKey('ArrowDown'); // child-a -> child-b
+    pressKey('ArrowLeft'); // child-b has no children -> move to parent (root)
+
+    expect(screen.getByTestId('workspace-tree-node-root')).toHaveFocus();
+  });
+
+  it('Home moves focus to the first visible item', () => {
+    renderTree({ nodes: KB_FLAT });
+    pressKey('ArrowDown');
+    pressKey('ArrowDown');
+    pressKey('ArrowDown'); // now at k4
+    pressKey('Home');
+    expect(screen.getByTestId('workspace-tree-node-k1')).toHaveFocus();
+  });
+
+  it('End moves focus to the last visible item', () => {
+    renderTree({ nodes: KB_FLAT });
+    pressKey('End');
+    expect(screen.getByTestId('workspace-tree-node-k4')).toHaveFocus();
+  });
+
+  it('letter-jump moves focus to the next item starting with the typed character, cycling', () => {
+    renderTree({ nodes: KB_FLAT });
+    // Default focus is k1 ("Alpha"). Pressing "a" should cycle past k1
+    // itself to k4 ("Another Alpha-like" — the next name starting with "a").
+    pressKey('a');
+    expect(screen.getByTestId('workspace-tree-node-k4')).toHaveFocus();
+  });
+
+  it('letter-jump is case-insensitive', () => {
+    renderTree({ nodes: KB_FLAT });
+    pressKey('B'); // matches "Bravo" (k2)
+    expect(screen.getByTestId('workspace-tree-node-k2')).toHaveFocus();
+  });
+
+  it('Enter activates the focused item the same way a click does', () => {
+    const onSelect = vi.fn();
+    renderTree({ nodes: KB_FLAT, onSelect });
+    pressKey('ArrowDown'); // k1 -> k2
+    pressKey('Enter');
+    expect(onSelect).toHaveBeenCalledWith('k2');
+  });
+
+  it('* expands all siblings at the current item\'s level', async () => {
+    renderTree({ nodes: KB_TREE });
+    // Root auto-expands on mount; child-a/child-b (its children) do not.
+    await waitFor(() => expect(screen.getByText('Child A')).toBeInTheDocument());
+    expect(screen.queryByText('Grandchild')).not.toBeInTheDocument();
+
+    pressKey('ArrowRight'); // root -> child-a
+    pressKey('ArrowDown'); // child-a -> child-b
+    pressKey('*'); // expand every sibling of child-b (i.e. child-a too)
+
+    expect(screen.getByText('Grandchild')).toBeInTheDocument();
+  });
+
+  it('clicking a row also moves roving-tabindex focus to it', async () => {
+    const user = userEvent.setup();
+    renderTree({ nodes: KB_FLAT });
+    await user.click(screen.getByText('Charlie'));
+    expect(screen.getByTestId('workspace-tree-node-k3')).toHaveAttribute('tabindex', '0');
+    expect(screen.getByTestId('workspace-tree-node-k1')).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('only the focused row has tabIndex=0 (roving tabindex)', () => {
+    renderTree({ nodes: KB_FLAT });
+    expect(screen.getByTestId('workspace-tree-node-k1')).toHaveAttribute('tabindex', '0');
+    expect(screen.getByTestId('workspace-tree-node-k2')).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByTestId('workspace-tree-node-k3')).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByTestId('workspace-tree-node-k4')).toHaveAttribute('tabindex', '-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 4.1: keyboard navigation in the virtualized path — the target row is
+// NOT initially mounted and must be scrolled into view before it can be
+// focused.
+//
+// Two jsdom limitations have to be worked around, both noted in the task
+// brief as the "hard part":
+//
+//  1. jsdom does not run layout, so `offsetWidth`/`offsetHeight` are always
+//     0. @tanstack/react-virtual reads the scroll container's rect
+//     synchronously via `observeElementRect` (virtual-core/src/index.ts) —
+//     with a 0x0 rect its visible range is empty and it mounts NO rows at
+//     all, which would make "scroll a not-yet-rendered node into view" a
+//     vacuous test (there'd be nothing rendered before OR after). We patch
+//     `offsetWidth`/`offsetHeight` on HTMLElement.prototype for this describe
+//     block to a realistic container size so the virtualizer computes a real
+//     window of rows, matching what happens in a real browser.
+//  2. jsdom's `scrollTo()` does not update `scrollTop` or dispatch a
+//     `scroll` event. @tanstack/react-virtual's offset tracking
+//     (`observeElementOffset`) is driven entirely by a native 'scroll'
+//     listener reading `element.scrollTop`. So after our keyboard handler
+//     calls `rowVirtualizer.scrollToIndex(...)`, we manually fire a
+//     `scroll` event with the resulting `scrollTop` — this is the standard,
+//     documented way to drive @tanstack/virtual-core in jsdom tests, and
+//     genuinely exercises the "scroll the target into the DOM, then attach
+//     DOM focus" sequence in `focusRowAtIndex`/`registerRowRef`.
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceTree — keyboard navigation in the virtualized path', () => {
+  const ROW_HEIGHT = 34; // VIRTUAL_ROW_HEIGHT in workspace-tree.tsx
+  const CONTAINER_HEIGHT = 340; // ~10 rows visible at once
+
+  const LARGE_NODES: WorkspaceTreeNode[] = Array.from({ length: 150 }, (_, i) => ({
+    id: `v${i}`,
+    name: `Node ${i}`,
+    parentId: null,
+  }));
+
+  let offsetHeightSpy: ReturnType<typeof vi.spyOn>;
+  let offsetWidthSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    offsetHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockReturnValue(CONTAINER_HEIGHT);
+    offsetWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+      .mockReturnValue(800);
+  });
+
+  afterEach(() => {
+    offsetHeightSpy.mockRestore();
+    offsetWidthSpy.mockRestore();
+  });
+
+  function pressKey(key: string): void {
+    const tree = screen.getByRole('tree');
+    if (!tree.contains(document.activeElement)) {
+      tree.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
+    }
+    fireEvent.keyDown(tree, { key });
+  }
+
+  /** Mirrors what a real 'scroll' event delivers after scrollToIndex(). */
+  function fireScrollTo(scrollTop: number): void {
+    const scrollContainer = screen.getByTestId('workspace-tree-scroll');
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      writable: true,
+      value: scrollTop,
+    });
+    fireEvent.scroll(scrollContainer, { target: { scrollTop } });
+  }
+
+  it('with a real container size, the virtualizer mounts only a window of rows (not all 150)', () => {
+    renderTree({ nodes: LARGE_NODES, virtualize: true });
+    const mounted = screen.queryAllByRole('treeitem').length;
+    expect(mounted).toBeGreaterThan(0);
+    expect(mounted).toBeLessThan(LARGE_NODES.length);
+    // The last node is far outside the initial window.
+    expect(screen.queryByTestId('workspace-tree-node-v149')).not.toBeInTheDocument();
+  });
+
+  it('End moves focus to the last item even though it is not initially rendered', async () => {
+    renderTree({ nodes: LARGE_NODES, virtualize: true });
+    expect(screen.queryByTestId('workspace-tree-node-v149')).not.toBeInTheDocument();
+
+    pressKey('End');
+    // Drive the virtualizer's offset tracking the way a real scroll would.
+    fireScrollTo(150 * ROW_HEIGHT);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-v149')).toHaveFocus();
+    });
+  });
+
+  it('Home moves focus back to the first item from a scrolled-down position', async () => {
+    renderTree({ nodes: LARGE_NODES, virtualize: true });
+
+    // Scroll down first so v0 is unmounted, then land keyboard focus at the
+    // bottom via End (exercising the same scroll-then-focus path).
+    pressKey('End');
+    fireScrollTo(150 * ROW_HEIGHT);
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-v149')).toHaveFocus();
+      expect(screen.queryByTestId('workspace-tree-node-v0')).not.toBeInTheDocument();
+    });
+
+    pressKey('Home');
+    fireScrollTo(0);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-v0')).toHaveFocus();
+    });
+  });
+
+  it('ArrowDown across the virtualized window still moves focus one row at a time', () => {
+    renderTree({ nodes: LARGE_NODES, virtualize: true });
+    // v0 is focusable by default (default focus target); no scroll needed
+    // since v1 is within the initially mounted window.
+    pressKey('ArrowDown');
+    expect(screen.getByTestId('workspace-tree-node-v1')).toHaveFocus();
+  });
+
+  it('letter-jump can scroll a distant match into view before focusing it', async () => {
+    // Rename a far-away node so letter-jump has a unique target outside the
+    // initial window, proving the same scroll-then-focus path works for the
+    // letter-jump key too, not just Home/End.
+    const nodes = LARGE_NODES.map((n, i) =>
+      i === 140 ? { ...n, name: 'Zzz-Target' } : n,
+    );
+    renderTree({ nodes, virtualize: true });
+    expect(screen.queryByTestId('workspace-tree-node-v140')).not.toBeInTheDocument();
+
+    pressKey('z');
+    fireScrollTo(140 * ROW_HEIGHT);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tree-node-v140')).toHaveFocus();
+    });
   });
 });
 

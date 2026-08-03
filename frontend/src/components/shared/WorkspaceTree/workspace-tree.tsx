@@ -24,6 +24,7 @@
 
 import {
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -341,6 +342,163 @@ export function WorkspaceTree({
     overscan: 12,
   });
 
+  // -------------------------------------------------------------------
+  // Task 4.1: ARIA treeview keyboard navigation (roving tabindex).
+  // Design ref: docs §12.5 — ↑ ↓ → ← Home End, letter-jump, Enter, *.
+  // -------------------------------------------------------------------
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  // Maps node id -> mounted <li> element. Entries appear/disappear as the
+  // virtualizer mounts/unmounts rows outside its visible window.
+  const rowElementsRef = useRef<Map<string, HTMLLIElement>>(new Map());
+  // Id awaiting DOM focus once its row is scrolled into view and mounts.
+  const pendingFocusIdRef = useRef<string | null>(null);
+
+  // Drop a stale focus target once it scrolls out of the visible/filtered set
+  // (e.g. search narrows the list, or a collapse hides the focused node).
+  useEffect(() => {
+    if (focusedId !== null && !visibleRows.some((r) => r.internal.node.id === focusedId)) {
+      setFocusedId(null);
+    }
+  }, [visibleRows, focusedId]);
+
+  const registerRowRef = useCallback((id: string, el: HTMLLIElement | null): void => {
+    if (el) {
+      rowElementsRef.current.set(id, el);
+      // The row we were waiting to scroll into view just mounted — focus it now.
+      if (pendingFocusIdRef.current === id) {
+        pendingFocusIdRef.current = null;
+        el.focus();
+      }
+    } else {
+      rowElementsRef.current.delete(id);
+    }
+  }, []);
+
+  /**
+   * Moves roving-tabindex focus to `visibleRows[index]`.
+   *
+   * In the virtualized path the target row may not be mounted yet — in
+   * that case we ask the virtualizer to scroll it into view and defer the
+   * actual `.focus()` call to `registerRowRef`, which fires once the row's
+   * <li> commits to the DOM. Calling `.focus()` on a not-yet-rendered node
+   * is impossible, so this two-step sequence (scroll, then focus-on-mount)
+   * is required rather than optional.
+   */
+  const focusRowAtIndex = useCallback(
+    (index: number): void => {
+      if (index < 0 || index >= visibleRows.length) return;
+      const targetId = visibleRows[index].internal.node.id;
+      setFocusedId(targetId);
+      const el = rowElementsRef.current.get(targetId);
+      if (el) {
+        el.focus();
+      } else {
+        pendingFocusIdRef.current = targetId;
+        if (useVirtual) {
+          rowVirtualizer.scrollToIndex(index, { align: 'auto' });
+        }
+      }
+    },
+    [visibleRows, useVirtual, rowVirtualizer],
+  );
+
+  // The row that currently owns tabIndex=0 for keyboard entry into the tree,
+  // even before any key has been pressed (falls back to selection, then root).
+  const effectiveFocusedId =
+    focusedId ?? selectedId ?? visibleRows[0]?.internal.node.id ?? null;
+
+  const handleTreeKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLUListElement>): void => {
+      if (visibleRows.length === 0) return;
+      const currentId = focusedId ?? selectedId ?? visibleRows[0].internal.node.id;
+      const currentIndex = visibleRows.findIndex((r) => r.internal.node.id === currentId);
+      const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+      const currentRow = visibleRows[safeIndex];
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          focusRowAtIndex(Math.min(safeIndex + 1, visibleRows.length - 1));
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          focusRowAtIndex(Math.max(safeIndex - 1, 0));
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          if (currentRow.hasChildren && !currentRow.isExpanded) {
+            toggleExpand(currentRow.internal.node.id);
+          } else if (currentRow.hasChildren && currentRow.isExpanded) {
+            // Children are flattened immediately after their parent (flattenVisible).
+            focusRowAtIndex(safeIndex + 1);
+          }
+          break;
+        case 'ArrowLeft': {
+          e.preventDefault();
+          if (currentRow.hasChildren && currentRow.isExpanded) {
+            toggleExpand(currentRow.internal.node.id);
+          } else {
+            const parentId = currentRow.internal.node.parentId;
+            if (parentId) {
+              const parentIndex = visibleRows.findIndex(
+                (r) => r.internal.node.id === parentId,
+              );
+              if (parentIndex !== -1) focusRowAtIndex(parentIndex);
+            }
+          }
+          break;
+        }
+        case 'Home':
+          e.preventDefault();
+          focusRowAtIndex(0);
+          break;
+        case 'End':
+          e.preventDefault();
+          focusRowAtIndex(visibleRows.length - 1);
+          break;
+        case 'Enter':
+          // Same activation the row's onClick already performs.
+          e.preventDefault();
+          onSelect(currentRow.internal.node.id);
+          break;
+        case '*': {
+          // ARIA treeview convention: expand every sibling at the current
+          // item's level (i.e. every node sharing its parentId).
+          e.preventDefault();
+          const parentId = currentRow.internal.node.parentId;
+          const siblingIdsToExpand = visibleRows
+            .filter((r) => r.hasChildren && r.internal.node.parentId === parentId)
+            .map((r) => r.internal.node.id);
+          if (siblingIdsToExpand.length > 0) {
+            setExpanded((prev) => {
+              const next = new Set(prev);
+              for (const id of siblingIdsToExpand) next.add(id);
+              return next;
+            });
+          }
+          break;
+        }
+        default: {
+          // Letter-jump: move to the next visible item whose label starts
+          // with the typed character (case-insensitive), cycling.
+          if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const char = e.key.toLowerCase();
+            const n = visibleRows.length;
+            for (let step = 1; step <= n; step++) {
+              const idx = (safeIndex + step) % n;
+              if (visibleRows[idx].internal.node.name.toLowerCase().startsWith(char)) {
+                e.preventDefault();
+                focusRowAtIndex(idx);
+                break;
+              }
+            }
+          }
+        }
+      }
+    },
+    [visibleRows, focusedId, selectedId, toggleExpand, onSelect, focusRowAtIndex],
+  );
+
   return (
     <div
       data-testid={testId}
@@ -402,6 +560,7 @@ export function WorkspaceTree({
           <ul
             role="tree"
             data-testid={`${testId}-list`}
+            onKeyDown={handleTreeKeyDown}
             style={{
               listStyle: 'none',
               padding: 0,
@@ -419,6 +578,7 @@ export function WorkspaceTree({
                   node={internal.node}
                   depth={internal.depth}
                   isSelected={internal.node.id === selectedId}
+                  isFocused={internal.node.id === effectiveFocusedId}
                   hasChildren={hasChildren}
                   isExpanded={isExpanded}
                   showLevelBadge={showLevelBadge}
@@ -427,6 +587,8 @@ export function WorkspaceTree({
                   testIdPrefix={testId}
                   onSelect={onSelect}
                   onToggle={toggleExpand}
+                  onRowRef={registerRowRef}
+                  onFocusRow={setFocusedId}
                   rowStyle={{
                     position: 'absolute',
                     top: 0,
@@ -443,6 +605,7 @@ export function WorkspaceTree({
         <ul
           role="tree"
           data-testid={`${testId}-list`}
+          onKeyDown={handleTreeKeyDown}
           style={{
             listStyle: 'none',
             padding: 0,
@@ -458,6 +621,7 @@ export function WorkspaceTree({
               node={internal.node}
               depth={internal.depth}
               isSelected={internal.node.id === selectedId}
+              isFocused={internal.node.id === effectiveFocusedId}
               hasChildren={hasChildren}
               isExpanded={isExpanded}
               showLevelBadge={showLevelBadge}
@@ -466,6 +630,8 @@ export function WorkspaceTree({
               testIdPrefix={testId}
               onSelect={onSelect}
               onToggle={toggleExpand}
+              onRowRef={registerRowRef}
+              onFocusRow={setFocusedId}
             />
           ))}
         </ul>
@@ -482,6 +648,8 @@ interface TreeRowProps {
   node: WorkspaceTreeNode;
   depth: number;
   isSelected: boolean;
+  /** Task 4.1: roving-tabindex focus target — true for at most one row. */
+  isFocused: boolean;
   hasChildren: boolean;
   isExpanded: boolean;
   showLevelBadge: boolean;
@@ -491,6 +659,14 @@ interface TreeRowProps {
   testIdPrefix: string;
   onSelect: (id: string) => void;
   onToggle: (id: string) => void;
+  /**
+   * Task 4.1: registers/unregisters this row's <li> DOM node with the
+   * parent's roving-tabindex focus manager. Called with `null` on unmount
+   * (e.g. when the virtualizer windows the row out of the DOM).
+   */
+  onRowRef: (id: string, el: HTMLLIElement | null) => void;
+  /** Task 4.1: moves roving-tabindex focus to this row (click-to-focus). */
+  onFocusRow: (id: string) => void;
   /** REQ-091: extra positioning styles injected by the virtualizer. */
   rowStyle?: CSSProperties;
 }
@@ -499,6 +675,7 @@ function TreeRow({
   node,
   depth,
   isSelected,
+  isFocused,
   hasChildren,
   isExpanded,
   showLevelBadge,
@@ -507,6 +684,8 @@ function TreeRow({
   testIdPrefix,
   onSelect,
   onToggle,
+  onRowRef,
+  onFocusRow,
   rowStyle,
 }: TreeRowProps): JSX.Element {
   // Task 3.1: when a custom row renderer is used (e.g. <ArtifactRow>), it
@@ -516,11 +695,16 @@ function TreeRow({
 
   return (
     <li
+      ref={(el) => onRowRef(node.id, el)}
       role="treeitem"
       aria-selected={isSelected}
       aria-expanded={hasChildren ? isExpanded : undefined}
+      tabIndex={isFocused ? 0 : -1}
       data-testid={`${testIdPrefix}-node-${node.id}`}
-      onClick={() => onSelect(node.id)}
+      onClick={() => {
+        onSelect(node.id);
+        onFocusRow(node.id);
+      }}
       style={{
         display: 'flex',
         alignItems: 'center',
