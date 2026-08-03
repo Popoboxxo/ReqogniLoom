@@ -92,10 +92,18 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // in `TestRuns.tsx`, and the three hand-rolled pill returns in
 // `WorkspaceSettings/DefaultStatusBadge.tsx` — all now render through the
 // single `shared/StatusBadge`, which owns its own inline style. Re-measured
-// after that change: 1463. Baseline lowered in the same PR per the ratchet
-// rule above.
+// after that change: 1463.
+//
+// Task 1.3 (dialog migration) replaced the hand-built overlay/panel/header
+// `style={{...}}` chrome of eleven modals (SystemHealthDialog,
+// TriLabelOverviewDialog, CreateWorkspaceModal, SignatureDialog,
+// CreateTraceLinkDialog, WorkspaceAdminSection's delete confirmation,
+// WorkflowModal and its ArchitectureEditors/ArchitectureForm/
+// RequirementEditors call sites) with `<Dialog>`, which owns that chrome via
+// CSS Modules instead of inline styles. Re-measured after that change: 1437.
+// Baseline lowered in the same PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1463;
+const STYLE_BRACE_BASELINE = 1437;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

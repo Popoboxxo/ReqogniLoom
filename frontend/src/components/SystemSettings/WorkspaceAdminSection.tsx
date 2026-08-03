@@ -17,6 +17,7 @@ import { workspacesApi } from "../../api/workspaces";
 import { BackupRestoreSection } from "../WorkspaceSettings/BackupRestoreSection";
 import { SystemHealthDialog } from "../AdminDialog/SystemHealthDialog";
 import { TriLabelOverviewDialog } from "../AdminDialog/TriLabelOverviewDialog";
+import { Dialog } from "../shared/Dialog";
 
 const cardStyle: React.CSSProperties = {
   background: "var(--color-surface)",
@@ -296,21 +297,52 @@ export function WorkspaceAdminSection(): JSX.Element {
         </button>
 
         {showDeleteModal && (
-          <div
-            data-testid="delete-modal"
-            role="dialog"
-            style={{
-              marginTop: "var(--space-4)",
-              padding: "var(--space-4)",
-              background: "var(--color-surface-raised)",
-              border: "1px solid var(--color-danger, #dc2626)",
-              borderRadius: "var(--radius-md)",
-            }}
+          <Dialog
+            title={t("settings.deleteConfirmTitle", "Delete Workspace")}
+            onClose={() => { setShowDeleteModal(false); setDeleteConfirmation(""); setDeleteError(null); }}
+            size="sm"
+            testId="delete-modal"
+            footer={
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <button
+                  type="button"
+                  data-testid="delete-cancel-btn"
+                  onClick={() => { setShowDeleteModal(false); setDeleteConfirmation(""); setDeleteError(null); }}
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-text-muted)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "var(--font-size-sm)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {t("actions.cancel", "Cancel")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="delete-confirm-btn"
+                  onClick={() => void handleDeleteWorkspace()}
+                  disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
+                  style={{
+                    background: "var(--color-danger, #dc2626)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "var(--radius-md)",
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "var(--font-size-sm)",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    opacity: (isDeleting || deleteConfirmation !== activeWorkspace.name) ? 0.5 : 1,
+                  }}
+                >
+                  {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
+                </button>
+              </div>
+            }
           >
-            <p style={{ fontWeight: 600, marginBottom: "var(--space-2)" }}>
-              {t("settings.deleteConfirmTitle", "Delete Workspace")}
-            </p>
-            <p style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)" }}>
+            <p style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-3)", marginTop: 0 }}>
               {t("settings.deleteCaptchaPrompt", { name: activeWorkspace.name })}
             </p>
             <input
@@ -336,44 +368,7 @@ export function WorkspaceAdminSection(): JSX.Element {
                 {deleteError}
               </div>
             )}
-            <div style={{ display: "flex", gap: "var(--space-2)" }}>
-              <button
-                type="button"
-                data-testid="delete-confirm-btn"
-                onClick={() => void handleDeleteWorkspace()}
-                disabled={isDeleting || deleteConfirmation !== activeWorkspace.name}
-                style={{
-                  background: "var(--color-danger, #dc2626)",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  opacity: (isDeleting || deleteConfirmation !== activeWorkspace.name) ? 0.5 : 1,
-                }}
-              >
-                {isDeleting ? "…" : t("settings.deleteConfirmButton", "Permanently Delete")}
-              </button>
-              <button
-                type="button"
-                data-testid="delete-cancel-btn"
-                onClick={() => { setShowDeleteModal(false); setDeleteConfirmation(""); setDeleteError(null); }}
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text-muted)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-sm)",
-                  cursor: "pointer",
-                }}
-              >
-                {t("actions.cancel", "Cancel")}
-              </button>
-            </div>
-          </div>
+          </Dialog>
         )}
       </section>
 

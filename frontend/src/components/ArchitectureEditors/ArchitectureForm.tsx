@@ -32,6 +32,7 @@ import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { architectureApi } from '../../api/architecture';
 import { extractErrorMessage } from '../../api/client';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
+import { Dialog } from '../shared/Dialog';
 import type { CustomFields } from '../../types';
 import { ASIL_LEVEL_OPTIONS, MAKE_OR_BUY_OPTIONS } from '../../utils/asilUtils';
 import type { ArchitectureElement, ASILLevel, MakeOrBuyDecision, ElementType } from '../../types';
@@ -125,47 +126,26 @@ function DeleteConfirmationDialog({
   const { t } = useTranslation();
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.4)',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1000,
-      }}
-    >
-      <div
-        style={{
-          background: 'var(--color-surface)',
-          padding: 'var(--space-6)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-md)',
-          maxWidth: '400px',
-          textAlign: 'center',
-          fontFamily: 'var(--font-sans)',
-          color: 'var(--color-text)',
-        }}
-      >
-        <h3 style={{ margin: 0, marginBottom: 'var(--space-3)', fontSize: 'var(--font-size-lg)' }}>
-          {t('arch.deleteTitle')}
-        </h3>
-        <p style={{ margin: 0, marginBottom: 'var(--space-4)', color: 'var(--color-text-muted)' }}>
-          {t('arch.deleteConfirm')}: <strong style={{ color: 'var(--color-text)' }}>{elementName}</strong>?
-        </p>
-        <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center', marginTop: 'var(--space-4)' }}>
-          <button data-testid="confirm-delete-btn" className="btn-danger" onClick={onConfirm}>
-            {t('actions.delete')}
-          </button>
+    <Dialog
+      title={t('arch.deleteTitle')}
+      onClose={onCancel}
+      size="sm"
+      testId="arch-form-delete-dialog"
+      footer={
+        <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
           <button className="btn-secondary" onClick={onCancel}>
             {t('actions.cancel')}
           </button>
+          <button data-testid="confirm-delete-btn" className="btn-danger" onClick={onConfirm}>
+            {t('actions.delete')}
+          </button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>
+        {t('arch.deleteConfirm')}: <strong style={{ color: 'var(--color-text)' }}>{elementName}</strong>?
+      </p>
+    </Dialog>
   );
 }
 

@@ -12,7 +12,8 @@
  * (overlay/dialog/header/body/footer + backdrop-click-to-close).
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import type { CSSProperties } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   adminOpsApi,
@@ -20,6 +21,7 @@ import {
   type SystemHealthStatus,
 } from "../../api/admin-ops";
 import { versionApi, type VersionInfo } from "../../api/version";
+import { Dialog } from "../shared/Dialog";
 
 export interface SystemHealthDialogProps {
   /** Controls modal visibility. */
@@ -50,57 +52,28 @@ const STATUS_COLORS: Record<SystemHealthStatus, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Styles — mirrors CreateWorkspaceModal's modal pattern.
+// Styles — the overlay/panel/header chrome now comes from <Dialog>; only the
+// body/footer/content styles specific to this dialog remain here.
 // ---------------------------------------------------------------------------
 
-const overlayStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0, 0, 0, 0.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-
-const dialogStyle: React.CSSProperties = {
-  background: "var(--color-surface)",
-  borderRadius: "var(--radius-lg)",
-  boxShadow: "var(--shadow-md)",
-  width: "100%",
-  maxWidth: "560px",
-  maxHeight: "90vh",
-  display: "flex",
-  flexDirection: "column",
-  overflow: "hidden",
-};
-
-const headerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  padding: "var(--space-4) var(--space-5)",
-  borderBottom: "1px solid var(--color-border)",
-};
-
-const bodyStyle: React.CSSProperties = {
-  padding: "var(--space-4) var(--space-5)",
-  overflowY: "auto",
-  flex: 1,
+const bodyStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-4)",
 };
 
-const footerStyle: React.CSSProperties = {
+const versionLineStyle: CSSProperties = {
+  fontSize: "var(--font-size-xs)",
+  color: "var(--color-text-muted)",
+};
+
+const footerStyle: CSSProperties = {
   display: "flex",
   justifyContent: "flex-end",
   gap: "var(--space-2)",
-  padding: "var(--space-4) var(--space-5)",
-  borderTop: "1px solid var(--color-border)",
 };
 
-const sectionHeadingStyle: React.CSSProperties = {
+const sectionHeadingStyle: CSSProperties = {
   fontSize: "var(--font-size-sm)",
   fontWeight: 600,
   color: "var(--color-text-muted)",
@@ -109,7 +82,7 @@ const sectionHeadingStyle: React.CSSProperties = {
   margin: "0 0 var(--space-2) 0",
 };
 
-const componentRowStyle: React.CSSProperties = {
+const componentRowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -118,7 +91,7 @@ const componentRowStyle: React.CSSProperties = {
   borderRadius: "var(--radius-md)",
 };
 
-const secondaryButtonStyle: React.CSSProperties = {
+const secondaryButtonStyle: CSSProperties = {
   background: "transparent",
   color: "var(--color-text)",
   border: "1px solid var(--color-border)",
@@ -129,7 +102,7 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontFamily: "inherit",
 };
 
-const primaryButtonStyle: React.CSSProperties = {
+const primaryButtonStyle: CSSProperties = {
   background: "var(--color-primary)",
   color: "white",
   border: "none",
@@ -215,64 +188,52 @@ export function SystemHealthDialog({
   if (!isOpen) return null;
 
   return (
-    <div
-      style={overlayStyle}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("systemHealth.title", "System Health")}
-        data-testid="system-health-dialog"
-        style={dialogStyle}
-      >
-        <div style={headerStyle}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", color: "var(--color-text)" }}>
-              {t("systemHealth.title", "System Health")}
-            </h2>
-            {(versionInfo || versionFailed) && (
-              <span
-                data-testid="system-health-version"
-                style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}
-              >
-                {versionInfo
-                  ? (versionInfo.app_version && versionInfo.app_version !== "unknown"
-                      ? `${t("systemHealth.appVersion", {
-                          version: versionInfo.app_version,
-                          defaultValue: `v${versionInfo.app_version}`,
-                        })} · `
-                      : "") +
-                    t("systemHealth.version", {
-                      sha: versionInfo.commit_short,
-                      defaultValue: `Version: ${versionInfo.commit_short}`,
-                    })
-                  : t("systemHealth.versionUnavailable", "Version: unavailable")}
-              </span>
-            )}
-          </div>
+    <Dialog
+      title={t("systemHealth.title", "System Health")}
+      onClose={onClose}
+      size="md"
+      testId="system-health-dialog"
+      footer={
+        <div style={footerStyle}>
           <button
             type="button"
-            data-testid="system-health-close"
-            onClick={onClose}
-            aria-label={t("common.close") || "Close"}
-            style={{
-              background: "transparent",
-              border: "none",
-              fontSize: "1.25rem",
-              lineHeight: 1,
-              cursor: "pointer",
-              color: "var(--color-text-muted)",
-            }}
+            data-testid="system-health-refresh"
+            onClick={() => void load()}
+            disabled={isLoading}
+            style={{ ...secondaryButtonStyle, opacity: isLoading ? 0.6 : 1 }}
           >
-            ×
+            {isLoading ? "…" : t("systemHealth.refresh", "Refresh")}
+          </button>
+          <button
+            type="button"
+            data-testid="system-health-done"
+            onClick={onClose}
+            style={primaryButtonStyle}
+          >
+            {t("common.close", "Close")}
           </button>
         </div>
+      }
+    >
+      <div style={bodyStyle}>
+        {(versionInfo || versionFailed) && (
+          <span data-testid="system-health-version" style={versionLineStyle}>
+            {versionInfo
+              ? (versionInfo.app_version && versionInfo.app_version !== "unknown"
+                  ? `${t("systemHealth.appVersion", {
+                      version: versionInfo.app_version,
+                      defaultValue: `v${versionInfo.app_version}`,
+                    })} · `
+                  : "") +
+                t("systemHealth.version", {
+                  sha: versionInfo.commit_short,
+                  defaultValue: `Version: ${versionInfo.commit_short}`,
+                })
+              : t("systemHealth.versionUnavailable", "Version: unavailable")}
+          </span>
+        )}
 
-        <div style={bodyStyle}>
-          {isLoading && !snapshot && (
+        {isLoading && !snapshot && (
             <p role="status" style={{ color: "var(--color-text-muted)", margin: 0 }}>
               {t("loading", "Loading...")}
             </p>
@@ -405,28 +366,7 @@ export function SystemHealthDialog({
               </section>
             </>
           )}
-        </div>
-
-        <div style={footerStyle}>
-          <button
-            type="button"
-            data-testid="system-health-refresh"
-            onClick={() => void load()}
-            disabled={isLoading}
-            style={{ ...secondaryButtonStyle, opacity: isLoading ? 0.6 : 1 }}
-          >
-            {isLoading ? "…" : t("systemHealth.refresh", "Refresh")}
-          </button>
-          <button
-            type="button"
-            data-testid="system-health-done"
-            onClick={onClose}
-            style={primaryButtonStyle}
-          >
-            {t("common.close", "Close")}
-          </button>
-        </div>
       </div>
-    </div>
+    </Dialog>
   );
 }
