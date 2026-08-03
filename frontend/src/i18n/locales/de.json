@@ -616,6 +616,10 @@
   },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
+    "summary_one": "{{count}} ICD",
+    "summary_other": "{{count}} ICDs",
+    "emptyTitle": "Noch keine ICDs",
+    "emptyDescription": "Schnittstellen-Kontrolldokumente erfassen den Vertrag zwischen zwei Architekturelementen.",
     "empty": "Noch keine ICDs definiert. Erstellen Sie eines, um den Vertrag zwischen zwei Architekturelementen zu erfassen.",
     "needsElementsHint": "Es werden mindestens zwei Architekturelemente benötigt, um ein ICD anzulegen. Legen Sie diese zuerst im Bereich Architektur an.",
     "create": "Neues ICD",
@@ -655,6 +659,11 @@
   },
   "diagrams": {
     "title": "Diagramme",
+    "summary_one": "{{count}} Diagramm",
+    "summary_other": "{{count}} Diagramme",
+    "emptyTitle": "Noch keine Diagramme",
+    "emptyDescription": "Diagramme visualisieren Architektur, Abläufe und Zustandsautomaten.",
+    "allTypes": "Alle Typen",
     "create": "Neues Diagramm",
     "edit": "Quelle bearbeiten",
     "delete": "Löschen",

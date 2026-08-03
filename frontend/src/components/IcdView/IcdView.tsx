@@ -33,7 +33,9 @@ import {
 } from "../../api/icds";
 import type { ArchitectureElement } from "../../types";
 import { SplitView } from "../SplitView/SplitView";
+import { PageHeader } from "../shared/PageHeader";
 import { IcdDetailPane } from "./IcdDetailPane";
+import { IcdList } from "./IcdList";
 import { useIcdData } from "./useIcdData";
 import {
   extractErrorMessage,
@@ -123,6 +125,12 @@ export default function IcdView(): JSX.Element {
     setShowCreate(false);
     navigate(`/icds/${icd.id}`);
   };
+
+  const openCreateForm = useCallback((): void => {
+    setShowCreate(true);
+    setShowNewVersion(false);
+    setFormError(null);
+  }, []);
 
   // REQ-173: a workflow transition mutates the ICD's status server-side, so
   // refresh the detail (badge label) and the list (any status column) after it.
@@ -295,131 +303,37 @@ export default function IcdView(): JSX.Element {
       data-testid="icd-view"
       style={{
         height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
         fontFamily: "var(--font-sans)",
         color: "var(--color-text)",
       }}
     >
+      {/* 12.1: exactly one <h1>, always-visible summary, one primary action
+          — replaces the bare <h3>({count}) header that used to live inline
+          in the left panel. */}
+      <PageHeader
+        title={t("icds.title")}
+        summary={t("icds.summary", { count: icds.length })}
+        primaryAction={{
+          label: t("icds.create"),
+          onClick: openCreateForm,
+          testId: "create-icd-btn",
+        }}
+      />
+
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
       <SplitView
         moduleType="icds"
         leftMinWidth={280}
         leftPanel={
-          <>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-4)",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-            }}
-          >
-            {t("icds.title")} ({icds.length})
-          </h3>
-          <button
-            type="button"
-            data-testid="create-icd-btn"
-            onClick={() => {
-              setShowCreate((v) => !v);
-              setShowNewVersion(false);
-              setFormError(null);
-            }}
-            style={{
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "var(--transition-fast)",
-            }}
-          >
-            {showCreate ? t("actions.cancel") : `+ ${t("icds.create")}`}
-          </button>
-        </div>
-
-        {icds.length === 0 ? (
-          <p
-            data-testid="icds-empty"
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            {t("icds.empty")}
-          </p>
-        ) : (
-          <ul
-            data-testid="icds-list"
-            style={{ listStyle: "none", padding: 0, margin: 0 }}
-          >
-            {icds.map((icd) => {
-              const isSelected = icd.id === routeId && !showCreate;
-              return (
-                <li
-                  key={icd.id}
-                  data-testid={`icd-item-${icd.id}`}
-                  onClick={() => handleSelectIcd(icd)}
-                  style={{
-                    padding: "var(--space-3) var(--space-4)",
-                    marginBottom: "var(--space-2)",
-                    background: isSelected
-                      ? "var(--color-surface-raised)"
-                      : "var(--color-surface)",
-                    borderRadius: "var(--radius-md)",
-                    border: isSelected
-                      ? "1px solid var(--color-primary)"
-                      : "1px solid var(--color-border)",
-                    cursor: "pointer",
-                    transition: "var(--transition-fast)",
-                  }}
-                >
-                  <strong
-                    style={{
-                      display: "block",
-                      color: "var(--color-text)",
-                      fontSize: "var(--font-size-base)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {icd.name}
-                  </strong>
-                  <span
-                    style={{
-                      color: "var(--color-text-muted)",
-                      fontSize: "var(--font-size-sm)",
-                      fontFamily: "monospace",
-                    }}
-                  >
-                    {shortId(icd.source_element_id)} →{" "}
-                    {shortId(icd.target_element_id)}
-                  </span>
-                  <span
-                    style={{
-                      display: "block",
-                      color: "var(--color-text-muted)",
-                      fontSize: "var(--font-size-xs)",
-                    }}
-                  >
-                    {t("icds.source")}: {artifactLabel(icd.source_element_id)} ·{" "}
-                    {t("icds.target")}: {artifactLabel(icd.target_element_id)}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-          </>
+          <IcdList
+            items={icds}
+            selectedId={!showCreate ? routeId : undefined}
+            onSelect={handleSelectIcd}
+            onCreateNew={openCreateForm}
+          />
         }
         rightPanel={
           showCreate ? (
@@ -716,6 +630,7 @@ export default function IcdView(): JSX.Element {
           )
         }
       />
+      </div>
     </div>
   );
 }

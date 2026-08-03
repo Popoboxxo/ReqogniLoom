@@ -112,4 +112,13 @@ describe("ArtifactRow", () => {
     expect(screen.queryByTestId("adr-row-level")).not.toBeInTheDocument();
     expect(screen.getByText("Use PostgreSQL for persistence")).toBeInTheDocument();
   });
+
+  it("[Task 5.1] omits the status badge when no status is given (ICD/Diagram list rows)", () => {
+    // ICD and Diagram list-fetch types carry no `status` field — the
+    // WorkflowEngine mirror only appears on the detail type, fetched
+    // per-artifact. The row must render without an empty status pill.
+    render(<ArtifactRow idFallback="a1b2c3d4" title="Some ICD" testId="icd-row" />);
+    expect(screen.queryByTestId("icd-row-status")).not.toBeInTheDocument();
+    expect(screen.getByText("Some ICD")).toBeInTheDocument();
+  });
 });

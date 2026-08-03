@@ -28,7 +28,12 @@ vi.mock("../../api/icds");
 vi.mock("../../api/architecture");
 vi.mock("../../context/WorkspaceContext");
 vi.mock("react-i18next", () => {
-  const t = (key: string, fallback?: string): string => fallback ?? key;
+  // `t(key, fallback)` (string) and `t(key, { count, ... })` (interpolation
+  // options, e.g. PageHeader's summary) must both resolve to a renderable
+  // string — passing the raw options object through as a React child would
+  // crash the render.
+  const t = (key: string, fallbackOrOptions?: string | Record<string, unknown>): string =>
+    typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
   return { useTranslation: () => ({ t }) };
 });
 
@@ -128,7 +133,7 @@ describe("IcdView (REQ-053 smoke tests)", () => {
     });
 
     // A "new" / "create" button is rendered
-    const createBtn = screen.getByRole("button", { name: /new|create|icd/i });
+    const createBtn = screen.getByTestId("create-icd-btn");
     expect(createBtn).toBeInTheDocument();
   });
 
@@ -142,7 +147,7 @@ describe("IcdView (REQ-053 smoke tests)", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
-    const createBtn = screen.getByRole("button", { name: /new|create|icd/i });
+    const createBtn = screen.getByTestId("create-icd-btn");
     await user.click(createBtn);
 
     // After clicking, a form or input should appear
@@ -163,12 +168,33 @@ describe("IcdView (REQ-053 smoke tests)", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
-    const createBtn = screen.getByRole("button", { name: /new|create|icd/i });
+    const createBtn = screen.getByTestId("create-icd-btn");
     await user.click(createBtn);
 
     expect(
       await screen.findByTestId("icd-needs-elements-hint"),
     ).toBeInTheDocument();
+  });
+
+  it("[Task 5.1] renders exactly one <h1> and a ListToolbar with search input", async () => {
+    vi.mocked(icdsModule.icdsApi.list).mockResolvedValue({ results: [MOCK_ICD] } as any);
+
+    renderIcdView();
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    });
+    expect(screen.getByTestId("icd-list-search-input")).toBeInTheDocument();
+  });
+
+  it("[Task 5.1] shows the always-visible PageHeader summary", async () => {
+    vi.mocked(icdsModule.icdsApi.list).mockResolvedValue({ results: [MOCK_ICD] } as any);
+
+    renderIcdView();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("page-header-count")).toBeInTheDocument();
+    });
   });
 
   it("[Codeberg #115] does not show the hint once two or more architecture elements exist", async () => {
@@ -185,7 +211,7 @@ describe("IcdView (REQ-053 smoke tests)", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
-    const createBtn = screen.getByRole("button", { name: /new|create|icd/i });
+    const createBtn = screen.getByTestId("create-icd-btn");
     await user.click(createBtn);
 
     await screen.findByTestId("create-icd-form");

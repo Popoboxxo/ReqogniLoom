@@ -37,7 +37,13 @@ export interface ArtifactRowProps {
   /** Explicit level/type label, takes precedence over `level`. */
   levelLabel?: string | null;
   title: string;
-  status: string;
+  /**
+   * Workflow status. Optional: some artifact types (ICD, Diagram) carry no
+   * status at list-fetch time — a lazily-loaded, per-artifact WorkflowEngine
+   * mirror only appears once the detail view fetches it. When omitted, the
+   * status badge is not rendered instead of showing an empty pill.
+   */
+  status?: string;
   /** Optional override for the rendered status label. */
   statusLabel?: string;
   badgeVariant?: BadgeVariant | null;
@@ -93,12 +99,14 @@ export function ArtifactRow({
           <LevelBadge level={level} label={levelLabel} testId={`${testId}-level`} />
         </div>
         <div className={styles.meta}>
-          <StatusBadge
-            status={status}
-            label={statusLabel}
-            badgeVariant={badgeVariant}
-            testId={`${testId}-status`}
-          />
+          {status != null && (
+            <StatusBadge
+              status={status}
+              label={statusLabel}
+              badgeVariant={badgeVariant}
+              testId={`${testId}-status`}
+            />
+          )}
           {version != null && (
             <VersionBadge version={version} isCurrent={versionIsCurrent} hideWhenFirst />
           )}
