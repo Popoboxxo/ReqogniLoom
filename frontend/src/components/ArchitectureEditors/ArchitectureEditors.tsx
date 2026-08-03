@@ -407,6 +407,7 @@ export default function ArchitectureEditors(): JSX.Element {
           onAddChild={(parentId) => void handleCreate(parentId)}
           showLevelBadge={true}
           showSearch={false}
+          virtualize
           emptyLabel={t('editor.empty')}
           noMatchesLabel={t('editor.noMatches')}
         />
