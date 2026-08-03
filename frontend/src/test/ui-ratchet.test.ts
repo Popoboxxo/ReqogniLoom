@@ -117,8 +117,17 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // of the already-existing `<TraceLinkPanel>` (which owns its own new-link
 // action). Re-measured after that change: 1428. Baseline lowered in the same
 // PR per the ratchet rule above.
+//
+// Task 2.3 (Issue concept remodel) applied the same replacement to
+// IssueList/IssueEditors — including dropping IssueList's inline-styled
+// `<h3>` heading, "+ New" button and inline create `<form>` (formerly
+// rendered via WorkspaceTree instead of ArtifactRow) — plus removed the
+// floating inline-styled "Neue Verknüpfung" button and its bespoke
+// CreateTraceLinkDialog wiring in favor of `<TraceLinkPanel>`. Re-measured
+// after that change: 1423. Baseline lowered in the same PR per the ratchet
+// rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1428;
+const STYLE_BRACE_BASELINE = 1423;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

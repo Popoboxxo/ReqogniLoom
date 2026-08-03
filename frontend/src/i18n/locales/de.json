@@ -490,7 +490,13 @@
     "deleteConfirm": "Dieses Problem löschen?",
     "severity": "Schweregrad",
     "category": "Kategorie",
-    "tags": "Tags"
+    "tags": "Tags",
+    "newIssue": "Neues Problem",
+    "summary_one": "{{count}} Problem",
+    "summary_other": "{{count}} Probleme",
+    "emptyTitle": "Noch keine Probleme",
+    "emptyDescription": "Probleme erfassen Defekte, Verbesserungen und offene Fragen für diesen Workspace.",
+    "untitled": "Unbenannt"
   },
   "testcases": {
     "selectTestCase": "Wählen Sie einen Testfall aus der Liste, um Details anzuzeigen.",

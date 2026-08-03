@@ -490,7 +490,13 @@
     "deleteConfirm": "Delete this issue?",
     "severity": "Severity",
     "category": "Category",
-    "tags": "Tags"
+    "tags": "Tags",
+    "newIssue": "New Issue",
+    "summary_one": "{{count}} issue",
+    "summary_other": "{{count}} issues",
+    "emptyTitle": "No issues yet",
+    "emptyDescription": "Issues track defects, improvements and open questions for this workspace.",
+    "untitled": "Untitled"
   },
   "testcases": {
     "selectTestCase": "Select a test case from the list to view details.",

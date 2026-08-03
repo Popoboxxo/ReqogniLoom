@@ -391,6 +391,12 @@ export type IssueStatus = "Open" | "In Progress" | "Resolved" | "Closed" | "Wont
 export interface Issue {
   id: UUID;
   workspace_id: UUID;
+  // Task 2.3: same as Adr.artifact_id / Risk.artifact_id above — the backing
+  // Artifact id is not yet exposed by IssueSerializer. Declared here
+  // (optional, currently always undefined) so <ArtifactCustomFields> in
+  // IssueForm is wired the same way as the other forms and starts working
+  // the moment the backend field ships.
+  artifact_id?: UUID;
   title: string;
   description: string;
   severity: IssueSeverity;
