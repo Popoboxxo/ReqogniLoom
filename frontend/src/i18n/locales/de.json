@@ -475,7 +475,13 @@
     "impact": "Auswirkung",
     "category": "Kategorie",
     "owner": "Verantwortlicher",
-    "mitigationStrategy": "Maßnahmen"
+    "mitigationStrategy": "Maßnahmen",
+    "newRisk": "Neues Risiko",
+    "summary_one": "{{count}} Risiko",
+    "summary_other": "{{count}} Risiken",
+    "emptyTitle": "Noch keine Risiken",
+    "emptyDescription": "Risiken erfassen, was schiefgehen könnte und wie dem begegnet wird.",
+    "untitled": "Unbenannt"
   },
   "issues": {
     "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",

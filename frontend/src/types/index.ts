@@ -359,6 +359,11 @@ export type RiskStatus = "Identified" | "Monitored" | "Mitigated" | "Accepted" |
 export interface Risk {
   id: UUID;
   workspace_id: UUID;
+  // Task 2.2: same as Adr.artifact_id above — the backing Artifact id is not
+  // yet exposed by RiskSerializer. Declared here (optional, currently always
+  // undefined) so <ArtifactCustomFields> in RiskForm is wired the same way as
+  // the other forms and starts working the moment the backend field ships.
+  artifact_id?: UUID;
   title: string;
   description: string;
   probability: RiskProbability;

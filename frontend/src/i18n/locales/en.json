@@ -475,7 +475,13 @@
     "impact": "Impact",
     "category": "Category",
     "owner": "Owner",
-    "mitigationStrategy": "Mitigation Strategy"
+    "mitigationStrategy": "Mitigation Strategy",
+    "newRisk": "New Risk",
+    "summary_one": "{{count}} risk",
+    "summary_other": "{{count}} risks",
+    "emptyTitle": "No risks yet",
+    "emptyDescription": "Risks capture what could go wrong and how it is being mitigated.",
+    "untitled": "Untitled"
   },
   "issues": {
     "selectIssue": "Select an issue from the list to view details.",

@@ -110,8 +110,15 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // moved the row list's own layout into `AdrList.module.css`. Re-measured
 // after that change: 1433. Baseline lowered in the same PR per the ratchet
 // rule above.
+//
+// Task 2.2 (Risk concept remodel) applied the same replacement to
+// RiskList/RiskEditors, plus removed the floating inline-styled "Neue
+// Verknüpfung" button and its bespoke CreateTraceLinkDialog wiring in favor
+// of the already-existing `<TraceLinkPanel>` (which owns its own new-link
+// action). Re-measured after that change: 1428. Baseline lowered in the same
+// PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1433;
+const STYLE_BRACE_BASELINE = 1428;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

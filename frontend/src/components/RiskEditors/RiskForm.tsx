@@ -5,6 +5,7 @@ import type { Risk, RiskSeverity, RiskProbability, RiskImpact, RiskCategory } fr
 import { risksApi } from '../../api/risks';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
 interface RiskFormProps {
@@ -335,6 +336,14 @@ export function RiskForm({ risk, onSaved, onDeleted }: RiskFormProps): JSX.Eleme
             <label style={labelStyle}>{t('risks.mitigationStrategy')}</label>
             <textarea value={formData.mitigation_strategy || ''} onChange={(e) => handleChange('mitigation_strategy', e.target.value)} rows={3} style={inputStyle} />
           </div>
+
+          {/* 12.11: workspace-defined custom fields, typed and persisted per
+              artifact instance. Only shown for an existing risk that already
+              has a backing Artifact id — see the `artifact_id` comment on
+              the `Risk` type for why this is currently always empty. */}
+          {risk.artifact_id && (
+            <ArtifactCustomFields artifactId={risk.artifact_id} />
+          )}
 
           {/* REQ-162: Change Control — Extended preset only. */}
           {isExtendedPreset && (
