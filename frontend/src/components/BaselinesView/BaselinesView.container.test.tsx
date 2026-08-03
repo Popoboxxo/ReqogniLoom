@@ -143,6 +143,9 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
+    // Task 5.2: baseline creation is an overflow action, not a primary
+    // header button — open the "..." menu first.
+    await user.click(screen.getByTestId("page-header-overflow-trigger"));
     await user.click(screen.getByTestId("create-baseline-btn"));
 
     // Create form appears with scope selector and save button

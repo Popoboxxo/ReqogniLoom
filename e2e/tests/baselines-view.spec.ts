@@ -16,11 +16,15 @@ test.describe('[COMP-RF-001] BaselinesView', () => {
     await expect(view).toBeVisible({ timeout: 10000 });
   });
 
-  test('[REQ-L1-018] create baseline button is visible', async ({ page }) => {
+  test('[REQ-L1-018] create baseline action is reachable via the overflow menu', async ({ page }) => {
+    // Task 5.2: baseline creation is an overflow action, not a primary
+    // header button (less-frequent, more consequential than creating an
+    // artifact).
     await page.goto(`${FRONTEND_URL}/baselines`);
     // Wait for loading to finish (baselines-view present + no loading spinner)
     await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[role="status"]')).not.toBeVisible({ timeout: 10000 });
+    await page.locator('[data-testid="page-header-overflow-trigger"]').click();
     const btn = page.locator('[data-testid="create-baseline-btn"]');
     await expect(btn).toBeVisible({ timeout: 10000 });
   });

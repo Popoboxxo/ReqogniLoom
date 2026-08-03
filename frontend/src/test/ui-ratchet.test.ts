@@ -133,7 +133,7 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // `ArtifactRow` + `EmptyState`). Re-measured after that change: 1404.
 // Baseline lowered in the same PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1404;
+const STYLE_BRACE_BASELINE = 1393;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

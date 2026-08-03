@@ -376,6 +376,10 @@
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",
     "empty": "Keine Baselines vorhanden.",
+    "summary_one": "{{count}} Baseline",
+    "summary_other": "{{count}} Baselines",
+    "emptyTitle": "Noch keine Baselines",
+    "emptyDescription": "Baselines erfassen eine Momentaufnahme deiner Artefakte zu einem Zeitpunkt.",
     "selectBaseline": "Wählen Sie eine Baseline aus der Liste.",
     "create": "Neue Baseline",
     "id": "ID",
@@ -575,6 +579,10 @@
   },
   "testRuns": {
     "create": "Testlauf erstellen",
+    "summary_one": "{{count}} Testlauf",
+    "summary_other": "{{count}} Testläufe",
+    "emptyTitle": "Noch keine Testläufe",
+    "emptyDescription": "Testläufe protokollieren die Ausführung deiner Testfälle gegen einen Build.",
     "closeRun": "Testlauf abschließen",
     "status": {
       "in_progress": "In Bearbeitung",

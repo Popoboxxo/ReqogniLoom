@@ -376,6 +376,10 @@
   "baselines": {
     "placeholder": "Baselines — in progress.",
     "empty": "No baselines available.",
+    "summary_one": "{{count}} baseline",
+    "summary_other": "{{count}} baselines",
+    "emptyTitle": "No baselines yet",
+    "emptyDescription": "Baselines capture a point-in-time snapshot of your artifacts.",
     "selectBaseline": "Select a baseline from the list.",
     "create": "New Baseline",
     "id": "ID",
@@ -575,6 +579,10 @@
   },
   "testRuns": {
     "create": "Create Run",
+    "summary_one": "{{count}} test run",
+    "summary_other": "{{count}} test runs",
+    "emptyTitle": "No test runs yet",
+    "emptyDescription": "Test runs record the execution of your test cases against a build.",
     "closeRun": "Close Test Run",
     "status": {
       "in_progress": "In Progress",
