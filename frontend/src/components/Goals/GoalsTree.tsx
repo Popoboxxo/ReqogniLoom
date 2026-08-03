@@ -149,6 +149,7 @@ export function GoalsTree({
         selectedId={selectedId}
         onSelect={onSelect}
         showSearch={false}
+        virtualize
         emptyLabel={t("goals.empty", "Noch keine Ziele")}
         noMatchesLabel={t("editor.noMatches", "Keine Treffer.")}
       />

@@ -14,7 +14,7 @@
  */
 
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
@@ -292,6 +292,59 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       const divider = screen.getByTestId("splitview-divider");
       expect(divider).toBeInTheDocument();
       expect(divider).toHaveStyle("cursor: col-resize");
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Task 4.4 — Virtualisierung überall (REQ-091)
+  // ---------------------------------------------------------------------
+  describe("virtualization (Task 4.4)", () => {
+    // jsdom does not run layout, so the WorkspaceTree scroll container's
+    // offsetHeight is always 0 and @tanstack/react-virtual would compute an
+    // empty visible range. Patch a realistic container size (same technique
+    // as workspace-tree.test.tsx's "real container size" block) so the
+    // assertions exercise an actual windowed render.
+    let offsetHeightSpy: ReturnType<typeof vi.spyOn>;
+    let offsetWidthSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      offsetHeightSpy = vi
+        .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+        .mockReturnValue(340);
+      offsetWidthSpy = vi
+        .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+        .mockReturnValue(800);
+    });
+
+    afterEach(() => {
+      offsetHeightSpy.mockRestore();
+      offsetWidthSpy.mockRestore();
+    });
+
+    it("mounts far fewer DOM tree rows than elements when the list is large (500 elements)", async () => {
+      const LARGE_ELEMENTS = Array.from({ length: 500 }, (_, i) => ({
+        ...MOCK_ELEMENT,
+        id: `arch-${i}`,
+        title: `Element ${i}`,
+      }));
+      vi.mocked(architectureApi.listAll).mockResolvedValue(LARGE_ELEMENTS as any);
+
+      renderEditor();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("arch-tree")).toBeInTheDocument();
+      });
+
+      // The WorkspaceTree windows the 500 rows down to a small on-screen
+      // subset instead of mounting one DOM row per element.
+      await waitFor(() => {
+        const rows = screen.queryAllByRole("treeitem");
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.length).toBeLessThan(LARGE_ELEMENTS.length);
+      });
+
+      // The last element is far outside the initial window.
+      expect(screen.queryByTestId("arch-tree-node-arch-499")).not.toBeInTheDocument();
     });
   });
 });
