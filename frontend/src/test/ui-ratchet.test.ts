@@ -220,11 +220,25 @@ const HEX_LITERAL_FILE_BASELINE = 35;
 // force-migrating it onto `WorkspaceTree` — read the §16.3 exception entry
 // first; the mismatch is structural (lazy graph explorer vs. eager flat
 // tree), not a naming coincidence.
+//
+// Follow-up investigation (post-Phase-4, on user request): re-checked
+// `GoalsTree.tsx` against this gate's own purpose ("catch accidental
+// duplication of the artifact-tree rendering pattern"). It is not a
+// duplicate — it is a thin, page-local adapter that filters/sorts `Goal[]`
+// into `WorkspaceTreeNode[]` and renders exactly one `<WorkspaceTree>`
+// (`Goals/GoalsTree.tsx:146-155`), structurally identical to
+// `NeedList.tsx`/`RequirementList.tsx`, neither of which is (correctly)
+// tracked here. It contains zero tree-rendering logic of its own (no
+// indent/expand-collapse/selection code — all of that lives in
+// `WorkspaceTree`). Removed from the tracked list as a false positive left
+// over from before Goals was rebuilt onto `WorkspaceTree`; baseline lowered
+// 2 -> 1, leaving only the primitive itself. `WorkspaceTree` is the target,
+// not a duplicate of itself — this gate's "0 remaining" state is now `1`,
+// i.e. exactly the primitive, correctly never removable.
 const KNOWN_TREE_IMPLEMENTATIONS = [
   join(COMPONENTS_DIR, "shared", "WorkspaceTree", "workspace-tree.tsx"),
-  join(COMPONENTS_DIR, "Goals", "GoalsTree.tsx"),
 ];
-const TREE_IMPLEMENTATION_BASELINE = 2;
+const TREE_IMPLEMENTATION_BASELINE = 1;
 
 // --- (d) Duplicate status-badge implementations ----------------------------
 //
