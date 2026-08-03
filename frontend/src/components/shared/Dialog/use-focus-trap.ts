@@ -15,7 +15,7 @@
  * backdrop — those belong to the component, not to the trap.
  */
 
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 /**
  * Elements that can receive focus by keyboard. `[tabindex="-1"]` is
@@ -90,6 +90,22 @@ export function useFocusTrap({
   initialFocusRef,
   restoreFocus = true,
 }: FocusTrapOptions): void {
+  // `onEscape` is very commonly an inline arrow function at the call site
+  // (`onClose={() => setOpen(false)}`), which gets a fresh identity on
+  // every render of the *parent* — including renders triggered by typing
+  // into a controlled input inside this very dialog. If the setup effect
+  // below depended on `onEscape` directly, it would tear down and re-run
+  // `focusInitial()` on every such render, yanking focus away from the
+  // input mid-keystroke. Storing the latest callback in a ref — updated on
+  // every render via this separate, cheap effect — decouples "the effect
+  // that wires up DOM listeners and moves focus" from "which closure gets
+  // invoked," while still always calling the *latest* `onEscape`, never a
+  // stale one.
+  const onEscapeRef = useRef(onEscape);
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  });
+
   useEffect(() => {
     if (!enabled) return;
     const container = containerRef.current;
@@ -118,7 +134,7 @@ export function useFocusTrap({
         // also close when the innermost one handles the key.
         event.preventDefault();
         event.stopPropagation();
-        onEscape?.();
+        onEscapeRef.current?.();
         return;
       }
       if (event.key !== "Tab") return;
@@ -174,5 +190,5 @@ export function useFocusTrap({
         previouslyFocused.focus();
       }
     };
-  }, [containerRef, enabled, onEscape, initialFocusRef, restoreFocus]);
+  }, [containerRef, enabled, initialFocusRef, restoreFocus]);
 }

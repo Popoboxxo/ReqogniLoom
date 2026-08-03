@@ -217,6 +217,44 @@ describe("<Dialog> — UI concept ch. 12.8", () => {
     await user.keyboard("{Escape}");
     expect(document.body.style.overflow).toBe("");
   });
+
+  it("keeps focus on a controlled input while typing, even with a fresh inline onClose every render", async () => {
+    // Regression test for the bug where the focus-trap setup effect
+    // depended on `onEscape` (== the caller's `onClose`) by identity.
+    // `onClose={() => setShowX(false)}` — a very common inline arrow at
+    // Dialog call sites — gets a new identity on every render of the
+    // parent. Typing into a controlled input inside the dialog re-renders
+    // the parent on every keystroke, so before the fix the effect tore
+    // down and re-ran `focusInitial()` each time, yanking focus back to
+    // the dialog's first focusable element (the close button) mid-word.
+    function HostWithControlledInput(): JSX.Element {
+      const [open, setOpen] = useState(true);
+      const [value, setValue] = useState("");
+      if (!open) return <div data-testid="closed" />;
+      return (
+        // Inline arrow on purpose: a fresh function identity every render.
+        <Dialog title="Neu anlegen" onClose={() => setOpen(false)}>
+          <input
+            data-testid="title-input"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        </Dialog>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<HostWithControlledInput />);
+
+    const input = screen.getByTestId("title-input");
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    await user.keyboard("Hello");
+
+    expect(input).toHaveValue("Hello");
+    expect(document.activeElement).toBe(input);
+  });
 });
 
 // ---------------------------------------------------------------------------
