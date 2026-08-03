@@ -197,12 +197,34 @@ const HEX_LITERAL_FILE_BASELINE = 35;
 // built to drive, was never called from anywhere in the frontend). Measured
 // again after the deletion: 3. Baseline lowered in the same PR per the
 // ratchet rule above.
+//
+// Task 4.3: investigated `RequirementTreeNode.tsx` as the next migration
+// target (plan's stated goal: 1 tree implementation after Phase 4). Unlike
+// `DecompositionTree`, it is NOT dead code — it is live in
+// `ReqTraceLinkPanel.tsx`. It was also found NOT to be an accidental
+// duplicate of the artifact-tree pattern this gate exists to catch: it is a
+// lazy, per-node-fetching explorer over the `derives-from`/`derived-by`
+// trace-link graph (async fetch on expand, `MAX_DEPTH` cycle guard, two
+// independently-labeled Parent/Child groups per node), not a rendering of a
+// known-upfront artifact list — it cannot be expressed through
+// `WorkspaceTree`'s synchronous flat-`nodes[]`/single-`parentId` contract
+// without either an eager-fetch behavior change or a new lazy-loading /
+// multi-group `WorkspaceTree` API (see `docs/UI_KONZEPT.md` §16.3,
+// "Dokumentierte Ausnahmen vom Standard" — `RequirementTreeNode.tsx` entry,
+// Task 4.3). It was therefore removed from this gate's tracked list: this
+// gate exists to catch accidental duplication of the artifact-tree pattern,
+// not to flag a deliberately different, permanently-exempt UI pattern.
+// Baseline lowered 3 -> 2 in the same PR per the ratchet rule above.
+//
+// Do NOT "fix" this by re-adding `RequirementTreeNode.tsx` here or by
+// force-migrating it onto `WorkspaceTree` — read the §16.3 exception entry
+// first; the mismatch is structural (lazy graph explorer vs. eager flat
+// tree), not a naming coincidence.
 const KNOWN_TREE_IMPLEMENTATIONS = [
   join(COMPONENTS_DIR, "shared", "WorkspaceTree", "workspace-tree.tsx"),
-  join(COMPONENTS_DIR, "RequirementEditors", "RequirementTreeNode.tsx"),
   join(COMPONENTS_DIR, "Goals", "GoalsTree.tsx"),
 ];
-const TREE_IMPLEMENTATION_BASELINE = 3;
+const TREE_IMPLEMENTATION_BASELINE = 2;
 
 // --- (d) Duplicate status-badge implementations ----------------------------
 //
