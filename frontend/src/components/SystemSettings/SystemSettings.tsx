@@ -47,7 +47,7 @@ export default function SystemSettings(): JSX.Element {
   if (!isAdmin) {
     return (
       <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
-        <h2>{t("nav.systemSettings", "System Settings")}</h2>
+        <h1>{t("nav.systemSettings", "System Settings")}</h1>
         <p style={{ color: "var(--color-warning)" }}>
           {t(
             "systemSettings.adminOnly",
@@ -81,7 +81,7 @@ export default function SystemSettings(): JSX.Element {
         padding: "var(--space-6)",
       }}
     >
-      <h2
+      <h1
         style={{
           fontSize: "var(--font-size-2xl)",
           fontWeight: 700,
@@ -90,7 +90,7 @@ export default function SystemSettings(): JSX.Element {
         }}
       >
         {t("nav.systemSettings", "System Settings")}
-      </h2>
+      </h1>
 
       <div
         role="tablist"

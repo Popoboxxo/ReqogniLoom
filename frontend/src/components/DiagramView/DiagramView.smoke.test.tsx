@@ -28,7 +28,12 @@ import React from "react";
 vi.mock("../../api/diagrams");
 vi.mock("../../context/WorkspaceContext");
 vi.mock("react-i18next", () => {
-  const t = (key: string, fallback?: string): string => fallback ?? key;
+  // `t(key, fallback)` (string) and `t(key, { count, ... })` (interpolation
+  // options, e.g. PageHeader's summary) must both resolve to a renderable
+  // string — passing the raw options object through as a React child would
+  // crash the render.
+  const t = (key: string, fallbackOrOptions?: string | Record<string, unknown>): string =>
+    typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
   return { useTranslation: () => ({ t }) };
 });
 // DiagramDetailView imports fabric canvas editor; stub the whole presenter
@@ -154,7 +159,7 @@ describe("DiagramView (REQ-053 smoke tests)", () => {
     expect(screen.getByTestId("create-diagram-form")).toBeInTheDocument();
   });
 
-  it("[REQ-053] diagram count is shown in the list heading", async () => {
+  it("[REQ-053][Task 5.1] diagram count is shown in the always-visible PageHeader summary", async () => {
     vi.mocked(diagramsModule.diagramsApi.list).mockResolvedValue({
       results: MOCK_DIAGRAMS,
     } as any);
@@ -162,7 +167,20 @@ describe("DiagramView (REQ-053 smoke tests)", () => {
     renderDiagramView();
 
     await waitFor(() => {
-      expect(screen.getByText(/Diagrams.*\(2\)/)).toBeInTheDocument();
+      expect(screen.getByTestId("page-header-count")).toBeInTheDocument();
     });
+  });
+
+  it("[Task 5.1] renders exactly one <h1> and a ListToolbar with search input", async () => {
+    vi.mocked(diagramsModule.diagramsApi.list).mockResolvedValue({
+      results: MOCK_DIAGRAMS,
+    } as any);
+
+    renderDiagramView();
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    });
+    expect(screen.getByTestId("diagram-list-search-input")).toBeInTheDocument();
   });
 });

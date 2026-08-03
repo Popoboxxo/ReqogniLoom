@@ -126,8 +126,22 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // CreateTraceLinkDialog wiring in favor of `<TraceLinkPanel>`. Re-measured
 // after that change: 1423. Baseline lowered in the same PR per the ratchet
 // rule above.
+//
+// Task 5.1 (ICDs/Diagrams frame) replaced IcdView's and DiagramView's
+// inline-styled `<h3>{count}</h3>` + ad-hoc `<ul>/<li>` list markup with
+// `<PageHeader>` + the new `IcdList`/`DiagramList` (`ListToolbar` +
+// `ArtifactRow` + `EmptyState`). Re-measured after that change: 1404.
+// Baseline lowered in the same PR per the ratchet rule above.
+//
+// Task 5.3 (Reviews, Traceability, Impact) replaced ReviewsView's and
+// ImpactView's inline-styled `<h1>`/`<h2>` headings with `<PageHeader>`, and
+// restructured TraceabilityView's bare `<h2>` + ad-hoc header row into
+// `<PageHeader>` + `<SplitView>` (list: cycle warning + grouped trace-link
+// list; detail: the Impact-Analysis panel), dropping several inline-styled
+// wrapper elements in the process. Re-measured after that change: 1388.
+// Baseline lowered in the same PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1420;
+const STYLE_BRACE_BASELINE = 1388;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

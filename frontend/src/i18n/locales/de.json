@@ -376,6 +376,10 @@
   "baselines": {
     "placeholder": "Baselines — in Bearbeitung.",
     "empty": "Keine Baselines vorhanden.",
+    "summary_one": "{{count}} Baseline",
+    "summary_other": "{{count}} Baselines",
+    "emptyTitle": "Noch keine Baselines",
+    "emptyDescription": "Baselines erfassen eine Momentaufnahme deiner Artefakte zu einem Zeitpunkt.",
     "selectBaseline": "Wählen Sie eine Baseline aus der Liste.",
     "create": "Neue Baseline",
     "id": "ID",
@@ -575,6 +579,10 @@
   },
   "testRuns": {
     "create": "Testlauf erstellen",
+    "summary_one": "{{count}} Testlauf",
+    "summary_other": "{{count}} Testläufe",
+    "emptyTitle": "Noch keine Testläufe",
+    "emptyDescription": "Testläufe protokollieren die Ausführung deiner Testfälle gegen einen Build.",
     "closeRun": "Testlauf abschließen",
     "status": {
       "in_progress": "In Bearbeitung",
@@ -616,6 +624,10 @@
   },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
+    "summary_one": "{{count}} ICD",
+    "summary_other": "{{count}} ICDs",
+    "emptyTitle": "Noch keine ICDs",
+    "emptyDescription": "Schnittstellen-Kontrolldokumente erfassen den Vertrag zwischen zwei Architekturelementen.",
     "empty": "Noch keine ICDs definiert. Erstellen Sie eines, um den Vertrag zwischen zwei Architekturelementen zu erfassen.",
     "needsElementsHint": "Es werden mindestens zwei Architekturelemente benötigt, um ein ICD anzulegen. Legen Sie diese zuerst im Bereich Architektur an.",
     "create": "Neues ICD",
@@ -655,6 +667,11 @@
   },
   "diagrams": {
     "title": "Diagramme",
+    "summary_one": "{{count}} Diagramm",
+    "summary_other": "{{count}} Diagramme",
+    "emptyTitle": "Noch keine Diagramme",
+    "emptyDescription": "Diagramme visualisieren Architektur, Abläufe und Zustandsautomaten.",
+    "allTypes": "Alle Typen",
     "create": "Neues Diagramm",
     "edit": "Quelle bearbeiten",
     "delete": "Löschen",

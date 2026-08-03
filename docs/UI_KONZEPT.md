@@ -1092,6 +1092,12 @@ Startwerte in [Anhang B](#anhang-b-messwerte).
 - **Im Review gilt die Frage:** Gibt es das schon? Bei fünf Kopfmustern und drei Bäumen
   war die Antwort jedes Mal ja.
 
+**Dokumentierte Ausnahmen vom Standard:**
+
+| Datei | Route | Grund | Geprüft |
+|---|---|---|---|
+| `WorkflowEditor/WorkflowEditorHeader.tsx` | `/workflows` | Trägt einen Scope-Umschalter (`presetControl` — die globale Preset-Segmented-Control, SCR-205) direkt neben dem Titel sowie einen eigenen Bearbeitungsmodus-Toggle (`role="switch"`, REQ-177) und ein dreiteiliges Export-Dropdown-Menü (ein aktiver Eintrag, zwei deaktivierte Platzhalter mit eigenem Tooltip). `<PageHeader>` kennt nur `primaryAction` (ein gefüllter Button) und `overflowActions` (ein generisches "⋯"-Menü) — beides bildet weder einen Segmented-Control-Slot neben dem Titel noch einen stateful Toggle-Switch ab. Der Editor-Kopf bleibt bewusst ein eigenständiges Modul (`WorkflowEditor.module.css`) statt einer erzwungenen, aber unpassenden `PageHeader`-Migration. Das `<h1>` selbst folgt weiterhin der Ein-`<h1>`-je-Route-Regel (Kapitel 16.1). | Task 5.4 (2026-08-03) |
+
 ---
 
 ## 17. Umsetzungsreihenfolge

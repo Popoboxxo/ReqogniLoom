@@ -396,6 +396,9 @@ export async function createBaselineViaUI(
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/baselines`);
   await page.waitForLoadState('networkidle');
+  // Task 5.2: baseline creation is an overflow action, not a primary header
+  // button — open the "..." menu first.
+  await page.locator('[data-testid="page-header-overflow-trigger"]').click();
   await page.locator('[data-testid="create-baseline-btn"]').click();
   await page.locator('[data-testid="create-baseline-form"]').waitFor({ timeout: 8000 });
   await page.locator(`[data-testid="baseline-scope-${data.scope}"]`).check();

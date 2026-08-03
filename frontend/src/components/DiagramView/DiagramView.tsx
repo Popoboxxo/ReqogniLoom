@@ -17,10 +17,11 @@ import { useCallback, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { SplitView } from "../SplitView/SplitView";
+import { PageHeader } from "../shared/PageHeader";
 import { DiagramCreateForm } from "./DiagramCreateForm";
 import { DiagramDetailView } from "./DiagramDetailView";
+import { DiagramList } from "./DiagramList";
 import { useDiagramList } from "./useDiagramData";
-import { formPrimaryButtonStyle } from "./diagram-view-shared";
 import { extractErrorMessage } from "../../api/client";
 
 export default function DiagramView(): JSX.Element {
@@ -52,153 +53,57 @@ export default function DiagramView(): JSX.Element {
     return <p role="status">{t("loading", "Loading...")}</p>;
   }
 
+  const openCreateForm = (): void => setShowCreate(true);
+
   return (
     <div
       style={{
         height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
         fontFamily: "var(--font-sans)",
         color: "var(--color-text)",
       }}
     >
+      {/* 12.1: exactly one <h1>, always-visible summary, one primary action
+          — replaces the bare <h3>({count}) header that used to live inline
+          in the left panel. */}
+      <PageHeader
+        title={t("diagrams.title", "Diagrams")}
+        summary={t("diagrams.summary", { count: items.length })}
+        primaryAction={{
+          label: t("diagrams.create", "New Diagram"),
+          onClick: openCreateForm,
+          testId: "create-diagram-btn",
+        }}
+      />
+
+      {deleteError && (
+        <p
+          role="alert"
+          data-testid="diagrams-delete-error"
+          style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", margin: "0 0 var(--space-4)" }}
+        >
+          {deleteError}
+        </p>
+      )}
+
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
       <SplitView
         moduleType="diagrams"
         leftMinWidth={280}
         leftPanel={
-          <>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-4)",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
+          <DiagramList
+            items={items}
+            selectedId={!showCreate ? id : undefined}
+            onSelect={(item) => {
+              setShowCreate(false);
+              navigate(`/diagrams/${item.id}`);
             }}
-          >
-            {t("diagrams.title", "Diagrams")} ({items.length})
-          </h3>
-          <button
-            type="button"
-            data-testid="create-diagram-btn"
-            onClick={() => setShowCreate((v) => !v)}
-            style={formPrimaryButtonStyle}
-          >
-            + {t("actions.new", "New")}
-          </button>
-        </div>
-
-        {deleteError && (
-          <p
-            role="alert"
-            data-testid="diagrams-delete-error"
-            style={{ color: "var(--color-danger)", fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}
-          >
-            {deleteError}
-          </p>
-        )}
-
-        {items.length === 0 ? (
-          <p
-            data-testid="diagrams-empty"
-            style={{
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            {t("diagrams.noItems", "No diagrams yet. Create one to get started.")}
-          </p>
-        ) : (
-          <ul
-            data-testid="diagrams-list"
-            style={{ listStyle: "none", padding: 0, margin: 0 }}
-          >
-            {items.map((item) => {
-              const isSelected = item.id === id && !showCreate;
-              return (
-                <li
-                  key={item.id}
-                  data-testid={`diagram-item-${item.id}`}
-                  onClick={() => {
-                    setShowCreate(false);
-                    navigate(`/diagrams/${item.id}`);
-                  }}
-                  style={{
-                    padding: "var(--space-3) var(--space-4)",
-                    marginBottom: "var(--space-2)",
-                    background: isSelected
-                      ? "var(--color-surface-raised)"
-                      : "var(--color-surface)",
-                    borderRadius: "var(--radius-md)",
-                    border: isSelected
-                      ? "1px solid var(--color-primary)"
-                      : "1px solid var(--color-border)",
-                    cursor: "pointer",
-                    transition: "var(--transition-fast)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "var(--space-3)",
-                  }}
-                >
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span
-                      style={{
-                        display: "block",
-                        fontWeight: 600,
-                        fontSize: "var(--font-size-base)",
-                        color: "var(--color-text)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {item.name}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: "var(--font-size-sm)",
-                        color: "var(--color-text-muted)",
-                      }}
-                    >
-                      {item.diagram_type}
-                      {item.version_count !== undefined
-                        ? ` · v${item.version_count}`
-                        : ""}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleDelete(item.id);
-                    }}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--color-text-muted)",
-                      cursor: "pointer",
-                      fontSize: "1.1rem",
-                      lineHeight: 1,
-                      fontFamily: "inherit",
-                      flexShrink: 0,
-                    }}
-                    title={t("diagrams.delete", "Delete")}
-                    aria-label={t("diagrams.delete", "Delete")}
-                  >
-                    ×
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-          </>
+            onCreateNew={openCreateForm}
+            onDelete={(diagramId) => void handleDelete(diagramId)}
+          />
         }
         rightPanel={
           showCreate ? (
@@ -230,6 +135,7 @@ export default function DiagramView(): JSX.Element {
           )
         }
       />
+      </div>
     </div>
   );
 }

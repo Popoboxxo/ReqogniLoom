@@ -376,6 +376,10 @@
   "baselines": {
     "placeholder": "Baselines — in progress.",
     "empty": "No baselines available.",
+    "summary_one": "{{count}} baseline",
+    "summary_other": "{{count}} baselines",
+    "emptyTitle": "No baselines yet",
+    "emptyDescription": "Baselines capture a point-in-time snapshot of your artifacts.",
     "selectBaseline": "Select a baseline from the list.",
     "create": "New Baseline",
     "id": "ID",
@@ -575,6 +579,10 @@
   },
   "testRuns": {
     "create": "Create Run",
+    "summary_one": "{{count}} test run",
+    "summary_other": "{{count}} test runs",
+    "emptyTitle": "No test runs yet",
+    "emptyDescription": "Test runs record the execution of your test cases against a build.",
     "closeRun": "Close Test Run",
     "status": {
       "in_progress": "In Progress",
@@ -616,6 +624,10 @@
   },
   "icds": {
     "title": "Interface Control Documents",
+    "summary_one": "{{count}} ICD",
+    "summary_other": "{{count}} ICDs",
+    "emptyTitle": "No ICDs yet",
+    "emptyDescription": "Interface Control Documents capture the contract between two architecture elements.",
     "empty": "No ICDs defined yet. Create one to capture the contract between two architecture elements.",
     "needsElementsHint": "You need at least two architecture elements to create an ICD. Create them first in the Architecture section.",
     "create": "New ICD",
@@ -655,6 +667,11 @@
   },
   "diagrams": {
     "title": "Diagrams",
+    "summary_one": "{{count}} diagram",
+    "summary_other": "{{count}} diagrams",
+    "emptyTitle": "No diagrams yet",
+    "emptyDescription": "Diagrams visualize architecture, flows and state machines.",
+    "allTypes": "All Types",
     "create": "New Diagram",
     "edit": "Edit Source",
     "delete": "Delete",

@@ -1,0 +1,34 @@
+/* DiagramList — row list container (ch. 12.3), mirrors AdrList.module.css. */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.rowWrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.rowContent {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.deleteButton {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  font-family: inherit;
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+}
+
+.deleteButton:hover {
+  color: var(--color-danger);
+}

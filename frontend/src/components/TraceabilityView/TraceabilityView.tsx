@@ -36,6 +36,8 @@ import {
   getLinkTypeLabel,
 } from "../../constants/traceLinkLabels";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog";
+import { SplitView } from "../SplitView/SplitView";
+import { PageHeader } from "../shared/PageHeader";
 import type {
   ArchitectureElement,
   Artifact,
@@ -356,68 +358,16 @@ export default function TraceabilityView(): JSX.Element {
 
   const hasArtifacts = state.artifacts.length > 0;
 
-  return (
-    <div data-testid="traceability-view">
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "var(--space-6)",
-        }}
-      >
-        <h2
-          style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-          }}
-        >
-          {t("nav.traceability")}
-        </h2>
-        <div style={{ display: "flex", gap: "var(--space-2)" }}>
-          <button
-            type="button"
-            data-testid="export-pdf-btn"
-            onClick={handleExportPdf}
-            disabled={!activeWorkspace || isExportingPdf}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-base)",
-              fontWeight: 500,
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              cursor: activeWorkspace ? "pointer" : "not-allowed",
-              opacity: isExportingPdf ? 0.6 : 1,
-            }}
-          >
-            {isExportingPdf ? "Exporting…" : "Export PDF"}
-          </button>
-          {/* REQ-005: unified CreateTraceLinkDialog replaces the old inline form */}
-          <button
-            type="button"
-            data-testid="tracelink-create-btn"
-            onClick={() => setShowCreateDialog(true)}
-            disabled={!activeWorkspace}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-base)",
-              fontWeight: 500,
-              background: "var(--color-primary)",
-              color: "var(--color-on-primary, #fff)",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              cursor: activeWorkspace ? "pointer" : "not-allowed",
-            }}
-          >
-            {t("traceability.create")}
-          </button>
-        </div>
-      </div>
-
+  // REQ-L2-RF-006 / ch. 17 step 6: Trace Links is an explicit Split-View
+  // candidate — list on the left (grouped links, ch. 12.3-adjacent), the
+  // Impact-Analysis tool on the right as a persistent "detail" pane. Unlike
+  // an artifact list/detail split, the right pane is not selection-driven
+  // (there is no single "trace link detail" view yet) — it is a standing
+  // analysis panel, so the legacy leftPanel/rightPanel contract (resizable,
+  // no null-detail collapse) fits better than the concept list/detail/spine
+  // contract, which assumes a nullable per-row detail.
+  const listPanel = (
+    <>
       {state.cycles.length > 0 && (
         <div
           role="alert"
@@ -454,18 +404,150 @@ export default function TraceabilityView(): JSX.Element {
         </div>
       )}
 
-      <section
-        data-testid="impact-panel"
-        style={{
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-4) var(--space-5)",
-          marginBottom: "var(--space-6)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <h3
+      {state.links.length === 0 ? (
+        <p
+          data-testid="traceability-empty"
+          style={{
+            fontSize: "var(--font-size-base)",
+            color: "var(--color-text-muted)",
+            padding: "var(--space-6)",
+            background: "var(--color-surface-raised)",
+            borderRadius: "var(--radius-lg)",
+            border: "1px dashed var(--color-border)",
+          }}
+        >
+          {t("traceability.empty")}
+        </p>
+      ) : (
+        <div
+          data-testid="traceability-list"
+          style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}
+        >
+          {groupKeys.map((linkType) => {
+            const groupLinks = grouped[linkType];
+            return (
+              <section
+                key={linkType}
+                data-testid="tracelink-group"
+                data-link-type={linkType}
+                style={{
+                  background: "var(--color-surface)",
+                  borderRadius: "var(--radius-lg)",
+                  boxShadow: "var(--shadow-card)",
+                  overflow: "hidden",
+                }}
+              >
+                <header
+                  style={{
+                    background: "var(--color-surface-raised)",
+                    padding: "var(--space-3) var(--space-4)",
+                    borderBottom: "1px solid var(--color-border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: "var(--font-size-lg)",
+                      fontWeight: 600,
+                      color: "var(--color-text)",
+                    }}
+                  >
+                    {getLinkTypeLabel(linkType)}
+                  </h3>
+                  <span
+                    style={{
+                      fontSize: "var(--font-size-sm)",
+                      color: "var(--color-text-muted)",
+                    }}
+                  >
+                    {groupLinks.length}
+                  </span>
+                </header>
+                <ul
+                  style={{
+                    listStyle: "none",
+                    margin: 0,
+                    padding: 0,
+                  }}
+                >
+                  {groupLinks.map((link) => (
+                    <li
+                      key={link.id}
+                      data-testid="tracelink-item"
+                      data-link-type={link.link_type}
+                      style={{
+                        padding: "var(--space-3) var(--space-4)",
+                        borderBottom: "1px solid var(--color-border)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "var(--space-3)",
+                        fontSize: "var(--font-size-base)",
+                        color: "var(--color-text)",
+                      }}
+                    >
+                      <span data-testid="tracelink-source">
+                        {renderEndpoint(link.source_id, state.titles)}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          color: "var(--color-text-muted)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        →
+                      </span>
+                      <span
+                        data-testid="tracelink-type"
+                        style={{
+                          fontSize: "var(--font-size-sm)",
+                          background: "#eef",
+                          padding: "2px 8px",
+                          borderRadius: "var(--radius-full)",
+                          color: "#2c5282",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {getLinkTypeLabel(link.link_type)}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          color: "var(--color-text-muted)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        →
+                      </span>
+                      <span data-testid="tracelink-target">
+                        {renderEndpoint(link.target_id, state.titles)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+
+  const detailPanel = (
+    <section
+      data-testid="impact-panel"
+      style={{
+        background: "var(--color-surface)",
+        border: "1px solid var(--color-border)",
+        borderRadius: "var(--radius-lg)",
+        padding: "var(--space-4) var(--space-5)",
+        boxShadow: "var(--shadow-card)",
+      }}
+    >
+      <h3
           style={{
             margin: "0 0 var(--space-3)",
             fontSize: "var(--font-size-lg)",
@@ -673,7 +755,46 @@ export default function TraceabilityView(): JSX.Element {
             )}
           </div>
         )}
-      </section>
+    </section>
+  );
+
+  return (
+    <div
+      data-testid="traceability-view"
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "var(--font-sans)",
+        color: "var(--color-text)",
+      }}
+    >
+      <PageHeader
+        title={t("nav.traceability")}
+        count={{ shown: state.links.length, total: state.links.length }}
+        primaryAction={{
+          label: t("traceability.create"),
+          onClick: () => setShowCreateDialog(true),
+          disabled: !activeWorkspace,
+          testId: "tracelink-create-btn",
+        }}
+        overflowActions={[
+          {
+            label: isExportingPdf ? "Exporting…" : "Export PDF",
+            onClick: () => void handleExportPdf(),
+            disabled: !activeWorkspace || isExportingPdf,
+            testId: "export-pdf-btn",
+          },
+        ]}
+      />
+
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+        <SplitView
+          moduleType="traceability"
+          leftPanel={listPanel}
+          rightPanel={detailPanel}
+        />
+      </div>
 
       {/* REQ-005: unified CreateTraceLinkDialog (global mode — no fixed sourceId) */}
       {activeWorkspace && (
@@ -684,136 +805,6 @@ export default function TraceabilityView(): JSX.Element {
           onCreated={() => { setShowCreateDialog(false); setReloadKey((k) => k + 1); }}
           defaultLinkType={(activeWorkspace.default_link_type as LinkType) || 'derives-from'}
         />
-      )}
-
-      {state.links.length === 0 ? (
-        <p
-          data-testid="traceability-empty"
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-            background: "var(--color-surface-raised)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px dashed var(--color-border)",
-          }}
-        >
-          {t("traceability.empty")}
-        </p>
-      ) : (
-        <div
-          data-testid="traceability-list"
-          style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}
-        >
-          {groupKeys.map((linkType) => {
-            const groupLinks = grouped[linkType];
-            return (
-              <section
-                key={linkType}
-                data-testid="tracelink-group"
-                data-link-type={linkType}
-                style={{
-                  background: "var(--color-surface)",
-                  borderRadius: "var(--radius-lg)",
-                  boxShadow: "var(--shadow-card)",
-                  overflow: "hidden",
-                }}
-              >
-                <header
-                  style={{
-                    background: "var(--color-surface-raised)",
-                    padding: "var(--space-3) var(--space-4)",
-                    borderBottom: "1px solid var(--color-border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontSize: "var(--font-size-lg)",
-                      fontWeight: 600,
-                      color: "var(--color-text)",
-                    }}
-                  >
-                    {getLinkTypeLabel(linkType)}
-                  </h3>
-                  <span
-                    style={{
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text-muted)",
-                    }}
-                  >
-                    {groupLinks.length}
-                  </span>
-                </header>
-                <ul
-                  style={{
-                    listStyle: "none",
-                    margin: 0,
-                    padding: 0,
-                  }}
-                >
-                  {groupLinks.map((link) => (
-                    <li
-                      key={link.id}
-                      data-testid="tracelink-item"
-                      data-link-type={link.link_type}
-                      style={{
-                        padding: "var(--space-3) var(--space-4)",
-                        borderBottom: "1px solid var(--color-border)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "var(--space-3)",
-                        fontSize: "var(--font-size-base)",
-                        color: "var(--color-text)",
-                      }}
-                    >
-                      <span data-testid="tracelink-source">
-                        {renderEndpoint(link.source_id, state.titles)}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          color: "var(--color-text-muted)",
-                          fontWeight: 500,
-                        }}
-                      >
-                        →
-                      </span>
-                      <span
-                        data-testid="tracelink-type"
-                        style={{
-                          fontSize: "var(--font-size-sm)",
-                          background: "#eef",
-                          padding: "2px 8px",
-                          borderRadius: "var(--radius-full)",
-                          color: "#2c5282",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {getLinkTypeLabel(link.link_type)}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          color: "var(--color-text-muted)",
-                          fontWeight: 500,
-                        }}
-                      >
-                        →
-                      </span>
-                      <span data-testid="tracelink-target">
-                        {renderEndpoint(link.target_id, state.titles)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })}
-        </div>
       )}
     </div>
   );

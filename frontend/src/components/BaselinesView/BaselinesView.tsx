@@ -26,6 +26,8 @@ import {
   type BaselineScope,
 } from "../../api/baselines";
 import { SplitView } from "../SplitView/SplitView";
+import { PageHeader } from "../shared/PageHeader";
+import { EmptyState } from "../shared/EmptyState/EmptyState";
 import type { Artifact } from "../../types";
 import {
   BaselineComparePanel,
@@ -188,6 +190,11 @@ export default function BaselinesView(): JSX.Element {
     setDiffError(null);
   }, []);
 
+  const toggleCreateForm = useCallback((): void => {
+    setShowCompare(false);
+    setShowForm((v) => !v);
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -250,91 +257,62 @@ export default function BaselinesView(): JSX.Element {
       data-testid="baselines-view"
       style={{
         height: "100%",
+        display: "flex",
+        flexDirection: "column",
         fontFamily: "var(--font-sans)",
         color: "var(--color-text)",
       }}
     >
+      {/* Baselines/TestRuns are not Spine artifacts (no derivation chain), but
+          PageHeader still applies. Baseline creation is deliberately an
+          overflow action, not a primary header button — creating a baseline
+          is a less-frequent, more consequential action than creating an
+          artifact (task 5.2 brief). */}
+      <PageHeader
+        title={t("nav.baselines")}
+        summary={t("baselines.summary", { count: state.baselines.length })}
+        secondaryActions={[
+          {
+            label: showCompare
+              ? t("actions.cancel")
+              : t("baselines.compare", "Compare"),
+            onClick: () => (showCompare ? closeCompare() : openCompare()),
+            disabled: state.baselines.length < 2,
+            testId: "compare-baseline-btn",
+          },
+        ]}
+        overflowActions={[
+          {
+            label: showForm ? t("actions.cancel") : t("baselines.create"),
+            onClick: toggleCreateForm,
+            testId: "create-baseline-btn",
+          },
+        ]}
+      />
+
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
       <SplitView
         moduleType="baselines"
         leftMinWidth={280}
         leftPanel={
           <>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "var(--space-4)",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-lg)",
-              fontWeight: 700,
-              color: "var(--color-text)",
-            }}
-          >
-            {t("nav.baselines")} ({state.baselines.length})
-          </h3>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            <button
-              data-testid="compare-baseline-btn"
-              onClick={() => (showCompare ? closeCompare() : openCompare())}
-              disabled={state.baselines.length < 2}
-              style={{
-                background: showCompare
-                  ? "var(--color-surface-raised)"
-                  : "transparent",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                cursor:
-                  state.baselines.length < 2 ? "not-allowed" : "pointer",
-                opacity: state.baselines.length < 2 ? 0.6 : 1,
-                transition: "var(--transition-fast)",
-              }}
-            >
-              {showCompare
-                ? t("actions.cancel")
-                : t("baselines.compare", "Compare")}
-            </button>
-            <button
-              data-testid="create-baseline-btn"
-              onClick={() => {
-                setShowCompare(false);
-                setShowForm((v) => !v);
-              }}
-              style={{
-                background: "var(--color-primary)",
-                color: "white",
-                border: "none",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--space-2) var(--space-4)",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "var(--transition-fast)",
-              }}
-            >
-              {showForm ? t("actions.cancel") : `+ ${t("baselines.create")}`}
-            </button>
-          </div>
-        </div>
-
         {state.baselines.length === 0 ? (
-          <p
-            data-testid="baselines-empty"
-            style={{
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            {t("baselines.empty")}
-          </p>
+          <EmptyState
+            variant="empty"
+            testId="baselines-empty"
+            title={t("baselines.emptyTitle", "No baselines yet")}
+            description={t(
+              "baselines.emptyDescription",
+              "Baselines capture a point-in-time snapshot of your artifacts.",
+            )}
+            actions={[
+              {
+                label: t("baselines.create"),
+                onClick: () => setShowForm(true),
+                testId: "baselines-empty-create",
+              },
+            ]}
+          />
         ) : (
           <ul
             data-testid="baseline-list"
@@ -691,6 +669,7 @@ export default function BaselinesView(): JSX.Element {
           )
         }
       />
+      </div>
     </div>
   );
 }

@@ -200,7 +200,7 @@ export default function WorkspaceSettings(): JSX.Element {
   if (!isAdmin) {
     return (
       <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
-        <h2>{t("nav.settings")}</h2>
+        <h1>{t("nav.settings")}</h1>
         <p style={{ color: "var(--color-warning)" }}>
           {t("settings.adminOnly", "You must be an admin to view or edit Workspace Settings. Please visit the Profile dialog for personal preferences.")}
         </p>
@@ -220,9 +220,9 @@ export default function WorkspaceSettings(): JSX.Element {
 
   return (
     <div data-testid="workspace-settings" style={{ maxWidth: "860px", margin: "0 auto", padding: "var(--space-6)" }}>
-      <h2 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, color: "var(--color-text)", marginBottom: "var(--space-5)" }}>
+      <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, color: "var(--color-text)", marginBottom: "var(--space-5)" }}>
         {t("nav.settings")}
-      </h2>
+      </h1>
 
       {/* Tab navigation (REQ-015) */}
       <div
