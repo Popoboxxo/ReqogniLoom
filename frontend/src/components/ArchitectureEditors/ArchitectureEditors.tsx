@@ -564,11 +564,11 @@ export default function ArchitectureEditors(): JSX.Element {
 
       {showDecomposePanel && element && activeWorkspace && (
         <Dialog
-          title={t("archDecompose.trigger", "KI-Zerlegung")}
+          title={t("archDecompose.title")}
+          description={element.title}
           onClose={() => setShowDecomposePanel(false)}
           size="lg"
           testId="arch-decompose-dialog"
-          showCloseButton={false}
         >
           <ArchitectureDecomposePanel
             workspaceId={activeWorkspace.id}
@@ -577,7 +577,6 @@ export default function ArchitectureEditors(): JSX.Element {
               setShowDecomposePanel(false);
               refresh();
             }}
-            onClose={() => setShowDecomposePanel(false)}
           />
         </Dialog>
       )}

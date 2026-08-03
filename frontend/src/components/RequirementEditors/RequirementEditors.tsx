@@ -464,17 +464,16 @@ export default function RequirementEditors(): JSX.Element {
     <>
       {showDeriveTestcasePanel && requirement && activeWorkspace && (
         <Dialog
-          title={t('deriveTestcase.trigger')}
+          title={t('deriveTestcase.title')}
+          description={requirement.title}
           onClose={() => setShowDeriveTestcasePanel(false)}
           size="lg"
           testId="derive-testcase-dialog"
-          showCloseButton={false}
         >
           <DeriveTestCasePanel
             workspaceId={activeWorkspace.id}
             requirement={{ id: requirement.id, title: requirement.title }}
             onCreated={() => setShowDeriveTestcasePanel(false)}
-            onClose={() => setShowDeriveTestcasePanel(false)}
           />
         </Dialog>
       )}
