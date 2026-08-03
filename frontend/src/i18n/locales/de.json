@@ -501,7 +501,14 @@
   "testcases": {
     "selectTestCase": "Wählen Sie einen Testfall aus der Liste, um Details anzuzeigen.",
     "createFailed": "Testfall konnte nicht erstellt werden.",
-    "saveFailed": "Testfall konnte nicht gespeichert werden."
+    "saveFailed": "Testfall konnte nicht gespeichert werden.",
+    "deleteFailed": "Testfall konnte nicht gelöscht werden.",
+    "newTestCase": "Neuer Testfall",
+    "summary_one": "{{count}} Testfall",
+    "summary_other": "{{count}} Testfälle",
+    "emptyTitle": "Noch keine Testfälle",
+    "emptyDescription": "Testfälle prüfen, ob Anforderungen erfüllt sind, und dokumentieren, wie das System geprüft wurde.",
+    "untitled": "Unbenannt"
   },
   "settings": {
     "preset": "Preset",

@@ -501,7 +501,14 @@
   "testcases": {
     "selectTestCase": "Select a test case from the list to view details.",
     "createFailed": "Failed to create test case.",
-    "saveFailed": "Failed to save test case."
+    "saveFailed": "Failed to save test case.",
+    "deleteFailed": "Failed to delete test case.",
+    "newTestCase": "New Test Case",
+    "summary_one": "{{count}} test case",
+    "summary_other": "{{count}} test cases",
+    "emptyTitle": "No test cases yet",
+    "emptyDescription": "Test cases verify requirements are met and record how the system was checked.",
+    "untitled": "Untitled"
   },
   "settings": {
     "preset": "Preset",
