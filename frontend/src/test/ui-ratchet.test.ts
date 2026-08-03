@@ -102,8 +102,16 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // RequirementEditors call sites) with `<Dialog>`, which owns that chrome via
 // CSS Modules instead of inline styles. Re-measured after that change: 1437.
 // Baseline lowered in the same PR per the ratchet rule above.
+//
+// Task 2.1 (ADR concept remodel) replaced AdrList's inline-styled `<h3>`
+// heading, "+ New" button and inline create `<form>` with `<PageHeader>` +
+// `<Dialog>` + `<ArtifactRow>`/`<EmptyState>` (all of which own their own
+// chrome via CSS Modules or a handful of already-counted inline styles), and
+// moved the row list's own layout into `AdrList.module.css`. Re-measured
+// after that change: 1433. Baseline lowered in the same PR per the ratchet
+// rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1437;
+const STYLE_BRACE_BASELINE = 1433;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

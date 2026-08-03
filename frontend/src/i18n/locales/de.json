@@ -457,7 +457,13 @@
     "deleteConfirm": "Diese ADR löschen?",
     "context": "Kontext",
     "consequences": "Konsequenzen",
-    "titlePlaceholder": "Titel der Architekturentscheidung"
+    "titlePlaceholder": "Titel der Architekturentscheidung",
+    "newAdr": "Neue ADR",
+    "summary_one": "{{count}} ADR",
+    "summary_other": "{{count}} ADRs",
+    "emptyTitle": "Noch keine ADRs",
+    "emptyDescription": "Architekturentscheidungen dokumentieren, warum das System so gebaut ist, wie es gebaut ist.",
+    "untitled": "Unbenannt"
   },
   "risks": {
     "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen.",

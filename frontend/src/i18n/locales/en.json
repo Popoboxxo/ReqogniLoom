@@ -457,7 +457,13 @@
     "deleteConfirm": "Delete this ADR?",
     "context": "Context",
     "consequences": "Consequences",
-    "titlePlaceholder": "Title of the architecture decision"
+    "titlePlaceholder": "Title of the architecture decision",
+    "newAdr": "New ADR",
+    "summary_one": "{{count}} ADR",
+    "summary_other": "{{count}} ADRs",
+    "emptyTitle": "No ADRs yet",
+    "emptyDescription": "Architecture decision records capture why the system is built the way it is.",
+    "untitled": "Untitled"
   },
   "risks": {
     "selectRisk": "Select a risk from the list to view details.",

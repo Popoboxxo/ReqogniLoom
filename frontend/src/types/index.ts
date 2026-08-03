@@ -287,6 +287,13 @@ export type AdrStatus =
 export interface Adr {
   id: UUID;
   workspace_id: UUID;
+  // Task 2.1: the backing Artifact id (Adr.artifact, backend/application/models.py)
+  // is not yet exposed by AdrSerializer — unlike Requirement/StakeholderNeed/
+  // ArchitectureElement, which all serialize a separate `artifact_id`. Declared
+  // here (optional, currently always undefined) so <ArtifactCustomFields> in
+  // AdrForm is wired the same way as the other forms and starts working the
+  // moment the backend field ships, instead of needing another frontend change.
+  artifact_id?: UUID;
   title: string;
   description: string;
   context: string;
