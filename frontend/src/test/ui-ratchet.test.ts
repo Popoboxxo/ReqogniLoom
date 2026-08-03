@@ -140,8 +140,13 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // list; detail: the Impact-Analysis panel), dropping several inline-styled
 // wrapper elements in the process. Re-measured after that change: 1388.
 // Baseline lowered in the same PR per the ratchet rule above.
+//
+// Task 4.2: `DecompositionTree.tsx` (fully inline-styled, no CSS module) was
+// removed as confirmed dead code — see the tree-implementation-count note
+// below for why. Re-measured after the deletion: 1376. Baseline lowered in
+// the same PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1388;
+const STYLE_BRACE_BASELINE = 1376;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
@@ -184,13 +189,20 @@ const HEX_LITERAL_FILE_BASELINE = 35;
 // since generic name matching (e.g. "*tree*") also matches unrelated files
 // (TraceSpine, ListToolbar, ArtifactId, etc.) whose basenames merely
 // contain the substring "tree" without being tree implementations.
+//
+// Task 4.2: `DecompositionTree.tsx` was removed as confirmed dead code — it
+// had zero consumers (the live Architecture tree in `ArchitectureEditors.tsx`
+// renders `WorkspaceTree` directly and explicitly opted out of drag-and-drop
+// reparenting on 2026-07-13; `architectureApi.reparent()`, the API it was
+// built to drive, was never called from anywhere in the frontend). Measured
+// again after the deletion: 3. Baseline lowered in the same PR per the
+// ratchet rule above.
 const KNOWN_TREE_IMPLEMENTATIONS = [
   join(COMPONENTS_DIR, "shared", "WorkspaceTree", "workspace-tree.tsx"),
-  join(COMPONENTS_DIR, "ArchitectureEditors", "DecompositionTree.tsx"),
   join(COMPONENTS_DIR, "RequirementEditors", "RequirementTreeNode.tsx"),
   join(COMPONENTS_DIR, "Goals", "GoalsTree.tsx"),
 ];
-const TREE_IMPLEMENTATION_BASELINE = 4;
+const TREE_IMPLEMENTATION_BASELINE = 3;
 
 // --- (d) Duplicate status-badge implementations ----------------------------
 //
