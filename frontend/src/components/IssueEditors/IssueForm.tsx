@@ -5,6 +5,7 @@ import { issuesApi } from '../../api/issues';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
 import { TagInput } from '../shared/tag-input';
+import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 import { useWorkspace } from '../../context/WorkspaceContext';
 
@@ -218,6 +219,14 @@ export function IssueForm({ issue, onSaved, onDeleted }: IssueFormProps): JSX.El
               placeholder={t('issues.tagsPlaceholder', 'tag1, tag2 ...')}
             />
           </div>
+
+          {/* 12.11: workspace-defined custom fields, typed and persisted per
+              artifact instance. Only shown for an existing issue that already
+              has a backing Artifact id — see the `artifact_id` comment on
+              the `Issue` type for why this is currently always empty. */}
+          {issue.artifact_id && (
+            <ArtifactCustomFields artifactId={issue.artifact_id} />
+          )}
 
           {/* REQ-162: Change Control — Extended preset only. */}
           {isExtendedPreset && (

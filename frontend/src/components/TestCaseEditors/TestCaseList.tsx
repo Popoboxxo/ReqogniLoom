@@ -1,29 +1,29 @@
 /**
  * TestCaseList — left-panel navigation for test cases (REQ-003).
  *
- * Refactored to use the shared WorkspaceTree component for consistent
- * compact tree rows across all artifact views (REQ-003).
+ * Task 2.4 remodel: rows are <ArtifactRow> (ch. 12.3 — id/level on top,
+ * title below, status + version badges) instead of a WorkspaceTree node, and
+ * the empty list vs. empty filter result render through <EmptyState> with
+ * distinct text and actions (ch. 12.7/13.3). The page title, always-visible
+ * summary and "New Test Case" primary action now live in <PageHeader> at the
+ * TestCaseEditors level (ch. 12.1/12.2) — this component only owns
+ * search/filter/sort and the row list. Mirrors AdrList/RiskList/IssueList
+ * (Tasks 2.1/2.2/2.3).
  */
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
-import { getStatusBadgeStyle } from '../../utils/statusBadge';
-import { WorkspaceTree } from '../shared/WorkspaceTree';
-import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
+import { ArtifactRow } from '../shared/ArtifactRow';
+import { EmptyState } from '../shared/EmptyState';
 import type { TestCase } from '../../api/testcases';
 import { WORKFLOW_STATES } from '../../types';
+import styles from './TestCaseList.module.css';
 
 interface TestCaseListProps {
   items: TestCase[];
   selectedId?: string;
+  onSelect: (id: string) => void;
   onCreateNew: () => void;
-  showCreateForm?: boolean;
-  setShowCreateForm?: (show: boolean) => void;
-  newTitle?: string;
-  setNewTitle?: (val: string) => void;
-  onSubmitCreate?: () => void;
-  createError?: string | null;
 }
 
 type SortKey = 'default' | 'title' | 'status' | 'updated';
@@ -45,25 +45,8 @@ function sortItems(list: TestCase[], sortKey: SortKey): TestCase[] {
   return sorted;
 }
 
-function testCaseToNode(tc: TestCase): WorkspaceTreeNode {
-  const style = getStatusBadgeStyle(tc.status);
-  return {
-    id: tc.id,
-    name: tc.title || 'Untitled',
-    parentId: null,
-    badge: {
-      text: tc.status,
-      bg: style.background as string,
-      color: style.color as string,
-    },
-  };
-}
-
-export function TestCaseList({
-  items, selectedId, onCreateNew, showCreateForm, setShowCreateForm, newTitle, setNewTitle, onSubmitCreate, createError,
-}: TestCaseListProps): JSX.Element {
+export function TestCaseList({ items, selectedId, onSelect, onCreateNew }: TestCaseListProps): JSX.Element {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('default');
@@ -78,12 +61,15 @@ export function TestCaseList({
     return sortItems(filtered, sortKey);
   }, [items, listSearch, statusFilter, sortKey]);
 
-  const treeNodes = useMemo(() => visible.map(testCaseToNode), [visible]);
-
   const hasActiveListControls = Boolean(listSearch || statusFilter);
 
+  const resetFilters = (): void => {
+    setListSearch('');
+    setStatusFilter('');
+  };
+
   return (
-    <div>
+    <div data-testid="tc-list">
       <ListToolbar
         testIdPrefix="tc-list"
         searchValue={listSearch}
@@ -105,85 +91,40 @@ export function TestCaseList({
         countLabel={hasActiveListControls ? t('editor.filteredCount', { shown: visible.length, total: items.length }) : null}
       />
 
-      <button
-        data-testid="create-tc-btn"
-        onClick={onCreateNew}
-        disabled={showCreateForm}
-        style={{
-          marginBottom: 'var(--space-3)', background: 'var(--color-primary)', color: 'white', border: 'none',
-          borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)', fontSize: 'var(--font-size-sm)',
-          cursor: showCreateForm ? 'not-allowed' : 'pointer', opacity: showCreateForm ? 0.6 : 1,
-          transition: 'var(--transition-fast)', fontWeight: 600,
-        }}
-      >
-        + {t('actions.new', 'New')}
-      </button>
-
-      {showCreateForm && setShowCreateForm && setNewTitle && onSubmitCreate && (
-        <form
-          onSubmit={(e) => { e.preventDefault(); onSubmitCreate(); }}
-          style={{
-            display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: 'var(--space-3)',
-            marginBottom: 'var(--space-3)', background: 'var(--color-surface-raised)',
-            border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
-          }}
-        >
-          <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
-            {t('editor.title', 'Title')}
-          </label>
-          <input
-            data-testid="tc-new-title-input"
-            type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} autoFocus
-            placeholder={t('editor.newNeedTitle', 'e.g. Test case title...')}
-            style={{
-              padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)',
-              background: 'var(--color-surface)', color: 'var(--color-text)',
-            }}
-          />
-          {createError && (
-            <p role="alert" style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-sm)', margin: 0 }}>
-              {createError}
-            </p>
+      {items.length === 0 ? (
+        // ch. 13.3: "there is nothing" — offer the create action, not a
+        // filter reset.
+        <EmptyState
+          variant="empty"
+          testId="tc-list-empty"
+          title={t('testcases.emptyTitle', 'No test cases yet')}
+          description={t(
+            'testcases.emptyDescription',
+            'Test cases verify requirements are met and record how the system was checked.',
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-            <button
-              type="button"
-              onClick={() => setShowCreateForm(false)}
-              style={{
-                background: 'transparent', color: 'var(--color-text)', border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
-              }}
-            >
-              {t('cancel', 'Cancel')}
-            </button>
-            <button
-              data-testid="tc-new-save-btn"
-              type="submit"
-              disabled={!(newTitle || '').trim()}
-              style={{
-                background: 'var(--color-primary)', color: 'white', border: 'none',
-                borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)', cursor: 'pointer',
-              }}
-            >
-              {t('create', 'Create')}
-            </button>
-          </div>
-        </form>
+          actions={[{ label: t('testcases.newTestCase', 'New Test Case'), onClick: onCreateNew, testId: 'tc-list-empty-create' }]}
+        />
+      ) : visible.length === 0 ? (
+        // ch. 13.3: "there is something, just not under this filter" — offer
+        // only a filter reset, never a create action.
+        <EmptyState variant="no-match" testId="tc-list-no-match" onResetFilters={resetFilters} />
+      ) : (
+        <div className={styles.rows} data-testid="tc-list-rows">
+          {visible.map((tc) => (
+            <ArtifactRow
+              key={tc.id}
+              id={tc.uid}
+              idFallback={tc.id.slice(0, 8)}
+              title={tc.title || t('testcases.untitled', 'Untitled')}
+              status={tc.status}
+              version={tc.version}
+              selected={tc.id === selectedId}
+              onClick={() => onSelect(tc.id)}
+              testId={`tc-row-${tc.id}`}
+            />
+          ))}
+        </div>
       )}
-
-      {/* Unified tree navigation — REQ-003 */}
-      <WorkspaceTree
-        data-testid="tc-list-tree"
-        nodes={treeNodes}
-        selectedId={selectedId}
-        onSelect={(id) => navigate(`/testcases/${id}`)}
-        showSearch={false}
-        emptyLabel={t('editor.empty', 'No items available.')}
-        noMatchesLabel={t('editor.noMatches', 'No matches found.')}
-      />
     </div>
   );
 }

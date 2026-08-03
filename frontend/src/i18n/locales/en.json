@@ -457,7 +457,13 @@
     "deleteConfirm": "Delete this ADR?",
     "context": "Context",
     "consequences": "Consequences",
-    "titlePlaceholder": "Title of the architecture decision"
+    "titlePlaceholder": "Title of the architecture decision",
+    "newAdr": "New ADR",
+    "summary_one": "{{count}} ADR",
+    "summary_other": "{{count}} ADRs",
+    "emptyTitle": "No ADRs yet",
+    "emptyDescription": "Architecture decision records capture why the system is built the way it is.",
+    "untitled": "Untitled"
   },
   "risks": {
     "selectRisk": "Select a risk from the list to view details.",
@@ -469,7 +475,13 @@
     "impact": "Impact",
     "category": "Category",
     "owner": "Owner",
-    "mitigationStrategy": "Mitigation Strategy"
+    "mitigationStrategy": "Mitigation Strategy",
+    "newRisk": "New Risk",
+    "summary_one": "{{count}} risk",
+    "summary_other": "{{count}} risks",
+    "emptyTitle": "No risks yet",
+    "emptyDescription": "Risks capture what could go wrong and how it is being mitigated.",
+    "untitled": "Untitled"
   },
   "issues": {
     "selectIssue": "Select an issue from the list to view details.",
@@ -478,12 +490,25 @@
     "deleteConfirm": "Delete this issue?",
     "severity": "Severity",
     "category": "Category",
-    "tags": "Tags"
+    "tags": "Tags",
+    "newIssue": "New Issue",
+    "summary_one": "{{count}} issue",
+    "summary_other": "{{count}} issues",
+    "emptyTitle": "No issues yet",
+    "emptyDescription": "Issues track defects, improvements and open questions for this workspace.",
+    "untitled": "Untitled"
   },
   "testcases": {
     "selectTestCase": "Select a test case from the list to view details.",
     "createFailed": "Failed to create test case.",
-    "saveFailed": "Failed to save test case."
+    "saveFailed": "Failed to save test case.",
+    "deleteFailed": "Failed to delete test case.",
+    "newTestCase": "New Test Case",
+    "summary_one": "{{count}} test case",
+    "summary_other": "{{count}} test cases",
+    "emptyTitle": "No test cases yet",
+    "emptyDescription": "Test cases verify requirements are met and record how the system was checked.",
+    "untitled": "Untitled"
   },
   "settings": {
     "preset": "Preset",

@@ -457,7 +457,13 @@
     "deleteConfirm": "Diese ADR löschen?",
     "context": "Kontext",
     "consequences": "Konsequenzen",
-    "titlePlaceholder": "Titel der Architekturentscheidung"
+    "titlePlaceholder": "Titel der Architekturentscheidung",
+    "newAdr": "Neue ADR",
+    "summary_one": "{{count}} ADR",
+    "summary_other": "{{count}} ADRs",
+    "emptyTitle": "Noch keine ADRs",
+    "emptyDescription": "Architekturentscheidungen dokumentieren, warum das System so gebaut ist, wie es gebaut ist.",
+    "untitled": "Unbenannt"
   },
   "risks": {
     "selectRisk": "Wählen Sie ein Risiko aus der Liste, um Details anzuzeigen.",
@@ -469,7 +475,13 @@
     "impact": "Auswirkung",
     "category": "Kategorie",
     "owner": "Verantwortlicher",
-    "mitigationStrategy": "Maßnahmen"
+    "mitigationStrategy": "Maßnahmen",
+    "newRisk": "Neues Risiko",
+    "summary_one": "{{count}} Risiko",
+    "summary_other": "{{count}} Risiken",
+    "emptyTitle": "Noch keine Risiken",
+    "emptyDescription": "Risiken erfassen, was schiefgehen könnte und wie dem begegnet wird.",
+    "untitled": "Unbenannt"
   },
   "issues": {
     "selectIssue": "Wählen Sie ein Problem aus der Liste, um Details anzuzeigen.",
@@ -478,12 +490,25 @@
     "deleteConfirm": "Dieses Problem löschen?",
     "severity": "Schweregrad",
     "category": "Kategorie",
-    "tags": "Tags"
+    "tags": "Tags",
+    "newIssue": "Neues Problem",
+    "summary_one": "{{count}} Problem",
+    "summary_other": "{{count}} Probleme",
+    "emptyTitle": "Noch keine Probleme",
+    "emptyDescription": "Probleme erfassen Defekte, Verbesserungen und offene Fragen für diesen Workspace.",
+    "untitled": "Unbenannt"
   },
   "testcases": {
     "selectTestCase": "Wählen Sie einen Testfall aus der Liste, um Details anzuzeigen.",
     "createFailed": "Testfall konnte nicht erstellt werden.",
-    "saveFailed": "Testfall konnte nicht gespeichert werden."
+    "saveFailed": "Testfall konnte nicht gespeichert werden.",
+    "deleteFailed": "Testfall konnte nicht gelöscht werden.",
+    "newTestCase": "Neuer Testfall",
+    "summary_one": "{{count}} Testfall",
+    "summary_other": "{{count}} Testfälle",
+    "emptyTitle": "Noch keine Testfälle",
+    "emptyDescription": "Testfälle prüfen, ob Anforderungen erfüllt sind, und dokumentieren, wie das System geprüft wurde.",
+    "untitled": "Unbenannt"
   },
   "settings": {
     "preset": "Preset",

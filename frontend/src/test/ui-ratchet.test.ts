@@ -102,8 +102,32 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // RequirementEditors call sites) with `<Dialog>`, which owns that chrome via
 // CSS Modules instead of inline styles. Re-measured after that change: 1437.
 // Baseline lowered in the same PR per the ratchet rule above.
+//
+// Task 2.1 (ADR concept remodel) replaced AdrList's inline-styled `<h3>`
+// heading, "+ New" button and inline create `<form>` with `<PageHeader>` +
+// `<Dialog>` + `<ArtifactRow>`/`<EmptyState>` (all of which own their own
+// chrome via CSS Modules or a handful of already-counted inline styles), and
+// moved the row list's own layout into `AdrList.module.css`. Re-measured
+// after that change: 1433. Baseline lowered in the same PR per the ratchet
+// rule above.
+//
+// Task 2.2 (Risk concept remodel) applied the same replacement to
+// RiskList/RiskEditors, plus removed the floating inline-styled "Neue
+// Verknüpfung" button and its bespoke CreateTraceLinkDialog wiring in favor
+// of the already-existing `<TraceLinkPanel>` (which owns its own new-link
+// action). Re-measured after that change: 1428. Baseline lowered in the same
+// PR per the ratchet rule above.
+//
+// Task 2.3 (Issue concept remodel) applied the same replacement to
+// IssueList/IssueEditors — including dropping IssueList's inline-styled
+// `<h3>` heading, "+ New" button and inline create `<form>` (formerly
+// rendered via WorkspaceTree instead of ArtifactRow) — plus removed the
+// floating inline-styled "Neue Verknüpfung" button and its bespoke
+// CreateTraceLinkDialog wiring in favor of `<TraceLinkPanel>`. Re-measured
+// after that change: 1423. Baseline lowered in the same PR per the ratchet
+// rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1437;
+const STYLE_BRACE_BASELINE = 1420;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

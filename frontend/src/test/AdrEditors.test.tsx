@@ -15,8 +15,14 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+// Real i18next instance (EN resources) so the Task 2.1 assertions below can
+// check actual rendered copy (title, summary, dialog title) instead of raw
+// keys — the suite above only ever checked testids/markup and never needed
+// this, so it is a new, additive setup step for this file.
+import "../i18n/index";
 
 // ---------------------------------------------------------------------------
 // Mock API modules (must precede component import)
@@ -63,7 +69,7 @@ const { ADR, ARCH_ARTIFACT_ID } = vi.hoisted(() => ({
     description: "Append-only log.",
     context: "",
     consequences: "",
-    status: "Draft",
+    status: "Draft" as const,
     version: 1,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
@@ -137,14 +143,15 @@ import AdrEditors from "../components/AdrEditors/AdrEditors";
 import { tracelinksApi } from "../api/tracelinks";
 import { artifactsApi } from "../api/artifacts";
 import { architectureApi } from "../api/architecture";
+import { adrsApi } from "../api/adrs";
 
-function renderEditor(): ReturnType<typeof render> {
+function renderEditor(initialPath = `/adrs/${ADR.id}`): ReturnType<typeof render> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/adrs/${ADR.id}`]}>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route path="/adrs" element={<AdrEditors />} />
           <Route path="/adrs/:id" element={<AdrEditors />} />
@@ -206,5 +213,112 @@ describe("AdrEditors TraceLinkPanel (REQ-L2-TE-020)", () => {
 
     // The panel queried links for the ADR's own id.
     expect(tracelinksApi.listForArtifact).toHaveBeenCalledWith("ws-001", ADR.id);
+  });
+});
+
+describe("AdrEditors Task 2.1 concept remodel (PageHeader / ArtifactRow / Dialog / EmptyState)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+    vi.mocked(adrsApi.list).mockResolvedValue({ results: [ADR], count: 1, next: null, previous: null });
+    vi.mocked(adrsApi.listAll).mockResolvedValue([ADR]);
+    vi.mocked(adrsApi.get).mockResolvedValue(ADR);
+  });
+
+  it("renders exactly one <h1> with an always-visible summary (12.1)", async () => {
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("ADRs");
+    // Summary is visible without any active search/filter.
+    expect(screen.getByTestId("page-header-count")).toHaveTextContent("1 ADR");
+  });
+
+  it("moves the primary create action into the PageHeader, named after the result", async () => {
+    renderEditor("/adrs");
+    await waitFor(() => {
+      expect(screen.getByTestId("page-header")).toBeInTheDocument();
+    });
+    // Exactly one create action exists, inside the header, labelled after the
+    // result ("New ADR") rather than the gesture ("+ New").
+    const createButton = screen.getByTestId("create-adr-btn");
+    expect(screen.getByTestId("page-header")).toContainElement(createButton);
+    expect(createButton).toHaveTextContent("New ADR");
+    // No inline create form in the list anymore — creation only happens
+    // through the Dialog, not yet open.
+    expect(screen.queryByTestId("adr-new-title-input")).not.toBeInTheDocument();
+  });
+
+  it("renders each ADR as an ArtifactRow with id, status and title", async () => {
+    renderEditor("/adrs");
+    await waitFor(() => {
+      expect(screen.getByTestId(`adr-row-${ADR.id}`)).toBeInTheDocument();
+    });
+    const row = screen.getByTestId(`adr-row-${ADR.id}`);
+    expect(row).toHaveTextContent(ADR.title);
+    expect(screen.getByTestId(`adr-row-${ADR.id}-status`)).toHaveTextContent(ADR.status);
+  });
+
+  it("shows the empty variant with a create action when there are no ADRs at all", async () => {
+    vi.mocked(adrsApi.listAll).mockResolvedValue([]);
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-list-empty")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("adr-list-empty-create")).toBeInTheDocument();
+    expect(screen.queryByTestId("adr-list-no-match")).not.toBeInTheDocument();
+  });
+
+  it("shows the no-match variant with only a reset-filters action when the filter matches nothing", async () => {
+    renderEditor("/adrs");
+    await waitFor(() => {
+      expect(screen.getByTestId(`adr-row-${ADR.id}`)).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByTestId("adr-list-search-input"), "no such adr title");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("adr-list-no-match")).toBeInTheDocument();
+    });
+    // The no-match variant offers only "reset filters", never a create action.
+    expect(screen.getByTestId("adr-list-no-match-reset-filters")).toBeInTheDocument();
+    expect(screen.queryByTestId("adr-list-empty")).not.toBeInTheDocument();
+  });
+
+  it("opens the create dialog from the header action, titled after the button label, and creates via shared/Dialog", async () => {
+    vi.mocked(adrsApi.create).mockResolvedValue({ ...ADR, id: "adr-new-1" });
+    renderEditor("/adrs");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-adr-btn")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("create-adr-btn"));
+
+    const dialog = await screen.findByTestId("adr-create-dialog");
+    expect(dialog).toHaveAttribute("role", "dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    // Dialog title repeats the button's label (ch. 12.8).
+    expect(screen.getByRole("heading", { name: "New ADR" })).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("adr-new-title-input"), "Adopt CQRS");
+    await user.click(screen.getByTestId("adr-new-save-btn"));
+
+    await waitFor(() => {
+      expect(adrsApi.create).toHaveBeenCalledWith({
+        workspace_id: "ws-001",
+        title: "Adopt CQRS",
+      });
+    });
   });
 });

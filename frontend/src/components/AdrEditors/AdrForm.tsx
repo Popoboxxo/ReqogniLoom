@@ -5,6 +5,7 @@ import type { Adr } from '../../types';
 import { adrsApi } from '../../api/adrs';
 import { VersionBadge } from '../shared/VersionBadge';
 import { StatusBadge } from '../shared/StatusBadge';
+import { ArtifactCustomFields } from '../shared/ArtifactCustomFields';
 import { MarkdownPreview } from '../RequirementEditors/MarkdownPreview';
 import { WorkflowStatusEditor } from '../WorkflowStatusEditor';
 
@@ -201,6 +202,14 @@ export function AdrForm({ adr, onSaved, onDeleted }: AdrFormProps): JSX.Element 
               />
             </div>
           </div>
+
+          {/* 12.11: workspace-defined custom fields, typed and persisted per
+              artifact instance. Only shown for an existing ADR that already
+              has a backing Artifact id — see the `artifact_id` comment on
+              the `Adr` type for why this is currently always empty. */}
+          {adr.artifact_id && (
+            <ArtifactCustomFields artifactId={adr.artifact_id} />
+          )}
 
           {/* REQ-162: Change Control — Extended preset only. */}
           {isExtendedPreset && (
