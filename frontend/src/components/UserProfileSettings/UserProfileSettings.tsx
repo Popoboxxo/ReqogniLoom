@@ -81,7 +81,7 @@ export default function UserProfileSettings(): JSX.Element {
 
   return (
     <div data-testid="user-profile-settings" style={{ maxWidth: "640px" }}>
-      <h2
+      <h1
         style={{
           fontSize: "var(--font-size-2xl)",
           fontWeight: 700,
@@ -90,7 +90,7 @@ export default function UserProfileSettings(): JSX.Element {
         }}
       >
         {t("nav.profile")}
-      </h2>
+      </h1>
 
       <ProfileSection />
 

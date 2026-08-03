@@ -99,7 +99,7 @@ export default function DashboardViews(): JSX.Element {
 
   return (
     <div>
-      <h2
+      <h1
         style={{
           fontSize: "var(--font-size-2xl)",
           fontWeight: 700,
@@ -109,7 +109,7 @@ export default function DashboardViews(): JSX.Element {
         }}
       >
         {t("nav.dashboard")}
-      </h2>
+      </h1>
       {workspaces.length === 0 ? (
         <p
           style={{

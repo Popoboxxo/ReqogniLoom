@@ -430,7 +430,7 @@ export default function MetricsDashboard(): JSX.Element {
           flexWrap: "wrap",
         }}
       >
-        <h2
+        <h1
           style={{
             fontSize: "var(--font-size-2xl)",
             fontWeight: 700,
@@ -439,7 +439,7 @@ export default function MetricsDashboard(): JSX.Element {
           }}
         >
           {t("metrics.title", "SE Process Metrics")}
-        </h2>
+        </h1>
 
         <div
           style={{

@@ -240,9 +240,9 @@ export function AuditDashboard(): JSX.Element {
           flexWrap: "wrap",
         }}
       >
-        <h2 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, color: "var(--color-text)", margin: 0 }}>
+        <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, color: "var(--color-text)", margin: 0 }}>
           {t("audit.title", "SE-Auditor")}
-        </h2>
+        </h1>
 
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>

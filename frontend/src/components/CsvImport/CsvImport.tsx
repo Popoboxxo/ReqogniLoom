@@ -238,7 +238,7 @@ export function CsvImport(): JSX.Element {
       data-testid="csv-import-page"
       style={{ maxWidth: "640px" }}
     >
-      <h2
+      <h1
         style={{
           fontSize: "var(--font-size-2xl)",
           fontWeight: 700,
@@ -247,7 +247,7 @@ export function CsvImport(): JSX.Element {
         }}
       >
         {t("import.title", "CSV Import")}
-      </h2>
+      </h1>
 
       {/* Entity type selector */}
       <section
