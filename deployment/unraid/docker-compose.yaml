@@ -160,10 +160,17 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqogniloom}
+      # Superuser (Postgres bootstrap role) — RLS (REQ-L2-PL-010) does not
+      # restrict superusers, so `migrate` uses it to run DDL; runtime traffic
+      # below (backend/celery/celery-beat) must NOT use this role.
       DB_USER: ${DB_USER:-reqogniloom}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
+      # Read by persistence/migrations/0048_app_role.py to (re-)create the
+      # least-privilege runtime role that backend/celery/celery-beat use.
+      DB_APP_USER: ${DB_APP_USER:-reqogniloom_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       # Admin account provisioned on first start by the self-init receiver.
       # Username/email have safe defaults; SYSTEM_ADMIN_PASSWORD is required
@@ -202,8 +209,10 @@ services:
       DEBUG: ${DEBUG:-False}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       DB_NAME: ${DB_NAME:-reqogniloom}
-      DB_USER: ${DB_USER:-reqogniloom}
-      DB_PASSWORD: ${DB_PASSWORD}
+      # Least-privilege app role (persistence/migrations/0048_app_role.py), not
+      # the superuser — RLS tenant-isolation must actually apply to backend traffic.
+      DB_USER: ${DB_APP_USER:-reqogniloom_app}
+      DB_PASSWORD: ${DB_APP_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -228,7 +237,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/schema/ || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -262,8 +271,10 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqogniloom}
-      DB_USER: ${DB_USER:-reqogniloom}
-      DB_PASSWORD: ${DB_PASSWORD}
+      # Least-privilege app role (persistence/migrations/0048_app_role.py), not
+      # the superuser — RLS tenant-isolation must actually apply to task traffic.
+      DB_USER: ${DB_APP_USER:-reqogniloom_app}
+      DB_PASSWORD: ${DB_APP_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -314,8 +325,10 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqogniloom}
-      DB_USER: ${DB_USER:-reqogniloom}
-      DB_PASSWORD: ${DB_PASSWORD}
+      # Least-privilege app role (persistence/migrations/0048_app_role.py), not
+      # the superuser — RLS tenant-isolation must actually apply to task traffic.
+      DB_USER: ${DB_APP_USER:-reqogniloom_app}
+      DB_PASSWORD: ${DB_APP_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}

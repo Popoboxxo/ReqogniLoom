@@ -141,10 +141,27 @@ services:
       DEBUG: ${DEBUG:-False}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       DB_NAME: ${DB_NAME:-reqogniloom}
+      # Two DB roles share this one container invocation (see `command:`
+      # below): `python manage.py migrate` needs the Postgres superuser (RLS,
+      # REQ-L2-PL-010, does not restrict superusers, but the least-privilege
+      # app role lacks the DDL privileges migrations need — see
+      # persistence/migrations/0048_app_role.py), while the long-running
+      # gunicorn process must run as the least-privilege app role so RLS
+      # tenant-isolation actually applies to request traffic. The ambient
+      # DB_USER/DB_PASSWORD below stay pinned to the superuser (used by the
+      # `migrate` sub-step); `command:` then overrides them to
+      # DB_APP_USER/DB_APP_PASSWORD inline, just for the exec'd gunicorn
+      # process, so the two sub-steps authenticate with different roles even
+      # though they're one container/one `environment:` block.
       DB_USER: ${DB_USER:-reqogniloom}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
+      # Least-privilege app role (persistence/migrations/0048_app_role.py),
+      # consumed only by the inline override in `command:` below — see the
+      # comment on DB_USER above.
+      DB_APP_USER: ${DB_APP_USER:-reqogniloom_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
@@ -169,7 +186,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/schema/ || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -179,9 +196,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # `migrate` runs first with the ambient (superuser) DB_USER/DB_PASSWORD
+    # above; gunicorn then gets DB_USER/DB_PASSWORD overridden inline to the
+    # least-privilege DB_APP_USER/DB_APP_PASSWORD so runtime traffic is
+    # subject to RLS tenant-isolation. See the DB_USER comment above.
     command: >
       sh -c "python manage.py migrate &&
-             gunicorn reqogniloom.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 4"
+             DB_USER=\"$$DB_APP_USER\" DB_PASSWORD=\"$$DB_APP_PASSWORD\" gunicorn reqogniloom.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 4"
 
   # ─────────────────────────────────────────────────────────
   # Celery Worker + Beat Scheduler — ARCH-L1-016 ResilienceOrchestrator, REQ-030
@@ -199,8 +220,10 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-False}
       DB_NAME: ${DB_NAME:-reqogniloom}
-      DB_USER: ${DB_USER:-reqogniloom}
-      DB_PASSWORD: ${DB_PASSWORD}
+      # Least-privilege app role (persistence/migrations/0048_app_role.py), not
+      # the superuser — RLS tenant-isolation must actually apply to task traffic.
+      DB_USER: ${DB_APP_USER:-reqogniloom_app}
+      DB_PASSWORD: ${DB_APP_PASSWORD}
       DB_HOST: postgres
       DB_PORT: 5432
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}

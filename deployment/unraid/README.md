@@ -53,8 +53,20 @@ ReqogniLoom is an AI-native Requirements and Test Management tool with MBSE supp
    # Django secret key
    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(50))")
    
-   # Database password
+   # JWT signing secret
+   AUTH_JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
+   
+   # Field-level encryption key (REQUIRED — no default, startup fails without it;
+   # encrypts persistence.LlmSettings.api_key at rest). Keep it stable once set —
+   # rotating without re-encrypting existing rows makes their api_key unreadable.
+   FIELD_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+   
+   # Database password (superuser — used only by the one-shot `migrate` service)
    DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+   
+   # Least-privilege app DB role password (backend/celery/celery-beat runtime
+   # traffic — persistence/migrations/0048_app_role.py)
+   DB_APP_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
    
    # Redis broker password
    REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
@@ -155,9 +167,9 @@ See `.env.example` for all options. Key categories:
 
 | Category | Variables | Notes |
 |----------|-----------|-------|
-| **Secrets** | SECRET_KEY, DB_PASSWORD, REDIS_PASSWORD, SYSTEM_ADMIN_PASSWORD | Generate fresh values, never reuse |
+| **Secrets** | SECRET_KEY, AUTH_JWT_SECRET, FIELD_ENCRYPTION_KEY, DB_PASSWORD, DB_APP_PASSWORD, REDIS_PASSWORD, SYSTEM_ADMIN_PASSWORD | Generate fresh values, never reuse |
 | **Frontend** | VITE_API_BASE_URL, VITE_ALLOWED_HOSTS | Baked into build — rebuild frontend after changes |
-| **Database** | DB_NAME, DB_USER, DB_PASSWORD | Defaults: db_name=reqogniloom, db_user=reqogniloom |
+| **Database** | DB_NAME, DB_USER, DB_PASSWORD, DB_APP_USER, DB_APP_PASSWORD | DB_USER/DB_PASSWORD (superuser) used only by `migrate`; DB_APP_USER/DB_APP_PASSWORD (least-privilege, RLS-enforced) used by backend/celery/celery-beat |
 | **Redis** | REDIS_PASSWORD | Optional (auth), defaults to no password if empty |
 | **CORS/CSRF** | CORS_ALLOWED_ORIGINS, CSRF_TRUSTED_ORIGINS | Required for production HTTPS access |
 | **LLM Provider** | LLM_PROVIDER, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL | Options: anthropic, openai, ollama, mock (default) |
