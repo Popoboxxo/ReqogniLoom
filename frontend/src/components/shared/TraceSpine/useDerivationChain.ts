@@ -70,6 +70,10 @@ import type { ArchitectureElement, UUID } from "../../../types";
 export const ARTIFACT_TYPE_NEED = "StakeholderNeed";
 export const ARTIFACT_TYPE_REQUIREMENT = "Requirement";
 export const ARTIFACT_TYPE_ARCHITECTURE = "ArchitectureElement";
+export const ARTIFACT_TYPE_GOAL = "Goal";
+export const ARTIFACT_TYPE_ADR = "Adr";
+export const ARTIFACT_TYPE_RISK = "Risk";
+export const ARTIFACT_TYPE_ISSUE = "Issue";
 export const ARTIFACT_TYPE_TESTCASE = "TestCase";
 
 /** Link types that mean "a test case verifies this artifact". */

@@ -384,7 +384,10 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
 
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(500);
+    // Wait for the requirement tree to actually render (RequirementList.tsx
+    // data-testid="req-list-tree") instead of a fixed delay, before probing
+    // for the long-title card below.
+    await expect(page.locator('[data-testid="req-list-tree"]')).toBeVisible({ timeout: 8000 });
     const card = page.getByText(longTitle.slice(0, 25)).first();
     const visible = await card.isVisible().catch(() => false);
     if (visible) {
@@ -548,7 +551,10 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
       description: 'Zustandsmaschine',
       content: `graph LR\n  A[Idle] --> B[Heating]\n  B --> C[Done]\n  B --> D[Error]\n  C --> A\n  D --> A`,
     });
-    await page.waitForTimeout(1500);
+    // createDiagramViaUI() already waits for networkidle after saving; the
+    // retrying toBeVisible() assertion below is the real wait for the new
+    // diagram to show up after navigating to the list, so no extra fixed
+    // delay is needed here.
     await page.goto(`${FRONTEND_URL}/diagrams`);
     await page.waitForLoadState('networkidle');
     await expect(page.getByText(name).first()).toBeVisible({ timeout: 10000 });
@@ -568,8 +574,25 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   A[Stromversorgung] --> B[Heizelement v2]
   B --> C[Wasserbehälter v2]`;
     await page.locator('[data-testid="diagram-source-textarea"]').fill(newContent);
-    await page.locator('[data-testid="diagram-save-btn"]').click();
-    await page.waitForTimeout(1500);
+    // handleSave() (DiagramDetailView.tsx) PATCHes the diagram and then
+    // invalidates the detail query, which triggers a background GET
+    // refetch (useDiagramData.ts). Wait for that refetch instead of a
+    // fixed delay, so the version-label read below reflects fresh state.
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/diagrams\/[^/]+\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200
+      ),
+      page.locator('[data-testid="diagram-save-btn"]').click(),
+    ]);
+    // handleSave() also exits edit mode (setIsEditing(false)) once the
+    // save resolves — wait for the edit textarea to disappear so we know
+    // the detail view has re-rendered with the (possibly bumped) version.
+    await expect(page.locator('[data-testid="diagram-source-textarea"]')).toBeHidden({
+      timeout: 8000,
+    });
 
     const afterContent = await page.content();
     const hasV2 = afterContent.includes('v2');

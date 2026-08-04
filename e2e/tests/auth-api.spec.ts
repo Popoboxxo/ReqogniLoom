@@ -58,7 +58,9 @@ test.describe('[COMP-AT-001] Auth API — error contract', () => {
     const created = await createResp.json();
     expect(created.id).toBeDefined();
     expect(created.name).toBe('E2E test key');
-    expect(created.plaintext).toMatch(/^rf_/);
+    // API keys use the "reqlo_" prefix (backend/auth_tenancy/services/authentication.py
+    // _API_KEY_PREFIX); the old "rf_" expectation was stale.
+    expect(created.plaintext).toMatch(/^reqlo_/);
     expect(created.warning).toBeDefined();
 
     // Step 3: List — should now have 1 more item

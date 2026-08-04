@@ -66,8 +66,8 @@ vi.mock("./PermissionsSection", () => ({
 vi.mock("./LlmSettingsSection", () => ({
   LlmSettingsSection: () => <div data-testid="stub-llm" />,
 }));
-vi.mock("./PromptTemplateSection", () => ({
-  PromptTemplateSection: () => <div data-testid="stub-prompts" />,
+vi.mock("./AiPromptsSection", () => ({
+  AiPromptsSection: () => <div data-testid="stub-prompts" />,
 }));
 vi.mock("../AdminDialog/AttributeVisibilityAdmin", () => ({
   AttributeVisibilityAdmin: () => <div data-testid="stub-visibility" />,

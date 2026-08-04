@@ -101,7 +101,12 @@
   /* Gradients */
   --gradient-primary: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
   --gradient-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.8) 100%);
-  
+
+  /* Body background accent gradient (issue #170) — theme-aware, was hardcoded
+     in global.css and did not adapt when switching to the light theme. */
+  --gradient-body: radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.08), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.08), transparent 25%);
+
   /* Glassmorphism */
   --glass-bg: rgba(30, 41, 59, 0.65);
   --glass-border: rgba(255, 255, 255, 0.08);
@@ -188,6 +193,11 @@
 
   --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
   --gradient-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+
+  /* Body background accent gradient (issue #170) — softer opacity on light
+     backgrounds so the accent stays subtle instead of muddying the page. */
+  --gradient-body: radial-gradient(circle at 15% 50%, rgba(79, 70, 229, 0.06), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(147, 51, 234, 0.06), transparent 25%);
 
   --glass-bg: rgba(255, 255, 255, 0.7);
   --glass-border: rgba(15, 23, 42, 0.08);

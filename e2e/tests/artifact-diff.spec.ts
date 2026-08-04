@@ -31,25 +31,49 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     const titleInput = page.locator('[data-testid="req-title"]');
     await titleInput.fill('Diff Test Requirement');
 
-    // Save the requirement
-    await page.locator('[data-testid="save-btn"]').click();
+    // Save the requirement. The save handler PATCHes the requirement and
+    // then invalidates the detail query, which triggers a background GET
+    // refetch (../RequirementEditors/useRequirementData.ts refresh()). Wait
+    // for that refetch response instead of a fixed delay, so the next edit
+    // is guaranteed to race against fresh, persisted state.
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200
+      ),
+      page.locator('[data-testid="save-btn"]').click(),
+    ]);
     // Wait for save to complete (button text returns from "Saving..." to "Save")
     await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    // Small delay for state stabilization
-    await page.waitForTimeout(1000);
 
     // Now modify the title
     await titleInput.fill('Diff Test Requirement - Modified');
 
     // Save again to create a new version
-    await page.locator('[data-testid="save-btn"]').click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200
+      ),
+      page.locator('[data-testid="save-btn"]').click(),
+    ]);
     await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    await page.waitForTimeout(1000);
 
-    // Click the "View Diff" button
-    const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 10000 });
-    await viewDiffBtn.click();
+    // Diff is no longer behind a "View Diff" modal trigger — since
+    // REQ-L2-RF-034/036 (RightSidebar shell) it is rendered inline in the
+    // persistent ArtifactInspector sidebar, always visible once a version
+    // exists (RequirementEditors.tsx renders <RightSidebar> unconditionally
+    // next to the form; DiffPanel wraps ArtifactDiff with an inspector
+    // section around it, see DiffPanel.tsx).
+    const inspector = page.locator('[data-testid="artifact-inspector"]');
+    await expect(inspector).toBeVisible({ timeout: 10000 });
+
+    const diffPanel = page.locator('[data-testid="inspector-diff-panel"]');
+    await expect(diffPanel).toBeVisible({ timeout: 10000 });
 
     // The diff view should appear
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
@@ -71,13 +95,14 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     const diffFields = page.locator('[data-testid="diff-fields"]');
     await expect(diffFields).toBeVisible({ timeout: 10000 });
 
-    // Close button should work
+    // The Close button is kept for visual/API parity with the standalone
+    // ArtifactDiff component, but per UI standards §1.2 the inspector is
+    // persistent and must NOT unmount on close (DiffPanel.tsx onClose is a
+    // deliberate no-op) — so clicking it must leave the diff view visible.
     const closeBtn = page.locator('[data-testid="diff-close-btn"]');
     await expect(closeBtn).toBeVisible({ timeout: 4000 });
     await closeBtn.click();
-
-    // Diff view should be hidden
-    await expect(diffView).not.toBeVisible({ timeout: 4000 });
+    await expect(diffView).toBeVisible({ timeout: 2000 });
   });
 
   test('[REQ-L2-RF-014] diff view shows version 0 baseline as all fields added', async ({ page }) => {
@@ -96,17 +121,23 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="req-title"]')).toBeVisible({ timeout: 10000 });
 
-    // Fill in data and save
+    // Fill in data and save. See the previous test for why we wait for the
+    // detail-refetch GET rather than a fixed delay.
     await page.locator('[data-testid="req-title"]').fill('Baseline Diff Test');
-    await page.locator('[data-testid="save-btn"]').click();
+    await Promise.all([
+      page.waitForResponse(
+        (resp) =>
+          /\/requirements\/[^/]+\/?($|\?)/.test(resp.url()) &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200
+      ),
+      page.locator('[data-testid="save-btn"]').click(),
+    ]);
     await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
-    await page.waitForTimeout(1000);
 
-    // Open diff view
-    const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 10000 });
-    await viewDiffBtn.click();
-
+    // Diff view is rendered inline in the persistent ArtifactInspector
+    // sidebar (REQ-L2-RF-034/036) — no separate "View Diff" trigger exists
+    // anymore, see the note in the previous test.
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
     await expect(diffView).toBeVisible({ timeout: 10000 });
 

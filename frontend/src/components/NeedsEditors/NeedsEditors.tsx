@@ -146,7 +146,7 @@ export default function NeedsEditors(): JSX.Element {
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="need-reload-btn">
-          {t('actions.reload', 'Erneut versuchen')}
+          {t('actions.retry')}
         </button>
       </div>
     );
@@ -154,15 +154,23 @@ export default function NeedsEditors(): JSX.Element {
 
   return (
     <>
-      {/* Page header — issue #172: this page previously had no heading at
-          all and buried "+ New" under the filter row; now matches the
-          Architecture/Glossary pattern (title + count + primary action). */}
+      {/* Page header — issue #172 / #315: this page previously had no
+          heading at all and buried "+ New" under the filter row (and then
+          in the list's ListToolbar); now matches the Architecture/Glossary/
+          Adr/Risk/Issue/TestCase pattern (title + summary + primary action
+          in the PageHeader per UI_KONZEPT.md §12.2). */}
       <PageHeader
         title={t('nav.needs')}
         // ch. 12.1: the summary is always visible — it answers "how many do
         // we have?" and makes a silently truncated list noticeable. It
         // replaces the counter that only appeared under an active filter.
         summary={needsSummary}
+        primaryAction={{
+          label: t('needs.newNeed', 'Neuer Bedarf'),
+          onClick: handleCreateNewClick,
+          disabled: showCreate,
+          testId: 'create-need-btn',
+        }}
       />
       <SplitView
       leftPanel={

@@ -15,11 +15,10 @@
  * (Llm/PromptTemplate/Workflows/Permissions/BackupRestore) already render their
  * own consistently-styled <section> cards, so they are embedded unchanged.
  *
- * TODO(REQ-follow-up): the workspace folder also contains an unused
- * `AiPromptsSection.tsx` ("AI Derivation Prompts", per-level workspace.ai_prompts)
- * which overlaps conceptually with `PromptTemplateSection` ("AI Prompt Templates").
- * The user reported this as confusing/duplicated content. Resolving that overlap
- * is a functional change and out of scope for the REQ-015 layout redesign.
+ * Issue #119 resolved the former overlap between the (unused, `ai_prompts`-blob
+ * based) `AiPromptsSection` and `PromptTemplateSection`: there is now a single
+ * `AiPromptsSection` backed by the `/prompt-templates/slots/` API, covering
+ * every prompt slot at both the global and the per-workspace scope.
  */
 
 import { useState, useCallback } from "react";
@@ -34,7 +33,7 @@ import { WorkflowPermissionsSection } from "./WorkflowPermissionsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { AttributeVisibilityAdmin } from "../AdminDialog/AttributeVisibilityAdmin";
 import { LlmSettingsSection } from "./LlmSettingsSection";
-import { PromptTemplateSection } from "./PromptTemplateSection";
+import { AiPromptsSection } from "./AiPromptsSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
 import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
 
@@ -545,8 +544,9 @@ export default function WorkspaceSettings(): JSX.Element {
           <>
             {/* LLM Provider configuration (REQ-L2-LLM-001) */}
             <LlmSettingsSection />
-            {/* AI Prompt Templates (REQ-L2-PT-001) */}
-            <PromptTemplateSection />
+            {/* AI Prompt Templates (REQ-L2-PT-001, issue #119) — every slot,
+                global default + per-workspace override. */}
+            <AiPromptsSection workspaceId={activeWorkspace.id} />
           </>
         )}
 

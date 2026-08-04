@@ -48,6 +48,11 @@ function collectNonTestTsxFiles(dir: string): string[] {
   return collectFiles(dir, /\.tsx$/).filter((f) => !f.endsWith(".test.tsx"));
 }
 
+/** CSS and module.css files. */
+function collectCssFiles(dir: string): string[] {
+  return collectFiles(dir, /\.module\.css$|\.css$/);
+}
+
 function countOccurrences(text: string, pattern: RegExp): number {
   const matches = text.match(pattern);
   return matches ? matches.length : 0;
@@ -145,8 +150,14 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // removed as confirmed dead code — see the tree-implementation-count note
 // below for why. Re-measured after the deletion: 1376. Baseline lowered in
 // the same PR per the ratchet rule above.
+//
+// Issue #119: `PromptTemplateSection.tsx` (dead duplicate) was deleted and
+// the heavily inline-styled `AiPromptsSection.tsx` was rebuilt on hoisted
+// style constants instead of per-element object literals. Re-measured after
+// that change: 1316. Baseline lowered in the same PR per the ratchet rule
+// above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1376;
+const STYLE_BRACE_BASELINE = 1316;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //
@@ -177,6 +188,21 @@ const STYLE_BRACE_BASELINE = 1376;
 const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{3,8}/g;
 const HEX_LITERAL_OCCURRENCE_BASELINE = 128;
 const HEX_LITERAL_FILE_BASELINE = 35;
+
+// --- (b.1) Hex color literals in .css / .module.css files (project-wide) ---
+//
+// Tracked separately from (b) since CSS files were not scanned initially and
+// the baseline was only established for .tsx files. CSS files (both .css and
+// .module.css) are now included in the hex-literal ratchet to prevent new
+// hardcoded colors being introduced via stylesheets.
+//
+// Initial measurement (2026-08-04, extending the scanner from .tsx to CSS):
+// 66 occurrences in 6 files (EmptyState.module.css, WorkflowEditor.module.css,
+// CanvasEditor.module.css, MermaidEditor.module.css, global.css, tokens.css).
+// This baseline is applied with the same monotonic non-increasing ratchet
+// principle as the .tsx baseline above.
+const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 66;
+const HEX_LITERAL_CSS_FILE_BASELINE = 6;
 
 // --- (c) Duplicate tree implementations ------------------------------------
 //
@@ -294,6 +320,31 @@ describe("UI concept ratchet (Task 7.4)", () => {
     }
     expect(totalOccurrences).toBeLessThanOrEqual(HEX_LITERAL_OCCURRENCE_BASELINE);
     expect(filesWithHex).toBeLessThanOrEqual(HEX_LITERAL_FILE_BASELINE);
+  });
+
+  it("does not add new hardcoded hex color literals in CSS files beyond the frozen baseline", () => {
+    const stylesDir = join(SRC_DIR, "styles");
+    const cssFilesInStyles = collectCssFiles(stylesDir);
+    const cssFilesInComponents = collectCssFiles(COMPONENTS_DIR);
+    const allCssFiles = [...cssFilesInStyles, ...cssFilesInComponents];
+
+    let totalOccurrences = 0;
+    let filesWithHex = 0;
+    for (const file of allCssFiles) {
+      const content = readFileSync(file, "utf-8");
+      // For CSS files, strip /* */ and // comments before counting hex literals
+      // (CSS comments are either /* */ block comments or modern // line comments).
+      const cleanContent = content
+        .replace(/\/\*[\s\S]*?\*\//g, "") // Remove /* */ block comments
+        .replace(/\/\/.*$/gm, ""); // Remove // line comments
+      const count = countOccurrences(cleanContent, HEX_LITERAL_PATTERN);
+      if (count > 0) {
+        totalOccurrences += count;
+        filesWithHex += 1;
+      }
+    }
+    expect(totalOccurrences).toBeLessThanOrEqual(HEX_LITERAL_CSS_OCCURRENCE_BASELINE);
+    expect(filesWithHex).toBeLessThanOrEqual(HEX_LITERAL_CSS_FILE_BASELINE);
   });
 
   it("does not exceed the frozen tree-implementation baseline", () => {

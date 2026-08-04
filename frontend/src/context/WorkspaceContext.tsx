@@ -26,6 +26,7 @@ import { createContext,
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   type ReactNode,
 } from "react";
@@ -384,21 +385,38 @@ export function WorkspaceProvider({
     [overriddenKeys]
   );
 
-  const value: WorkspaceState = {
-    activeWorkspace,
-    workspaces,
-    isLoadingWorkspace,
-    setActiveWorkspace,
-    isFeatureVisible,
-    terminologyLabel,
-    reloadWorkspaces,
-    userOverrides,
-    hideAllOptional,
-    setFeatureVisible,
-    setHideAllOptional,
-    resetFeatureOverride,
-    isFeatureOverridden,
-  };
+  const value = useMemo<WorkspaceState>(
+    () => ({
+      activeWorkspace,
+      workspaces,
+      isLoadingWorkspace,
+      setActiveWorkspace,
+      isFeatureVisible,
+      terminologyLabel,
+      reloadWorkspaces,
+      userOverrides,
+      hideAllOptional,
+      setFeatureVisible,
+      setHideAllOptional,
+      resetFeatureOverride,
+      isFeatureOverridden,
+    }),
+    [
+      activeWorkspace,
+      workspaces,
+      isLoadingWorkspace,
+      setActiveWorkspace,
+      isFeatureVisible,
+      terminologyLabel,
+      reloadWorkspaces,
+      userOverrides,
+      hideAllOptional,
+      setFeatureVisible,
+      setHideAllOptional,
+      resetFeatureOverride,
+      isFeatureOverridden,
+    ]
+  );
 
   return (
     <WorkspaceContext.Provider value={value}>

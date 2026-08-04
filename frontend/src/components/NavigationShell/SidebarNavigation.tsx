@@ -29,49 +29,75 @@ import styles from "./SidebarNavigation.module.css";
 // Navigation items — preset-gated (REQ-L3-RF001-002)
 // ---------------------------------------------------------------------------
 
+// Nav-group ids (issue #317) — logical sections shown as headers above the
+// flat item list so ~20 entries no longer force scrolling at normal window
+// heights without any orientation. Order here defines render order.
+type NavGroupId = "overview" | "requirements" | "architecture" | "test" | "admin";
+
+const NAV_GROUP_ORDER: NavGroupId[] = [
+  "overview",
+  "requirements",
+  "architecture",
+  "test",
+  "admin",
+];
+
+const NAV_GROUP_LABEL_KEYS: Record<NavGroupId, string> = {
+  overview: "nav.groupOverview",
+  requirements: "nav.groupRequirements",
+  architecture: "nav.groupArchitecture",
+  test: "nav.groupTest",
+  admin: "nav.groupAdmin",
+};
+
 interface NavItem {
   path: string;
   labelKey: string;
   feature: string; // key in PRESET_VISIBILITY
+  group: NavGroupId; // issue #317 — section grouping
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { path: "/", labelKey: "nav.dashboard", feature: "dashboard" },
-  { path: "/needs", labelKey: "nav.needs", feature: "requirements" },
-  { path: "/requirements", labelKey: "nav.requirements", feature: "requirements" },
-  { path: "/architecture", labelKey: "nav.architecture", feature: "architecture" },
-  { path: "/traceability", labelKey: "nav.traceability", feature: "traceability" },
-  { path: "/impact", labelKey: "nav.impact", feature: "impact" },
-  { path: "/adrs", labelKey: "nav.adrs", feature: "adr" },
-  { path: "/risks", labelKey: "nav.risks", feature: "risk" },
-  { path: "/issues", labelKey: "nav.issues", feature: "issue" },
-  { path: "/testcases", labelKey: "nav.testCases", feature: "testCases" },
-  { path: "/test-runs", labelKey: "nav.testRuns", feature: "testRuns" },
-  { path: "/baselines", labelKey: "nav.baselines", feature: "baselines" },
-  // REQ-144: reuses the pre-existing (previously unused) `approver_ui`
-  // preset-visibility flag — true only for the extended preset.
-  { path: "/reviews", labelKey: "nav.reviews", feature: "approver_ui" },
-  { path: "/import", labelKey: "nav.import", feature: "csv_import" },
-  { path: "/icds", labelKey: "nav.icds", feature: "icds" },
-  { path: "/diagrams", labelKey: "nav.diagrams", feature: "diagrams" },
-  { path: "/glossary", labelKey: "nav.glossary", feature: "dashboard" },
+  { path: "/", labelKey: "nav.dashboard", feature: "dashboard", group: "overview" },
   // REQ-L2-TE-020: Goals/MainGoal — the preset-visibility system does not
   // gate this item; visibility instead depends on the workspace's own
   // `goals_enabled` toggle (see WorkspaceSettings). "dashboard" here just
   // means "not filtered by preset" — the actual gate is applied below in
   // `visibleItems` against `activeWorkspace.goals_enabled`.
-  { path: "/goals", labelKey: "nav.goals", feature: "dashboard" },
+  { path: "/goals", labelKey: "nav.goals", feature: "dashboard", group: "overview" },
+  { path: "/metrics", labelKey: "nav.metrics", feature: "metrics", group: "overview" },
+
+  { path: "/needs", labelKey: "nav.needs", feature: "requirements", group: "requirements" },
+  { path: "/requirements", labelKey: "nav.requirements", feature: "requirements", group: "requirements" },
+  { path: "/adrs", labelKey: "nav.adrs", feature: "adr", group: "requirements" },
+  { path: "/risks", labelKey: "nav.risks", feature: "risk", group: "requirements" },
+  { path: "/issues", labelKey: "nav.issues", feature: "issue", group: "requirements" },
+  { path: "/glossary", labelKey: "nav.glossary", feature: "dashboard", group: "requirements" },
+
+  { path: "/architecture", labelKey: "nav.architecture", feature: "architecture", group: "architecture" },
+  { path: "/traceability", labelKey: "nav.traceability", feature: "traceability", group: "architecture" },
+  { path: "/impact", labelKey: "nav.impact", feature: "impact", group: "architecture" },
+  { path: "/icds", labelKey: "nav.icds", feature: "icds", group: "architecture" },
+  { path: "/diagrams", labelKey: "nav.diagrams", feature: "diagrams", group: "architecture" },
+
+  { path: "/testcases", labelKey: "nav.testCases", feature: "testCases", group: "test" },
+  { path: "/test-runs", labelKey: "nav.testRuns", feature: "testRuns", group: "test" },
+  { path: "/baselines", labelKey: "nav.baselines", feature: "baselines", group: "test" },
+  // REQ-144: reuses the pre-existing (previously unused) `approver_ui`
+  // preset-visibility flag — true only for the extended preset.
+  { path: "/reviews", labelKey: "nav.reviews", feature: "approver_ui", group: "test" },
+
+  { path: "/import", labelKey: "nav.import", feature: "csv_import", group: "admin" },
   // REQ-176: Visual Workflow Editor — always visible (like glossary/settings).
-  { path: "/workflows", labelKey: "nav.workflows", feature: "dashboard" },
-  { path: "/metrics", labelKey: "nav.metrics", feature: "metrics" },
+  { path: "/workflows", labelKey: "nav.workflows", feature: "dashboard", group: "admin" },
   // SysEng 2.0 Phase 3 (Auditor UI) — always visible, like glossary/workflows/
   // settings; the RuleEngine already filters findings by the workspace's
   // active rigor tier so there is no separate preset-visibility gate here.
-  { path: "/audit", labelKey: "nav.audit", feature: "dashboard" },
-  { path: "/settings", labelKey: "nav.settings", feature: "dashboard" },
+  { path: "/audit", labelKey: "nav.audit", feature: "dashboard", group: "admin" },
+  { path: "/settings", labelKey: "nav.settings", feature: "dashboard", group: "admin" },
   // REQ-184: System Settings — tenant-wide config. Link always visible (like
   // /settings); the page itself gates on the admin role.
-  { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard" },
+  { path: "/system-settings", labelKey: "nav.systemSettings", feature: "dashboard", group: "admin" },
 ];
 
 // Sidebar palette — dark professional theme.
@@ -123,6 +149,33 @@ export function SidebarNavigation(): JSX.Element {
 
   // ---- Workspace create modal (REQ-D25: moved out of the nav tree) -------
   const [showCreateWorkspace, setShowCreateWorkspace] = React.useState<boolean>(false);
+
+  // ---- Scroll affordance for the nav list (issue #168) --------------------
+  // The nav list can overflow (many workspaces/items) with only
+  // `overflowY: auto` and no visual cue that content is cut off below the
+  // fold. Track scroll position so a fade-out gradient can be shown only
+  // while there is more content to scroll to.
+  const navScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const [showScrollHint, setShowScrollHint] = React.useState<boolean>(false);
+
+  const updateScrollHint = React.useCallback((): void => {
+    const el = navScrollRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollHint(distanceToBottom > 1);
+  }, []);
+
+  React.useEffect(() => {
+    updateScrollHint();
+    const el = navScrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateScrollHint);
+    window.addEventListener("resize", updateScrollHint);
+    return () => {
+      el.removeEventListener("scroll", updateScrollHint);
+      window.removeEventListener("resize", updateScrollHint);
+    };
+  });
 
   const handleWorkspaceCreated = async (ws: Workspace): Promise<void> => {
     await reloadWorkspaces(ws.id);
@@ -263,6 +316,14 @@ export function SidebarNavigation(): JSX.Element {
     (item) => item.path !== "/goals" || !!activeWorkspace?.goals_enabled
   );
 
+  // Group the flat visible-item list into logical sections (issue #317) so
+  // ~20 entries no longer read as one undifferentiated scrolling list.
+  const groupedVisibleItems: Array<{ id: NavGroupId; items: NavItem[] }> =
+    NAV_GROUP_ORDER.map((id) => ({
+      id,
+      items: visibleItems.filter((item) => item.group === id),
+    })).filter((group) => group.items.length > 0);
+
   // ---- Optional-artifacts master toggle (REQ-L1-027) -------------------
   const handleHideAllToggle = (): void => {
     void setHideAllOptional(!hideAllOptional);
@@ -333,14 +394,19 @@ export function SidebarNavigation(): JSX.Element {
         overflow: "hidden",
       }}
     >
+      {/* Wraps the scrollable nav content so the fade-out scroll affordance
+          (issue #168) can be positioned against its bottom edge, not the
+          nav's own bottom (which is the pinned footer below). */}
+      <div style={{ position: "relative", flex: "1 1 auto", minHeight: 0 }}>
       {/* Scrollable nav content — keeps the footer (below) pinned to the
           viewport bottom regardless of how many nav items are rendered
           (issue #47: footer must not scroll away with a long sidebar). */}
       <div
+        ref={navScrollRef}
         style={{
-          flex: "1 1 auto",
-          minHeight: 0,
+          height: "100%",
           overflowY: "auto",
+          scrollbarGutter: "stable",
           display: "flex",
           flexDirection: "column",
           gap: "var(--space-2)",
@@ -502,45 +568,65 @@ export function SidebarNavigation(): JSX.Element {
         )}
       </div>
 
-      {/* Nav links */}
-      <ul style={{ listStyle: "none", padding: 0, margin: 0, flex: 1 }}>
-        {visibleItems.map((item) => {
-          const active = isItemActive(item.path);
-          const hovered = hoveredPath === item.path;
+      {/* Nav links — grouped into logical sections (issue #317) so ~20
+          entries no longer read as one flat, unoriented scrolling list. */}
+      <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+        {groupedVisibleItems.map((group) => (
+          <div key={group.id} style={{ marginBottom: "var(--space-3)" }}>
+            <div
+              data-testid={`nav-group-${group.id}`}
+              style={{
+                padding: "var(--space-1) var(--space-3)",
+                color: SIDEBAR_TEXT_MUTED,
+                fontSize: "0.7rem",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              {t(NAV_GROUP_LABEL_KEYS[group.id])}
+            </div>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+              {group.items.map((item) => {
+                const active = isItemActive(item.path);
+                const hovered = hoveredPath === item.path;
 
-          return (
-            <li key={item.path} style={{ marginBottom: "var(--space-1)" }}>
-              <NavLink
-                to={item.path}
-                end={item.path === "/"}
-                onMouseEnter={() => setHoveredPath(item.path)}
-                onMouseLeave={() => setHoveredPath(null)}
-                style={{
-                  display: "block",
-                  padding: "var(--space-2) var(--space-3)",
-                  paddingLeft: active ? "calc(var(--space-3) - 3px)" : "var(--space-3)",
-                  borderRadius: "var(--radius-md)",
-                  borderLeft: active
-                    ? "3px solid var(--color-primary)"
-                    : "3px solid transparent",
-                  textDecoration: "none",
-                  color: SIDEBAR_TEXT,
-                  background: active
-                    ? ACTIVE_BG
-                    : hovered
-                    ? HOVER_BG
-                    : "transparent",
-                  fontSize: "var(--font-size-sm)",
-                  fontWeight: active ? 600 : 500,
-                  transition: "var(--transition-fast)",
-                }}
-              >
-                {t(item.labelKey)}
-              </NavLink>
-            </li>
-          );
-        })}
-      </ul>
+                return (
+                  <li key={item.path} style={{ marginBottom: "var(--space-1)" }}>
+                    <NavLink
+                      to={item.path}
+                      end={item.path === "/"}
+                      onMouseEnter={() => setHoveredPath(item.path)}
+                      onMouseLeave={() => setHoveredPath(null)}
+                      style={{
+                        display: "block",
+                        padding: "var(--space-2) var(--space-3)",
+                        paddingLeft: active ? "calc(var(--space-3) - 3px)" : "var(--space-3)",
+                        borderRadius: "var(--radius-md)",
+                        borderLeft: active
+                          ? "3px solid var(--color-primary)"
+                          : "3px solid transparent",
+                        textDecoration: "none",
+                        color: SIDEBAR_TEXT,
+                        background: active
+                          ? ACTIVE_BG
+                          : hovered
+                          ? HOVER_BG
+                          : "transparent",
+                        fontSize: "var(--font-size-sm)",
+                        fontWeight: active ? 600 : 500,
+                        transition: "var(--transition-fast)",
+                      }}
+                    >
+                      {t(item.labelKey)}
+                    </NavLink>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
 
       {/* Optional-artifacts master toggle (REQ-L1-027) — sits above the
           workspace switcher so it acts as a navigation filter. */}
@@ -842,6 +928,26 @@ export function SidebarNavigation(): JSX.Element {
             )
           )}
         </div>
+      )}
+      </div>
+
+      {/* Fade-out scroll affordance (issue #168): signals that the nav
+          list is cut off and there is more to scroll to below. Only
+          shown while not scrolled to the bottom; purely decorative. */}
+      {showScrollHint && (
+        <div
+          aria-hidden="true"
+          data-testid="sidebar-nav-scroll-hint"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: "28px",
+            pointerEvents: "none",
+            background: `linear-gradient(to bottom, transparent, ${SIDEBAR_BG})`,
+          }}
+        />
       )}
       </div>
 

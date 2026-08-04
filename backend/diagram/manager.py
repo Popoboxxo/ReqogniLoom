@@ -283,10 +283,22 @@ class DiagramManager:
             DiagramResult with diagram, version and renderable fields.
 
         Raises:
-            Diagram.DoesNotExist: If diagram_id not found.
+            Diagram.DoesNotExist: If diagram_id not found, or if it has been
+                soft-deleted (outdated) via ``delete_diagram``. Diagram has no
+                denormalized status mirror field (see
+                ``diagram.services.delete_diagram`` docstring) — soft-deleted
+                rows are excluded via ``workflow.services.outdated_item_ids``
+                instead of a ``lifecycle_status`` filter, mirroring
+                ``diagram.services.list_diagrams``.
             DiagramVersion.DoesNotExist: If version_number not found.
         """
-        diagram = Diagram.objects.select_related("current_version").get(id=diagram_id)
+        from workflow.services import outdated_item_ids
+
+        diagram = (
+            Diagram.objects.select_related("current_version")
+            .exclude(id__in=outdated_item_ids("Diagram"))
+            .get(id=diagram_id)
+        )
 
         if version_number is not None:
             version = DiagramVersion.unscoped.get(

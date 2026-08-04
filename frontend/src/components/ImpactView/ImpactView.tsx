@@ -21,9 +21,15 @@
  * Interfaces consumed:
  *   IF-RF-EXT-OUT-001 → GET /api/v1/search/?q=...&workspace_id=<id>
  *   IF-RF-EXT-OUT-001 → GET /api/v1/tracelinks/?workspace_id=<id>&artifact_id=<id>
+ *
+ * issue #184: this is the canonical impact-analysis surface. TraceabilityView
+ * used to run a second, overlapping reachability query inline — that panel
+ * now only pre-selects an artifact and hands it off here via sessionStorage
+ * (see impact-preset.ts), so the root can be loaded directly without a
+ * repeat search.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { tracelinksApi } from "../../api/tracelinks";
 import { searchApi } from "../../api/search";
@@ -31,6 +37,7 @@ import type { SearchHit } from "../../api/search";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { getLinkTypeLabel } from "../../constants/traceLinkLabels";
 import { PageHeader } from "../shared/PageHeader";
+import { IMPACT_PRESET_STORAGE_KEY } from "./impact-preset";
 import type { TraceLink, UUID } from "../../types";
 
 /** Maximum tree depth — bounds recursion for cyclic/dense trace graphs. */
@@ -295,6 +302,25 @@ export function ImpactView(): JSX.Element {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [rootArtifact, setRootArtifact] = useState<TreeArtifact | null>(null);
   const [onlyActive, setOnlyActive] = useState<boolean>(false);
+
+  // issue #184: one-shot preset handoff from TraceabilityView's artifact
+  // picker — read once on mount, then cleared so a later plain visit to
+  // /impact always starts from the normal search flow.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(IMPACT_PRESET_STORAGE_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(IMPACT_PRESET_STORAGE_KEY);
+      const preset = JSON.parse(raw) as { id?: string; title?: string; artifactType?: string };
+      if (preset.id && preset.title && preset.artifactType) {
+        setRootArtifact({ id: preset.id, title: preset.title, artifactType: preset.artifactType });
+        setQuery(preset.title);
+      }
+    } catch {
+      // Malformed/absent preset — fall back to the normal search flow.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runSearch = async (): Promise<void> => {
     if (!activeWorkspace || !query.trim()) return;

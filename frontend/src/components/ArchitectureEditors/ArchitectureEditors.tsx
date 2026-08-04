@@ -589,8 +589,11 @@ export default function ArchitectureEditors(): JSX.Element {
           summary, one primary action top right, everything rare in the
           overflow menu. Replaces the <h3> + "+ New" pair that used to sit
           inside the narrow list panel. `create-arch-btn` keeps its test id —
-          it is referenced by nine e2e specs. */}
-      <div style={{ padding: "0 var(--space-4)" }}>
+          it is referenced by nine e2e specs.
+          issue #314: this is the only route combining `primaryAction` with
+          `overflowActions`; constrain the wrapper to the available width so
+          it can never push the header's flex row wider than the viewport. */}
+      <div style={{ padding: "0 var(--space-4)", maxWidth: "100%", boxSizing: "border-box" }}>
         <PageHeader
           title={t("nav.architecture")}
           summary={archSummary}

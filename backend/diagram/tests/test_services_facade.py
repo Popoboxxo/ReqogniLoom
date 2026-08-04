@@ -164,6 +164,38 @@ class TestServiceFacadeDelete:
             with pytest.raises(Diagram.DoesNotExist):
                 delete_diagram(diagram.id, tenant_b.id, ctx=ctx)
 
+    def test_get_diagram_after_delete_raises_does_not_exist(
+        self, tenant_a, workspace_a
+    ):
+        """Regression for GH #324: DELETE must exclude the id from subsequent
+        GET lookups. delete_diagram() soft-deletes via workflow.outdate()
+        (Diagram has no denormalized status mirror), so get_diagram() must
+        exclude outdated ids the same way list_diagrams() already does —
+        otherwise a deleted diagram remains readable (200 instead of 404)."""
+        from diagram.models import Diagram
+        from workflow.services import create_default_workflow
+
+        with active_tenant(tenant_a):
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="diagram_default",
+                item_type="Diagram",
+                tenant_id=tenant_a.id,
+            )
+            diagram = create_diagram(
+                name="Delete-Then-Get Target",
+                diagram_type="block",
+                payload_format="mermaid",
+                content=VALID_MERMAID_BLOCK,
+                tenant=tenant_a,
+                workspace_id=workspace_a.id,
+            )
+            ctx = _make_auth_ctx(tenant_id=tenant_a.id)
+            delete_diagram(diagram.id, tenant_a.id, ctx=ctx)
+
+            with pytest.raises(Diagram.DoesNotExist):
+                get_diagram(diagram.id)
+
 
 class TestServiceFacadeListVersions:
     """IF-L1-032: list_versions facade."""

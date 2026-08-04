@@ -67,6 +67,8 @@ from rest_api.preference_views import UserPreferenceView
 from rest_api.settings_views import (
     LlmSettingsView,
     PromptTemplateResetView,
+    PromptTemplateSlotDetailView,
+    PromptTemplateSlotListView,
     PromptTemplateView,
     ReviewPolicyView,
 )
@@ -280,6 +282,18 @@ urlpatterns = [
         "prompt-templates/reset/",
         PromptTemplateResetView.as_view(),
         name="prompt-templates-reset",
+    ),
+    # Slot API (issue #119) — all 7 slots + per-workspace overrides. Must
+    # precede the singleton route for the same shadowing reason as reset/.
+    path(
+        "prompt-templates/slots/",
+        PromptTemplateSlotListView.as_view(),
+        name="prompt-template-slots",
+    ),
+    path(
+        "prompt-templates/slots/<str:name>/",
+        PromptTemplateSlotDetailView.as_view(),
+        name="prompt-template-slot-detail",
     ),
     path(
         "prompt-templates/",

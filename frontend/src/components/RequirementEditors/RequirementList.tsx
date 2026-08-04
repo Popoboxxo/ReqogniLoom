@@ -41,10 +41,22 @@ function getTypeColor(type?: RequirementType): string {
   }
 }
 
-/** Map a Requirement to a WorkspaceTreeNode with optional parent hierarchy. */
-function reqToNode(req: Requirement): WorkspaceTreeNode {
+/**
+ * Map a Requirement to a WorkspaceTreeNode with optional parent hierarchy.
+ *
+ * @param req - Requirement to convert.
+ * @param typeLabel - Spelled-out label for `req.type` (e.g. from
+ *   `t('reqType.SyReq')`), used as the badge tooltip/aria-label
+ *   (issue #169 — "SR" abbreviation without legend).
+ */
+function reqToNode(req: Requirement, typeLabel?: string): WorkspaceTreeNode {
   const badge = req.type
-    ? { text: getTypeBadgeAbbreviation(req.type), bg: getTypeColor(req.type), color: 'white' }
+    ? {
+        text: getTypeBadgeAbbreviation(req.type),
+        bg: getTypeColor(req.type),
+        color: 'white',
+        title: typeLabel,
+      }
     : undefined;
   return {
     id: req.id,
@@ -131,8 +143,11 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   }, [requirements, listSearch, categoryFilter, statusFilter, sortKey]);
 
   const treeNodes = useMemo(
-    () => visibleRequirements.map(reqToNode),
-    [visibleRequirements],
+    () =>
+      visibleRequirements.map((req) =>
+        reqToNode(req, req.type ? t(`reqType.${req.type}`) : undefined),
+      ),
+    [visibleRequirements, t],
   );
 
   // Task 3.1: lookup used by renderRow to hydrate <ArtifactRow> from the
@@ -281,6 +296,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                 id={req.uid}
                 idFallback={req.id.slice(0, 8)}
                 levelLabel={req.type ? getTypeBadgeAbbreviation(req.type) : undefined}
+                levelTitle={req.type ? t(`reqType.${req.type}`) : undefined}
                 title={(req.suspect ? '⚠ ' : '') + (req.title || t('editor.untitled'))}
                 status={req.status}
                 version={req.version}

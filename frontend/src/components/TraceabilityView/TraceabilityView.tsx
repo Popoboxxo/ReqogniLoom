@@ -19,7 +19,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { tracelinksApi } from "../../api/tracelinks";
 import { traceabilityApi } from "../../api/traceability";
-import type { ImpactDirection, ImpactNode } from "../../api/tracelinks";
 import { requirementsApi } from "../../api/requirements";
 import { architectureApi } from "../../api/architecture";
 import { artifactsApi } from "../../api/artifacts";
@@ -38,6 +37,10 @@ import {
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
+import { ListToolbar } from "../shared/ListToolbar";
+import { EmptyState } from "../shared/EmptyState";
+import { IMPACT_PRESET_STORAGE_KEY } from "../ImpactView/impact-preset";
+import type { ImpactPreset } from "../ImpactView/impact-preset";
 import type {
   ArchitectureElement,
   Artifact,
@@ -120,14 +123,15 @@ export default function TraceabilityView(): JSX.Element {
   const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
-  // Impact-analysis panel state (REQ-L2-TE-019).
+  // Impact-analysis artifact picker (REQ-L2-TE-019). Issue #184: the actual
+  // reachability computation/rendering used to be duplicated here and on
+  // the canonical `/impact` route — this panel now only pre-selects a
+  // workspace-scoped artifact and hands it off to `/impact` (see
+  // impact-preset.ts), instead of running its own second impact query.
   const [impactArtifact, setImpactArtifact] = useState<string>("");
-  const [impactDirection, setImpactDirection] =
-    useState<ImpactDirection>("outgoing");
-  const [impactNodes, setImpactNodes] = useState<ImpactNode[]>([]);
-  const [impactLoading, setImpactLoading] = useState<boolean>(false);
-  const [impactError, setImpactError] = useState<string | null>(null);
-  const [impactRan, setImpactRan] = useState<boolean>(false);
+  // REQ-005/#181: list-panel search + link-type filter (ListToolbar).
+  const [listSearch, setListSearch] = useState<string>("");
+  const [linkTypeFilter, setLinkTypeFilter] = useState<string>("");
 
   useEffect(() => {
     // Issue B: activeWorkspace starts as the DEFAULT_WORKSPACE placeholder
@@ -264,8 +268,24 @@ export default function TraceabilityView(): JSX.Element {
     };
   }, [activeWorkspace, isLoadingWorkspace, t, reloadKey]);
 
-  const grouped = useMemo(() => groupByLinkType(state.links), [state.links]);
+  // #181: search across resolved endpoint titles/ids + link-type filter,
+  // applied before grouping so both controls narrow the same result set the
+  // count label reports.
+  const filteredLinks = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    return state.links.filter((link) => {
+      if (linkTypeFilter && link.link_type !== linkTypeFilter) return false;
+      if (!q) return true;
+      const sourceLabel = renderEndpoint(link.source_id, state.titles).toLowerCase();
+      const targetLabel = renderEndpoint(link.target_id, state.titles).toLowerCase();
+      const typeLabel = getLinkTypeLabel(link.link_type).toLowerCase();
+      return sourceLabel.includes(q) || targetLabel.includes(q) || typeLabel.includes(q);
+    });
+  }, [state.links, state.titles, listSearch, linkTypeFilter]);
+
+  const grouped = useMemo(() => groupByLinkType(filteredLinks), [filteredLinks]);
   const groupKeys = useMemo(() => orderedGroupKeys(grouped), [grouped]);
+  const hasActiveListControls = Boolean(listSearch || linkTypeFilter);
 
   async function handleExportPdf(): Promise<void> {
     if (!activeWorkspace) return;
@@ -290,27 +310,25 @@ export default function TraceabilityView(): JSX.Element {
     }
   }
 
-  async function runImpact(): Promise<void> {
+  // #184: hand off to the canonical `/impact` route instead of duplicating
+  // the reachability computation/rendering inline. Pre-resolves the preset
+  // from data already loaded here (titles + artifacts), so ImpactView can
+  // skip its own search step and load the tree directly.
+  function openImpactAnalysis(): void {
     if (!impactArtifact) return;
-    setImpactLoading(true);
-    setImpactError(null);
+    const artifact = state.artifacts.find((a) => a.id === impactArtifact);
+    const preset: ImpactPreset = {
+      id: impactArtifact,
+      title: state.titles[impactArtifact] ?? formatId(impactArtifact),
+      artifactType: artifact?.artifact_type ?? "",
+    };
     try {
-      const nodes = await traceabilityApi.impact(impactArtifact, {
-        direction: impactDirection,
-        maxDepth: 10,
-      });
-      setImpactNodes(nodes);
-      setImpactRan(true);
-    } catch (err: unknown) {
-      const msg =
-        (err as { error?: { message?: string } })?.error?.message ??
-        String(err);
-      setImpactError(msg);
-      setImpactNodes([]);
-      setImpactRan(true);
-    } finally {
-      setImpactLoading(false);
+      sessionStorage.setItem(IMPACT_PRESET_STORAGE_KEY, JSON.stringify(preset));
+    } catch {
+      // sessionStorage unavailable (e.g. private mode) — ImpactView falls
+      // back to its normal search flow, no functionality lost.
     }
+    window.location.assign("/impact");
   }
 
   // ---------------------------------------------------------------------------
@@ -366,8 +384,34 @@ export default function TraceabilityView(): JSX.Element {
   // analysis panel, so the legacy leftPanel/rightPanel contract (resizable,
   // no null-detail collapse) fits better than the concept list/detail/spine
   // contract, which assumes a nullable per-row detail.
+  const resetListFilters = (): void => {
+    setListSearch("");
+    setLinkTypeFilter("");
+  };
+
   const listPanel = (
     <>
+      <ListToolbar
+        testIdPrefix="tracelink-list"
+        searchValue={listSearch}
+        onSearchChange={setListSearch}
+        searchPlaceholder={t("editor.searchPlaceholder", "Search...")}
+        filters={[
+          {
+            id: "link-type",
+            allLabel: t("traceability.allLinkTypes", "Alle Verknüpfungstypen"),
+            value: linkTypeFilter,
+            options: LINK_TYPE_ORDER.map((lt) => ({ value: lt, label: getLinkTypeLabel(lt) })),
+            onChange: setLinkTypeFilter,
+          },
+        ]}
+        countLabel={
+          hasActiveListControls
+            ? t("editor.filteredCount", { shown: filteredLinks.length, total: state.links.length })
+            : null
+        }
+      />
+
       {state.cycles.length > 0 && (
         <div
           role="alert"
@@ -405,19 +449,24 @@ export default function TraceabilityView(): JSX.Element {
       )}
 
       {state.links.length === 0 ? (
-        <p
-          data-testid="traceability-empty"
-          style={{
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text-muted)",
-            padding: "var(--space-6)",
-            background: "var(--color-surface-raised)",
-            borderRadius: "var(--radius-lg)",
-            border: "1px dashed var(--color-border)",
-          }}
-        >
-          {t("traceability.empty")}
-        </p>
+        // ch. 13.3: "there is nothing" — offer the create action.
+        <EmptyState
+          variant="empty"
+          testId="traceability-empty"
+          title={t("traceability.emptyTitle", "Noch keine Verknüpfungen")}
+          description={t("traceability.empty")}
+          actions={[
+            {
+              label: t("traceability.create"),
+              onClick: () => setShowCreateDialog(true),
+              testId: "traceability-empty-create",
+            },
+          ]}
+        />
+      ) : filteredLinks.length === 0 ? (
+        // ch. 13.3: "there is something, just not under this filter" — only
+        // a filter/search reset, never a create action.
+        <EmptyState variant="no-match" testId="traceability-no-match" onResetFilters={resetListFilters} />
       ) : (
         <div
           data-testid="traceability-list"
@@ -536,6 +585,12 @@ export default function TraceabilityView(): JSX.Element {
     </>
   );
 
+  // #184: this panel used to run its own reachability query
+  // (traceabilityApi.impact) and render a duplicate result list — that
+  // computation now lives solely on the canonical `/impact` route. This
+  // panel keeps only the workspace-scoped artifact picker (a convenience
+  // `/impact`'s free-text search doesn't have) and hands off via
+  // openImpactAnalysis(). See impact-preset.ts for the rationale.
   const detailPanel = (
     <section
       data-testid="impact-panel"
@@ -548,213 +603,91 @@ export default function TraceabilityView(): JSX.Element {
       }}
     >
       <h3
-          style={{
-            margin: "0 0 var(--space-3)",
-            fontSize: "var(--font-size-lg)",
-            fontWeight: 600,
-            color: "var(--color-text)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {t("traceability.impactTitle")}
-        </h3>
-        <div
+        style={{
+          margin: "0 0 var(--space-3)",
+          fontSize: "var(--font-size-lg)",
+          fontWeight: 600,
+          color: "var(--color-text)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {t("traceability.impactTitle")}
+      </h3>
+      <p
+        style={{
+          margin: "0 0 var(--space-3)",
+          fontSize: "var(--font-size-sm)",
+          color: "var(--color-text-muted)",
+        }}
+      >
+        {t(
+          "traceability.impactHint",
+          "Wähle ein Artefakt und öffne die vollständige Impact-Analyse (interaktiver Baum, beide Richtungen)."
+        )}
+      </p>
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-3)",
+          alignItems: "flex-end",
+          flexWrap: "wrap",
+        }}
+      >
+        <label
           style={{
             display: "flex",
-            gap: "var(--space-3)",
-            alignItems: "flex-end",
-            flexWrap: "wrap",
+            flexDirection: "column",
+            gap: "var(--space-1)",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text)",
+            flex: "1 1 260px",
           }}
         >
-          <label
+          <span>{t("traceability.impactArtifact")}</span>
+          <select
+            data-testid="impact-artifact-select"
+            value={impactArtifact}
+            onChange={(e) => setImpactArtifact(e.target.value)}
+            disabled={!hasArtifacts}
             style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-1)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text)",
-              flex: "1 1 260px",
-            }}
-          >
-            <span>{t("traceability.impactArtifact")}</span>
-            <select
-              data-testid="impact-artifact-select"
-              value={impactArtifact}
-              onChange={(e) => setImpactArtifact(e.target.value)}
-              disabled={!hasArtifacts || impactLoading}
-              style={{
-                padding: "var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                fontSize: "var(--font-size-base)",
-              }}
-            >
-              <option value="">
-                {hasArtifacts ? "—" : t("traceability.noArtifacts")}
-              </option>
-              {state.artifacts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {artifactLabel(a, state.titles)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-1)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text)",
-            }}
-          >
-            <span>{t("traceability.impactDirection")}</span>
-            <select
-              data-testid="impact-direction-select"
-              value={impactDirection}
-              onChange={(e) =>
-                setImpactDirection(e.target.value as ImpactDirection)
-              }
-              disabled={impactLoading}
-              style={{
-                padding: "var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                fontSize: "var(--font-size-base)",
-              }}
-            >
-              <option value="outgoing">
-                {t("traceability.impactDirOutgoing")}
-              </option>
-              <option value="incoming">
-                {t("traceability.impactDirIncoming")}
-              </option>
-              <option value="both">{t("traceability.impactDirBoth")}</option>
-            </select>
-          </label>
-
-          <button
-            type="button"
-            data-testid="impact-run-btn"
-            onClick={runImpact}
-            disabled={!impactArtifact || impactLoading}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              fontSize: "var(--font-size-base)",
-              fontWeight: 500,
-              background: "var(--color-primary)",
-              color: "var(--color-on-primary, #fff)",
-              border: "none",
+              padding: "var(--space-2)",
               borderRadius: "var(--radius-md)",
-              cursor:
-                !impactArtifact || impactLoading ? "not-allowed" : "pointer",
+              border: "1px solid var(--color-border)",
+              fontSize: "var(--font-size-base)",
             }}
           >
-            {impactLoading
-              ? t("traceability.impactRunning")
-              : t("traceability.impactRun")}
-          </button>
-        </div>
+            <option value="">
+              {hasArtifacts ? "—" : t("traceability.noArtifacts")}
+            </option>
+            {state.artifacts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {artifactLabel(a, state.titles)}
+              </option>
+            ))}
+          </select>
+        </label>
 
-        {impactError && (
-          <p
-            role="alert"
-            data-testid="impact-error"
-            style={{
-              color: "var(--color-danger)",
-              fontSize: "var(--font-size-sm)",
-              marginTop: "var(--space-3)",
-            }}
-          >
-            {impactError}
-          </p>
-        )}
-
-        {impactRan && !impactError && (
-          <div style={{ marginTop: "var(--space-4)" }}>
-            {impactNodes.length === 0 ? (
-              <p
-                data-testid="impact-empty"
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-muted)",
-                  margin: 0,
-                }}
-              >
-                {t("traceability.impactEmpty")}
-              </p>
-            ) : (
-              <ul
-                data-testid="impact-result-list"
-                style={{ listStyle: "none", margin: 0, padding: 0 }}
-              >
-                {impactNodes.map((node) => (
-                  <li
-                    key={`${node.artifact_id}-${node.depth}`}
-                    data-testid="impact-node"
-                    data-depth={node.depth}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "var(--space-2)",
-                      padding: "var(--space-2) 0",
-                      paddingLeft: `calc(${node.depth} * var(--space-5))`,
-                      borderBottom: "1px solid var(--color-border)",
-                      fontSize: "var(--font-size-base)",
-                      color: "var(--color-text)",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: "var(--font-size-xs)",
-                        color: "var(--color-text-muted)",
-                      }}
-                    >
-                      {t("traceability.impactDepth")} {node.depth}
-                    </span>
-                    <span
-                      data-testid="impact-node-type"
-                      style={{
-                        fontSize: "var(--font-size-xs)",
-                        background: "var(--color-surface-raised)",
-                        padding: "2px 8px",
-                        borderRadius: "var(--radius-full)",
-                        color: "var(--color-text-muted)",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {node.artifact_type}
-                    </span>
-                    <span style={{ fontWeight: 500 }}>
-                      {node.title || formatId(node.artifact_id)}
-                    </span>
-                    {node.uid && (
-                      <span
-                        style={{
-                          fontSize: "var(--font-size-xs)",
-                          color: "var(--color-text-muted)",
-                        }}
-                      >
-                        {node.uid}
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        fontSize: "var(--font-size-xs)",
-                        color: "var(--color-text-muted)",
-                      }}
-                    >
-                      via {getLinkTypeLabel(node.link_type)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
+        <button
+          type="button"
+          data-testid="impact-run-btn"
+          onClick={openImpactAnalysis}
+          disabled={!impactArtifact}
+          style={{
+            padding: "var(--space-2) var(--space-4)",
+            fontSize: "var(--font-size-base)",
+            fontWeight: 500,
+            background: "var(--color-primary)",
+            color: "var(--color-on-primary, #fff)",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            cursor: !impactArtifact ? "not-allowed" : "pointer",
+          }}
+        >
+          {t("traceability.impactRun", "Impact-Analyse öffnen")}
+        </button>
+      </div>
     </section>
   );
 
