@@ -36,6 +36,12 @@ export interface ArtifactRowProps {
   level?: number | null;
   /** Explicit level/type label, takes precedence over `level`. */
   levelLabel?: string | null;
+  /**
+   * Spelled-out meaning of `levelLabel`/`level`, e.g. "System Requirement
+   * (SyReq)" for the "SR" abbreviation (issue #169 — short codes without a
+   * legend). Rendered as a native tooltip and exposed to screen readers.
+   */
+  levelTitle?: string;
   title: string;
   /**
    * Workflow status. Optional: some artifact types (ICD, Diagram) carry no
@@ -60,6 +66,7 @@ export function ArtifactRow({
   idFallback,
   level,
   levelLabel,
+  levelTitle,
   title,
   status,
   statusLabel,
@@ -96,7 +103,12 @@ export function ArtifactRow({
           <span onClick={(e) => e.stopPropagation()}>
             <ArtifactId value={id} fallback={idFallback} testId={`${testId}-id`} />
           </span>
-          <LevelBadge level={level} label={levelLabel} testId={`${testId}-level`} />
+          <LevelBadge
+            level={level}
+            label={levelLabel}
+            title={levelTitle}
+            testId={`${testId}-level`}
+          />
         </div>
         <div className={styles.meta}>
           {status != null && (

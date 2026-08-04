@@ -37,6 +37,7 @@ export function LevelBadge({
     <span
       data-testid={testId}
       title={title}
+      aria-label={title}
       style={{
         display: "inline-flex",
         alignItems: "center",

@@ -124,6 +124,33 @@ export function SidebarNavigation(): JSX.Element {
   // ---- Workspace create modal (REQ-D25: moved out of the nav tree) -------
   const [showCreateWorkspace, setShowCreateWorkspace] = React.useState<boolean>(false);
 
+  // ---- Scroll affordance for the nav list (issue #168) --------------------
+  // The nav list can overflow (many workspaces/items) with only
+  // `overflowY: auto` and no visual cue that content is cut off below the
+  // fold. Track scroll position so a fade-out gradient can be shown only
+  // while there is more content to scroll to.
+  const navScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const [showScrollHint, setShowScrollHint] = React.useState<boolean>(false);
+
+  const updateScrollHint = React.useCallback((): void => {
+    const el = navScrollRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollHint(distanceToBottom > 1);
+  }, []);
+
+  React.useEffect(() => {
+    updateScrollHint();
+    const el = navScrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateScrollHint);
+    window.addEventListener("resize", updateScrollHint);
+    return () => {
+      el.removeEventListener("scroll", updateScrollHint);
+      window.removeEventListener("resize", updateScrollHint);
+    };
+  });
+
   const handleWorkspaceCreated = async (ws: Workspace): Promise<void> => {
     await reloadWorkspaces(ws.id);
     navigate("/");
@@ -333,14 +360,19 @@ export function SidebarNavigation(): JSX.Element {
         overflow: "hidden",
       }}
     >
+      {/* Wraps the scrollable nav content so the fade-out scroll affordance
+          (issue #168) can be positioned against its bottom edge, not the
+          nav's own bottom (which is the pinned footer below). */}
+      <div style={{ position: "relative", flex: "1 1 auto", minHeight: 0 }}>
       {/* Scrollable nav content — keeps the footer (below) pinned to the
           viewport bottom regardless of how many nav items are rendered
           (issue #47: footer must not scroll away with a long sidebar). */}
       <div
+        ref={navScrollRef}
         style={{
-          flex: "1 1 auto",
-          minHeight: 0,
+          height: "100%",
           overflowY: "auto",
+          scrollbarGutter: "stable",
           display: "flex",
           flexDirection: "column",
           gap: "var(--space-2)",
@@ -842,6 +874,26 @@ export function SidebarNavigation(): JSX.Element {
             )
           )}
         </div>
+      )}
+      </div>
+
+      {/* Fade-out scroll affordance (issue #168): signals that the nav
+          list is cut off and there is more to scroll to below. Only
+          shown while not scrolled to the bottom; purely decorative. */}
+      {showScrollHint && (
+        <div
+          aria-hidden="true"
+          data-testid="sidebar-nav-scroll-hint"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: "28px",
+            pointerEvents: "none",
+            background: `linear-gradient(to bottom, transparent, ${SIDEBAR_BG})`,
+          }}
+        />
       )}
       </div>
 

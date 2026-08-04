@@ -32,10 +32,8 @@ body {
   font-size: var(--font-size-base);
   color: var(--color-text);
   background-color: var(--color-surface);
-  /* Add subtle background pattern or gradient */
-  background-image: 
-    radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.08), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.08), transparent 25%);
+  /* Subtle background accent gradient — theme-aware token (issue #170) */
+  background-image: var(--gradient-body);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -185,21 +183,8 @@ input, select, textarea {
   background: var(--color-surface-raised);
 }
 
-/* Base button styles to ensure they look premium */
-button.primary {
-  background: var(--gradient-primary);
-  color: white;
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-4);
-  font-weight: 600;
-  box-shadow: var(--shadow-md);
-}
-
-button.primary:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-glow);
-}
-
-button.primary:active {
-  transform: translateY(1px);
-}
+/* NOTE (issue #162): a second, gradient-styled `button.primary` rule used
+ * to live here, competing with `.btn-primary` above. It had no remaining
+ * callers (every button in the app — PageHeader, Dialog, form editors,
+ * ~23 files — already uses `.btn-primary`), so it was removed rather than
+ * migrated. `.btn-primary` is the single surviving primary-button style. */

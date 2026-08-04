@@ -117,6 +117,12 @@ export interface WorkspaceTreeNode {
     bg: string;
     /** CSS text color or variable. */
     color: string;
+    /**
+     * Spelled-out meaning of `text` (e.g. "System Requirement (SyReq)" for
+     * the "SR" abbreviation) shown as a native tooltip and exposed to
+     * screen readers (issue #169). Falls back to `text` when omitted.
+     */
+    title?: string;
   };
 }
 
@@ -805,6 +811,8 @@ function TreeRow({
           {node.badge && (
             <span
               data-testid={`${testIdPrefix}-badge-${node.id}`}
+              title={node.badge.title ?? node.badge.text}
+              aria-label={node.badge.title ?? node.badge.text}
               style={{
                 flexShrink: 0,
                 fontSize: '0.7rem',
