@@ -36,6 +36,7 @@ Architecture reference:
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from dataclasses import dataclass
 from typing import Optional
@@ -73,7 +74,7 @@ class CanvasExportResult:
 # SVG generation helpers
 # ---------------------------------------------------------------------------
 
-def _escape_xml_attr(value: str) -> str:
+def _escape_xml_attr(value: object) -> str:
     """Escape special characters for XML attribute values."""
     return (
         str(value)
@@ -85,23 +86,79 @@ def _escape_xml_attr(value: str) -> str:
     )
 
 
+def _safe_number(value: object, default: float) -> float:
+    """Coerce an untrusted JSON value to a finite number.
+
+    Stroke data originates from user-supplied JSON.  Numeric-role fields
+    (coordinates, sizes, opacity, font size) MUST never reach an SVG attribute
+    unvalidated: a string value such as ``0" onload="alert(1)`` would otherwise
+    break out of the attribute quotes and inject an SVG event handler
+    (stored XSS, since the export is rendered for every reader of the diagram).
+
+    Args:
+        value:   Untrusted value from the stroke payload.
+        default: Fallback used for anything that is not a finite number
+                 (strings, None, bool, list, dict, NaN, inf).
+
+    Returns:
+        A finite float — never raises.
+    """
+    if isinstance(value, bool):
+        return float(default)
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return float(default)
+    if not math.isfinite(number):
+        return float(default)
+    return number
+
+
+def _num_attr(value: object, default: float) -> str:
+    """Render an untrusted numeric field as a safe SVG attribute value.
+
+    Combines coercion (:func:`_safe_number`) with XML escaping as
+    defence-in-depth, so that a future element type cannot reintroduce the
+    attribute-injection class of bug by forgetting the coercion step.
+    Integral values keep their integer form (``400`` rather than ``400.0``)
+    to preserve the historical export format.
+    """
+    number = _safe_number(value, default)
+    if number.is_integer():
+        return _escape_xml_attr(int(number))
+    return _escape_xml_attr(number)
+
+
 def _stroke_to_svg_path(points: list[dict]) -> str:
     """Convert a list of {x, y} points to an SVG path 'd' attribute."""
-    if not points:
+    if not isinstance(points, list) or not points:
         return ""
-    parts = [f"M {points[0].get('x', 0)} {points[0].get('y', 0)}"]
-    for pt in points[1:]:
-        parts.append(f"L {pt.get('x', 0)} {pt.get('y', 0)}")
+    coords: list[tuple[str, str]] = []
+    for pt in points:
+        source = pt if isinstance(pt, dict) else {}
+        coords.append(
+            (_num_attr(source.get("x", 0), 0), _num_attr(source.get("y", 0), 0))
+        )
+    parts = [f"M {coords[0][0]} {coords[0][1]}"]
+    for x, y in coords[1:]:
+        parts.append(f"L {x} {y}")
     return " ".join(parts)
 
 
 def _element_to_svg(element: dict) -> str:
-    """Convert a single canvas element to an SVG element string."""
+    """Convert a single canvas element to an SVG element string.
+
+    All values are treated as untrusted: text-role fields are XML-escaped and
+    numeric-role fields are coerced to finite numbers (see :func:`_num_attr`).
+    """
+    if not isinstance(element, dict):
+        return ""
+
     elem_type = element.get("type", "")
     stroke_color = _escape_xml_attr(element.get("color", "#000000"))
-    stroke_width = element.get("width", 2)
+    stroke_width = _num_attr(element.get("width", 2), 2)
     fill = _escape_xml_attr(element.get("fill", "none"))
-    opacity = element.get("opacity", 1.0)
+    opacity = _num_attr(element.get("opacity", 1.0), 1.0)
 
     if elem_type == "pen":
         points = element.get("points", [])
@@ -113,10 +170,10 @@ def _element_to_svg(element: dict) -> str:
         )
 
     if elem_type == "rect":
-        x = element.get("x", 0)
-        y = element.get("y", 0)
-        w = element.get("width", 0)
-        h = element.get("height", 0)
+        x = _num_attr(element.get("x", 0), 0)
+        y = _num_attr(element.get("y", 0), 0)
+        w = _num_attr(element.get("width", 0), 0)
+        h = _num_attr(element.get("height", 0), 0)
         return (
             f'<rect x="{x}" y="{y}" width="{w}" height="{h}" '
             f'stroke="{stroke_color}" stroke-width="{stroke_width}" '
@@ -124,9 +181,9 @@ def _element_to_svg(element: dict) -> str:
         )
 
     if elem_type == "circle":
-        cx = element.get("cx", 0)
-        cy = element.get("cy", 0)
-        r = element.get("r", 0)
+        cx = _num_attr(element.get("cx", 0), 0)
+        cy = _num_attr(element.get("cy", 0), 0)
+        r = _num_attr(element.get("r", 0), 0)
         return (
             f'<circle cx="{cx}" cy="{cy}" r="{r}" '
             f'stroke="{stroke_color}" stroke-width="{stroke_width}" '
@@ -134,10 +191,10 @@ def _element_to_svg(element: dict) -> str:
         )
 
     if elem_type == "line":
-        x1 = element.get("x1", 0)
-        y1 = element.get("y1", 0)
-        x2 = element.get("x2", 0)
-        y2 = element.get("y2", 0)
+        x1 = _num_attr(element.get("x1", 0), 0)
+        y1 = _num_attr(element.get("y1", 0), 0)
+        x2 = _num_attr(element.get("x2", 0), 0)
+        y2 = _num_attr(element.get("y2", 0), 0)
         return (
             f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
             f'stroke="{stroke_color}" stroke-width="{stroke_width}" '
@@ -145,10 +202,10 @@ def _element_to_svg(element: dict) -> str:
         )
 
     if elem_type == "text":
-        x = element.get("x", 0)
-        y = element.get("y", 0)
+        x = _num_attr(element.get("x", 0), 0)
+        y = _num_attr(element.get("y", 0), 0)
         content = _escape_xml_attr(element.get("content", ""))
-        font_size = element.get("font_size", 16)
+        font_size = _num_attr(element.get("font_size", 16), 16)
         return (
             f'<text x="{x}" y="{y}" '
             f'font-size="{font_size}" fill="{stroke_color}" '
@@ -156,10 +213,10 @@ def _element_to_svg(element: dict) -> str:
         )
 
     if elem_type == "arrow":
-        x1 = element.get("x1", 0)
-        y1 = element.get("y1", 0)
-        x2 = element.get("x2", 0)
-        y2 = element.get("y2", 0)
+        x1 = _num_attr(element.get("x1", 0), 0)
+        y1 = _num_attr(element.get("y1", 0), 0)
+        x2 = _num_attr(element.get("x2", 0), 0)
+        y2 = _num_attr(element.get("y2", 0), 0)
         elem_id = _escape_xml_attr(element.get("id", ""))
         return (
             f'<line id="{elem_id}" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
@@ -170,10 +227,10 @@ def _element_to_svg(element: dict) -> str:
     if elem_type == "connector":
         # Connectors are rendered as arrows between source/target shapes.
         # Actual coordinates are resolved at render time from linked shapes.
-        x1 = element.get("x1", 0)
-        y1 = element.get("y1", 0)
-        x2 = element.get("x2", 0)
-        y2 = element.get("y2", 0)
+        x1 = _num_attr(element.get("x1", 0), 0)
+        y1 = _num_attr(element.get("y1", 0), 0)
+        x2 = _num_attr(element.get("x2", 0), 0)
+        y2 = _num_attr(element.get("y2", 0), 0)
         return (
             f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
             f'stroke="{stroke_color}" stroke-width="{stroke_width}" '
@@ -188,10 +245,18 @@ def _generate_svg(stroke_data: dict) -> str:
     """Generate SVG string from canvas stroke data.
 
     REQ-L2-DS-006: SVG is a derived export format from JSON stroke data.
+
+    The canvas dimensions are attacker-controllable too (stroke data is stored
+    user input), so they pass through the same numeric coercion as element
+    attributes.
     """
+    if not isinstance(stroke_data, dict):
+        stroke_data = {}
     strokes = stroke_data.get("strokes", [])
-    width = stroke_data.get("width", 800)
-    height = stroke_data.get("height", 600)
+    if not isinstance(strokes, list):
+        strokes = []
+    width = _num_attr(stroke_data.get("width", 800), 800)
+    height = _num_attr(stroke_data.get("height", 600), 600)
 
     elements_svg = "\n  ".join(_element_to_svg(el) for el in strokes)
 

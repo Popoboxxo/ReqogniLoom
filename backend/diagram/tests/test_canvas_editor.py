@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import uuid
+import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -346,6 +347,141 @@ class TestSVGExport:
     def test_png_export_not_implemented(self, canvas_editor: CanvasEditor) -> None:
         with pytest.raises(NotImplementedError, match="client-side"):
             canvas_editor.export_png(VALID_CANVAS_STROKES)
+
+
+# ---------------------------------------------------------------------------
+# Security: SVG attribute injection (stored XSS) — REQ-L2-DS-006 AC2
+# ---------------------------------------------------------------------------
+
+# Payload that breaks out of an SVG attribute value and injects an event
+# handler if a numeric-role field is interpolated without coercion/escaping.
+XSS_ATTR_PAYLOAD = '0" onload="alert(1)'
+
+# Every numeric-role field per element type, mapped to the attacker payload.
+_NUMERIC_FIELD_CASES: list[dict] = [
+    {"type": "rect", "x": 0, "y": 0, "width": XSS_ATTR_PAYLOAD, "height": 10},
+    {"type": "rect", "x": XSS_ATTR_PAYLOAD, "y": XSS_ATTR_PAYLOAD,
+     "width": 10, "height": XSS_ATTR_PAYLOAD},
+    {"type": "circle", "cx": XSS_ATTR_PAYLOAD, "cy": XSS_ATTR_PAYLOAD,
+     "r": XSS_ATTR_PAYLOAD},
+    {"type": "line", "x1": XSS_ATTR_PAYLOAD, "y1": XSS_ATTR_PAYLOAD,
+     "x2": XSS_ATTR_PAYLOAD, "y2": XSS_ATTR_PAYLOAD},
+    {"type": "arrow", "x1": XSS_ATTR_PAYLOAD, "y1": XSS_ATTR_PAYLOAD,
+     "x2": XSS_ATTR_PAYLOAD, "y2": XSS_ATTR_PAYLOAD},
+    {"type": "connector", "x1": XSS_ATTR_PAYLOAD, "y1": XSS_ATTR_PAYLOAD,
+     "x2": XSS_ATTR_PAYLOAD, "y2": XSS_ATTR_PAYLOAD},
+    {"type": "text", "x": XSS_ATTR_PAYLOAD, "y": XSS_ATTR_PAYLOAD,
+     "content": "hi", "font_size": XSS_ATTR_PAYLOAD},
+    {"type": "pen", "points": [{"x": XSS_ATTR_PAYLOAD, "y": 0}, {"x": 1, "y": 2}]},
+    # Shared fields present on every element type.
+    {"type": "rect", "width": 1, "height": 1,
+     "stroke_width": XSS_ATTR_PAYLOAD, "opacity": XSS_ATTR_PAYLOAD},
+    # Non-string, non-numeric JSON types must not crash or leak either.
+    {"type": "rect", "x": None, "y": [1, 2], "width": {"a": 1}, "height": True},
+]
+
+
+def _assert_no_attribute_breakout(svg: str) -> None:
+    """Fail if the SVG contains an injected element/attribute.
+
+    Parsing is the authoritative check: a payload that broke out of its
+    attribute quotes shows up as an *additional parsed attribute* (or an extra
+    element), whereas a properly escaped payload stays a single inert attribute
+    value no matter what characters it contains.
+    """
+    # No DTD may reach the parser (guards XXE / entity expansion); the export
+    # never emits one, so this doubles as an assertion about the generator.
+    assert "<!DOCTYPE" not in svg
+    assert "<!ENTITY" not in svg
+    root = ET.fromstring(svg)
+    for node in root.iter():
+        tag = node.tag.rsplit("}", 1)[-1].lower()
+        assert tag != "script", f"injected <script> element: {svg}"
+        for name, value in node.attrib.items():
+            assert not name.lower().startswith(
+                "on"
+            ), f"injected event handler attribute {name!r}: {svg}"
+            assert not value.strip().lower().startswith(
+                "javascript:"
+            ), f"injected javascript: URL in {name!r}: {svg}"
+
+
+class TestSVGAttributeInjection:
+    """Stroke data is untrusted input; SVG export must never inject attributes.
+
+    Regression guard for the stored-XSS vector where a string value in a
+    numeric-role field (e.g. ``{"width": '0" onload="alert(1)'}``) escaped its
+    attribute and injected an SVG event handler.  The generated SVG is rendered
+    for every reader of the diagram, so this was cross-user, not self-XSS.
+    """
+
+    @pytest.mark.parametrize("element", _NUMERIC_FIELD_CASES)
+    def test_numeric_fields_reject_attribute_injection(
+        self, canvas_editor: CanvasEditor, element: dict
+    ) -> None:
+        svg = canvas_editor.export_svg(
+            {"strokes": [element], "width": 800, "height": 600}
+        )
+        _assert_no_attribute_breakout(svg)
+        # Numeric-role fields are coerced, so the payload is dropped entirely —
+        # not even an escaped remnant survives.
+        assert "onload" not in svg.lower()
+
+    def test_canvas_dimensions_reject_attribute_injection(
+        self, canvas_editor: CanvasEditor
+    ) -> None:
+        svg = canvas_editor.export_svg(
+            {"strokes": [], "width": XSS_ATTR_PAYLOAD, "height": XSS_ATTR_PAYLOAD}
+        )
+        _assert_no_attribute_breakout(svg)
+        # Falls back to the documented defaults.
+        assert 'width="800"' in svg
+        assert 'height="600"' in svg
+
+    def test_text_fields_stay_escaped(self, canvas_editor: CanvasEditor) -> None:
+        svg = canvas_editor.export_svg(
+            {
+                "strokes": [
+                    {
+                        "type": "text",
+                        "x": 1,
+                        "y": 2,
+                        "content": '</text><script>alert(1)</script>',
+                        "color": XSS_ATTR_PAYLOAD,
+                        "fill": XSS_ATTR_PAYLOAD,
+                        "id": XSS_ATTR_PAYLOAD,
+                    }
+                ],
+                "width": 100,
+                "height": 100,
+            }
+        )
+        _assert_no_attribute_breakout(svg)
+
+    def test_valid_numeric_values_are_preserved(
+        self, canvas_editor: CanvasEditor
+    ) -> None:
+        svg = canvas_editor.export_svg(
+            {
+                "strokes": [
+                    {"type": "rect", "x": 10, "y": 20, "width": 30, "height": 40.5}
+                ],
+                "width": 400,
+                "height": 300,
+            }
+        )
+        assert 'x="10"' in svg
+        assert 'width="30"' in svg
+        assert 'height="40.5"' in svg
+        assert 'width="400"' in svg
+
+    def test_malformed_stroke_entries_are_ignored(
+        self, canvas_editor: CanvasEditor
+    ) -> None:
+        svg = canvas_editor.export_svg(
+            {"strokes": ["not-a-dict", None, 42], "width": 100, "height": 100}
+        )
+        _assert_no_attribute_breakout(svg)
 
 
 # ---------------------------------------------------------------------------
