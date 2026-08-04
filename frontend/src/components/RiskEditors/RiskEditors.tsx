@@ -100,7 +100,7 @@ export default function RiskEditors(): JSX.Element {
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="risk-reload-btn">
-          {t('actions.reload', 'Erneut versuchen')}
+          {t('actions.retry')}
         </button>
       </div>
     );

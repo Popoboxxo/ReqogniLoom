@@ -30,6 +30,11 @@ import {
   ARTIFACT_TYPE_ARCHITECTURE,
   ARTIFACT_TYPE_NEED,
   ARTIFACT_TYPE_REQUIREMENT,
+  ARTIFACT_TYPE_GOAL,
+  ARTIFACT_TYPE_ADR,
+  ARTIFACT_TYPE_RISK,
+  ARTIFACT_TYPE_ISSUE,
+  ARTIFACT_TYPE_TESTCASE,
   type ChainArtifact,
   type ChainStation,
 } from "./useDerivationChain";
@@ -86,6 +91,16 @@ export function TraceSpine({
             return t("nav.requirements", "Requirement");
           case ARTIFACT_TYPE_ARCHITECTURE:
             return t("nav.architecture", "Architektur");
+          case ARTIFACT_TYPE_GOAL:
+            return t("nav.goals", "Ziele");
+          case ARTIFACT_TYPE_ADR:
+            return t("nav.adrs", "ADRs");
+          case ARTIFACT_TYPE_RISK:
+            return t("nav.risks", "Risiken");
+          case ARTIFACT_TYPE_ISSUE:
+            return t("nav.issues", "Probleme");
+          case ARTIFACT_TYPE_TESTCASE:
+            return t("nav.testCases", "Testfälle");
           default:
             return station.artifactType;
         }

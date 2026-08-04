@@ -106,7 +106,7 @@ export default function AdrEditors(): JSX.Element {
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="adr-reload-btn">
-          {t('actions.reload', 'Erneut versuchen')}
+          {t('actions.retry')}
         </button>
       </div>
     );

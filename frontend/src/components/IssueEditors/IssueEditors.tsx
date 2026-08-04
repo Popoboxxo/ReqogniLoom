@@ -100,7 +100,7 @@ export default function IssueEditors(): JSX.Element {
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="issue-reload-btn">
-          {t('actions.reload', 'Erneut versuchen')}
+          {t('actions.retry')}
         </button>
       </div>
     );

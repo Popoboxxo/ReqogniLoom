@@ -111,7 +111,7 @@ export default function TestCaseEditors(): JSX.Element {
           {error.message}
         </p>
         <button className="btn-secondary" onClick={refresh} data-testid="testcase-reload-btn">
-          {t('actions.reload', 'Erneut versuchen')}
+          {t('actions.retry')}
         </button>
       </div>
     );

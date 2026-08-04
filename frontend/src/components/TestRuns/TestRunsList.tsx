@@ -401,7 +401,7 @@ export function TestRunsList(): JSX.Element {
                 fontSize: "var(--font-size-sm)",
               }}
             >
-              {t("actions.reload", "Erneut versuchen")}
+              {t("actions.retry")}
             </button>
           </div>
         )}
