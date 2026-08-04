@@ -63,10 +63,17 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     ]);
     await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
 
-    // Click the "View Diff" button
-    const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 10000 });
-    await viewDiffBtn.click();
+    // Diff is no longer behind a "View Diff" modal trigger — since
+    // REQ-L2-RF-034/036 (RightSidebar shell) it is rendered inline in the
+    // persistent ArtifactInspector sidebar, always visible once a version
+    // exists (RequirementEditors.tsx renders <RightSidebar> unconditionally
+    // next to the form; DiffPanel wraps ArtifactDiff with an inspector
+    // section around it, see DiffPanel.tsx).
+    const inspector = page.locator('[data-testid="artifact-inspector"]');
+    await expect(inspector).toBeVisible({ timeout: 10000 });
+
+    const diffPanel = page.locator('[data-testid="inspector-diff-panel"]');
+    await expect(diffPanel).toBeVisible({ timeout: 10000 });
 
     // The diff view should appear
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
@@ -88,13 +95,14 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     const diffFields = page.locator('[data-testid="diff-fields"]');
     await expect(diffFields).toBeVisible({ timeout: 10000 });
 
-    // Close button should work
+    // The Close button is kept for visual/API parity with the standalone
+    // ArtifactDiff component, but per UI standards §1.2 the inspector is
+    // persistent and must NOT unmount on close (DiffPanel.tsx onClose is a
+    // deliberate no-op) — so clicking it must leave the diff view visible.
     const closeBtn = page.locator('[data-testid="diff-close-btn"]');
     await expect(closeBtn).toBeVisible({ timeout: 4000 });
     await closeBtn.click();
-
-    // Diff view should be hidden
-    await expect(diffView).not.toBeVisible({ timeout: 4000 });
+    await expect(diffView).toBeVisible({ timeout: 2000 });
   });
 
   test('[REQ-L2-RF-014] diff view shows version 0 baseline as all fields added', async ({ page }) => {
@@ -127,11 +135,9 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     ]);
     await expect(page.locator('[data-testid="save-btn"]')).toContainText('Save', { timeout: 10000 });
 
-    // Open diff view
-    const viewDiffBtn = page.locator('[data-testid="view-diff-btn"]');
-    await expect(viewDiffBtn).toBeVisible({ timeout: 10000 });
-    await viewDiffBtn.click();
-
+    // Diff view is rendered inline in the persistent ArtifactInspector
+    // sidebar (REQ-L2-RF-034/036) — no separate "View Diff" trigger exists
+    // anymore, see the note in the previous test.
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
     await expect(diffView).toBeVisible({ timeout: 10000 });
 
