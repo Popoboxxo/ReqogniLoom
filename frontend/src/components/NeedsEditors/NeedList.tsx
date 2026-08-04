@@ -149,7 +149,7 @@ export function NeedList({
                 shown: visibleNeeds.length,
                 total: needs.length,
               })
-            : null
+            : String(needs.length)
         }
         // #315: the "Neuer Bedarf" primary action now lives in the
         // PageHeader (UI_KONZEPT.md §12.2), not in this list toolbar —

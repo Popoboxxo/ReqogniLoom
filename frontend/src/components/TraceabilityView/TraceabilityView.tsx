@@ -408,7 +408,7 @@ export default function TraceabilityView(): JSX.Element {
         countLabel={
           hasActiveListControls
             ? t("editor.filteredCount", { shown: filteredLinks.length, total: state.links.length })
-            : null
+            : String(state.links.length)
         }
       />
 

@@ -176,7 +176,7 @@ export function TestRunsList(): JSX.Element {
                   shown: visibleItems.length,
                   total: items.length,
                 })
-              : null
+              : String(items.length)
           }
         />
 
