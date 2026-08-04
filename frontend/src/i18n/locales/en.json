@@ -50,7 +50,12 @@
     "buildVersion": "Build {{sha}}",
     "appVersion": "v{{version}}",
     "openMenu": "Open navigation menu",
-    "closeMenu": "Close navigation menu"
+    "closeMenu": "Close navigation menu",
+    "groupOverview": "Overview",
+    "groupRequirements": "Requirements Engineering",
+    "groupArchitecture": "Architecture",
+    "groupTest": "Test & Quality",
+    "groupAdmin": "Administration"
   },
   "systemHealth": {
     "title": "System Health",
@@ -138,6 +143,7 @@
     "save": "Save",
     "saving": "Saving...",
     "reload": "Reload",
+    "retry": "Retry",
     "back": "Back",
     "new": "New",
     "delete": "Delete",
@@ -563,7 +569,31 @@
     "workspaceDeleted": "Workspace has been deleted.",
     "closeConfirm": "Are you sure you want to close this workspace? Data will be preserved but you can't edit it.",
     "deleteConfirmTitle": "Delete Workspace",
-    "deleteConfirmButton": "Permanently Delete"
+    "deleteConfirmButton": "Permanently Delete",
+    "promptTemplates": {
+      "title": "AI Prompt Templates",
+      "description": "Customise the prompts used for AI-assisted derivation. Available placeholders: {n} (number of drafts requested), {need_title} and {need_description} (stakeholder need), {req_title} and {req_description} (requirement), and {arch_elements_json} (candidate architecture elements). Unknown or omitted placeholders are left as-is, so existing templates keep working.",
+      "scope": "Scope",
+      "scopeWorkspace": "This workspace only",
+      "scopeGlobal": "Global (all workspaces)",
+      "reset": "Reset to default",
+      "resetToGlobal": "Remove override",
+      "origin": {
+        "workspace": "Workspace override",
+        "global": "Global default",
+        "factory": "Factory default"
+      },
+      "slot": {
+        "need_to_sysreq": "Stakeholder Need → System Requirements",
+        "sysreq_to_arch_assign": "System Requirement → Architecture Assignment",
+        "sysreq_decompose_next_level": "Decompose to Next Architecture Level",
+        "goal_aggregate": "Goal Aggregation",
+        "testcase_derive": "Requirement → Test Cases",
+        "architecture_to_risk": "Architecture Element → Risks",
+        "workspace_to_glossary": "Workspace → Glossary Terms",
+        "decision_to_adr": "Decision → ADR"
+      }
+    }
   },
   "categories": {
     "stakeholder": "Stakeholder Requirement",
@@ -960,7 +990,9 @@
       "Adr": "ADR",
       "Risk": "Risk",
       "TestCase": "Test Case",
-      "Issue": "Issue"
+      "Issue": "Issue",
+      "Goal": "Goal",
+      "MainGoal": "Main Goal"
     },
     "inspector": {
       "ariaLabelExpanded": "Inspector",

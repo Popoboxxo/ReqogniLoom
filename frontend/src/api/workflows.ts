@@ -70,7 +70,9 @@ export type WorkflowEntityType =
   | "Adr"
   | "Risk"
   | "TestCase"
-  | "Issue";
+  | "Issue"
+  | "Goal"
+  | "MainGoal";
 
 /** Derived visual classification of a state (not stored server-side). */
 export type WorkflowStateType = "initial" | "active" | "terminal" | "error";

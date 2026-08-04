@@ -213,7 +213,12 @@ export default function GoalsPage(): JSX.Element {
           moduleType="goals"
           initialLeftWidth={350}
           leftPanel={
-            <GoalsTree goals={goals} selectedId={selectedId} onSelect={handleSelect} />
+            <GoalsTree
+              goals={goals}
+              selectedId={selectedId}
+              onSelect={handleSelect}
+              workspaceId={workspaceId}
+            />
           }
           rightPanel={detailPane}
         />

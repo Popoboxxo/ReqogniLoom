@@ -15,12 +15,13 @@
  * does. `WorkspaceTree`'s own search box is therefore switched off.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ListToolbar } from "../shared/ListToolbar";
 import { WorkspaceTree } from "../shared/WorkspaceTree";
 import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
 import { getStatusBadgeStyle } from "../../utils/statusBadge";
+import { workflowsApi } from "../../api/workflows";
 import type { Goal } from "../../types";
 
 /** Node id of the MainGoal root — not a real artifact id. */
@@ -28,24 +29,32 @@ export const MAIN_GOAL_NODE_ID = "__main-goal__";
 /** Node id of the Goals root — not a real artifact id. */
 export const GOALS_ROOT_NODE_ID = "__goals__";
 
-/** Workflow states a Goal can be in (backend/workflow/definition_store.py). */
-export const GOAL_STATES = ["Entwurf", "Freigegeben", "Archiviert"] as const;
+/**
+ * Fallback shown until the workspace's real Goal workflow states have
+ * loaded (backend/workflow/services.py `_ENTITY_DEFAULT_PRESET["Goal"]` =
+ * `goal_default`). Only used transiently — `GoalsTree` replaces this with
+ * the live, workspace-configured state list from `workflowsApi.getGraph`
+ * (issue #333) as soon as it resolves.
+ */
+const DEFAULT_GOAL_STATES = ["Entwurf", "Freigegeben", "Archiviert"];
 
 type GoalSortKey = "default" | "title" | "status";
 
-function sortGoals(list: Goal[], sortKey: GoalSortKey): Goal[] {
+function sortGoals(list: Goal[], sortKey: GoalSortKey, states: string[]): Goal[] {
   const sorted = [...list];
   switch (sortKey) {
     case "title":
       sorted.sort((a, b) => a.title.localeCompare(b.title));
       break;
     case "status":
-      sorted.sort(
-        (a, b) =>
-          GOAL_STATES.indexOf(a.status as (typeof GOAL_STATES)[number]) -
-            GOAL_STATES.indexOf(b.status as (typeof GOAL_STATES)[number]) ||
-          a.title.localeCompare(b.title),
-      );
+      sorted.sort((a, b) => {
+        const ai = states.indexOf(a.status);
+        const bi = states.indexOf(b.status);
+        return (
+          (ai === -1 ? states.length : ai) - (bi === -1 ? states.length : bi) ||
+          a.title.localeCompare(b.title)
+        );
+      });
       break;
     default:
       break;
@@ -58,17 +67,45 @@ export interface GoalsTreeProps {
   /** `MAIN_GOAL_NODE_ID` or a Goal id. */
   selectedId: string;
   onSelect: (id: string) => void;
+  /** Workspace scope for the live Goal workflow-states lookup (issue #333). */
+  workspaceId?: string;
 }
 
 export function GoalsTree({
   goals,
   selectedId,
   onSelect,
+  workspaceId,
 }: GoalsTreeProps): JSX.Element {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sortKey, setSortKey] = useState<GoalSortKey>("default");
+  // REQ-003/issue #333 — the filter/sort order must reflect the workspace's
+  // actually configured Goal states, not a hardcoded snapshot of the
+  // `goal_default` preset. Same live-lookup pattern the Workflow Editor uses
+  // (`workflowsApi.getGraph`); falls back to the default preset's states
+  // while the request is in flight or the workspace is not yet known.
+  const [goalStates, setGoalStates] = useState<string[]>(DEFAULT_GOAL_STATES);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    workflowsApi
+      .getGraph("Goal", workspaceId)
+      .then((graph) => {
+        if (cancelled) return;
+        const names = graph.states.map((s) => s.name);
+        if (names.length > 0) setGoalStates(names);
+      })
+      .catch(() => {
+        // Keep the default-preset fallback — a failed lookup should not
+        // break the filter/sort dropdown.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   const visibleGoals = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -80,8 +117,8 @@ export function GoalsTree({
         (g.description ?? "").toLowerCase().includes(q)
       );
     });
-    return sortGoals(filtered, sortKey);
-  }, [goals, search, statusFilter, sortKey]);
+    return sortGoals(filtered, sortKey, goalStates);
+  }, [goals, search, statusFilter, sortKey, goalStates]);
 
   const nodes = useMemo((): WorkspaceTreeNode[] => {
     const roots: WorkspaceTreeNode[] = [
@@ -126,7 +163,7 @@ export function GoalsTree({
             id: "status",
             allLabel: t("editor.allStatuses", "Alle Status"),
             value: statusFilter,
-            options: GOAL_STATES.map((s) => ({ value: s, label: s })),
+            options: goalStates.map((s) => ({ value: s, label: s })),
             onChange: setStatusFilter,
           },
         ]}

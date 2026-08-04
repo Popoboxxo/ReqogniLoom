@@ -50,7 +50,12 @@
     "buildVersion": "Build {{sha}}",
     "appVersion": "v{{version}}",
     "openMenu": "Navigationsmenü öffnen",
-    "closeMenu": "Navigationsmenü schließen"
+    "closeMenu": "Navigationsmenü schließen",
+    "groupOverview": "Übersicht",
+    "groupRequirements": "Requirements Engineering",
+    "groupArchitecture": "Architektur",
+    "groupTest": "Test & Qualität",
+    "groupAdmin": "Verwaltung"
   },
   "systemHealth": {
     "title": "Systemstatus",
@@ -138,6 +143,7 @@
     "save": "Speichern",
     "saving": "Speichert...",
     "reload": "Neu laden",
+    "retry": "Erneut versuchen",
     "back": "Zurück",
     "new": "Neu",
     "delete": "Löschen",
@@ -563,7 +569,31 @@
     "workspaceDeleted": "Workspace wurde gelöscht.",
     "closeConfirm": "Sind Sie sicher, dass Sie diesen Workspace schließen möchten? Daten bleiben erhalten, aber Sie können nicht mehr bearbeiten.",
     "deleteConfirmTitle": "Workspace löschen",
-    "deleteConfirmButton": "Endgültig löschen"
+    "deleteConfirmButton": "Endgültig löschen",
+    "promptTemplates": {
+      "title": "KI-Prompt-Vorlagen",
+      "description": "Passe die Prompts für die KI-gestützte Ableitung an. Verfügbare Platzhalter: {n} (Anzahl gewünschter Entwürfe), {need_title} und {need_description} (Stakeholder Need), {req_title} und {req_description} (Anforderung), {arch_elements_json} (Kandidaten-Architekturelemente). Unbekannte oder fehlende Platzhalter bleiben unverändert, bestehende Vorlagen funktionieren also weiter.",
+      "scope": "Geltungsbereich",
+      "scopeWorkspace": "Nur dieser Workspace",
+      "scopeGlobal": "Global (alle Workspaces)",
+      "reset": "Auf Standard zurücksetzen",
+      "resetToGlobal": "Override entfernen",
+      "origin": {
+        "workspace": "Workspace-Override",
+        "global": "Globaler Standard",
+        "factory": "Werkseinstellung"
+      },
+      "slot": {
+        "need_to_sysreq": "Stakeholder Need → Systemanforderungen",
+        "sysreq_to_arch_assign": "Systemanforderung → Architekturzuordnung",
+        "sysreq_decompose_next_level": "Zerlegung auf die nächste Architekturebene",
+        "goal_aggregate": "Ziel-Aggregation",
+        "testcase_derive": "Anforderung → Testfälle",
+        "architecture_to_risk": "Architekturelement → Risiken",
+        "workspace_to_glossary": "Workspace → Glossarbegriffe",
+        "decision_to_adr": "Entscheidung → ADR"
+      }
+    }
   },
   "categories": {
     "stakeholder": "Stakeholder-Anforderung",
@@ -960,7 +990,9 @@
       "Adr": "ADR",
       "Risk": "Risiko",
       "TestCase": "Testfall",
-      "Issue": "Issue"
+      "Issue": "Issue",
+      "Goal": "Ziel",
+      "MainGoal": "Haupt-Ziel"
     },
     "inspector": {
       "ariaLabelExpanded": "Inspektor",
