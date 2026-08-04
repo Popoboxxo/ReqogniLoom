@@ -114,7 +114,7 @@ export function SidebarNavigation(): JSX.Element {
     setHideAllOptional,
   } = useWorkspace();
   const { logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { nextTheme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [isSwitcherOpen, setIsSwitcherOpen] = React.useState<boolean>(false);
@@ -576,7 +576,7 @@ export function SidebarNavigation(): JSX.Element {
           title={t("nav.toggleTheme")}
           className={styles.footerBtn}
         >
-          {theme === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
+          {t(nextTheme.labelKey)}
         </button>
         {/* Personal Access Tokens — workspace-independent, always reachable (REQ-L2-RF-027) */}
         <button

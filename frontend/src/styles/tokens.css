@@ -1,50 +1,204 @@
+/*
+ * Design tokens — two layers (UI concept ch. 8.6, Task 8.1).
+ *
+ *   Layer 1  primitives   --palette-*   raw color values, theme-independent
+ *   Layer 2  semantics     --color-*    per theme, points at a primitive
+ *
+ * Components reference ONLY the semantic layer (ch. 8.1 + the ESLint gate of
+ * ch. 16.1). A `--color-*` declaration must therefore never carry a raw
+ * hex/rgb value — it always reads `var(--palette-*)`. Raw values live in the
+ * primitive block below and nowhere else.
+ *
+ * Adding a theme:
+ *   1. add any missing raw values to the primitive block (Layer 1),
+ *   2. add a `:root[data-theme="<id>"]` block that maps every semantic token
+ *      onto those primitives (Layer 2),
+ *   3. register the id in `THEMES` in src/context/ThemeContext.tsx so the
+ *      switcher offers it.
+ * No component code changes. Every new theme runs the same 4.5:1 contrast
+ * check as ch. 8.5 before it is released.
+ *
+ * The two themes below (`dark` = default-dark, `light` = default-light) are a
+ * value-identical migration of the previous single-layer token set — theming
+ * is an extension, not a redesign of the palette (ch. 4).
+ */
+
+/* ==========================================================================
+ * Layer 1 — Primitives. Raw color values, one shared pool for all themes.
+ * Named by color family + lightness step; `-aNN` suffix = same color at NN%
+ * alpha (kept as explicit rgba() so the resolved value is exact). Base tones
+ * are declared even where only the alpha variant is currently mapped — the
+ * pool documents the family, it is not a usage list.
+ * ========================================================================== */
+:root {
+  /* Neutrals */
+  --palette-white: #ffffff;
+  --palette-white-a05: rgba(255, 255, 255, 0.05);
+  --palette-white-a08: rgba(255, 255, 255, 0.08);
+  --palette-white-a10: rgba(255, 255, 255, 0.1);
+  --palette-white-a65: rgba(255, 255, 255, 0.65);
+  --palette-white-a70: rgba(255, 255, 255, 0.7);
+  --palette-white-a90: rgba(255, 255, 255, 0.9);
+  --palette-black: #000000;
+  --palette-black-a20: rgba(0, 0, 0, 0.2);
+  --palette-black-a30: rgba(0, 0, 0, 0.3);
+  --palette-black-a40: rgba(0, 0, 0, 0.4);
+  --palette-black-a50: rgba(0, 0, 0, 0.5);
+
+  /* Slate — the surface/text/border ramp of both default themes */
+  --palette-slate-50: #f8fafc;
+  --palette-slate-50-a90: rgba(248, 250, 252, 0.9);
+  --palette-slate-200: #e2e8f0;
+  --palette-slate-300: #cbd5e1;
+  --palette-slate-400: #94a3b8;
+  --palette-slate-600: #475569;
+  --palette-slate-700: #334155;
+  --palette-slate-800: #1e293b;
+  --palette-slate-800-a65: rgba(30, 41, 59, 0.65);
+  --palette-slate-800-a80: rgba(30, 41, 59, 0.8);
+  --palette-slate-900: #0f172a;
+  --palette-slate-900-a05: rgba(15, 23, 42, 0.05);
+  --palette-slate-900-a06: rgba(15, 23, 42, 0.06);
+  --palette-slate-900-a08: rgba(15, 23, 42, 0.08);
+  --palette-slate-900-a10: rgba(15, 23, 42, 0.1);
+  --palette-slate-900-a80: rgba(15, 23, 42, 0.8);
+  --palette-gray-600: #4a5568;
+
+  /* Indigo — brand accent */
+  --palette-indigo-400: #818cf8;
+  --palette-indigo-500: #6366f1;
+  --palette-indigo-500-a08: rgba(99, 102, 241, 0.08);
+  --palette-indigo-500-a10: rgba(99, 102, 241, 0.1);
+  --palette-indigo-500-a15: rgba(99, 102, 241, 0.15);
+  --palette-indigo-500-a30: rgba(99, 102, 241, 0.3);
+  --palette-indigo-600: #4f46e5;
+  --palette-indigo-600-a06: rgba(79, 70, 229, 0.06);
+  --palette-indigo-600-a25: rgba(79, 70, 229, 0.25);
+  --palette-indigo-700: #4338ca;
+
+  /* Purple — second stop of the brand gradient */
+  --palette-purple-500: #a855f7;
+  --palette-purple-500-a08: rgba(168, 85, 247, 0.08);
+  --palette-purple-600: #9333ea;
+  --palette-purple-600-a06: rgba(147, 51, 234, 0.06);
+
+  /* Royal — sidebar active accent; a distinct blue-violet, not indigo-600 */
+  --palette-royal-500: #4f6ef7;
+  --palette-royal-500-a15: rgba(79, 110, 247, 0.15);
+
+  /* Navy — permanently dark sidebar chrome */
+  --palette-navy-900: #1a1f2e;
+
+  /* Status families */
+  --palette-emerald-300: #6ee7b7;
+  --palette-emerald-400: #34d399;
+  --palette-emerald-500: #10b981;
+  --palette-emerald-500-a20: rgba(16, 185, 129, 0.2);
+  --palette-emerald-600: #059669;
+  --palette-emerald-600-a15: rgba(5, 150, 105, 0.15);
+  --palette-emerald-700: #047857;
+  --palette-amber-300: #fcd34d;
+  --palette-amber-500: #f59e0b;
+  --palette-amber-500-a20: rgba(245, 158, 11, 0.2);
+  --palette-amber-700: #b45309;
+  --palette-red-300: #fca5a5;
+  --palette-red-500: #ef4444;
+  --palette-red-500-a20: rgba(239, 68, 68, 0.2);
+  --palette-red-600: #dc2626;
+  --palette-blue-300: #93c5fd;
+  --palette-blue-500: #3b82f6;
+  --palette-blue-500-a20: rgba(59, 130, 246, 0.2);
+
+  /* Pastel badge ramp — solid light-theme badge fills and their text tones.
+     A separate, flatter ramp than the status families above; it predates the
+     slate/indigo scales and is kept value-identical. */
+  --palette-sky-100: #bee3f8;
+  --palette-sky-800: #2c5282;
+  --palette-rose-100: #fed7d7;
+  --palette-rose-800: #9b2c2c;
+  --palette-green-100: #c6f6d5;
+  --palette-green-800: #276749;
+  --palette-yellow-100: #fefcbf;
+  --palette-yellow-800: #744210;
+}
+
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `dark` (default-dark, the app's default
+ * identity). Lives on bare `:root` so it also applies before ThemeContext
+ * has written data-theme onto <html>.
+ * ========================================================================== */
 :root {
   /* Colors - Premium Deep Dark/Slate Theme */
-  --color-primary: #6366f1; /* Indigo 500 */
-  --color-primary-dark: #4f46e5; /* Indigo 600 */
-  --color-surface: #0f172a; /* Slate 900 */
-  --color-surface-raised: #1e293b; /* Slate 800 */
-  --color-border: #334155; /* Slate 700 */
-  --color-border-hover: #475569; /* Slate 600 */
-  --color-text: #f8fafc; /* Slate 50 */
-  --color-text-muted: #94a3b8; /* Slate 400 */
-  
-  --color-success: #10b981; /* Emerald 500 */
-  --color-warning: #f59e0b; /* Amber 500 */
-  --color-danger: #ef4444; /* Red 500 */
-  
+  --color-primary: var(--palette-indigo-500);
+  --color-primary-dark: var(--palette-indigo-600);
+  --color-surface: var(--palette-slate-900);
+  --color-surface-raised: var(--palette-slate-800);
+  --color-border: var(--palette-slate-700);
+  --color-border-hover: var(--palette-slate-600);
+  --color-text: var(--palette-slate-50);
+  --color-text-muted: var(--palette-slate-400);
+
+  --color-success: var(--palette-emerald-500);
+  --color-warning: var(--palette-amber-500);
+  --color-danger: var(--palette-red-500);
+
   /* Badge Colors */
-  --color-badge-draft: rgba(255, 255, 255, 0.1);
-  --color-badge-draft-text: #cbd5e1;
-  --color-badge-approved: rgba(16, 185, 129, 0.2);
-  --color-badge-approved-text: #34d399;
+  --color-badge-draft: var(--palette-white-a10);
+  --color-badge-draft-text: var(--palette-slate-300);
+  --color-badge-approved: var(--palette-emerald-500-a20);
+  --color-badge-approved-text: var(--palette-emerald-400);
 
   /* Status Badge Variants (dark-mode base — translucent bg + light text) */
-  --color-badge-info-bg: rgba(59, 130, 246, 0.2);
-  --color-badge-info-text: #93c5fd;
-  --color-badge-danger-bg: rgba(239, 68, 68, 0.2);
-  --color-badge-danger-text: #fca5a5;
-  --color-badge-success-bg: rgba(16, 185, 129, 0.2);
-  --color-badge-success-text: #6ee7b7;
-  --color-badge-warning-bg: rgba(245, 158, 11, 0.2);
-  --color-badge-warning-text: #fcd34d;
-  --color-badge-neutral-bg: rgba(255, 255, 255, 0.1);
-  --color-badge-neutral-text: #cbd5e1;
+  --color-badge-info-bg: var(--palette-blue-500-a20);
+  --color-badge-info-text: var(--palette-blue-300);
+  --color-badge-danger-bg: var(--palette-red-500-a20);
+  --color-badge-danger-text: var(--palette-red-300);
+  --color-badge-success-bg: var(--palette-emerald-500-a20);
+  --color-badge-success-text: var(--palette-emerald-300);
+  --color-badge-warning-bg: var(--palette-amber-500-a20);
+  --color-badge-warning-text: var(--palette-amber-300);
+  --color-badge-neutral-bg: var(--palette-white-a10);
+  --color-badge-neutral-text: var(--palette-slate-300);
 
   /* Active Card Background (translucent primary — theme-safe) */
-  --color-card-active-bg: rgba(99, 102, 241, 0.15);
+  --color-card-active-bg: var(--palette-indigo-500-a15);
 
   /* Sidebar navigation (issue #157) — was hardcoded in SidebarNavigation.tsx */
-  --color-nav-bg: #1a1f2e;
-  --color-nav-text: #ffffff;
-  --color-nav-text-muted: rgba(255, 255, 255, 0.65);
-  --color-nav-border: rgba(255, 255, 255, 0.08);
-  --color-nav-active-bg: rgba(79, 110, 247, 0.15);
-  --color-nav-hover-bg: rgba(255, 255, 255, 0.05);
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
 
   /* Keyboard focus ring (issue #158 — WCAG 2.4.7 Focus Visible) */
-  --color-focus: #818cf8;
+  --color-focus: var(--palette-indigo-400);
 
+  /* Shadows - Smooth glowing shadows */
+  --shadow-sm: 0 1px 2px var(--palette-black-a30);
+  --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
+  --shadow-card: 0 10px 15px -3px var(--palette-black-a50), 0 4px 6px -2px var(--palette-black-a30);
+  --shadow-glow: 0 0 15px var(--palette-indigo-500-a30);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, var(--palette-indigo-500) 0%, var(--palette-purple-500) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-slate-800-a80) 0%, var(--palette-slate-900-a80) 100%);
+
+  /* Body background accent gradient (issue #170) — theme-aware, was hardcoded
+     in global.css and did not adapt when switching to the light theme. */
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-indigo-500-a08), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-purple-500-a08), transparent 25%);
+
+  /* Glassmorphism */
+  --glass-bg: var(--palette-slate-800-a65);
+  --glass-border: var(--palette-white-a08);
+}
+
+/* ==========================================================================
+ * Theme-independent tokens. Spacing, typography, radii, motion and layout do
+ * not change with the theme, so they have no primitive/semantic split.
+ * ========================================================================== */
+:root {
   /* Spacing */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -54,13 +208,15 @@
   --space-6: 1.5rem;
   --space-8: 2rem;
 
-  /* Typography */
-  --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  /* Typography (UI concept ch. 9: one family, three cuts, self-hosted). */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   /* Mono family for artifact identifiers (UI concept ch. 12.4: <ArtifactId>).
-     Kept as a system stack — self-hosting IBM Plex is step 7 of the rollout
-     and deliberately not part of the pilot. */
-  --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', 'Cascadia Mono',
-    Menlo, Consolas, monospace;
+     IBM Plex Mono shares the same hand as --font-sans and disambiguates
+     0/O and 1/l/I, which matters for identifiers like SYS-REQ-001. */
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas,
+    monospace;
+  /* Condensed cut for badges, table headers and counters (UI concept 9.3). */
+  --font-cond: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-base: 1rem;
@@ -92,25 +248,6 @@
   --radius-lg: 16px;
   --radius-full: 9999px;
 
-  /* Shadows - Smooth glowing shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
-  --shadow-card: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
-  --shadow-glow: 0 0 15px rgba(99, 102, 241, 0.3);
-
-  /* Gradients */
-  --gradient-primary: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-  --gradient-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.8) 100%);
-
-  /* Body background accent gradient (issue #170) — theme-aware, was hardcoded
-     in global.css and did not adapt when switching to the light theme. */
-  --gradient-body: radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.08), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.08), transparent 25%);
-
-  /* Glassmorphism */
-  --glass-bg: rgba(30, 41, 59, 0.65);
-  --glass-border: rgba(255, 255, 255, 0.08);
-
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -135,70 +272,71 @@
   --bp-lg: 1024px;
 }
 
-/*
- * Light theme — mirrors every token above so any component built against
- * var(--color-*) is contrast-safe in both modes. Activated by ThemeContext
- * setting data-theme="light" on <html> (see src/context/ThemeContext.tsx).
- */
+/* ==========================================================================
+ * Layer 2 — Semantics, theme `light` (default-light). Mirrors every semantic
+ * token of the dark theme so any component built against var(--color-*) is
+ * contrast-safe in both modes. Activated by ThemeContext setting
+ * data-theme="light" on <html> (see src/context/ThemeContext.tsx).
+ * ========================================================================== */
 :root[data-theme="light"] {
-  --color-primary: #4f46e5; /* Indigo 600 — darker for AA contrast on white */
-  --color-primary-dark: #4338ca; /* Indigo 700 */
-  --color-surface: #f8fafc; /* Slate 50 */
-  --color-surface-raised: #ffffff;
-  --color-border: #cbd5e1; /* Slate 300 */
-  --color-border-hover: #94a3b8; /* Slate 400 */
-  --color-text: #0f172a; /* Slate 900 */
-  --color-text-muted: #475569; /* Slate 600 */
+  --color-primary: var(--palette-indigo-600); /* darker for AA contrast on white */
+  --color-primary-dark: var(--palette-indigo-700);
+  --color-surface: var(--palette-slate-50);
+  --color-surface-raised: var(--palette-white);
+  --color-border: var(--palette-slate-300);
+  --color-border-hover: var(--palette-slate-400);
+  --color-text: var(--palette-slate-900);
+  --color-text-muted: var(--palette-slate-600);
 
-  --color-success: #059669; /* Emerald 600 */
-  --color-warning: #b45309; /* Amber 700 */
-  --color-danger: #dc2626; /* Red 600 */
+  --color-success: var(--palette-emerald-600);
+  --color-warning: var(--palette-amber-700);
+  --color-danger: var(--palette-red-600);
 
-  --color-badge-draft: rgba(15, 23, 42, 0.08);
-  --color-badge-draft-text: #334155;
-  --color-badge-approved: rgba(5, 150, 105, 0.15);
-  --color-badge-approved-text: #047857;
+  --color-badge-draft: var(--palette-slate-900-a08);
+  --color-badge-draft-text: var(--palette-slate-700);
+  --color-badge-approved: var(--palette-emerald-600-a15);
+  --color-badge-approved-text: var(--palette-emerald-700);
 
   /* Status Badge Variants (light-mode — solid pastel bg + dark text) */
-  --color-badge-info-bg: #bee3f8;
-  --color-badge-info-text: #2c5282;
-  --color-badge-danger-bg: #fed7d7;
-  --color-badge-danger-text: #9b2c2c;
-  --color-badge-success-bg: #c6f6d5;
-  --color-badge-success-text: #276749;
-  --color-badge-warning-bg: #fefcbf;
-  --color-badge-warning-text: #744210;
-  --color-badge-neutral-bg: #e2e8f0;
-  --color-badge-neutral-text: #4a5568;
+  --color-badge-info-bg: var(--palette-sky-100);
+  --color-badge-info-text: var(--palette-sky-800);
+  --color-badge-danger-bg: var(--palette-rose-100);
+  --color-badge-danger-text: var(--palette-rose-800);
+  --color-badge-success-bg: var(--palette-green-100);
+  --color-badge-success-text: var(--palette-green-800);
+  --color-badge-warning-bg: var(--palette-yellow-100);
+  --color-badge-warning-text: var(--palette-yellow-800);
+  --color-badge-neutral-bg: var(--palette-slate-200);
+  --color-badge-neutral-text: var(--palette-gray-600);
 
-  --color-card-active-bg: rgba(99, 102, 241, 0.1);
+  --color-card-active-bg: var(--palette-indigo-500-a10);
 
   /* Sidebar navigation — same dark palette in both themes by design (issue
      #157): the sidebar is a permanently-dark "chrome" element, unlike the
      rest of the UI which switches with the theme. */
-  --color-nav-bg: #1a1f2e;
-  --color-nav-text: #ffffff;
-  --color-nav-text-muted: rgba(255, 255, 255, 0.65);
-  --color-nav-border: rgba(255, 255, 255, 0.08);
-  --color-nav-active-bg: rgba(79, 110, 247, 0.15);
-  --color-nav-hover-bg: rgba(255, 255, 255, 0.05);
+  --color-nav-bg: var(--palette-navy-900);
+  --color-nav-text: var(--palette-white);
+  --color-nav-text-muted: var(--palette-white-a65);
+  --color-nav-border: var(--palette-white-a08);
+  --color-nav-active-bg: var(--palette-royal-500-a15);
+  --color-nav-hover-bg: var(--palette-white-a05);
 
   /* Keyboard focus ring (issue #158) — darker for AA contrast on white */
-  --color-focus: #4f46e5;
+  --color-focus: var(--palette-indigo-600);
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
-  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -1px rgba(15, 23, 42, 0.06);
-  --shadow-card: 0 10px 15px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
-  --shadow-glow: 0 0 15px rgba(79, 70, 229, 0.25);
+  --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
+  --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
+  --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
+  --shadow-glow: 0 0 15px var(--palette-indigo-600-a25);
 
-  --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
-  --gradient-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+  --gradient-primary: linear-gradient(135deg, var(--palette-indigo-600) 0%, var(--palette-purple-600) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--palette-white-a90) 0%, var(--palette-slate-50-a90) 100%);
 
   /* Body background accent gradient (issue #170) — softer opacity on light
      backgrounds so the accent stays subtle instead of muddying the page. */
-  --gradient-body: radial-gradient(circle at 15% 50%, rgba(79, 70, 229, 0.06), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(147, 51, 234, 0.06), transparent 25%);
+  --gradient-body: radial-gradient(circle at 15% 50%, var(--palette-indigo-600-a06), transparent 25%),
+    radial-gradient(circle at 85% 30%, var(--palette-purple-600-a06), transparent 25%);
 
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(15, 23, 42, 0.08);
+  --glass-bg: var(--palette-white-a70);
+  --glass-border: var(--palette-slate-900-a08);
 }
