@@ -134,6 +134,7 @@
   },
   "loading": "Loading...",
   "actions": {
+    "edit": "Edit",
     "save": "Save",
     "saving": "Saving...",
     "reload": "Reload",
@@ -308,13 +309,16 @@
     "impactDirOutgoing": "Downstream (outgoing)",
     "impactDirIncoming": "Upstream (incoming)",
     "impactDirBoth": "Both",
-    "impactRun": "Show Impact",
+    "impactRun": "Open Impact Analysis",
     "impactRunning": "Analyzing...",
     "impactEmpty": "No reachable artifacts.",
     "impactDepth": "Depth",
+    "impactHint": "Select an artifact and open the full impact analysis (interactive tree, both directions).",
     "requirementsGroup": "Requirements",
     "architectureGroup": "Architecture Elements",
-    "other": "Other Links"
+    "other": "Other Links",
+    "allLinkTypes": "All link types",
+    "emptyTitle": "No trace links yet"
   },
   "createTraceLinkDialog": {
     "title": "Create Trace Link",
@@ -391,6 +395,7 @@
     "scopeCountLoading": "Counting items…",
     "scopeCountReady": "{{count}} items will be included.",
     "scopeCountNeedsArtifact": "Select an artifact to count items.",
+    "allScopes": "All scopes",
     "artifact": "Artifact",
     "created": "Created",
     "noArtifacts": "No artifacts available",
@@ -419,7 +424,14 @@
     "loadFailed": "Failed to load terms.",
     "saveFailed": "Failed to save term.",
     "deleteFailed": "Failed to delete term.",
-    "linkSynonymFailed": "Failed to save link."
+    "linkSynonymFailed": "Failed to save link.",
+    "summary_one": "{{count}} term",
+    "summary_other": "{{count}} terms",
+    "emptyTitle": "No terms yet",
+    "emptyDescription": "Glossary terms keep definitions, synonyms and abbreviations consistent.",
+    "selectTitle": "No term selected",
+    "selectTerm": "Select a term from the list to view its details.",
+    "usages": "Usages"
   },
   "adr": {
     "titlePlaceholder": "ADR title",
@@ -445,7 +457,9 @@
     "summary_one": "{{count}} need",
     "summary_other": "{{count}} needs",
     "approvedSuffix": "{{count}} approved",
-    "newNeed": "New need"
+    "newNeed": "New need",
+    "emptyTitle": "No needs yet",
+    "emptyDescription": "Stakeholder needs describe what stakeholders need and why."
   },
   "deriveRequirements": {
     "title": "Derived system requirements (draft)",

@@ -25,9 +25,14 @@ import type { GlossaryTerm } from "../types";
 // Mocks (must precede component import)
 // ---------------------------------------------------------------------------
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
-}));
+vi.mock("react-i18next", () => {
+  // Second arg is either a string fallback or an i18n interpolation options
+  // object (e.g. { count, defaultValue }) — mirror BaselinesView's mock so
+  // PageHeader's `summary` (interpolated) doesn't render a raw object.
+  const t = (key: string, fallbackOrOptions?: string | Record<string, unknown>): string =>
+    typeof fallbackOrOptions === "string" ? fallbackOrOptions : key;
+  return { useTranslation: () => ({ t }) };
+});
 
 vi.mock("../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-001", name: "WS" } }),
@@ -135,7 +140,12 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
   });
 
   it("C10: renders a synonym matching an existing term as a clickable link", async () => {
+    const user = userEvent.setup();
     renderView();
+
+    // Synonyms render in the detail pane (relocated with the SplitView
+    // migration, issue #180) — select the term row first.
+    await user.click(await screen.findByTestId("glossary-row-term-a"));
 
     // "Anforderung" (TERM_A's synonym) matches TERM_B's term text exactly.
     const linkedChip = await screen.findByTestId("glossary-synonym-link-term-a-0");
@@ -146,6 +156,7 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
     const user = userEvent.setup();
     renderView();
 
+    await user.click(await screen.findByTestId("glossary-row-term-a"));
     const linkedChip = await screen.findByTestId("glossary-synonym-link-term-a-0");
     await user.click(linkedChip);
 
@@ -159,6 +170,7 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
     const user = userEvent.setup();
     renderView();
 
+    await user.click(await screen.findByTestId("glossary-row-term-a"));
     const linkTrigger = await screen.findByTestId("glossary-synonym-linkbtn-term-a-1");
     await user.click(linkTrigger);
 

@@ -134,6 +134,7 @@
   },
   "loading": "Laden...",
   "actions": {
+    "edit": "Bearbeiten",
     "save": "Speichern",
     "saving": "Speichert...",
     "reload": "Neu laden",
@@ -308,13 +309,16 @@
     "impactDirOutgoing": "Downstream (ausgehend)",
     "impactDirIncoming": "Upstream (eingehend)",
     "impactDirBoth": "Beide",
-    "impactRun": "Impact anzeigen",
+    "impactRun": "Impact-Analyse öffnen",
     "impactRunning": "Analysiere...",
     "impactEmpty": "Keine erreichbaren Artefakte.",
     "impactDepth": "Tiefe",
+    "impactHint": "Wähle ein Artefakt und öffne die vollständige Impact-Analyse (interaktiver Baum, beide Richtungen).",
     "requirementsGroup": "Anforderungen",
     "architectureGroup": "Architekturelemente",
-    "other": "Weitere Links"
+    "other": "Weitere Links",
+    "allLinkTypes": "Alle Verknüpfungstypen",
+    "emptyTitle": "Noch keine Verknüpfungen"
   },
   "createTraceLinkDialog": {
     "title": "Trace-Link erstellen",
@@ -391,6 +395,7 @@
     "scopeCountLoading": "Zähle Elemente…",
     "scopeCountReady": "{{count}} Elemente werden eingeschlossen.",
     "scopeCountNeedsArtifact": "Wähle ein Artefakt, um die Anzahl zu sehen.",
+    "allScopes": "Alle Scopes",
     "artifact": "Artefakt",
     "created": "Erstellt",
     "noArtifacts": "Keine Artefakte vorhanden",
@@ -419,7 +424,14 @@
     "loadFailed": "Begriffe konnten nicht geladen werden.",
     "saveFailed": "Begriff konnte nicht gespeichert werden.",
     "deleteFailed": "Begriff konnte nicht gelöscht werden.",
-    "linkSynonymFailed": "Verknüpfung konnte nicht gespeichert werden."
+    "linkSynonymFailed": "Verknüpfung konnte nicht gespeichert werden.",
+    "summary_one": "{{count}} Begriff",
+    "summary_other": "{{count}} Begriffe",
+    "emptyTitle": "Noch keine Begriffe",
+    "emptyDescription": "Glossarbegriffe halten Definitionen, Synonyme und Abkürzungen konsistent.",
+    "selectTitle": "Kein Begriff ausgewählt",
+    "selectTerm": "Wähle einen Begriff aus der Liste, um Details anzuzeigen.",
+    "usages": "Verwendungen"
   },
   "adr": {
     "titlePlaceholder": "ADR-Titel",
@@ -445,7 +457,9 @@
     "summary_one": "{{count}} Bedarf",
     "summary_other": "{{count}} Bedarfe",
     "approvedSuffix": "{{count}} freigegeben",
-    "newNeed": "Neuer Bedarf"
+    "newNeed": "Neuer Bedarf",
+    "emptyTitle": "Noch keine Bedarfe",
+    "emptyDescription": "Stakeholder-Bedarfe beschreiben, was Stakeholder brauchen und warum."
   },
   "deriveRequirements": {
     "title": "Abgeleitete Systemanforderungen (Entwurf)",

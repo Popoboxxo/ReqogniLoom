@@ -146,7 +146,7 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // below for why. Re-measured after the deletion: 1376. Baseline lowered in
 // the same PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1376;
+const STYLE_BRACE_BASELINE = 1359;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

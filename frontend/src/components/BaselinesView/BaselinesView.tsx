@@ -19,7 +19,7 @@
  *   IF-RF-EXT-OUT-001 → GET /api/v1/artifacts/ (artifact picker for create form)
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type BaselineDiff,
@@ -28,6 +28,7 @@ import {
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { EmptyState } from "../shared/EmptyState/EmptyState";
+import { ListToolbar } from "../shared/ListToolbar";
 import type { Artifact } from "../../types";
 import {
   BaselineComparePanel,
@@ -66,6 +67,9 @@ function formatDate(iso: string): string {
 export default function BaselinesView(): JSX.Element {
   const { t } = useTranslation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // #181: list-panel search (by name) + scope filter (ListToolbar).
+  const [listSearch, setListSearch] = useState<string>("");
+  const [scopeFilter, setScopeFilter] = useState<BaselineScope | "">("");
   const [showForm, setShowForm] = useState(false);
   const [formArtifactId, setFormArtifactId] = useState<string>("");
   // REQ-L1-049: scope is now one of {document, project, global}; default
@@ -195,6 +199,17 @@ export default function BaselinesView(): JSX.Element {
     setShowForm((v) => !v);
   }, []);
 
+  // #181: search (by name) + scope filter. Computed unconditionally (rules
+  // of hooks) — must run before the loading/error early returns below.
+  const filteredBaselines = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    return state.baselines.filter((bl) => {
+      if (scopeFilter && bl.scope !== scopeFilter) return false;
+      if (q && !(bl.name || "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [state.baselines, listSearch, scopeFilter]);
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -252,6 +267,12 @@ export default function BaselinesView(): JSX.Element {
   const selectedBaseline =
     state.baselines.find((bl) => bl.id === selectedId) ?? null;
 
+  const hasActiveListControls = Boolean(listSearch || scopeFilter);
+  const resetListFilters = (): void => {
+    setListSearch("");
+    setScopeFilter("");
+  };
+
   return (
     <div
       data-testid="baselines-view"
@@ -296,6 +317,27 @@ export default function BaselinesView(): JSX.Element {
         leftMinWidth={280}
         leftPanel={
           <>
+        <ListToolbar
+          testIdPrefix="baseline-list"
+          searchValue={listSearch}
+          onSearchChange={setListSearch}
+          searchPlaceholder={t("editor.searchPlaceholder", "Search...")}
+          filters={[
+            {
+              id: "scope",
+              allLabel: t("baselines.allScopes", "Alle Scopes"),
+              value: scopeFilter,
+              options: SCOPE_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
+              onChange: (v) => setScopeFilter(v as BaselineScope | ""),
+            },
+          ]}
+          countLabel={
+            hasActiveListControls
+              ? t("editor.filteredCount", { shown: filteredBaselines.length, total: state.baselines.length })
+              : null
+          }
+        />
+
         {state.baselines.length === 0 ? (
           <EmptyState
             variant="empty"
@@ -313,12 +355,14 @@ export default function BaselinesView(): JSX.Element {
               },
             ]}
           />
+        ) : filteredBaselines.length === 0 ? (
+          <EmptyState variant="no-match" testId="baselines-no-match" onResetFilters={resetListFilters} />
         ) : (
           <ul
             data-testid="baseline-list"
             style={{ listStyle: "none", padding: 0, margin: 0 }}
           >
-            {state.baselines.map((bl) => {
+            {filteredBaselines.map((bl) => {
               const isSelected = bl.id === selectedId && !showForm;
               return (
                 <li

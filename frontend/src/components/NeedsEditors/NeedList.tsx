@@ -11,6 +11,7 @@ import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ListToolbar } from '../shared/ListToolbar';
+import { EmptyState } from '../shared/EmptyState';
 import { getStatusBadgeStyle } from '../../utils/statusBadge';
 import { WorkspaceTree } from '../shared/WorkspaceTree';
 import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
@@ -254,18 +255,46 @@ export function NeedList({
         </form>
       )}
 
-      {/* Unified tree navigation — REQ-003 */}
-      {/* REQ-091: enable virtualization for this hot-path list (threshold 100). */}
-      <WorkspaceTree
-        data-testid="need-list-tree"
-        nodes={treeNodes}
-        selectedId={selectedId}
-        onSelect={(id) => navigate(`/needs/${id}`)}
-        showSearch={false}
-        virtualize
-        emptyLabel={t('editor.empty', 'No needs available.')}
-        noMatchesLabel={t('editor.noMatches', 'No matches found.')}
-      />
+      {/* #179: distinct empty vs. no-match states (ch. 13.3) instead of
+          WorkspaceTree's built-in plain-text emptyLabel/noMatchesLabel —
+          "there is nothing" wants a create action, "there is something,
+          just not under this filter" must not offer one. */}
+      {needs.length === 0 ? (
+        <EmptyState
+          variant="empty"
+          testId="need-list-empty"
+          title={t('needs.emptyTitle', 'Noch keine Bedarfe')}
+          description={t(
+            'needs.emptyDescription',
+            'Stakeholder-Bedarfe beschreiben, was Stakeholder brauchen und warum.',
+          )}
+          actions={
+            onCreateClick
+              ? [{ label: t('needs.newNeed', 'Neuer Bedarf'), onClick: onCreateClick, testId: 'need-list-empty-create' }]
+              : undefined
+          }
+        />
+      ) : visibleNeeds.length === 0 ? (
+        <EmptyState
+          variant="no-match"
+          testId="need-list-no-match"
+          onResetFilters={() => {
+            setListSearch('');
+            setStatusFilter('');
+          }}
+        />
+      ) : (
+        // Unified tree navigation — REQ-003
+        // REQ-091: enable virtualization for this hot-path list (threshold 100).
+        <WorkspaceTree
+          data-testid="need-list-tree"
+          nodes={treeNodes}
+          selectedId={selectedId}
+          onSelect={(id) => navigate(`/needs/${id}`)}
+          showSearch={false}
+          virtualize
+        />
+      )}
     </div>
   );
 }
