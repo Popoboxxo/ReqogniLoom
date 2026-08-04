@@ -151,28 +151,10 @@ export function NeedList({
               })
             : null
         }
-        actions={
-          onCreateClick && (
-            <button
-              onClick={onCreateClick}
-              disabled={showCreateForm}
-              data-testid="create-need-btn"
-              style={{
-                background: 'var(--color-primary)',
-                color: 'white',
-                border: 'none',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-2) var(--space-4)',
-                fontSize: 'var(--font-size-sm)',
-                fontWeight: 600,
-                cursor: showCreateForm ? 'not-allowed' : 'pointer',
-                opacity: showCreateForm ? 0.6 : 1,
-              }}
-            >
-              {t('needs.newNeed', 'Neuer Bedarf')}
-            </button>
-          )
-        }
+        // #315: the "Neuer Bedarf" primary action now lives in the
+        // PageHeader (UI_KONZEPT.md §12.2), not in this list toolbar —
+        // matches Adr/Risk/Issue/TestCase editors. `onCreateClick` is still
+        // forwarded (below) for the empty-state's own create action.
       />
 
       {showCreateForm && setShowCreateForm && setNewTitle && onSubmitCreate && (

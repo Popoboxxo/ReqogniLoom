@@ -146,7 +146,25 @@ export function PageHeader({
         )}
       </div>
 
-      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+      {/* issue #314: the actions group previously had no `flexWrap` / `minWidth`
+          of its own — as a nested flex row (row direction, no wrap) its
+          automatic min-width equals the sum of its children's min-content
+          widths, so a route with both a long `primaryAction` label and an
+          `overflowActions` trigger (e.g. Architecture) could refuse to
+          shrink below that sum and run past the viewport's right edge
+          instead of wrapping onto a second line like `.header` itself
+          already does. `flexWrap: "wrap"` + `minWidth: 0` let it reflow
+          the same way. */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+          gap: "var(--space-2)",
+          alignItems: "center",
+          minWidth: 0,
+        }}
+      >
         {secondaryActions.map((action) => (
           <button
             key={action.label}

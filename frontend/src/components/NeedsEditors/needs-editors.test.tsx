@@ -61,14 +61,16 @@ vi.mock("../shared/ArtifactInspector", () => ({
 
 vi.mock("./NeedForm", () => ({ NeedForm: () => null }));
 
-// NeedList is mocked to expose the create button (now in ListToolbar via actions
-// prop) and the resulting create-form state. Button location moved from PageHeader
-// to ListToolbar per user request (improved UX).
+// NeedList is mocked to expose the `onCreateClick` plumbing (still forwarded
+// for the empty-state's own create action, #315) and the resulting
+// create-form state. The visible primary "Neuer Bedarf" action itself now
+// lives in the real (unmocked) PageHeader per UI_KONZEPT.md §12.2 — see
+// `create-need-btn` assertions below, which exercise that button.
 vi.mock("./NeedList", () => ({
   NeedList: (props: { showCreateForm?: boolean; onCreateClick?: () => void }) => (
     <div>
       {props.onCreateClick && (
-        <button data-testid="create-need-btn" onClick={props.onCreateClick}>
+        <button data-testid="needlist-mock-create-trigger" onClick={props.onCreateClick}>
           Create
         </button>
       )}
@@ -96,6 +98,11 @@ describe("NeedsEditors — create guard (REQ-L1-095)", () => {
     render(<NeedsEditors />);
     await userEvent.click(screen.getByTestId("create-need-btn"));
 
+    expect(screen.queryByTestId("create-form-open")).not.toBeInTheDocument();
+
+    // The plumbing NeedList forwards for the empty-state action must stay
+    // guarded the same way.
+    await userEvent.click(screen.getByTestId("needlist-mock-create-trigger"));
     expect(screen.queryByTestId("create-form-open")).not.toBeInTheDocument();
   });
 
