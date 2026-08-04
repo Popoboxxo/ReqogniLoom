@@ -185,7 +185,8 @@
     "openItems": "Anforderungsentwürfe (Entwurf)",
     "preset": "Preset",
     "empty": "Kein Workspace gefunden.",
-    "changeMode": "SE-Modus in Workspace-Einstellungen ändern"
+    "changeMode": "SE-Modus in Workspace-Einstellungen ändern",
+    "summary": "{{count}} Workspace(s) verfügbar."
   },
   "editor": {
     "title": "Titel",
@@ -593,7 +594,8 @@
         "workspace_to_glossary": "Workspace → Glossarbegriffe",
         "decision_to_adr": "Entscheidung → ADR"
       }
-    }
+    },
+    "pageSummary": "Workspace-Konfiguration: Preset, Traceability, Sichtbarkeit, LLM-Einstellungen und Workflows."
   },
   "categories": {
     "stakeholder": "Stakeholder-Anforderung",
@@ -664,7 +666,8 @@
     "progress": "CSV-Datei wird verarbeitet...",
     "success": "{{count}} Zeilen erfolgreich importiert",
     "failed": "Import fehlgeschlagen",
-    "errorGeneric": "Import fehlgeschlagen"
+    "errorGeneric": "Import fehlgeschlagen",
+    "pageSummary": "Massendaten per CSV importieren oder Requirements, Bedarfe und Architekturelemente exportieren."
   },
   "icds": {
     "title": "Schnittstellen-Kontrolldokumente (ICDs)",
@@ -797,7 +800,8 @@
       "warning": "Warnung",
       "critical": "Kritisch",
       "neutral": "Info"
-    }
+    },
+    "pageSummary": "SE-Prozess-Kennzahlen: Traceability-Coverage, Volatilität, Workflow-Lücken und Risiken auf einen Blick."
   },
   "apiKeys": {
     "title": "Persönliche Zugriffstoken",
@@ -912,7 +916,8 @@
     "adopt": "Übernehmen",
     "adopting": "Wird übernommen...",
     "adoptSuccess": "Behoben — die Korrektur wurde angewendet.",
-    "modify": "Anpassen"
+    "modify": "Anpassen",
+    "pageSummary": "Automatisierte Regelprüfung für Requirements und Architektur, gruppiert nach Regel mit Blocker-/Warnungs-Einstufung."
   },
   "archDecompose": {
     "trigger": "KI-Zerlegung",
@@ -1195,5 +1200,11 @@
     "spineHere": "Die Station, auf der das gerade geöffnete Element sitzt.",
     "spineCount": "Anzahl der Artefakte auf dieser Station beziehungsweise der verknüpften Testfälle. Anklicken öffnet die Liste.",
     "spineEmpty": "Auf dieser Station fehlt eine Verknüpfung — eine Lücke in der Nachverfolgbarkeit."
+  },
+  "systemSettings": {
+    "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards."
+  },
+  "profile": {
+    "pageSummary": "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen."
   }
 }

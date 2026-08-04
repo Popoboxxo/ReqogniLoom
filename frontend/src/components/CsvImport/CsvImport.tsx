@@ -24,6 +24,7 @@ import {
   type ReqifImportResult,
 } from "../../api/import";
 import { exportApi, type ExportEntityType } from "../../api/export";
+import { PageHeader } from "../shared/PageHeader";
 
 // ---------------------------------------------------------------------------
 // Entity type options
@@ -238,16 +239,13 @@ export function CsvImport(): JSX.Element {
       data-testid="csv-import-page"
       style={{ maxWidth: "640px" }}
     >
-      <h1
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          marginBottom: "var(--space-6)",
-        }}
-      >
-        {t("import.title", "CSV Import")}
-      </h1>
+      <PageHeader
+        title={t("import.title", "CSV Import")}
+        summary={t(
+          "import.pageSummary",
+          "Massendaten per CSV importieren oder Requirements, Bedarfe und Architekturelemente exportieren.",
+        )}
+      />
 
       {/* Entity type selector */}
       <section

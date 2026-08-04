@@ -344,8 +344,8 @@ export default function ArchitectureEditors(): JSX.Element {
           ]}
           countLabel={
             listSearch || statusFilter
-              ? `${filteredElements.length} / ${elements.length}`
-              : null
+              ? t('editor.filteredCount', { shown: filteredElements.length, total: elements.length })
+              : String(elements.length)
           }
         />
       </div>

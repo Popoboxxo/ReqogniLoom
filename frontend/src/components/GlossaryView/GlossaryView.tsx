@@ -399,7 +399,7 @@ export default function GlossaryView(): JSX.Element {
             onChange: (v) => setFilterMode(v as FilterMode),
           },
         ]}
-        countLabel={hasActiveListControls ? t("editor.filteredCount", { shown: filteredTerms.length, total: terms.length }) : null}
+        countLabel={hasActiveListControls ? t("editor.filteredCount", { shown: filteredTerms.length, total: terms.length }) : String(terms.length)}
       />
 
       {loadError && (

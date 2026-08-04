@@ -36,6 +36,7 @@ import { LlmSettingsSection } from "./LlmSettingsSection";
 import { AiPromptsSection } from "./AiPromptsSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
 import { ALL_LINK_TYPES, getLinkTypeLabel } from "../../constants/traceLinkLabels";
+import { PageHeader } from "../shared/PageHeader";
 
 const PRESET_FEATURES: Record<WorkspacePreset, { baselines: boolean; changeReason: string; workflow: string }> = {
   minimal:  { baselines: false, changeReason: "optional", workflow: "Basic (Draft/Approved)" },
@@ -199,7 +200,7 @@ export default function WorkspaceSettings(): JSX.Element {
   if (!isAdmin) {
     return (
       <div style={{ padding: "var(--space-6)", maxWidth: "640px" }}>
-        <h1>{t("nav.settings")}</h1>
+        <PageHeader title={t("nav.settings")} />
         <p style={{ color: "var(--color-warning)" }}>
           {t("settings.adminOnly", "You must be an admin to view or edit Workspace Settings. Please visit the Profile dialog for personal preferences.")}
         </p>
@@ -219,9 +220,13 @@ export default function WorkspaceSettings(): JSX.Element {
 
   return (
     <div data-testid="workspace-settings" style={{ maxWidth: "860px", margin: "0 auto", padding: "var(--space-6)" }}>
-      <h1 style={{ fontSize: "var(--font-size-2xl)", fontWeight: 700, color: "var(--color-text)", marginBottom: "var(--space-5)" }}>
-        {t("nav.settings")}
-      </h1>
+      <PageHeader
+        title={t("nav.settings")}
+        summary={t(
+          "settings.pageSummary",
+          "Workspace-Konfiguration: Preset, Traceability, Sichtbarkeit, LLM-Einstellungen und Workflows.",
+        )}
+      />
 
       {/* Tab navigation (REQ-015) */}
       <div

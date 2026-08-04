@@ -19,6 +19,7 @@ import { useDashboardData } from "./useDashboardData";
 import { WorkspaceCard } from "./WorkspaceCard";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { WorkspaceWithMetrics } from "../../types";
+import { PageHeader } from "../shared/PageHeader";
 
 export default function DashboardViews(): JSX.Element {
   const { t } = useTranslation();
@@ -99,17 +100,10 @@ export default function DashboardViews(): JSX.Element {
 
   return (
     <div>
-      <h1
-        style={{
-          fontSize: "var(--font-size-2xl)",
-          fontWeight: 700,
-          color: "var(--color-text)",
-          marginTop: 0,
-          marginBottom: "var(--space-6)",
-        }}
-      >
-        {t("nav.dashboard")}
-      </h1>
+      <PageHeader
+        title={t("nav.dashboard")}
+        summary={t("dashboard.summary", { count: workspaces.length })}
+      />
       {workspaces.length === 0 ? (
         <p
           style={{

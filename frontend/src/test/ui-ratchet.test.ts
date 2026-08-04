@@ -156,8 +156,17 @@ function countNonCommentOccurrences(text: string, pattern: RegExp): number {
 // style constants instead of per-element object literals. Re-measured after
 // that change: 1316. Baseline lowered in the same PR per the ratchet rule
 // above.
+//
+// Header unification (audit-2026-07 follow-up, no issue number): replaced
+// the bespoke inline-styled `<h1>` (plus, for MetricsDashboard and the
+// Audit dashboard, the wrapping flex row that combined the heading with the
+// filter/action controls) on WorkspaceSettings, SystemSettings,
+// UserProfileSettings, MetricsDashboard, CsvImport, DashboardViews and the
+// Audit dashboard with `<PageHeader>`, matching the ~21 already-migrated
+// artifact routes. Re-measured after that change: 1307. Baseline lowered in
+// the same PR per the ratchet rule above.
 const STYLE_BRACE_PATTERN = /style=\{\{/g;
-const STYLE_BRACE_BASELINE = 1316;
+const STYLE_BRACE_BASELINE = 1307;
 
 // --- (b) Hex color literals in .tsx files (project-wide, no test files) ---
 //

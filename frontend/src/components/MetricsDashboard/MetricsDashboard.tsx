@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { metricsApi, type MetricsResult } from "../../api/metrics";
+import { PageHeader } from "../shared/PageHeader";
 
 // ---------------------------------------------------------------------------
 // Tile model
@@ -420,118 +421,107 @@ export default function MetricsDashboard(): JSX.Element {
 
   return (
     <div data-testid="metrics-dashboard">
+      <PageHeader
+        title={t("metrics.title", "SE Process Metrics")}
+        summary={t(
+          "metrics.pageSummary",
+          "SE-Prozess-Kennzahlen: Traceability-Coverage, Volatilität, Workflow-Lücken und Risiken auf einen Blick.",
+        )}
+      />
+
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           marginBottom: "var(--space-6)",
-          gap: "var(--space-3)",
+          gap: "var(--space-2)",
           flexWrap: "wrap",
         }}
       >
-        <h1
-          style={{
-            fontSize: "var(--font-size-2xl)",
-            fontWeight: 700,
-            color: "var(--color-text)",
-            margin: 0,
-          }}
-        >
-          {t("metrics.title", "SE Process Metrics")}
-        </h1>
-
-        <div
+        <label
           style={{
             display: "flex",
             alignItems: "center",
             gap: "var(--space-2)",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-muted)",
           }}
         >
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-              fontSize: "var(--font-size-sm)",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            {t("metrics.filter", "Filter")}
-            <select
-              data-testid="metrics-filter-select"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              disabled={isLoading}
-              style={{
-                padding: "var(--space-1) var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
-                fontSize: "var(--font-size-sm)",
-                fontFamily: "inherit",
-              }}
-            >
-              <option value="">{t("metrics.filterAll", "All")}</option>
-              <option value="coverage">{t("metrics.coverage", "Coverage")}</option>
-              <option value="volatility">{t("metrics.volatility", "Volatility")}</option>
-              <option value="workflow_gaps">
-                {t("metrics.workflowGap", "Workflow Gap")}
-              </option>
-              <option value="open_risks">{t("metrics.openRisks", "Open Risks")}</option>
-            </select>
-          </label>
-
-          <button
-            type="button"
-            data-testid="metrics-help-toggle-btn"
-            onClick={() => setHelpMode((h) => !h)}
-            title={helpMode ? "Hide help" : "Show help"}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 28,
-              height: 28,
-              background: helpMode ? "var(--color-primary)" : "transparent",
-              color: helpMode ? "white" : "var(--color-text-muted)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "50%",
-              cursor: "pointer",
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
-              fontFamily: "inherit",
-              padding: 0,
-              transition: "var(--transition-fast, 0.15s ease)",
-            }}
-          >
-            ?
-          </button>
-
-          <button
-            type="button"
-            data-testid="metrics-refresh-btn"
-            onClick={() => void load()}
+          {t("metrics.filter", "Filter")}
+          <select
+            data-testid="metrics-filter-select"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
             disabled={isLoading}
             style={{
-              padding: "var(--space-2) var(--space-4)",
-              background: "var(--color-primary)",
-              color: "white",
-              border: "none",
+              padding: "var(--space-1) var(--space-2)",
               borderRadius: "var(--radius-md)",
-              cursor: isLoading ? "not-allowed" : "pointer",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface)",
+              color: "var(--color-text)",
               fontSize: "var(--font-size-sm)",
-              fontWeight: 600,
               fontFamily: "inherit",
-              opacity: isLoading ? 0.6 : 1,
             }}
           >
-            {isLoading
-              ? t("metrics.refreshing", "Refreshing...")
-              : t("metrics.refresh", "Refresh")}
-          </button>
-        </div>
+            <option value="">{t("metrics.filterAll", "All")}</option>
+            <option value="coverage">{t("metrics.coverage", "Coverage")}</option>
+            <option value="volatility">{t("metrics.volatility", "Volatility")}</option>
+            <option value="workflow_gaps">
+              {t("metrics.workflowGap", "Workflow Gap")}
+            </option>
+            <option value="open_risks">{t("metrics.openRisks", "Open Risks")}</option>
+          </select>
+        </label>
+
+        <button
+          type="button"
+          data-testid="metrics-help-toggle-btn"
+          onClick={() => setHelpMode((h) => !h)}
+          title={helpMode ? "Hide help" : "Show help"}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 28,
+            height: 28,
+            background: helpMode ? "var(--color-primary)" : "transparent",
+            color: helpMode ? "white" : "var(--color-text-muted)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "50%",
+            cursor: "pointer",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 600,
+            fontFamily: "inherit",
+            padding: 0,
+            transition: "var(--transition-fast, 0.15s ease)",
+          }}
+        >
+          ?
+        </button>
+
+        <button
+          type="button"
+          data-testid="metrics-refresh-btn"
+          onClick={() => void load()}
+          disabled={isLoading}
+          style={{
+            padding: "var(--space-2) var(--space-4)",
+            background: "var(--color-primary)",
+            color: "white",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            cursor: isLoading ? "not-allowed" : "pointer",
+            fontSize: "var(--font-size-sm)",
+            fontWeight: 600,
+            fontFamily: "inherit",
+            opacity: isLoading ? 0.6 : 1,
+          }}
+        >
+          {isLoading
+            ? t("metrics.refreshing", "Refreshing...")
+            : t("metrics.refresh", "Refresh")}
+        </button>
       </div>
 
       {error && (

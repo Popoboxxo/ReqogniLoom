@@ -185,7 +185,8 @@
     "openItems": "Draft Requirements",
     "preset": "Preset",
     "empty": "No workspace found.",
-    "changeMode": "Change SE mode in workspace settings"
+    "changeMode": "Change SE mode in workspace settings",
+    "summary": "{{count}} workspace(s) available."
   },
   "editor": {
     "title": "Title",
@@ -593,7 +594,8 @@
         "workspace_to_glossary": "Workspace → Glossary Terms",
         "decision_to_adr": "Decision → ADR"
       }
-    }
+    },
+    "pageSummary": "Workspace configuration: preset, traceability, visibility, LLM settings and workflows."
   },
   "categories": {
     "stakeholder": "Stakeholder Requirement",
@@ -664,7 +666,8 @@
     "progress": "Processing CSV file...",
     "success": "Successfully imported {{count}} rows",
     "failed": "Import failed",
-    "errorGeneric": "Import failed"
+    "errorGeneric": "Import failed",
+    "pageSummary": "Bulk-import data via CSV, or export requirements, needs and architecture elements."
   },
   "icds": {
     "title": "Interface Control Documents",
@@ -797,7 +800,8 @@
       "warning": "Warning",
       "critical": "Critical",
       "neutral": "Info"
-    }
+    },
+    "pageSummary": "SE process metrics: traceability coverage, volatility, workflow gaps and risks at a glance."
   },
   "apiKeys": {
     "title": "Personal Access Tokens",
@@ -912,7 +916,8 @@
     "adopt": "Adopt",
     "adopting": "Adopting...",
     "adoptSuccess": "Resolved — the correction was applied.",
-    "modify": "Modify"
+    "modify": "Modify",
+    "pageSummary": "Automated rule checks for requirements and architecture, grouped by rule with blocker/warning severity."
   },
   "archDecompose": {
     "trigger": "AI Decompose",
@@ -1195,5 +1200,11 @@
     "spineHere": "The station the currently opened element sits on.",
     "spineCount": "Number of artifacts on this station, or of the linked test cases. Clicking opens the list.",
     "spineEmpty": "A link is missing on this station — a gap in traceability."
+  },
+  "systemSettings": {
+    "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults."
+  },
+  "profile": {
+    "pageSummary": "Personal settings: profile, personal access tokens and visibility of optional artifact types."
   }
 }
