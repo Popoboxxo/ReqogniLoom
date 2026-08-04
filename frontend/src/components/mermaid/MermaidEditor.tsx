@@ -25,6 +25,7 @@ import { useTranslation } from "react-i18next";
 import { diagramsApi } from "../../api/diagrams";
 import type { MermaidPreviewResponse } from "../../types";
 import styles from "../../styles/components/MermaidEditor.module.css";
+import { sanitizeSvg } from "../../utils/sanitizeSvg";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -264,12 +265,17 @@ export function MermaidEditor({
           startOnLoad: false,
           theme: "default",
           securityLevel: "strict",
+          // Labels must be plain SVG <text>: the rendered markup passes
+          // through sanitizeSvg, which drops <foreignObject> (mXSS vector).
+          htmlLabels: false,
+          flowchart: { htmlLabels: false },
         });
 
         const id = `mermaid-preview-${Date.now()}`;
         const { svg } = await mermaid.render(id, source);
         if (!cancelled) {
-          setPreviewSvg(svg);
+          // Rendered via dangerouslySetInnerHTML below — sanitise first.
+          setPreviewSvg(sanitizeSvg(svg));
           setValidationError("");
         }
       } catch (err) {
