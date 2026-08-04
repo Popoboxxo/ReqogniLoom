@@ -734,14 +734,21 @@
     "notFound": "Diagram not found.",
     "traceability": "Traceability",
     "noTraceLinks": "No artifacts are linked to this diagram yet.",
-    "type.block": "Block Diagram",
-    "type.flow": "Flow Diagram",
-    "type.context": "Context Diagram",
-    "type.canvas": "Canvas Drawing",
-    "type.mermaid": "Mermaid Diagram",
     "viewMode": "View mode",
-    "viewMode.code": "Code",
-    "viewMode.visual": "Visual"
+    "typeLabels": {
+      "block": "Block Diagram",
+      "flow": "Flow Diagram",
+      "context": "Context Diagram",
+      "canvas": "Canvas Drawing",
+      "mermaid": "Mermaid Diagram"
+    },
+    "viewModeLabels": {
+      "code": "Code",
+      "visual": "Visual"
+    },
+    "typeUnknown": "Other",
+    "openEditor": "Open editor",
+    "emptyCanvas": "This canvas is still empty."
   },
   "canvas": {
     "toolbar": {

@@ -734,14 +734,21 @@
     "notFound": "Diagramm nicht gefunden.",
     "traceability": "Traceability",
     "noTraceLinks": "Keine Artefakte mit diesem Diagramm verknüpft.",
-    "type.block": "Block-Diagramm",
-    "type.flow": "Fluss-Diagramm",
-    "type.context": "Kontext-Diagramm",
-    "type.canvas": "Canvas-Zeichnung",
-    "type.mermaid": "Mermaid-Diagramm",
     "viewMode": "Ansicht",
-    "viewMode.code": "Code",
-    "viewMode.visual": "Visuell"
+    "typeLabels": {
+      "block": "Block-Diagramm",
+      "flow": "Fluss-Diagramm",
+      "context": "Kontext-Diagramm",
+      "canvas": "Canvas-Zeichnung",
+      "mermaid": "Mermaid-Diagramm"
+    },
+    "viewModeLabels": {
+      "code": "Code",
+      "visual": "Visuell"
+    },
+    "typeUnknown": "Sonstige",
+    "openEditor": "Editor öffnen",
+    "emptyCanvas": "Diese Zeichenfläche ist noch leer."
   },
   "canvas": {
     "toolbar": {

@@ -9,11 +9,27 @@
  * Right-panel detail view for a single diagram. Data (detail row, persisted
  * canvas, save/delete) is owned by useDiagramDetail; this component keeps only
  * view state (edit mode, source draft, Code/Visual toggle, mermaid render).
+ *
+ * Phase 6 / decision E2-D4 — preview instead of inline edit detail: the pane
+ * answers "what does it look like?", not "how do I change it?". Formats that
+ * own a fullscreen editor route render read-only here and their primary
+ * action navigates to that route (D3: /diagrams/:id/canvas and
+ * /diagrams/:id/mermaid stay fullscreen, without the list):
+ *   - canvas_stroke -> server-rendered SVG export (IF-L1-060), NOT a mounted
+ *     <CanvasEditor>. Mounting the editable Fabric surface in a 40%-wide
+ *     preview pane was both the wrong affordance and the reason this presenter
+ *     needed a canvas/WebGL stub in every test that rendered it.
+ *   - mermaid -> client-side mermaid.render of the persisted source, with the
+ *     Code/Visual toggle kept as a read-only view switch (REQ-L1-057).
+ * Formats with NO fullscreen editor (plantuml, json) keep the inline source
+ * editor: removing it would drop the only way to edit them at all, which
+ * ch. 4 (funktionale Untergrenze) forbids. That fallback is the only path on
+ * which `isEditing` can still become true.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CanvasEditor } from "../canvas/CanvasEditor";
+import { useNavigate } from "react-router-dom";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
@@ -23,6 +39,7 @@ import {
   formCancelButtonStyle,
   formDangerButtonStyle,
   formPrimaryButtonStyle,
+  previewBoxStyle,
 } from "./diagram-view-shared";
 
 export interface DiagramDetailViewProps {
@@ -37,11 +54,11 @@ export function DiagramDetailView({
   onChanged,
 }: DiagramDetailViewProps): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const {
     detail,
     isLoading,
-    canvasJson,
-    canvasStrokes,
+    canvasSvg,
     isCanvasLoading,
     saveContent,
     deleteDiagram,
@@ -87,8 +104,21 @@ export function DiagramDetailView({
     };
   }, [detail]);
 
+  const isCanvas = detail?.payload_format === "canvas_stroke";
   const canRenderVisual = detail?.payload_format === "mermaid";
   const activeSource = isEditing ? editContent : detail?.content ?? "";
+
+  /**
+   * Fullscreen editor route for this payload format, or null when the format
+   * has none. Keyed on `payload_format`, not `diagram_type`: the editors are
+   * bound to the payload endpoints (canvas-strokes / mermaid-source), and a
+   * diagram of type "flow" may well carry a mermaid payload.
+   */
+  const editorRoute: string | null = isCanvas
+    ? `/diagrams/${diagramId}/canvas`
+    : canRenderVisual
+      ? `/diagrams/${diagramId}/mermaid`
+      : null;
 
   // Client-side Mermaid rendering for the Visual view.
   useEffect(() => {
@@ -237,7 +267,18 @@ export function DiagramDetailView({
             marginBottom: "var(--space-4)",
           }}
         >
-          {!isEditing ? (
+          {/* D4: for formats with a fullscreen editor the primary action
+              navigates there instead of turning this pane into a form. */}
+          {editorRoute ? (
+            <button
+              type="button"
+              data-testid="diagram-open-editor-btn"
+              onClick={() => navigate(editorRoute)}
+              style={formPrimaryButtonStyle}
+            >
+              {t("diagrams.openEditor", "Open editor")}
+            </button>
+          ) : !isEditing ? (
             <button
               type="button"
               data-testid="diagram-edit-btn"
@@ -246,8 +287,6 @@ export function DiagramDetailView({
                 setViewMode("code");
               }}
               style={formPrimaryButtonStyle}
-              // For canvas diagrams the button opens the canvas editor; hide when already in canvas mode
-              hidden={detail.payload_format === "canvas_stroke"}
             >
               {t("diagrams.edit", "Edit Source")}
             </button>
@@ -298,29 +337,22 @@ export function DiagramDetailView({
           </p>
         )}
 
-        {/* Canvas diagrams use the CanvasEditor surface (REQ-L2-DS-006, IF-L1-058/060) */}
-        {detail.payload_format === "canvas_stroke" ? (
-          <div
-            data-testid="diagram-canvas-section"
-            style={{
-              height: "calc(100vh - 260px)",
-              minHeight: "560px",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
+        {/* D4: canvas diagrams show the server-rendered SVG export
+            (REQ-L2-DS-006, IF-L1-060) read-only; drawing happens on the
+            fullscreen /diagrams/:id/canvas route (D3). */}
+        {isCanvas ? (
+          <div data-testid="diagram-canvas-section" style={previewBoxStyle}>
             {isCanvasLoading ? (
               <p role="status">{t("loading", "Loading...")}</p>
-            ) : (
-              <CanvasEditor
-                diagramId={diagramId}
-                initialCanvasJson={canvasJson}
-                initialStrokes={canvasStrokes}
-                onAutoSave={(strokes) => {
-                  // Optimistically mark diagram as having saved content
-                  console.debug("Canvas auto-saved", strokes.length, "strokes");
-                }}
+            ) : canvasSvg ? (
+              <div
+                data-testid="diagram-canvas-svg"
+                dangerouslySetInnerHTML={{ __html: canvasSvg }}
               />
+            ) : (
+              <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+                {t("diagrams.emptyCanvas", "This canvas is still empty.")}
+              </p>
             )}
           </div>
         ) : (
@@ -341,7 +373,7 @@ export function DiagramDetailView({
                   ...(viewMode === "code" ? formPrimaryButtonStyle : {}),
                 }}
               >
-                {t("diagrams.viewMode.code", "Code")}
+                {t("diagrams.viewModeLabels.code", "Code")}
               </button>
               <button
                 type="button"
@@ -353,23 +385,12 @@ export function DiagramDetailView({
                   ...(viewMode === "visual" ? formPrimaryButtonStyle : {}),
                 }}
               >
-                {t("diagrams.viewMode.visual", "Visual")}
+                {t("diagrams.viewModeLabels.visual", "Visual")}
               </button>
             </div>
           )}
           {canRenderVisual && viewMode === "visual" ? (
-            <div
-              data-testid="diagram-visual-preview"
-              style={{
-                padding: "var(--space-4)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--color-border)",
-                background: "var(--color-surface-raised)",
-                overflow: "auto",
-                maxHeight: "480px",
-                minHeight: "160px",
-              }}
-            >
+            <div data-testid="diagram-visual-preview" style={previewBoxStyle}>
               {renderError ? (
                 <p role="alert" data-testid="diagram-visual-error" style={{ color: "var(--color-danger)", margin: 0 }}>
                   {renderError}
