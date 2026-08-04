@@ -39,6 +39,7 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 from django.db import IntegrityError
 
@@ -53,7 +54,12 @@ from persistence.models import (
 )
 
 from application.base import ServiceBase, ValidationError
-from application.prompt_template_versioning import publish_new_version
+from application.prompt_template_versioning import (
+    deactivate_scope,
+    get_active_template,
+    list_active_templates,
+    publish_new_version,
+)
 
 # Fields a client may write onto the LlmSettings row.
 _LLM_WRITABLE_FIELDS = ("provider", "base_url", "model_name", "api_key")
@@ -302,6 +308,221 @@ class SettingsService(ServiceBase):
                         f"Could not reset '{name}' to its factory default: {exc}"
                     ) from exc
         return self._effective_prompt_template(ctx)
+
+    # ---- PromptTemplate slots (issue #119) --------------------------------
+    #
+    # The flat facade above is deliberately frozen at its historical shape:
+    # 4 slots, tenant-global scope only. That is exactly the gap issue #119
+    # reports -- the 4 further slots the AI-derivation flows use
+    # (``testcase_derive``, ``architecture_to_risk``, ``workspace_to_glossary``,
+    # ``decision_to_adr``) were unreachable from REST, and workspace-level
+    # overrides -- which ``AiDerivationService._get_template_content`` has
+    # honoured since Phase 4 -- were reachable only via MCP.
+    #
+    # Rather than widening the flat object (which cannot express "is this
+    # value a workspace override, a tenant-global default, or the factory
+    # text?"), the slot API below is a second, per-slot representation over
+    # the same rows. Both write through ``publish_new_version``, so the
+    # model's own one-active-row-per-scope mutex still serialises them.
+
+    @staticmethod
+    def _all_prompt_defaults() -> dict[str, str]:
+        """Return the canonical factory-default registry for every slot.
+
+        Imported lazily from ``ai_derivation_service`` because that module is
+        the single canonical registry for every derive-flow prompt name (see
+        its ``PROMPT_TEMPLATE_DEFAULTS`` comment) while it also imports this
+        module — a module-level import here would close that cycle.
+        """
+        from application.ai_derivation_service import (
+            PROMPT_TEMPLATE_DEFAULTS as _ALL_DEFAULTS,
+        )
+
+        return dict(_ALL_DEFAULTS)
+
+    @staticmethod
+    def prompt_slot_names() -> list[str]:
+        """Return the names of every factory-known prompt slot."""
+        return list(SettingsService._all_prompt_defaults())
+
+    @staticmethod
+    def _build_slot_state(
+        name: str,
+        *,
+        global_row: PromptTemplate | None,
+        workspace_row: PromptTemplate | None,
+        factory_default: str | None,
+    ) -> dict[str, Any]:
+        """Resolve one slot's per-scope rows into the wire representation.
+
+        Args:
+            name:            Template name / slot.
+            global_row:      Active tenant-global row, or ``None``.
+            workspace_row:   Active workspace-override row, or ``None``.
+            factory_default: Factory text for ``name``, or ``None`` for a
+                             custom name introduced via MCP that has no
+                             factory default.
+
+        Returns:
+            A dict with the per-scope contents plus the resolved
+            ``effective_content``/``effective_scope`` (``"workspace"`` >
+            ``"global"`` > ``"factory"``), mirroring
+            ``AiDerivationService._get_template_content``'s fallback chain.
+        """
+        if workspace_row is not None:
+            effective, scope = workspace_row.content, "workspace"
+        elif global_row is not None:
+            effective, scope = global_row.content, "global"
+        else:
+            effective, scope = (factory_default or ""), "factory"
+
+        return {
+            "name": name,
+            "factory_default": factory_default,
+            "global_content": global_row.content if global_row else None,
+            "global_version": global_row.version if global_row else None,
+            "workspace_content": (
+                workspace_row.content if workspace_row else None
+            ),
+            "workspace_version": (
+                workspace_row.version if workspace_row else None
+            ),
+            "has_workspace_override": workspace_row is not None,
+            "effective_content": effective,
+            "effective_scope": scope,
+        }
+
+    def _slot_state(
+        self,
+        ctx: AuthContext,
+        name: str,
+        *,
+        workspace_id: UUID | None,
+        factory_default: str | None,
+    ) -> dict[str, Any]:
+        """Fetch one slot's rows and resolve them (single-slot read path)."""
+        return self._build_slot_state(
+            name,
+            global_row=get_active_template(
+                tenant_id=ctx.tenant_id, name=name, workspace_id=None
+            ),
+            workspace_row=(
+                get_active_template(
+                    tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id
+                )
+                if workspace_id is not None
+                else None
+            ),
+            factory_default=factory_default,
+        )
+
+    def list_prompt_slots(
+        self, ctx: AuthContext, *, workspace_id: UUID | None = None
+    ) -> list[dict[str, Any]]:
+        """Return every prompt slot with its per-scope state, sorted by name.
+
+        The result is the union of the factory slots and any additional
+        names that already have an active row for this tenant — templates
+        created under a custom name via MCP (``prompt_template.create``) would
+        otherwise be invisible to (and silently un-editable from) the UI.
+
+        Args:
+            ctx:          Caller's auth context.
+            workspace_id: Workspace whose overrides to report, or ``None`` for
+                          the tenant-global view only.
+        """
+        self._set_tenant_context(ctx)
+        defaults = self._all_prompt_defaults()
+        # One query for every active row of the tenant, then resolved in
+        # memory: per-slot lookups would be 2 queries x slot count for a page
+        # that renders all of them at once. workspace_id=None here means "no
+        # workspace filter" (see list_active_templates' docstring), which is
+        # what we want -- a custom name may exist only as a workspace row.
+        rows = list_active_templates(tenant_id=ctx.tenant_id)
+        global_rows = {r.name: r for r in rows if r.workspace_id is None}
+        workspace_rows = (
+            {r.name: r for r in rows if r.workspace_id == workspace_id}
+            if workspace_id is not None
+            else {}
+        )
+        names = set(defaults) | {r.name for r in rows}
+        return [
+            self._build_slot_state(
+                name,
+                global_row=global_rows.get(name),
+                workspace_row=workspace_rows.get(name),
+                factory_default=defaults.get(name),
+            )
+            for name in sorted(names)
+        ]
+
+    def set_prompt_slot(
+        self,
+        ctx: AuthContext,
+        *,
+        name: str,
+        content: str,
+        workspace_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        """Publish a new active version of ``name`` for the given scope.
+
+        Args:
+            ctx:          Caller's auth context.
+            content:      New prompt body.
+            name:         Template name / slot.
+            workspace_id: Workspace to override for, or ``None`` to write the
+                          tenant-global default.
+
+        Raises:
+            ValidationError: A concurrent writer published for the same scope
+                first (the model's own mutex rejected this write).
+        """
+        self._set_tenant_context(ctx)
+        try:
+            publish_new_version(
+                tenant_id=ctx.tenant_id,
+                name=name,
+                content=content,
+                workspace_id=workspace_id,
+            )
+        except IntegrityError as exc:
+            raise ValidationError(
+                f"Could not publish a new version for '{name}': {exc}"
+            ) from exc
+        return self._slot_state(
+            ctx,
+            name,
+            workspace_id=workspace_id,
+            factory_default=self._all_prompt_defaults().get(name),
+        )
+
+    def clear_prompt_slot(
+        self, ctx: AuthContext, *, name: str, workspace_id: UUID | None = None
+    ) -> dict[str, Any]:
+        """Drop the active override for ``name`` at the given scope.
+
+        Deactivates (never deletes) the scope's active row so the resolution
+        chain falls through to the next level: clearing a workspace scope
+        restores the tenant-global default, clearing the tenant-global scope
+        restores the factory text. Clearing a scope that has no active row is
+        a no-op, not an error — it is already at its inherited value.
+
+        Args:
+            ctx:          Caller's auth context.
+            name:         Template name / slot.
+            workspace_id: Workspace whose override to drop, or ``None`` for
+                          the tenant-global row.
+        """
+        self._set_tenant_context(ctx)
+        deactivate_scope(
+            tenant_id=ctx.tenant_id, name=name, workspace_id=workspace_id
+        )
+        return self._slot_state(
+            ctx,
+            name,
+            workspace_id=workspace_id,
+            factory_default=self._all_prompt_defaults().get(name),
+        )
 
     # ---- ReviewPolicy (Phase 5, REQ-L2-RV-001) -----------------------------
     #

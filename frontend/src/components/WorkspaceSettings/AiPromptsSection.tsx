@@ -1,268 +1,409 @@
-import { useState } from "react";
+/**
+ * ARCH-L1-001 ReactFrontend — AI prompt template admin section (REQ-L2-PT-001).
+ *
+ * leaf_id: COMP-RF-001 (WorkspaceSettings — admin configuration)
+ * req_id:  REQ-L2-PT-001 (Tenant-scoped editable LLM prompt templates)
+ *
+ * Issue #119: this section previously read/wrote a flat `workspace.ai_prompts`
+ * blob with two hand-written level slots, while the backend had long since
+ * moved to a named, versioned `PromptTemplate` model covering every
+ * AI-derivation slot with a global-default + per-workspace-override
+ * resolution. It now renders one editor per slot the backend reports —
+ * including the four (`testcase_derive`, `architecture_to_risk`,
+ * `workspace_to_glossary`, `decision_to_adr`) that were previously reachable
+ * only via MCP — and can write either scope:
+ *
+ *   - Scope "workspace": saving publishes a workspace override; resetting
+ *     deletes it so the slot falls back to the tenant-global default.
+ *   - Scope "global": saving publishes the tenant-wide default; resetting
+ *     falls back to the factory text shipped with the product.
+ *
+ * The scope switch exists because the previous section was the only UI able to
+ * edit tenant-wide prompts; dropping to workspace-only editing would have
+ * traded one gap for another.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Workspace } from "../../types";
+import {
+  promptTemplatesApi,
+  KNOWN_PROMPT_SLOTS,
+  type PromptSlotState,
+} from "../../api/prompt-templates";
+import { extractErrorMessage } from "../../api/client";
 
 interface Props {
-  workspace: Workspace;
-  onSavePrompts: (prompts: Record<string, string>) => Promise<void>;
+  /** Workspace whose overrides are edited when scope is "workspace". */
+  workspaceId: string;
 }
 
-export function AiPromptsSection({ workspace, onSavePrompts }: Props): JSX.Element {
+/** Which scope the admin is currently editing. */
+type EditScope = "workspace" | "global";
+
+const sectionStyle: React.CSSProperties = {
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-lg)",
+  padding: "var(--space-5)",
+  marginBottom: "var(--space-5)",
+  boxShadow: "var(--shadow-card)",
+};
+
+const headingStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-lg)",
+  fontWeight: 600,
+  color: "var(--color-text)",
+  margin: "0 0 var(--space-4) 0",
+};
+
+const hintStyle: React.CSSProperties = {
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-muted)",
+  marginBottom: "var(--space-4)",
+};
+
+const fieldLabelStyle: React.CSSProperties = {
+  display: "block",
+  marginBottom: "var(--space-2)",
+  fontWeight: 600,
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+};
+
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: "120px",
+  padding: "var(--space-2) var(--space-3)",
+  background: "var(--color-surface-raised)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+  fontFamily: "var(--font-mono, monospace)",
+  resize: "vertical",
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  background: "var(--color-primary)",
+  color: "white",
+  border: "none",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-2) var(--space-4)",
+  fontSize: "var(--font-size-sm)",
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  background: "transparent",
+  color: "var(--color-text-muted)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-2) var(--space-3)",
+  fontSize: "var(--font-size-sm)",
+  cursor: "pointer",
+};
+
+const badgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "2px var(--space-2)",
+  borderRadius: "var(--radius-sm, 4px)",
+  border: "1px solid var(--color-border)",
+  fontSize: "var(--font-size-xs, 0.75rem)",
+  color: "var(--color-text-muted)",
+  marginLeft: "var(--space-2)",
+  fontWeight: 500,
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: "var(--space-2) var(--space-3)",
+  background: "var(--color-surface-raised)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  color: "var(--color-text)",
+  fontSize: "var(--font-size-sm)",
+};
+
+/** Human-readable label fallbacks for the slots the product ships with. */
+const SLOT_LABELS: Record<string, string> = {
+  need_to_sysreq: "Stakeholder Need → System Requirements",
+  sysreq_to_arch_assign: "System Requirement → Architecture Assignment",
+  sysreq_decompose_next_level: "Decompose to Next Architecture Level",
+  goal_aggregate: "Ziel-Aggregation",
+  testcase_derive: "Requirement → Test Cases",
+  architecture_to_risk: "Architecture Element → Risks",
+  workspace_to_glossary: "Workspace → Glossary Terms",
+  decision_to_adr: "Decision → ADR",
+};
+
+/**
+ * Order slots by the curated list first, then any unknown (MCP-created) name
+ * alphabetically, so a runtime-added template is still reachable.
+ */
+function orderSlots(slots: PromptSlotState[]): PromptSlotState[] {
+  const rank = (name: string): number => {
+    const i = KNOWN_PROMPT_SLOTS.indexOf(name);
+    return i === -1 ? KNOWN_PROMPT_SLOTS.length : i;
+  };
+  return [...slots].sort(
+    (a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)
+  );
+}
+
+/** The content to show for a slot at the scope currently being edited. */
+function contentForScope(slot: PromptSlotState, scope: EditScope): string {
+  if (scope === "workspace") return slot.effective_content;
+  return slot.global_content ?? slot.factory_default ?? "";
+}
+
+/** Where the shown content comes from, at the scope being edited. */
+function originForScope(slot: PromptSlotState, scope: EditScope): string {
+  if (scope === "workspace") return slot.effective_scope;
+  return slot.global_content === null ? "factory" : "global";
+}
+
+export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
   const { t } = useTranslation();
-  const [prompts, setPrompts] = useState<Record<string, string>>(workspace.ai_prompts || {});
-  const [isSaving, setIsSaving] = useState(false);
-  const [activePrompt, setActivePrompt] = useState<string | null>(null);
+  const [scope, setScope] = useState<EditScope>("workspace");
+  const [slots, setSlots] = useState<PromptSlotState[]>([]);
+  // Only slots the admin actually edited appear here — an absent entry means
+  // "show whatever the server last reported", so a scope switch or a reset
+  // does not have to reconcile stale local copies.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [busySlot, setBusySlot] = useState<string | null>(null);
+  const [savedSlot, setSavedSlot] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handlePromptChange = (level: string, value: string) => {
-    setPrompts((prev) => ({ ...prev, [level]: value }));
+  const load = useCallback(async (): Promise<void> => {
+    setError(null);
+    try {
+      const data = await promptTemplatesApi.listSlots(workspaceId);
+      setSlots(orderSlots(data.slots));
+      setDrafts({});
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const orderedSlots = useMemo(() => orderSlots(slots), [slots]);
+
+  const handleScopeChange = (next: EditScope): void => {
+    // Drafts are scope-specific: keeping them would silently carry a
+    // workspace-override edit into a tenant-wide save.
+    setScope(next);
+    setDrafts({});
+    setSavedSlot(null);
+    setError(null);
   };
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    await onSavePrompts(prompts);
-    setIsSaving(false);
+  const handleChange = (name: string, next: string): void => {
+    setDrafts((prev) => ({ ...prev, [name]: next }));
+    setSavedSlot(null);
   };
 
-  const cardStyle = (isActive: boolean): React.CSSProperties => ({
-    background: isActive ? "rgba(255, 255, 255, 0.05)" : "rgba(255, 255, 255, 0.02)",
-    border: `1px solid ${isActive ? "rgba(79, 110, 247, 0.5)" : "rgba(255, 255, 255, 0.1)"}`,
-    borderRadius: "16px",
-    padding: "24px",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    boxShadow: isActive 
-      ? "0 8px 32px rgba(79, 110, 247, 0.15)" 
-      : "0 4px 16px rgba(0, 0, 0, 0.1)",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    transform: isActive ? "translateY(-2px)" : "translateY(0)",
-    marginBottom: "24px",
-    position: "relative",
-    overflow: "hidden",
-  });
-
-  const glowStyle = (isActive: boolean): React.CSSProperties => ({
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "2px",
-    background: "linear-gradient(90deg, transparent, var(--color-primary), transparent)",
-    opacity: isActive ? 1 : 0,
-    transition: "opacity 0.3s ease",
-  });
-
-  const textAreaStyle = (isActive: boolean): React.CSSProperties => ({
-    width: "100%",
-    background: "rgba(0, 0, 0, 0.2)",
-    border: `1px solid ${isActive ? "rgba(79, 110, 247, 0.3)" : "rgba(255, 255, 255, 0.1)"}`,
-    borderRadius: "12px",
-    padding: "16px",
-    color: "var(--color-text)",
-    fontFamily: "var(--font-mono, monospace)",
-    fontSize: "0.9rem",
-    lineHeight: "1.6",
-    outline: "none",
-    resize: "vertical",
-    transition: "all 0.3s ease",
-    marginTop: "16px",
-    boxShadow: isActive ? "inset 0 2px 4px rgba(0,0,0,0.2)" : "none",
-  });
-
-  const headerStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    marginBottom: "8px",
+  /** Replace one slot in local state with the server's post-write truth. */
+  const applyUpdated = (updated: PromptSlotState): void => {
+    setSlots((prev) =>
+      prev.map((s) => (s.name === updated.name ? updated : s))
+    );
+    setDrafts((prev) => {
+      const next = { ...prev };
+      delete next[updated.name];
+      return next;
+    });
   };
 
-  const iconStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "32px",
-    height: "32px",
-    borderRadius: "8px",
-    background: "linear-gradient(135deg, var(--color-primary), #8B5CF6)",
-    color: "white",
-    fontWeight: "bold",
-    fontSize: "1rem",
-    boxShadow: "0 2px 8px rgba(79, 110, 247, 0.3)",
+  const handleSave = async (slot: PromptSlotState): Promise<void> => {
+    setBusySlot(slot.name);
+    setError(null);
+    setSavedSlot(null);
+    try {
+      const updated = await promptTemplatesApi.saveSlot(
+        slot.name,
+        drafts[slot.name] ?? contentForScope(slot, scope),
+        scope === "workspace" ? workspaceId : null
+      );
+      applyUpdated(updated);
+      setSavedSlot(slot.name);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setBusySlot(null);
+    }
   };
+
+  const handleReset = async (slot: PromptSlotState): Promise<void> => {
+    setBusySlot(slot.name);
+    setError(null);
+    setSavedSlot(null);
+    try {
+      const updated = await promptTemplatesApi.clearSlot(
+        slot.name,
+        scope === "workspace" ? workspaceId : null
+      );
+      applyUpdated(updated);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setBusySlot(null);
+    }
+  };
+
+  const originLabel = (origin: string): string => {
+    if (origin === "workspace") {
+      return t("settings.promptTemplates.origin.workspace", "Workspace-Override");
+    }
+    if (origin === "global") {
+      return t("settings.promptTemplates.origin.global", "Globaler Standard");
+    }
+    return t("settings.promptTemplates.origin.factory", "Werkseinstellung");
+  };
+
+  if (isLoading) {
+    return (
+      <section style={sectionStyle} data-testid="prompt-template-section">
+        <h3 style={headingStyle}>
+          {t("settings.promptTemplates.title", "AI Prompt Templates")}
+        </h3>
+        <p>{t("loading", "Loading...")}</p>
+      </section>
+    );
+  }
 
   return (
-    <section style={{ animation: "fadeIn 0.5s ease" }}>
-      <div style={{ marginBottom: "32px" }}>
-        <h3 style={{ 
-          fontSize: "1.5rem", 
-          fontWeight: 700, 
-          background: "linear-gradient(90deg, #ffffff, #a5b4fc)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          marginBottom: "8px",
-        }}>
-          {t("settings.aiPrompts", "AI Derivation Prompts")}
-        </h3>
-        <p style={{ color: "var(--color-text-muted)", fontSize: "0.95rem", lineHeight: 1.5 }}>
-          {t("settings.aiPromptsDesc", "Design the intelligence of your workspace. Fine-tune how the AI derives requirements across different architectural levels using specialized prompts.")}
-        </p>
-      </div>
+    <section style={sectionStyle} data-testid="prompt-template-section">
+      <h3 style={headingStyle}>
+        {t("settings.promptTemplates.title", "AI Prompt Templates")}
+      </h3>
+      <p style={hintStyle}>
+        {t(
+          "settings.promptTemplates.description",
+          "Customise the prompts used for AI-assisted derivation. Available placeholders: " +
+            "{n} (number of drafts requested), {need_title} and {need_description} " +
+            "(stakeholder need), {req_title} and {req_description} (requirement), and " +
+            "{arch_elements_json} (candidate architecture elements). Unknown or omitted " +
+            "placeholders are left as-is, so existing templates keep working (REQ-046)."
+        )}
+      </p>
 
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: "var(--space-4)",
-        marginBottom: "var(--space-6)",
-      }}>
-        <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "16px", borderRadius: "12px", border: "1px solid rgba(255, 255, 255, 0.1)" }}>
-          <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, color: "var(--color-text)" }}>
-            {t("settings.aiLlmModel", "LLM Model")}
-          </label>
-          <select
-            value={prompts["llm_model"] || "gpt-4"}
-            onChange={(e) => handlePromptChange("llm_model", e.target.value)}
-            style={{
-              width: "100%", padding: "10px", background: "rgba(0, 0, 0, 0.2)",
-              border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "8px",
-              color: "var(--color-text)", fontSize: "0.95rem"
-            }}
-          >
-            <option value="gpt-4">GPT-4 (OpenAI)</option>
-            <option value="gpt-4o">GPT-4o (OpenAI)</option>
-            <option value="claude-3-opus">Claude 3 Opus (Anthropic)</option>
-            <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</option>
-            <option value="gemini-1-5-pro">Gemini 1.5 Pro (Google)</option>
-            <option value="local-llama3">Llama 3 (Local)</option>
-          </select>
-          <p style={{ color: "var(--color-text-muted)", fontSize: "0.8rem", marginTop: "8px", marginBottom: 0 }}>
-            {t("settings.aiLlmDesc", "Select the underlying LLM engine for processing derivations.")}
-          </p>
-        </div>
-
-        <div style={{ background: "rgba(255, 255, 255, 0.02)", padding: "16px", borderRadius: "12px", border: "1px solid rgba(255, 255, 255, 0.1)" }}>
-          <label style={{ display: "block", marginBottom: "8px", fontWeight: 600, color: "var(--color-text)" }}>
-            {t("settings.aiTestMode", "Test Mode (Dry Run)")}
-          </label>
-          <select
-            value={prompts["test_mode"] || "false"}
-            onChange={(e) => handlePromptChange("test_mode", e.target.value)}
-            style={{
-              width: "100%", padding: "10px", background: "rgba(0, 0, 0, 0.2)",
-              border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "8px",
-              color: "var(--color-text)", fontSize: "0.95rem"
-            }}
-          >
-            <option value="false">{t("settings.aiTestModeOff", "Off (Execute normally)")}</option>
-            <option value="true">{t("settings.aiTestModeOn", "On (Simulate output only)")}</option>
-          </select>
-          <p style={{ color: "var(--color-text-muted)", fontSize: "0.8rem", marginTop: "8px", marginBottom: 0 }}>
-            {t("settings.aiTestDesc", "If enabled, AI Derivation will simulate creating artifacts instead of saving them to DB.")}
-          </p>
-        </div>
-      </div>
-
-      <div 
-        style={cardStyle(activePrompt === "L0_L1")}
-        onMouseEnter={() => setActivePrompt("L0_L1")}
-        onMouseLeave={() => setActivePrompt(null)}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-3)",
+          marginBottom: "var(--space-4)",
+        }}
       >
-        <div style={glowStyle(activePrompt === "L0_L1")} />
-        <div style={headerStyle}>
-          <div style={iconStyle}>L1</div>
-          <label style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text)" }}>
-            {t("settings.prompt.l0_to_l1", "Needs ➔ System Requirements")}
-          </label>
-        </div>
-        <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", marginLeft: "44px" }}>
-          Instruct the AI on how to translate high-level stakeholder needs into verifiable system requirements.
-        </p>
-        <textarea
-          style={textAreaStyle(activePrompt === "L0_L1")}
-          rows={5}
-          value={prompts["L0_L1"] || ""}
-          onChange={(e) => handlePromptChange("L0_L1", e.target.value)}
-          onFocus={() => setActivePrompt("L0_L1")}
-          onBlur={() => setActivePrompt(null)}
-          placeholder="e.g., Translate the following stakeholder need into verifiable system requirements. Ensure they follow INCOSE guidelines..."
-        />
-      </div>
-
-      <div 
-        style={cardStyle(activePrompt === "L1_L2")}
-        onMouseEnter={() => setActivePrompt("L1_L2")}
-        onMouseLeave={() => setActivePrompt(null)}
-      >
-        <div style={glowStyle(activePrompt === "L1_L2")} />
-        <div style={headerStyle}>
-          <div style={iconStyle}>L2</div>
-          <label style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--color-text)" }}>
-            {t("settings.prompt.l1_to_l2", "System Req ➔ Architecture")}
-          </label>
-        </div>
-        <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem", marginLeft: "44px" }}>
-          Define the rules for decomposing system requirements into software and hardware architecture components.
-        </p>
-        <textarea
-          style={textAreaStyle(activePrompt === "L1_L2")}
-          rows={5}
-          value={prompts["L1_L2"] || ""}
-          onChange={(e) => handlePromptChange("L1_L2", e.target.value)}
-          onFocus={() => setActivePrompt("L1_L2")}
-          onBlur={() => setActivePrompt(null)}
-          placeholder="e.g., Decompose this system requirement into software architecture components. Assign ASIL levels if relevant..."
-        />
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "32px" }}>
-        <button
-          onClick={handleSave}
-          data-testid="ai-prompts-save-btn"
-          disabled={isSaving}
-          style={{
-            background: "linear-gradient(135deg, var(--color-primary), #4f46e5)",
-            color: "white",
-            border: "none",
-            borderRadius: "12px",
-            padding: "12px 32px",
-            fontSize: "1rem",
-            fontWeight: 600,
-            cursor: isSaving ? "not-allowed" : "pointer",
-            opacity: isSaving ? 0.7 : 1,
-            boxShadow: "0 4px 14px rgba(79, 110, 247, 0.4)",
-            transition: "all 0.3s ease",
-            transform: isSaving ? "scale(0.98)" : "scale(1)",
-          }}
-          onMouseEnter={(e) => {
-            if (!isSaving) {
-              e.currentTarget.style.transform = "translateY(-2px)";
-              e.currentTarget.style.boxShadow = "0 6px 20px rgba(79, 110, 247, 0.6)";
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isSaving) {
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.boxShadow = "0 4px 14px rgba(79, 110, 247, 0.4)";
-            }
-          }}
+        <label htmlFor="prompt-scope-select" style={{ ...fieldLabelStyle, marginBottom: 0 }}>
+          {t("settings.promptTemplates.scope", "Geltungsbereich")}
+        </label>
+        <select
+          id="prompt-scope-select"
+          data-testid="prompt-scope-select"
+          value={scope}
+          onChange={(e) => handleScopeChange(e.target.value as EditScope)}
+          style={selectStyle}
         >
-          {isSaving ? (
-            <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span className="spinner" style={{ width: "16px", height: "16px", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-              {t("saving", "Saving...")}
-            </span>
-          ) : (
-            t("save", "Save Intelligence Settings")
-          )}
-        </button>
+          <option value="workspace">
+            {t("settings.promptTemplates.scopeWorkspace", "Nur dieser Workspace")}
+          </option>
+          <option value="global">
+            {t("settings.promptTemplates.scopeGlobal", "Global (alle Workspaces)")}
+          </option>
+        </select>
       </div>
-      <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+
+      {error && (
+        <p
+          data-testid="prompt-template-error"
+          style={{ color: "var(--color-error)", marginBottom: "var(--space-3)" }}
+        >
+          {error}
+        </p>
+      )}
+
+      {orderedSlots.map((slot) => {
+        const origin = originForScope(slot, scope);
+        const value = drafts[slot.name] ?? contentForScope(slot, scope);
+        const isBusy = busySlot === slot.name;
+        // Nothing to clear when the shown value is already inherited.
+        const canReset = origin === scope;
+        return (
+          <div key={slot.name} style={{ marginBottom: "var(--space-4)" }}>
+            <label style={fieldLabelStyle} htmlFor={`prompt-${slot.name}`}>
+              {t(
+                `settings.promptTemplates.slot.${slot.name}`,
+                SLOT_LABELS[slot.name] ?? slot.name
+              )}
+              <span style={badgeStyle} data-testid={`prompt-${slot.name}-origin`}>
+                {originLabel(origin)}
+              </span>
+            </label>
+            <textarea
+              id={`prompt-${slot.name}`}
+              data-testid={`prompt-${slot.name}-input`}
+              value={value}
+              onChange={(e) => handleChange(slot.name, e.target.value)}
+              style={textareaStyle}
+            />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
+                marginTop: "var(--space-2)",
+              }}
+            >
+              <button
+                type="button"
+                data-testid={`prompt-${slot.name}-save`}
+                onClick={() => void handleSave(slot)}
+                disabled={isBusy}
+                style={{
+                  ...primaryButtonStyle,
+                  cursor: isBusy ? "not-allowed" : "pointer",
+                  opacity: isBusy ? 0.7 : 1,
+                }}
+              >
+                {isBusy ? t("saving", "Saving...") : t("save", "Save")}
+              </button>
+              <button
+                type="button"
+                data-testid={`prompt-${slot.name}-reset`}
+                onClick={() => void handleReset(slot)}
+                disabled={isBusy || !canReset}
+                style={{
+                  ...secondaryButtonStyle,
+                  cursor: isBusy || !canReset ? "not-allowed" : "pointer",
+                  opacity: isBusy || !canReset ? 0.5 : 1,
+                }}
+              >
+                {scope === "workspace"
+                  ? t(
+                      "settings.promptTemplates.resetToGlobal",
+                      "Override entfernen"
+                    )
+                  : t("settings.promptTemplates.reset", "Reset to default")}
+              </button>
+              {savedSlot === slot.name && (
+                <span
+                  data-testid={`prompt-${slot.name}-saved`}
+                  style={{ color: "var(--color-success)", fontSize: "var(--font-size-sm)" }}
+                >
+                  {t("settings.saved", "Saved")}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }

@@ -18,6 +18,7 @@ Permissions:    Admin role only (both read and write) — LLM credentials are
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from rest_framework import serializers, status
 from rest_framework.request import Request
@@ -313,6 +314,175 @@ class PromptTemplateResetView(APIView):
 
 
 # ---------------------------------------------------------------------------
+# PromptTemplate slots — every slot, per-workspace overrides (issue #119)
+# ---------------------------------------------------------------------------
+
+
+class PromptTemplateSlotWriteSerializer(serializers.Serializer):
+    """Write serializer for a single prompt slot (issue #119).
+
+    ``content`` is intentionally allowed to be blank and is not whitespace-
+    trimmed: prompt bodies are significant whitespace and an admin may
+    legitimately want to blank a slot out before rewriting it.
+    """
+
+    content = serializers.CharField(allow_blank=True, trim_whitespace=False)
+
+
+class _PromptSlotAdminMixin:
+    """Shared admin gate + ``workspace_id`` query-param parsing (issue #119)."""
+
+    def _forbidden(self, lang: str) -> Response:
+        """Return the 403 body used by every prompt-template endpoint."""
+        return Response(
+            build_error_response(
+                "PERMISSION_DENIED",
+                lang,
+                message="Admin role required to access prompt templates.",
+            ),
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    def _parse_workspace_id(self, request: Request) -> "UUID | None":
+        """Return the ``?workspace_id=`` scope, or ``None`` for tenant-global.
+
+        Raises:
+            ValueError: The parameter was present but not a valid UUID.
+        """
+        raw = request.query_params.get("workspace_id")
+        if raw in (None, ""):
+            return None
+        return UUID(raw)
+
+    def _bad_workspace_id(self, lang: str) -> Response:
+        """Return the 400 body for a malformed ``workspace_id``."""
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                lang,
+                message="'workspace_id' must be a valid UUID.",
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class PromptTemplateSlotListView(_PromptSlotAdminMixin, APIView):
+    """GET /api/v1/prompt-templates/slots/[?workspace_id=<uuid>] (issue #119).
+
+    Returns every prompt slot — every factory slot plus any custom name
+    created via MCP — with its content at each scope and the resolved
+    effective value. This is the read side the flat
+    :class:`PromptTemplateView` facade cannot express: that endpoint reports a
+    single merged string per slot for only 4 slots at only the tenant-global
+    scope, so a UI had no way to tell an override apart from an inherited
+    value, nor to reach the remaining slots at all.
+
+    Admin role required, mirroring :class:`PromptTemplateView`.
+    """
+
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return the per-scope state of every prompt slot."""
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+        try:
+            workspace_id = self._parse_workspace_id(request)
+        except ValueError:
+            return self._bad_workspace_id(lang)
+
+        slots = SettingsService().list_prompt_slots(
+            ctx, workspace_id=workspace_id
+        )
+        return Response(
+            {
+                "slots": slots,
+                "count": len(slots),
+                "workspace_id": str(workspace_id) if workspace_id else None,
+            }
+        )
+
+
+class PromptTemplateSlotDetailView(_PromptSlotAdminMixin, APIView):
+    """PUT/DELETE /api/v1/prompt-templates/slots/<name>/ (issue #119).
+
+    PUT publishes a new active version of ``name`` for the requested scope
+    (``?workspace_id=<uuid>`` for a workspace override, omitted for the
+    tenant-global default). DELETE drops that scope's override so the value
+    falls back to the next level (workspace -> tenant-global -> factory).
+
+    ``name`` is deliberately not validated against the factory registry: MCP's
+    ``prompt_template.create`` can introduce names at runtime (see that tool
+    group's naming-openness decision), so rejecting unknown names here would
+    make MCP-created templates un-editable from REST — the exact class of
+    split-surface gap issue #119 is about.
+
+    Admin role required.
+    """
+
+    def put(self, request: Request, name: str, *args: Any, **kwargs: Any) -> Response:
+        """Publish a new active version of ``name`` for the requested scope."""
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+        try:
+            workspace_id = self._parse_workspace_id(request)
+        except ValueError:
+            return self._bad_workspace_id(lang)
+
+        ser = PromptTemplateSlotWriteSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": k, "errors": v} for k, v in ser.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            slot = SettingsService().set_prompt_slot(
+                ctx,
+                name=name,
+                content=ser.validated_data["content"],
+                workspace_id=workspace_id,
+            )
+        except ValidationError as exc:
+            # A concurrent writer published for the same scope first — same
+            # race (and same 4xx translation) as PromptTemplateView._update.
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(slot)
+
+    def delete(
+        self, request: Request, name: str, *args: Any, **kwargs: Any
+    ) -> Response:
+        """Drop ``name``'s override at the requested scope (idempotent)."""
+        lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        if not ctx.has_role(ROLE_ADMIN):
+            return self._forbidden(lang)
+        try:
+            workspace_id = self._parse_workspace_id(request)
+        except ValueError:
+            return self._bad_workspace_id(lang)
+
+        slot = SettingsService().clear_prompt_slot(
+            ctx, name=name, workspace_id=workspace_id
+        )
+        # 200 with the now-effective state rather than 204: the caller's next
+        # question is always "so what applies now?", and the fallback value is
+        # not derivable client-side without a second round trip.
+        return Response(slot)
+
+
+# ---------------------------------------------------------------------------
 # ReviewPolicy — per-workspace AI-derivation review policy (Phase 5,
 # REQ-L2-RV-001)
 # ---------------------------------------------------------------------------
@@ -402,6 +572,9 @@ __all__ = [
     "LlmSettingsView",
     "LlmSettingsSerializer",
     "PromptTemplateView",
+    "PromptTemplateSlotListView",
+    "PromptTemplateSlotDetailView",
+    "PromptTemplateSlotWriteSerializer",
     "PromptTemplateResetView",
     "PromptTemplateSerializer",
     "ReviewPolicyView",

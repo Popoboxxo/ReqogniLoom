@@ -39,6 +39,13 @@ export interface Workspace {
   preset: WorkspacePreset;
   terminology_profile: TerminologyProfile;
   language: string;
+  /**
+   * @deprecated Legacy free-form prompt blob, no longer read or written by the
+   * UI (issue #119). Prompt templates live in the `PromptTemplate` model and
+   * are edited via `/api/v1/prompt-templates/slots/` (see
+   * `api/prompt-templates.ts`). Still serialized by the backend, so the field
+   * is kept on the type until it is dropped there.
+   */
   ai_prompts?: Record<string, string>;
   decomposition_link_type?: string;
   default_link_type?: string;

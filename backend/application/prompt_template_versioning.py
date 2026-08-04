@@ -74,6 +74,38 @@ def list_active_templates(
 
 
 @atomic_transaction
+def deactivate_scope(
+    *, tenant_id: UUID, name: str, workspace_id: UUID | None = None
+) -> bool:
+    """Deactivate the active row for one exact scope, if there is one.
+
+    This is how an *override* is removed: rows are never deleted (the version
+    history is audit material, see :class:`~persistence.models.PromptTemplate`),
+    the scope is simply left with zero active rows so the resolution chain
+    (workspace -> tenant-global -> factory default) falls through to the next
+    level. A scope with no active row is a normal, pre-existing state — it is
+    what every scope looks like before anyone customises it.
+
+    Args:
+        tenant_id:    Owning tenant.
+        name:         Template name (the "slot").
+        workspace_id: Workspace scope, or ``None`` for the tenant-wide row.
+
+    Returns:
+        ``True`` if an active row was deactivated, ``False`` if the scope had
+        none (already at its inherited value — a no-op, not an error).
+    """
+    prior = get_active_template(
+        tenant_id=tenant_id, name=name, workspace_id=workspace_id
+    )
+    if prior is None:
+        return False
+    prior.is_active = False
+    prior.save(update_fields=["is_active"])
+    return True
+
+
+@atomic_transaction
 def publish_new_version(
     *, tenant_id: UUID, name: str, content: str, workspace_id: UUID | None = None
 ) -> PromptTemplate:
@@ -99,4 +131,9 @@ def publish_new_version(
     return new_row
 
 
-__all__ = ["get_active_template", "list_active_templates", "publish_new_version"]
+__all__ = [
+    "deactivate_scope",
+    "get_active_template",
+    "list_active_templates",
+    "publish_new_version",
+]
