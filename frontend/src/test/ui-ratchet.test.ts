@@ -224,7 +224,15 @@ const HEX_LITERAL_FILE_BASELINE = 35;
 // CanvasEditor.module.css, MermaidEditor.module.css, global.css, tokens.css).
 // This baseline is applied with the same monotonic non-increasing ratchet
 // principle as the .tsx baseline above.
-const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 66;
+//
+// Task 8.1 (theming split, UI concept ch. 8.6) rewrote `tokens.css` into a
+// primitive layer (`--palette-*`, the only place raw values may live) and a
+// semantic layer (`--color-*`, `var(--palette-*)` references only). Raw
+// values that appeared once per theme are now declared once in the shared
+// primitive pool, so tokens.css dropped 51 -> 40 occurrences and the total
+// went 66 -> 55 across the same 6 files. Baseline lowered in the same PR per
+// the ratchet rule above.
+const HEX_LITERAL_CSS_OCCURRENCE_BASELINE = 55;
 const HEX_LITERAL_CSS_FILE_BASELINE = 6;
 
 // --- (c) Duplicate tree implementations ------------------------------------
