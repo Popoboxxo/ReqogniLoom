@@ -30,6 +30,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { sanitizeSvg } from "../../utils/sanitizeSvg";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
@@ -104,6 +105,11 @@ export function DiagramDetailView({
     };
   }, [detail]);
 
+  // Both SVG strings are rendered via dangerouslySetInnerHTML below, so they
+  // pass through DOMPurify first (see utils/sanitizeSvg).
+  const safeCanvasSvg = useMemo(() => sanitizeSvg(canvasSvg ?? ""), [canvasSvg]);
+  const safeRenderedSvg = useMemo(() => sanitizeSvg(renderedSvg), [renderedSvg]);
+
   const isCanvas = detail?.payload_format === "canvas_stroke";
   const canRenderVisual = detail?.payload_format === "mermaid";
   const activeSource = isEditing ? editContent : detail?.content ?? "";
@@ -143,6 +149,10 @@ export function DiagramDetailView({
           startOnLoad: false,
           theme: "default",
           securityLevel: "strict",
+          // Labels must be plain SVG <text>: the rendered markup passes
+          // through sanitizeSvg, which drops <foreignObject> (mXSS vector).
+          htmlLabels: false,
+          flowchart: { htmlLabels: false },
         });
         const id = `diagram-mermaid-${diagramId}-${Date.now()}`;
         const { svg } = await mermaid.render(id, activeSource);
@@ -347,7 +357,7 @@ export function DiagramDetailView({
             ) : canvasSvg ? (
               <div
                 data-testid="diagram-canvas-svg"
-                dangerouslySetInnerHTML={{ __html: canvasSvg }}
+                dangerouslySetInnerHTML={{ __html: safeCanvasSvg }}
               />
             ) : (
               <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
@@ -398,7 +408,7 @@ export function DiagramDetailView({
               ) : renderedSvg ? (
                 <div
                   data-testid="diagram-visual-svg"
-                  dangerouslySetInnerHTML={{ __html: renderedSvg }}
+                  dangerouslySetInnerHTML={{ __html: safeRenderedSvg }}
                 />
               ) : (
                 <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
