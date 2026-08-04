@@ -19,6 +19,7 @@ import { createContext,
   useState,
   useEffect,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
 import {
@@ -205,16 +206,19 @@ export function AuthProvider({
     clearAuth();
   }, [clearAuth]);
 
-  const value: AuthState = {
-    isAuthenticated: user !== null,
-    status,
-    user,
-    tenantId,
-    roles,
-    login,
-    updateProfile,
-    logout,
-  };
+  const value = useMemo<AuthState>(
+    () => ({
+      isAuthenticated: user !== null,
+      status,
+      user,
+      tenantId,
+      roles,
+      login,
+      updateProfile,
+      logout,
+    }),
+    [status, user, tenantId, roles, login, updateProfile, logout]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

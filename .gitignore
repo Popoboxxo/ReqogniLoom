@@ -65,8 +65,11 @@ docs/se/METHODOLOGY_AUDIT.md
 # Generated artifacts and logs
 *.log
 test-results/
+test-results/
 e2e/playwright-report/
 repomix-output.xml
+.repowise/
+.vscode/
 
 # Local dev files
 .local/
